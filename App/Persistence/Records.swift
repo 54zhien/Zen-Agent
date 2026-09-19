@@ -217,6 +217,33 @@ struct MessagePartRecord: Codable, FetchableRecord, PersistableRecord, Sendable,
     var payload: String
 }
 
+/// The request configuration frozen at send commit.
+///
+/// A typed value rather than a free-form JSON blob. The column it lives in is a
+/// string either way, but a `[String: Any]`-shaped bag would let any layer write
+/// anything into the one record whose entire purpose is to be replayable — and the
+/// notes forbid exactly that ("不要直接存散乱 provider raw 参数", `消息与数据.md:79`).
+///
+/// Adding an option means adding a field here, deliberately, rather than quietly
+/// dropping a key into a dictionary.
+///
+/// **Deliberately does not yet carry request options** (reasoning effort and the
+/// like). Those are capability-validated, and capability does not exist until the
+/// `ModelDescriptor` increment. Inventing an option vocabulary now would be guessing
+/// at what a Provider supports, which is the thing Stage 1 exists to find out. The
+/// field arrives with capability, and the JSON encoding means no migration.
+struct RequestConfigSeed: Codable, Sendable, Equatable {
+    var providerInstanceID: String
+    var modelID: String
+    /// Revision of the ProviderInstance's transport configuration, so a run can tell
+    /// whether the endpoint it was frozen against has since been edited.
+    var providerConfigRevision: String
+    /// Non-secret generation of the credential binding. Refresh keeps it; logout,
+    /// rebind or an account change must produce a new one, so a suspended run cannot
+    /// silently continue on a different principal.
+    var credentialBindingRevision: Int
+}
+
 struct AgentRunRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Identifiable {
     static let databaseTableName = "agentRun"
 
@@ -236,8 +263,8 @@ struct AgentRunRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Id
     var responseMessageID: String?
     var retryOfRunID: String?
 
-    /// JSON, frozen at send commit.
-    var requestConfigSeed: String
+    /// Frozen at send commit; never rewritten afterwards.
+    var requestConfigSeed: RequestConfigSeed
     /// JSON, non-secret, completed during preparing. Never rewrites the seed.
     var executionSnapshot: String?
 
@@ -247,6 +274,47 @@ struct AgentRunRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Id
     /// The conditional-uniqueness slot: the conversation id while this run is active,
     /// `nil` once terminal. Only parent runs occupy it — see the schema.
     var activeSlot: String?
+}
+
+/// One provider request within a run, and which attempt of it is current.
+///
+/// The attempt number is the generation token: `(id, attempt)` is what a streaming
+/// event carries, and anything arriving for an older attempt is discarded. Without a
+/// durable identity for "the request we are actually listening to", a late delta from
+/// a stopped or recovered run is indistinguishable from a live one — which is the
+/// failure the notes call out at `Agent Runtime.md:340`.
+///
+/// This is a skeleton. It records identity and ordering; the run's execution snapshot
+/// and the use of these identities during recover belong to Stage 2.
+struct AgentStepRecord: Codable, FetchableRecord, PersistableRecord, Sendable {
+    static let databaseTableName = "agentStep"
+
+    /// Stable across the step's attempts: a replay is another attempt of the *same*
+    /// step, not a new step.
+    var stepID: String
+    var runID: String
+    /// Position of this step within the run.
+    var sequence: Int
+    /// Increments on every real provider request, including replays.
+    var attempt: Int
+    var createdAt: Date
+
+    /// The primary key is `(stepID, attempt)`, so the database enforces "one row per
+    /// attempt" rather than trusting callers not to insert the same one twice.
+    var id: String { "\(stepID)#\(attempt)" }
+
+    /// The identity a streaming event must carry to be accepted.
+    var attemptIdentity: AttemptIdentity { AttemptIdentity(stepID: stepID, attempt: attempt) }
+}
+
+/// What a streaming event says it belongs to.
+///
+/// Compared against the current attempt to decide whether to accept an event or drop
+/// it as stale. Kept as a value so the comparison is one expression rather than a
+/// pair of field checks repeated wherever a delta arrives.
+struct AttemptIdentity: Codable, Sendable, Equatable {
+    var stepID: String
+    var attempt: Int
 }
 
 struct ToolCallRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Identifiable {

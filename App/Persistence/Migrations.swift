@@ -17,16 +17,12 @@ enum Migrations {
     static func makeMigrator() -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
         registerV1(&migrator)
+        registerV2(&migrator)
         return migrator
     }
 
-    /// Registered separately so a test can compose it with a migration of its own and
+    /// Registered separately so a test can compose them with a migration of its own and
     /// exercise the upgrade path over a real store.
-    ///
-    /// The alternative — having production carry a test-only v2 migration, or inventing
-    /// a future table just so there is something to migrate — would put scaffolding in
-    /// the schema for the sake of a test. A migration test needs *a* v2, not the real
-    /// one.
     static func registerV1(_ migrator: inout DatabaseMigrator) {
         migrator.registerMigration("v1_create_initial_schema") { db in
             try createConversation(db)
@@ -35,6 +31,33 @@ enum Migrations {
             try createAgentRun(db)
             try createToolCall(db)
             try createOperationTombstone(db)
+        }
+    }
+
+    /// Adds the per-request identity a streaming event is checked against.
+    ///
+    /// A separate migration rather than an edit to v1, even though nothing has shipped.
+    /// Editing an applied migration is only safe while no store has ever run it, and
+    /// that condition expires silently: the moment someone holds a Stage 0 store, the
+    /// edit stops being safe and nothing says so. A real v2 also means the migration
+    /// tests exercise the actual upgrade path rather than a synthetic one.
+    static func registerV2(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v2_add_agent_step") { db in
+            try db.create(table: "agentStep") { t in
+                t.column("stepID", .text).notNull()
+                t.column("runID", .text).notNull().references("agentRun", onDelete: .cascade)
+                t.column("sequence", .integer).notNull()
+                t.column("attempt", .integer).notNull()
+                t.column("createdAt", .datetime).notNull()
+                // Composite key: the database enforces one row per attempt, rather than
+                // trusting callers not to record the same attempt twice.
+                t.primaryKey(["stepID", "attempt"])
+            }
+            try db.create(
+                index: "agentStep_by_run",
+                on: "agentStep",
+                columns: ["runID", "sequence", "attempt"]
+            )
         }
     }
 

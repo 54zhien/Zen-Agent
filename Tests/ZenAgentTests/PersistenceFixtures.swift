@@ -79,13 +79,33 @@ enum Fixtures {
             triggerMessageID: triggerMessageID,
             responseMessageID: responseMessageID,
             retryOfRunID: retryOfRunID,
-            requestConfigSeed: #"{"model":"deepseek-chat","reasoningEffort":"medium"}"#,
+            requestConfigSeed: RequestConfigSeed(
+                providerInstanceID: "pi1",
+                modelID: "deepseek-chat",
+                providerConfigRevision: "config-r1",
+                credentialBindingRevision: 1
+            ),
             executionSnapshot: nil,
             createdAt: epoch,
             updatedAt: epoch,
             // Never set by hand. `PersistenceStore` derives it, and having callers
             // compute it is exactly the mistake the derived-value design prevents.
             activeSlot: nil
+        )
+    }
+
+    static func step(
+        stepID: String,
+        runID: String,
+        sequence: Int = 0,
+        attempt: Int = 1
+    ) -> AgentStepRecord {
+        AgentStepRecord(
+            stepID: stepID,
+            runID: runID,
+            sequence: sequence,
+            attempt: attempt,
+            createdAt: epoch
         )
     }
 

@@ -13,25 +13,19 @@ import GRDB
 /// running it again succeeds. Getting this wrong is how a shipping app loses user data
 /// on update: the schema lands half-applied and nothing can open the store.
 ///
-/// The v2 here is a **test-only** migration. Production carries one migration, because
-/// inventing a future table purely to have something to migrate would be putting
-/// scaffolding in the schema for the sake of a test. A migration test needs *a* second
-/// migration, not the real one.
+/// Earlier this used a synthetic v2, on the grounds that a migration test needs *a*
+/// second migration rather than the real one. Now that the production v2 exists, the
+/// upgrade cases use it — testing the real path beats testing a stand-in for it. The
+/// interruption case still needs a migration of its own, because the real one is not
+/// supposed to fail.
 @Suite("Migration")
 struct MigrationTests {
 
-    /// A second migration that exists only here.
-    private enum TestV2 {
+    /// A migration that alters the schema and then dies, as a process killed partway
+    /// through would.
+    private enum InterruptingV3 {
         static func register(_ migrator: inout DatabaseMigrator) {
-            migrator.registerMigration("v2_test_add_archived") { db in
-                try db.alter(table: "conversation") { t in
-                    t.add(column: "archived", .boolean).notNull().defaults(to: false)
-                }
-            }
-        }
-
-        static func registerBroken(_ migrator: inout DatabaseMigrator) {
-            migrator.registerMigration("v2_test_add_archived_BROKEN") { db in
+            migrator.registerMigration("v3_test_never_completes") { db in
                 try db.alter(table: "conversation") { t in
                     t.add(column: "archived", .boolean).notNull().defaults(to: false)
                 }
@@ -46,11 +40,8 @@ struct MigrationTests {
         return migrator
     }
 
-    private func v1AndV2Migrator() -> DatabaseMigrator {
-        var migrator = DatabaseMigrator()
-        Migrations.registerV1(&migrator)
-        TestV2.register(&migrator)
-        return migrator
+    private func currentMigrator() -> DatabaseMigrator {
+        Migrations.makeMigrator()
     }
 
     private func seedV1(at url: URL) throws {
@@ -58,9 +49,9 @@ struct MigrationTests {
         try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
     }
 
-    private func hasArchivedColumn(_ store: PersistenceStore) throws -> Bool {
+    private func hasAgentStepTable(_ store: PersistenceStore) throws -> Bool {
         try store.database.read { db in
-            try db.columns(in: "conversation").contains { $0.name == "archived" }
+            try db.tableExists("agentStep")
         }
     }
 
@@ -73,8 +64,8 @@ struct MigrationTests {
 
         try seedV1(at: url)
 
-        let store = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: v1AndV2Migrator()))
-        #expect(try hasArchivedColumn(store), "the V2 schema must be present after upgrading")
+        let store = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: currentMigrator()))
+        #expect(try hasAgentStepTable(store), "the V2 schema must be present after upgrading")
         #expect(
             try store.messages(inConversation: "c1").count == 1,
             "the row written before the migration must survive it"
@@ -91,8 +82,8 @@ struct MigrationTests {
         try seedV1(at: url)
 
         for _ in 0..<2 {
-            let store = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: v1AndV2Migrator()))
-            #expect(try hasArchivedColumn(store))
+            let store = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: currentMigrator()))
+            #expect(try hasAgentStepTable(store))
             #expect(
                 try store.messages(inConversation: "c1").count == 1,
                 "reopening must not re-run the migration and duplicate its data"
@@ -109,12 +100,10 @@ struct MigrationTests {
 
         try seedV1(at: url)
 
-        // A migration that alters the schema and then fails, as a process dying partway
-        // through would.
         var failure: Error?
         do {
-            var migrator = v1Migrator()
-            TestV2.registerBroken(&migrator)
+            var migrator = currentMigrator()
+            InterruptingV3.register(&migrator)
             _ = try ZenDatabase.open(at: url.path(), migrator: migrator)
         } catch {
             failure = error
@@ -124,27 +113,46 @@ struct MigrationTests {
             "the interrupted migration must surface its own failure; got \(String(describing: failure))"
         )
 
-        // Still openable, still holding the data, carrying no half-applied schema.
-        let afterFailure = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: v1Migrator()))
+        // Still openable, still holding the data, and the schema is the last one that
+        // actually completed.
+        let afterFailure = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: currentMigrator()))
         #expect(
             try afterFailure.messages(inConversation: "c1").count == 1,
             "an interrupted migration must not lose committed data"
         )
         #expect(
-            try !hasArchivedColumn(afterFailure),
+            try afterFailure.database.read { db in try db.columns(in: "conversation").map(\.name) }
+                .contains("archived") == false,
             "a failed migration must roll back entirely, not leave a half-applied schema"
         )
-
-        // And the corrected migration applies cleanly over the intact data.
-        let resumed = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: v1AndV2Migrator()))
-        #expect(try hasArchivedColumn(resumed), "the resumed migration must actually apply")
         #expect(
-            try resumed.messages(inConversation: "c1").count == 1,
-            "resuming must not disturb existing rows"
+            try hasAgentStepTable(afterFailure),
+            "and the migrations that had already completed must still be there"
         )
+    }
+
+    // MARK: the new table itself
+
+    @Test("the V2 table is usable and enforces one row per attempt")
+    func agentStepTableEnforcesItsKey() throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
+        try store.recordStep(Fixtures.step(stepID: "s1", runID: "r1", attempt: 1))
+
+        var failure: Error?
+        do {
+            try store.recordStep(Fixtures.step(stepID: "s1", runID: "r1", attempt: 1))
+        } catch {
+            failure = error
+        }
+
+        // Asserted here as well as in the behaviour suite: the composite key is a
+        // schema property, and a migration that created the table without it would
+        // otherwise pass every other test.
+        #expect(failure != nil, "the composite primary key must exist in the migrated schema")
     }
 }
 
-/// Raised to interrupt a migration partway. Separate from any other test's error type so
+/// Raised to interrupt a migration partway. Distinct from any other test's error type so
 /// a failure here cannot be confused with a different injected failure.
 struct MigrationInterruptedInTest: Error {}

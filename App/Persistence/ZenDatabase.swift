@@ -14,7 +14,14 @@ import GRDB
 /// the point of the spike was to stop hedging and use the chosen engine properly. The
 /// boundary exists so that transaction rules live in one place and the type can be
 /// tested in isolation — not so the engine can be replaced.
-final class ZenDatabase {
+/// `Sendable` explicitly, because everything above it is about to become async.
+///
+/// Stage 0 used this type synchronously from tests, so the question never came up. A
+/// streaming transport will call it from a different isolation domain, and an
+/// undeclared `Sendable` there is a compiler error at the point of use rather than
+/// here. The conformance is honest rather than `@unchecked`: the only stored property
+/// is immutable and `DatabaseQueue` is itself `Sendable`.
+final class ZenDatabase: Sendable {
     private let dbQueue: DatabaseQueue
 
     private init(dbQueue: DatabaseQueue) {

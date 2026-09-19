@@ -32,9 +32,14 @@ struct AtomicSendCommitTests {
 
         let run = try store.run(id: "r1")
         #expect(run != nil, "the parent run must be created alongside the message")
+        // The seed is a typed field rather than a blob, so "is it present" is answered
+        // by the type. What is worth asserting is that it names the provider and model
+        // the run was frozen against — a run that cannot say what it was sent to cannot
+        // be replayed or explained.
+        #expect(run?.requestConfigSeed.providerInstanceID == "pi1")
         #expect(
-            run?.requestConfigSeed.isEmpty == false,
-            "the request config seed must be frozen at send commit — a run without it cannot be replayed"
+            run?.requestConfigSeed.modelID == "deepseek-chat",
+            "the frozen seed must name the model the run was sent to, not leave it to be re-derived from current settings"
         )
         #expect(
             run?.triggerMessageID == "m1",
