@@ -166,14 +166,14 @@ final class LocalHTTPServer: @unchecked Sendable {
             if clientFD >= 0 {
                 // Releases a parked read or write. Deliberately not `close`: the worker
                 // owns this descriptor.
-                shutdown(clientFD, SHUT_RDWR)
+                Darwin.shutdown(clientFD, SHUT_RDWR)
             }
             return true
         }
         if firstShutdown {
             // Releases a parked `accept`. Closing alone is not a contract that an
             // in-progress accept returns promptly, so both are done.
-            shutdown(listenFD, SHUT_RDWR)
+            Darwin.shutdown(listenFD, SHUT_RDWR)
             close(listenFD)
         }
         return workers.wait(timeout: .now() + Self.workerExitBudget) == .success
