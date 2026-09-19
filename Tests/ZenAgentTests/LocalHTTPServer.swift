@@ -44,12 +44,16 @@ final class LocalHTTPServer: @unchecked Sendable {
     private let script: Script
     private let queue = DispatchQueue(label: "local-http-server")
     private let lock = NSLock()
+    /// Records that the worker has actually finished, so teardown can prove it rather
+    /// than assume it.
+    private let workers = DispatchGroup()
 
     private var clientFD: Int32 = -1
     private var chunkWritten = false
     private var peerWentAway = false
     private var closeRequested = false
     private var closed = false
+    private var terminated = false
 
     /// The port the system assigned. Read it from here rather than assuming one.
     let port: UInt16
@@ -63,6 +67,11 @@ final class LocalHTTPServer: @unchecked Sendable {
     /// or by a write failing. This is the fact a cancellation test needs: not "the caller
     /// stopped reading", but "the connection ended".
     var observedPeerClose: Bool { lock.withLock { peerWentAway } }
+
+    /// Whether the worker has run to completion. False means it is still parked in a
+    /// blocking call, which is the state that leaves a test host alive after its tests
+    /// have finished.
+    var hasTerminated: Bool { lock.withLock { terminated } }
 
     /// Lets a `.chunkThenDisconnect` script proceed to closing.
     func requestClose() { lock.withLock { closeRequested = true } }
@@ -117,32 +126,62 @@ final class LocalHTTPServer: @unchecked Sendable {
 
     /// Starts accepting. Returns immediately; the script runs on its own queue.
     func start() {
-        queue.async { [self] in serveOneConnection() }
+        workers.enter()
+        queue.async { [self] in
+            defer {
+                lock.withLock { terminated = true }
+                workers.leave()
+            }
+            serveOneConnection()
+        }
     }
 
-    /// Deterministic teardown. Safe to call more than once, and safe from a `defer`.
+    /// Deterministic teardown, which **proves the worker stopped** rather than assuming
+    /// it did.
     ///
-    /// **Closing exactly once is the whole job here.** This runs from a `defer` in every
-    /// test *and* from `deinit`, so it is called twice on the normal path. A second
-    /// `close(listenFD)` does not fail harmlessly: file descriptors are recycled, and by
-    /// then that number can belong to another test's server — which then refuses
-    /// connections with `cannotConnectToHost`, in a different test, at random. It cost a
-    /// CI round to see, and the failure looked nothing like the cause.
-    func shutdown() {
+    /// Emitting a close and returning is not teardown. A worker still parked in a
+    /// blocking `read` keeps the process alive after its tests have passed, and the
+    /// runner eventually restarts the whole host — which is what happened here: the
+    /// workflow reported success while the log said "Restarting after unexpected exit",
+    /// and the only test summary in it was the remainder.
+    ///
+    /// ## Who owns which descriptor
+    ///
+    /// - **`listenFD`** belongs to the server. Shut down and closed exactly once, here.
+    /// - **`clientFD`** belongs to the **worker**, which closes it. This method only
+    ///   calls `shutdown(2)` on it, to release a parked `read`/`write`.
+    ///
+    /// That split is the point. Closing a descriptor another thread may still be using
+    /// is how a number gets recycled underneath it, and the previous version both closed
+    /// the client here *and* had the worker close it — two owners, one integer. Both
+    /// paths now touch it under the same lock, and only one of them closes it.
+    ///
+    /// - Returns: whether the worker had terminated by the time the bounded wait expired.
+    @discardableResult
+    func shutdown() -> Bool {
         let firstShutdown: Bool = lock.withLock {
             guard !closed else { return false }
             closed = true
             closeRequested = true
             if clientFD >= 0 {
-                close(clientFD)
-                clientFD = -1
+                // Releases a parked read or write. Deliberately not `close`: the worker
+                // owns this descriptor.
+                shutdown(clientFD, SHUT_RDWR)
             }
             return true
         }
-        // Outside the lock, so a concurrently-parked `accept` is released rather than
-        // left holding it.
-        if firstShutdown { close(listenFD) }
+        if firstShutdown {
+            // Releases a parked `accept`. Closing alone is not a contract that an
+            // in-progress accept returns promptly, so both are done.
+            shutdown(listenFD, SHUT_RDWR)
+            close(listenFD)
+        }
+        return workers.wait(timeout: .now() + Self.workerExitBudget) == .success
     }
+
+    /// Bounded, because a test that hangs is a test that cannot report. Short enough to
+    /// fail inside a test rather than to be cleaned up by the runner.
+    private static let workerExitBudget: TimeInterval = 3
 
     // MARK: - Serving
 
