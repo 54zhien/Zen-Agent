@@ -40,7 +40,7 @@ struct ActiveParentRunUniquenessTests {
         }
 
         #expect(
-            failure as? PersistenceError == .conversationAlreadyHasActiveRun(conversationID: "c1"),
+            failure as? ZenAgent.PersistenceError == .conversationAlreadyHasActiveRun(conversationID: "c1"),
             "expected rejection, got \(String(describing: failure))"
         )
         #expect(
@@ -137,15 +137,18 @@ struct ActiveParentRunUniquenessTests {
         // A child run is active too, but the per-conversation slot belongs to the
         // parent. If a child claimed it, the first subagent would collide with the run
         // that spawned it.
-        var child = Fixtures.run(
+        var derived = Fixtures.run(
             id: "child",
             kind: .child,
             state: .streaming,
             parentRunID: "parent"
         )
-        child.activeSlot = PersistenceStore.activeSlot(for: child)
+        derived.activeSlot = PersistenceStore.activeSlot(for: derived)
 
-        #expect(child.activeSlot == nil, "a child run must never derive a slot")
+        #expect(derived.activeSlot == nil, "a child run must never derive a slot")
+        // Bound to a `let`: the write block is `@Sendable` and cannot capture the
+        // mutable local above.
+        let child = derived
         try store.database.write { db in try child.insert(db) }
 
         #expect(
@@ -163,10 +166,12 @@ struct ActiveParentRunUniquenessTests {
         // be resting on the store's pre-check — application discipline — and any future
         // code path that writes a run without going through the store would break it
         // silently. The spike showed that is exactly how the alternative engine fails.
-        var first = Fixtures.run(id: "r1")
-        first.activeSlot = "c1"
-        var second = Fixtures.run(id: "r2")
-        second.activeSlot = "c1"
+        var mutableFirst = Fixtures.run(id: "r1")
+        mutableFirst.activeSlot = "c1"
+        var mutableSecond = Fixtures.run(id: "r2")
+        mutableSecond.activeSlot = "c1"
+        let first = mutableFirst
+        let second = mutableSecond
 
         var failure: Error?
         do {
