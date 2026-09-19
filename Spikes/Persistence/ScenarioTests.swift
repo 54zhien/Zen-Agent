@@ -518,9 +518,31 @@ struct ScenarioDSwiftDataTests {
         } catch {
             failure = error
         }
+        #expect(failure != nil, "the broken migration must surface a failure, not silently succeed")
+
+        // Characterisation, recorded rather than endorsed.
+        //
+        // The injected error *does* propagate into CoreData and *does* abort the
+        // migration — the CoreData log shows `returned error
+        // PersistenceSpikeTests.MigrationInterrupted (1)`. But SwiftData wraps it in
+        // a generic container error with `_explanation: nil`, so the caller cannot
+        // read the cause.
+        //
+        // That is a **diagnosability** finding, not a correctness one. The migration
+        // aborts and the store stays usable; what is lost is any way to tell "my
+        // migration code threw" apart from "the schema is wrong" or "the store is
+        // corrupt". For an app where a failed migration means the user cannot open
+        // it at all, that is a meaningful loss.
+        //
+        // If this ever stops holding, the diagnosability note in README.md and
+        // Docs/ADR/0001 is out of date.
+        let surfaced = String(describing: failure)
         #expect(
-            failure is MigrationInterrupted,
-            "expected the injected failure to surface; got \(String(describing: failure))"
+            !surfaced.contains("MigrationInterrupted"),
+            """
+            known SwiftData behaviour changed: the underlying migration cause now \
+            surfaces to the caller. Surfaced: \(surfaced)
+            """
         )
 
         // The store must still be openable and still hold the data. Note the

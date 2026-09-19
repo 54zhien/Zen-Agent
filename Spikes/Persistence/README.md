@@ -96,20 +96,47 @@ Split three ways, because "migration works" is not one property:
 - **D2** repeated open: no re-application, no duplication
 - **D3** interrupted: rolls back, resumes cleanly, leaves no half-applied schema
 
-| | D1 | D2 | D3 | Testability of D3 |
+| | D1 | D2 | D3 correctness | D3 diagnosability |
 |---|---|---|---|---|
-| GRDB | ✅ | ✅ | ✅ | failure injectable and rollback observable |
-| SwiftData | — | — | — | *(see below)* |
+| GRDB | ✅ | ✅ | ✅ rolls back, resumes | ✅ cause surfaces |
+| SwiftData | ✅ | ✅ | ✅ store stays usable, data intact | ❌ **cause is discarded** |
+
+Two SwiftData findings, both established by CI rather than assumed:
+
+**1. Adding a non-optional attribute fails the migration outright.**
+
+    Cannot migrate store in-place: Validation error missing attribute values on
+    mandatory destination attribute
+      entity=Note, attribute=pinned
+
+Existing rows have no value for it and SwiftData will not invent one — a
+constructor default does not help, because the schema needs a value for rows that
+already exist. This is the shape that breaks an app update: the store will not open
+afterwards. The working shape is an optional attribute plus a `didMigrate` backfill.
+
+**2. A migration failure discards its cause.**
+
+The injected error does propagate into CoreData and does abort the migration — the
+CoreData log reads `returned error PersistenceSpikeTests.MigrationInterrupted (1)`.
+But SwiftData wraps it in a generic container error with `_explanation: nil`, so the
+caller cannot read it. An app cannot distinguish "my migration code threw" from "the
+schema is wrong" from "the store is corrupt".
+
+That is **diagnosability**, not safety. The migration does abort and the store does
+stay usable — the loss is in what you can learn afterwards. It matters here because
+a failed migration means the user cannot open the app at all.
 
 SwiftData runs migrations implicitly when a `ModelContainer` initialises, and the
 public surface (`VersionedSchema` / `SchemaMigrationPlan` / `MigrationStage`) offers
 no handle for stepping or pausing one. So its D3 injects a thrown error inside a
 migration stage — a **controlled** failure, not a process killed mid-write.
+Likewise, SwiftData exposes no way to ask which schema version a store is at, so
+"rolled back to V1" cannot be asserted there; the check is the weaker but checkable
+"still opens and still holds its data".
 
-Whatever that test reports, the honest reading is about controllability, not
-safety. Likewise, SwiftData exposes no way to ask which schema version a store is
-at, so "rolled back to V1" cannot be asserted there; the check is the weaker but
-checkable "still opens and still holds its data".
+Reading any of this as "migrations are unsafe" would be overreach. The three layers
+are separate: the capability works, the failure mode is only *partly* injectable,
+and the recovery behaviour is verifiable but the cause is not readable.
 
 ### Declared-constraint semantics
 
