@@ -124,8 +124,31 @@ struct ScenarioATests {
         )
     }
 
-    @Test("A2 · GRDB — work in flight when the process dies leaves nothing behind")
-    func grdbInFlightWorkVanishes() throws {
+    /// **What this suite can and cannot inject, recorded rather than glossed.**
+    ///
+    /// The first version of A2 tried to leave a transaction open and drop the
+    /// connection, as a process killed mid-transaction would. **GRDB refuses:**
+    ///
+    ///     GRDB/SerializedDatabase.swift:131: Fatal error:
+    ///     A transaction has been left opened at the end of a database access
+    ///
+    /// That is a `fatalError`, not a recoverable error, so it took the whole test
+    /// bundle down and CI re-ran the suite. GRDB is being *safe* — the dangling
+    /// state cannot be reached by accident — but it also means the
+    /// "killed with a transaction open" window is **not injectable through GRDB's
+    /// API**.
+    ///
+    /// So A2 for GRDB establishes the positive half (a committed send persists
+    /// whole) plus the control above (a split commit would be detectable). The
+    /// crash-mid-transaction case rests on SQLite's own atomic-commit guarantee,
+    /// which is a statement about the engine's design, not something this probe
+    /// verified. It is deliberately not asserted as if it had been.
+    ///
+    /// SwiftData has no such guard, so its A2 could be simulated directly — see
+    /// `swiftDataInFlightWorkVanishes`. Note the asymmetry: **the engine that can
+    /// be tested here is the one with fewer safeguards.**
+    @Test("A2 · GRDB — a committed send persists whole, and only whole")
+    func grdbCommittedSendPersistsWhole() throws {
         let url = try makeScratchPath(name: "grdb-a2.sqlite")
         defer { cleanUp(url) }
         let path = url.path()
@@ -133,23 +156,14 @@ struct ScenarioATests {
         do {
             let queue = try DatabaseQueue(path: path)
             try createSendTables(queue)
-
-            // Both writes issued inside one transaction that is never committed —
-            // the process dies here. The connection going away rolls it back.
-            try queue.inDatabase { db in
-                try db.beginTransaction()
-                try insertSend(db, messageID: "m1", runID: "r1")
-            }
+            // Both writes in one transaction, which commits on normal return.
+            try queue.write { db in try insertSend(db, messageID: "m1", runID: "r1") }
         }
 
         let counts = try sendCounts(path)
         #expect(
-            counts.messages == 0 && counts.runs == 0,
-            """
-            an uncommitted send must vanish entirely, never leaving one of its two \
-            halves. Observed \(describe(counts)). The control test above shows this \
-            probe can see a half-state, so a clean result here means something.
-            """
+            counts.messages == 1 && counts.runs == 1,
+            "a committed send must persist both halves. Observed \(describe(counts))"
         )
     }
 
