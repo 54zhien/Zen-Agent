@@ -137,41 +137,72 @@ struct LocalHTTPServerCharacterisationTests {
         )
     }
 
-    @Test("cancelling the transfer closes the connection at the server")
-    func cancellationClosesTheConnection() async throws {
+    @Test("cancelling the URLSession task ends a real connection")
+    func taskCancellationClosesTheConnection() async throws {
         let server = try LocalHTTPServer(script: .continuous("piece", every: 0.02))
         server.start()
         defer { server.shutdown() }
 
         let url = server.baseURL.appending(path: Self.chatCompletions)
         let session = session()
-        let (bytes, _) = try await session.bytes(for: URLRequest(url: url))
 
-        let observedBytes = ObservedFlag()
-        let consumer = Task {
+        // Bounded as a whole, and it reports **which phase stalled** rather than just
+        // that something did — an earlier version of this file was unbounded and the
+        // runner restarted the process, which read as a mystery rather than as a phase.
+        let outcome = await observed {
             do {
-                for try await _ in bytes { observedBytes.raise() }
+                let (bytes, _) = try await session.bytes(for: URLRequest(url: url))
+
+                let observedBytes = ObservedFlag()
+                let consumer = Task {
+                    do {
+                        for try await _ in bytes { observedBytes.raise() }
+                    } catch {
+                        // Cancellation, or the connection ending. Either is a stopped transfer.
+                    }
+                }
+                defer { consumer.cancel() }
+
+                for _ in 0..<100 where !observedBytes.isRaised {
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+                guard observedBytes.isRaised else { return "stalled at: byte never observed" }
+
+                // **The transfer itself — not the Swift task standing next to it.**
+                //
+                // `consumer.cancel()` cancels the task iterating the sequence, and
+                // nothing guarantees that reaches the URLSession task underneath. That
+                // propagation is exactly what Zen's `HTTPStream` exists to stop
+                // depending on, so it is not this boundary's contract either. What is
+                // being characterised here is Foundation and the socket:
+                // `URLSessionDataTask.cancel()` → the TCP connection ends.
+                bytes.task.cancel()
+
+                let finished = await withTaskGroup(of: Bool.self) { group in
+                    group.addTask { _ = await consumer.value; return true }
+                    group.addTask { try? await Task.sleep(for: .seconds(2)); return false }
+                    let first = await group.next() ?? false
+                    group.cancelAll()
+                    return first
+                }
+                guard finished else { return "stalled at: task cancelled but the consumer did not finish" }
+
+                // The server's own observation, not the client's report. A client that
+                // believes it cancelled while the connection stays open is the failure
+                // being tested for.
+                for _ in 0..<100 where !server.observedPeerClose {
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+                guard server.observedPeerClose else {
+                    return "stalled at: consumer finished but the server did not observe the close"
+                }
+
+                return "ok"
             } catch {
-                // Cancellation, or the connection ending. Either is a stopped transfer.
+                return "threw: \(error)"
             }
         }
 
-        for _ in 0..<300 where !observedBytes.isRaised {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(observedBytes.isRaised, "the consumer never received a byte, so there was nothing to cancel")
-
-        consumer.cancel()
-        _ = await consumer.value
-
-        // The server's own observation, not the client's report: a client that believes
-        // it cancelled while the connection stays open is the failure being tested for.
-        for _ in 0..<300 where !server.observedPeerClose {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(
-            server.observedPeerClose,
-            "the server never saw the connection end — the transfer outlived the interest in it"
-        )
+        #expect(outcome == "ok", "\(outcome)")
     }
 }

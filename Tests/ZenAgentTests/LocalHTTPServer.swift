@@ -146,8 +146,26 @@ final class LocalHTTPServer: @unchecked Sendable {
 
     // MARK: - Serving
 
+    /// `read`/`write`/`accept` can be interrupted by a signal and return `-1` with
+    /// `EINTR`. That is not a closed socket, and treating it as one marks the peer gone
+    /// while the connection is perfectly alive — a test-server correctness matter,
+    /// independent of whatever the tests are investigating.
+    private func retryingOnInterrupt(_ call: () -> Int) -> Int {
+        while true {
+            let result = call()
+            if result < 0 && errno == EINTR { continue }
+            return result
+        }
+    }
+
+    /// `< 0` after a retry is a genuine error, which for a socket we are reading or
+    /// writing means the same thing as EOF: the peer is gone.
+    private func readSome(_ fd: Int32, _ buffer: inout [UInt8]) -> Int {
+        retryingOnInterrupt { read(fd, &buffer, buffer.count) }
+    }
+
     private func serveOneConnection() {
-        let accepted = accept(listenFD, nil, nil)
+        let accepted = retryingOnInterrupt { accept(listenFD, nil, nil) }
         guard accepted >= 0 else { return }
         lock.withLock { clientFD = accepted }
 
@@ -162,7 +180,7 @@ final class LocalHTTPServer: @unchecked Sendable {
         var request = Data()
         var buffer = [UInt8](repeating: 0, count: 1024)
         while request.range(of: Data("\r\n\r\n".utf8)) == nil, request.count < 8192 {
-            let n = read(accepted, &buffer, buffer.count)
+            let n = readSome(accepted, &buffer)
             if n <= 0 { return }
             request.append(contentsOf: buffer[0..<n])
         }
@@ -197,7 +215,7 @@ final class LocalHTTPServer: @unchecked Sendable {
         var buffer = [UInt8](repeating: 0, count: 256)
         while true {
             if closeRequestedNow() { return }
-            let n = read(fd, &buffer, buffer.count)
+            let n = readSome(fd, &buffer)
             if n <= 0 {
                 // Zero is EOF: the peer closed. Anything negative is an error, which for
                 // a connection we are deliberately not writing to means the same thing.
@@ -237,7 +255,7 @@ final class LocalHTTPServer: @unchecked Sendable {
             guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return data.isEmpty }
             var offset = 0
             while offset < raw.count {
-                let written = write(fd, base + offset, raw.count - offset)
+                let written = retryingOnInterrupt { write(fd, base + offset, raw.count - offset) }
                 if written <= 0 { return false }
                 offset += written
             }
