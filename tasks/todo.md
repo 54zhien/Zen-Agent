@@ -80,27 +80,48 @@ CI 是唯一验证手段。
 要长期保护的 regression test（**不能跟着 spike 一起删**）：
 `active Parent Run uniqueness` / `atomic send` / `indeterminate recovery` / `migration`。
 
-## Stage 0 完成判据
+## Stage 0 完成判据 —— 全部满足
 
-- [x] 独立代码仓库建立
+- [x] 独立代码仓库建立（`54zhien/Zen-Agent`）
 - [x] Blueprint 恢复为纯设计仓库
-- [ ] Blueprint baseline SHA 已记录在 `README.md`
-- [ ] XcodeGen 可从纯源码生成工程（CI 证实）
-- [x] `.xcodeproj` 不入库
-- [ ] Debug / Release config 正常（CI 证实）
-- [x] deployment target 已确定
-- [ ] CI build 成功
-- [ ] Unit Test 成功
+- [x] Blueprint baseline SHA 已记录在 `README.md`（`6b12e46`）
+- [x] XcodeGen 可从纯源码生成工程（CI 每次都从零 `xcodegen generate`）
+- [x] `.xcodeproj` 不入库（CI hygiene 断言）
+- [x] Debug / Release config 正常
+- [x] deployment target 已确定（iOS 26，`Config/Common.xcconfig` 唯一真值）
+- [x] CI build 成功
+- [x] Unit Test 成功（39 条 / 8 suite）
 - [x] secret / signing 文件受 `.gitignore` + CI hygiene 保护
-- [ ] SwiftData / GRDB A–G Spike 完成
-- [ ] ADR-0001 已明确选型
-- [ ] 正式 Persistence skeleton 已落地
-- [ ] 关键 Spike 测试已迁成长期 regression tests
-- [ ] Disposable Spike 已删除
-- [ ] **当前仍没有偷偷实现 Stage 1+ 产品功能**
+- [x] SwiftData / GRDB A–G Spike 完成
+- [x] ADR-0001 Accepted，V1 使用 GRDB
+- [x] 正式 Persistence skeleton 已落地（`App/Persistence/`，1045 行）
+- [x] 关键 Spike 测试已迁成长期 regression tests（7/7）
+- [x] Disposable Spike 已删除，且删除后 CI 仍全绿
+- [x] **没有偷偷实现 Stage 1+ 产品功能**（`App/` 下只有 `Persistence/`）
 
-全部满足 → Stage 0 DONE → 进入 Stage 1（Data / Credential / Provider / DeepSeek Transport / Streaming）。
+**Stage 0 DONE。**
+
+## 收尾记录
+
+- 最终提交：`bf7533e`（HEAD）
+- CI：run `35429556373` → success
+- 正式 Persistence 代码 1045 行；测试代码 1225 行（测试多于实现，符合预期）
+
+### 过程中值得留下的教训
+
+1. **仓库是 private 时拿不到 runner。** 连续 5 次尝试 `runner_name: ""` / `steps: 0`，
+   一开始只有 macOS job 失败，后来 ubuntu 也失败。诊断分支实验排除了「macOS 容量」假设，
+   指向账户级限制；改成 public 后立刻恢复。**环境问题不能当成代码通过，也不能当成代码失败。**
+2. **`ab085cd` 第一次真正执行就通过**——但它在此之前完全未编译过。
+   小步提交 + 每次 CI 验证的价值在这里：失败时错误精确到文件和行。
+3. **测试抓出了实现的 bug**：`undoDeletion` 没有状态守卫，
+   对已 finalize 的会话撤销会把标志翻回 `visible` 而正文已删。
+   当时我的第一反应是写测试记录这个行为——那会把 bug 固化成设计。**改成修实现。**
 
 ## Review
 
-（Stage 0 结束后回填）
+Stage 0 的产出不是功能，是**一条可信的基线**：工程可从源码重建、CI 每次证伪、
+持久化引擎有实测依据、七条不变量有长期守卫、且没有任何 Stage 1 内容被提前实现。
+
+下一阶段（Stage 1）的第一件事应是审计本仓库真实状态，而不是从蓝图假设出发。
+
