@@ -80,9 +80,9 @@ enum Fixtures {
             responseMessageID: responseMessageID,
             retryOfRunID: retryOfRunID,
             requestConfigSeed: RequestConfigSeed(
-                providerInstanceID: "pi1",
-                modelID: "deepseek-chat",
-                providerConfigRevision: "config-r1",
+                providerInstanceID: ProviderInstanceID(rawValue: "pi1"),
+                modelID: ModelID(rawValue: "deepseek-chat"),
+                providerConfigRevision: ConfigRevision(rawValue: "config-r1"),
                 credentialBindingRevision: 1
             ),
             executionSnapshot: nil,

@@ -217,33 +217,6 @@ struct MessagePartRecord: Codable, FetchableRecord, PersistableRecord, Sendable,
     var payload: String
 }
 
-/// The request configuration frozen at send commit.
-///
-/// A typed value rather than a free-form JSON blob. The column it lives in is a
-/// string either way, but a `[String: Any]`-shaped bag would let any layer write
-/// anything into the one record whose entire purpose is to be replayable — and the
-/// notes forbid exactly that ("不要直接存散乱 provider raw 参数", `消息与数据.md:79`).
-///
-/// Adding an option means adding a field here, deliberately, rather than quietly
-/// dropping a key into a dictionary.
-///
-/// **Deliberately does not yet carry request options** (reasoning effort and the
-/// like). Those are capability-validated, and capability does not exist until the
-/// `ModelDescriptor` increment. Inventing an option vocabulary now would be guessing
-/// at what a Provider supports, which is the thing Stage 1 exists to find out. The
-/// field arrives with capability, and the JSON encoding means no migration.
-struct RequestConfigSeed: Codable, Sendable, Equatable {
-    var providerInstanceID: String
-    var modelID: String
-    /// Revision of the ProviderInstance's transport configuration, so a run can tell
-    /// whether the endpoint it was frozen against has since been edited.
-    var providerConfigRevision: String
-    /// Non-secret generation of the credential binding. Refresh keeps it; logout,
-    /// rebind or an account change must produce a new one, so a suspended run cannot
-    /// silently continue on a different principal.
-    var credentialBindingRevision: Int
-}
-
 struct AgentRunRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Identifiable {
     static let databaseTableName = "agentRun"
 

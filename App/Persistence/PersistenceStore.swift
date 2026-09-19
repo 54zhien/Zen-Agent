@@ -25,6 +25,12 @@ enum PersistenceError: Error, Equatable {
     /// A referenced part does not exist. Not a constraint failure: the caller named
     /// something that was never written, or has already been erased.
     case partNotFound(String)
+
+    /// The named Provider instance does not exist.
+    case providerInstanceNotFound(ProviderInstanceID)
+
+    /// The named run does not exist.
+    case runNotFound(String)
 }
 
 /// Everything one send commit writes, as a single unit.

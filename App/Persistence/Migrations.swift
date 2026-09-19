@@ -19,6 +19,7 @@ enum Migrations {
         registerV1(&migrator)
         registerV2(&migrator)
         registerV3(&migrator)
+        registerV4(&migrator)
         return migrator
     }
 
@@ -83,6 +84,35 @@ enum Migrations {
                 t.column("status", .text).notNull()
                 t.column("updatedAt", .datetime).notNull()
                 t.primaryKey(["credentialID", "kind"])
+            }
+        }
+    }
+
+    /// Adds user-added Provider connections.
+    ///
+    /// The credential columns hold a **reference** — an opaque id and its kind — and
+    /// nothing else. There is no column a secret could go in, and `SecretValue` is not
+    /// `Codable`, so there is no way to make one.
+    ///
+    /// `credentialID` is nullable on purpose. An instance whose credential was removed
+    /// is still a valid instance: the user's endpoint and provider choice outlive the
+    /// secret, and deleting the secret must not delete their configuration
+    /// (`安全与权限.md:279` requires the opposite direction of care too — removing an
+    /// instance must not orphan a credential another instance still shares).
+    static func registerV4(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v4_add_provider_instance") { db in
+            try db.create(table: "providerInstance") { t in
+                t.primaryKey("id", .text)
+                t.column("providerID", .text).notNull()
+                t.column("displayName", .text).notNull()
+                t.column("baseURL", .text)
+                t.column("configRevision", .text).notNull()
+                // A reference, never material. Both columns move together: a credential
+                // id without its kind is not a reference.
+                t.column("credentialID", .text)
+                t.column("credentialKind", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
             }
         }
     }

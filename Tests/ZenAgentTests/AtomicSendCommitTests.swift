@@ -36,9 +36,9 @@ struct AtomicSendCommitTests {
         // by the type. What is worth asserting is that it names the provider and model
         // the run was frozen against — a run that cannot say what it was sent to cannot
         // be replayed or explained.
-        #expect(run?.requestConfigSeed.providerInstanceID == "pi1")
+        #expect(run?.requestConfigSeed.providerInstanceID == ProviderInstanceID(rawValue: "pi1"))
         #expect(
-            run?.requestConfigSeed.modelID == "deepseek-chat",
+            run?.requestConfigSeed.modelID == ModelID(rawValue: "deepseek-chat"),
             "the frozen seed must name the model the run was sent to, not leave it to be re-derived from current settings"
         )
         #expect(

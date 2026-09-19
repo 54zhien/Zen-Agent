@@ -90,9 +90,9 @@ struct SecretContainmentTests {
         // The frozen request seed is the other place a secret would be tempting to put,
         // and the one that would survive longest.
         let seed = RequestConfigSeed(
-            providerInstanceID: "pi1",
-            modelID: "deepseek-chat",
-            providerConfigRevision: "r1",
+            providerInstanceID: ProviderInstanceID(rawValue: "pi1"),
+            modelID: ModelID(rawValue: "deepseek-chat"),
+            providerConfigRevision: ConfigRevision(rawValue: "r1"),
             credentialBindingRevision: 1
         )
         let seedJSON = String(decoding: try encoder.encode(seed), as: UTF8.self)
