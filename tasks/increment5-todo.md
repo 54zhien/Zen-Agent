@@ -46,8 +46,25 @@
 - [x] 5E `StreamingCancellationTests`（`stopLoading` 真被调用 + 取消后不再交付）
 - [x] 5G 分类缺口补齐（malformed SSE / 首个事件前断流 / parser 错误映射）
 - [x] `/code-review` 跑 diff → **4 个真实 bug 已修**（见下）
-- [ ] **CI 全绿**
-- [ ] 汇报 10 项，**停在 Increment 5 边界**
+- [x] **CI 全绿** `35441053882` → success，**181 测试 / 23 suite**（main = `11bff63`）
+- [ ] 两条测试待搬到 localhost harness（见下）
+
+### 仍未完成：localhost streaming harness
+
+`URLProtocolCharacterisationTests` 证明：**自定义 URLProtocol 驱动 `bytes(for:)` 时，
+少量 didLoad 后保持 request open 无法可靠交付给 consumer。**
+（**这是 harness 的观测，不推广到真实 HTTPS**；未测阈值。）
+
+因此两条测试被 `.disabled`（保留意图与理由，非删除）：
+
+| 测试 | 需要的 server 行为 |
+|---|---|
+| `URLSessionHTTPTransportTests.failureAfterObservedDataIsInterrupted` | 发 partial → consumer 收到 → 触发 close |
+| `StreamingCancellationTests.cancellationReachesTheNetworkWithoutAFailure` | 发合法 SSE → consumer 收到 → stall → cancel |
+
+需要 test-only localhost HTTP server（三个脚本：`sendChunkThenStall` /
+`sendChunkThenDisconnect` / `slowContinuousStream`），并**先**用它做 characterization。
+**不要改 production `URLSession.bytes(for:)`**，也不切 delegate。
 
 ### `/code-review` 查出并已修的 4 个 bug（出厂配置下均可达）
 
