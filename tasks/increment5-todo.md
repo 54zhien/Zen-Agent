@@ -22,7 +22,7 @@
 - [x] P5 更新 8 处测试调用点 + `SecretContainmentTests` 断言改为「含 reference id、不含 secret」
 - [x] P6 新 `PersistenceError.providerInstanceAlreadyExists`
 - [x] P7 新 suite `FrozenCredentialIdentityTests`（A refresh / A rebind / **A→B 同 generation** / detach / logout / seed 无 secret / create 拒绝覆盖）
-- [ ] **CI 绿**（run id: ______）
+- [x] **CI 绿**（run id: `35434791623` → success；**110 测试 / 15 suite**，新增 Frozen credential identity suite）
 
 **P6 存储兼容性**：seed 形状变更使已存 seed 无法解码。pre-release、无线上数据 → 干净切断，
 **显式决定，非疏忽**。
