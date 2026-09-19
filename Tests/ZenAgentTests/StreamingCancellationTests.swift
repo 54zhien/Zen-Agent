@@ -172,7 +172,18 @@ struct StreamingCancellationTests {
             }
         }
 
-        try await Task.sleep(for: .milliseconds(80))
+        // Wait until the request has produced something, rather than for a fixed
+        // duration. Cancelling before the transfer is established cancels nothing, and
+        // the test then fails with `stopCount == 0` for a reason that has nothing to do
+        // with cancellation — which is how it failed intermittently at 85ms.
+        for _ in 0..<200 where StubURLProtocol.deliveryCount(for: requestURL) == 0 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(
+            StubURLProtocol.deliveryCount(for: requestURL) > 0,
+            "the stream never delivered anything, so there was nothing to cancel"
+        )
+
         consumer.cancel()
         let outcome = await consumer.value
 

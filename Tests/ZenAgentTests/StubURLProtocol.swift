@@ -94,8 +94,14 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var failureTriggers: [String: @Sendable () -> Void] = [:]
 
     /// Kills the connection, on the test's terms rather than on a timer's.
+    ///
+    /// **Dispatched, never invoked inline.** The caller is the consuming task, standing
+    /// inside its own read loop; calling into `URLSession`'s callback machinery from that
+    /// thread leaves the failure waiting on the very loop that is waiting for the
+    /// failure. Calling it inline hung a test for the full three-minute timeout.
     static func triggerFailure(for url: URL) {
-        lock.withLock { failureTriggers[key(url)] }?()
+        let trigger = lock.withLock { failureTriggers[key(url)] }
+        DispatchQueue.global().async { trigger?() }
     }
 
     private static func registerFailureTrigger(for url: URL, _ trigger: @escaping @Sendable () -> Void) {
