@@ -103,9 +103,23 @@ CI 是唯一验证手段。
 
 ## 收尾记录
 
-- 最终提交：`bf7533e`（HEAD）
-- CI：run `35429556373` → success
+- **Gate 验证于提交 `9efce76`**，对应 CI run `35429883780` → success
+  （记录的是「Gate 在哪个提交上被验证」，不是「HEAD 现在指向哪」——之后的 housekeeping
+  提交会让 HEAD 前移，但不影响 Gate 的成立。）
 - 正式 Persistence 代码 1045 行；测试代码 1225 行（测试多于实现，符合预期）
+- Blueprint baseline `6b12e46` 已确认在**远端**可解析（见下）
+
+### Housekeeping：baseline 曾指向一个不存在的远端对象
+
+Stage 0 期间提交了 Blueprint 的 v0.9 收口（`6b12e46`）但**从未推送**——
+Zen-Agent 的 README 却已经把它记为 baseline。结果是一份指向只有本机才有的 commit 的记录，
+任何人 clone 都 fetch 不到。
+
+已推送 Blueprint（fast-forward `7237487` → `6b12e46`），远端 main 与该 SHA 一致，
+**baseline 值本身没有改动**——需要修的从来不是那个值，而是它在远端是否真实存在。
+
+**教训**：记录一个 SHA 之前先确认它能被解析。写在文档里的引用和代码里的符号一样，
+存在性的验证不能省。
 
 ### 过程中值得留下的教训
 
