@@ -87,6 +87,44 @@ SwiftData 的 `won=3, errored=0`：三个独立事务各自读到 0、各自插�
 但这是**一个机制出局，不是引擎出局**：upsert 对面向合并的存储是合理设计，
 拿它当互斥约束用是类别错配，不是 bug。
 
+### 场景 C 与 D 的对照结果
+
+| | C 崩溃窗口 | D1 正常迁移 | D2 重复打开 | D3 中断恢复 |
+|---|---|---|---|---|
+| **GRDB** | ✅ | ✅ | ✅ | ✅ 回滚并续跑 |
+| **SwiftData** | ✅ | ✅ | ✅ | ✅ store 仍可用、数据完好 |
+
+**C 是平局。** 两个引擎都能把「已准备但未 dispatch」与「可能已 dispatch」持久化地区分开。
+（此前担心的「SwiftData 不允许重新打开自己的 store」被证伪。）
+
+**D 上 SwiftData 全部通过，但带两条实测的负面发现**，都属**诊断性 / 人体工学**，
+不属**正确性**——不能读成「迁移不安全」：
+
+1. **新增的非可选属性会让迁移直接失败**：
+   `Validation error missing attribute values on mandatory destination attribute (entity=Note, attribute=pinned)`。
+   已有行没有值，SwiftData 不会替你编；**构造器默认值不管用**（那是构造器默认，不是 schema 默认）。
+   这就是「一次升级之后 store 打不开」的形状。可行形状是**可选属性 + `didMigrate` 回填**。
+2. **迁移失败会丢弃原因**：注入的错误确实传进 CoreData 并中止了迁移
+   （CoreData 日志：`returned error … MigrationInterrupted (1)`），
+   但 SwiftData 把它包成 `SwiftDataError(.loadIssueModelContainer)` 且 `_explanation: nil`。
+   调用方**无法区分**「我的迁移代码抛错」「schema 不对」「store 损坏」。
+   对一个「迁移失败 = 用户打不开应用」的产品，这是实打实的损失。
+
+另记录一条**可控性**事实：SwiftData 的迁移在 `ModelContainer` 初始化时隐式发生，
+公开 API 没有步进 / 暂停迁移的入口；也无法查询 store 当前处于哪个 schema 版本。
+因此它的 D3 只能注入**受控失败**（迁移阶段内抛错），不是「写到一半被 kill」。
+
+按三维度记账（Correctness / Enforceability / Testability），B+C+D 的现状：
+
+| | Correctness | Enforceability | Testability |
+|---|---|---|---|
+| **GRDB** | B ✅ · C ✅ · D ✅ | **B 由数据库约束保证** | 三个场景均可复现 |
+| **SwiftData** | B ❌ · C ✅ · D ✅ | B 只能靠应用纪律 | D3 只能注入受控失败；失败原因不可读 |
+
+**判读**：GRDB 在 **B 上决定性领先**——不是「某个 API 更方便」，而是
+**不变量由数据库保证** vs **靠应用纪律**，这是两个可靠性层级；
+在 **D 上小幅领先**（同样通过，但无那两条负面发现）；**C 平局**。
+
 ### 串行 owner 这条退路：产品已裁定（2026-09-19）
 
 蓝图 `消息与数据.md` 原文允许「事务、**串行 owner**、约束或等价机制」，
@@ -133,8 +171,13 @@ SwiftData 唯一还剩讨论价值的组合：C–G 上它**明显**更可靠或
 
 ### 尚未验证的部分
 
-场景 C–G **对两个引擎都还是空白**。目前只有 B 一条决定性证据指向 GRDB——
-按上表它是最高权重之一，但**单条证据不构成选型**。
+**B、C、D 三个最高权重场景已在两个引擎上跑完**（见上）。
+剩余 **A（atomic send，中高）、G（流式写入压力，中高）、E（删除+Undo，中）、F（tombstone，中）**
+对两个引擎仍是空白。
+
+按产品给的判读原则，B+C+D 这一组已经足以形成倾向：**GRDB 在 B 上决定性领先、D 上小幅领先、C 平局**。
+但在 A/G 未测之前**不作最终选型**——中高权重的两项还没数据，
+而且 A（Send 原子提交）与 B 同属「一个事务里的复合写入」问题族，它的结果可能补充或削弱 B 的结论。
 
 ## 已核实的环境事实（2026-09-19）
 
