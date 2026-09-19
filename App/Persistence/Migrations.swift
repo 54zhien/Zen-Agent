@@ -13,9 +13,21 @@ import GRDB
 /// written — see `Docs/ADR/0001-persistence-engine.md`.
 enum Migrations {
 
+    /// The production migrator.
     static func makeMigrator() -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
+        registerV1(&migrator)
+        return migrator
+    }
 
+    /// Registered separately so a test can compose it with a migration of its own and
+    /// exercise the upgrade path over a real store.
+    ///
+    /// The alternative — having production carry a test-only v2 migration, or inventing
+    /// a future table just so there is something to migrate — would put scaffolding in
+    /// the schema for the sake of a test. A migration test needs *a* v2, not the real
+    /// one.
+    static func registerV1(_ migrator: inout DatabaseMigrator) {
         migrator.registerMigration("v1_create_initial_schema") { db in
             try createConversation(db)
             try createMessage(db)
@@ -24,8 +36,6 @@ enum Migrations {
             try createToolCall(db)
             try createOperationTombstone(db)
         }
-
-        return migrator
     }
 
     // MARK: - Tables

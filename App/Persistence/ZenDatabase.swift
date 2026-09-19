@@ -28,6 +28,12 @@ final class ZenDatabase {
     /// a reader is not blocked by a committing writer — that result is what this
     /// configuration is for.
     static func open(at path: String) throws -> ZenDatabase {
+        try open(at: path, migrator: Migrations.makeMigrator())
+    }
+
+    /// Opens with a caller-supplied migrator. Used by the migration tests, which
+    /// compose `Migrations.registerV1` with a v2 of their own.
+    static func open(at path: String, migrator: DatabaseMigrator) throws -> ZenDatabase {
         var configuration = Configuration()
         configuration.journalMode = .wal
         // Contention surfaces as waiting rather than as a thrown "database is locked",
@@ -35,7 +41,7 @@ final class ZenDatabase {
         configuration.busyMode = .timeout(5)
 
         let queue = try DatabaseQueue(path: path, configuration: configuration)
-        try Migrations.makeMigrator().migrate(queue)
+        try migrator.migrate(queue)
         return ZenDatabase(dbQueue: queue)
     }
 

@@ -16,8 +16,15 @@ enum PersistenceError: Error, Equatable {
     case constraintViolation
 
     /// A caller asked for a state change the lifecycle does not allow — finishing a run
-    /// with a non-terminal state, for instance.
-    case invalidRunTransition(String)
+    /// with a non-terminal state, or undoing a deletion that was already finalised.
+    case invalidTransition(String)
+
+    /// The named conversation does not exist.
+    case conversationNotFound(String)
+
+    /// A referenced part does not exist. Not a constraint failure: the caller named
+    /// something that was never written, or has already been erased.
+    case partNotFound(String)
 }
 
 /// Everything one send commit writes, as a single unit.
@@ -136,7 +143,7 @@ struct PersistenceStore {
     /// Only terminal states release it — enforced below, not merely documented.
     func finishRun(id: String, state: RunState, endReason: EndReason, at now: Date = Date()) throws {
         guard state.isTerminal else {
-            throw PersistenceError.invalidRunTransition(
+            throw PersistenceError.invalidTransition(
                 "finishRun requires a terminal state; got \(state.rawValue)"
             )
         }

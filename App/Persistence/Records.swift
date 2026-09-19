@@ -137,6 +137,43 @@ enum ToolCallState: String, Codable, Sendable {
     case indeterminate
 }
 
+/// What recovery is allowed to do with a tool call found in a given state.
+///
+/// This is the rule that makes `prepared` and `dispatched` worth separating. It lives
+/// next to the state it reads rather than in a future Tool Runtime, because it is a
+/// statement about what the state *means* — and because it is the one decision that
+/// must not be re-derived differently in two places.
+enum ToolRecoveryDisposition: Equatable, Sendable {
+    /// The external call provably never happened. Safe to decide afresh.
+    case mayDispatch
+    /// It may have happened. Report it and stop; never retry automatically.
+    case mustReportIndeterminate
+    /// Already finished. Nothing to decide.
+    case settled
+}
+
+extension ToolCallState {
+    var recoveryDisposition: ToolRecoveryDisposition {
+        switch self {
+        case .prepared, .validated, .approved:
+            // Reached only before the dispatch marker was committed, so nothing left
+            // the process.
+            return .mayDispatch
+        case .dispatched:
+            // The marker is committed immediately *before* the call, deliberately, so
+            // a crash anywhere after it leaves genuine uncertainty. Assuming "it
+            // probably didn't happen" and retrying is how a write is applied twice.
+            return .mustReportIndeterminate
+        case .indeterminate:
+            return .mustReportIndeterminate
+        case .succeeded, .failed, .rejected, .cancelled, .notExecuted:
+            return .settled
+        case .waitingForApproval, .waitingForSystemPermissionConsent:
+            return .settled
+        }
+    }
+}
+
 // MARK: - Records
 //
 // Plain value types. GRDB conformity comes from `Codable`, which is why these are
