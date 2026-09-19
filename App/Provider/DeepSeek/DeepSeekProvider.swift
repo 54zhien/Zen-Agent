@@ -154,14 +154,14 @@ struct DeepSeekProvider: ModelProvider {
 
         let httpRequest = try makeHTTPRequest(request, secret: secret, instance: instance, streaming: true)
 
-        let bytes: AsyncThrowingStream<Data, Error>
+        let upstream: HTTPStream
         do {
-            bytes = try await transport.stream(httpRequest)
+            upstream = try await transport.stream(httpRequest)
         } catch {
             throw Self.providerError(from: error, deliveredOutput: false)
         }
 
-        return Self.chunks(from: bytes, timeouts: streamTimeouts)
+        return Self.chunks(from: upstream, timeouts: streamTimeouts)
     }
 
     /// Reassembles DeepSeek's chunks out of the byte stream.
@@ -177,13 +177,23 @@ struct DeepSeekProvider: ModelProvider {
     /// one here. That separation is the point: the two facts are different, so they get
     /// different timers.
     private static func chunks(
-        from bytes: AsyncThrowingStream<Data, Error>,
+        from upstream: HTTPStream,
         timeouts: StreamTimeoutPolicy
     ) -> AsyncThrowingStream<DeepSeekStreamChunk, Error> {
         let progress = StreamProgress()
 
         return AsyncThrowingStream { continuation in
-            let task = Task {
+            // Every way this stream can end — the consumer cancelling, a deadline
+            // expiring, a chunk that will not decode, the protocol saying `[DONE]` —
+            // must also end the transfer behind it. Otherwise ending the answer and
+            // ending the request are two different things, and only the first happens.
+            //
+            // One call, one hop. Nothing here relies on this task's cancellation
+            // reaching a nested stream's iterator, which is the assumption CI showed to
+            // be false when this was wired through `onTermination` and a captured task.
+            continuation.onTermination = { _ in upstream.cancel() }
+
+            Task {
                 await StreamDeadline.run(
                     progress: progress,
                     first: timeouts.firstEvent,
@@ -203,7 +213,7 @@ struct DeepSeekProvider: ModelProvider {
                         // owns it and no `var` is captured across a suspension point.
                         var parser = SSEParser()
                         do {
-                            for try await chunk in bytes {
+                            for try await chunk in upstream.body {
                                 for element in try parser.consume(chunk) {
                                     switch element {
                                     case .done:

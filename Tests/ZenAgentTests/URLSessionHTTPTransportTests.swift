@@ -95,7 +95,7 @@ struct URLSessionHTTPTransportTests {
             for: url
         )
 
-        let body = try await text(makeTransport().stream(post(url)))
+        let body = try await text(makeTransport().stream(post(url)).body)
 
         #expect(body == "data: one\n\ndata: two\n\ndata: [DONE]\n\n")
     }
@@ -107,7 +107,7 @@ struct URLSessionHTTPTransportTests {
         let pieces = Array("data: hello\n\n").map { String($0) }
         StubURLProtocol.register(.delivering(pieces), for: url)
 
-        let body = try await text(makeTransport().stream(post(url)))
+        let body = try await text(makeTransport().stream(post(url)).body)
 
         #expect(body == "data: hello\n\n")
     }
@@ -121,7 +121,7 @@ struct URLSessionHTTPTransportTests {
 
         var failure: Error?
         do {
-            let stream = try await makeTransport().stream(post(url))
+            let stream = try await makeTransport().stream(post(url)).body
             _ = try await drain(stream)
         } catch {
             failure = error
@@ -148,7 +148,7 @@ struct URLSessionHTTPTransportTests {
 
         var failure: Error?
         do {
-            _ = try await makeTransport().stream(post(url))
+            _ = try await makeTransport().stream(post(url)).body
         } catch {
             failure = error
         }
@@ -179,7 +179,7 @@ struct URLSessionHTTPTransportTests {
         var failure: Error?
         var received = Data()
         do {
-            for try await chunk in try await makeTransport().stream(post(url)) { received.append(chunk) }
+            for try await chunk in try await makeTransport().stream(post(url)).body { received.append(chunk) }
         } catch {
             failure = error
         }
@@ -208,7 +208,7 @@ struct URLSessionHTTPTransportTests {
 
         var failure: Error?
         do {
-            for try await _ in try await makeTransport().stream(post(url)) {}
+            for try await _ in try await makeTransport().stream(post(url)).body {}
         } catch {
             failure = error
         }
@@ -242,7 +242,7 @@ struct URLSessionHTTPTransportTests {
         script.failureCode = .networkConnectionLost
         StubURLProtocol.register(script, for: url)
 
-        _ = try? await drain(try await makeTransport().stream(post(url)))
+        _ = try? await drain(try await makeTransport().stream(post(url)).body)
 
         #expect(
             StubURLProtocol.requestCount(for: url) == 1,

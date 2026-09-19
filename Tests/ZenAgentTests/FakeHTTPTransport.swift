@@ -124,7 +124,15 @@ final class FakeHTTPTransport: HTTPTransport, @unchecked Sendable {
         return response
     }
 
-    func stream(_ request: HTTPRequest) async throws -> AsyncThrowingStream<Data, Error> {
+    /// How many times a streaming call's handle was cancelled.
+    private var streamCancelCount = 0
+
+    var streamCancellations: Int {
+        lock.lock(); defer { lock.unlock() }
+        return streamCancelCount
+    }
+
+    func stream(_ request: HTTPRequest) async throws -> HTTPStream {
         let script = lock.withLock { () -> (HTTPTransportError?, [Data], HTTPTransportError?) in
             // Counted like `send`, so a test can assert that a failed stream made
             // exactly one attempt. That is how "no hidden retry" is checked on this path
@@ -136,13 +144,21 @@ final class FakeHTTPTransport: HTTPTransport, @unchecked Sendable {
         }
 
         if let head = script.0 { throw head }
-        return AsyncThrowingStream { continuation in
-            for chunk in script.1 { continuation.yield(chunk) }
-            if let tail = script.2 {
-                continuation.finish(throwing: tail)
-            } else {
-                continuation.finish()
+        return HTTPStream(
+            body: AsyncThrowingStream { continuation in
+                for chunk in script.1 { continuation.yield(chunk) }
+                if let tail = script.2 {
+                    continuation.finish(throwing: tail)
+                } else {
+                    continuation.finish()
+                }
+            },
+            // Recorded rather than ignored. Whether the layer above ends the transfer it
+            // was given is a claim worth being able to fail on.
+            cancel: { [weak self] in
+                guard let self else { return }
+                self.lock.lock(); self.streamCancelCount += 1; self.lock.unlock()
             }
-        }
+        )
     }
 }

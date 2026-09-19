@@ -135,6 +135,33 @@ enum HTTPTransportError: Error, Equatable {
 /// of it is a framework shaped by the first one (`开发规划.md:462-473`).
 ///
 /// `URLSession` never appears above this protocol, which a CI check enforces.
+/// A streaming response, and the handle that ends it.
+///
+/// **`cancel` is the point of this type.** A bare `AsyncThrowingStream` gives its
+/// consumer no way to stop the transfer — it can only stop *reading*, and then hope the
+/// producer notices. That hope was wired as a chain of two: cancelling the consuming task
+/// was expected to end the stream, whose termination was expected to cancel the task
+/// reading the socket. CI showed the chain does not hold: `URLProtocol.stopLoading` was
+/// never called, so pressing Stop ended the consumer and left the request running.
+///
+/// So the ownership is explicit instead. `cancel` reaches the actual `URLSessionDataTask`
+/// in one hop, and whoever holds this handle is responsible for calling it — no layer has
+/// to infer that someone upstream has given up.
+///
+/// It also removes a retain cycle. The old wiring captured the reading `Task` in
+/// `onTermination` while that task captured the continuation, so nothing was ever
+/// released and the deallocation-driven termination could not fire either. A closure
+/// holding `URLSessionDataTask` has no such loop.
+struct HTTPStream: Sendable {
+    var body: AsyncThrowingStream<Data, Error>
+    /// Ends the transfer — the network task, not merely this end of it.
+    ///
+    /// Idempotent, and safe to call from any of the ways a stream ends: the consumer
+    /// cancelling, a deadline expiring, a parse failing, or the protocol saying it is
+    /// done. Every one of those leaves a live request behind if nobody calls it.
+    let cancel: @Sendable () -> Void
+}
+
 protocol HTTPTransport: Sendable {
     func send(_ request: HTTPRequest) async throws -> HTTPResponse
 
@@ -152,5 +179,9 @@ protocol HTTPTransport: Sendable {
     ///
     /// A non-2xx status throws `HTTPTransportError.httpStatus` rather than returning a
     /// stream, because a refused request did not produce one.
-    func stream(_ request: HTTPRequest) async throws -> AsyncThrowingStream<Data, Error>
+    ///
+    /// The caller **owns the returned handle** and must call `cancel` when it stops
+    /// caring — including when it stops caring because the stream finished. Nothing
+    /// downstream can do it on the caller's behalf.
+    func stream(_ request: HTTPRequest) async throws -> HTTPStream
 }

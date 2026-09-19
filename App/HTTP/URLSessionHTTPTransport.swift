@@ -107,8 +107,20 @@ struct URLSessionHTTPTransport: HTTPTransport {
         let progress = StreamProgress()
         let timeouts = self.timeouts
 
-        return AsyncThrowingStream { continuation in
-            let task = Task {
+        // The handle that makes cancellation explicit. `AsyncBytes` carries the task that
+        // is actually doing the transfer, so ending the transfer is one call — not a
+        // chain of hopes that cancelling one Task ends a stream, whose termination
+        // cancels another Task, whose cancellation reaches URLSession.
+        let networkTask = bytes.task
+
+        return HTTPStream(
+            body: AsyncThrowingStream { continuation in
+            // Every way this stream can end arrives here: the consumer cancelling,
+            // the consumer dropping it, a deadline expiring, the protocol finishing.
+            // All of them must end the transfer, and this is the only place that can.
+            continuation.onTermination = { _ in networkTask.cancel() }
+
+            Task {
                 await StreamDeadline.run(
                     progress: progress,
                     first: timeouts.transportInactivity,
@@ -150,12 +162,17 @@ struct URLSessionHTTPTransport: HTTPTransport {
                     }
                 )
             }
-            // Cancelling the consumer cancels the request. Without this the URLSession
-            // task would outlive the thing that asked for it and keep the connection
-            // open, which is exactly the failure `Agent Runtime.md:261` warns about —
-            // a late result still arriving after the run it belonged to was stopped.
-            continuation.onTermination = { _ in task.cancel() }
-        }
+            },
+            // The same call, exposed. A holder that stops caring — because it is
+            // stopping a run, because a deadline expired, because it decoded something it
+            // could not trust — ends the transfer here rather than waiting to find out
+            // whether its own termination propagated.
+            //
+            // Leaving this uncalled is how a connection outlives the interest in it:
+            // `Agent Runtime.md:261` — a late result still arriving after the run it
+            // belonged to was stopped.
+            cancel: { networkTask.cancel() }
+        )
     }
 
     // MARK: - Request building

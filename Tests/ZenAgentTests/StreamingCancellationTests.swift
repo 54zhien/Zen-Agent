@@ -52,7 +52,7 @@ struct StreamingCancellationTests {
         let url = makeURL()
         StubURLProtocol.register(endlessScript(), for: url)
 
-        let stream = try await URLSessionHTTPTransport(session: StubURLProtocol.makeSession()).stream(post(url))
+        let stream = try await URLSessionHTTPTransport(session: StubURLProtocol.makeSession()).stream(post(url)).body
         let deliveries = Deliveries()
 
         let consumer = Task {
