@@ -131,7 +131,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        deliverChunk(at: 0, of: script)
+        deliverStep(at: 0, of: script)
     }
 
     override func stopLoading() {
@@ -141,39 +141,51 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
 
     /// Delivers the script one step at a time, each step starting the next.
     ///
-    /// **Chained, not scheduled in parallel, and synchronous when the script asks for no
-    /// delay.** The first CI run showed why both matter. Scheduling every chunk at the
-    /// same deadline let them run concurrently on the global queue, so `didLoad` calls
-    /// interleaved and the body arrived shuffled; and a terminal failure could land
-    /// before the caller had even received its response, which turned an interrupted
-    /// stream into a failed request — a different outcome, and one the tests caught
-    /// because they assert the outcome rather than the plumbing.
-    private func deliverChunk(at index: Int, of script: Script) {
+    /// **Chained, and the delay applies to the terminator too.** The first CI run showed
+    /// why chaining matters: scheduling every chunk at the same deadline let them run
+    /// concurrently, so `didLoad` calls interleaved and the body arrived shuffled.
+    ///
+    /// The delay on the *terminator* is the subtler half. With everything delivered in
+    /// one burst, URLSession ends the task failed before the caller's byte stream ever
+    /// resumes — so a response that delivered data and then died arrives as neither, and
+    /// an interrupted stream is indistinguishable from a request that never got a
+    /// response. That is not a limitation of the transport; it is what happens when a
+    /// connection's whole life occurs inside one run-loop turn, which no real connection
+    /// does. A script that wants to model "delivered, then died" has to give the bytes
+    /// and the failure separate moments.
+    private func deliverStep(at index: Int, of script: Script) {
         guard !stopped.withLock({ isStopped }) else { return }
 
-        guard index < script.chunks.count else {
-            guard !script.stalls else { return }
-            if let code = script.failureCode {
-                client?.urlProtocol(self, didFailWithError: URLError(code))
-            } else {
-                client?.urlProtocolDidFinishLoading(self)
+        let step: (@Sendable () -> Void)?
+        if index < script.chunks.count {
+            let chunk = script.chunks[index]
+            step = { [weak self] in
+                guard let self, !self.stopped.withLock({ self.isStopped }) else { return }
+                self.client?.urlProtocol(self, didLoad: chunk)
+                self.deliverStep(at: index + 1, of: script)
             }
-            return
+        } else if script.stalls {
+            step = nil
+        } else if let code = script.failureCode {
+            step = { [weak self] in
+                guard let self else { return }
+                self.client?.urlProtocol(self, didFailWithError: URLError(code))
+            }
+        } else {
+            step = { [weak self] in
+                guard let self else { return }
+                self.client?.urlProtocolDidFinishLoading(self)
+            }
         }
 
-        let chunk = script.chunks[index]
-        let next: @Sendable () -> Void = { [weak self] in
-            guard let self, !self.stopped.withLock({ self.isStopped }) else { return }
-            self.client?.urlProtocol(self, didLoad: chunk)
-            self.deliverChunk(at: index + 1, of: script)
-        }
+        guard let step else { return }
 
         if script.chunkDelay > 0 {
             // Off the session's thread, so a scripted gap neither blocks the caller's
             // start-up nor keeps `stopLoading` from arriving mid-delivery.
-            DispatchQueue.global().asyncAfter(deadline: .now() + script.chunkDelay, execute: next)
+            DispatchQueue.global().asyncAfter(deadline: .now() + script.chunkDelay, execute: step)
         } else {
-            next()
+            step()
         }
     }
 }
