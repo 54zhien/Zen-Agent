@@ -3,10 +3,20 @@ status: accepted
 date: 2026-09-19
 ---
 
-# 持久化引擎选型推迟到 Stage 0 的 spike
+# 持久化引擎：V1 选定 GRDB
 
-我们不在 v0.9 确定用 SwiftData 还是 GRDB，而是在 Stage 0 加一个一次性 spike，
-用同一组测试分别验证候选方案后再记录结论。
+## Decision
+
+**Zen Agent V1 使用 GRDB。**
+
+理由不是「SwiftData 不可用」，而是 **Zen 的核心状态机需要数据库级约束、显式事务，
+以及更强的迁移与诊断控制**。SwiftData 在 A、C、D、G 上均被证明可行，
+但 active Parent Run 唯一性（B）需要额外依赖 application-level serialization，
+而 GRDB 可以把这条不变量**直接下沉到数据库层**。
+
+七个场景的完整结果：SwiftData 通过 6 项，唯一失败的是权重最高的那一项。
+
+这**不是**一个「SwiftData 很差」的结论。见文末的重新评估条件。
 
 ## 为什么需要这个决定
 
@@ -237,15 +247,45 @@ A 拆成两种**不同**的失败：A1 事务体内主动失败必须回滚；A2
 SwiftData 唯一还剩讨论价值的组合：C–G 上它**明显**更可靠或更简单，
 只有 B 需要一个全局 actor，且 Zen V1 明确不做 App Extension、所有 Run 创建只有一个 Repository owner。
 
-### 尚未验证的部分
+### 场景 E / F：删除生命周期（中等权重）
 
-**B、C、D 三个最高权重场景已在两个引擎上跑完**（见上）。
-剩余 **A（atomic send，中高）、G（流式写入压力，中高）、E（删除+Undo，中）、F（tombstone，中）**
-对两个引擎仍是空白。
+两条独立断言，因为它们会独立失败——合成一条的话，tombstone 回归和 undo 回归
+都会表现为「delete lifecycle failed」，下一个人还得二分定位。
 
-按产品给的判读原则，B+C+D 这一组已经足以形成倾向：**GRDB 在 B 上决定性领先、D 上小幅领先、C 平局**。
-但在 A/G 未测之前**不作最终选型**——中高权重的两项还没数据，
-而且 A（Send 原子提交）与 B 同属「一个事务里的复合写入」问题族，它的结果可能补充或削弱 B 的结论。
+| 断言 | GRDB | SwiftData |
+|---|---|---|
+| E：undo 窗口内正文完好，undo 恢复的是**完整对话**而非空壳 | ✅ | ✅ |
+| F：finalize 后正文删除，indeterminate 的最小 tombstone **不被级联抹掉** | ✅ | ✅ |
+
+F 是蓝图里少数「必须比父记录活得更久」的约束——tombstone 存在的前提正是拥有它的东西已经没了。
+SwiftData 侧因此让 tombstone **不带任何关系**，而 message / toolCall 走 `.cascade`。
+这样级联与不级联在同一测试里构成对照。
+
+**E/F 均为平局。**
+
+### 七个场景全部完成
+
+| | B | C | D | A | G | E | F |
+|---|---|---|---|---|---|---|---|
+| **GRDB** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **SwiftData** | ❌ 已知缺陷 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+**SwiftData 通过 6/7，唯一失败的是权重最高的那一项。**
+
+汇总：GRDB 在 **B 上决定性领先**（不变量由数据库保证 vs 靠应用纪律，两个可靠性层级）、
+在 **D 上小幅领先**（同样通过，但无「非可选属性使迁移失败」「失败原因被丢弃」两条负面发现）、
+**C / A / G / E / F 五项平局**。
+
+## 重新评估条件
+
+**SwiftData 是为 V1 落选，不是被根本否决。** 出现下列任一情况时应重新评估：
+
+- Zen 的并发模型显著简化，不再需要跨写入者的即时仲裁；
+- active Parent Run 唯一性不再需要数据库级强制（例如改成单 owner 串行架构）；
+- Apple 后续提供适合「条件唯一性」的数据库级能力。
+
+重估的起点是 `Spikes/Persistence/` 的这套场景——但它们已按下面的规则迁移成正式 regression test，
+spike 本身会被删除。
 
 ## 已核实的环境事实（2026-09-19）
 
@@ -260,9 +300,28 @@ SwiftData 唯一还剩讨论价值的组合：C–G 上它**明显**更可靠或
 ## Consequences
 
 - **执行环境限制**：spike 需要编译 Swift，而本机是 Windows 且无工具链，
-  因此只能在 GitHub Actions 的 macOS runner 上运行。spike 放在一次性分支或临时 target，
-  结论定下后连同 `PersistenceSpikeTests` 一起删除，只留本 ADR 的结论更新。
-- **两个已知陷阱需写入 spike 说明**：SwiftData 的 migration 测试必须跑真实 store——
-  Simulator 重建会删库，迁移代码可能根本不执行，导致测试假绿；
-  另外 SwiftData 官方建议 CloudKit 场景避免 unique 约束，自定义迁移在 CloudKit 下会崩。
-- **落选引擎的代价也要记录**：若将来重新考虑，理由应当已经写下来。
+  因此只能在 GitHub Actions 的 macOS runner 上运行。
+- **落选引擎的代价已记录**：SwiftData 的失败模式、适用条件与重估触发点都在上文，
+  将来重新考虑时理由已经写下来了。
+- **GRDB 与严格并发有已知摩擦**（Swift 6 data-race 诊断、`Record` 子类建议改 struct）。
+  本项目已选定 Swift 6 language mode，所以正式落地时**必须用 struct 而非 `Record` 子类**，
+  并且这一条要在 Stage 1 的第一次提交里就守住，不能等到出现诊断再改。
+- **SwiftData 的两条迁移陷阱对将来任何引擎都适用**，已移入正式测试的注释：
+  新增非可选属性必须有 schema 级默认值或 `didMigrate` 回填；
+  迁移失败的原因不保证可读，所以失败后的诊断不能只依赖抛出的错误对象。
+
+## 收尾顺序（不得跳步）
+
+    七个场景完成              ✅
+    A–G 结果冻结              ✅ 本 ADR
+    ADR Accepted              ✅
+    建立正式 GRDB Persistence 层
+    把长期不变量测试迁入正式 Tests
+      atomic Send / active Parent Run uniqueness /
+      indeterminate recovery / migration / delete-undo / tombstone / streaming
+    确认正式实现 CI 全绿
+    删除 SwiftData candidate 与一次性 spike
+    Stage 0 Gate review
+
+**不要在 ADR 一写完就删 spike。** 必须让正式实现先接过这些 regression test——
+否则这些不变量会在「spike 已删、正式实现还没有测试」的窗口里无人看守。
