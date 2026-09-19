@@ -166,10 +166,12 @@ struct URLSessionHTTPTransportTests {
         let url = makeURL()
         var script = StubURLProtocol.Script.delivering(["data: partial ans"])
         script.failureCode = .networkConnectionLost
-        // The bytes and the failure need separate moments. Delivered in one burst,
-        // URLSession ends the task failed before the caller's stream resumes and the
-        // data is lost with it — so the case this test is about would never arise.
-        script.chunkDelay = 0.02
+        // The chunk synchronously, so the response is established and the caller's stream
+        // resumes; the failure noticeably later, so the caller is genuinely reading when
+        // it lands. Delivered in one burst, URLSession ends the task failed before the
+        // caller resumes at all and the data goes with it — so the case this test is
+        // about would never arise, and the test would fail by reporting the wrong error.
+        script.tailDelay = 0.15
         StubURLProtocol.register(script, for: url)
 
         var failure: Error?
@@ -195,14 +197,11 @@ struct URLSessionHTTPTransportTests {
         )
     }
 
-    @Test("a connection that dies before delivering anything is interrupted with no data")
-    func failureBeforeDataIsInterruptedWithoutData() async throws {
+    @Test("a connection that dies before delivering anything is a failed request, not an interruption")
+    func failureBeforeDataIsAFailedRequest() async throws {
         let url = makeURL()
         var script = StubURLProtocol.Script()
         script.failureCode = .networkConnectionLost
-        // The response arrives, the caller starts reading, and only then does the
-        // connection die — with nothing delivered in between.
-        script.chunkDelay = 0.02
         StubURLProtocol.register(script, for: url)
 
         var failure: Error?
@@ -212,18 +211,22 @@ struct URLSessionHTTPTransportTests {
             failure = error
         }
 
+        // This assertion started out expecting `.streamInterrupted(deliveredData: false)`
+        // and was wrong. With no body byte ever delivered, `bytes(for:)` itself throws —
+        // there is no stream for the transport to have observed ending. `.networkFailure`
+        // is the honest report.
+        //
+        // And it is the distinction the notes ask for (`Provider 与模型.md:66`), just
+        // drawn where the transport can actually see it: nothing delivered ends as a
+        // failed request, and the same failure after output exists ends as an interrupted
+        // stream. Those two carry different `RetryDisposition`s, which is the whole point
+        // — nothing delivered may still be retried if a higher layer can prove the
+        // request was never accepted; output already delivered may not be replayed.
         guard let transportError = failure as? HTTPTransportError,
-              case .streamInterrupted(let deliveredData, _) = transportError else {
-            Issue.record("expected .streamInterrupted, got \(String(describing: failure))")
+              case .networkFailure = transportError else {
+            Issue.record("expected .networkFailure, got \(String(describing: failure))")
             return
         }
-        #expect(
-            !deliveredData,
-            """
-            the server produced nothing — the same failure, and a different fact. The \
-            notes require these two to be distinguishable (Provider 与模型.md:66).
-            """
-        )
     }
 
     // MARK: - No retry

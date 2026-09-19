@@ -21,6 +21,15 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         var chunks: [Data] = []
         /// Delay between chunks, so a caller can observe delivery over time.
         var chunkDelay: TimeInterval = 0
+        /// Delay before the terminator, when it needs a different gap from the chunks.
+        ///
+        /// Separate from `chunkDelay` because "the response arrived, data was delivered,
+        /// and *then* the connection died" needs the first chunk delivered synchronously
+        /// — so the response is established — and the failure noticeably later, so the
+        /// caller has actually resumed and is reading. Sharing one delay cannot express
+        /// that, and a failure that arrives too early is indistinguishable from one that
+        /// arrived before the response did.
+        var tailDelay: TimeInterval?
         // The failure is stored as a code rather than a `URLError`, so this type's
         // `Sendable` conformance does not rest on whether Foundation has marked
         // `URLError` as one. A code is all the script ever needs.
@@ -180,10 +189,11 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
 
         guard let step else { return }
 
-        if script.chunkDelay > 0 {
+        let delay = index < script.chunks.count ? script.chunkDelay : (script.tailDelay ?? script.chunkDelay)
+        if delay > 0 {
             // Off the session's thread, so a scripted gap neither blocks the caller's
             // start-up nor keeps `stopLoading` from arriving mid-delivery.
-            DispatchQueue.global().asyncAfter(deadline: .now() + script.chunkDelay, execute: step)
+            DispatchQueue.global().asyncAfter(deadline: .now() + delay, execute: step)
         } else {
             step()
         }
