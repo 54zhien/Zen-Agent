@@ -25,18 +25,30 @@ struct LocalHTTPServerLifecycleTests {
         return URLSession(configuration: configuration)
     }
 
+    /// An un-invalidated `URLSession` keeps its connection pool and delegate queue alive
+    /// after the test that made it has finished, which keeps the **test host** alive.
+    /// Every test here leaves a transfer in flight on purpose, so none of them can rely
+    /// on the session going away by itself.
+    private func withSession<T>(_ body: (URLSession) async throws -> T) async rethrows -> T {
+        let session = session()
+        defer { session.invalidateAndCancel() }
+        return try await body(session)
+    }
+
     /// Connects and takes one byte, so the worker is genuinely mid-script rather than
     /// still sitting in `accept` — the state that strands it.
     private func connectAndReadOneByte(_ server: LocalHTTPServer) async throws {
-        let (bytes, _) = try await session().bytes(for: URLRequest(url: server.baseURL))
-        var iterator = bytes.makeAsyncIterator()
-        var received = 0
-        while received == 0 {
-            guard let byte = try await iterator.next() else { break }
-            _ = byte
-            received += 1
+        try await withSession { session in
+            let (bytes, _) = try await session.bytes(for: URLRequest(url: server.baseURL))
+            var iterator = bytes.makeAsyncIterator()
+            var received = 0
+            while received == 0 {
+                guard let byte = try await iterator.next() else { break }
+                _ = byte
+                received += 1
+            }
+            #expect(received == 1, "the client never got a byte, so the worker's state is not the one under test")
         }
-        #expect(received == 1, "the client never got a byte, so the worker's state is not the one under test")
     }
 
     @Test("a held-open connection's worker stops on teardown")
