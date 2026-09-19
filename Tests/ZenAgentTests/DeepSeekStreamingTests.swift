@@ -219,11 +219,11 @@ struct DeepSeekStreamingTests {
             failure = error
         }
 
-        guard case .streamInterrupted(let deliveredData, _) = failure else {
+        guard case .streamInterrupted(let deliveredOutput, _) = failure else {
             Issue.record("expected .streamInterrupted, got \(String(describing: failure))")
             return
         }
-        #expect(deliveredData, "the caller had already received a chunk")
+        #expect(deliveredOutput, "the caller had already received a chunk")
     }
 
     @Test("a stream that dies before the terminator is interrupted with the transport's fact")
@@ -231,7 +231,7 @@ struct DeepSeekStreamingTests {
         let f = try makeFixture()
         f.transport.enqueueStream(
             sse([#"{"id":"c1","choices":[{"delta":{"reasoning_content":"thinking"}}]}"#], terminated: false),
-            thenFailWith: .streamInterrupted(deliveredData: true, reason: "URLError code -1005")
+            thenFailWith: .streamInterrupted(deliveredOutput: true, reason: "URLError code -1005")
         )
 
         var failure: ProviderError?
@@ -241,12 +241,12 @@ struct DeepSeekStreamingTests {
             failure = error
         }
 
-        guard case .streamInterrupted(let deliveredData, _) = failure else {
+        guard case .streamInterrupted(let deliveredOutput, _) = failure else {
             Issue.record("expected .streamInterrupted, got \(String(describing: failure))")
             return
         }
         // Partial reasoning is partial output. It counts.
-        #expect(deliveredData)
+        #expect(deliveredOutput)
     }
 
     @Test("a chunk that is not the expected shape is malformed, not skipped")
@@ -298,7 +298,7 @@ struct DeepSeekStreamingTests {
         let f = try makeFixture()
         f.transport.enqueueStream(
             [],
-            thenFailWith: .streamInterrupted(deliveredData: false, reason: "URLError code -1005")
+            thenFailWith: .streamInterrupted(deliveredOutput: false, reason: "URLError code -1005")
         )
 
         var failure: ProviderError?
@@ -308,34 +308,34 @@ struct DeepSeekStreamingTests {
             failure = error
         }
 
-        guard case .streamInterrupted(let deliveredData, _) = failure else {
+        guard case .streamInterrupted(let deliveredOutput, _) = failure else {
             Issue.record("expected .streamInterrupted, got \(String(describing: failure))")
             return
         }
         // The transport observed this, and the adapter must not lose it on the way up:
         // "nothing was produced" and "the answer was cut off" lead to different handling.
-        #expect(!deliveredData, "the model never produced anything before the connection died")
+        #expect(!deliveredOutput, "the model never produced anything before the connection died")
     }
 
     @Test("a parser failure becomes a Zen error, and an unterminated one keeps its distinction")
     func parserFailuresAreMapped() {
         #expect(
-            DeepSeekProvider.providerError(from: .invalidUTF8, deliveredData: false)
+            DeepSeekProvider.providerError(from: .invalidUTF8, deliveredOutput: false)
                 == .malformedResponse("a stream event was not valid UTF-8")
         )
         #expect(
-            DeepSeekProvider.providerError(from: .bufferLimitExceeded(limit: 64), deliveredData: false)
+            DeepSeekProvider.providerError(from: .bufferLimitExceeded(limit: 64), deliveredOutput: false)
                 == .malformedResponse("a stream event exceeded the 64-byte reassembly bound")
         )
         // The parser can say the terminator never arrived; it cannot know whether
         // anything was delivered before that, so the caller passes the fact in.
         #expect(
-            DeepSeekProvider.providerError(from: .unterminatedStream, deliveredData: true)
-                == .streamInterrupted(deliveredData: true, reason: "the stream ended without reaching its terminator")
+            DeepSeekProvider.providerError(from: .unterminatedStream, deliveredOutput: true)
+                == .streamInterrupted(deliveredOutput: true, reason: "the stream ended without reaching its terminator")
         )
         #expect(
-            DeepSeekProvider.providerError(from: .unterminatedStream, deliveredData: false)
-                == .streamInterrupted(deliveredData: false, reason: "the stream ended without reaching its terminator")
+            DeepSeekProvider.providerError(from: .unterminatedStream, deliveredOutput: false)
+                == .streamInterrupted(deliveredOutput: false, reason: "the stream ended without reaching its terminator")
         )
     }
 
@@ -422,7 +422,7 @@ struct DeepSeekStreamingTests {
         let f = try makeFixture()
         f.transport.enqueueStream(
             sse([#"{"id":"c1","choices":[{"delta":{"content":"x"}}]}"#], terminated: false),
-            thenFailWith: .streamInterrupted(deliveredData: true, reason: "URLError code -1005")
+            thenFailWith: .streamInterrupted(deliveredOutput: true, reason: "URLError code -1005")
         )
 
         _ = try? await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))

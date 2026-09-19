@@ -55,6 +55,17 @@ struct StreamTimeoutPolicy: Sendable, Equatable {
     )
 }
 
+extension Duration {
+    /// For the one API that still speaks `TimeInterval`: `URLRequest.timeoutInterval`.
+    ///
+    /// Lossy in principle, and exactly representable for every value this project uses —
+    /// the deadlines are whole seconds, and floating point carries them without error
+    /// far beyond any plausible request timeout.
+    var timeInterval: TimeInterval {
+        Double(components.seconds) + Double(components.attoseconds) / 1e18
+    }
+}
+
 /// When a stream last made progress, on whichever question is being asked.
 ///
 /// Shared between a reader and its watchdog, which run concurrently. Lock-protected

@@ -53,11 +53,19 @@ struct URLSessionHTTPTransport: HTTPTransport {
         let bytes: URLSession.AsyncBytes
         let response: URLResponse
         do {
-            (bytes, response) = try await session.bytes(for: Self.urlRequest(from: request))
+            (bytes, response) = try await session.bytes(for: Self.urlRequest(
+                from: request,
+                // The request's own interval, not the session's. `URLSession` applies its
+                // idle timer to the transfer, and the default is sixty seconds — which
+                // would fire long before the liveness deadline below and report itself
+                // as a dropped connection. Passing the policy down is what makes the
+                // configured window the one that actually applies.
+                timeout: timeouts.transportInactivity.timeInterval
+            ))
         } catch {
             // The head never arrived, so this is not an interrupted stream — there was
             // no stream yet.
-            throw Self.transportError(from: error)
+            throw Self.headError(from: error, timeouts: timeouts)
         }
 
         guard let http = response as? HTTPURLResponse else {
@@ -70,8 +78,18 @@ struct URLSessionHTTPTransport: HTTPTransport {
             // point of this transport is that it makes exactly one.
             var body = Data()
             do {
-                for try await byte in bytes { body.append(byte) }
+                for try await byte in bytes {
+                    // Bounded, like the parser's reassembly buffers. An error body is a
+                    // small JSON envelope; a server that sends megabytes, or never ends,
+                    // must not be able to grow this without limit.
+                    guard body.count < Self.maximumErrorBodyBytes else { break }
+                    body.append(byte)
+                }
             } catch {
+                // Cancellation is not a refusal. Swallowing it here would report a
+                // streamed 401 to someone who pressed Stop as "your credential was
+                // rejected" — the exact inversion of what cancellation reporting is for.
+                if Self.isCancellation(error) { throw HTTPTransportError.cancelled }
                 // The status line arrived before the failure, so the status is known
                 // even when the body is not. Reporting it with a partial body is more
                 // useful than reporting a network failure: a 401 is a 401, and the
@@ -124,7 +142,8 @@ struct URLSessionHTTPTransport: HTTPTransport {
                             continuation.finish(
                                 throwing: Self.streamError(
                                     from: error,
-                                    deliveredData: progress.hasAdvanced
+                                    deliveredData: progress.hasAdvanced,
+                                    timeouts: timeouts
                                 )
                             )
                         }
@@ -141,10 +160,14 @@ struct URLSessionHTTPTransport: HTTPTransport {
 
     // MARK: - Request building
 
-    private static func urlRequest(from request: HTTPRequest) -> URLRequest {
+    /// The most of an error body worth keeping. Far above any real envelope.
+    private static let maximumErrorBodyBytes = 64 << 10
+
+    private static func urlRequest(from request: HTTPRequest, timeout: TimeInterval? = nil) -> URLRequest {
         var urlRequest = URLRequest(url: request.url)
         urlRequest.httpMethod = request.method.rawValue
         urlRequest.httpBody = request.body
+        if let timeout { urlRequest.timeoutInterval = timeout }
         for (name, value) in request.headers {
             urlRequest.setValue(value, forHTTPHeaderField: name)
         }
@@ -169,12 +192,29 @@ struct URLSessionHTTPTransport: HTTPTransport {
     /// put an error in front of someone who pressed Stop, and would make "the user
     /// stopped this" indistinguishable from "this broke".
     private static func transportError(from error: Error) -> HTTPTransportError {
-        if error is CancellationError { return .cancelled }
-        if let urlError = error as? URLError, urlError.code == .cancelled { return .cancelled }
+        if isCancellation(error) { return .cancelled }
         // The error's own description, never the request's. `URLError` carries the
         // failing URL and a code; a message built from the request would carry the
         // Authorization header, and this string ends up in logs.
         return .networkFailure(describe(error))
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        return (error as? URLError)?.code == .cancelled
+    }
+
+    /// A failure before the response head, for a streaming request.
+    ///
+    /// A timeout here is the same event the liveness deadline describes, arriving by way
+    /// of `URLSession`'s own idle timer. Reporting it as a network failure would tell
+    /// someone their connection dropped when in fact nothing was sent for a while — the
+    /// conflation `HTTPTransportError.inactivityTimeout` exists to prevent.
+    private static func headError(from error: Error, timeouts: StreamTimeoutPolicy) -> HTTPTransportError {
+        if (error as? URLError)?.code == .timedOut {
+            return .inactivityTimeout(after: timeouts.transportInactivity)
+        }
+        return transportError(from: error)
     }
 
     /// The same mapping, with the one difference a stream introduces.
@@ -182,7 +222,14 @@ struct URLSessionHTTPTransport: HTTPTransport {
     /// A failure that arrives before the head is a failed request; one that arrives
     /// after it is an interrupted stream, and the caller needs to know which bytes had
     /// already been handed over.
-    private static func streamError(from error: Error, deliveredData: Bool) -> HTTPTransportError {
+    private static func streamError(
+        from error: Error,
+        deliveredData: Bool,
+        timeouts: StreamTimeoutPolicy
+    ) -> HTTPTransportError {
+        if (error as? URLError)?.code == .timedOut {
+            return .inactivityTimeout(after: timeouts.transportInactivity)
+        }
         let mapped = transportError(from: error)
         guard case .networkFailure(let reason) = mapped else { return mapped }
         return .streamInterrupted(deliveredData: deliveredData, reason: reason)

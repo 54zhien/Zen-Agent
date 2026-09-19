@@ -81,13 +81,19 @@ struct StreamingCancellationTests {
             """
         )
 
-        // And nothing arrives afterwards. Sampled once the loop has ended, so this is
-        // not a race with a delivery already in flight.
-        let atRest = deliveries.recorded
-        try await Task.sleep(for: .milliseconds(120))
+        // And the server stops being read. Counted on the stub's side, not the
+        // consumer's: a counter the consumer increments cannot move once the consumer
+        // has stopped, so asserting it did not move would prove nothing. This one keeps
+        // climbing if the underlying task was never cancelled — which is the failure
+        // being tested for.
+        let atRest = StubURLProtocol.deliveryCount(for: url)
+        try await Task.sleep(for: .milliseconds(150))
         #expect(
-            deliveries.recorded == atRest,
-            "\(deliveries.recorded - atRest) more chunks arrived after the consumer stopped"
+            StubURLProtocol.deliveryCount(for: url) == atRest,
+            """
+            the stub delivered \(StubURLProtocol.deliveryCount(for: url) - atRest) more \
+            chunks after the consumer stopped — the request is still running
+            """
         )
     }
 
@@ -146,6 +152,11 @@ struct StreamingCancellationTests {
             } catch let error as ProviderError {
                 return error
             } catch {
+                // Reported rather than folded into `nil`. `nil` is accepted below as a
+                // clean end, so swallowing here would make any non-Zen error escaping
+                // `stream()` indistinguishable from a correct cancellation — and this
+                // test's whole point is the negative.
+                Issue.record("a non-Zen error escaped the adapter: \(error)")
                 return nil
             }
         }

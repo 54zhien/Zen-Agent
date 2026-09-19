@@ -53,7 +53,14 @@ enum ProviderError: Error, Equatable {
     ///
     /// A connection-level fact. It says nothing about whether the model was producing —
     /// a keep-alive would have reset it, and a keep-alive is not output.
-    case streamInactivityTimeout(after: Duration)
+    ///
+    /// `deliveredOutput` is about the **model**, not the wire, and it is carried because
+    /// the replay rule turns on it rather than on whether bytes moved: a stream that sent
+    /// keep-alives for a minute and then died produced nothing and may be retried, while
+    /// one that went quiet after two thousand tokens may not be replayed at all. Only the
+    /// layer that decoded those chunks can tell the two apart, so it passes the fact in
+    /// rather than letting this layer guess from byte counts.
+    case streamInactivityTimeout(after: Duration, deliveredOutput: Bool)
 
     /// Model output stopped arriving.
     ///
@@ -64,12 +71,16 @@ enum ProviderError: Error, Equatable {
 
     /// The response stream stopped after it had begun.
     ///
-    /// `deliveredData` is carried rather than folded away because it is the fact the
+    /// `deliveredOutput` is carried rather than folded away because it is the fact the
     /// replay rule turns on: once output has been delivered, re-sending the request
     /// would ask the model to generate the whole thing again while the UI still counts
-    /// it as one continuous answer (`Agent Runtime.md:344`). The transport observes it;
-    /// deciding what to do about it belongs to a layer that knows about attempts.
-    case streamInterrupted(deliveredData: Bool, reason: String)
+    /// it as one continuous answer (`Agent Runtime.md:344`). Deciding what to do about
+    /// it belongs to a layer that knows about attempts.
+    ///
+    /// **Output, not bytes.** The transport can say whether data moved; only the adapter
+    /// can say whether any of it was the model's. A stream of keep-alive comments is
+    /// bytes and is not output, and the difference decides whether a retry is allowed.
+    case streamInterrupted(deliveredOutput: Bool, reason: String)
     /// The run's frozen configuration no longer matches the instance it names.
     ///
     /// Refused rather than resolved. A run must execute against the identity it was
@@ -126,18 +137,21 @@ extension ProviderError {
             // Output existed. Replaying would ask the model to generate it again while
             // the caller still counts this as one answer (`Agent Runtime.md:344`).
             return .doNotRetry
-        case .streamProgressTimeout(.awaitingFirstEvent, _), .streamInactivityTimeout:
+        case .streamProgressTimeout(.awaitingFirstEvent, _):
             // Nothing was produced, and that is still not proof the request was never
             // accepted — a streaming POST cannot offer that proof
             // (`Agent Runtime.md:341-343`), so this is "cannot say" rather than "safe".
             return .retrySuggested
-        case .streamInterrupted(let deliveredData, _):
-            // Both directions come from the same rule, and they land the same way for
-            // different reasons. With output already delivered, replay is forbidden
-            // outright. Without it, a streaming POST still cannot prove the request was
-            // never accepted — the protocol offers no such evidence (`Agent Runtime.md:341-343`)
-            // — so the disposition is "cannot say", not "safe".
-            return deliveredData ? .doNotRetry : .retrySuggested
+        case .streamInactivityTimeout(_, let deliveredOutput):
+            // A liveness timeout is a fact about the wire, and the wire being quiet says
+            // nothing about the answer. What matters is whether output had already been
+            // handed over before it went quiet — a connection that dies two thousand
+            // tokens in must not be replayed, and one that dies while the model is still
+            // thinking may be attempted again.
+            return deliveredOutput ? .doNotRetry : .retrySuggested
+        case .streamInterrupted(let deliveredOutput, _):
+            // The same rule, and the same reason the fact is carried rather than assumed.
+            return deliveredOutput ? .doNotRetry : .retrySuggested
         case .credentialRejected, .credentialMissing, .insufficientBalance, .invalidRequest,
              .invalidParameters, .malformedResponse, .cancelled, .configurationMismatch:
             return .doNotRetry

@@ -107,7 +107,7 @@ struct DeepSeekProvider: ModelProvider {
             // a transport-layer type in front of the Runtime — the exact leak this
             // abstraction exists to prevent, and one that would make every later
             // transport's vocabulary the Runtime's problem.
-            throw Self.providerError(from: error)
+            throw Self.providerError(from: error, deliveredOutput: false)
         }
 
         guard (200..<300).contains(httpResponse.status) else {
@@ -158,7 +158,7 @@ struct DeepSeekProvider: ModelProvider {
         do {
             bytes = try await transport.stream(httpRequest)
         } catch {
-            throw Self.providerError(from: error)
+            throw Self.providerError(from: error, deliveredOutput: false)
         }
 
         return Self.chunks(from: bytes, timeouts: streamTimeouts)
@@ -210,8 +210,23 @@ struct DeepSeekProvider: ModelProvider {
                                         continuation.finish()
                                         return
                                     case .event(let event):
-                                        let decoded = try decodeStreamChunk(event.data)
-                                        progress.advanced()
+                                        // A bare `data:` line is legal SSE and the parser
+                                        // deliberately dispatches it with an empty payload.
+                                        // It carries no chunk, so it is skipped rather than
+                                        // decoded — failing an answer over a heartbeat is
+                                        // not strictness worth having.
+                                        let payload = event.data.trimmingCharacters(in: .whitespacesAndNewlines)
+                                        guard !payload.isEmpty else { continue }
+
+                                        let decoded = try decodeStreamChunk(payload)
+                                        // Rearmed by **output**, not merely by a chunk
+                                        // arriving. DeepSeek's first chunk carries a role
+                                        // and an empty content string, and a proxy that
+                                        // kept sending `delta: {}` would otherwise re-arm
+                                        // this forever — the stall it exists to catch would
+                                        // never be caught, and the run would hang with
+                                        // nothing produced.
+                                        if Self.carriesOutput(decoded) { progress.advanced() }
                                         continuation.yield(decoded)
                                     }
                                 }
@@ -221,16 +236,27 @@ struct DeepSeekProvider: ModelProvider {
                             continuation.finish()
                         } catch let failure as SSEParserError {
                             continuation.finish(
-                                throwing: providerError(from: failure, deliveredData: progress.hasAdvanced)
+                                throwing: providerError(from: failure, deliveredOutput: progress.hasAdvanced)
                             )
                         } catch {
-                            continuation.finish(throwing: providerError(from: error))
+                            continuation.finish(throwing: providerError(from: error, deliveredOutput: progress.hasAdvanced))
                         }
                     }
                 )
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// Whether a chunk carries anything the model actually produced.
+    ///
+    /// The distinction the whole two-deadline design rests on. An empty `content` string,
+    /// an absent delta and a `finish_reason`-only chunk are all chunks and none of them is
+    /// output — so a stream of them is evidence the connection is alive and evidence of
+    /// nothing else.
+    static func carriesOutput(_ chunk: DeepSeekStreamChunk) -> Bool {
+        guard let delta = chunk.choices?.first?.delta else { return false }
+        return !(delta.content ?? "").isEmpty || !(delta.reasoning_content ?? "").isEmpty
     }
 
     /// One event payload to one chunk.
@@ -248,14 +274,14 @@ struct DeepSeekProvider: ModelProvider {
 
     /// A parser failure, in Zen's vocabulary.
     ///
-    /// `deliveredData` is threaded in rather than assumed: the parser cannot know
+    /// `deliveredOutput` is threaded in rather than assumed: the parser cannot know
     /// whether its caller had already handed anything onward, and that fact decides
     /// whether the result is a stream that was cut short or one that never started.
-    static func providerError(from error: SSEParserError, deliveredData: Bool) -> ProviderError {
+    static func providerError(from error: SSEParserError, deliveredOutput: Bool) -> ProviderError {
         switch error {
         case .unterminatedStream:
             return .streamInterrupted(
-                deliveredData: deliveredData,
+                deliveredOutput: deliveredOutput,
                 reason: "the stream ended without reaching its terminator"
             )
         case .invalidUTF8:
@@ -343,7 +369,15 @@ struct DeepSeekProvider: ModelProvider {
     /// caller above this adapter must never have to know which transport is underneath,
     /// and "the request failed and we do not know why" is the honest description of an
     /// error this layer cannot classify.
-    static func providerError(from error: Error) -> ProviderError {
+    /// Anything a transport or parser can throw, in Zen's vocabulary.
+    ///
+    /// `deliveredOutput` is the caller's knowledge, not this function's, and it is asked
+    /// for rather than inferred because this layer cannot infer it: whether the **model**
+    /// produced anything is knowable only where chunks are decoded, and the transport's
+    /// byte count is a different fact. An earlier version forwarded the transport's count
+    /// here, which made a stream of keep-alive comments look like a partially delivered
+    /// answer and forbade a retry the notes permit.
+    static func providerError(from error: Error, deliveredOutput: Bool) -> ProviderError {
         switch error {
         case let transport as HTTPTransportError:
             switch transport {
@@ -361,9 +395,13 @@ struct DeepSeekProvider: ModelProvider {
                 // diagnosed differently — one is a read timeout or a provider that
                 // stopped sending keep-alives, the other is a connection that dropped —
                 // and collapsing them would send someone looking in the wrong place.
-                return .streamInactivityTimeout(after: elapsed)
-            case .streamInterrupted(let deliveredData, let reason):
-                return .streamInterrupted(deliveredData: deliveredData, reason: reason)
+                return .streamInactivityTimeout(after: elapsed, deliveredOutput: deliveredOutput)
+            case .streamInterrupted(_, let reason):
+                // The transport's own `deliveredData` is deliberately dropped. It counts
+                // bytes, and bytes include keep-alive comments — which are evidence the
+                // connection is alive and evidence of nothing else. The caller's
+                // `deliveredOutput` is the fact the replay rule turns on.
+                return .streamInterrupted(deliveredOutput: deliveredOutput, reason: reason)
             }
         case is CancellationError:
             // Swift's own cancellation, which a real transport can surface instead of

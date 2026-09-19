@@ -59,13 +59,29 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var scripts: [String: Script] = [:]
     nonisolated(unsafe) private static var requestCounts: [String: Int] = [:]
     nonisolated(unsafe) private static var stopCounts: [String: Int] = [:]
+    nonisolated(unsafe) private static var deliveryCounts: [String: Int] = [:]
 
     static func register(_ script: Script, for url: URL) {
         lock.withLock {
             scripts[key(url)] = script
             requestCounts[key(url)] = 0
             stopCounts[key(url)] = 0
+            deliveryCounts[key(url)] = 0
         }
+    }
+
+    /// How many chunks this stub has handed to the session.
+    ///
+    /// Counted on the **producer** side, which is what makes "nothing was delivered
+    /// after cancellation" falsifiable. A counter incremented by the consumer's own
+    /// loop can only say how much the consumer took; once it stops, such a counter is
+    /// incapable of moving, and the assertion that it did not move proves nothing.
+    static func deliveryCount(for url: URL) -> Int {
+        lock.withLock { deliveryCounts[key(url)] ?? 0 }
+    }
+
+    private static func recordDelivery(for url: URL) {
+        lock.withLock { deliveryCounts[key(url), default: 0] += 1 }
     }
 
     static func requestCount(for url: URL) -> Int {
@@ -170,19 +186,24 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
             let chunk = script.chunks[index]
             step = { [weak self] in
                 guard let self, !self.stopped.withLock({ self.isStopped }) else { return }
+                if let url = self.request.url { Self.recordDelivery(for: url) }
                 self.client?.urlProtocol(self, didLoad: chunk)
                 self.deliverStep(at: index + 1, of: script)
             }
         } else if script.stalls {
             step = nil
         } else if let code = script.failureCode {
+            // The `isStopped` check every branch needs, not just the chunk branch. A
+            // terminal callback delivered after `stopLoading` violates the
+            // `URLProtocol` contract — and in a cancellation test it would mean one
+            // request reporting both a cancellation and a spurious connection loss.
             step = { [weak self] in
-                guard let self else { return }
+                guard let self, !self.stopped.withLock({ self.isStopped }) else { return }
                 self.client?.urlProtocol(self, didFailWithError: URLError(code))
             }
         } else {
             step = { [weak self] in
-                guard let self else { return }
+                guard let self, !self.stopped.withLock({ self.isStopped }) else { return }
                 self.client?.urlProtocolDidFinishLoading(self)
             }
         }

@@ -202,15 +202,30 @@ struct StreamingTimeoutTests {
         // (`Agent Runtime.md:341-343`).
         #expect(ProviderError.streamProgressTimeout(phase: .betweenEvents, after: .seconds(1)).retryDisposition == .doNotRetry)
         #expect(ProviderError.streamProgressTimeout(phase: .awaitingFirstEvent, after: .seconds(1)).retryDisposition == .retrySuggested)
-        #expect(ProviderError.streamInactivityTimeout(after: .seconds(1)).retryDisposition == .retrySuggested)
+        // A liveness timeout is a fact about the wire, and the wire going quiet says
+        // nothing about the answer. What decides is whether output had already been
+        // handed over — which is why the case carries that fact rather than leaving this
+        // layer to guess from a byte count. Bytes include keep-alive comments, and a
+        // minute of heartbeats followed by a dead connection produced nothing at all.
+        #expect(
+            ProviderError.streamInactivityTimeout(after: .seconds(1), deliveredOutput: false).retryDisposition
+                == .retrySuggested,
+            "keep-alives and then silence is not a partially delivered answer"
+        )
+        #expect(
+            ProviderError.streamInactivityTimeout(after: .seconds(1), deliveredOutput: true).retryDisposition
+                == .doNotRetry,
+            "going quiet two thousand tokens in must not be replayed"
+        )
 
         // And nothing here is ever "safe to retry".
         let streamFailures: [ProviderError] = [
-            .streamInactivityTimeout(after: .seconds(1)),
+            .streamInactivityTimeout(after: .seconds(1), deliveredOutput: false),
+            .streamInactivityTimeout(after: .seconds(1), deliveredOutput: true),
             .streamProgressTimeout(phase: .awaitingFirstEvent, after: .seconds(1)),
             .streamProgressTimeout(phase: .betweenEvents, after: .seconds(1)),
-            .streamInterrupted(deliveredData: false, reason: "x"),
-            .streamInterrupted(deliveredData: true, reason: "x"),
+            .streamInterrupted(deliveredOutput: false, reason: "x"),
+            .streamInterrupted(deliveredOutput: true, reason: "x"),
         ]
         for error in streamFailures {
             #expect(
