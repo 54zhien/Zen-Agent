@@ -161,25 +161,28 @@ struct URLSessionHTTPTransportTests {
         }
     }
 
-    @Test("a connection that dies partway is an interrupted stream that delivered data")
-    func failureAfterDataIsInterruptedWithData() async throws {
+    @Test("a connection that dies after data was observed is an interrupted stream that delivered data")
+    func failureAfterObservedDataIsInterrupted() async throws {
         let url = makeURL()
         var script = StubURLProtocol.Script.delivering(["data: partial ans"])
         script.failureCode = .networkConnectionLost
-        // Asynchronously, and then a noticeably longer gap before the failure. The first
-        // chunk has to be delivered off the session's thread for the response to reach
-        // the caller at all; the failure has to land well after that, so the caller is
-        // genuinely reading when it arrives. Delivered in one burst, URLSession ends the
-        // task failed before the caller resumes and the data goes with it — the case this
-        // test is about would never arise, and it would fail by reporting the wrong error.
+        // Delivered off the session's thread, because `bytes(for:)` does not hand back a
+        // response body delivered inline. That part is a fact about Foundation, not a
+        // guess. Everything after it is a handshake: the connection dies when the test
+        // says so, not when a delay has elapsed.
         script.chunkDelay = 0.02
-        script.tailDelay = 0.2
+        script.awaitsFailureTrigger = true
         StubURLProtocol.register(script, for: url)
 
         var failure: Error?
         var received = Data()
         do {
-            for try await chunk in try await makeTransport().stream(post(url)).body { received.append(chunk) }
+            for try await chunk in try await makeTransport().stream(post(url)).body {
+                received.append(chunk)
+                // The byte is in hand. *Now* kill the connection — so "the transport had
+                // observed data before the failure" is caused, not hoped for.
+                StubURLProtocol.triggerFailure(for: url)
+            }
         } catch {
             failure = error
         }

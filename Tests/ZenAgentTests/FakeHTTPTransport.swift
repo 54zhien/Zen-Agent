@@ -22,6 +22,8 @@ final class FakeHTTPTransport: HTTPTransport, @unchecked Sendable {
 
     /// Body chunks a `stream` call delivers, in order.
     private var streamChunks: [Data] = []
+    /// Leaves the stream open after its chunks. See `stallStream`.
+    private var streamStalls = false
     /// Thrown instead of returning a stream at all — the shape of a refused request.
     private var streamHeadFailure: HTTPTransportError?
     /// Thrown after the chunks — the shape of a connection that died partway.
@@ -53,6 +55,7 @@ final class FakeHTTPTransport: HTTPTransport, @unchecked Sendable {
         streamChunks = chunks.map { Data($0.utf8) }
         streamTailFailure = nil
         streamHeadFailure = nil
+        streamStalls = false
     }
 
     /// Queues chunks as raw bytes, for the cases where the bytes are the point — a
@@ -62,6 +65,7 @@ final class FakeHTTPTransport: HTTPTransport, @unchecked Sendable {
         streamChunks = chunks
         streamTailFailure = nil
         streamHeadFailure = nil
+        streamStalls = false
     }
 
     /// Queues chunks and then a failure — a connection that died after delivering.
@@ -72,12 +76,24 @@ final class FakeHTTPTransport: HTTPTransport, @unchecked Sendable {
         streamHeadFailure = nil
     }
 
+    /// Queues chunks and then leaves the stream open — a connection that has gone quiet
+    /// with the request still running. What an expiry deadline exists for.
+    func stallStream(after chunks: [String]) {
+        lock.lock(); defer { lock.unlock() }
+        streamChunks = chunks.map { Data($0.utf8) }
+        streamTailFailure = nil
+        streamHeadFailure = nil
+        streamStalls = false
+        streamStalls = true
+    }
+
     /// Makes `stream` throw before returning one, the way a refused request does.
     func failStream(with error: HTTPTransportError) {
         lock.lock(); defer { lock.unlock() }
         streamHeadFailure = error
         streamChunks = []
         streamTailFailure = nil
+        streamStalls = false
     }
 
     // MARK: - Inspection
@@ -126,6 +142,9 @@ final class FakeHTTPTransport: HTTPTransport, @unchecked Sendable {
 
     /// How many times a streaming call's handle was cancelled.
     private var streamCancelCount = 0
+    /// Retained only while a scripted stall is open. A continuation that is released
+    /// without being finished finishes the stream, which would defeat the stall.
+    private var stalledContinuations: [AsyncThrowingStream<Data, Error>.Continuation] = []
 
     var streamCancellations: Int {
         lock.lock(); defer { lock.unlock() }
@@ -133,14 +152,14 @@ final class FakeHTTPTransport: HTTPTransport, @unchecked Sendable {
     }
 
     func stream(_ request: HTTPRequest) async throws -> HTTPStream {
-        let script = lock.withLock { () -> (HTTPTransportError?, [Data], HTTPTransportError?) in
+        let script = lock.withLock { () -> (HTTPTransportError?, [Data], HTTPTransportError?, Bool) in
             // Counted like `send`, so a test can assert that a failed stream made
             // exactly one attempt. That is how "no hidden retry" is checked on this path
             // too — and it matters more here, because a replayed stream would generate
             // the answer a second time while the UI still showed one.
             sent.append(request)
             sentCount += 1
-            return (streamHeadFailure, streamChunks, streamTailFailure)
+            return (streamHeadFailure, streamChunks, streamTailFailure, streamStalls)
         }
 
         if let head = script.0 { throw head }
@@ -149,15 +168,27 @@ final class FakeHTTPTransport: HTTPTransport, @unchecked Sendable {
                 for chunk in script.1 { continuation.yield(chunk) }
                 if let tail = script.2 {
                     continuation.finish(throwing: tail)
+                } else if script.3 {
+                    // Held open. The caller is left waiting, which is the state an
+                    // expiry deadline exists to end.
+                    lock.withLock { stalledContinuations.append(continuation) }
                 } else {
                     continuation.finish()
                 }
             },
             // Recorded rather than ignored. Whether the layer above ends the transfer it
-            // was given is a claim worth being able to fail on.
+            // was given is a claim worth being able to fail on — and a stalled stream is
+            // also released here, so a caller that never cancels hangs, which is the
+            // honest consequence of not ending a request.
             cancel: { [weak self] in
                 guard let self else { return }
-                self.lock.lock(); self.streamCancelCount += 1; self.lock.unlock()
+                let pending: [AsyncThrowingStream<Data, Error>.Continuation] = self.lock.withLock {
+                    self.streamCancelCount += 1
+                    let held = self.stalledContinuations
+                    self.stalledContinuations = []
+                    return held
+                }
+                for continuation in pending { continuation.finish() }
             }
         )
     }

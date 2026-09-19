@@ -42,6 +42,13 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         /// has gone quiet. The caller is left waiting, which is the state an inactivity
         /// deadline exists for.
         var stalls = false
+        /// Delivers the chunks, then waits for the test to say when the connection dies.
+        ///
+        /// The alternative is a delay long enough to *hope* the transport has seen the
+        /// data, which is a guess about Foundation's scheduling. With a handshake the
+        /// test says `triggerFailure` at the moment it has a byte in hand, so the
+        /// disconnect is caused by an observation rather than by elapsed time.
+        var awaitsFailureTrigger = false
 
         /// Named `delivering` rather than `chunks` so the factory does not share a name
         /// with the stored property it fills in.
@@ -82,6 +89,17 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
 
     private static func recordDelivery(for url: URL) {
         lock.withLock { deliveryCounts[key(url), default: 0] += 1 }
+    }
+
+    nonisolated(unsafe) private static var failureTriggers: [String: @Sendable () -> Void] = [:]
+
+    /// Kills the connection, on the test's terms rather than on a timer's.
+    static func triggerFailure(for url: URL) {
+        lock.withLock { failureTriggers[key(url)] }?()
+    }
+
+    private static func registerFailureTrigger(for url: URL, _ trigger: @escaping @Sendable () -> Void) {
+        lock.withLock { failureTriggers[key(url)] = trigger }
     }
 
     static func requestCount(for url: URL) -> Int {
@@ -180,6 +198,18 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     /// and the failure separate moments.
     private func deliverStep(at index: Int, of script: Script) {
         guard !stopped.withLock({ isStopped }) else { return }
+
+        // Chunks delivered, and the disconnect is the test's to trigger. Registered here
+        // and fired from the test, so the failure cannot arrive before the consumer has
+        // actually observed a byte.
+        if index >= script.chunks.count, script.awaitsFailureTrigger {
+            guard let code = script.failureCode, let url = request.url else { return }
+            Self.registerFailureTrigger(for: url) { [weak self] in
+                guard let self, !self.stopped.withLock({ self.isStopped }) else { return }
+                self.client?.urlProtocol(self, didFailWithError: URLError(code))
+            }
+            return
+        }
 
         let step: (@Sendable () -> Void)?
         if index < script.chunks.count {

@@ -47,17 +47,21 @@ struct StreamingCancellationTests {
 
     // MARK: - The transport
 
-    @Test("cancelling the consumer cancels the underlying request")
-    func cancellationReachesTheNetwork() async throws {
+    @Test("cancelling the handle cancels the underlying request")
+    func cancelReachesTheNetwork() async throws {
         let url = makeURL()
         StubURLProtocol.register(endlessScript(), for: url)
 
-        let stream = try await URLSessionHTTPTransport(session: StubURLProtocol.makeSession()).stream(post(url)).body
+        // The **whole** handle is held. An earlier version took `.body` and dropped the
+        // handle, then expected the transport to notice on its own that the consumer had
+        // gone — which was the contract before this refactor, and was the thing that did
+        // not work. This tests the contract that replaced it.
+        let handle = try await URLSessionHTTPTransport(session: StubURLProtocol.makeSession()).stream(post(url))
         let deliveries = Deliveries()
 
         let consumer = Task {
             do {
-                for try await _ in stream { deliveries.record() }
+                for try await _ in handle.body { deliveries.record() }
             } catch {
                 // Cancellation may surface as a thrown error or as a clean end. Either
                 // is a stopped stream; this test is not about which.
@@ -69,15 +73,16 @@ struct StreamingCancellationTests {
         let beforeCancelling = deliveries.recorded
         #expect(beforeCancelling > 0, "the stream should have delivered something before it was cancelled")
 
-        consumer.cancel()
+        // The holder ends the transfer. One call, and the point of the type.
+        handle.cancel()
         _ = await consumer.value
 
         #expect(
             StubURLProtocol.stopCount(for: url) >= 1,
             """
-            the URLSession task was never cancelled. The caller stopped reading and the \
-            request kept running — a connection held open by a result nobody is waiting \
-            for (Agent Runtime.md:261).
+            HTTPStream.cancel() did not reach the URLSession task. A connection held \
+            open by a result nobody is waiting for is what Agent Runtime.md:261 warns \
+            about, and it is what this handle exists to prevent.
             """
         )
 
@@ -99,8 +104,14 @@ struct StreamingCancellationTests {
 
     // MARK: - Through the adapter
 
-    @Test("a cancelled stream is not reported as something going wrong")
-    func cancellationIsNotAFailure() async throws {
+    /// Named for what it checks, not for more.
+    ///
+    /// The assertion below accepts either a clean end or `.cancelled`, so this does
+    /// **not** prove the error is always `.cancelled`. What it proves is the pair that
+    /// matters: the request reached the network and was cancelled there, and no failure
+    /// was invented for a user who asked to stop.
+    @Test("cancelling a provider consumer reaches the network without inventing a failure")
+    func cancellationReachesTheNetworkWithoutAFailure() async throws {
         let endpoint = URL(string: "https://stub-\(UUID().uuidString).invalid")!
         let reference = CredentialReference(id: "cred-1")
         let credentials = CredentialStore(
@@ -166,7 +177,8 @@ struct StreamingCancellationTests {
         let outcome = await consumer.value
 
         // A user who pressed Stop did not experience a failure, and reporting one would
-        // put an error in front of them for something they asked for.
+        // put an error in front of them for something they asked for. Both accepted
+        // outcomes are non-failures; this does not assert which one arrives.
         #expect(
             outcome == nil || outcome == .cancelled,
             "cancellation surfaced as \(String(describing: outcome))"

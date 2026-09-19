@@ -115,9 +115,16 @@ struct URLSessionHTTPTransport: HTTPTransport {
 
         return HTTPStream(
             body: AsyncThrowingStream { continuation in
-            // Every way this stream can end arrives here: the consumer cancelling,
-            // the consumer dropping it, a deadline expiring, the protocol finishing.
-            // All of them must end the transfer, and this is the only place that can.
+            // **Best-effort cleanup, not the guarantee.** This catches the ways a
+            // stream ends that the holder cannot see: the body being dropped, or
+            // finished by a deadline or a parse failure.
+            //
+            // It is deliberately not the correctness story. Cancelling a consuming task
+            // does not reliably arrive here — CI showed the network task surviving a
+            // cancelled consumer — so a layer that *needs* the transfer stopped must
+            // call `HTTPStream.cancel` rather than expect this to notice on its behalf.
+            // Anyone reading this as "the explicit handle is redundant" has it
+            // backwards: this is the half that cannot be relied on.
             continuation.onTermination = { _ in networkTask.cancel() }
 
             Task {
