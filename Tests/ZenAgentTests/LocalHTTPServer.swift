@@ -150,7 +150,7 @@ final class LocalHTTPServer: @unchecked Sendable {
     /// `EINTR`. That is not a closed socket, and treating it as one marks the peer gone
     /// while the connection is perfectly alive — a test-server correctness matter,
     /// independent of whatever the tests are investigating.
-    private func retryingOnInterrupt(_ call: () -> Int) -> Int {
+    private func retryingOnInterrupt(_ call: () -> Int32) -> Int32 {
         while true {
             let result = call()
             if result < 0 && errno == EINTR { continue }
@@ -160,7 +160,7 @@ final class LocalHTTPServer: @unchecked Sendable {
 
     /// `< 0` after a retry is a genuine error, which for a socket we are reading or
     /// writing means the same thing as EOF: the peer is gone.
-    private func readSome(_ fd: Int32, _ buffer: inout [UInt8]) -> Int {
+    private func readSome(_ fd: Int32, _ buffer: inout [UInt8]) -> Int32 {
         retryingOnInterrupt { read(fd, &buffer, buffer.count) }
     }
 
@@ -182,7 +182,7 @@ final class LocalHTTPServer: @unchecked Sendable {
         while request.range(of: Data("\r\n\r\n".utf8)) == nil, request.count < 8192 {
             let n = readSome(accepted, &buffer)
             if n <= 0 { return }
-            request.append(contentsOf: buffer[0..<n])
+            request.append(contentsOf: buffer[0..<Int(n)])
         }
 
         guard writeHead(to: accepted) else { markPeerGone(); return }
@@ -257,7 +257,7 @@ final class LocalHTTPServer: @unchecked Sendable {
             while offset < raw.count {
                 let written = retryingOnInterrupt { write(fd, base + offset, raw.count - offset) }
                 if written <= 0 { return false }
-                offset += written
+                offset += Int(written)
             }
             return true
         }
