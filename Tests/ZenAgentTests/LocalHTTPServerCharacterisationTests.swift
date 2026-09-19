@@ -102,18 +102,39 @@ struct LocalHTTPServerCharacterisationTests {
             }
         }
 
-        // The exact Foundation error is **recorded, not assumed**. An earlier version of
-        // this investigation guessed `networkConnectionLost`, and guessing is what sent
-        // it looking in the wrong layer.
+        // **Recorded, not assumed — and the recording is the interesting part.**
+        //
+        // A server closing the socket mid-response surfaces to `bytes(for:)` as a
+        // *clean end*, not as a thrown error: CI reported "ended cleanly after 14
+        // bytes", not a `URLError`. An earlier version of this investigation assumed
+        // `networkConnectionLost`, and that assumption is part of what sent it looking
+        // in the wrong layer.
+        //
+        // What follows for the design is not a workaround but a division of labour. A
+        // byte stream that can end without an error cannot be the thing that decides
+        // whether an answer was truncated — which is exactly why that judgement lives
+        // in `SSEParser.finish()`, on whether the protocol's terminator ever arrived.
+        // The transport's `streamInterrupted` is for failures that do throw; a clean
+        // end that is missing its terminator is caught one layer up.
+        //
+        // So the assertion is on what must hold either way: whatever the stream reports,
+        // the bytes already delivered survive and the iteration terminates.
         #expect(
-            outcome.hasPrefix("threw ") && outcome.hasSuffix("after 14 bytes"),
+            outcome.hasSuffix("after 14 bytes"),
             """
-            expected the disconnect to surface as a failure after the 14 bytes already \
-            delivered; got: \(outcome). What it actually reports is the input to the \
-            transport's error mapping, so it is the outcome, not a detail.
+            the 14 bytes delivered before the connection died must survive, and the \
+            iteration must end; got: \(outcome)
             """
         )
         #expect(server.wroteChunk)
+        #expect(
+            outcome == "ended cleanly after 14 bytes",
+            """
+            the recorded outcome changed. It was a clean end, which is what the parser's \
+            terminator check exists to catch; if it is now a thrown error the transport's \
+            error mapping is the layer that sees it, and that is worth knowing. Got: \(outcome)
+            """
+        )
     }
 
     @Test("cancelling the transfer closes the connection at the server")
