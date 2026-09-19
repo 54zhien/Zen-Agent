@@ -50,7 +50,7 @@ enum Migrations {
     private static func createMessage(_ db: Database) throws {
         try db.create(table: "message") { t in
             t.primaryKey("id", .text)
-            t.belongsTo("conversation", onDelete: .cascade).notNull()
+            t.column("conversationID", .text).notNull().references("conversation", onDelete: .cascade)
             // user | assistant | system
             t.column("role", .text).notNull()
             t.column("sequence", .integer).notNull()
@@ -62,7 +62,7 @@ enum Migrations {
     private static func createMessagePart(_ db: Database) throws {
         try db.create(table: "messagePart") { t in
             t.primaryKey("id", .text)
-            t.belongsTo("message", onDelete: .cascade).notNull()
+            t.column("messageID", .text).notNull().references("message", onDelete: .cascade)
             t.column("sequence", .integer).notNull()
             // text | reasoning | toolCall | toolResult
             t.column("kind", .text).notNull()
@@ -76,11 +76,11 @@ enum Migrations {
     private static func createAgentRun(_ db: Database) throws {
         try db.create(table: "agentRun") { t in
             t.primaryKey("id", .text)
-            t.belongsTo("conversation", onDelete: .cascade).notNull()
+            t.column("conversationID", .text).notNull().references("conversation", onDelete: .cascade)
             // parent | child
             t.column("kind", .text).notNull()
             // Child runs point at their parent; the reverse is never needed.
-            t.belongsTo("agentRun", onDelete: .cascade).column("parentRunID")
+            t.column("parentRunID", .text).references("agentRun", onDelete: .cascade)
 
             t.column("state", .text).notNull()
             // EndReason and RecoveryAction are separate from state, and from each
@@ -93,9 +93,9 @@ enum Migrations {
             // The three links that make a Run explainable: what triggered it, what it
             // produced, and what it is a retry of. `responseMessageID` stays null when
             // the provider failed before producing anything — no placeholder message.
-            t.belongsTo("message", onDelete: .setNull).column("triggerMessageID")
-            t.belongsTo("message", onDelete: .setNull).column("responseMessageID")
-            t.belongsTo("agentRun", onDelete: .setNull).column("retryOfRunID")
+            t.column("triggerMessageID", .text).references("message", onDelete: .setNull)
+            t.column("responseMessageID", .text).references("message", onDelete: .setNull)
+            t.column("retryOfRunID", .text).references("agentRun", onDelete: .setNull)
 
             // Frozen at send commit; the execution snapshot is filled during preparing
             // and never rewrites the seed.
@@ -136,7 +136,7 @@ enum Migrations {
     private static func createToolCall(_ db: Database) throws {
         try db.create(table: "toolCall") { t in
             t.primaryKey("id", .text)
-            t.belongsTo("agentRun", onDelete: .cascade).notNull()
+            t.column("agentRunID", .text).notNull().references("agentRun", onDelete: .cascade)
             t.column("action", .text).notNull()
             // validated | waitingForApproval | waitingForSystemPermissionConsent |
             // approved | prepared | dispatched | succeeded | failed | rejected |

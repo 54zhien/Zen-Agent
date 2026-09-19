@@ -27,7 +27,7 @@ enum PersistenceError: Error, Equatable {
 /// conversation nothing can resume, and a run whose seed is missing cannot be
 /// replayed. Making them one value makes "forgot to write the seed" a compile error
 /// instead of a corrupted row.
-struct SendCommit {
+struct SendCommit: Sendable {
     var conversation: ConversationRecord
     var message: MessageRecord
     var parts: [MessagePartRecord]
@@ -65,12 +65,16 @@ struct PersistenceStore {
     /// already checks" would put the whole guarantee back on application discipline,
     /// which is the thing the spike ruled out.
     func commitUserTurnAndCreateParentRun(_ commit: SendCommit) throws {
-        var run = commit.run
+        var claimed = commit.run
         // The active-slot rule is applied in exactly one place. Callers pass the run's
         // state and nothing else; forgetting to maintain a derived column is not a
         // mistake they can make.
-        run.activeSlot = Self.activeSlot(for: run)
-        let conversationID = run.conversationID
+        claimed.activeSlot = Self.activeSlot(for: claimed)
+        let conversationID = claimed.conversationID
+
+        // Bound to a `let` before the closure: the write block is `@Sendable`, so it
+        // may not capture the mutable local above.
+        let run = claimed
 
         do {
             try database.write { db in
