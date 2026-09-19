@@ -30,25 +30,57 @@ conditional uniqueness constraint — before the full scenarios are written.
 
 ## Findings so far
 
-Established by CI, not by reasoning about the APIs:
+Established by CI, not by reasoning about the APIs.
+
+### Scenario B — answered for both engines
+
+Same eight-claimant race, same `ClaimOutcome` scoring, so the numbers compare
+directly:
+
+| | SwiftData | GRDB |
+|---|---|---|
+| Mechanism | fetch-then-insert inside `transaction {}` | declared partial unique index |
+| Winners | **3** | **1** |
+| Clean rejections | 5 | 7 |
+| Errors | 0 | 0 |
+| Rows holding the slot | **3** | **1** |
+| Verdict | invariant **broken** | invariant **holds** |
+
+SwiftData's three winners each read zero, inserted, and committed — with **no
+error raised**. `ModelContext.transaction` does not serialise the check against
+the write, and the type exposes no isolation-level control to ask for otherwise.
+
+Note the shape of the failure: both SwiftData runs produced *exactly three*
+winners. That is not a stable failure — it is a race that will sometimes look like
+a pass.
+
+### Declared-constraint semantics
 
 | Finding | Evidence |
 |---|---|
-| The generated project builds and both test bundles run on `macos-26` / Xcode 26 | CI run 35421484359 |
-| GRDB resolves as an SPM dependency and works in this target | `GRDB opens an in-memory database and round-trips a row` — passed |
-| **GRDB rejects a second active run via a partial unique index** | `GRDB can express conditional uniqueness via a partial unique index` — passed |
-| SwiftData works in this macOS logic-test target | `SwiftData builds an in-memory container and round-trips a row` — passed |
-| SwiftData permits multiple NULL slots (terminal rows coexist) | `SwiftData permits multiple NULL slots` — passed |
-| **SwiftData's `#Unique` did not reject a second occupant of a non-NULL slot** | `SwiftData unique constraint permits multiple NULL slots` — failed at the occupied-slot assertion |
+| The generated project builds and both test bundles run on `macos-26` / Xcode 26 | runs 35421484359 / 35422701520 |
+| GRDB resolves as an SPM dependency and works in this target | passed |
+| GRDB rejects a second occupier via a partial unique index; terminal rows coexist | passed |
+| SwiftData works in this macOS logic-test target | passed |
+| **SwiftData's `#Unique` upserts rather than rejects** — the first row is silently overwritten | `rows after save: [active-2/slot=c1]` |
+| **A non-optional slot upserts the same way** | `rows for slot c1: [active-2]` |
 
-The last one is open, and it is the one that decides scenario B. "Did not reject"
-leaves three materially different possibilities — the constraint is absent, the
-second row was accepted as a duplicate, or the first active run was silently
-overwritten — and they call for different workarounds. The probe now reports which
-one occurred and separately tests whether a **non-optional** slot changes the
-answer.
+Upsert is a defensible design for a merge-oriented store; using it as an
+exclusivity constraint is a category mismatch. For an invariant whose requirement
+is "the loser fails cleanly", it is worse than no constraint — it destroys the row
+it was meant to protect.
 
-Do not settle this from memory of SwiftData's documented behaviour. The probe
+### Still open
+
+- **The serial-owner escape hatch.** The blueprint permits "transaction, serial
+  owner, constraint, or equivalent". An in-process actor that serialises Run
+  creation would satisfy it — but only within one process, which does not cover
+  extensions or a second scene. This is the only reason SwiftData is not yet
+  excluded, and the decision is a product one, not a spike one.
+- **Scenarios C–G** are untested on *both* engines. One decisive result does not
+  make a selection.
+
+Do not settle any of this from memory of the documented behaviour. The probe
 exists precisely because that is the failure mode this project has already been
 bitten by twice.
 
