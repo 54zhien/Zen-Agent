@@ -2,9 +2,9 @@ import Foundation
 
 /// The DeepSeek adapter.
 ///
-/// Non-streaming only in this increment. Streaming is its own increment, and a transport
-/// that could switch the response into a shape nothing here can parse is a switch worth
-/// not having yet.
+/// Two ways in, one shape: `complete` returns a whole response, `stream` yields DeepSeek's
+/// chunks as they arrive. Both verify the frozen configuration before resolving a secret,
+/// both build their request from the same endpoint resolution, and neither retries.
 ///
 /// It speaks `ModelProvider` and `HTTPTransport`, so it neither invents its own protocol
 /// nor reaches for `URLSession`. A CI check enforces the second half.
@@ -24,11 +24,33 @@ struct DeepSeekProvider: ModelProvider {
 
     let id = ProviderID.deepSeek
     let transport: any HTTPTransport
-    let baseURL: URL
+    /// The same policy the transport is given. The transport reads `transportInactivity`
+    /// from it and this adapter reads `firstEvent` and `betweenEvents`, so the two
+    /// deadlines that must stay distinct are configured in one place rather than
+    /// drifting apart in two.
+    let streamTimeouts: StreamTimeoutPolicy
 
-    init(transport: any HTTPTransport, baseURL: URL = DeepSeekProvider.defaultBaseURL) {
+    init(
+        transport: any HTTPTransport,
+        streamTimeouts: StreamTimeoutPolicy = .default
+    ) {
         self.transport = transport
-        self.baseURL = baseURL
+        self.streamTimeouts = streamTimeouts
+    }
+
+    /// Where this run must send its request.
+    ///
+    /// **One resolution, both paths.** The adapter used to carry an endpoint of its own
+    /// alongside the instance's, which is two sources of truth for one URL — and the
+    /// `Authorization` header goes wherever the URL points. A second endpoint that
+    /// streaming could quietly use while non-streaming used the first is the shape of
+    /// bug where a credential is sent somewhere the run was never frozen against.
+    ///
+    /// The instance's endpoint wins when it has one; the provider default is the
+    /// fallback, and the frozen configuration has already established that this instance
+    /// is the one the run was frozen against by the time either path builds a request.
+    func resolveBaseURL(for instance: ProviderInstance) -> URL {
+        instance.baseURL ?? Self.defaultBaseURL
     }
 
     // MARK: - ModelProvider
@@ -75,7 +97,7 @@ struct DeepSeekProvider: ModelProvider {
         }
         let secret = try Self.resolveSecret(reference, from: credentials)
 
-        let httpRequest = try makeHTTPRequest(request, secret: secret, streaming: false)
+        let httpRequest = try makeHTTPRequest(request, secret: secret, instance: instance, streaming: false)
 
         let httpResponse: HTTPResponse
         do {
@@ -130,7 +152,7 @@ struct DeepSeekProvider: ModelProvider {
         }
         let secret = try Self.resolveSecret(reference, from: credentials)
 
-        let httpRequest = try makeHTTPRequest(request, secret: secret, streaming: true)
+        let httpRequest = try makeHTTPRequest(request, secret: secret, instance: instance, streaming: true)
 
         let bytes: AsyncThrowingStream<Data, Error>
         do {
@@ -139,7 +161,7 @@ struct DeepSeekProvider: ModelProvider {
             throw Self.providerError(from: error)
         }
 
-        return Self.chunks(from: bytes)
+        return Self.chunks(from: bytes, timeouts: streamTimeouts)
     }
 
     /// Reassembles DeepSeek's chunks out of the byte stream.
@@ -147,41 +169,65 @@ struct DeepSeekProvider: ModelProvider {
     /// The three layers are composed here and nowhere else: bytes from the transport,
     /// SSE framing from the parser, and DeepSeek's JSON from `decodeStreamChunk`. Each
     /// is separately testable; this is where they meet.
+    ///
+    /// The deadline here is rearmed **only by an event that carried model output**. A
+    /// keep-alive cannot reach this point — the parser consumes comments without
+    /// dispatching them — so a provider that heartbeats for ten minutes while it thinks
+    /// keeps its connection open under the transport's deadline and still runs out the
+    /// one here. That separation is the point: the two facts are different, so they get
+    /// different timers.
     private static func chunks(
-        from bytes: AsyncThrowingStream<Data, Error>
+        from bytes: AsyncThrowingStream<Data, Error>,
+        timeouts: StreamTimeoutPolicy
     ) -> AsyncThrowingStream<DeepSeekStreamChunk, Error> {
-        AsyncThrowingStream { continuation in
+        let progress = StreamProgress()
+
+        return AsyncThrowingStream { continuation in
             let task = Task {
-                var parser = SSEParser()
-                // Whether anything was handed over, which is what decides how the end
-                // of the stream is described. A stream that stopped after producing
-                // output and one that stopped before producing any are different
-                // failures with different retryability.
-                var deliveredData = false
-                do {
-                    for try await chunk in bytes {
-                        for element in try parser.consume(chunk) {
-                            switch element {
-                            case .done:
-                                continuation.finish()
-                                return
-                            case .event(let event):
-                                let decoded = try decodeStreamChunk(event.data)
-                                deliveredData = true
-                                continuation.yield(decoded)
+                await StreamDeadline.run(
+                    progress: progress,
+                    first: timeouts.firstEvent,
+                    subsequent: timeouts.betweenEvents,
+                    checkInterval: timeouts.checkInterval,
+                    onTimeout: { elapsed in
+                        continuation.finish(throwing: ProviderError.streamProgressTimeout(
+                            // Which wait ran out, read from the same fact that rearmed
+                            // it: no output yet means the model never started, output
+                            // that stopped means it stalled partway.
+                            phase: progress.hasAdvanced ? .betweenEvents : .awaitingFirstEvent,
+                            after: elapsed
+                        ))
+                    },
+                    reading: {
+                        // Declared inside the reader, so nothing outlives the task that
+                        // owns it and no `var` is captured across a suspension point.
+                        var parser = SSEParser()
+                        do {
+                            for try await chunk in bytes {
+                                for element in try parser.consume(chunk) {
+                                    switch element {
+                                    case .done:
+                                        continuation.finish()
+                                        return
+                                    case .event(let event):
+                                        let decoded = try decodeStreamChunk(event.data)
+                                        progress.advanced()
+                                        continuation.yield(decoded)
+                                    }
+                                }
                             }
+                            // The bytes ended without the terminator ever arriving.
+                            try parser.finish()
+                            continuation.finish()
+                        } catch let failure as SSEParserError {
+                            continuation.finish(
+                                throwing: providerError(from: failure, deliveredData: progress.hasAdvanced)
+                            )
+                        } catch {
+                            continuation.finish(throwing: providerError(from: error))
                         }
                     }
-                    // The bytes ended without the terminator ever arriving.
-                    try parser.finish()
-                    continuation.finish()
-                } catch let failure as SSEParserError {
-                    continuation.finish(
-                        throwing: providerError(from: failure, deliveredData: deliveredData)
-                    )
-                } catch {
-                    continuation.finish(throwing: providerError(from: error))
-                }
+                )
             }
             continuation.onTermination = { _ in task.cancel() }
         }
@@ -231,6 +277,7 @@ struct DeepSeekProvider: ModelProvider {
     private func makeHTTPRequest(
         _ request: ProviderChatRequest,
         secret: SecretValue,
+        instance: ProviderInstance,
         streaming: Bool
     ) throws -> HTTPRequest {
         let body = DeepSeekChatRequest(
@@ -250,7 +297,7 @@ struct DeepSeekProvider: ModelProvider {
 
         return HTTPRequest(
             method: .post,
-            url: baseURL.appending(path: "chat/completions"),
+            url: resolveBaseURL(for: instance).appending(path: "chat/completions"),
             headers: [
                 "Content-Type": "application/json",
                 // The secret's only appearance outside the keychain, and it lives here
@@ -309,6 +356,12 @@ struct DeepSeekProvider: ModelProvider {
                 // status→error table, used by both paths, so a 401 cannot come to mean
                 // one thing when streamed and another when not.
                 return Self.error(for: response)
+            case .inactivityTimeout(let elapsed):
+                // Translated rather than folded into `streamInterrupted`. The two are
+                // diagnosed differently — one is a read timeout or a provider that
+                // stopped sending keep-alives, the other is a connection that dropped —
+                // and collapsing them would send someone looking in the wrong place.
+                return .streamInactivityTimeout(after: elapsed)
             case .streamInterrupted(let deliveredData, let reason):
                 return .streamInterrupted(deliveredData: deliveredData, reason: reason)
             }

@@ -108,6 +108,15 @@ enum HTTPTransportError: Error, Equatable {
     /// for this API must never do.
     case httpStatus(HTTPResponse)
 
+    /// No byte arrived within the transport's liveness window.
+    ///
+    /// Distinct from `streamInterrupted`, and the distinction is the diagnostic: this one
+    /// usually means a provider that stopped sending keep-alives or a read timeout set
+    /// wrong, while a connection that dropped mid-answer is a different problem entirely
+    /// (`Tool Runtime.md:322-323`). It says nothing about whether the model was producing
+    /// — a keep-alive would have reset it, and a keep-alive is not model output.
+    case inactivityTimeout(after: Duration)
+
     /// The stream stopped after the response had begun.
     ///
     /// `deliveredData` is the distinction the design notes require

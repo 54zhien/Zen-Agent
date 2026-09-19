@@ -17,9 +17,14 @@ import Foundation
 /// output existed and leaves the decision alone.
 struct URLSessionHTTPTransport: HTTPTransport {
     let session: URLSession
+    /// Only `transportInactivity` is used here — the other deadlines ask a question
+    /// about the model, which a transport cannot answer. One policy value is passed to
+    /// both layers rather than each holding its own copy of half of it.
+    let timeouts: StreamTimeoutPolicy
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, timeouts: StreamTimeoutPolicy = .default) {
         self.session = session
+        self.timeouts = timeouts
     }
 
     // MARK: - One response
@@ -78,28 +83,53 @@ struct URLSessionHTTPTransport: HTTPTransport {
             )
         }
 
+        // Rearmed by every byte, including the bytes of a keep-alive comment. That is
+        // the question this deadline asks: whether the connection is alive. Whether the
+        // model is producing is a different question, asked a layer up.
+        let progress = StreamProgress()
+        let timeouts = self.timeouts
+
         return AsyncThrowingStream { continuation in
             let task = Task {
-                // Whether any body data arrived at all, which is the fact the layer
-                // above needs to tell "the model never started" from "the model's
-                // answer was cut off". Counted here because only the transport sees it,
-                // and it is a fact about what the server sent — not about whether the
-                // consumer has caught up.
-                var deliveredData = false
-                do {
-                    for try await byte in bytes {
-                        deliveredData = true
-                        // One byte per element rather than a batched chunk. Batching
-                        // would trade latency for throughput, and the wrong way round:
-                        // this is text from a language model, kilobytes spread over
-                        // seconds, where arriving immediately is the whole point and
-                        // the allocation cost is nothing beside it.
-                        continuation.yield(Data([byte]))
+                await StreamDeadline.run(
+                    progress: progress,
+                    first: timeouts.transportInactivity,
+                    subsequent: timeouts.transportInactivity,
+                    checkInterval: timeouts.checkInterval,
+                    onTimeout: { elapsed in
+                        // Ending the stream cancels the reader below, which is the only
+                        // way a read blocked on a silent socket ever lets go.
+                        continuation.finish(throwing: HTTPTransportError.inactivityTimeout(after: elapsed))
+                    },
+                    reading: {
+                        do {
+                            for try await byte in bytes {
+                                // Records both that this byte arrived and that the
+                                // liveness deadline restarts here. `hasAdvanced` is the
+                                // same fact the layer above needs to tell "the model
+                                // never started" from "the answer was cut off" — a fact
+                                // about what the server sent, not about whether the
+                                // consumer has caught up.
+                                progress.advanced()
+                                // One byte per element rather than a batched chunk.
+                                // Batching would trade latency for throughput, and the
+                                // wrong way round: this is text from a language model,
+                                // kilobytes spread over seconds, where arriving
+                                // immediately is the whole point and the allocation cost
+                                // is nothing beside it.
+                                continuation.yield(Data([byte]))
+                            }
+                            continuation.finish()
+                        } catch {
+                            continuation.finish(
+                                throwing: Self.streamError(
+                                    from: error,
+                                    deliveredData: progress.hasAdvanced
+                                )
+                            )
+                        }
                     }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: Self.streamError(from: error, deliveredData: deliveredData))
-                }
+                )
             }
             // Cancelling the consumer cancels the request. Without this the URLSession
             // task would outlive the thing that asked for it and keep the connection

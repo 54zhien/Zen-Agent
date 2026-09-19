@@ -49,6 +49,19 @@ enum ProviderError: Error, Equatable {
     case malformedResponse(String)
     case cancelled
 
+    /// No bytes arrived within the transport's liveness window.
+    ///
+    /// A connection-level fact. It says nothing about whether the model was producing —
+    /// a keep-alive would have reset it, and a keep-alive is not output.
+    case streamInactivityTimeout(after: Duration)
+
+    /// Model output stopped arriving.
+    ///
+    /// The other half of the same idea, and not interchangeable with the case above.
+    /// This one is about the model, and it is reached even when the connection is
+    /// perfectly healthy and sending heartbeats.
+    case streamProgressTimeout(phase: StreamProgressPhase, after: Duration)
+
     /// The response stream stopped after it had begun.
     ///
     /// `deliveredData` is carried rather than folded away because it is the fact the
@@ -62,6 +75,18 @@ enum ProviderError: Error, Equatable {
     /// Refused rather than resolved. A run must execute against the identity it was
     /// frozen with, not against whatever the settings screen says now.
     case configurationMismatch(String)
+}
+
+/// Which wait ran out.
+///
+/// Recorded because the two point at different situations — an inference that never
+/// began, and one that stopped partway — and a caller that could not tell them apart
+/// would offer the same recovery for both.
+enum StreamProgressPhase: Sendable, Equatable {
+    /// Nothing had been produced. The request may never have reached the model.
+    case awaitingFirstEvent
+    /// Output had been produced, and then stopped.
+    case betweenEvents
 }
 
 /// Whether a **higher** layer may try again.
@@ -96,6 +121,15 @@ extension ProviderError {
         case .credentialTemporarilyUnavailable:
             // A locked device unlocks. Worth trying again later — but only later, and
             // only by a layer that knows whether anything has changed.
+            return .retrySuggested
+        case .streamProgressTimeout(.betweenEvents, _):
+            // Output existed. Replaying would ask the model to generate it again while
+            // the caller still counts this as one answer (`Agent Runtime.md:344`).
+            return .doNotRetry
+        case .streamProgressTimeout(.awaitingFirstEvent, _), .streamInactivityTimeout:
+            // Nothing was produced, and that is still not proof the request was never
+            // accepted — a streaming POST cannot offer that proof
+            // (`Agent Runtime.md:341-343`), so this is "cannot say" rather than "safe".
             return .retrySuggested
         case .streamInterrupted(let deliveredData, _):
             // Both directions come from the same rule, and they land the same way for
