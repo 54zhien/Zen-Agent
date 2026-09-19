@@ -58,12 +58,20 @@ final class FakeHTTPTransport: HTTPTransport, @unchecked Sendable {
     // MARK: - HTTPTransport
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        lock.lock()
-        sent.append(request)
-        sentCount += 1
-        let failure = self.failure
-        let response = scripted.isEmpty ? nil : (scripted.count == 1 ? scripted[0] : scripted.removeFirst())
-        lock.unlock()
+        // `withLock`, not `lock()`/`unlock()`: Swift refuses the latter from an async
+        // context, and rightly — a suspension point between the two would leave the lock
+        // held across it. Scoped locking cannot make that mistake.
+        let (failure, response) = lock.withLock { () -> (HTTPTransportError?, HTTPResponse?) in
+            sent.append(request)
+            sentCount += 1
+            let next: HTTPResponse?
+            if scripted.count > 1 {
+                next = scripted.removeFirst()
+            } else {
+                next = scripted.first
+            }
+            return (self.failure, next)
+        }
 
         // Counted before any throw, so a test can assert that a failure path made
         // exactly one attempt — which is how "no hidden retry" is checked.
