@@ -28,61 +28,116 @@ macOS logic tests run roughly an order of magnitude faster in CI. No host app.
 and run in CI. It also probes the single most decision-relevant mechanism — the
 conditional uniqueness constraint — before the full scenarios are written.
 
+## How results are recorded
+
+Every scenario is scored on three dimensions, not one. "It works" is not the
+question; *what is holding it up* is:
+
+| Dimension | Question |
+|---|---|
+| **Correctness** | Does it satisfy the invariant? |
+| **Enforceability** | Is the invariant held by the database, or by application discipline? |
+| **Testability** | Can the failure path be reproduced and verified reliably? |
+
+These matter more for Zen than lines of code. A guarantee held by app discipline is
+a different class of guarantee from one held by the database — it holds only as long
+as every call path remembers the discipline.
+
+**A missing capability is not a safety claim.** If a failure mode cannot be
+injected — because the framework owns the flow — that is a finding about
+**controllability and observability**, not evidence that the engine is unsafe. Those
+are three separate layers and collapsing them would be overreach:
+
+    does it support the capability
+      ↓
+    can the failure mode be injected
+      ↓
+    can the recovery behaviour be verified
+
 ## Findings so far
 
 Established by CI, not by reasoning about the APIs.
 
-### Scenario B — answered for both engines
+### Scenario B — active Parent Run uniqueness
 
-Same eight-claimant race, same `ClaimOutcome` scoring, so the numbers compare
-directly:
+Same eight-claimant race, same `ClaimOutcome` scoring.
 
 | | SwiftData | GRDB |
 |---|---|---|
+| Correctness | **broken** — `won=3` | **holds** — `won=1` |
+| Enforceability | application discipline only | **database constraint** |
+| Testability | good — the race reproduces | good |
 | Mechanism | fetch-then-insert inside `transaction {}` | declared partial unique index |
-| Winners | **3** | **1** |
-| Clean rejections | 5 | 7 |
-| Errors | 0 | 0 |
-| Rows holding the slot | **3** | **1** |
-| Verdict | invariant **broken** | invariant **holds** |
 
-SwiftData's three winners each read zero, inserted, and committed — with **no
-error raised**. `ModelContext.transaction` does not serialise the check against
-the write, and the type exposes no isolation-level control to ask for otherwise.
+SwiftData's three winners each read zero, inserted, and committed — with **no error
+raised**. `ModelContext.transaction` does not serialise the check against the
+write, and the type exposes no isolation-level control to ask for otherwise.
 
-Note the shape of the failure: both SwiftData runs produced *exactly three*
-winners. That is not a stable failure — it is a race that will sometimes look like
-a pass.
+The failure shape matters: both SwiftData runs produced *exactly three* winners. Not
+a stable failure — a race that will sometimes look like a pass.
+
+### Scenario C — crash window
+
+| | SwiftData | GRDB |
+|---|---|---|
+| Correctness | **holds** | **holds** |
+| Enforceability | database (durable marker) | database |
+| Testability | good | good |
+
+A tie. `prepared` and `dispatching` stay distinguishable after the writer is gone,
+on both. The earlier concern that SwiftData might refuse to reopen its own store was
+unfounded.
+
+### Scenario D — migration
+
+Split three ways, because "migration works" is not one property:
+
+- **D1** normal V1 → V2: data survives, schema changes
+- **D2** repeated open: no re-application, no duplication
+- **D3** interrupted: rolls back, resumes cleanly, leaves no half-applied schema
+
+| | D1 | D2 | D3 | Testability of D3 |
+|---|---|---|---|---|
+| GRDB | ✅ | ✅ | ✅ | failure injectable and rollback observable |
+| SwiftData | — | — | — | *(see below)* |
+
+SwiftData runs migrations implicitly when a `ModelContainer` initialises, and the
+public surface (`VersionedSchema` / `SchemaMigrationPlan` / `MigrationStage`) offers
+no handle for stepping or pausing one. So its D3 injects a thrown error inside a
+migration stage — a **controlled** failure, not a process killed mid-write.
+
+Whatever that test reports, the honest reading is about controllability, not
+safety. Likewise, SwiftData exposes no way to ask which schema version a store is
+at, so "rolled back to V1" cannot be asserted there; the check is the weaker but
+checkable "still opens and still holds its data".
 
 ### Declared-constraint semantics
 
 | Finding | Evidence |
 |---|---|
 | The generated project builds and both test bundles run on `macos-26` / Xcode 26 | runs 35421484359 / 35422701520 |
-| GRDB resolves as an SPM dependency and works in this target | passed |
-| GRDB rejects a second occupier via a partial unique index; terminal rows coexist | passed |
-| SwiftData works in this macOS logic-test target | passed |
 | **SwiftData's `#Unique` upserts rather than rejects** — the first row is silently overwritten | `rows after save: [active-2/slot=c1]` |
 | **A non-optional slot upserts the same way** | `rows for slot c1: [active-2]` |
+| GRDB rejects a second occupier via a partial unique index; terminal rows coexist | passed |
 
-Upsert is a defensible design for a merge-oriented store; using it as an
-exclusivity constraint is a category mismatch. For an invariant whose requirement
-is "the loser fails cleanly", it is worse than no constraint — it destroys the row
-it was meant to protect.
+Upsert is a defensible design for a merge-oriented store; using it as an exclusivity
+constraint is a category mismatch. For an invariant whose requirement is "the loser
+fails cleanly", it is worse than no constraint — it destroys the row it was meant to
+protect.
 
 ### Still open
 
 - **The serial-owner escape hatch.** The blueprint permits "transaction, serial
-  owner, constraint, or equivalent". An in-process actor that serialises Run
-  creation would satisfy it — but only within one process, which does not cover
-  extensions or a second scene. This is the only reason SwiftData is not yet
-  excluded, and the decision is a product one, not a spike one.
-- **Scenarios C–G** are untested on *both* engines. One decisive result does not
-  make a selection.
+  owner, constraint, or equivalent". An in-process actor serialising Run creation
+  would satisfy it — but the guarantee stops at the process boundary: it does not
+  cover app extensions or a second process, nor any write path that bypasses the
+  owner.
+- **Scenarios A, E, F, G** are untested on both engines. B plus C plus D is the
+  decisive group; C is a tie, so a selection now would rest on one scenario.
 
-Do not settle any of this from memory of the documented behaviour. The probe
-exists precisely because that is the failure mode this project has already been
-bitten by twice.
+Do not settle any of this from memory of the documented behaviour. The probe exists
+precisely because that is the failure mode this project has already been bitten by
+twice.
 
 ## The scenarios
 

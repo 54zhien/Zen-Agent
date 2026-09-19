@@ -173,11 +173,12 @@ struct MigrationInterrupted: Error {}
 /// Before release this is also a backup question, but at the engine level the
 /// question is whether each migration step is transactional and whether the
 /// bookkeeping that records "this migration already ran" rolls back with it.
-@Suite("Scenario D — migration interruption")
+@Suite("Scenario D — migration")
 struct ScenarioDTests {
 
-    private func establishV1(_ queue: DatabaseQueue) throws {
-        var migrator = DatabaseMigrator()
+    // MARK: Shared migration definitions
+
+    private func registerV1(_ migrator: inout DatabaseMigrator) {
         migrator.registerMigration("v1-note") { db in
             try db.create(table: "note") { t in
                 t.primaryKey("id", .text)
@@ -185,32 +186,105 @@ struct ScenarioDTests {
             }
             try db.execute(sql: "INSERT INTO note (id, body) VALUES ('n1', 'hello')")
         }
-        try migrator.migrate(queue)
     }
 
-    @Test("D · GRDB — an interrupted migration rolls back and can be re-run")
-    func grdbMigrationInterruption() throws {
-        let url = try makeScratchPath(name: "grdb-migrate.sqlite")
-        let path = url.path()
+    private func registerV2(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v2-add-pinned") { db in
+            try db.alter(table: "note") { t in
+                t.add(column: "pinned", .boolean).notNull().defaults(to: false)
+            }
+        }
+    }
+
+    /// Establishes a store at v1 holding one row, then releases the writer.
+    private func establishV1(name: String) throws -> URL {
+        let url = try makeScratchPath(name: name)
+        let queue = try DatabaseQueue(path: url.path())
+        var migrator = DatabaseMigrator()
+        registerV1(&migrator)
+        try migrator.migrate(queue)
+        return url
+    }
+
+    private func inspect(_ path: String) throws -> (body: String?, rowCount: Int, columns: [String]) {
+        let queue = try DatabaseQueue(path: path)
+        return try queue.read { db in
+            (
+                body: try String.fetchOne(db, sql: "SELECT body FROM note WHERE id = 'n1'"),
+                rowCount: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM note") ?? -1,
+                columns: try db.columns(in: "note").map(\.name)
+            )
+        }
+    }
+
+    // MARK: D1 — the migration itself
+
+    @Test("D1 · GRDB — V1 → V2 applies, schema changes, existing rows survive")
+    func grdbNormalMigration() throws {
+        let url = try establishV1(name: "grdb-d1.sqlite")
         defer { cleanUp(url) }
 
-        // Establish v1 with real data, then let the writer go.
+        let queue = try DatabaseQueue(path: url.path())
+        var migrator = DatabaseMigrator()
+        registerV1(&migrator)
+        registerV2(&migrator)
+        try migrator.migrate(queue)
+
+        let state = try inspect(url.path())
+        #expect(state.columns.contains("pinned"), "V2 schema must be present; columns were \(state.columns)")
+        #expect(state.body == "hello", "the existing row must survive the migration")
+        #expect(state.rowCount == 1, "the migration must not duplicate rows; found \(state.rowCount)")
+    }
+
+    // MARK: D2 — reopening after a completed migration
+
+    @Test("D2 · GRDB — reopening after migration neither re-applies nor duplicates")
+    func grdbRepeatedOpen() throws {
+        let url = try establishV1(name: "grdb-d2.sqlite")
+        defer { cleanUp(url) }
+
         do {
-            try establishV1(try DatabaseQueue(path: path))
+            let queue = try DatabaseQueue(path: url.path())
+            var migrator = DatabaseMigrator()
+            registerV1(&migrator)
+            registerV2(&migrator)
+            try migrator.migrate(queue)
         }
 
-        // A migration that does part of its work and then fails, as a process that
-        // died mid-migration would.
+        // Same migrations registered again: GRDB must see them as already applied.
+        // Re-running the v1 migration would insert a second row — that is the
+        // failure this checks for, and it is silent if you only look at the schema.
         do {
-            let queue = try DatabaseQueue(path: path)
+            let queue = try DatabaseQueue(path: url.path())
             var migrator = DatabaseMigrator()
-            migrator.registerMigration("v1-note") { db in
-                try db.create(table: "note") { t in
-                    t.primaryKey("id", .text)
-                    t.column("body", .text).notNull()
-                }
-                try db.execute(sql: "INSERT INTO note (id, body) VALUES ('n1', 'hello')")
-            }
+            registerV1(&migrator)
+            registerV2(&migrator)
+            try migrator.migrate(queue)
+        }
+
+        let state = try inspect(url.path())
+        #expect(state.rowCount == 1, "reopening must not re-run migrations; found \(state.rowCount) rows")
+        #expect(state.body == "hello", "reopening must not disturb the row")
+        #expect(state.columns.contains("pinned"), "the migrated schema must still be in place")
+    }
+
+    // MARK: D3 — interruption
+
+    /// The failure is injected as a thrown error inside the migration body. That is
+    /// a **controlled** interruption, not a process killed mid-write — see the
+    /// controllability note in `README.md`. What it can prove is that a failed
+    /// migration rolls back atomically and leaves the store usable; what it cannot
+    /// prove is behaviour under an actual untimely kill.
+    @Test("D3 · GRDB — an interrupted migration rolls back and can be resumed")
+    func grdbInterruptedMigration() throws {
+        let url = try establishV1(name: "grdb-d3.sqlite")
+        defer { cleanUp(url) }
+
+        // A migration that alters the schema and then fails.
+        do {
+            let queue = try DatabaseQueue(path: url.path())
+            var migrator = DatabaseMigrator()
+            registerV1(&migrator)
             migrator.registerMigration("v2-add-pinned-BROKEN") { db in
                 try db.alter(table: "note") { t in
                     t.add(column: "pinned", .boolean).notNull().defaults(to: false)
@@ -225,48 +299,220 @@ struct ScenarioDTests {
             )
         }
 
-        // The store must still open, still hold the data, and not carry half a schema.
-        do {
-            let queue = try DatabaseQueue(path: path)
-            let body = try queue.read { db in
-                try String.fetchOne(db, sql: "SELECT body FROM note WHERE id = 'n1'")
-            }
-            #expect(body == "hello", "an interrupted migration must not lose committed data")
-
-            let columns = try queue.read { db in try db.columns(in: "note").map(\.name) }
-            #expect(
-                !columns.contains("pinned"),
-                "a failed migration must roll back entirely, not leave a half-applied schema; columns were \(columns)"
-            )
-        }
+        // Still openable, still holding the data, carrying no half-applied schema.
+        let afterFailure = try inspect(url.path())
+        #expect(afterFailure.body == "hello", "an interrupted migration must not lose committed data")
+        #expect(
+            !afterFailure.columns.contains("pinned"),
+            "a failed migration must roll back entirely; columns were \(afterFailure.columns)"
+        )
 
         // And the corrected migration must apply cleanly over the intact data.
         do {
-            let queue = try DatabaseQueue(path: path)
+            let queue = try DatabaseQueue(path: url.path())
             var migrator = DatabaseMigrator()
-            migrator.registerMigration("v1-note") { db in
-                try db.create(table: "note") { t in
-                    t.primaryKey("id", .text)
-                    t.column("body", .text).notNull()
-                }
-                try db.execute(sql: "INSERT INTO note (id, body) VALUES ('n1', 'hello')")
-            }
-            migrator.registerMigration("v2-add-pinned") { db in
-                try db.alter(table: "note") { t in
-                    t.add(column: "pinned", .boolean).notNull().defaults(to: false)
-                }
-            }
+            registerV1(&migrator)
+            registerV2(&migrator)
             try migrator.migrate(queue)
+        }
 
-            let body = try queue.read { db in
-                try String.fetchOne(db, sql: "SELECT body FROM note WHERE id = 'n1'")
-            }
-            let columns = try queue.read { db in try db.columns(in: "note").map(\.name) }
-            let rows = try queue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM note") ?? -1 }
+        let resumed = try inspect(url.path())
+        #expect(resumed.body == "hello", "resuming must not disturb existing rows")
+        #expect(resumed.rowCount == 1, "resuming must not duplicate rows; found \(resumed.rowCount)")
+        #expect(resumed.columns.contains("pinned"), "the resumed migration must actually apply")
+    }
+}
 
-            #expect(body == "hello", "re-running the migration must not disturb existing rows")
-            #expect(rows == 1, "re-running must not duplicate rows; found \(rows)")
-            #expect(columns.contains("pinned"), "the retried migration must actually apply; columns were \(columns)")
+// MARK: - Scenario D, SwiftData half
+
+/// Schema version 1. Models are nested inside the versioned schema, which is how
+/// SwiftData keeps two shapes of the same entity apart.
+enum NoteSchemaV1: VersionedSchema {
+    static var versionIdentifier: Schema.Version { Schema.Version(1, 0, 0) }
+    static var models: [any PersistentModel.Type] { [Note.self] }
+
+    @Model
+    final class Note {
+        var id: String
+        var body: String
+
+        init(id: String, body: String) {
+            self.id = id
+            self.body = body
+        }
+    }
+}
+
+enum NoteSchemaV2: VersionedSchema {
+    static var versionIdentifier: Schema.Version { Schema.Version(2, 0, 0) }
+    static var models: [any PersistentModel.Type] { [Note.self] }
+
+    @Model
+    final class Note {
+        var id: String
+        var body: String
+        var pinned: Bool
+
+        init(id: String, body: String, pinned: Bool = false) {
+            self.id = id
+            self.body = body
+            self.pinned = pinned
+        }
+    }
+}
+
+/// The working migration. `stages` is computed rather than a stored `static let`
+/// so there is no shared mutable global to argue with strict concurrency about.
+enum NoteMigrationPlan: SchemaMigrationPlan {
+    static var schemas: [any VersionedSchema.Type] { [NoteSchemaV1.self, NoteSchemaV2.self] }
+
+    static var stages: [MigrationStage] {
+        [
+            .custom(
+                fromVersion: NoteSchemaV1.self,
+                toVersion: NoteSchemaV2.self,
+                willMigrate: nil,
+                didMigrate: nil
+            )
+        ]
+    }
+}
+
+/// The same migration, made to fail. See D3.
+enum BrokenNoteMigrationPlan: SchemaMigrationPlan {
+    static var schemas: [any VersionedSchema.Type] { [NoteSchemaV1.self, NoteSchemaV2.self] }
+
+    static var stages: [MigrationStage] {
+        [
+            .custom(
+                fromVersion: NoteSchemaV1.self,
+                toVersion: NoteSchemaV2.self,
+                willMigrate: { _ in throw MigrationInterrupted() },
+                didMigrate: nil
+            )
+        ]
+    }
+}
+
+/// Scenario D, SwiftData half — the same three questions as the GRDB side, so the
+/// two are directly comparable.
+///
+/// A note on what D3 can and cannot establish here. SwiftData runs migrations
+/// implicitly when a `ModelContainer` is initialised, and the public surface is
+/// `VersionedSchema` / `SchemaMigrationPlan` / `MigrationStage` — there is no
+/// handle for stepping or pausing a migration. So the interruption has to be
+/// injected as a thrown error inside a migration stage, which is a **controlled**
+/// failure rather than a process killed mid-write.
+///
+/// That distinction is recorded deliberately. "Cannot inject the exact failure" is
+/// a statement about **controllability and observability**, not about whether the
+/// engine is safe. Collapsing the two would be the same overreach this project has
+/// already made twice.
+@Suite("Scenario D — migration (SwiftData)")
+struct ScenarioDSwiftDataTests {
+
+    @MainActor
+    private func establishV1(at url: URL) throws {
+        let container = try ModelContainer(
+            for: NoteSchemaV1.Note.self,
+            configurations: ModelConfiguration(url: url)
+        )
+        let context = ModelContext(container)
+        context.insert(NoteSchemaV1.Note(id: "n1", body: "hello"))
+        try context.save()
+    }
+
+    // MARK: D1
+
+    @Test("D1 · SwiftData — V1 → V2 applies, existing rows survive")
+    @MainActor
+    func swiftDataNormalMigration() throws {
+        let url = try makeScratchPath(name: "swiftdata-d1.store")
+        defer { cleanUp(url) }
+
+        try establishV1(at: url)
+
+        let container = try ModelContainer(
+            for: NoteSchemaV2.Note.self,
+            migrationPlan: NoteMigrationPlan.self,
+            configurations: ModelConfiguration(url: url)
+        )
+        let context = ModelContext(container)
+        let notes = try context.fetch(FetchDescriptor<NoteSchemaV2.Note>())
+
+        #expect(notes.count == 1, "the existing row must survive the migration; found \(notes.count)")
+        #expect(notes.first?.body == "hello", "the migrated row must keep its content")
+        #expect(notes.first?.pinned == false, "the new column must arrive with its default")
+    }
+
+    // MARK: D2
+
+    @Test("D2 · SwiftData — reopening after migration neither re-applies nor duplicates")
+    @MainActor
+    func swiftDataRepeatedOpen() throws {
+        let url = try makeScratchPath(name: "swiftdata-d2.store")
+        defer { cleanUp(url) }
+
+        try establishV1(at: url)
+
+        for _ in 0..<2 {
+            let container = try ModelContainer(
+                for: NoteSchemaV2.Note.self,
+                migrationPlan: NoteMigrationPlan.self,
+                configurations: ModelConfiguration(url: url)
+            )
+            let context = ModelContext(container)
+            let count = try context.fetchCount(FetchDescriptor<NoteSchemaV2.Note>())
+            #expect(count == 1, "reopening must not re-run or duplicate; found \(count) rows")
+        }
+    }
+
+    // MARK: D3
+
+    @Test("D3 · SwiftData — a failing migration must not leave an unusable store")
+    @MainActor
+    func swiftDataInterruptedMigration() throws {
+        let url = try makeScratchPath(name: "swiftdata-d3.store")
+        defer { cleanUp(url) }
+
+        try establishV1(at: url)
+
+        // Inject the failure.
+        var failure: Error?
+        do {
+            _ = try ModelContainer(
+                for: NoteSchemaV2.Note.self,
+                migrationPlan: BrokenNoteMigrationPlan.self,
+                configurations: ModelConfiguration(url: url)
+            )
+        } catch {
+            failure = error
+        }
+        #expect(failure != nil, "the broken migration must surface a failure, not silently succeed")
+
+        // The store must still be openable and still hold the data. Note the
+        // assertion is *"usable"*, not *"rolled back to V1"*: SwiftData gives no
+        // way to ask which schema version a store is at, so the stronger claim
+        // cannot be checked here — and asserting it anyway would be invention.
+        do {
+            let container = try ModelContainer(
+                for: NoteSchemaV1.Note.self,
+                configurations: ModelConfiguration(url: url)
+            )
+            let context = ModelContext(container)
+            let notes = try context.fetch(FetchDescriptor<NoteSchemaV1.Note>())
+            #expect(
+                notes.count == 1 && notes.first?.body == "hello",
+                "after a failed migration the store must still open and hold its data; found \(notes.count) row(s)"
+            )
+        } catch {
+            Issue.record(
+                """
+                the store could not be reopened at V1 after a failed migration: \(error). \
+                That is a controllability/recoverability finding about SwiftData's migration, \
+                not by itself evidence that migrations are unsafe.
+                """
+            )
         }
     }
 }
