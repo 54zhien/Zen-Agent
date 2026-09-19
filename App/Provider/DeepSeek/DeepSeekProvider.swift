@@ -76,7 +76,17 @@ struct DeepSeekProvider: ModelProvider {
         let secret = try Self.resolveSecret(reference, from: credentials)
 
         let httpRequest = try makeHTTPRequest(request, secret: secret)
-        let httpResponse = try await transport.send(httpRequest)
+
+        let httpResponse: HTTPResponse
+        do {
+            httpResponse = try await transport.send(httpRequest)
+        } catch {
+            // Translated, not propagated. Letting `HTTPTransportError` through would put
+            // a transport-layer type in front of the Runtime — the exact leak this
+            // abstraction exists to prevent, and one that would make every later
+            // transport's vocabulary the Runtime's problem.
+            throw Self.providerError(from: error)
+        }
 
         guard (200..<300).contains(httpResponse.status) else {
             throw Self.error(for: httpResponse)
@@ -141,6 +151,30 @@ struct DeepSeekProvider: ModelProvider {
             case .alreadyExists:
                 throw ProviderError.configurationMismatch("the credential store refused a read")
             }
+        }
+    }
+
+    /// Anything a transport can throw, in Zen's vocabulary.
+    ///
+    /// An unrecognised error still becomes `transportFailure` rather than escaping: a
+    /// caller above this adapter must never have to know which transport is underneath,
+    /// and "the request failed and we do not know why" is the honest description of an
+    /// error this layer cannot classify.
+    static func providerError(from error: Error) -> ProviderError {
+        switch error {
+        case let transport as HTTPTransportError:
+            switch transport {
+            case .networkFailure(let reason):
+                return .transportFailure(reason)
+            case .cancelled:
+                return .cancelled
+            }
+        case is CancellationError:
+            // Swift's own cancellation, which a real transport can surface instead of
+            // translating it. Same meaning, so same case.
+            return .cancelled
+        default:
+            return .transportFailure("the transport failed without a recognisable reason")
         }
     }
 
