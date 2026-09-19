@@ -224,12 +224,57 @@ jobs:
             exit 1
           fi
           echo "Using simulator $UDID"
+          touch "$RUNNER_TEMP/test-start.marker"
+
+          set +e
           set -o pipefail
           xcodebuild test \
             -project ZenAgent.xcodeproj \
             -scheme ZenAgent \
             -configuration Debug \
-            -destination "id=$UDID"
+            -destination "id=$UDID" \
+            -resultBundlePath "$RUNNER_TEMP/ZenAgentTests.xcresult" \
+            2>&1 | tee "$RUNNER_TEMP/ZenAgentTests.log"
+          XCODE_STATUS=${PIPESTATUS[0]}
+          set -e
+
+          # A restarted test host reports success while having run only part of the
+          # suite. It happened here: the workflow said success, the log said
+          # "Restarting after unexpected exit", and the only total printed covered 95
+          # of 185 tests. A green tick describing half a run is worse than a red one.
+          if grep -Fq 'Restarting after unexpected exit, crash, or test timeout' \
+              "$RUNNER_TEMP/ZenAgentTests.log"; then
+            echo "::error::The test host restarted during the suite - the reported totals cover only part of the run."
+            exit 1
+          fi
+
+          exit "$XCODE_STATUS"
+
+      - name: Inspect test host termination
+        # Diagnostics only, and deliberately temporary: it turns "the host went away"
+        # into a classifiable reason, because the restart banner does not say why.
+        if: always()
+        run: |
+          set -uo pipefail
+          xcrun xcresulttool get log \
+            --path "$RUNNER_TEMP/ZenAgentTests.xcresult" \
+            --type console \
+            > "$RUNNER_TEMP/xcresult-console.log" 2>/dev/null || true
+
+          rm -rf "$RUNNER_TEMP/xcdiagnostics"
+          xcrun xcresulttool export diagnostics \
+            --path "$RUNNER_TEMP/ZenAgentTests.xcresult" \
+            --output-path "$RUNNER_TEMP/xcdiagnostics" 2>/dev/null || true
+
+          echo "--- termination reasons, if any ---"
+          grep -RniE 'SIGPIPE|SIGABRT|SIGKILL|Termination Reason|Exception Type|Exception Codes|unexpected exit' \
+            "$RUNNER_TEMP/xcdiagnostics" \
+            "$RUNNER_TEMP/xcresult-console.log" \
+            "$RUNNER_TEMP/ZenAgentTests.log" 2>/dev/null || echo "(none found)"
+
+          echo "--- crash reports newer than the test run ---"
+          find "$HOME/Library/Logs/DiagnosticReports" -type f \
+            -newer "$RUNNER_TEMP/test-start.marker" -print 2>/dev/null || true
 
 
       - name: Upload test results on failure
