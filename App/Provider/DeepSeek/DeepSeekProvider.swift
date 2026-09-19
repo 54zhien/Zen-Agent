@@ -168,6 +168,13 @@ struct DeepSeekProvider: ModelProvider {
                 return .transportFailure(reason)
             case .cancelled:
                 return .cancelled
+            case .httpStatus(let response):
+                // The same mapping `complete` applies to a non-streaming response. One
+                // status→error table, used by both paths, so a 401 cannot come to mean
+                // one thing when streamed and another when not.
+                return Self.error(for: response)
+            case .streamInterrupted(let deliveredData, let reason):
+                return .streamInterrupted(deliveredData: deliveredData, reason: reason)
             }
         case is CancellationError:
             // Swift's own cancellation, which a real transport can surface instead of

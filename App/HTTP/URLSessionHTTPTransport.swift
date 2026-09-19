@@ -10,6 +10,11 @@ import Foundation
 /// presented to the user as the first. Retry belongs to a layer that knows about attempt
 /// identity (`Agent Runtime.md:342`), and a transport that decided for itself would make
 /// that decision unreachable.
+///
+/// That argument is sharper for a stream than for a single response. A stream that dies
+/// partway has, by definition, already produced output — the notes forbid replaying the
+/// whole request once that is true (`Agent Runtime.md:344`). This type reports that the
+/// output existed and leaves the decision alone.
 struct URLSessionHTTPTransport: HTTPTransport {
     let session: URLSession
 
@@ -17,30 +22,103 @@ struct URLSessionHTTPTransport: HTTPTransport {
         self.session = session
     }
 
+    // MARK: - One response
+
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: Self.urlRequest(from: request))
+        } catch {
+            // Scoped to the call itself. Wrapping the guards below in this `do` would
+            // route their own `HTTPTransportError` back through the mapper, which would
+            // rewrite a specific message into the generic "transport error".
+            throw Self.transportError(from: error)
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw HTTPTransportError.networkFailure("the response was not HTTP")
+        }
+        return HTTPResponse(status: http.statusCode, headers: Self.headers(from: http), body: data)
+    }
+
+    // MARK: - Incremental response
+
+    func stream(_ request: HTTPRequest) async throws -> AsyncThrowingStream<Data, Error> {
+        let bytes: URLSession.AsyncBytes
+        let response: URLResponse
+        do {
+            (bytes, response) = try await session.bytes(for: Self.urlRequest(from: request))
+        } catch {
+            // The head never arrived, so this is not an interrupted stream — there was
+            // no stream yet.
+            throw Self.transportError(from: error)
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw HTTPTransportError.networkFailure("the response was not HTTP")
+        }
+
+        guard (200..<300).contains(http.statusCode) else {
+            // Drain the body from the response already in flight. Issuing a second
+            // request to collect an error body would be a second POST, and the whole
+            // point of this transport is that it makes exactly one.
+            var body = Data()
+            do {
+                for try await byte in bytes { body.append(byte) }
+            } catch {
+                // The status line arrived before the failure, so the status is known
+                // even when the body is not. Reporting it with a partial body is more
+                // useful than reporting a network failure: a 401 is a 401, and the
+                // absence of readable diagnostic text is already a case the error
+                // mapping handles.
+            }
+            throw HTTPTransportError.httpStatus(
+                HTTPResponse(status: http.statusCode, headers: Self.headers(from: http), body: body)
+            )
+        }
+
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                // Whether any body data arrived at all, which is the fact the layer
+                // above needs to tell "the model never started" from "the model's
+                // answer was cut off". Counted here because only the transport sees it,
+                // and it is a fact about what the server sent — not about whether the
+                // consumer has caught up.
+                var deliveredData = false
+                do {
+                    for try await byte in bytes {
+                        deliveredData = true
+                        // One byte per element rather than a batched chunk. Batching
+                        // would trade latency for throughput, and the wrong way round:
+                        // this is text from a language model, kilobytes spread over
+                        // seconds, where arriving immediately is the whole point and
+                        // the allocation cost is nothing beside it.
+                        continuation.yield(Data([byte]))
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: Self.streamError(from: error, deliveredData: deliveredData))
+                }
+            }
+            // Cancelling the consumer cancels the request. Without this the URLSession
+            // task would outlive the thing that asked for it and keep the connection
+            // open, which is exactly the failure `Agent Runtime.md:261` warns about —
+            // a late result still arriving after the run it belonged to was stopped.
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    // MARK: - Request building
+
+    private static func urlRequest(from request: HTTPRequest) -> URLRequest {
         var urlRequest = URLRequest(url: request.url)
         urlRequest.httpMethod = request.method.rawValue
         urlRequest.httpBody = request.body
         for (name, value) in request.headers {
             urlRequest.setValue(value, forHTTPHeaderField: name)
         }
-
-        do {
-            let (data, response) = try await session.data(for: urlRequest)
-            guard let http = response as? HTTPURLResponse else {
-                throw HTTPTransportError.networkFailure("the response was not HTTP")
-            }
-            return HTTPResponse(status: http.statusCode, headers: Self.headers(from: http), body: data)
-        } catch is CancellationError {
-            throw HTTPTransportError.cancelled
-        } catch let error as URLError where error.code == .cancelled {
-            throw HTTPTransportError.cancelled
-        } catch {
-            // The error's own description, never the request's. `URLError` carries the
-            // failing URL and a code; a message built from the request would carry the
-            // Authorization header, and this string ends up in logs.
-            throw HTTPTransportError.networkFailure(Self.describe(error))
-        }
+        return urlRequest
     }
 
     private static func headers(from response: HTTPURLResponse) -> [String: String] {
@@ -50,6 +128,34 @@ struct URLSessionHTTPTransport: HTTPTransport {
             result[key] = String(describing: value)
         }
         return result
+    }
+
+    // MARK: - Failure mapping
+
+    /// Everything that can go wrong with a request, in transport terms.
+    ///
+    /// Cancellation is checked first and kept separate from failure on purpose. A
+    /// cancelled request is not a request that went wrong — reporting it as one would
+    /// put an error in front of someone who pressed Stop, and would make "the user
+    /// stopped this" indistinguishable from "this broke".
+    private static func transportError(from error: Error) -> HTTPTransportError {
+        if error is CancellationError { return .cancelled }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return .cancelled }
+        // The error's own description, never the request's. `URLError` carries the
+        // failing URL and a code; a message built from the request would carry the
+        // Authorization header, and this string ends up in logs.
+        return .networkFailure(describe(error))
+    }
+
+    /// The same mapping, with the one difference a stream introduces.
+    ///
+    /// A failure that arrives before the head is a failed request; one that arrives
+    /// after it is an interrupted stream, and the caller needs to know which bytes had
+    /// already been handed over.
+    private static func streamError(from error: Error, deliveredData: Bool) -> HTTPTransportError {
+        let mapped = transportError(from: error)
+        guard case .networkFailure(let reason) = mapped else { return mapped }
+        return .streamInterrupted(deliveredData: deliveredData, reason: reason)
     }
 
     private static func describe(_ error: Error) -> String {

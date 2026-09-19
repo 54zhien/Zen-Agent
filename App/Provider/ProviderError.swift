@@ -48,6 +48,15 @@ enum ProviderError: Error, Equatable {
     /// A response arrived but could not be understood.
     case malformedResponse(String)
     case cancelled
+
+    /// The response stream stopped after it had begun.
+    ///
+    /// `deliveredData` is carried rather than folded away because it is the fact the
+    /// replay rule turns on: once output has been delivered, re-sending the request
+    /// would ask the model to generate the whole thing again while the UI still counts
+    /// it as one continuous answer (`Agent Runtime.md:344`). The transport observes it;
+    /// deciding what to do about it belongs to a layer that knows about attempts.
+    case streamInterrupted(deliveredData: Bool, reason: String)
     /// The run's frozen configuration no longer matches the instance it names.
     ///
     /// Refused rather than resolved. A run must execute against the identity it was
@@ -88,6 +97,13 @@ extension ProviderError {
             // A locked device unlocks. Worth trying again later — but only later, and
             // only by a layer that knows whether anything has changed.
             return .retrySuggested
+        case .streamInterrupted(let deliveredData, _):
+            // Both directions come from the same rule, and they land the same way for
+            // different reasons. With output already delivered, replay is forbidden
+            // outright. Without it, a streaming POST still cannot prove the request was
+            // never accepted — the protocol offers no such evidence (`Agent Runtime.md:341-343`)
+            // — so the disposition is "cannot say", not "safe".
+            return deliveredData ? .doNotRetry : .retrySuggested
         case .credentialRejected, .credentialMissing, .insufficientBalance, .invalidRequest,
              .invalidParameters, .malformedResponse, .cancelled, .configurationMismatch:
             return .doNotRetry

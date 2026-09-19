@@ -91,8 +91,31 @@ struct HTTPResponse: Sendable, Equatable {
 enum HTTPTransportError: Error, Equatable {
     /// The request never completed. The message is the underlying description, which
     /// must not contain request headers — see `URLSessionHTTPTransport`.
+    ///
+    /// For a streaming request this means the failure happened before the response
+    /// head arrived; once the head is in hand, a failure is `streamInterrupted`.
     case networkFailure(String)
     case cancelled
+
+    /// The server answered with a non-2xx status, before any of the body was streamed.
+    ///
+    /// Carries the **whole response** so the caller maps it with the same status→error
+    /// mapping it already applies to `send`. A streaming request that is refused is
+    /// refused in the same vocabulary as one that is not — one mapping, not two.
+    ///
+    /// The body is read from the response already in flight. Re-issuing the request to
+    /// collect an error body would be a second POST, which is the one thing a transport
+    /// for this API must never do.
+    case httpStatus(HTTPResponse)
+
+    /// The stream stopped after the response had begun.
+    ///
+    /// `deliveredData` is the distinction the design notes require
+    /// (`Provider 与模型.md:66`): a stream that died before delivering anything and one
+    /// that died with output already delivered are different failures, and only the
+    /// transport is in a position to say which happened. Whether they differ in
+    /// retryability is a higher layer's judgement — this records the fact, not a verdict.
+    case streamInterrupted(deliveredData: Bool, reason: String)
 }
 
 /// The seam a Provider is written against.
@@ -105,4 +128,20 @@ enum HTTPTransportError: Error, Equatable {
 /// `URLSession` never appears above this protocol, which a CI check enforces.
 protocol HTTPTransport: Sendable {
     func send(_ request: HTTPRequest) async throws -> HTTPResponse
+
+    /// Sends a request whose response body arrives incrementally.
+    ///
+    /// Yields the body in the chunks the network delivered. **It does not interpret
+    /// them.** What the bytes mean — SSE framing, and above that a provider's JSON — is
+    /// the business of the layers above; putting any of it here would make every later
+    /// provider's wire format part of the transport's contract.
+    ///
+    /// What the transport owns is the *lifecycle*: the status and headers, delivery, the
+    /// distinction between a stream that never started and one that stopped partway, and
+    /// making cancellation reach the underlying request. It does not retry, and it does
+    /// not decide what a failure means — see `URLSessionHTTPTransport`.
+    ///
+    /// A non-2xx status throws `HTTPTransportError.httpStatus` rather than returning a
+    /// stream, because a refused request did not produce one.
+    func stream(_ request: HTTPRequest) async throws -> AsyncThrowingStream<Data, Error>
 }
