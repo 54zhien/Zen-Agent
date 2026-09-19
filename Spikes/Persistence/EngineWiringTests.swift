@@ -342,10 +342,91 @@ struct ScenarioBProbeTests {
             """
         )
     }
+
+    // MARK: The same race, against GRDB
+
+    /// The counterpart to the SwiftData probe, run so the comparison is
+    /// apples-to-apples: same eight concurrent claimants, same "exactly one may
+    /// hold the slot" requirement.
+    ///
+    /// The earlier GRDB uniqueness test was **single-threaded**, which is not
+    /// enough to conclude anything about concurrency — a constraint that holds
+    /// sequentially can still be defeated by interleaving. This one races.
+    ///
+    /// The mechanism is the declared constraint (a partial unique index) rather
+    /// than a check-then-write, so it does not depend on the engine serialising a
+    /// read against a later write. That distinction is the whole point of B.
+    @Test("GRDB: eight concurrent claimants against a partial unique index — exactly one wins?")
+    func grdbConcurrentClaim() async throws {
+        let directory = URL.temporaryDirectory.appending(path: "zen-grdb-claim-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let dbPool = try DatabasePool(path: directory.appending(path: "claims.sqlite").path())
+
+        try await dbPool.write { db in
+            try db.create(table: "claim") { t in
+                t.primaryKey("id", .text)
+                t.column("activeSlot", .text)
+                t.column("owner", .text).notNull()
+            }
+            try db.execute(sql: """
+                CREATE UNIQUE INDEX claim_one_active_per_conversation
+                ON claim (activeSlot)
+                WHERE activeSlot IS NOT NULL
+                """)
+        }
+
+        let outcomes = await withTaskGroup(of: ClaimOutcome.self) { group in
+            for index in 0..<8 {
+                let owner = "w\(index)"
+                group.addTask {
+                    do {
+                        try await dbPool.write { db in
+                            try db.execute(
+                                sql: "INSERT INTO claim (id, activeSlot, owner) VALUES (?, ?, ?)",
+                                arguments: [UUID().uuidString, "c1", owner]
+                            )
+                        }
+                        return .won
+                    } catch let error as DatabaseError where error.resultCode == .SQLITE_CONSTRAINT {
+                        return .taken
+                    } catch {
+                        return .failed(String(describing: error))
+                    }
+                }
+            }
+            var collected: [ClaimOutcome] = []
+            for await outcome in group { collected.append(outcome) }
+            return collected
+        }
+
+        let winners = outcomes.filter { $0 == .won }
+        let rejected = outcomes.filter { $0 == .taken }
+        let errored = outcomes.compactMap { outcome -> String? in
+            if case .failed(let reason) = outcome { return reason }
+            return nil
+        }
+
+        let holders = try await dbPool.read { db in
+            try String.fetchAll(db, sql: "SELECT owner FROM claim WHERE activeSlot = 'c1'")
+        }
+
+        #expect(
+            winners.count == 1 && holders.count == 1,
+            """
+            exactly one claimant may hold the slot. \
+            won=\(winners.count) rejectedAsTaken=\(rejected.count) errored=\(errored.count); \
+            rows holding c1: \(holders.count) [\(holders.sorted().joined(separator: ", "))]; \
+            errors: [\(errored.prefix(3).joined(separator: " | "))].
+            """
+        )
+    }
 }
 
 /// Distinguishing "the slot was already taken" from "the write failed" matters:
-/// only the first is the clean rejection the invariant requires.
+/// only the first is the clean rejection the invariant requires. Both engines are
+/// scored with this same type, so their results are directly comparable.
 enum ClaimOutcome: Sendable, Equatable {
     case won
     case taken
