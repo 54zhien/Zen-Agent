@@ -49,7 +49,7 @@ struct URLSessionHTTPTransport: HTTPTransport {
 
     // MARK: - Incremental response
 
-    func stream(_ request: HTTPRequest) async throws -> AsyncThrowingStream<Data, Error> {
+    func stream(_ request: HTTPRequest) async throws -> HTTPStream {
         let bytes: URLSession.AsyncBytes
         let response: URLResponse
         do {
