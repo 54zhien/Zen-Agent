@@ -70,7 +70,7 @@ enum ProviderAvailabilityResolver {
             switch error {
             case .notFound:
                 return .credentialMissing
-            case .unavailable(let reason):
+            case .unavailable(_, let reason):
                 // Translated, not collapsed. `CredentialError.unavailable` exists for
                 // this distinction, and losing it one layer up would waste it.
                 return .credentialTemporarilyUnavailable(reason: reason)

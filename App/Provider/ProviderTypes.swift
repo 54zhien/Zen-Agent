@@ -81,7 +81,7 @@ struct ProviderInstance: Codable, Sendable, Equatable, Identifiable {
     /// changing its id, and the whole point of freezing a seed is that later edits do
     /// not reach back into a run that already started.
     func matches(_ seed: RequestConfigSeed) -> Bool {
-        id.rawValue == seed.providerInstanceID
+        id == seed.providerInstanceID
             && configRevision == seed.providerConfigRevision
     }
 }
