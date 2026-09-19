@@ -231,7 +231,7 @@ struct DeepSeekStreamingTests {
         let f = try makeFixture()
         f.transport.enqueueStream(
             sse([#"{"id":"c1","choices":[{"delta":{"reasoning_content":"thinking"}}]}"#], terminated: false),
-            thenFailWith: .streamInterrupted(deliveredOutput: true, reason: "URLError code -1005")
+            thenFailWith: .streamInterrupted(deliveredData: true, reason: "URLError code -1005")
         )
 
         var failure: ProviderError?
@@ -298,7 +298,7 @@ struct DeepSeekStreamingTests {
         let f = try makeFixture()
         f.transport.enqueueStream(
             [],
-            thenFailWith: .streamInterrupted(deliveredOutput: false, reason: "URLError code -1005")
+            thenFailWith: .streamInterrupted(deliveredData: false, reason: "URLError code -1005")
         )
 
         var failure: ProviderError?
@@ -422,7 +422,7 @@ struct DeepSeekStreamingTests {
         let f = try makeFixture()
         f.transport.enqueueStream(
             sse([#"{"id":"c1","choices":[{"delta":{"content":"x"}}]}"#], terminated: false),
-            thenFailWith: .streamInterrupted(deliveredOutput: true, reason: "URLError code -1005")
+            thenFailWith: .streamInterrupted(deliveredData: true, reason: "URLError code -1005")
         )
 
         _ = try? await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
