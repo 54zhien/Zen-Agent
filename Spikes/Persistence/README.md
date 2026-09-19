@@ -346,12 +346,43 @@ Read the results accordingly: if GRDB is clearly more natural and stronger on
 single-transaction atomicity; B is uniqueness across competing writers. Different
 problems, and the second is the one the Runtime invariant depends on.
 
+### Scenario G — streaming write pressure
+
+Assertions cover what is stable and decidable; timing numbers are printed, not
+asserted. Thresholds on a shared CI runner are flaky, and the decision does not turn
+on them — if both engines are fast enough, being slower is not grounds for rejection.
+Reporting keeps the evidence without inventing a verdict from noise.
+
+| assertion | GRDB | SwiftData |
+|---|---|---|
+| persisted total correct after batching | ✅ | ✅ |
+| writes collapse (600 deltas at batch 50 ≠ 600 writes) | ✅ | ✅ |
+| terminal flush is what survives a reopen | ✅ | ✅ |
+| a read completes while a write commits | ✅ | ✅ |
+
+A tie on every control property. Both collapse to **12 writes**.
+
+Measurements (`[G]` lines in the CI log):
+
+| | GRDB | SwiftData |
+|---|---|---|
+| writes | 12 | 12 |
+| wall | 26.6 ms | 69.1 ms |
+| write P50 / P95 | 1.68 / 3.56 ms | 4.21 / 7.72 ms |
+| store bytes | 20 KB | 139 KB |
+| read P95 | 0.15 ms | 0.20 ms |
+
+Speed is not a disqualifier here — 12 writes at single-digit milliseconds is far
+inside "fast enough" on both. The store-size gap (6.8×) is the one figure worth
+carrying forward, because CoreData's per-row overhead compounds as Runs, ToolCalls
+and Parts accumulate.
+
 ### Progress
 
 | | B | C | D | A | E | F | G |
 |---|---|---|---|---|---|---|---|
-| GRDB | ✅ | ✅ | ✅ | ✅ | — | — | — |
-| SwiftData | ❌ known defect | ✅ | ✅ | ✅ | — | — | — |
+| GRDB | ✅ | ✅ | ✅ | ✅ | — | — | ✅ |
+| SwiftData | ❌ known defect | ✅ | ✅ | ✅ | — | — | ✅ |
 
 ## Layout
 
