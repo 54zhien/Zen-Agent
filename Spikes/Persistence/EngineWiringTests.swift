@@ -331,16 +331,32 @@ struct ScenarioBProbeTests {
         let reader = ClaimActor(modelContainer: container)
         let holders = try await reader.holders(of: "c1")
 
-        #expect(
-            winners.count == 1 && holders.count == 1,
+        // The requirement is kept in code, but as a *known issue*: it is a recorded
+        // defect, not a broken test. Leaving it red would train everyone to ignore
+        // red, which is how a real regression gets missed.
+        //
+        // If this ever stops failing, Swift Testing reports an unexpected pass —
+        // which is exactly the signal to revisit Docs/ADR/0001, because the
+        // reasoning there would no longer hold.
+        withKnownIssue(
             """
-            exactly one claimant may hold the slot. \
-            won=\(winners.count) rejectedAsTaken=\(rejected.count) errored=\(errored.count); \
-            rows holding c1: \(holders.count) [\(holders.sorted().joined(separator: ", "))]; \
-            errors: [\(errored.prefix(3).joined(separator: " | "))]. \
-            More than one row means the transaction does not serialise the check.
+            SwiftData cannot hold "at most one active owner" through fetch-then-insert \
+            inside a transaction: the check is not serialised against the write, and \
+            ModelContext exposes no isolation-level control to ask for it. \
+            Recorded in Docs/ADR/0001-persistence-engine.md.
             """
-        )
+        ) {
+            #expect(
+                winners.count == 1 && holders.count == 1,
+                """
+                exactly one claimant may hold the slot. \
+                won=\(winners.count) rejectedAsTaken=\(rejected.count) errored=\(errored.count); \
+                rows holding c1: \(holders.count) [\(holders.sorted().joined(separator: ", "))]; \
+                errors: [\(errored.prefix(3).joined(separator: " | "))]. \
+                More than one row means the transaction does not serialise the check.
+                """
+            )
+        }
     }
 
     // MARK: The same race, against GRDB

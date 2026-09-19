@@ -138,20 +138,6 @@ struct ScenarioCTests {
 
     // MARK: - Helpers
 
-    private func describe(_ phase: String?) -> String {
-        phase.map { "\"\($0)\"" } ?? "nothing"
-    }
-
-    private func makeScratchPath(name: String) throws -> URL {
-        let directory = URL.temporaryDirectory.appending(path: "zen-c-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory.appending(path: name)
-    }
-
-    private func cleanUp(_ url: URL) {
-        try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
-    }
-
     private func grdbPhase(_ path: String) throws -> String? {
         let pool = try DatabasePool(path: path)
         return try pool.read { db in
@@ -168,6 +154,137 @@ struct ScenarioCTests {
         let context = ModelContext(container)
         return try context.fetch(FetchDescriptor<ToolCallRecord>()).first?.phase
     }
+}
+
+// MARK: - Scenario D — migration interruption
+
+/// Raised by a deliberately broken migration to simulate a process dying partway
+/// through schema work.
+struct MigrationInterrupted: Error {}
+
+/// Scenario D — an interrupted migration must roll back, and must be re-runnable.
+///
+/// The requirement is not merely "migrations work". It is that a migration
+/// interrupted partway leaves the store **usable at its previous version with its
+/// data intact**, and that re-running it afterwards succeeds. Getting this wrong is
+/// how a shipping app loses user data on an update: the schema lands half-applied
+/// and nothing can open the store.
+///
+/// Before release this is also a backup question, but at the engine level the
+/// question is whether each migration step is transactional and whether the
+/// bookkeeping that records "this migration already ran" rolls back with it.
+@Suite("Scenario D — migration interruption")
+struct ScenarioDTests {
+
+    private func establishV1(_ queue: DatabaseQueue) throws {
+        var migrator = DatabaseMigrator()
+        migrator.registerMigration("v1-note") { db in
+            try db.create(table: "note") { t in
+                t.primaryKey("id", .text)
+                t.column("body", .text).notNull()
+            }
+            try db.execute(sql: "INSERT INTO note (id, body) VALUES ('n1', 'hello')")
+        }
+        try migrator.migrate(queue)
+    }
+
+    @Test("D · GRDB — an interrupted migration rolls back and can be re-run")
+    func grdbMigrationInterruption() throws {
+        let url = try makeScratchPath(name: "grdb-migrate.sqlite")
+        let path = url.path()
+        defer { cleanUp(url) }
+
+        // Establish v1 with real data, then let the writer go.
+        do {
+            try establishV1(try DatabaseQueue(path: path))
+        }
+
+        // A migration that does part of its work and then fails, as a process that
+        // died mid-migration would.
+        do {
+            let queue = try DatabaseQueue(path: path)
+            var migrator = DatabaseMigrator()
+            migrator.registerMigration("v1-note") { db in
+                try db.create(table: "note") { t in
+                    t.primaryKey("id", .text)
+                    t.column("body", .text).notNull()
+                }
+                try db.execute(sql: "INSERT INTO note (id, body) VALUES ('n1', 'hello')")
+            }
+            migrator.registerMigration("v2-add-pinned-BROKEN") { db in
+                try db.alter(table: "note") { t in
+                    t.add(column: "pinned", .boolean).notNull().defaults(to: false)
+                }
+                throw MigrationInterrupted()
+            }
+            var failure: Error?
+            do { try migrator.migrate(queue) } catch { failure = error }
+            #expect(
+                failure is MigrationInterrupted,
+                "the interrupted migration must surface its failure; got \(String(describing: failure))"
+            )
+        }
+
+        // The store must still open, still hold the data, and not carry half a schema.
+        do {
+            let queue = try DatabaseQueue(path: path)
+            let body = try queue.read { db in
+                try String.fetchOne(db, sql: "SELECT body FROM note WHERE id = 'n1'")
+            }
+            #expect(body == "hello", "an interrupted migration must not lose committed data")
+
+            let columns = try queue.read { db in try db.columns(in: "note").map(\.name) }
+            #expect(
+                !columns.contains("pinned"),
+                "a failed migration must roll back entirely, not leave a half-applied schema; columns were \(columns)"
+            )
+        }
+
+        // And the corrected migration must apply cleanly over the intact data.
+        do {
+            let queue = try DatabaseQueue(path: path)
+            var migrator = DatabaseMigrator()
+            migrator.registerMigration("v1-note") { db in
+                try db.create(table: "note") { t in
+                    t.primaryKey("id", .text)
+                    t.column("body", .text).notNull()
+                }
+                try db.execute(sql: "INSERT INTO note (id, body) VALUES ('n1', 'hello')")
+            }
+            migrator.registerMigration("v2-add-pinned") { db in
+                try db.alter(table: "note") { t in
+                    t.add(column: "pinned", .boolean).notNull().defaults(to: false)
+                }
+            }
+            try migrator.migrate(queue)
+
+            let body = try queue.read { db in
+                try String.fetchOne(db, sql: "SELECT body FROM note WHERE id = 'n1'")
+            }
+            let columns = try queue.read { db in try db.columns(in: "note").map(\.name) }
+            let rows = try queue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM note") ?? -1 }
+
+            #expect(body == "hello", "re-running the migration must not disturb existing rows")
+            #expect(rows == 1, "re-running must not duplicate rows; found \(rows)")
+            #expect(columns.contains("pinned"), "the retried migration must actually apply; columns were \(columns)")
+        }
+    }
+}
+
+// MARK: - Shared helpers
+
+private func describe(_ value: String?) -> String {
+    value.map { "\"\($0)\"" } ?? "nothing"
+}
+
+private func makeScratchPath(name: String) throws -> URL {
+    let directory = URL.temporaryDirectory.appending(path: "zen-spike-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory.appending(path: name)
+}
+
+private func cleanUp(_ url: URL) {
+    try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
 }
 
 /// Throwaway model for scenario C. Not a draft of a product entity.
