@@ -87,20 +87,54 @@ SwiftData 的 `won=3, errored=0`：三个独立事务各自读到 0、各自插�
 但这是**一个机制出局，不是引擎出局**：upsert 对面向合并的存储是合理设计，
 拿它当互斥约束用是类别错配，不是 bug。
 
-### 仍未解决的：串行 owner 这条退路
+### 串行 owner 这条退路：产品已裁定（2026-09-19）
 
-蓝图 `消息与数据.md` 原文允许「事务、**串行 owner**、约束或等价机制」。
-所以 SwiftData 仍有一条路：**用一个串行化所有 Run 创建的内存 actor**。
+蓝图 `消息与数据.md` 原文允许「事务、**串行 owner**、约束或等价机制」，
+所以 SwiftData 仍有一条路：用一个串行化所有 Run 创建的内存 actor。
 
-代价必须写清楚：**那个保证只存在于单进程内**。蓝图自己提过跨 Scene 仲裁
-（`App Space.md:263`），而 Share Extension 之类是独立进程。是否接受这个代价是产品决策，
-不是这里能替它定的。**这也是 SwiftData 尚未被排除的唯一理由。**
+**产品决定记录如下**，它界定 B 的结论意味着什么：
+
+- **spike 阶段允许它作为 SwiftData 的备选实现继续参与 C–G 验证。**
+- **正式 Zen V1 不把「单进程 actor」当作理想最终保证。**
+  理由：这是一条 Runtime 核心不变量，不是普通优化。一旦破坏，
+  同一个 User Turn 会长出两条 Run，进而双 Streaming、双 Tool Call、双 Approval、
+  恢复状态竞争、Message projection 污染。
+  期望的保护是 **application serialization + database constraint 双层**，
+  而不是指望所有调用路径永远记得经过某个 actor。
+- **多 Scene 不构成额外进程边界**；真正要记录的限制是 **App Extension / 第二进程**，
+  以及**绕过该 owner 的其他写路径**。
+
+    Fallback:  App-process-wide serialization actor
+    Coverage:  ✅ 同进程
+               ✅ 多 Scene（不是进程边界）
+               ❌ App Extension / 第二进程
+               ❌ 绕过该 owner 的其他写路径
+
+**不要为了救 SwiftData 而设计一个 `ActiveRunLease` 唯一约束就宣布问题解决。**
+若要做这个额外实验，必须验证它提供的是**真正的 claim 语义**
+（winner=1、loser 明确 rejected），而不是仅仅让数据库里最后剩一行——
+后者正是已实测到的 upsert 行为，与需求相反。
+
+### 场景权重（产品给定，决定证据如何汇总）
+
+七个场景**重要性不均等**，不能用「1/7」理解进度：
+
+| 权重 | 场景 |
+|---|---|
+| **最高** | B 唯一性 · C dispatch crash / indeterminate · D migration / recovery |
+| 中高 | A atomic Send · G Streaming 写入压力 |
+| 中等 | E Delete / Undo · F Tombstone |
+
+判读原则：**若 GRDB 在 B + C + D 上明显更自然、更强，即使 SwiftData 在 E/F 更省代码，
+仍应偏向 GRDB。**
+
+SwiftData 唯一还剩讨论价值的组合：C–G 上它**明显**更可靠或更简单，
+只有 B 需要一个全局 actor，且 Zen V1 明确不做 App Extension、所有 Run 创建只有一个 Repository owner。
 
 ### 尚未验证的部分
 
-场景 C（崩溃窗口能否区分两种 `executing`）、D（迁移可中断重跑）、E（删除+Undo）、
-F（tombstone）、G（流式写入压力）**对两个引擎都还是空白**。
-目前只有 B 一条决定性证据指向 GRDB——**不能据此完成选型**。
+场景 C–G **对两个引擎都还是空白**。目前只有 B 一条决定性证据指向 GRDB——
+按上表它是最高权重之一，但**单条证据不构成选型**。
 
 ## 已核实的环境事实（2026-09-19）
 

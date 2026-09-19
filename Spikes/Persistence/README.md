@@ -212,12 +212,24 @@ invariants rather than engine comparisons:
 The engine-comparison scaffolding (the harness protocol, both implementations,
 the A/B comparison itself) is what gets deleted.
 
+## Scenario weights
+
+The seven scenarios do **not** carry equal weight, and "1 of 7 done" is the wrong
+way to read progress:
+
+| Weight | Scenarios |
+|---|---|
+| highest | **B** uniqueness · **C** dispatch crash / indeterminate · **D** migration / recovery |
+| medium-high | **A** atomic send · **G** streaming write pressure |
+| medium | **E** delete / undo · **F** tombstone |
+
+Read the results accordingly: if GRDB is clearly more natural and stronger on
+**B + C + D**, prefer it even if SwiftData writes less code for E and F.
+
 ## Layout
 
 | File | Purpose |
 |---|---|
-| `EngineWiringTests.swift` | Proves both engines build and run in CI; probes conditional uniqueness |
-| *(to come)* `SpikeHarness.swift` | Protocol both engines implement, so scenarios are shared |
-| *(to come)* `SwiftDataHarness.swift` | SwiftData implementation |
-| *(to come)* `GRDBHarness.swift` | GRDB implementation |
-| *(to come)* `ScenarioTests.swift` | Scenarios A–G, run against the harness |
+| `EngineWiringTests.swift` | Proves both engines build and run in CI; characterises declared-constraint semantics |
+| `ScenarioTests.swift` | The A–G scenarios, both engines, same assertions |
+| *(to come)* `SpikeHarness.swift` | Shared harness protocol, if the scenarios grow enough to need one |
