@@ -105,6 +105,22 @@ jobs:
           fi
           echo "OK: URLSession is confined to App/HTTP/"
 
+      - name: DeepSeek's wire format must not escape its adapter
+        run: |
+          set -euo pipefail
+          # Type *declarations* only, at column zero, which is where a top-level Swift
+          # type sits. Extensions and ordinary references are not the problem; a DTO
+          # defined somewhere else is.
+          offenders=$(grep -rnE '^(struct|final class|class|enum) DeepSeek' App --include="*.swift" \
+            | grep -v '^App/Provider/DeepSeek/' || true)
+          if [ -n "$offenders" ]; then
+            echo "::error::DeepSeek's wire types are declared outside App/Provider/DeepSeek/:"
+            echo "$offenders"
+            echo "A DTO that escaped would make the next Provider's differences everybody's problem, and would make DeepSeek's field names part of Zen's own vocabulary."
+            exit 1
+          fi
+          echo "OK: DeepSeek's wire format is confined to App/Provider/DeepSeek/"
+
       - name: SecretValue must stay non-Codable
         run: |
           set -euo pipefail

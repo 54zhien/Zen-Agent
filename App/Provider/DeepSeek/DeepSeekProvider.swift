@@ -75,7 +75,7 @@ struct DeepSeekProvider: ModelProvider {
         }
         let secret = try Self.resolveSecret(reference, from: credentials)
 
-        let httpRequest = try makeHTTPRequest(request, secret: secret)
+        let httpRequest = try makeHTTPRequest(request, secret: secret, streaming: false)
 
         let httpResponse: HTTPResponse
         do {
@@ -94,15 +94,151 @@ struct DeepSeekProvider: ModelProvider {
         return try Self.normalise(httpResponse.body)
     }
 
+    // MARK: - Streaming completion
+
+    /// Streams one chat completion, yielding DeepSeek's own chunks.
+    ///
+    /// **Raw, not normalised.** These elements are DeepSeek's wire shape. Mapping them
+    /// onto something provider-neutral is its own increment, and doing it here would
+    /// mean designing that vocabulary against a single provider — which is exactly what
+    /// these increments exist to avoid.
+    ///
+    /// The order matches `complete`: verify the frozen configuration, resolve the
+    /// secret, build the request, then send. Nothing reaches the network for a run that
+    /// is about to be refused.
+    ///
+    /// **No retry**, here or anywhere below. A streaming POST cannot prove the request
+    /// was never accepted, so the notes forbid connection-level retry outright
+    /// (`Agent Runtime.md:341-343`); the caller gets a `RetryDisposition` and makes that
+    /// decision itself.
+    func stream(
+        _ request: ProviderChatRequest,
+        seed: RequestConfigSeed,
+        instance: ProviderInstance,
+        credentials: any CredentialStoring
+    ) async throws -> AsyncThrowingStream<DeepSeekStreamChunk, Error> {
+        try FrozenConfiguration.validate(
+            seed: seed,
+            modelID: request.modelID,
+            instance: instance,
+            credentials: credentials
+        )
+
+        guard let reference = instance.credentialReference else {
+            // Unreachable, as in `complete`: `validate` refuses a missing reference.
+            throw ProviderError.credentialMissing
+        }
+        let secret = try Self.resolveSecret(reference, from: credentials)
+
+        let httpRequest = try makeHTTPRequest(request, secret: secret, streaming: true)
+
+        let bytes: AsyncThrowingStream<Data, Error>
+        do {
+            bytes = try await transport.stream(httpRequest)
+        } catch {
+            throw Self.providerError(from: error)
+        }
+
+        return Self.chunks(from: bytes)
+    }
+
+    /// Reassembles DeepSeek's chunks out of the byte stream.
+    ///
+    /// The three layers are composed here and nowhere else: bytes from the transport,
+    /// SSE framing from the parser, and DeepSeek's JSON from `decodeStreamChunk`. Each
+    /// is separately testable; this is where they meet.
+    private static func chunks(
+        from bytes: AsyncThrowingStream<Data, Error>
+    ) -> AsyncThrowingStream<DeepSeekStreamChunk, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                var parser = SSEParser()
+                // Whether anything was handed over, which is what decides how the end
+                // of the stream is described. A stream that stopped after producing
+                // output and one that stopped before producing any are different
+                // failures with different retryability.
+                var deliveredData = false
+                do {
+                    for try await chunk in bytes {
+                        for element in try parser.consume(chunk) {
+                            switch element {
+                            case .done:
+                                continuation.finish()
+                                return
+                            case .event(let event):
+                                let decoded = try decodeStreamChunk(event.data)
+                                deliveredData = true
+                                continuation.yield(decoded)
+                            }
+                        }
+                    }
+                    // The bytes ended without the terminator ever arriving.
+                    try parser.finish()
+                    continuation.finish()
+                } catch let failure as SSEParserError {
+                    continuation.finish(
+                        throwing: providerError(from: failure, deliveredData: deliveredData)
+                    )
+                } catch {
+                    continuation.finish(throwing: providerError(from: error))
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// One event payload to one chunk.
+    ///
+    /// Fails rather than guessing. A payload that is not the expected shape means the
+    /// stream cannot be trusted, and a best-effort parse would put a half-understood
+    /// chunk in front of the user as though it were the model's output.
+    static func decodeStreamChunk(_ data: String) throws -> DeepSeekStreamChunk {
+        do {
+            return try JSONDecoder().decode(DeepSeekStreamChunk.self, from: Data(data.utf8))
+        } catch {
+            throw ProviderError.malformedResponse("a streaming chunk did not match the expected shape")
+        }
+    }
+
+    /// A parser failure, in Zen's vocabulary.
+    ///
+    /// `deliveredData` is threaded in rather than assumed: the parser cannot know
+    /// whether its caller had already handed anything onward, and that fact decides
+    /// whether the result is a stream that was cut short or one that never started.
+    static func providerError(from error: SSEParserError, deliveredData: Bool) -> ProviderError {
+        switch error {
+        case .unterminatedStream:
+            return .streamInterrupted(
+                deliveredData: deliveredData,
+                reason: "the stream ended without reaching its terminator"
+            )
+        case .invalidUTF8:
+            return .malformedResponse("a stream event was not valid UTF-8")
+        case .malformedFrame(let reason):
+            return .malformedResponse(reason)
+        case .bufferLimitExceeded(let limit):
+            return .malformedResponse("a stream event exceeded the \(limit)-byte reassembly bound")
+        }
+    }
+
     // MARK: - Request
 
-    private func makeHTTPRequest(_ request: ProviderChatRequest, secret: SecretValue) throws -> HTTPRequest {
+    /// The one place a chat-completions request is built, for both paths.
+    ///
+    /// `streaming` changes exactly two things — the flag in the body and the `Accept`
+    /// header — so the endpoint, the credential and the message mapping cannot drift
+    /// between the streamed and non-streamed request.
+    private func makeHTTPRequest(
+        _ request: ProviderChatRequest,
+        secret: SecretValue,
+        streaming: Bool
+    ) throws -> HTTPRequest {
         let body = DeepSeekChatRequest(
             model: request.modelID.rawValue,
             messages: request.messages.map {
                 DeepSeekChatRequest.Message(role: $0.role.rawValue, content: $0.content)
             },
-            stream: false
+            stream: streaming
         )
 
         let encoded: Data
@@ -121,7 +257,7 @@ struct DeepSeekProvider: ModelProvider {
                 // for the duration of one call. `HTTPRequest` redacts this header if
                 // anything prints the request.
                 "Authorization": "Bearer \(secret.revealed)",
-                "Accept": "application/json",
+                "Accept": streaming ? "text/event-stream" : "application/json",
             ],
             body: encoded
         )
@@ -180,6 +316,11 @@ struct DeepSeekProvider: ModelProvider {
             // Swift's own cancellation, which a real transport can surface instead of
             // translating it. Same meaning, so same case.
             return .cancelled
+        case let provider as ProviderError:
+            // Already Zen's vocabulary. Passing it through is not a shortcut — it is the
+            // only answer that keeps which failure it was. Re-wrapping would turn a
+            // specific refusal into a generic transport failure.
+            return provider
         default:
             return .transportFailure("the transport failed without a recognisable reason")
         }

@@ -26,6 +26,14 @@ struct DeepSeekChatRequest: Encodable, Sendable {
     var stream: Bool
 }
 
+/// Token accounting. The same shape in a streamed and a non-streamed response, so it is
+/// declared once rather than nested inside each.
+struct DeepSeekUsage: Decodable, Sendable {
+    var prompt_tokens: Int?
+    var completion_tokens: Int?
+    var total_tokens: Int?
+}
+
 struct DeepSeekChatResponse: Decodable, Sendable {
     struct Choice: Decodable, Sendable {
         struct Message: Decodable, Sendable {
@@ -43,15 +51,42 @@ struct DeepSeekChatResponse: Decodable, Sendable {
         var finish_reason: String?
     }
 
-    struct Usage: Decodable, Sendable {
-        var prompt_tokens: Int?
-        var completion_tokens: Int?
-        var total_tokens: Int?
+    var id: String?
+    var choices: [Choice]?
+    var usage: DeepSeekUsage?
+}
+
+/// One chunk of a streamed completion.
+///
+/// The differences from `DeepSeekChatResponse` are the point of having a second type:
+/// a streamed chunk carries a `delta` rather than a whole `message`, and everything in
+/// it is optional because most chunks carry only one of them.
+///
+/// **Every field is optional, and that is not laziness.** DeepSeek's last chunk before
+/// the terminator typically carries no content at all — one choice, an empty delta, a
+/// non-empty `finish_reason` — and its usage arrives only on that final chunk. A decoder
+/// that required content would fail on every stream at the moment it succeeded, and a
+/// decoder that treated a contentless chunk as malformed would throw away the only
+/// message that says the generation finished.
+struct DeepSeekStreamChunk: Decodable, Sendable {
+    struct Choice: Decodable, Sendable {
+        struct Delta: Decodable, Sendable {
+            /// Present on the first chunk only, when it is present at all.
+            var role: String?
+            var content: String?
+            /// Visible reasoning, which arrives as deltas of its own interleaved with
+            /// the answer's — not as a separate phase, and not always before it.
+            var reasoning_content: String?
+        }
+
+        var index: Int?
+        var delta: Delta?
+        var finish_reason: String?
     }
 
     var id: String?
     var choices: [Choice]?
-    var usage: Usage?
+    var usage: DeepSeekUsage?
 }
 
 /// The error envelope DeepSeek returns alongside a non-2xx status.
