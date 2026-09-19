@@ -46,7 +46,13 @@ struct SendCommit: Sendable {
 /// Not a database-abstraction layer. ADR-0001 is settled, so nothing here exists to
 /// keep GRDB swappable; the point is that **transaction rules live in one place** and
 /// that callers cannot accidentally write half of a compound operation.
-struct PersistenceStore {
+///
+/// `Sendable` is declared rather than left to inference. It would be inferred anyway —
+/// the only stored property is `ZenDatabase`, which is `Sendable` — but a conformance
+/// to a `Sendable`-refining protocol declared in a different file (as
+/// `CredentialMetadataRepository` is) must live here, next to the type. Being explicit
+/// is also the honest description: this is meant to be shareable, not accidentally so.
+struct PersistenceStore: Sendable {
     let database: ZenDatabase
 
     init(database: ZenDatabase) {
