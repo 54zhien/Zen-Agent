@@ -46,6 +46,8 @@ struct ScenarioCTests {
         // Prepared is committed before anything leaves the process.
         do {
             let pool = try DatabasePool(path: path)
+            // Close before cleanup — see `cleanUp`.
+            defer { try? pool.close() }
             try pool.write { db in
                 try db.create(table: "toolCall") { t in
                     t.primaryKey("id", .text)
@@ -69,6 +71,8 @@ struct ScenarioCTests {
         // is attempted.
         do {
             let pool = try DatabasePool(path: path)
+            // Close before cleanup — see `cleanUp`.
+            defer { try? pool.close() }
             try pool.write { db in
                 try db.execute(
                     sql: "UPDATE toolCall SET phase = ? WHERE id = ?",
@@ -140,6 +144,8 @@ struct ScenarioCTests {
 
     private func grdbPhase(_ path: String) throws -> String? {
         let pool = try DatabasePool(path: path)
+        // Close before cleanup — see `cleanUp`.
+        defer { try? pool.close() }
         return try pool.read { db in
             try String.fetchOne(db, sql: "SELECT phase FROM toolCall WHERE id = 'tc1'")
         }
@@ -200,6 +206,8 @@ struct ScenarioDTests {
     private func establishV1(name: String) throws -> URL {
         let url = try makeScratchPath(name: name)
         let queue = try DatabaseQueue(path: url.path())
+        // Close before cleanup — see `cleanUp`.
+        defer { try? queue.close() }
         var migrator = DatabaseMigrator()
         registerV1(&migrator)
         try migrator.migrate(queue)
@@ -208,6 +216,8 @@ struct ScenarioDTests {
 
     private func inspect(_ path: String) throws -> (body: String?, rowCount: Int, columns: [String]) {
         let queue = try DatabaseQueue(path: path)
+        // Close before cleanup — see `cleanUp`.
+        defer { try? queue.close() }
         return try queue.read { db in
             (
                 body: try String.fetchOne(db, sql: "SELECT body FROM note WHERE id = 'n1'"),
@@ -225,6 +235,8 @@ struct ScenarioDTests {
         defer { cleanUp(url) }
 
         let queue = try DatabaseQueue(path: url.path())
+        // Close before cleanup — see `cleanUp`.
+        defer { try? queue.close() }
         var migrator = DatabaseMigrator()
         registerV1(&migrator)
         registerV2(&migrator)
@@ -245,6 +257,8 @@ struct ScenarioDTests {
 
         do {
             let queue = try DatabaseQueue(path: url.path())
+            // Close before cleanup — see `cleanUp`.
+            defer { try? queue.close() }
             var migrator = DatabaseMigrator()
             registerV1(&migrator)
             registerV2(&migrator)
@@ -256,6 +270,8 @@ struct ScenarioDTests {
         // failure this checks for, and it is silent if you only look at the schema.
         do {
             let queue = try DatabaseQueue(path: url.path())
+            // Close before cleanup — see `cleanUp`.
+            defer { try? queue.close() }
             var migrator = DatabaseMigrator()
             registerV1(&migrator)
             registerV2(&migrator)
@@ -283,6 +299,8 @@ struct ScenarioDTests {
         // A migration that alters the schema and then fails.
         do {
             let queue = try DatabaseQueue(path: url.path())
+            // Close before cleanup — see `cleanUp`.
+            defer { try? queue.close() }
             var migrator = DatabaseMigrator()
             registerV1(&migrator)
             migrator.registerMigration("v2-add-pinned-BROKEN") { db in
@@ -310,6 +328,8 @@ struct ScenarioDTests {
         // And the corrected migration must apply cleanly over the intact data.
         do {
             let queue = try DatabaseQueue(path: url.path())
+            // Close before cleanup — see `cleanUp`.
+            defer { try? queue.close() }
             var migrator = DatabaseMigrator()
             registerV1(&migrator)
             registerV2(&migrator)
@@ -587,6 +607,20 @@ func makeScratchPath(name: String) throws -> URL {
     return directory.appending(path: name)
 }
 
+/// Removes a scratch store's directory. **Callers must have closed their database
+/// handles first.**
+///
+/// `defer { cleanUp(url) }` written at test scope is not ordered against the release
+/// of a local database handle — Swift does not promise the handle is deallocated
+/// before the deferred block runs. Deleting the directory while libsqlite3 still
+/// holds the file produces:
+///
+///     BUG IN CLIENT OF libsqlite3.dylib: database integrity compromised by API
+///     violation: vnode unlinked while in use
+///
+/// Harmless, but it puts the word BUG in every CI log, which is exactly how a real
+/// one stops being noticed. So every handle is closed explicitly at its creation
+/// site rather than left to ARC.
 func cleanUp(_ url: URL) {
     try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
 }

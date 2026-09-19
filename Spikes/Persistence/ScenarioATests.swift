@@ -54,6 +54,8 @@ struct ScenarioATests {
 
     private func sendCounts(_ path: String) throws -> (messages: Int, runs: Int) {
         let queue = try DatabaseQueue(path: path)
+        // Close before cleanup — see `cleanUp`.
+        defer { try? queue.close() }
         return try queue.read { db in
             (
                 messages: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM userMessage") ?? -1,
@@ -73,6 +75,8 @@ struct ScenarioATests {
         let url = try makeScratchPath(name: "grdb-a1.sqlite")
         defer { cleanUp(url) }
         let queue = try DatabaseQueue(path: url.path())
+        // Close before cleanup — see `cleanUp`.
+        defer { try? queue.close() }
         try createSendTables(queue)
 
         var failure: Error?
@@ -104,6 +108,8 @@ struct ScenarioATests {
         let url = try makeScratchPath(name: "grdb-a2-control.sqlite")
         defer { cleanUp(url) }
         let queue = try DatabaseQueue(path: url.path())
+        // Close before cleanup — see `cleanUp`.
+        defer { try? queue.close() }
         try createSendTables(queue)
 
         // Commit only the message, then the process "dies" before the run.
@@ -155,6 +161,8 @@ struct ScenarioATests {
 
         do {
             let queue = try DatabaseQueue(path: path)
+            // Close before cleanup — see `cleanUp`.
+            defer { try? queue.close() }
             try createSendTables(queue)
             // Both writes in one transaction, which commits on normal return.
             try queue.write { db in try insertSend(db, messageID: "m1", runID: "r1") }
