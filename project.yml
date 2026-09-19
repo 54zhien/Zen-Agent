@@ -80,25 +80,6 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
 
-  # ------------------------------------------------- persistence spike harness
-  # Deliberately a separate macOS logic-test bundle, not an iOS simulator test:
-  # it exercises store semantics (transactions, constraints, migrations) that are
-  # platform-independent, and macOS logic tests run an order of magnitude faster
-  # in CI. No host app is needed. This whole target is throwaway — it is deleted
-  # once ADR-0001's engine decision is recorded.
-  PersistenceSpikeTests:
-    type: bundle.unit-test
-    platform: macOS
-    sources:
-      - path: Spikes/Persistence
-        excludes:
-          # Documentation, not a bundle resource.
-          - "README.md"
-    dependencies:
-      - package: GRDB
-    settings:
-      base:
-        GENERATE_INFOPLIST_FILE: YES
 
 schemes:
 
@@ -114,11 +95,3 @@ schemes:
       targets:
         - ZenAgentTests
 
-  PersistenceSpike:
-    build:
-      targets:
-        PersistenceSpikeTests: [test]
-    test:
-      config: Debug
-      targets:
-        - PersistenceSpikeTests

@@ -14,11 +14,9 @@ import SwiftUI
 ///   - App Space / Split
 ///   - Soul / Memory / Skills / MCP / Subagent
 ///
-/// The only code Stage 0 is allowed to add beyond this placeholder is the
-/// throwaway persistence spike, which lives in `Spikes/Persistence` and is built
-/// into its own target. Keeping the boundary sharp is the point: the persistence
-/// engine decision is still open, and anything built on top of the wrong choice
-/// would be rewritten.
+/// Stage 0 is complete. The persistence engine is chosen (GRDB, see
+/// `Docs/ADR/0001-persistence-engine.md`) and the data layer lives in
+/// `App/Persistence/`. The throwaway spike that decided it has been deleted.
 @main
 struct ZenAgentApp: App {
     var body: some Scene {

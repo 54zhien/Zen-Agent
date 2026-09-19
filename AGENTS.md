@@ -66,12 +66,19 @@ Follow the dependency order in the Blueprint's `Design/Zen Agent 开发规划.md
 jump ahead because a later feature is more interesting, and do not build scaffolding
 for a stage that has not started.
 
-**Current stage: Stage 0 — establish a real baseline.**
+**Stage 0 is complete; Stage 1 has not started.**
 
-Forbidden until the Stage 0 gate is met:
+Stage 0 produced a real baseline: a regenerable Xcode project, a green CI, a decided
+persistence engine (GRDB — `Docs/ADR/0001-persistence-engine.md`), a schema with a
+numbered migrator, and regression tests for the seven invariants the decision rests
+on. The throwaway spike that decided it has been deleted, and CI is green without it.
+
+What it did **not** produce, and what is still forbidden:
 
 ```
 DeepSeek or any other Provider
+Credential / CredentialStore wiring
+Streaming Transport
 AgentRuntime
 ToolRuntime
 Conversation UI / Composer
@@ -83,13 +90,13 @@ Subagent
 App Space / Split
 ```
 
-The **only** code Stage 0 may add beyond the minimal app and its build/test
-baseline is the throwaway persistence spike under `Spikes/Persistence/` — and only
-the minimal test types that spike needs.
+**The Stage 0 boundary was not bureaucratic, and Stage 1's is not either.** Nothing
+above was built until the engine was chosen, because everything would have been
+rewritten had the choice gone the other way. The same reasoning applies to what comes
+next: build it in the stage that owns it.
 
-This boundary is not bureaucratic. The persistence engine is still undecided, and
-anything built on top of the wrong choice gets rewritten. That is exactly the cost
-Stage 0 exists to avoid.
+`App/Persistence/` is a **data layer, not a head start.** It exists because Stage 0
+needed it; it is not permission to begin Stage 1 work behind it.
 
 ## 3. XcodeGen is the project's source of truth
 
@@ -177,8 +184,7 @@ comment or the PR. Do not duplicate a Blueprint ADR here.
 project.yml              project structure (XcodeGen input)
 Config/                  build settings — the single source of truth
 App/                     application target
-Tests/                   unit tests
-Spikes/                  throwaway experiments; see the deletion rule in each
+Tests/                   unit tests, including the persistence invariant regressions
 Docs/ADR/                engineering decision records
 Resources/               bundled assets (fonts, licences, manifests)
 .github/workflows/       CI

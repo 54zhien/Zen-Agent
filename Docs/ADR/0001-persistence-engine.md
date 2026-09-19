@@ -276,6 +276,30 @@ SwiftData 侧因此让 tombstone **不带任何关系**，而 message / toolCall
 在 **D 上小幅领先**（同样通过，但无「非可选属性使迁移失败」「失败原因被丢弃」两条负面发现）、
 **C / A / G / E / F 五项平局**。
 
+## 正式测试如何接管这些证据
+
+spike 是**一次性**的，它的断言已迁到正式层。每条决定性证据的对应关系：
+
+| ADR 中的证据 | 正式接管者 |
+|---|---|
+| **B** active Parent Run 唯一性由数据库保证 | `ActiveParentRunUniquenessTests` —— 含一条**绕过 store 直接写库**的用例，证明索引本身在起保护作用 |
+| **A** Send commit 全有或全无 | `AtomicSendCommitTests` |
+| **C** `dispatched` 后崩溃不得自动重发 | `ToolDispatchRecoveryTests` |
+| **D** 迁移回滚、可重跑 | `MigrationTests` |
+| **E** undo 窗口内正文完好、undo 恢复完整对话 | `ConversationDeletionTests` |
+| **F** indeterminate 的 tombstone 不被级联抹掉 | `IndeterminateTombstoneTests` |
+| **G** 已持久化内容与终端 flush 的持久性 | `StreamingPersistenceTests`（**只守正确性**；G 的吞吐数字是测量结果，不是断言，见下） |
+
+**两处例外，必须显式记下来，否则以后有人会以为漏了：**
+
+1. **SwiftData 专属的行为刻画**（`#Unique` 静默 upsert、非可选属性使迁移失败、迁移失败丢弃原因）
+   随 spike 一起删除。它们是被否决引擎的特性记录，没有可长期测试的对象。
+   **它们的后果仍在保护之中**：B 的数据库级约束由 `ActiveParentRunUniquenessTests` 守着，
+   D 的迁移陷阱写在本 ADR 与 `Migrations` 的注释里。
+2. **G 的性能数字**（wall、P50/P95、存储体积）是测量结果而非断言。
+   在共享 CI runner 上写毫秒阈值必然 flaky，而产品给定的判读标准是「两边都够快就不构成淘汰理由」。
+   真正的性能工作属于 Stage 12 的实测 profiling。
+
 ## 重新评估条件
 
 **SwiftData 是为 V1 落选，不是被根本否决。** 出现下列任一情况时应重新评估：

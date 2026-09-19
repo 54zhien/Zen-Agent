@@ -172,14 +172,6 @@ jobs:
             -configuration Debug \
             -destination "id=$UDID"
 
-      - name: Run persistence spike (macOS logic tests)
-        run: |
-          set -o pipefail
-          xcodebuild test \
-            -project ZenAgent.xcodeproj \
-            -scheme PersistenceSpike \
-            -configuration Debug \
-            -destination 'platform=macOS'
 
       - name: Upload test results on failure
         if: failure()

@@ -31,15 +31,16 @@ baseline is recorded in `Docs/ADR/`.
 
 ## Status
 
-**Stage 0 — establishing a real baseline.** No product feature is implemented yet,
-and none may be until the Stage 0 gate is met.
+**Stage 0 complete — a real baseline exists.** The persistence engine is decided
+(GRDB, see `Docs/ADR/0001-persistence-engine.md`), the schema and migrator exist, and
+the seven invariants the decision rests on are covered by regression tests.
 
-Explicitly not started: Provider (DeepSeek or otherwise), AgentRuntime,
-ToolRuntime, Conversation UI, App Space, Soul, Memory, Skills, MCP, Subagent.
+No product feature is implemented. Explicitly not started: Provider (DeepSeek or
+otherwise), AgentRuntime, ToolRuntime, Conversation UI, App Space, Soul, Memory,
+Skills, MCP, Subagent.
 
-The only code beyond the minimal app and its build/test baseline is the throwaway
-persistence spike in `Spikes/`, which exists to decide between SwiftData and GRDB
-before anything is built on top of either.
+`App/Persistence/` is a data layer, not a head start on the next stage. GRDB is
+confined to it, and CI fails the build if that stops being true.
 
 ## Getting started
 
@@ -56,7 +57,6 @@ Then build and test:
 ```sh
 xcodebuild build -scheme ZenAgent -destination 'generic/platform=iOS Simulator'
 xcodebuild test  -scheme ZenAgent -destination 'platform=iOS Simulator,name=<device>'
-xcodebuild test  -scheme PersistenceSpike -destination 'platform=macOS'
 ```
 
 `ZenAgent.xcodeproj` is a build artifact. `project.yml` and `Config/*.xcconfig` are
@@ -68,15 +68,14 @@ the source of truth — see `AGENTS.md` §3 and `Docs/ADR/0002`.
 project.yml              project structure (XcodeGen input)
 Config/                  build settings — the single source of truth
 App/                     application target
-Tests/                   unit tests
-Spikes/                  throwaway experiments; each documents its own deletion rule
+Tests/                   unit tests, including the persistence invariant regressions
 Docs/ADR/                engineering decision records
 Resources/               bundled assets (fonts, licences, manifests)
 .github/workflows/       CI
 ```
 
-`App/` stays flat during Stage 0 and grows real module boundaries only as real code
-arrives — no pre-created empty directories or placeholder protocols.
+`App/Persistence/` is the data layer. Beyond it, `App/` grows real module boundaries
+only as real code arrives — no pre-created empty directories or placeholder protocols.
 
 ## Notes
 
