@@ -166,7 +166,10 @@ struct SSEParserTests {
     @Test("an empty stream never reached its terminator")
     func emptyStreamIsUnterminated() throws {
         #expect(throws: SSEParserError.unterminatedStream) {
-            try SSEParser().finish()
+            // Bound to a `var`: `finish()` is mutating, so it cannot be called on the
+            // temporary an expression would produce.
+            var parser = SSEParser()
+            try parser.finish()
         }
     }
 
