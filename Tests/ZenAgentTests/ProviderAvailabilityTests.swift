@@ -100,7 +100,7 @@ struct ProviderAvailabilityTests {
             credentials: credentials,
             verdict: .rejected
         )
-        #expect(availability == .credentialInvalid)
+        #expect(availability == .authenticationRequired(reason: .providerRejected))
     }
 
     @Test("a logged-out credential is invalid, not missing")
@@ -115,8 +115,13 @@ struct ProviderAvailabilityTests {
             verdict: nil
         )
         #expect(
-            availability == .credentialInvalid,
-            "a logout is a deliberate act by a known user; reporting it as 'missing' loses that"
+            availability == .authenticationRequired(reason: .loggedOut),
+            """
+            a logout is a deliberate act by a known user; reporting it as 'missing' loses \
+            that. The reason is asserted, not just the case — the two reasons need the same \
+            thing from the user, which is exactly why they are easy to merge and why the \
+            provenance has to be checked rather than assumed.
+            """
         )
     }
 
@@ -131,8 +136,8 @@ struct ProviderAvailabilityTests {
         )
         try credentials.provision(SecretValue("sk-1"), as: Self.reference)
 
-        // Invalid, via the provider.
-        let invalid = try ProviderAvailabilityResolver.resolve(
+        // Rejected, via the provider.
+        let rejected = try ProviderAvailabilityResolver.resolve(
             instance: instance(), credentials: credentials, verdict: .rejected
         )
 
@@ -144,7 +149,10 @@ struct ProviderAvailabilityTests {
 
         // Asserted together, because the requirement is precisely that they are not the
         // same value — each on its own would pass even if two of them were identical.
-        #expect(Set([missing, invalid, unavailable]).count == 3, "expected three distinct states, got \([missing, invalid, unavailable])")
+        #expect(
+            Set([missing, rejected, unavailable]).count == 3,
+            "expected three distinct states, got \([missing, rejected, unavailable])"
+        )
     }
 
     // MARK: - FakeProvider

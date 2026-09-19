@@ -88,6 +88,23 @@ jobs:
           fi
           echo "OK: Security.framework is confined to App/Credential/"
 
+      - name: URLSession must not escape the HTTP layer
+        run: |
+          set -euo pipefail
+          # Matches *code*, not a mention. `URLSession` has no import to key on, so a
+          # bare word search would fire on a comment that merely names it — the kind of
+          # false positive that gets a check deleted rather than fixed. Lines whose first
+          # non-whitespace is a comment marker are ignored; a trailing comment on a code
+          # line still counts, because the code line counts anyway.
+          offenders=$(grep -rn "URLSession" App --include="*.swift"             | grep -v '^App/HTTP/'             | grep -vE ':[[:space:]]*(//|///|\*)'             || true)
+          if [ -n "$offenders" ]; then
+            echo "::error::URLSession is referenced outside App/HTTP/:"
+            echo "$offenders"
+            echo "Providers talk to HTTPTransport, so retry/timeout/cancellation policy has one home."
+            exit 1
+          fi
+          echo "OK: URLSession is confined to App/HTTP/"
+
       - name: SecretValue must stay non-Codable
         run: |
           set -euo pipefail
