@@ -44,6 +44,10 @@ targets:
     platform: iOS
     sources:
       - path: App
+    dependencies:
+      # The production persistence layer. Confined to App/Persistence/ and enforced
+      # by the CI hygiene job. See Docs/ADR/0001.
+      - package: GRDB
     info:
       path: App/Info.plist
       properties:
@@ -69,6 +73,9 @@ targets:
       - path: Tests/ZenAgentTests
     dependencies:
       - target: ZenAgent
+      # Linked so the one test file that deliberately bypasses the store can write to
+      # the database directly and prove the constraint holds without it.
+      - package: GRDB
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
