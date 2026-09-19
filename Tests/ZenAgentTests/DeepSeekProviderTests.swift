@@ -46,7 +46,10 @@ struct DeepSeekProviderTests {
             seed: RequestConfigSeed(
                 instance: instance,
                 modelID: ModelID(rawValue: model),
-                credentialBindingRevision: 1
+                credentialBinding: CredentialBindingSnapshot(
+                    reference: CredentialReference(id: "cred-1"),
+                    generation: 1
+                )
             ),
             credentials: credentials
         )
@@ -506,7 +509,7 @@ struct DeepSeekProviderTests {
             configRevision: .initial,
             credentialReference: reference
         )
-        try metadata.saveProviderInstance(instance)
+        try metadata.createProviderInstance(instance)
 
         let transport = FakeHTTPTransport()
         transport.enqueue(status: 200, json: Self.successJSON)
@@ -515,7 +518,7 @@ struct DeepSeekProviderTests {
         let seed = RequestConfigSeed(
             instance: instance,
             modelID: ModelID(rawValue: "deepseek-flash"),
-            credentialBindingRevision: 1
+            credentialBinding: CredentialBindingSnapshot(reference: reference, generation: 1)
         )
         let response = try await provider.complete(request(), seed: seed, instance: instance, credentials: credentials)
 

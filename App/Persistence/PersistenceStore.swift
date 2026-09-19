@@ -29,6 +29,13 @@ enum PersistenceError: Error, Equatable {
     /// The named Provider instance does not exist.
     case providerInstanceNotFound(ProviderInstanceID)
 
+    /// A create was asked to make an instance whose id is already taken.
+    ///
+    /// Distinct from `constraintViolation` because it is not a bug in the caller's
+    /// concurrency handling — it is a caller trying to write over an existing instance
+    /// through the create path, which is the one thing that must not silently succeed.
+    case providerInstanceAlreadyExists(ProviderInstanceID)
+
     /// The named run does not exist.
     case runNotFound(String)
 }

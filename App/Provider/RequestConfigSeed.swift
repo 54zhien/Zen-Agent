@@ -1,5 +1,22 @@
 import Foundation
 
+/// **Which credential a run was frozen against, and which generation of it.**
+///
+/// Both halves are required. The generation alone was the original design, and it is
+/// not enough: the reference is what names *which* credential, and the instance can be
+/// pointed at a different one without the generation moving at all. Freezing credential
+/// A at generation 1 and then attaching a freshly provisioned credential B — also at
+/// generation 1 — left every check passing while the run went out under a credential it
+/// had never been frozen against.
+///
+/// A reference is an identifier, not material. `SecretValue` is not `Codable`, so
+/// "the seed cannot carry a secret" stays a property of the types rather than a rule
+/// this file has to be careful about.
+struct CredentialBindingSnapshot: Codable, Sendable, Equatable {
+    var reference: CredentialReference
+    var generation: Int
+}
+
 /// The request configuration frozen at send commit.
 ///
 /// A typed value rather than a free-form JSON blob. The column it lives in is a string
@@ -22,10 +39,13 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
     /// The instance's configuration revision at the moment of the freeze, so a later
     /// edit to the endpoint or provider type does not reach back into this run.
     var providerConfigRevision: ConfigRevision
-    /// Non-secret generation of the credential binding. Refresh keeps it; logout,
-    /// rebind or an account change must produce a new one, so a suspended run cannot
-    /// silently continue on a different principal.
-    var credentialBindingRevision: Int
+    /// The credential identity this run was frozen against.
+    ///
+    /// Refresh keeps the generation; logout, rebind or an account change must produce a
+    /// new one, so a suspended run cannot silently continue on a different principal.
+    /// And the *reference* is frozen alongside it, so it cannot silently continue on a
+    /// different credential either.
+    var credentialBinding: CredentialBindingSnapshot
 }
 
 extension RequestConfigSeed {
@@ -36,12 +56,17 @@ extension RequestConfigSeed {
     /// caller that set the provider instance but filled in the revision from memory
     /// would produce a seed that no longer matches the instance it names — and the
     /// mismatch would only surface when a suspended run tried to recover.
-    init(instance: ProviderInstance, modelID: ModelID, credentialBindingRevision: Int) {
+    ///
+    /// The binding is passed in rather than derived from the instance. The instance
+    /// carries a reference but not a generation — that belongs to the credential, and is
+    /// read from the credential store — so a seed built from the instance alone could
+    /// not contain both halves.
+    init(instance: ProviderInstance, modelID: ModelID, credentialBinding: CredentialBindingSnapshot) {
         self.init(
             providerInstanceID: instance.id,
             modelID: modelID,
             providerConfigRevision: instance.configRevision,
-            credentialBindingRevision: credentialBindingRevision
+            credentialBinding: credentialBinding
         )
     }
 }

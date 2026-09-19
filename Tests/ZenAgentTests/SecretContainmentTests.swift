@@ -93,13 +93,17 @@ struct SecretContainmentTests {
             providerInstanceID: ProviderInstanceID(rawValue: "pi1"),
             modelID: ModelID(rawValue: "deepseek-chat"),
             providerConfigRevision: ConfigRevision(rawValue: "r1"),
-            credentialBindingRevision: 1
+            credentialBinding: CredentialBindingSnapshot(reference: Self.reference, generation: 1)
         )
         let seedJSON = String(decoding: try encoder.encode(seed), as: UTF8.self)
         #expect(!seedJSON.contains(Self.marker))
         #expect(
-            seedJSON.contains("credentialBindingRevision"),
-            "the seed names the binding instead — an identifier, not the material"
+            seedJSON.contains(Self.reference.id),
+            "the seed names the credential instead — an identifier, not the material"
+        )
+        #expect(
+            seedJSON.contains("generation"),
+            "and which generation of it, so a rebind is visible to a recovering run"
         )
     }
 

@@ -14,6 +14,7 @@ import Testing
 struct ProviderInstanceTests {
 
     private static let instanceID = ProviderInstanceID(rawValue: "pi-1")
+    private static let reference = CredentialReference(id: "cred-1")
 
     private func makeStore() throws -> PersistenceStore {
         PersistenceStore(database: try ZenDatabase.inMemory())
@@ -28,7 +29,7 @@ struct ProviderInstanceTests {
             configRevision: .initial,
             credentialReference: CredentialReference(id: "cred-1")
         )
-        try store.saveProviderInstance(instance)
+        try store.createProviderInstance(instance)
         return instance
     }
 
@@ -112,7 +113,11 @@ struct ProviderInstanceTests {
         let instance = try seedInstance(store)
 
         // What Send freezes.
-        let seed = RequestConfigSeed(instance: instance, modelID: ModelID(rawValue: "deepseek-chat"), credentialBindingRevision: 1)
+        let seed = RequestConfigSeed(
+            instance: instance,
+            modelID: ModelID(rawValue: "deepseek-chat"),
+            credentialBinding: CredentialBindingSnapshot(reference: Self.reference, generation: 1)
+        )
         #expect(instance.matches(seed), "the seed must match the instance it was frozen from")
 
         let edited = try store.reconfigureProviderInstance(
@@ -132,7 +137,7 @@ struct ProviderInstanceTests {
         #expect(edited.matches(RequestConfigSeed(
             instance: edited,
             modelID: ModelID(rawValue: "deepseek-chat"),
-            credentialBindingRevision: 1
+            credentialBinding: CredentialBindingSnapshot(reference: Self.reference, generation: 1)
         )))
     }
 
@@ -176,7 +181,7 @@ struct ProviderInstanceTests {
             secrets: InMemorySecretBackend(),
             metadataRepository: store
         )
-        let reference = CredentialReference(id: "cred-1")
+        let reference = Self.reference
         try credentials.provision(SecretValue("sk-1"), as: reference, principalFingerprint: "acct-a")
 
         guard let instance = try store.providerInstance(id: Self.instanceID),
@@ -187,15 +192,15 @@ struct ProviderInstanceTests {
         let seed = RequestConfigSeed(
             instance: instance,
             modelID: ModelID(rawValue: "deepseek-chat"),
-            credentialBindingRevision: generation
+            credentialBinding: CredentialBindingSnapshot(reference: reference, generation: generation)
         )
-        #expect(seed.credentialBindingRevision == 1)
+        #expect(seed.credentialBinding.generation == 1)
 
         // Rebinding the credential moves the generation, and the seed stops matching —
         // without anything about the instance changing.
         try credentials.rebind(SecretValue("sk-2"), as: reference, principalFingerprint: "acct-b")
         #expect(
-            try !credentials.matchesBinding(reference, generation: seed.credentialBindingRevision),
+            try !credentials.matchesBinding(reference, generation: seed.credentialBinding.generation),
             """
             the reference id is identical before and after a rebind, so only the \
             generation can tell a suspended run that its credential now belongs to \

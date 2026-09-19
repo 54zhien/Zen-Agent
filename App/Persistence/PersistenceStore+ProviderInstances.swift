@@ -22,14 +22,36 @@ extension PersistenceStore {
         }
     }
 
-    func saveProviderInstance(_ instance: ProviderInstance, at now: Date = Date()) throws {
+    /// Creates an instance. **Fails if the id is already taken.**
+    ///
+    /// There is deliberately no general-purpose save. A method that wrote whatever it
+    /// was handed would be a path around the revision: a caller could change an
+    /// endpoint, or the credential, and leave `configRevision` where it was, so every
+    /// paused run would go on believing it still matched. This method is the only way
+    /// a row comes into existence, and every change to one that exists goes through a
+    /// named mutation below that bumps the revision itself.
+    func createProviderInstance(_ instance: ProviderInstance, at now: Date = Date()) throws {
+        try database.write { db in
+            guard try ProviderInstanceRecord.fetchOne(db, key: instance.id.rawValue) == nil else {
+                throw PersistenceError.providerInstanceAlreadyExists(instance.id)
+            }
+            try Self.providerInstanceRecord(from: instance, at: now).insert(db)
+        }
+    }
+
+    /// Writes an instance that is already known to exist.
+    ///
+    /// File-private on purpose. The mutations below are the entry points, and each one
+    /// decides what it is allowed to change; exposing this would put the generic
+    /// upsert back.
+    private func updateProviderInstance(_ instance: ProviderInstance, at now: Date) throws {
         try database.write { db in
             var record = Self.providerInstanceRecord(from: instance, at: now)
-            // Created-once, preserved across the upsert. Read inside the transaction so
-            // two concurrent saves cannot both decide the row is new.
+            // Created-once. Read inside the transaction so two concurrent writes cannot
+            // both decide the row is new.
             record.createdAt = try ProviderInstanceRecord
                 .fetchOne(db, key: instance.id.rawValue)?.createdAt ?? now
-            try record.upsert(db)
+            try record.update(db)
         }
     }
 
@@ -55,7 +77,7 @@ extension PersistenceStore {
         instance.displayName = displayName
         instance.baseURL = baseURL
         instance.configRevision = instance.configRevision.next
-        try saveProviderInstance(instance, at: now)
+        try updateProviderInstance(instance, at: now)
         return instance
     }
 
@@ -63,6 +85,13 @@ extension PersistenceStore {
     ///
     /// Detaching is how an instance becomes "unauthenticated but kept". The configuration
     /// stays; only the pointer to the secret goes.
+    ///
+    /// **Deliberately does not bump `configRevision`.** The credential is not part of
+    /// "the configuration" — it is a second, orthogonal thing a run freezes, and it is
+    /// frozen explicitly in the seed's `CredentialBindingSnapshot`. Bumping the revision
+    /// here would make the credential's identity depend on a counter that exists to
+    /// describe something else, and would invalidate runs for a change that the seed
+    /// already detects on its own.
     @discardableResult
     func attachCredential(
         _ reference: CredentialReference?,
@@ -73,7 +102,7 @@ extension PersistenceStore {
             throw PersistenceError.providerInstanceNotFound(id)
         }
         instance.credentialReference = reference
-        try saveProviderInstance(instance, at: now)
+        try updateProviderInstance(instance, at: now)
         return instance
     }
 
@@ -122,8 +151,8 @@ extension PersistenceStore {
     }
 }
 
-/// The stored shape. `createdAt` is set on first write and preserved by the upsert's
-/// update path — see `saveProviderInstance`.
+/// The stored shape. `createdAt` is set on create and preserved by
+/// `updateProviderInstance`.
 struct ProviderInstanceRecord: Codable, FetchableRecord, PersistableRecord, Sendable {
     static let databaseTableName = "providerInstance"
 

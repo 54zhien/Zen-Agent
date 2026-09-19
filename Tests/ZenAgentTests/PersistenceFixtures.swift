@@ -83,7 +83,10 @@ enum Fixtures {
                 providerInstanceID: ProviderInstanceID(rawValue: "pi1"),
                 modelID: ModelID(rawValue: "deepseek-chat"),
                 providerConfigRevision: ConfigRevision(rawValue: "config-r1"),
-                credentialBindingRevision: 1
+                credentialBinding: CredentialBindingSnapshot(
+                    reference: CredentialReference(id: "cred-1"),
+                    generation: 1
+                )
             ),
             executionSnapshot: nil,
             createdAt: epoch,
