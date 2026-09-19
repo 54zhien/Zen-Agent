@@ -28,6 +28,30 @@ macOS logic tests run roughly an order of magnitude faster in CI. No host app.
 and run in CI. It also probes the single most decision-relevant mechanism — the
 conditional uniqueness constraint — before the full scenarios are written.
 
+## Findings so far
+
+Established by CI, not by reasoning about the APIs:
+
+| Finding | Evidence |
+|---|---|
+| The generated project builds and both test bundles run on `macos-26` / Xcode 26 | CI run 35421484359 |
+| GRDB resolves as an SPM dependency and works in this target | `GRDB opens an in-memory database and round-trips a row` — passed |
+| **GRDB rejects a second active run via a partial unique index** | `GRDB can express conditional uniqueness via a partial unique index` — passed |
+| SwiftData works in this macOS logic-test target | `SwiftData builds an in-memory container and round-trips a row` — passed |
+| SwiftData permits multiple NULL slots (terminal rows coexist) | `SwiftData permits multiple NULL slots` — passed |
+| **SwiftData's `#Unique` did not reject a second occupant of a non-NULL slot** | `SwiftData unique constraint permits multiple NULL slots` — failed at the occupied-slot assertion |
+
+The last one is open, and it is the one that decides scenario B. "Did not reject"
+leaves three materially different possibilities — the constraint is absent, the
+second row was accepted as a duplicate, or the first active run was silently
+overwritten — and they call for different workarounds. The probe now reports which
+one occurred and separately tests whether a **non-optional** slot changes the
+answer.
+
+Do not settle this from memory of SwiftData's documented behaviour. The probe
+exists precisely because that is the failure mode this project has already been
+bitten by twice.
+
 ## The scenarios
 
 Each scenario runs against **both** engines, driven through one shared harness so

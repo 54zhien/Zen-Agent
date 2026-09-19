@@ -113,9 +113,9 @@ struct EngineWiringTests {
         #expect(fetched.first?.value == "hello")
     }
 
-    @Test("SwiftData unique constraint permits multiple NULL slots")
+    @Test("SwiftData permits multiple NULL slots")
     @MainActor
-    func swiftDataNullableUniqueness() throws {
+    func swiftDataNullableSlotsCoexist() throws {
         let container = try ModelContainer(
             for: SpikeRecord.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
@@ -124,36 +124,133 @@ struct EngineWiringTests {
 
         // Two terminal runs: both slots NULL. If SQL's "NULLs are distinct" rule
         // does not hold through SwiftData's uniqueness machinery, this save fails
-        // and scenario B has no viable SwiftData implementation.
+        // and the nullable-slot workaround has no viable SwiftData implementation.
         context.insert(SpikeRecord(slot: nil, value: "terminal-1"))
         context.insert(SpikeRecord(slot: nil, value: "terminal-2"))
         try context.save()
 
         let count = try context.fetchCount(FetchDescriptor<SpikeRecord>())
         #expect(count == 2, "multiple terminal (NULL-slot) rows must coexist")
+    }
 
-        // One active run occupies the slot...
+    // MARK: Experiment — what does SwiftData actually do on an occupied slot?
+
+    /// Scenario B needs "at most one *non-terminal* Parent Run per Conversation".
+    /// That means a second writer must **fail cleanly**. Three outcomes are
+    /// possible and only the first is acceptable; the other two are materially
+    /// different problems, so this test reports which one occurred rather than
+    /// just asserting a boolean.
+    ///
+    /// 1. `REJECTED` — save throws. The invariant is expressible.
+    /// 2. `DUPLICATE ACCEPTED` — the constraint is not enforced at all.
+    /// 3. `SILENT REPLACEMENT` — the first active run was overwritten. Worse than
+    ///    (2), because the lost run is an *active* one and nothing reports an error.
+    ///
+    /// This deliberately asserts the requirement rather than the observation: a red
+    /// result here is a real finding about the engine, and the failure message
+    /// carries the evidence needed to design around it.
+    @Test("SwiftData: an occupied unique slot — rejected, duplicated, or silently replaced?")
+    @MainActor
+    func swiftDataOccupiedSlotSemantics() throws {
+        let container = try ModelContainer(
+            for: SpikeRecord.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let context = ModelContext(container)
+
         context.insert(SpikeRecord(slot: "c1", value: "active-1"))
         try context.save()
 
-        // ...and a second one must be rejected.
         context.insert(SpikeRecord(slot: "c1", value: "active-2"))
-        var duplicateActiveRejected = false
+        var threw = false
         do {
             try context.save()
         } catch {
-            duplicateActiveRejected = true
+            threw = true
         }
-        #expect(duplicateActiveRejected, "a second active run in the same conversation must not be insertable")
+
+        let rows = try context.fetch(FetchDescriptor<SpikeRecord>())
+        let dumped = rows
+            .map { "\($0.value)/slot=\($0.slot ?? "nil")" }
+            .sorted()
+            .joined(separator: ", ")
+
+        let outcome: String
+        if threw {
+            outcome = "REJECTED (save threw)"
+        } else if rows.count == 1 {
+            outcome = "SILENT REPLACEMENT (upsert — the first active run was overwritten)"
+        } else {
+            outcome = "DUPLICATE ACCEPTED (constraint not enforced)"
+        }
+
+        #expect(threw, "expected REJECTED; observed \(outcome). rows after save: [\(dumped)]")
+    }
+
+    /// Second hypothesis, same experiment. If the optional `slot` is what defeats
+    /// the constraint, a **non-optional** slot should reject properly.
+    ///
+    /// This matters because a non-optional slot is a better design anyway: the
+    /// column holds the conversation id while active and a per-run unique value
+    /// once terminal, so uniqueness is unconditional and both engines express it
+    /// the same way — no reliance on SQL's NULL-is-distinct rule at all.
+    ///
+    /// - Non-optional rejects → the problem was the optional attribute, and the
+    ///   sentinel design is the workaround.
+    /// - Non-optional also does not reject → SwiftData upserts on unique conflicts
+    ///   generally, and no column shape will rescue scenario B.
+    @Test("SwiftData: non-optional unique slot — does it reject a second occupant?")
+    @MainActor
+    func swiftDataNonNullSentinelSemantics() throws {
+        let container = try ModelContainer(
+            for: SentinelRecord.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let context = ModelContext(container)
+
+        // Terminal runs carry a per-run key, so they never collide with each other.
+        context.insert(SentinelRecord(slot: "run-t1", value: "terminal-1"))
+        context.insert(SentinelRecord(slot: "run-t2", value: "terminal-2"))
+        try context.save()
+        #expect(
+            try context.fetchCount(FetchDescriptor<SentinelRecord>()) == 2,
+            "distinct terminal keys must coexist"
+        )
+
+        context.insert(SentinelRecord(slot: "c1", value: "active-1"))
+        try context.save()
+
+        context.insert(SentinelRecord(slot: "c1", value: "active-2"))
+        var threw = false
+        do {
+            try context.save()
+        } catch {
+            threw = true
+        }
+
+        let rows = try context.fetch(FetchDescriptor<SentinelRecord>())
+            .filter { $0.slot == "c1" }
+        let dumped = rows.map(\.value).sorted().joined(separator: ", ")
+
+        let outcome: String
+        if threw {
+            outcome = "REJECTED"
+        } else if rows.count == 1 {
+            outcome = "SILENT REPLACEMENT (upsert)"
+        } else {
+            outcome = "DUPLICATE ACCEPTED"
+        }
+
+        #expect(threw, "expected REJECTED with a non-optional slot; observed \(outcome). rows for slot c1: [\(dumped)]")
     }
 }
 
-// MARK: - Probe model
+// MARK: - Probe models
 
-/// Throwaway model for wiring checks only. Not a draft of any product entity.
-///
-/// `slot` is the nullable active-slot described above: the conversation id while
-/// the run is active, `nil` once terminal.
+/// Throwaway models for wiring checks only. Not drafts of any product entity.
+
+/// Nullable active-slot: the conversation id while the run is active, `nil` once
+/// terminal. Relies on SQL treating NULLs as distinct so terminal rows coexist.
 @Model
 final class SpikeRecord {
     #Unique<SpikeRecord>([\.slot])
@@ -162,6 +259,22 @@ final class SpikeRecord {
     var value: String
 
     init(slot: String?, value: String) {
+        self.slot = slot
+        self.value = value
+    }
+}
+
+/// Non-optional active-slot: the conversation id while active, a per-run unique
+/// value once terminal. Uniqueness is unconditional, so it does not depend on any
+/// engine's NULL handling.
+@Model
+final class SentinelRecord {
+    #Unique<SentinelRecord>([\.slot])
+
+    var slot: String
+    var value: String
+
+    init(slot: String, value: String) {
         self.slot = slot
         self.value = value
     }
