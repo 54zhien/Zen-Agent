@@ -134,7 +134,18 @@ struct StreamingCancellationTests {
             credentialBinding: CredentialBindingSnapshot(reference: reference, generation: 1)
         )
         let requestURL = endpoint.appending(path: "chat/completions")
-        StubURLProtocol.register(endlessScript(), for: requestURL)
+        // A valid DeepSeek event, then silence with the connection open. The earlier
+        // script sent `data: x`, which is not JSON and never becomes a
+        // `DeepSeekStreamChunk` — so a consumer could sit there having "received"
+        // nothing while the producer-side counter said otherwise. Cancellation can only
+        // be shown to reach the network once the consumer is genuinely mid-stream and
+        // waiting for the next event.
+        var script = StubURLProtocol.Script()
+        script.chunks = [Data(#"data: {"id":"c1","choices":[{"index":0,"delta":{"content":"hi"}}]}"#.utf8)
+                         + Data("\n\n".utf8)]
+        script.chunkDelay = 0.02
+        script.stalls = true
+        StubURLProtocol.register(script, for: requestURL)
 
         // A deadline far out, so nothing but the cancellation can end this.
         let policy = StreamTimeoutPolicy(
@@ -148,6 +159,11 @@ struct StreamingCancellationTests {
             streamTimeouts: policy
         )
 
+        // Raised by the consumer, from inside its own loop. Producer-side counts say the
+        // stub called `didLoad`; they say nothing about whether a chunk was decoded and
+        // handed over, which is the state this test needs before it cancels.
+        let observed = ObservedFlag()
+
         let consumer = Task { () -> ProviderError? in
             do {
                 for try await _ in try await provider.stream(
@@ -158,7 +174,9 @@ struct StreamingCancellationTests {
                     seed: seed,
                     instance: instance,
                     credentials: credentials
-                ) {}
+                ) {
+                    observed.raise()
+                }
                 return nil
             } catch let error as ProviderError {
                 return error
@@ -172,16 +190,18 @@ struct StreamingCancellationTests {
             }
         }
 
-        // Wait until the request has produced something, rather than for a fixed
-        // duration. Cancelling before the transfer is established cancels nothing, and
-        // the test then fails with `stopCount == 0` for a reason that has nothing to do
-        // with cancellation — which is how it failed intermittently at 85ms.
-        for _ in 0..<200 where StubURLProtocol.deliveryCount(for: requestURL) == 0 {
+        // Readiness is what the *consumer* observed. Bounded, so a harness that never
+        // delivers fails the test in seconds rather than waiting out the three-minute
+        // runaway — and says which half failed.
+        for _ in 0..<300 where !observed.isRaised {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(
-            StubURLProtocol.deliveryCount(for: requestURL) > 0,
-            "the stream never delivered anything, so there was nothing to cancel"
+            observed.isRaised,
+            """
+            the consumer never received a decoded chunk, so it was never mid-stream and \
+            cancelling it proves nothing about cancellation
+            """
         )
 
         consumer.cancel()

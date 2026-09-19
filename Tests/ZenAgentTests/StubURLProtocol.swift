@@ -42,6 +42,8 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         /// has gone quiet. The caller is left waiting, which is the state an inactivity
         /// deadline exists for.
         var stalls = false
+        /// Fails the connection when the test asks, rather than after a delay.
+        var failsOnRequest = false
         /// Delivers the chunks, then waits for the test to say when the connection dies.
         ///
         /// The alternative is a delay long enough to *hope* the transport has seen the
@@ -91,21 +93,20 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         lock.withLock { deliveryCounts[key(url), default: 0] += 1 }
     }
 
-    nonisolated(unsafe) private static var failureTriggers: [String: @Sendable () -> Void] = [:]
+    nonisolated(unsafe) private static var gates: [String: FailureGate] = [:]
 
     /// Kills the connection, on the test's terms rather than on a timer's.
-    ///
-    /// **Dispatched, never invoked inline.** The caller is the consuming task, standing
-    /// inside its own read loop; calling into `URLSession`'s callback machinery from that
-    /// thread leaves the failure waiting on the very loop that is waiting for the
-    /// failure. Calling it inline hung a test for the full three-minute timeout.
-    static func triggerFailure(for url: URL) {
-        let trigger = lock.withLock { failureTriggers[key(url)] }
-        DispatchQueue.global().async { trigger?() }
+    static func requestFailure(for url: URL) {
+        lock.withLock { gates[key(url)] }?.requestFailure()
     }
 
-    private static func registerFailureTrigger(for url: URL, _ trigger: @escaping @Sendable () -> Void) {
-        lock.withLock { failureTriggers[key(url)] = trigger }
+    private static func gate(for url: URL) -> FailureGate {
+        lock.withLock {
+            if let existing = gates[key(url)] { return existing }
+            let created = FailureGate()
+            gates[key(url)] = created
+            return created
+        }
     }
 
     static func requestCount(for url: URL) -> Int {
@@ -205,12 +206,14 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     private func deliverStep(at index: Int, of script: Script) {
         guard !stopped.withLock({ isStopped }) else { return }
 
-        // Chunks delivered, and the disconnect is the test's to trigger. Registered here
-        // and fired from the test, so the failure cannot arrive before the consumer has
-        // actually observed a byte.
-        if index >= script.chunks.count, script.awaitsFailureTrigger {
+        // Chunks delivered, and the disconnect is the test's to request. The gate is
+        // installed here — before the last chunk is delivered, not after it — and it is
+        // level-triggered, so a request that arrives first is remembered rather than
+        // lost. The earlier edge-triggered version dropped the signal whenever it beat
+        // the handler, and the test hung for the full timeout with nothing to show.
+        if index >= script.chunks.count, script.awaitsFailureTrigger || script.failsOnRequest {
             guard let code = script.failureCode, let url = request.url else { return }
-            Self.registerFailureTrigger(for: url) { [weak self] in
+            Self.gate(for: url).install { [weak self] in
                 guard let self, !self.stopped.withLock({ self.isStopped }) else { return }
                 self.client?.urlProtocol(self, didFailWithError: URLError(code))
             }

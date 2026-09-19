@@ -171,7 +171,7 @@ struct URLSessionHTTPTransportTests {
         // guess. Everything after it is a handshake: the connection dies when the test
         // says so, not when a delay has elapsed.
         script.chunkDelay = 0.02
-        script.awaitsFailureTrigger = true
+        script.failsOnRequest = true
         StubURLProtocol.register(script, for: url)
 
         var failure: Error?
@@ -181,7 +181,7 @@ struct URLSessionHTTPTransportTests {
                 received.append(chunk)
                 // The byte is in hand. *Now* kill the connection — so "the transport had
                 // observed data before the failure" is caused, not hoped for.
-                StubURLProtocol.triggerFailure(for: url)
+                StubURLProtocol.requestFailure(for: url)
             }
         } catch {
             failure = error
