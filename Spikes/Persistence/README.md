@@ -76,6 +76,40 @@ write, and the type exposes no isolation-level control to ask for otherwise.
 The failure shape matters: both SwiftData runs produced *exactly three* winners. Not
 a stable failure — a race that will sometimes look like a pass.
 
+### Scenario A — atomic send
+
+Split into two different failures: **A1** the transaction body fails and must roll
+back; **A2** the process dies with work in flight and must leave nothing behind.
+
+Every A2 result is gated by a **negative control** that commits one half and stops —
+proving the probe can see a half-state. Without that, "no half-state occurred" is
+worthless, because the probe might simply be blind to one. This is the same mistake
+that made D3 look like it worked while D1 and D2 were failing for an unrelated
+reason.
+
+| | A1 rollback | A2 no residue | control |
+|---|---|---|---|
+| GRDB | ✅ | ✅ (positive half only) | ✅ |
+| SwiftData | ✅ | ✅ | ✅ |
+
+A tie on atomicity.
+
+**One counter-intuitive injectability find.** GRDB refuses to leave a transaction
+open:
+
+    GRDB/SerializedDatabase.swift:131: Fatal error:
+    A transaction has been left opened at the end of a database access
+
+A `fatalError`, so it took the test bundle down and CI re-ran the suite. GRDB is
+being *safe* — the dangling state cannot be reached by accident — but the same guard
+means "killed with a transaction open" **cannot be injected through its API**. So
+GRDB's A2 establishes the positive half plus the control, and the crash-mid-transaction
+case rests on SQLite's atomic-commit guarantee as a design claim, not as something
+this probe verified.
+
+The asymmetry runs the unexpected way: **the engine that can be tested here is the
+one with fewer safeguards.** That is a testability fact, not a safety verdict.
+
 ### Scenario C — crash window
 
 | | SwiftData | GRDB |
@@ -307,6 +341,17 @@ way to read progress:
 
 Read the results accordingly: if GRDB is clearly more natural and stronger on
 **B + C + D**, prefer it even if SwiftData writes less code for E and F.
+
+**A is not part of that group**, and a tie there does not offset B. A is
+single-transaction atomicity; B is uniqueness across competing writers. Different
+problems, and the second is the one the Runtime invariant depends on.
+
+### Progress
+
+| | B | C | D | A | E | F | G |
+|---|---|---|---|---|---|---|---|
+| GRDB | ✅ | ✅ | ✅ | ✅ | — | — | — |
+| SwiftData | ❌ known defect | ✅ | ✅ | ✅ | — | — | — |
 
 ## Layout
 
