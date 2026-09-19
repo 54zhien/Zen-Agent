@@ -55,6 +55,15 @@ final class FakeHTTPTransport: HTTPTransport, @unchecked Sendable {
         streamHeadFailure = nil
     }
 
+    /// Queues chunks as raw bytes, for the cases where the bytes are the point — a
+    /// stream that is not valid UTF-8 cannot be expressed as a `String` at all.
+    func enqueueStream(bytes chunks: [Data]) {
+        lock.lock(); defer { lock.unlock() }
+        streamChunks = chunks
+        streamTailFailure = nil
+        streamHeadFailure = nil
+    }
+
     /// Queues chunks and then a failure — a connection that died after delivering.
     func enqueueStream(_ chunks: [String], thenFailWith error: HTTPTransportError) {
         lock.lock(); defer { lock.unlock() }

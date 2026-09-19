@@ -2,87 +2,71 @@
 
 > 本文件是**当前增量**的活清单。
 > `tasks/todo.md` 是 Stage 0 的历史记录（含 Review 段），**不被覆盖**。
-> 完整计划与依据见会话 plan 文件；Blueprint 引用已逐条核实。
 
 **纪律**：小步提交 → 每步 CI 验证 → 增量结束停下等确认。CI 失败即停下重新规划，不硬推。
 **推送**用 `if git push` 判断，不用管道（handoff `:61`）。
+
+**已知约束**：CI 有 `cancel-in-progress: true`，同一 ref 上推新提交会取消正在跑的验证 ——
+所以必须等上一次跑完再推。
 
 ---
 
 ## 前置 P：冻结完整 Credential Binding Identity
 
-漏洞已核实（非采信）：seed 无 reference · `attachCredential` 不 bump revision ·
-`FrozenConfiguration` 取当前 instance 的 reference 只比 generation。
-
-- [x] P1 `CredentialBindingSnapshot { reference, generation }`
-- [x] P2 `RequestConfigSeed.credentialBindingRevision: Int` → `credentialBinding: CredentialBindingSnapshot`
-- [x] P3 validate 同时验 reference 与 generation
-- [x] P4 删 `saveProviderInstance` → `createProviderInstance`（已存在即抛）+ `private updateProviderInstance`
-- [x] P4b `attachCredential` **不** bump revision（identity 由 seed 显式冻结，不间接依赖别的 revision）
-- [x] P5 更新 8 处测试调用点 + `SecretContainmentTests` 断言改为「含 reference id、不含 secret」
-- [x] P6 新 `PersistenceError.providerInstanceAlreadyExists`
-- [x] P7 新 suite `FrozenCredentialIdentityTests`（A refresh / A rebind / **A→B 同 generation** / detach / logout / seed 无 secret / create 拒绝覆盖）
-- [x] **CI 绿**（run id: `35434791623` → success；**110 测试 / 15 suite**，新增 Frozen credential identity suite）
+- [x] P1–P7 全部（`CredentialBindingSnapshot` / 校验 reference+generation / 删泛型 upsert /
+      新 `providerInstanceAlreadyExists` / 新 suite `FrozenCredentialIdentityTests`）
+- [x] **CI 绿** `35434791623` → success，**110 测试 / 15 suite**
 
 **P6 存储兼容性**：seed 形状变更使已存 seed 无法解码。pre-release、无线上数据 → 干净切断，
 **显式决定，非疏忽**。
 
 ---
 
-## Increment 5A：Streaming HTTP Transport
+## Increment 5
 
-- [ ] `HTTPTransport.stream(_:) -> AsyncThrowingStream<Data, Error>`（incremental bytes）
-- [ ] `HTTPTransportError` + `.httpStatus(HTTPResponse)` / `.inactivityTimeout` / `.streamInterrupted(deliveredData:reason:)`
-- [ ] `URLSessionHTTPTransport.stream` 实现：非 2xx 从**同一条流**读完 body，绝不重发
-- [ ] 只有一处穷尽 switch（`DeepSeekProvider.swift:165`）已更新
-- [ ] `FakeHTTPTransport` 补 `stream`
-- [ ] **CI 绿**（run id: ______）
+| 步 | 内容 | CI |
+|---|---|---|
+| 5B | SSE parser | `35435036167` **failure** — `finish()` 是 mutating，不能对临时值调用 |
+| 5A | Streaming transport + 5B 修复 | `35435234355` **failure** — 4 个失败，全在测试支撑层 |
+| 5C | DeepSeek streaming wire format + 桩并发修复 | `35435579220` **failure** — 剩 2 个，仍是桩的问题 |
+| 5D+5F | Timeout 分层 + Base URL 单真值 + 桩串行修复 | `35435945399` 跑中 |
+| 5E+5G | 真取消 + 分类收尾 | 待推 |
 
-## Increment 5B：SSE Parser（独立纯逻辑）
+**三次失败全部在测试支撑层，没有一次是产品代码。** 共同点：都是「断言正确行为」而非
+「描述现状」的测试抓出来的 —— 桩按并发投递、桩把整条连接塞进一个 runloop turn，
+都是产品代码没错、测试基础设施在说谎。
 
-- [ ] `SSEParser` / `SSEEvent` / `SSEStreamElement` / `SSEParserError` / `SSEParserLimits`
-- [ ] 字节层行缓冲，行边界确认后才解码 UTF-8
-- [ ] `[DONE]` → `.done`；其后字节忽略；`finish()` 未见 `[DONE]` 即抛 `unterminatedStream`
-- [ ] 有界缓冲（Blueprint `:61` 自己留的空洞）
-- [ ] `SSEParserTests` 全矩阵：chunk 边界 / 拆 UTF-8 / 拆 JSON / `\n` `\r\n` `\r` / 空行 / 多行 data / comment / `[DONE]` / 多 event 同到 / 一 event 多次到 / 非法 UTF-8 / EOF before `[DONE]` / `[DONE]` 后数据
-- [ ] **CI 绿**（run id: ______）
-
-## Increment 5C：DeepSeek streaming wire format
-
-- [ ] `stream: true`，仍不发 capability options
-- [ ] `DeepSeekStreamChunk` DTO（不出 adapter 目录）
-- [ ] 「无 text delta」不判 malformed；末 chunk 可只有 finish_reason；usage 在 `[DONE]` 前
-- [ ] **不做** Increment 6 的 normalization
-- [ ] **CI 绿**（run id: ______）
-
-## Increment 5D：Timeout 拆层
-
-- [ ] `StreamTimeoutPolicy`（transportInactivity / firstEvent / betweenEvents / checkInterval）
-- [ ] transport liveness 在 `URLSessionHTTPTransport`；语义进展在 adapter
-- [ ] **关键测试**：只发 keep-alive 超过 firstEvent → transport 不超时、adapter 必须超时
-- [ ] `ProviderError` + 3 case，`retryDisposition` 按 Blueprint 表
-- [ ] **CI 绿**（run id: ______）
-
-## Increment 5E：真正的 Cancellation
-
-- [ ] `StubURLProtocol` 记录 `stopLoading`
-- [ ] 证明 `Task.cancel()` → 消费停止 → URLSession task 真取消 → `ProviderError.cancelled` → 后续不再交付
-- [ ] **CI 绿**（run id: ______）
-
-## Increment 5F：Base URL 单一真值
-
-- [ ] 一个 `resolveBaseURL(for:)`，stream 与 non-stream 共用
-- [ ] 删 `DeepSeekProvider.baseURL` 属性与 init 参数
-- [ ] 测试：自定义 endpoint 下两条路径都走 custom、无请求打到官方 URL
-- [ ] **CI 绿**（run id: ______）
-
-## Increment 5G：错误与断流分类 + 收尾
-
-- [ ] 分类矩阵全测（见计划表）
-- [ ] 新增 CI hygiene：DeepSeek DTO 只在 adapter
-- [ ] `/code-review` 跑 diff，修问题
-- [ ] **CI 绿**（run id: ______）
+- [x] 5A `HTTPTransport.stream` → `AsyncThrowingStream<Data, Error>`
+- [x] 5A `HTTPTransportError` + `.httpStatus` / `.streamInterrupted(deliveredData:)`
+- [x] 5B `SSEParser` 纯逻辑 + 有界缓冲（闭合 Blueprint `:61` 自己的空洞）
+- [x] 5C `DeepSeekStreamChunk` + `DeepSeekProvider.stream` 三层合流
+- [x] 5D `StreamTimeoutPolicy` + `StreamDeadline` + `StreamProgress`
+- [x] 5F `resolveBaseURL(for:)`，两条路径共用；删除 provider 自带 baseURL
+- [x] 新增 CI hygiene：DeepSeek 类型只能在 adapter 内**声明**
+- [ ] 5E `StreamingCancellationTests`（`stopLoading` 真被调用 + 取消后不再交付）
+- [ ] 5G 分类缺口补齐（malformed SSE / 首个事件前断流 / parser 错误映射）
+- [ ] `/code-review` 跑 diff
+- [ ] **CI 全绿**
 - [ ] 汇报 10 项，**停在 Increment 5 边界**
+
+**5D 的证明性测试**（三条各证一件事，只有一个 timer 时必有一条红）：
+
+| 输入 | 期望 |
+|---|---|
+| 只发 keep-alive，liveness 400ms | `.streamProgressTimeout(.awaitingFirstEvent)` |
+| 状态行后彻底静默，firstEvent 10s | `.streamInactivityTimeout` |
+| 先出真 chunk 再只发心跳 | `.streamProgressTimeout(.betweenEvents)` |
+
+---
+
+## 未核实 / 待报告
+
+- `timeoutIntervalForRequest` 的 inactivity 语义：**未能**从 Apple 实时文档核实
+  （页面 JS 渲染）。Blueprint `Agent Runtime.md:277` 明确断言 → 报告里标注「Blueprint 断言，未独立核实」。
+- `FrozenCredentialIdentityTests` 在修复前会失败：**由前提推得**（测试断言了 B 的 generation
+  确实是 1、revision 确实没动，旧代码在此时必然放行），**未实测**。
+- `DeepSeekProvider.stream` 返回 DTO 类型 → 与「DTO 不出 adapter」有张力，属**临时**边界，
+  Increment 6 换成 provider-neutral 类型。
 
 ---
 

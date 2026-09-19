@@ -270,6 +270,75 @@ struct DeepSeekStreamingTests {
         }
     }
 
+    @Test("a stream whose bytes are not text is malformed, not quietly skipped")
+    func malformedSSEFails() async throws {
+        let f = try makeFixture()
+        // 0xFF can never start a valid UTF-8 sequence. Substituting U+FFFD instead would
+        // put a corrupted answer in front of the user with nothing to distinguish it
+        // from what the model actually said.
+        f.transport.enqueueStream(bytes: [
+            Data("data: ".utf8) + Data([0xFF, 0xFE]) + Data("\n\n".utf8)
+        ])
+
+        var failure: ProviderError?
+        do {
+            _ = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+        } catch let error as ProviderError {
+            failure = error
+        }
+
+        guard case .malformedResponse = failure else {
+            Issue.record("expected .malformedResponse, got \(String(describing: failure))")
+            return
+        }
+    }
+
+    @Test("a connection that dies before the model produces anything says so")
+    func disconnectBeforeFirstEvent() async throws {
+        let f = try makeFixture()
+        f.transport.enqueueStream(
+            [],
+            thenFailWith: .streamInterrupted(deliveredData: false, reason: "URLError code -1005")
+        )
+
+        var failure: ProviderError?
+        do {
+            _ = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+        } catch let error as ProviderError {
+            failure = error
+        }
+
+        guard case .streamInterrupted(let deliveredData, _) = failure else {
+            Issue.record("expected .streamInterrupted, got \(String(describing: failure))")
+            return
+        }
+        // The transport observed this, and the adapter must not lose it on the way up:
+        // "nothing was produced" and "the answer was cut off" lead to different handling.
+        #expect(!deliveredData, "the model never produced anything before the connection died")
+    }
+
+    @Test("a parser failure becomes a Zen error, and an unterminated one keeps its distinction")
+    func parserFailuresAreMapped() {
+        #expect(
+            DeepSeekProvider.providerError(from: .invalidUTF8, deliveredData: false)
+                == .malformedResponse("a stream event was not valid UTF-8")
+        )
+        #expect(
+            DeepSeekProvider.providerError(from: .bufferLimitExceeded(limit: 64), deliveredData: false)
+                == .malformedResponse("a stream event exceeded the 64-byte reassembly bound")
+        )
+        // The parser can say the terminator never arrived; it cannot know whether
+        // anything was delivered before that, so the caller passes the fact in.
+        #expect(
+            DeepSeekProvider.providerError(from: .unterminatedStream, deliveredData: true)
+                == .streamInterrupted(deliveredData: true, reason: "the stream ended without reaching its terminator")
+        )
+        #expect(
+            DeepSeekProvider.providerError(from: .unterminatedStream, deliveredData: false)
+                == .streamInterrupted(deliveredData: false, reason: "the stream ended without reaching its terminator")
+        )
+    }
+
     @Test("a refused stream is refused by status, before any chunk")
     func nonSuccessStatusIsMapped() async throws {
         let f = try makeFixture()

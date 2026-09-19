@@ -1,0 +1,168 @@
+import Foundation
+import Testing
+
+@testable import ZenAgent
+
+/// Product invariant: **cancelling the consumer cancels the request.**
+///
+/// The tests that existed before this one proved a weaker thing: that when a transport
+/// *reports* cancellation, the adapter maps it to `ProviderError.cancelled`. That is a
+/// claim about a translation table. It says nothing about whether pressing Stop does
+/// anything to the network — and a stream that keeps running after the thing that asked
+/// for it has gone is exactly what `Agent Runtime.md:261` warns about: a late result
+/// still arriving after the run it belonged to was stopped.
+///
+/// So these drive the real transport over a scripted `URLProtocol` and check the two
+/// facts that were never checked: the underlying task is really cancelled, and nothing
+/// is delivered afterwards.
+@Suite("Streaming cancellation")
+struct StreamingCancellationTests {
+
+    /// Counts deliveries from a consuming task, which cannot hold a `var` of its own
+    /// across the await.
+    private final class Deliveries: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+
+        func record() { lock.withLock { count += 1 } }
+        var recorded: Int { lock.withLock { count } }
+    }
+
+    private func makeURL() -> URL {
+        URL(string: "https://stub-\(UUID().uuidString).invalid/chat/completions")!
+    }
+
+    private func post(_ url: URL) -> HTTPRequest {
+        HTTPRequest(method: .post, url: url, headers: [:], body: Data(#"{"stream":true}"#.utf8))
+    }
+
+    /// A stream that never ends on its own, so cancellation is the only way out.
+    private func endlessScript() -> StubURLProtocol.Script {
+        var script = StubURLProtocol.Script()
+        script.chunks = Array(repeating: Data("data: x\n\n".utf8), count: 400)
+        script.chunkDelay = 0.01
+        script.stalls = true
+        return script
+    }
+
+    // MARK: - The transport
+
+    @Test("cancelling the consumer cancels the underlying request")
+    func cancellationReachesTheNetwork() async throws {
+        let url = makeURL()
+        StubURLProtocol.register(endlessScript(), for: url)
+
+        let stream = try await URLSessionHTTPTransport(session: StubURLProtocol.makeSession()).stream(post(url))
+        let deliveries = Deliveries()
+
+        let consumer = Task {
+            do {
+                for try await _ in stream { deliveries.record() }
+            } catch {
+                // Cancellation may surface as a thrown error or as a clean end. Either
+                // is a stopped stream; this test is not about which.
+            }
+        }
+
+        // Let it get properly under way before stopping it.
+        try await Task.sleep(for: .milliseconds(60))
+        let beforeCancelling = deliveries.recorded
+        #expect(beforeCancelling > 0, "the stream should have delivered something before it was cancelled")
+
+        consumer.cancel()
+        _ = await consumer.value
+
+        #expect(
+            StubURLProtocol.stopCount(for: url) >= 1,
+            """
+            the URLSession task was never cancelled. The caller stopped reading and the \
+            request kept running — a connection held open by a result nobody is waiting \
+            for (Agent Runtime.md:261).
+            """
+        )
+
+        // And nothing arrives afterwards. Sampled once the loop has ended, so this is
+        // not a race with a delivery already in flight.
+        let atRest = deliveries.recorded
+        try await Task.sleep(for: .milliseconds(120))
+        #expect(
+            deliveries.recorded == atRest,
+            "\(deliveries.recorded - atRest) more chunks arrived after the consumer stopped"
+        )
+    }
+
+    // MARK: - Through the adapter
+
+    @Test("a cancelled stream is not reported as something going wrong")
+    func cancellationIsNotAFailure() async throws {
+        let endpoint = URL(string: "https://stub-\(UUID().uuidString).invalid")!
+        let reference = CredentialReference(id: "cred-1")
+        let credentials = CredentialStore(
+            secrets: InMemorySecretBackend(),
+            metadataRepository: InMemoryCredentialMetadataRepository()
+        )
+        try credentials.provision(SecretValue("sk-cancel-probe"), as: reference)
+
+        let instance = ProviderInstance(
+            id: ProviderInstanceID(rawValue: "pi-1"),
+            providerID: .deepSeek,
+            displayName: "DeepSeek",
+            baseURL: endpoint,
+            configRevision: .initial,
+            credentialReference: reference
+        )
+        let seed = RequestConfigSeed(
+            instance: instance,
+            modelID: ModelID(rawValue: "deepseek-flash"),
+            credentialBinding: CredentialBindingSnapshot(reference: reference, generation: 1)
+        )
+        let requestURL = endpoint.appending(path: "chat/completions")
+        StubURLProtocol.register(endlessScript(), for: requestURL)
+
+        // A deadline far out, so nothing but the cancellation can end this.
+        let policy = StreamTimeoutPolicy(
+            transportInactivity: .seconds(30),
+            firstEvent: .seconds(30),
+            betweenEvents: .seconds(30),
+            checkInterval: .milliseconds(20)
+        )
+        let provider = DeepSeekProvider(
+            transport: URLSessionHTTPTransport(session: StubURLProtocol.makeSession(), timeouts: policy),
+            streamTimeouts: policy
+        )
+
+        let consumer = Task { () -> ProviderError? in
+            do {
+                for try await _ in try await provider.stream(
+                    ProviderChatRequest(
+                        modelID: ModelID(rawValue: "deepseek-flash"),
+                        messages: [ProviderChatMessage(role: .user, content: "Hello")]
+                    ),
+                    seed: seed,
+                    instance: instance,
+                    credentials: credentials
+                ) {}
+                return nil
+            } catch let error as ProviderError {
+                return error
+            } catch {
+                return nil
+            }
+        }
+
+        try await Task.sleep(for: .milliseconds(80))
+        consumer.cancel()
+        let outcome = await consumer.value
+
+        // A user who pressed Stop did not experience a failure, and reporting one would
+        // put an error in front of them for something they asked for.
+        #expect(
+            outcome == nil || outcome == .cancelled,
+            "cancellation surfaced as \(String(describing: outcome))"
+        )
+        #expect(
+            StubURLProtocol.stopCount(for: requestURL) >= 1,
+            "the request was never cancelled"
+        )
+    }
+}
