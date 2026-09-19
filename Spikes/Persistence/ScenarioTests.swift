@@ -351,9 +351,19 @@ enum NoteSchemaV2: VersionedSchema {
     final class Note {
         var id: String
         var body: String
-        var pinned: Bool
+        /// **Optional on purpose.** CI established that adding a *non-optional*
+        /// attribute fails the migration outright:
+        ///
+        ///     Cannot migrate store in-place: Validation error missing attribute
+        ///     values on mandatory destination attribute
+        ///       entity=Note, attribute=pinned
+        ///
+        /// A constructor default does not help — the schema needs a value for
+        /// existing rows, and only an optional attribute or an explicit backfill
+        /// supplies one. This is the shape that would break an app update.
+        var pinned: Bool?
 
-        init(id: String, body: String, pinned: Bool = false) {
+        init(id: String, body: String, pinned: Bool? = nil) {
             self.id = id
             self.body = body
             self.pinned = pinned
@@ -363,6 +373,10 @@ enum NoteSchemaV2: VersionedSchema {
 
 /// The working migration. `stages` is computed rather than a stored `static let`
 /// so there is no shared mutable global to argue with strict concurrency about.
+///
+/// The `didMigrate` backfill is not decoration: an added optional attribute arrives
+/// `nil` for pre-existing rows, so anything that needs a value must be filled in
+/// here. Demonstrating that path is part of what D1 is for.
 enum NoteMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] { [NoteSchemaV1.self, NoteSchemaV2.self] }
 
@@ -372,13 +386,23 @@ enum NoteMigrationPlan: SchemaMigrationPlan {
                 fromVersion: NoteSchemaV1.self,
                 toVersion: NoteSchemaV2.self,
                 willMigrate: nil,
-                didMigrate: nil
+                didMigrate: { context in
+                    let notes = try context.fetch(FetchDescriptor<NoteSchemaV2.Note>())
+                    for note in notes where note.pinned == nil {
+                        note.pinned = false
+                    }
+                    try context.save()
+                }
             )
         ]
     }
 }
 
 /// The same migration, made to fail. See D3.
+///
+/// It uses the *working* V2 shape, so the only reason it can fail is the injected
+/// error. A broken schema would have failed D3 for the wrong reason and made the
+/// test look like it passed.
 enum BrokenNoteMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] { [NoteSchemaV1.self, NoteSchemaV2.self] }
 
@@ -442,7 +466,10 @@ struct ScenarioDSwiftDataTests {
 
         #expect(notes.count == 1, "the existing row must survive the migration; found \(notes.count)")
         #expect(notes.first?.body == "hello", "the migrated row must keep its content")
-        #expect(notes.first?.pinned == false, "the new column must arrive with its default")
+        #expect(
+            notes.first?.pinned == false,
+            "the didMigrate backfill must have filled the new attribute; found \(String(describing: notes.first?.pinned))"
+        )
     }
 
     // MARK: D2
@@ -477,7 +504,10 @@ struct ScenarioDSwiftDataTests {
 
         try establishV1(at: url)
 
-        // Inject the failure.
+        // Inject the failure. The assertion names the *injected* error rather than
+        // merely "something failed": an earlier version accepted any error, which
+        // would have passed for an unrelated schema problem and reported a
+        // migration defect as a working interruption path.
         var failure: Error?
         do {
             _ = try ModelContainer(
@@ -488,7 +518,10 @@ struct ScenarioDSwiftDataTests {
         } catch {
             failure = error
         }
-        #expect(failure != nil, "the broken migration must surface a failure, not silently succeed")
+        #expect(
+            failure is MigrationInterrupted,
+            "expected the injected failure to surface; got \(String(describing: failure))"
+        )
 
         // The store must still be openable and still hold the data. Note the
         // assertion is *"usable"*, not *"rolled back to V1"*: SwiftData gives no
