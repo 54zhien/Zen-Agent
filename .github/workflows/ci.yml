@@ -76,6 +76,32 @@ jobs:
           fi
           echo "OK: GRDB is confined to App/Persistence/"
 
+      - name: Security.framework must not escape the credential layer
+        run: |
+          set -euo pipefail
+          offenders=$(grep -rl "import Security" App --include="*.swift" | grep -v '^App/Credential/' || true)
+          if [ -n "$offenders" ]; then
+            echo "::error::Security.framework is imported outside App/Credential/:"
+            echo "$offenders"
+            echo "Callers must go through CredentialStoring, not the Keychain directly. See Docs/ADR/0003."
+            exit 1
+          fi
+          echo "OK: Security.framework is confined to App/Credential/"
+
+      - name: SecretValue must stay non-Codable
+        run: |
+          set -euo pipefail
+          line=$(grep -n "struct SecretValue" App/Credential/CredentialTypes.swift || true)
+          if [ -z "$line" ]; then
+            echo "::error::SecretValue has moved; this check needs updating rather than removing."
+            exit 1
+          fi
+          if echo "$line" | grep -q "Codable"; then
+            echo "::error::SecretValue became Codable. Not being Codable is what makes 'a secret cannot reach the database or the frozen seed' a compile-time property rather than a rule to remember."
+            exit 1
+          fi
+          echo "OK: SecretValue is not Codable"
+
       - name: Files that must stay versioned are not accidentally ignored
         run: |
           set -euo pipefail

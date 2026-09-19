@@ -18,6 +18,7 @@ enum Migrations {
         var migrator = DatabaseMigrator()
         registerV1(&migrator)
         registerV2(&migrator)
+        registerV3(&migrator)
         return migrator
     }
 
@@ -58,6 +59,31 @@ enum Migrations {
                 on: "agentStep",
                 columns: ["runID", "sequence", "attempt"]
             )
+        }
+    }
+
+    /// Adds the non-secret half of the credential boundary.
+    ///
+    /// **Nothing in this table is a secret.** It holds an opaque id, a counter, an
+    /// optional opaque fingerprint and a status. The secret itself lives in the
+    /// Keychain, and `SecretValue` is not `Codable`, so there is no way to put one here
+    /// even by mistake.
+    ///
+    /// The counter is the point: it changes when the binding changes *identity*, which
+    /// is not visible in the id. A logout or an account change leaves the id identical,
+    /// so a suspended run comparing only the id would carry on against a different
+    /// principal.
+    static func registerV3(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v3_add_credential_binding") { db in
+            try db.create(table: "credentialBinding") { t in
+                t.column("credentialID", .text).notNull()
+                t.column("kind", .text).notNull()
+                t.column("bindingGeneration", .integer).notNull()
+                t.column("principalFingerprint", .text)
+                t.column("status", .text).notNull()
+                t.column("updatedAt", .datetime).notNull()
+                t.primaryKey(["credentialID", "kind"])
+            }
         }
     }
 
