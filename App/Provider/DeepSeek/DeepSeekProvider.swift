@@ -254,7 +254,6 @@ struct DeepSeekProvider: ModelProvider {
                     }
                 )
             }
-            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
