@@ -150,7 +150,7 @@ final class LocalHTTPServer: @unchecked Sendable {
     /// `EINTR`. That is not a closed socket, and treating it as one marks the peer gone
     /// while the connection is perfectly alive — a test-server correctness matter,
     /// independent of whatever the tests are investigating.
-    private func retryingOnInterrupt(_ call: () -> Int32) -> Int32 {
+    private func retryingOnInterrupt<T: FixedWidthInteger>(_ call: () -> T) -> T {
         while true {
             let result = call()
             if result < 0 && errno == EINTR { continue }
@@ -160,7 +160,7 @@ final class LocalHTTPServer: @unchecked Sendable {
 
     /// `< 0` after a retry is a genuine error, which for a socket we are reading or
     /// writing means the same thing as EOF: the peer is gone.
-    private func readSome(_ fd: Int32, _ buffer: inout [UInt8]) -> Int32 {
+    private func readSome(_ fd: Int32, _ buffer: inout [UInt8]) -> Int {
         retryingOnInterrupt { read(fd, &buffer, buffer.count) }
     }
 
