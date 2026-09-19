@@ -166,12 +166,14 @@ struct URLSessionHTTPTransportTests {
         let url = makeURL()
         var script = StubURLProtocol.Script.delivering(["data: partial ans"])
         script.failureCode = .networkConnectionLost
-        // The chunk synchronously, so the response is established and the caller's stream
-        // resumes; the failure noticeably later, so the caller is genuinely reading when
-        // it lands. Delivered in one burst, URLSession ends the task failed before the
-        // caller resumes at all and the data goes with it — so the case this test is
-        // about would never arise, and the test would fail by reporting the wrong error.
-        script.tailDelay = 0.15
+        // Asynchronously, and then a noticeably longer gap before the failure. The first
+        // chunk has to be delivered off the session's thread for the response to reach
+        // the caller at all; the failure has to land well after that, so the caller is
+        // genuinely reading when it arrives. Delivered in one burst, URLSession ends the
+        // task failed before the caller resumes and the data goes with it — the case this
+        // test is about would never arise, and it would fail by reporting the wrong error.
+        script.chunkDelay = 0.02
+        script.tailDelay = 0.2
         StubURLProtocol.register(script, for: url)
 
         var failure: Error?

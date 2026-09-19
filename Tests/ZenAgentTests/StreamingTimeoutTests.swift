@@ -146,12 +146,15 @@ struct StreamingTimeoutTests {
         // out, so anything that fires here has to be about the connection.
         let f = try makeFixture(timeouts: policy(liveness: .milliseconds(150), firstEvent: .seconds(10)))
         var script = StubURLProtocol.Script()
-        // One byte, delivered synchronously. `bytes(for:)` does not hand back a response
-        // until the body has produced something, so a script that sends nothing at all
-        // never establishes a stream — and the test would be measuring the 60-second
-        // default URLSession timeout rather than the deadline it set. A stream that goes
-        // quiet *after* it started is also the realistic shape of a dead connection.
+        // One byte, and *asynchronously*. Both halves matter. `bytes(for:)` does not hand
+        // back a response until the body has produced something, so a script that sends
+        // nothing never establishes a stream and the test measures URLSession's default
+        // timeout instead of the deadline it set. And a burst delivered synchronously
+        // inside `startLoading` is not flushed to the consumer while the task stays open
+        // — the sibling test that delivers asynchronously and stalls does return, which
+        // is how this was narrowed down.
         script.chunks = [Data(":".utf8)]
+        script.chunkDelay = 0.02
         script.stalls = true
         register(script, for: f)
 
