@@ -1,0 +1,45 @@
+// Zen Agent — shared build settings.
+//
+// This file is the single source of truth for build settings that must not drift
+// between Debug and Release. Values here are NOT duplicated in project.yml,
+// because settings written into the generated project file would silently
+// override these.
+
+// ---------------------------------------------------------------- platform
+// iOS 26 is the minimum. BGContinuedProcessingTask (background continued
+// processing) is an iOS 26 API and is treated as a core capability rather than
+// an optional one, so no #available gating is needed for it.
+// Decided 2026-09-19. Rationale, including what this choice costs:
+// Zen-Agent-Blueprint → Design/Zen Agent 开发规划.md §10.
+IPHONEOS_DEPLOYMENT_TARGET = 26.0
+
+// The persistence spike runs as a macOS logic-test bundle. macOS 15 is the floor
+// for the SwiftData #Unique / #Index macros the spike needs to evaluate.
+MACOSX_DEPLOYMENT_TARGET = 15.0
+
+// ------------------------------------------------------------------ swift
+// Strict concurrency is on from day one. The blueprint's cross-cutting
+// invariants (late deltas must not corrupt state, no duplicate Parent Run, no
+// repeated write-tool dispatch) are concurrency-correctness properties; catching
+// them at compile time is cheaper than catching them in Stage 2.
+SWIFT_VERSION = 6.0
+SWIFT_STRICT_CONCURRENCY = complete
+
+// Warnings are reported but do not fail the build yet. Flipping this to YES is a
+// deliberate future step, not something to switch on while the project skeleton
+// is still being stood up.
+SWIFT_TREAT_WARNINGS_AS_ERRORS = NO
+
+// ----------------------------------------------------------------- project
+// Opaque base for the bundle identifier. Must not contain secrets.
+ZEN_BUNDLE_ID = com.zhien.zenagent.ZenAgent
+
+ENABLE_USER_SCRIPT_SANDBOXING = YES
+CLANG_ENABLE_MODULES = YES
+SWIFT_EMIT_LOC_STRINGS = YES
+
+// Generated sources must not be committed; see .gitignore.
+// No local overrides are required to build. Secrets.xcconfig is optional and
+// gitignored — copy Secrets.xcconfig.example to create one. The `?` form means a
+// missing file is not an error, so a clean checkout builds without it.
+#include? "Secrets.xcconfig"

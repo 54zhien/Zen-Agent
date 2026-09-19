@@ -1,0 +1,10 @@
+// Zen Agent — Release overrides.
+#include "Common.xcconfig"
+
+SWIFT_OPTIMIZATION_LEVEL = -O
+SWIFT_COMPILATION_MODE = wholemodule
+GCC_OPTIMIZATION_LEVEL = s
+ENABLE_TESTABILITY = NO
+// Distribution signing is configured in CI, not locally. Signing material must
+// never be committed.
+// See Zen-Agent-Blueprint → Design/Zen Agent 工程与发布.md §8.

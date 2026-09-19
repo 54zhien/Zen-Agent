@@ -1,0 +1,117 @@
+# XcodeGen project definition — the source of truth for the Xcode project.
+#
+# `.xcodeproj` is generated from this file and is NOT committed. Do not hand-edit
+# project.pbxproj; edit this file or the Config/*.xcconfig instead.
+# See Docs/ADR/0002-project-generation-xcodegen.md.
+#
+# Regenerate with:  xcodegen generate
+
+name: ZenAgent
+
+options:
+  bundleIdPrefix: com.zhien.zenagent
+  createIntermediateGroups: true
+  # NOTE: deployment targets deliberately live in Config/Common.xcconfig, not here.
+  # Build settings written into the project file override xcconfig values, so
+  # declaring them in both places would silently make the xcconfig non-authoritative.
+
+configs:
+  Debug: debug
+  Release: release
+
+configFiles:
+  Debug: Config/Debug.xcconfig
+  Release: Config/Release.xcconfig
+
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift
+    from: "7.11.1"
+
+# Build-setting policy (deployment targets, Swift language mode, concurrency
+# checking) lives in Config/*.xcconfig, not here — for the same precedence reason
+# as above. This file describes project *structure*; the xcconfig files describe
+# *settings*.
+
+targets:
+
+  # ---------------------------------------------------------------- app target
+  # Stage 0 keeps this empty on purpose. No Provider, no AgentRuntime, no
+  # ToolRuntime, no Conversation UI.
+  # See Zen-Agent-Blueprint → Design/Zen Agent 开发规划.md (Stage 0).
+  ZenAgent:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Zen Agent
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(ZEN_BUNDLE_ID)
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+
+  # ------------------------------------------------------------ app unit tests
+  ZenAgentTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/ZenAgentTests
+    dependencies:
+      - target: ZenAgent
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+  # ------------------------------------------------- persistence spike harness
+  # Deliberately a separate macOS logic-test bundle, not an iOS simulator test:
+  # it exercises store semantics (transactions, constraints, migrations) that are
+  # platform-independent, and macOS logic tests run an order of magnitude faster
+  # in CI. No host app is needed. This whole target is throwaway — it is deleted
+  # once ADR-0001's engine decision is recorded.
+  PersistenceSpikeTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Spikes/Persistence
+        excludes:
+          # Documentation, not a bundle resource.
+          - "README.md"
+    dependencies:
+      - package: GRDB
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+
+  ZenAgent:
+    build:
+      targets:
+        ZenAgent: all
+        ZenAgentTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - ZenAgentTests
+
+  PersistenceSpike:
+    build:
+      targets:
+        PersistenceSpikeTests: [test]
+    test:
+      config: Debug
+      targets:
+        - PersistenceSpikeTests

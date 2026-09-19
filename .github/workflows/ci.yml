@@ -1,0 +1,179 @@
+name: CI
+
+# Stage 0 gate: the project must be regenerable from source, buildable, and
+# testable without any local Xcode edits. Everything below runs from a clean
+# checkout — nothing here depends on a committed .xcodeproj.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+
+  # -------------------------------------------------------------------------
+  # Cheap, fast, and verifies two of Stage 0's completion criteria directly:
+  #   - .xcodeproj is generated, not committed
+  #   - signing material cannot be committed by an ordinary `git add .`
+  # Runs in seconds, so it fails fast before any macOS runner is provisioned.
+  # -------------------------------------------------------------------------
+  repo-hygiene:
+    name: Repo hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generated Xcode project must not be tracked
+        run: |
+          set -euo pipefail
+          if git ls-files --error-unmatch 'ZenAgent.xcodeproj' >/dev/null 2>&1; then
+            echo "::error::ZenAgent.xcodeproj is tracked. It is generated from project.yml and must not be committed."
+            exit 1
+          fi
+          echo "OK: no .xcodeproj in the index"
+
+      - name: Signing material and secrets must be ignored
+        run: |
+          set -euo pipefail
+          failed=0
+          for f in \
+            "AuthKey_ABC123.p8" \
+            "Certificates.p12" \
+            "dev.cer" \
+            "req.certSigningRequest" \
+            "profile.mobileprovision" \
+            "Secrets.xcconfig" \
+            "build.xcresult" \
+            "ZenAgent.xcodeproj/project.pbxproj"
+          do
+            if git check-ignore -q "$f"; then
+              echo "OK: $f is ignored"
+            else
+              echo "::error::$f is NOT ignored — it could be committed by 'git add .'"
+              failed=1
+            fi
+          done
+          exit $failed
+
+      - name: Files that must stay versioned are not accidentally ignored
+        run: |
+          set -euo pipefail
+          failed=0
+          for f in \
+            "project.yml" \
+            "Config/Common.xcconfig" \
+            "Config/Secrets.xcconfig.example" \
+            "AGENTS.md" \
+            "Docs/ADR/0001-persistence-engine.md"
+          do
+            if git check-ignore -q "$f"; then
+              echo "::error::$f is ignored but must be versioned"
+              failed=1
+            else
+              echo "OK: $f is tracked"
+            fi
+          done
+          exit $failed
+
+  # -------------------------------------------------------------------------
+  # Regenerate the project from project.yml, then build and test.
+  # macOS 26 / Xcode 26 is required by the iOS 26 deployment target.
+  # -------------------------------------------------------------------------
+  build-and-test:
+    name: Build and test
+    needs: repo-hygiene
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project from project.yml
+        run: xcodegen generate
+
+      - name: Confirm the app resolves its deployment target from xcconfig
+        run: |
+          set -euo pipefail
+          xcodebuild -project ZenAgent.xcodeproj -scheme ZenAgent -showBuildSettings \
+            | grep -E 'IPHONEOS_DEPLOYMENT_TARGET|SWIFT_VERSION|SWIFT_STRICT_CONCURRENCY' || true
+
+      - name: Cache Swift Package Manager
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project ZenAgent.xcodeproj \
+            -scheme ZenAgent
+
+      - name: Build app
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ZenAgent.xcodeproj \
+            -scheme ZenAgent \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -quiet
+
+      - name: List available simulators
+        # Diagnostic only. If the destination below stops resolving, this shows
+        # what the runner actually has.
+        run: xcrun simctl list devices available
+
+      - name: Run app unit tests
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available \
+            | grep -E '^\s+iPhone' \
+            | head -n 1 \
+            | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          if [ -z "${UDID:-}" ]; then
+            echo "::error::No available iPhone simulator found. See the device list above."
+            exit 1
+          fi
+          echo "Using simulator $UDID"
+          set -o pipefail
+          xcodebuild test \
+            -project ZenAgent.xcodeproj \
+            -scheme ZenAgent \
+            -configuration Debug \
+            -destination "id=$UDID"
+
+      - name: Run persistence spike (macOS logic tests)
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project ZenAgent.xcodeproj \
+            -scheme PersistenceSpike \
+            -configuration Debug \
+            -destination 'platform=macOS'
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult
+          path: ~/Library/Developer/Xcode/DerivedData/**/Logs/Test/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
