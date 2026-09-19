@@ -574,17 +574,20 @@ struct ScenarioDSwiftDataTests {
 
 // MARK: - Shared helpers
 
+/// File-private to this file.
 private func describe(_ value: String?) -> String {
     value.map { "\"\($0)\"" } ?? "nothing"
 }
 
-private func makeScratchPath(name: String) throws -> URL {
+/// Shared across the scenario files — every scenario needs a throwaway store and a
+/// temp directory to put it in.
+func makeScratchPath(name: String) throws -> URL {
     let directory = URL.temporaryDirectory.appending(path: "zen-spike-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     return directory.appending(path: name)
 }
 
-private func cleanUp(_ url: URL) {
+func cleanUp(_ url: URL) {
     try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
 }
 
