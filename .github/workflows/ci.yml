@@ -64,6 +64,18 @@ jobs:
           done
           exit $failed
 
+      - name: GRDB must not escape the persistence layer
+        run: |
+          set -euo pipefail
+          offenders=$(grep -rl "import GRDB" App --include="*.swift" | grep -v '^App/Persistence/' || true)
+          if [ -n "$offenders" ]; then
+            echo "::error::GRDB is imported outside App/Persistence/:"
+            echo "$offenders"
+            echo "The storage engine must not reach the Runtime or the UI. See Docs/ADR/0001."
+            exit 1
+          fi
+          echo "OK: GRDB is confined to App/Persistence/"
+
       - name: Files that must stay versioned are not accidentally ignored
         run: |
           set -euo pipefail
