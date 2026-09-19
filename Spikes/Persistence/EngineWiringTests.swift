@@ -272,23 +272,29 @@ struct EngineWiringTests {
 /// all**, if it is not allowed to lean on `#Unique`?
 ///
 /// The engine's declarative constraint upserts rather than rejects, so any
-/// SwiftData implementation of scenario B must use something else. The natural
-/// candidate is a fetch-then-insert inside a transaction. Whether that is safe
-/// depends entirely on the isolation the engine actually provides — and the
-/// blueprint forbids "check then write" in business code *unless* the data layer
-/// makes it atomic, so this is the right question to ask of the engine.
+/// SwiftData implementation of scenario B must use something else. The candidate
+/// is a fetch-then-insert **inside a transaction**. Whether that is safe depends
+/// entirely on the isolation the engine actually provides — and the blueprint
+/// forbids "check then write" in business code *unless* the data layer makes it
+/// atomic, so this is the right question to put to the engine.
 ///
 /// The model deliberately carries **no** unique attribute: this measures the
 /// transaction mechanism alone, with nothing else holding the invariant up.
 ///
-/// Eight concurrent writers race to claim the same conversation. Exactly one may
-/// win. A result of two or more means SwiftData offers no mechanism for scenario
-/// B without external serialization — and a *non-deterministic* result is worse
-/// still, since it would fail in production rather than in CI.
+/// ## A correction worth recording
+///
+/// The first version of this probe reported 3 winners out of 8 — but it fetched
+/// and inserted as two separate operations, never wrapping them in a transaction.
+/// That is not a test of the engine's isolation; it is a test of a check-then-write
+/// with no transaction at all, which obviously races. Reporting it as "SwiftData
+/// cannot do this" would have been a wrong conclusion drawn from a broken
+/// experiment. The block below is wrapped in `transaction`, and the outcome
+/// distinguishes *clean rejection* from *error*, because the two are not the same
+/// thing: a busy/locked error is not the "slot already taken" the invariant needs.
 @Suite("Scenario B probe")
 struct ScenarioBProbeTests {
 
-    @Test("SwiftData: eight concurrent claimants, no declared constraint — can one win?")
+    @Test("SwiftData: eight concurrent claimants in one transaction each — can exactly one win?")
     func swiftDataConcurrentClaim() async throws {
         let directory = URL.temporaryDirectory.appending(path: "zen-claim-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -303,15 +309,20 @@ struct ScenarioBProbeTests {
             (ClaimActor(modelContainer: container), "w\(index)")
         }
 
-        let wins = await withTaskGroup(of: Bool.self) { group in
+        let outcomes = await withTaskGroup(of: ClaimOutcome.self) { group in
             for (actor, owner) in claimers {
-                group.addTask {
-                    (try? await actor.tryClaim(conversationID: "c1", owner: owner)) ?? false
-                }
+                group.addTask { await actor.tryClaim(conversationID: "c1", owner: owner) }
             }
-            var total = 0
-            for await won in group where won { total += 1 }
-            return total
+            var collected: [ClaimOutcome] = []
+            for await outcome in group { collected.append(outcome) }
+            return collected
+        }
+
+        let winners = outcomes.filter { $0 == .won }
+        let rejected = outcomes.filter { $0 == .taken }
+        let errored = outcomes.compactMap { outcome -> String? in
+            if case .failed(let reason) = outcome { return reason }
+            return nil
         }
 
         // Read back through an actor rather than a fresh `ModelContext` in the test
@@ -321,15 +332,24 @@ struct ScenarioBProbeTests {
         let holders = try await reader.holders(of: "c1")
 
         #expect(
-            wins == 1 && holders.count == 1,
+            winners.count == 1 && holders.count == 1,
             """
-            at most one claimant may hold the slot. \
-            Reported \(wins) winner(s); \(holders.count) row(s) hold c1: \
-            [\(holders.sorted().joined(separator: ", "))]. \
-            A count above one means the fetch-then-insert is not serialised.
+            exactly one claimant may hold the slot. \
+            won=\(winners.count) rejectedAsTaken=\(rejected.count) errored=\(errored.count); \
+            rows holding c1: \(holders.count) [\(holders.sorted().joined(separator: ", "))]; \
+            errors: [\(errored.prefix(3).joined(separator: " | "))]. \
+            More than one row means the transaction does not serialise the check.
             """
         )
     }
+}
+
+/// Distinguishing "the slot was already taken" from "the write failed" matters:
+/// only the first is the clean rejection the invariant requires.
+enum ClaimOutcome: Sendable, Equatable {
+    case won
+    case taken
+    case failed(String)
 }
 
 /// One writer. `@ModelActor` gives each instance its own `ModelContext`, which is
@@ -342,18 +362,28 @@ struct ScenarioBProbeTests {
 /// would look like an engine failure rather than a test bug.
 @ModelActor
 actor ClaimActor {
-    /// Fetch-then-insert. Returns whether this writer won.
-    func tryClaim(conversationID: String, owner: String) throws -> Bool {
+    /// Claim the slot for this conversation, or report why not.
+    ///
+    /// The fetch **and** the insert are inside one `transaction`, because a check
+    /// and a write in separate operations is not a test of the engine's isolation
+    /// — it is a test of a race, which trivially loses.
+    func tryClaim(conversationID: String, owner: String) -> ClaimOutcome {
         let target = conversationID
-        let descriptor = FetchDescriptor<ClaimRecord>(
-            predicate: #Predicate { $0.activeSlot == target }
-        )
-        let alreadyTaken = try modelContext.fetchCount(descriptor) > 0
-        guard !alreadyTaken else { return false }
-
-        modelContext.insert(ClaimRecord(activeSlot: conversationID, owner: owner))
-        try modelContext.save()
-        return true
+        do {
+            var won = false
+            try modelContext.transaction {
+                let descriptor = FetchDescriptor<ClaimRecord>(
+                    predicate: #Predicate { $0.activeSlot == target }
+                )
+                guard try modelContext.fetchCount(descriptor) == 0 else { return }
+                modelContext.insert(ClaimRecord(activeSlot: conversationID, owner: owner))
+                try modelContext.save()
+                won = true
+            }
+            return won ? .won : .taken
+        } catch {
+            return .failed(String(describing: error))
+        }
     }
 
     /// Committed holders of a slot, as owner names.
