@@ -116,13 +116,11 @@ struct SSEParserTests {
 
     @Test("a heartbeat between events does not disturb them")
     func heartbeatBetweenEvents() throws {
-        let stream = """
-        data: first
-
-        : keep-alive
-        data: second
-
-        """
+        // Written with explicit escapes rather than as a multi-line literal: Swift
+        // strips the newline before the closing delimiter, which silently removed the
+        // blank line that dispatches the second event and made this fail for a reason
+        // that had nothing to do with heartbeats.
+        let stream = "data: first\n\n: keep-alive\ndata: second\n\n"
         #expect(try elements(from: stream) == [event("first"), event("second")])
     }
 

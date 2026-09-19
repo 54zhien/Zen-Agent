@@ -131,25 +131,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-
-        // Delivered on a background queue so a scripted gap does not block the session's
-        // thread, and so `stopLoading` can still arrive while a delivery is pending.
-        for (index, chunk) in script.chunks.enumerated() {
-            deliver(after: script.chunkDelay * Double(index)) { protocolInstance in
-                protocolInstance.client?.urlProtocol(protocolInstance, didLoad: chunk)
-            }
-        }
-
-        guard !script.stalls else { return }
-
-        let tail = script.chunkDelay * Double(script.chunks.count)
-        deliver(after: tail) { protocolInstance in
-            if let code = script.failureCode {
-                protocolInstance.client?.urlProtocol(protocolInstance, didFailWithError: URLError(code))
-            } else {
-                protocolInstance.client?.urlProtocolDidFinishLoading(protocolInstance)
-            }
-        }
+        deliverChunk(at: 0, of: script)
     }
 
     override func stopLoading() {
@@ -157,10 +139,41 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         if let url = request.url { Self.recordStop(for: url) }
     }
 
-    private func deliver(after delay: TimeInterval, _ body: @escaping @Sendable (StubURLProtocol) -> Void) {
-        DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [weak self] in
+    /// Delivers the script one step at a time, each step starting the next.
+    ///
+    /// **Chained, not scheduled in parallel, and synchronous when the script asks for no
+    /// delay.** The first CI run showed why both matter. Scheduling every chunk at the
+    /// same deadline let them run concurrently on the global queue, so `didLoad` calls
+    /// interleaved and the body arrived shuffled; and a terminal failure could land
+    /// before the caller had even received its response, which turned an interrupted
+    /// stream into a failed request — a different outcome, and one the tests caught
+    /// because they assert the outcome rather than the plumbing.
+    private func deliverChunk(at index: Int, of script: Script) {
+        guard !stopped.withLock({ isStopped }) else { return }
+
+        guard index < script.chunks.count else {
+            guard !script.stalls else { return }
+            if let code = script.failureCode {
+                client?.urlProtocol(self, didFailWithError: URLError(code))
+            } else {
+                client?.urlProtocolDidFinishLoading(self)
+            }
+            return
+        }
+
+        let chunk = script.chunks[index]
+        let next: @Sendable () -> Void = { [weak self] in
             guard let self, !self.stopped.withLock({ self.isStopped }) else { return }
-            body(self)
+            self.client?.urlProtocol(self, didLoad: chunk)
+            self.deliverChunk(at: index + 1, of: script)
+        }
+
+        if script.chunkDelay > 0 {
+            // Off the session's thread, so a scripted gap neither blocks the caller's
+            // start-up nor keeps `stopLoading` from arriving mid-delivery.
+            DispatchQueue.global().asyncAfter(deadline: .now() + script.chunkDelay, execute: next)
+        } else {
+            next()
         }
     }
 }
