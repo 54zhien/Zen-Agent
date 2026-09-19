@@ -46,8 +46,27 @@ spike 用**同一组测试驱动两个候选**（一个共享 harness 协议，�
 **B 是决定性的一条。** 它要求的是**条件唯一性**（「至多一个**非终态** run」），
 而两个候选都没有一等 API 表达它——标准解法是可空的 active-slot 列（活跃时等于 conversationID、
 终态时置 NULL）加唯一索引，因为 SQL 认为 NULL 互不相等，从而允许多条终态行共存。
-这条 workaround 能否成立直接决定候选是否可用，因此已在
-`Spikes/Persistence/EngineWiringTests.swift` 里提前单线程验证，不等整套场景写完。
+
+## 已由 CI 实测的证据（2026-09-19）
+
+不是推理，是跑出来的结果（run 35421484359 / 35421773153）：
+
+| 结论 | 证据 |
+|---|---|
+| GRDB 解析为 SPM 依赖并可用 | 接线测试通过 |
+| **GRDB 用 partial unique index 正确拒绝第二个占位者**，多条终态行共存 | 接线测试通过 |
+| SwiftData 在本 target 可用，多 NULL slot 共存 | 接线测试通过 |
+| **SwiftData 的 `#Unique` 不拒绝，而是静默 upsert** | `rows after save: [active-2/slot=c1]`——`active-1` 消失且无任何错误 |
+| **改成非空 slot 也一样 upsert** | `rows for slot c1: [active-2]` |
+
+第二组结果对 B 的含义：**SwiftData 的声明式唯一约束不只是"没生效"，它会主动破坏不变量。**
+第二个写者本应干净地失败，实际却是第一个 active run 被无声覆盖。
+对互斥状态来说，这比完全没有约束更糟——约束毁掉了它本该保护的那一行。
+
+**但这判定的是一个机制出局，不是引擎出局。** upsert 对面向合并的存储是合理设计，
+把它当互斥约束用是类别错配，不是 bug。SwiftData 是否还有别的机制能守住 B，
+由 `Scenario B probe`（8 个并发写者、显式声明不带唯一约束的模型、事务内 fetch-then-insert）回答。
+只有当那条路也失败时，才能说 SwiftData 无法表达 B。
 
 ## 已核实的环境事实（2026-09-19）
 

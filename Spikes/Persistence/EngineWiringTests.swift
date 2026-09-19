@@ -7,18 +7,34 @@ import SwiftData
 /// Stage 0 wiring checks for the persistence spike.
 ///
 /// These do NOT implement the seven spike scenarios (see README.md in this
-/// directory for those). They answer the narrower question that has to be
-/// answered first: **can both candidate engines even be built and driven from
-/// this test target in CI?** If this file fails, nothing above it is worth
-/// debugging.
+/// directory for those). Two suites live here for different purposes:
 ///
-/// One mechanism is probed early because it decides scenario B outright: the
-/// blueprint requires "at most one *non-terminal* Parent Run per Conversation".
-/// That is a *conditional* uniqueness constraint, and neither engine has a
-/// first-class API for it. The standard relational workaround is a nullable
-/// "active slot" column — equal to the conversation id while the run is active,
-/// NULL once it reaches a terminal state — combined with a unique index, because
-/// SQL treats NULLs as distinct and therefore permits many terminal rows.
+/// - **Persistence engine wiring** — can both engines be built and driven from
+///   this target in CI, and what are their declared-constraint semantics? These
+///   pass; a failure means the infrastructure broke, not that an engine lost.
+/// - **Scenario B probe** — the decisive experiment for the one invariant that
+///   separates the candidates.
+///
+/// ## What the first CI runs established
+///
+/// The blueprint requires "at most one *non-terminal* Parent Run per
+/// Conversation" — a **conditional** uniqueness constraint that neither engine
+/// expresses first-class. Both candidates were probed with the natural relational
+/// workaround (a slot column that is set while the run is active and released
+/// once terminal, plus a unique index):
+///
+/// - **GRDB rejects correctly.** A partial unique index refuses the second
+///   occupant, and multiple terminal rows coexist.
+/// - **SwiftData silently overwrites.** `#Unique` has upsert semantics: the
+///   second writer *replaces* the first, with no error raised. Making the slot
+///   non-optional does not change this. For an exclusivity invariant that is
+///   worse than having no constraint at all — the constraint destroys the very
+///   row it is supposed to protect.
+///
+/// That result rules out *one mechanism*, not the engine. Upsert is a defensible
+/// design for a merge-oriented store and this is a category mismatch, not a bug.
+/// Whether SwiftData has any other way to hold the invariant is what the probe
+/// below tests.
 @Suite("Persistence engine wiring")
 struct EngineWiringTests {
 
@@ -133,25 +149,23 @@ struct EngineWiringTests {
         #expect(count == 2, "multiple terminal (NULL-slot) rows must coexist")
     }
 
-    // MARK: Experiment — what does SwiftData actually do on an occupied slot?
+    // MARK: Characterisation — SwiftData's declared-constraint semantics
 
-    /// Scenario B needs "at most one *non-terminal* Parent Run per Conversation".
-    /// That means a second writer must **fail cleanly**. Three outcomes are
-    /// possible and only the first is acceptable; the other two are materially
-    /// different problems, so this test reports which one occurred rather than
-    /// just asserting a boolean.
+    /// **Characterisation, not a requirement.** This pins SwiftData's observed
+    /// behaviour so that a change to it is noticed, and so the ADR reasoning has
+    /// a test behind it rather than a sentence.
     ///
-    /// 1. `REJECTED` — save throws. The invariant is expressible.
-    /// 2. `DUPLICATE ACCEPTED` — the constraint is not enforced at all.
-    /// 3. `SILENT REPLACEMENT` — the first active run was overwritten. Worse than
-    ///    (2), because the lost run is an *active* one and nothing reports an error.
+    /// Established by CI: `#Unique` does not reject a second occupant of an
+    /// occupied slot — it **upserts**, silently overwriting the first row.
     ///
-    /// This deliberately asserts the requirement rather than the observation: a red
-    /// result here is a real finding about the engine, and the failure message
-    /// carries the evidence needed to design around it.
-    @Test("SwiftData: an occupied unique slot — rejected, duplicated, or silently replaced?")
+    ///     rows after save: [active-2/slot=c1]     // active-1 is gone, no error
+    ///
+    /// For scenario B that is worse than no constraint: the second writer must
+    /// *fail cleanly*, and instead the first active run disappears without a
+    /// trace. The requirement itself is asserted in the Scenario B probe.
+    @Test("SwiftData (characterised): an occupied unique slot is silently overwritten")
     @MainActor
-    func swiftDataOccupiedSlotSemantics() throws {
+    func swiftDataOccupiedSlotIsSilentUpsert() throws {
         let container = try ModelContainer(
             for: SpikeRecord.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
@@ -184,24 +198,30 @@ struct EngineWiringTests {
             outcome = "DUPLICATE ACCEPTED (constraint not enforced)"
         }
 
-        #expect(threw, "expected REJECTED; observed \(outcome). rows after save: [\(dumped)]")
+        #expect(
+            !threw && rows.count == 1,
+            "known behaviour changed — expected the silent upsert. Observed \(outcome). rows after save: [\(dumped)]"
+        )
     }
 
-    /// Second hypothesis, same experiment. If the optional `slot` is what defeats
-    /// the constraint, a **non-optional** slot should reject properly.
+    /// **Characterisation, second hypothesis — also resolved.**
     ///
-    /// This matters because a non-optional slot is a better design anyway: the
-    /// column holds the conversation id while active and a per-run unique value
-    /// once terminal, so uniqueness is unconditional and both engines express it
-    /// the same way — no reliance on SQL's NULL-is-distinct rule at all.
+    /// A non-optional slot is the better *design* anyway: it holds the
+    /// conversation id while active and a per-run unique value once terminal, so
+    /// uniqueness is unconditional and the engine never depends on SQL's
+    /// NULL-is-distinct rule. This test asked whether the optional attribute was
+    /// what defeated the constraint.
     ///
-    /// - Non-optional rejects → the problem was the optional attribute, and the
-    ///   sentinel design is the workaround.
-    /// - Non-optional also does not reject → SwiftData upserts on unique conflicts
-    ///   generally, and no column shape will rescue scenario B.
-    @Test("SwiftData: non-optional unique slot — does it reject a second occupant?")
+    /// It was not. CI observed the same silent upsert:
+    ///
+    ///     rows for slot c1: [active-2]
+    ///
+    /// So no column shape rescues SwiftData's declarative uniqueness for an
+    /// exclusivity invariant. The sentinel shape is still worth keeping in mind
+    /// if a non-declarative mechanism is used.
+    @Test("SwiftData (characterised): a non-optional slot is overwritten too")
     @MainActor
-    func swiftDataNonNullSentinelSemantics() throws {
+    func swiftDataNonNullSlotAlsoUpserts() throws {
         let container = try ModelContainer(
             for: SentinelRecord.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
@@ -212,10 +232,8 @@ struct EngineWiringTests {
         context.insert(SentinelRecord(slot: "run-t1", value: "terminal-1"))
         context.insert(SentinelRecord(slot: "run-t2", value: "terminal-2"))
         try context.save()
-        #expect(
-            try context.fetchCount(FetchDescriptor<SentinelRecord>()) == 2,
-            "distinct terminal keys must coexist"
-        )
+        let terminalCount = try context.fetchCount(FetchDescriptor<SentinelRecord>())
+        #expect(terminalCount == 2, "distinct terminal keys must coexist")
 
         context.insert(SentinelRecord(slot: "c1", value: "active-1"))
         try context.save()
@@ -241,7 +259,122 @@ struct EngineWiringTests {
             outcome = "DUPLICATE ACCEPTED"
         }
 
-        #expect(threw, "expected REJECTED with a non-optional slot; observed \(outcome). rows for slot c1: [\(dumped)]")
+        #expect(
+            !threw && rows.count == 1,
+            "known behaviour changed — expected the silent upsert. Observed \(outcome). rows for slot c1: [\(dumped)]"
+        )
+    }
+}
+
+// MARK: - Scenario B probe
+
+/// The decisive experiment: can SwiftData hold "at most one active owner" **at
+/// all**, if it is not allowed to lean on `#Unique`?
+///
+/// The engine's declarative constraint upserts rather than rejects, so any
+/// SwiftData implementation of scenario B must use something else. The natural
+/// candidate is a fetch-then-insert inside a transaction. Whether that is safe
+/// depends entirely on the isolation the engine actually provides — and the
+/// blueprint forbids "check then write" in business code *unless* the data layer
+/// makes it atomic, so this is the right question to ask of the engine.
+///
+/// The model deliberately carries **no** unique attribute: this measures the
+/// transaction mechanism alone, with nothing else holding the invariant up.
+///
+/// Eight concurrent writers race to claim the same conversation. Exactly one may
+/// win. A result of two or more means SwiftData offers no mechanism for scenario
+/// B without external serialization — and a *non-deterministic* result is worse
+/// still, since it would fail in production rather than in CI.
+@Suite("Scenario B probe")
+struct ScenarioBProbeTests {
+
+    @Test("SwiftData: eight concurrent claimants, no declared constraint — can one win?")
+    func swiftDataConcurrentClaim() async throws {
+        let directory = URL.temporaryDirectory.appending(path: "zen-claim-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let container = try ModelContainer(
+            for: ClaimRecord.self,
+            configurations: ModelConfiguration(url: directory.appending(path: "claims.store"))
+        )
+
+        let claimers: [(actor: ClaimActor, owner: String)] = (0..<8).map { index in
+            (ClaimActor(modelContainer: container), "w\(index)")
+        }
+
+        let wins = await withTaskGroup(of: Bool.self) { group in
+            for (actor, owner) in claimers {
+                group.addTask {
+                    (try? await actor.tryClaim(conversationID: "c1", owner: owner)) ?? false
+                }
+            }
+            var total = 0
+            for await won in group where won { total += 1 }
+            return total
+        }
+
+        // Read back through an actor rather than a fresh `ModelContext` in the test
+        // body: the context is not Sendable, and creating one here would be a
+        // concurrency question of its own, muddying what this test measures.
+        let reader = ClaimActor(modelContainer: container)
+        let holders = try await reader.holders(of: "c1")
+
+        #expect(
+            wins == 1 && holders.count == 1,
+            """
+            at most one claimant may hold the slot. \
+            Reported \(wins) winner(s); \(holders.count) row(s) hold c1: \
+            [\(holders.sorted().joined(separator: ", "))]. \
+            A count above one means the fetch-then-insert is not serialised.
+            """
+        )
+    }
+}
+
+/// One writer. `@ModelActor` gives each instance its own `ModelContext`, which is
+/// what makes two of them able to race — a single context serialises its own work
+/// and would hide the problem.
+///
+/// The `owner` is passed per call rather than stored, so the macro-generated
+/// `init(modelContainer:)` can be used as-is. Hand-writing that initialiser would
+/// mean reproducing the macro's `modelExecutor` setup, and getting it subtly wrong
+/// would look like an engine failure rather than a test bug.
+@ModelActor
+actor ClaimActor {
+    /// Fetch-then-insert. Returns whether this writer won.
+    func tryClaim(conversationID: String, owner: String) throws -> Bool {
+        let target = conversationID
+        let descriptor = FetchDescriptor<ClaimRecord>(
+            predicate: #Predicate { $0.activeSlot == target }
+        )
+        let alreadyTaken = try modelContext.fetchCount(descriptor) > 0
+        guard !alreadyTaken else { return false }
+
+        modelContext.insert(ClaimRecord(activeSlot: conversationID, owner: owner))
+        try modelContext.save()
+        return true
+    }
+
+    /// Committed holders of a slot, as owner names.
+    func holders(of conversationID: String) throws -> [String] {
+        let target = conversationID
+        let descriptor = FetchDescriptor<ClaimRecord>(
+            predicate: #Predicate { $0.activeSlot == target }
+        )
+        return try modelContext.fetch(descriptor).map(\.owner)
+    }
+}
+
+/// No declared uniqueness — deliberately. See the suite comment.
+@Model
+final class ClaimRecord {
+    var activeSlot: String
+    var owner: String
+
+    init(activeSlot: String, owner: String) {
+        self.activeSlot = activeSlot
+        self.owner = owner
     }
 }
 
