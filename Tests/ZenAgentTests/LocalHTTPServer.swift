@@ -49,6 +49,7 @@ final class LocalHTTPServer: @unchecked Sendable {
     private var chunkWritten = false
     private var peerWentAway = false
     private var closeRequested = false
+    private var closed = false
 
     /// The port the system assigned. Read it from here rather than assuming one.
     let port: UInt16
@@ -120,17 +121,27 @@ final class LocalHTTPServer: @unchecked Sendable {
     }
 
     /// Deterministic teardown. Safe to call more than once, and safe from a `defer`.
+    ///
+    /// **Closing exactly once is the whole job here.** This runs from a `defer` in every
+    /// test *and* from `deinit`, so it is called twice on the normal path. A second
+    /// `close(listenFD)` does not fail harmlessly: file descriptors are recycled, and by
+    /// then that number can belong to another test's server — which then refuses
+    /// connections with `cannotConnectToHost`, in a different test, at random. It cost a
+    /// CI round to see, and the failure looked nothing like the cause.
     func shutdown() {
-        lock.withLock {
+        let firstShutdown: Bool = lock.withLock {
+            guard !closed else { return false }
+            closed = true
             closeRequested = true
             if clientFD >= 0 {
                 close(clientFD)
                 clientFD = -1
             }
+            return true
         }
-        // The listening socket is closed outside the lock so a concurrently-parked
-        // `accept` is released rather than left holding it.
-        close(listenFD)
+        // Outside the lock, so a concurrently-parked `accept` is released rather than
+        // left holding it.
+        if firstShutdown { close(listenFD) }
     }
 
     // MARK: - Serving
