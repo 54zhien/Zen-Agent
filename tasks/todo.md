@@ -31,27 +31,42 @@ CI 是唯一验证手段。
 - [ ] **CI 首次运行转绿**（预计需要修：XcodeGen 语法、SPM 解析、Simulator 名称）
 - [ ] 记录首次 CI 失败的真实原因，不要靠猜修改
 
-## 增量 2：Persistence Spike（CI 绿之前不开始）
+## 增量 2：Persistence Spike（CI 已转绿）
 
-- [ ] `SpikeHarness.swift` — 共享协议，两个引擎实现同一组操作
-- [ ] `SwiftDataHarness.swift`
-- [ ] `GRDBHarness.swift`
-- [ ] `ScenarioTests.swift` — A–G 七个场景，**两个引擎跑完全相同的测试**
+**CI 状态：全绿**（run 35423406385）。11 个测试 4 个 suite 通过 + 1 个 known issue。
 
-| # | 场景 | 核心问题 |
-|---|---|---|
-| A | Atomic send commit | User Message + Parent Run + frozen seed 一个事务完成，崩溃后无半状态 |
-| B | Active Parent Run unique | 「至多一个**非终态** Parent Run」在并发下被原子保证 |
-| C | Indeterminate write | dispatch 后崩溃 → recover 不得自动重发，落为 indeterminate |
-| D | Migration recovery | V1→V2 可重复跑、可中断、不靠删库 |
-| E | Delete / Undo | `visible → pendingDeletion →(Undo\|Finalize)`；Undo 窗口内正文真实存在 |
-| F | Tombstone | Conversation finalize 后正文可删，最小操作追踪记录不被 cascade 抹掉 |
-| G | Streaming write pressure | 每 token 写库 vs batch/snapshot 的写入次数与阻塞 |
+场景权重（产品给定，决定证据如何汇总）：B/C/D 最高 · A/G 中高 · E/F 中等。
+判读原则：若 GRDB 在 B+C+D 上明显更强，即使 SwiftData 在 E/F 更省代码，仍偏向 GRDB。
 
-**B 是决定性的一条**：它要求**条件唯一性**，两个引擎都没有一等 API，
-需要可空 active-slot 列 + 唯一索引的 workaround。已在 `EngineWiringTests` 提前单线程验证。
-ADR 必须区分「业务不变量」与「物理 schema 手段」——**不要因为 spike 用了某个字段
-就把它写成正式数据库设计**。
+| # | 权重 | 场景 | SwiftData | GRDB |
+|---|---|---|---|---|
+| B | 最高 | Active Parent Run unique | ❌ **已知缺陷** `won=3` | ✅ |
+| C | 最高 | 崩溃窗口两态可区分 | ✅ | ✅ |
+| D | 最高 | 迁移可中断重跑 | ⬜ 未做 | ✅ |
+| A | 中高 | Atomic send commit | ⬜ | ⬜ |
+| G | 中高 | Streaming 写入压力 | ⬜ | ⬜ |
+| E | 中 | Delete / Undo | ⬜ | ⬜ |
+| F | 中 | Tombstone | ⬜ | ⬜ |
+
+**3/7 完成。GRDB 目前只在 B 上领先，C 是平局——远没到能选型的时候。**
+
+- [x] 接线验证（两个引擎能构建、能跑）
+- [x] 声明式约束语义测定（SwiftData `#Unique` = upsert）
+- [x] B：并发对照，两引擎同形状、同计分
+- [x] C：崩溃窗口两态（**平局**）
+- [x] D：GRDB 半边
+- [ ] **D：SwiftData 半边**（versioned-schema 宏密集，中断路径在 container init 内隐式发生，问题形状不同）
+- [ ] A / E / F / G
+
+### 已定的处理方式
+
+- **SwiftData 的 B 用 `withKnownIssue` 标记**，不是删除也不是放过：需求仍在代码里，
+  CI 保持绿以免真正的回归淹没在常红噪音里，若哪天 unexpected pass 则提示 ADR 需重审。
+- **ADR 必须区分「业务不变量」与「物理 schema 手段」**——不要因为 spike 用了某个字段
+  就把它写成正式数据库设计。
+- **串行 owner 退路的覆盖范围**（产品已裁定，见 `Docs/ADR/0001`）：
+  同进程 ✅ · 多 Scene ✅（不是进程边界）· App Extension/第二进程 ❌ · 绕过 owner 的其他写路径 ❌
+- 场景跑完后**先迁移不变量 regression test，再删一次性实现**（见 `Spikes/Persistence/README.md`）
 
 ## 增量 3：选型与落地
 
