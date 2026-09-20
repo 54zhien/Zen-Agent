@@ -44,6 +44,17 @@ struct MigrationTests {
         Migrations.makeMigrator()
     }
 
+    /// The schema as it stood immediately before V5, so the upgrade off it can be
+    /// exercised over a real store rather than a synthetic one.
+    private func v4Migrator() -> DatabaseMigrator {
+        var migrator = DatabaseMigrator()
+        Migrations.registerV1(&migrator)
+        Migrations.registerV2(&migrator)
+        Migrations.registerV3(&migrator)
+        Migrations.registerV4(&migrator)
+        return migrator
+    }
+
     private func seedV1(at url: URL) throws {
         let store = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: v1Migrator()))
         try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
@@ -150,6 +161,61 @@ struct MigrationTests {
         // schema property, and a migration that created the table without it would
         // otherwise pass every other test.
         #expect(failure != nil, "the composite primary key must exist in the migrated schema")
+    }
+
+    // MARK: - The edit revision
+
+    @Test("an instance written before the edit revision existed upgrades to the start of its counter")
+    func editRevisionUpgradesFromV4() throws {
+        let url = try Fixtures.scratchPath(name: "edit-revision.sqlite")
+        defer { Fixtures.cleanUp(url) }
+
+        // A store from before V5, holding an instance row of the shape that build wrote.
+        //
+        // Written with SQL rather than through `createProviderInstance`, because the
+        // typed path writes the column V5 adds and this store does not have it yet. A
+        // row that no typed API of *this* build can produce is exactly what an upgrade
+        // test needs.
+        let instanceID = ProviderInstanceID(rawValue: "pi-1")
+        let before = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: v4Migrator()))
+        try before.database.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO providerInstance
+                        (id, providerID, displayName, baseURL, configRevision,
+                         credentialID, credentialKind, createdAt, updatedAt)
+                    VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+                    """,
+                arguments: [
+                    instanceID.rawValue, "deepseek", "DeepSeek",
+                    "https://api.deepseek.com", ConfigRevision.initial.rawValue,
+                    Fixtures.epoch, Fixtures.epoch,
+                ]
+            )
+        }
+        #expect(
+            try before.database.read { db in try db.columns(in: "providerInstance").map(\.name) }
+                .contains("editRevision") == false,
+            "the V4 schema must not already carry the column, or this test proves nothing"
+        )
+
+        // Reopened under the production migrator, the row survives and the counter starts
+        // where the mutation path expects it to.
+        let after = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: currentMigrator()))
+        let upgraded = try after.providerInstance(id: instanceID)
+        #expect(upgraded?.displayName == "DeepSeek", "the row must survive the migration")
+        #expect(upgraded?.editRevision == .initial, "and it must start at the counter's zero")
+
+        // And the upgraded row is editable. This is what a wrong default would break: a
+        // revision the caller cannot match is one no edit can ever be made against.
+        let edited = try after.reconfigureProviderInstance(
+            id: instanceID,
+            displayName: "renamed",
+            baseURL: nil,
+            expectedEditRevision: .initial
+        )
+        #expect(edited.displayName == "renamed")
+        #expect(edited.editRevision != .initial, "the edit must move the counter forward")
     }
 
     // MARK: - An unreadable frozen seed

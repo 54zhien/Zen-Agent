@@ -96,7 +96,11 @@ struct FrozenCredentialIdentityTests {
         #expect(f.validate() == nil, "the frozen configuration must validate before anything moves")
 
         // A brand-new credential. Same generation — that is the point.
-        let moved = try f.store.attachCredential(Self.credentialB, toInstance: Self.instanceID)
+        let moved = try f.store.attachCredential(
+            Self.credentialB,
+            toInstance: Self.instanceID,
+            expectedEditRevision: f.instance.editRevision
+        )
         #expect(moved.credentialReference == Self.credentialB)
         #expect(
             try f.credentials.metadata(for: Self.credentialB)?.bindingGeneration == 1,
@@ -150,7 +154,11 @@ struct FrozenCredentialIdentityTests {
     @Test("a detached credential is refused")
     func detachIsRefused() throws {
         let f = try makeFixture()
-        let detached = try f.store.attachCredential(nil, toInstance: Self.instanceID)
+        let detached = try f.store.attachCredential(
+            nil,
+            toInstance: Self.instanceID,
+            expectedEditRevision: f.instance.editRevision
+        )
         #expect(detached.credentialReference == nil)
 
         guard case .configurationMismatch = f.validate(against: detached) else {

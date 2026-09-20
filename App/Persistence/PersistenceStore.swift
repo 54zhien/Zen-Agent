@@ -36,6 +36,38 @@ enum PersistenceError: Error, Equatable {
     /// through the create path, which is the one thing that must not silently succeed.
     case providerInstanceAlreadyExists(ProviderInstanceID)
 
+    /// An instance was read, and something else moved it before the write built on that
+    /// read landed.
+    ///
+    /// Both revisions travel with it, so a caller can say more than "it failed" — but the
+    /// point is the refusal, not the message. A stale write is **rejected** rather than
+    /// performed, which is what makes a concurrent edit impossible to lose silently: the
+    /// losing editor is told, instead of overwriting a change it never saw.
+    case providerInstanceEditConflict(
+        id: ProviderInstanceID,
+        expected: ProviderInstanceEditRevision,
+        actual: ProviderInstanceEditRevision
+    )
+
+    /// An instance's stored `configRevision` is not a counter this build can advance.
+    ///
+    /// Its own case rather than the catch-all below, because it is the one mutation
+    /// failure that is a statement about the *data* rather than about the write: the row
+    /// reads fine, and what it holds cannot be edited safely. Reported rather than
+    /// defaulted — `ConfigRevision.next()` explains why the fallback was the dangerous
+    /// direction.
+    case providerInstanceRevisionUnreadable(id: ProviderInstanceID, rawValue: String)
+
+    /// The write failed for a reason that is not one of the above — a storage-engine
+    /// failure, most likely.
+    ///
+    /// Exists so that **no GRDB type reaches a caller**: `RecordError` and
+    /// `DatabaseError` belong to the engine, and this enum is the store's vocabulary.
+    /// The underlying description travels with it so the reason is not discarded along
+    /// with the type. Nothing secret can be in it — the table holds a credential
+    /// *reference*, and `SecretValue` is not `Codable`.
+    case providerInstanceMutationFailed(id: ProviderInstanceID, reason: String)
+
     /// The named run does not exist.
     case runNotFound(String)
 

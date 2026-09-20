@@ -61,7 +61,8 @@ struct ProviderInstanceTests {
         let edited = try store.reconfigureProviderInstance(
             id: Self.instanceID,
             displayName: "DeepSeek (work)",
-            baseURL: URL(string: "https://proxy.example.com")
+            baseURL: URL(string: "https://proxy.example.com"),
+            expectedEditRevision: original.editRevision
         )
 
         #expect(edited.configRevision != original.configRevision, "an edit must move the revision")
@@ -72,12 +73,13 @@ struct ProviderInstanceTests {
     @Test("editing does not disturb the credential reference")
     func editingKeepsTheCredential() throws {
         let store = try makeStore()
-        try seedInstance(store)
+        let original = try seedInstance(store)
 
         let edited = try store.reconfigureProviderInstance(
             id: Self.instanceID,
             displayName: "renamed",
-            baseURL: nil
+            baseURL: nil,
+            expectedEditRevision: original.editRevision
         )
 
         // Attaching or detaching a credential is a separate act. Folding it into a
@@ -94,7 +96,8 @@ struct ProviderInstanceTests {
             _ = try store.reconfigureProviderInstance(
                 id: ProviderInstanceID(rawValue: "nope"),
                 displayName: "x",
-                baseURL: nil
+                baseURL: nil,
+                expectedEditRevision: .initial
             )
         } catch {
             failure = error
@@ -124,7 +127,8 @@ struct ProviderInstanceTests {
         let edited = try store.reconfigureProviderInstance(
             id: Self.instanceID,
             displayName: "DeepSeek",
-            baseURL: URL(string: "https://somewhere-else.example.com")
+            baseURL: URL(string: "https://somewhere-else.example.com"),
+            expectedEditRevision: instance.editRevision
         )
 
         #expect(
@@ -154,7 +158,8 @@ struct ProviderInstanceTests {
         _ = try store.reconfigureProviderInstance(
             id: Self.instanceID,
             displayName: "changed",
-            baseURL: URL(string: "https://elsewhere.example.com")
+            baseURL: URL(string: "https://elsewhere.example.com"),
+            expectedEditRevision: instance.editRevision
         )
 
         // The instance moved; the run did not. This is the whole point of freezing.

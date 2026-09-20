@@ -39,28 +39,137 @@ extension PersistenceStore {
         }
     }
 
-    /// Writes an instance that is already known to exist.
+    /// The one path every edit to an instance that already exists takes.
     ///
-    /// File-private on purpose. The mutations below are the entry points, and each one
-    /// decides what it is allowed to change; exposing this would put the generic
-    /// upsert back.
-    private func updateProviderInstance(_ instance: ProviderInstance, at now: Date) throws {
-        try database.write { db in
-            var record = Self.providerInstanceRecord(from: instance, at: now)
-            // Created-once. Read inside the transaction so two concurrent writes cannot
-            // both decide the row is new.
-            record.createdAt = try ProviderInstanceRecord
-                .fetchOne(db, key: instance.id.rawValue)?.createdAt ?? now
-            try record.update(db)
+    /// **Read, decide and write happen inside a single transaction.** A `DatabaseQueue`
+    /// serialises whole transactions, not individual statements: two calls that each
+    /// open their own `write` are two transactions, and everything between them is a
+    /// window. Two failures lived in that window.
+    ///
+    /// An instance could be deleted in it, and the follow-up write then threw GRDB's own
+    /// `RecordError` at the caller — the storage engine's vocabulary in front of a
+    /// domain problem. And a second editor could read the same row and write back the
+    /// whole object it had read, silently discarding the first editor's change.
+    ///
+    /// The update is conditional on the revision the caller read, so a write built on a
+    /// snapshot something else has moved past changes **zero rows** rather than
+    /// clobbering the newer one, and the caller is told which of the two happened.
+    ///
+    /// Only the columns the mutation is allowed to touch are assigned, and the values
+    /// come from the row read *in this transaction* rather than from anything the caller
+    /// carried. The previous shape wrote the whole record back, which is what let a
+    /// stale snapshot revert a column its editor never meant to change — `configRevision`
+    /// among them, the one value a frozen run compares against.
+    private func mutateProviderInstance(
+        id: ProviderInstanceID,
+        expectedEditRevision: ProviderInstanceEditRevision,
+        at now: Date,
+        _ mutation: InstanceMutation
+    ) throws -> ProviderInstance {
+        do {
+            return try database.write { db in
+                guard let current = try ProviderInstanceRecord.fetchOne(db, key: id.rawValue) else {
+                    throw PersistenceError.providerInstanceNotFound(id)
+                }
+                guard current.editRevision == expectedEditRevision.rawValue else {
+                    throw PersistenceError.providerInstanceEditConflict(
+                        id: id,
+                        expected: expectedEditRevision,
+                        actual: ProviderInstanceEditRevision(rawValue: current.editRevision)
+                    )
+                }
+
+                var assignments = try Self.assignments(for: mutation, on: current)
+                assignments.append(Column("editRevision").set(to: expectedEditRevision.next.rawValue))
+                assignments.append(Column("updatedAt").set(to: now))
+
+                let updated = try ProviderInstanceRecord
+                    .filter(Column("id") == id.rawValue)
+                    .filter(Column("editRevision") == expectedEditRevision.rawValue)
+                    .updateAll(db, assignments)
+
+                // The check above and this statement are in the same transaction, so on
+                // a `DatabaseQueue` this cannot be zero today. It is decided here anyway,
+                // because it is the *statement* — not the check — that carries the
+                // condition, and deciding it here is what keeps the guarantee if this
+                // store ever grows a concurrent writer: that day changes nothing about
+                // what a caller sees.
+                guard updated == 1 else {
+                    guard let after = try ProviderInstanceRecord.fetchOne(db, key: id.rawValue) else {
+                        throw PersistenceError.providerInstanceNotFound(id)
+                    }
+                    throw PersistenceError.providerInstanceEditConflict(
+                        id: id,
+                        expected: expectedEditRevision,
+                        actual: ProviderInstanceEditRevision(rawValue: after.editRevision)
+                    )
+                }
+
+                guard let record = try ProviderInstanceRecord.fetchOne(db, key: id.rawValue) else {
+                    throw PersistenceError.providerInstanceNotFound(id)
+                }
+                return Self.providerInstance(from: record)
+            }
+        } catch let error as PersistenceError {
+            // Already this layer's vocabulary, and a better diagnosis than the
+            // catch-all below could give.
+            throw error
+        } catch ConfigRevision.FormatError.notACounter(let rawValue) {
+            throw PersistenceError.providerInstanceRevisionUnreadable(id: id, rawValue: rawValue)
+        } catch {
+            // Nothing from the storage engine reaches a caller.
+            throw PersistenceError.providerInstanceMutationFailed(id: id, reason: String(describing: error))
+        }
+    }
+
+    /// What a mutation is allowed to change, as a value rather than a closure.
+    ///
+    /// A value because it has to cross into the write block, which is `@Sendable`.
+    /// Naming the two mutations here is also what keeps "which columns may this change"
+    /// a property of the enum, rather than something each caller assembles and can get
+    /// wrong.
+    private enum InstanceMutation: Sendable {
+        case reconfigure(displayName: String, baseURL: URL?)
+        case credential(CredentialReference?)
+    }
+
+    /// The columns `mutation` is allowed to change, read from the row in hand.
+    ///
+    /// `configRevision` is assigned only by `reconfigure`, and is advanced from the value
+    /// the **row** holds rather than from anything the caller passed. An instance cannot
+    /// be edited without the revision moving, and it cannot be moved to a value derived
+    /// from a read that has since gone stale.
+    private static func assignments(
+        for mutation: InstanceMutation,
+        on current: ProviderInstanceRecord
+    ) throws -> [ColumnAssignment] {
+        switch mutation {
+        case .reconfigure(let displayName, let baseURL):
+            let advanced = try ConfigRevision(rawValue: current.configRevision).next()
+            return [
+                Column("displayName").set(to: displayName),
+                Column("baseURL").set(to: baseURL?.absoluteString),
+                Column("configRevision").set(to: advanced.rawValue),
+            ]
+        case .credential(let reference):
+            // `configRevision` deliberately stays put. See `attachCredential`.
+            return [
+                Column("credentialID").set(to: reference?.id),
+                Column("credentialKind").set(to: reference?.kind.rawValue),
+            ]
         }
     }
 
     /// Edits the configuration and bumps the revision in one step.
     ///
-    /// The revision is bumped here rather than by the caller because it has to be
-    /// impossible to change an instance without changing what a frozen run compares
-    /// against. A caller that edited the display name and forgot the revision would
-    /// leave every paused run still believing it matched.
+    /// The revision is bumped inside the same transaction as the write, not by the
+    /// caller. That is what makes it impossible to change an instance without changing
+    /// what a frozen run compares against: a caller that edited the display name and
+    /// forgot the revision would leave every paused run still believing it matched.
+    ///
+    /// `expectedEditRevision` is the revision of the snapshot this edit was made from —
+    /// `ProviderInstance.editRevision`, as read. An instance that has moved since that
+    /// read gets `.providerInstanceEditConflict` rather than a lost update.
     ///
     /// `credentialReference` is left alone — attaching or detaching a credential is a
     /// separate act, and folding it in would mean an edit could silently drop one.
@@ -69,16 +178,15 @@ extension PersistenceStore {
         id: ProviderInstanceID,
         displayName: String,
         baseURL: URL?,
+        expectedEditRevision: ProviderInstanceEditRevision,
         at now: Date = Date()
     ) throws -> ProviderInstance {
-        guard var instance = try providerInstance(id: id) else {
-            throw PersistenceError.providerInstanceNotFound(id)
-        }
-        instance.displayName = displayName
-        instance.baseURL = baseURL
-        instance.configRevision = instance.configRevision.next
-        try updateProviderInstance(instance, at: now)
-        return instance
+        try mutateProviderInstance(
+            id: id,
+            expectedEditRevision: expectedEditRevision,
+            at: now,
+            .reconfigure(displayName: displayName, baseURL: baseURL)
+        )
     }
 
     /// Attaches a credential reference, or detaches it with `nil`.
@@ -92,18 +200,26 @@ extension PersistenceStore {
     /// here would make the credential's identity depend on a counter that exists to
     /// describe something else, and would invalidate runs for a change that the seed
     /// already detects on its own.
+    ///
+    /// It **does** bump `editRevision`. That is a different counter answering a different
+    /// question — "is this still the row I read" rather than "does a frozen run still
+    /// match" — and it is the whole reason the two are separate rather than one. Without
+    /// it this mutation would be the one edit concurrent control could not see, and a
+    /// credential attach carrying a stale snapshot would write back the endpoint and the
+    /// `configRevision` it read.
     @discardableResult
     func attachCredential(
         _ reference: CredentialReference?,
         toInstance id: ProviderInstanceID,
+        expectedEditRevision: ProviderInstanceEditRevision,
         at now: Date = Date()
     ) throws -> ProviderInstance {
-        guard var instance = try providerInstance(id: id) else {
-            throw PersistenceError.providerInstanceNotFound(id)
-        }
-        instance.credentialReference = reference
-        try updateProviderInstance(instance, at: now)
-        return instance
+        try mutateProviderInstance(
+            id: id,
+            expectedEditRevision: expectedEditRevision,
+            at: now,
+            .credential(reference)
+        )
     }
 
     /// Removes the instance. Does **not** touch the credential.
@@ -126,6 +242,7 @@ extension PersistenceStore {
             displayName: record.displayName,
             baseURL: record.baseURL.flatMap(URL.init(string:)),
             configRevision: ConfigRevision(rawValue: record.configRevision),
+            editRevision: ProviderInstanceEditRevision(rawValue: record.editRevision),
             credentialReference: record.credentialID.map {
                 CredentialReference(
                     id: $0,
@@ -144,15 +261,19 @@ extension PersistenceStore {
             configRevision: instance.configRevision.rawValue,
             credentialID: instance.credentialReference?.id,
             credentialKind: instance.credentialReference?.kind.rawValue,
-            // Replaced inside the write block, where the existing row can be read.
+            editRevision: instance.editRevision.rawValue,
             createdAt: now,
             updatedAt: now
         )
     }
 }
 
-/// The stored shape. `createdAt` is set on create and preserved by
-/// `updateProviderInstance`.
+/// The stored shape. `createdAt` is set on create and never rewritten — the mutations
+/// assign named columns rather than writing a whole object back, so it is not something
+/// they have to remember to preserve.
+///
+/// `editRevision` is `INTEGER` here while `configRevision` is text. See
+/// `ProviderInstanceEditRevision`.
 struct ProviderInstanceRecord: Codable, FetchableRecord, PersistableRecord, Sendable {
     static let databaseTableName = "providerInstance"
 
@@ -163,6 +284,7 @@ struct ProviderInstanceRecord: Codable, FetchableRecord, PersistableRecord, Send
     var configRevision: String
     var credentialID: String?
     var credentialKind: String?
+    var editRevision: Int
     var createdAt: Date
     var updatedAt: Date
 }

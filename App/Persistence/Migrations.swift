@@ -20,6 +20,7 @@ enum Migrations {
         registerV2(&migrator)
         registerV3(&migrator)
         registerV4(&migrator)
+        registerV5(&migrator)
         return migrator
     }
 
@@ -113,6 +114,29 @@ enum Migrations {
                 t.column("credentialKind", .text)
                 t.column("createdAt", .datetime).notNull()
                 t.column("updatedAt", .datetime).notNull()
+            }
+        }
+    }
+
+    /// Adds the per-instance edit revision concurrent edits are detected against.
+    ///
+    /// A second counter beside `configRevision`, and a separate migration rather than a
+    /// reuse of the existing column, because the two guard different things. A frozen run
+    /// compares `configRevision`, so that one may only move when the configuration a run
+    /// compares against moves — which is why attaching a credential deliberately leaves
+    /// it alone. Detecting a lost update needs a counter that moves on **every** edit,
+    /// including that one, and a single column cannot be both.
+    ///
+    /// Existing rows start at `0`, which is `ProviderInstanceEditRevision.initial`: they
+    /// were written by a build that had no such concept, and no edit has been made
+    /// against this counter yet. The column is `INTEGER` rather than the text
+    /// `configRevision` uses — a counter that cannot hold a non-number cannot decay into
+    /// one, which is the failure that made `ConfigRevision.next` refuse instead of
+    /// defaulting.
+    static func registerV5(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v5_add_provider_instance_edit_revision") { db in
+            try db.alter(table: "providerInstance") { t in
+                t.add(column: "editRevision", .integer).notNull().defaults(to: 0)
             }
         }
     }
