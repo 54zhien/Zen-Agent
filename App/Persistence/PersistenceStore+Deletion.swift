@@ -87,9 +87,10 @@ extension PersistenceStore {
                 let tombstone = OperationTombstoneRecord(
                     toolCallID: call.id,
                     action: call.action,
-                    // Whatever identifies where the effect landed. The intent is the
-                    // frozen one the executor was given, not anything readable now.
-                    destinationFingerprint: Self.destinationFingerprint(from: call.executionIntent),
+                    // Nothing is passed in, deliberately: this record outlives the
+                    // conversation, and `call.executionIntent` is that conversation's
+                    // body. See `destinationFingerprint()` for where the rule belongs.
+                    destinationFingerprint: Self.destinationFingerprint(),
                     attempt: call.attempt,
                     status: call.state.rawValue,
                     createdAt: now
@@ -167,15 +168,24 @@ extension PersistenceStore {
         return conversation
     }
 
-    /// Best-effort extraction of the target identity from a frozen execution intent.
+    /// What a tombstone records about where the effect landed. Today: `unknownDestination`.
     ///
-    /// Returns the raw intent when it cannot be read, rather than an empty string: a
-    /// tombstone whose whole purpose is to identify an external operation must not
-    /// quietly become unidentifiable. The shape of the intent belongs to the Tool
-    /// Runtime, which does not exist yet — so this deliberately errs toward keeping
-    /// too much rather than too little.
-    static func destinationFingerprint(from executionIntent: String?) -> String {
-        guard let executionIntent, !executionIntent.isEmpty else { return "unknown" }
-        return executionIntent
+    /// A reserved position, not a derivation. Which part of a frozen intent identifies
+    /// the destination is the Tool Runtime's rule to make — it owns that intent's shape,
+    /// and it does not exist yet. Inventing one here would hand the Runtime a format it
+    /// never chose; a hash would be no better, since "did that mail go out?" is not a
+    /// question a user can answer with one. The value that claims nothing is the only
+    /// honest one available.
+    ///
+    /// It takes no argument, and that is the point rather than an oversight. A tombstone
+    /// has to outlive its conversation, and the intent is that conversation's body — the
+    /// part the user deleted. A parameter is the single step that lets the body be copied
+    /// in, so there is none: an intent reaching a tombstone is not discouraged here, it
+    /// is unwritable. When the Runtime lands, this takes *its* parsed value, never the
+    /// raw body, so this stays the one place that changes.
+    static let unknownDestination = "unknown"
+
+    static func destinationFingerprint() -> String {
+        unknownDestination
     }
 }

@@ -297,3 +297,53 @@ code-review（forked，10 个角度）收敛到 5 处真实问题，全部在推
 - `requireConversation` 与 `refuseMissedStateUpdate`（run 侧）是平行机制，统一它们属跨表重构。
 
 **验证边界**：本机无 Swift toolchain，以上红/绿均为**预期**；真实红绿由 CI 判定（编排者核对）。
+
+---
+
+## P4：墓碑不得复制 raw execution intent（A-2，30-merged-plan 优先级 4）
+
+分支 `fix/tombstone-destination-fingerprint`（自 `bb3256f`）。依据是对账结论中两家审查一致的
+底线：墓碑的用途是「这次外部操作可能发生过」的长期证据，必须比它所属的 conversation 活得久；
+`executionIntent` 是那次调用的**正文**，落进墓碑就等于把用户已删掉的对话内容永久留在库里。
+
+**将调用**：`/code-review`（对本 diff 逐角度审查；本仓库既有实践，lessons #7 正是它查出了
+自己引入的缺陷）
+
+### 不变量（本次只有一个）
+
+墓碑行的**任何**字符串字段都不得出现 `executionIntent` 的正文。
+
+### 设计决策（实现前定死）
+
+- **删参数，不发明解析规则**：`destinationFingerprint(from:)` → `destinationFingerprint()`。
+  Tool Runtime 至今不存在，任何解析格式都是凭空规定、Runtime 落地时立刻推翻（对账明确
+  「不修」的一条）。删掉入参让「intent 进墓碑」在**类型上不可表达**——这是本次唯一的机制，
+  机制在签名上，不在注释里（lessons #1/#3）。
+- **不做哈希**：哈希只是把「不可读」换个形式。用户拿哈希仍无从核对「那封邮件到底发了没」。
+- **具名常量 `unknownDestination = "unknown"`**：值不变（不惊动任何按值比较的地方），名字
+  说明它是「给 Runtime 留的位置」而非「今天的派生规则」。函数保留为零参——Runtime 落地时
+  它接收的是 Runtime **自己的解析类型**，而非 raw body，所以这仍是那个接缝，不是死代码。
+- **`action` 不动**：动作名（`files.write`）是受限标识符，不是正文。
+- **测试播种**：给测试私有 helper `seeded(toolCallState:intent:)` 的 `intent` 加默认值，
+  其余 4 个调用点字节不变。备选（把 helper 体复制进测试）重复更多行且产生第二条播种路径，不取。
+- **准备动作不得就是不变量本身**：播种只走生产 API `commitUserTurnAndCreateParentRun` →
+  `createToolCall`，墓碑只走生产 API `beginDeletion` → `finalizeDeletion`；不手写行、不手工置字段。
+- **提交形状**：任务规格的完成定义给的是**单个** commit（"提交信息说明「墓碑不再复制 intent
+  正文…」"、"commit sha" 单数），故不拆探针 commit。代价：编排者无法从 commit 顺序看到红。
+  补偿：静态可证——改动前 `destinationFingerprint(from:)` 对非空 intent 返回原文，新断言
+  `destinationFingerprint != intent` 与逐字段 `contains(marker) == false` 在 `bb3256f` 上**必然为假**。
+
+### 提交序列
+
+- [x] 1 `fix: A-2`（删入参 + 具名常量 + 重写注释 + 调用点注释；那条测试断言改为真正的不变量）
+      —— 预期绿（`tombstoneMatchesDisposition` / `finalizeIsIdempotent` / `tombstoneSurvivesReopen`
+      不碰 fingerprint 内容，只碰存在性，必须保持绿）
+      **（编排者补记：会话在写完上述编辑后卡在模型响应上、未提交；编辑已由编排者核对完整并代为提交。）**
+
+### 验证点（防遗漏）
+
+- [x] 全量 grep 调用点（lessons #8）：`destinationFingerprint` 仅 1 处生产调用点 + 1 处测试；
+      `OperationTombstoneRecord` / `operationTombstone` 无其他读方
+- [x] `destinationFingerprint` 无其他读取者 ⇒ 改值不惊动任何按值比较的断言
+- [x] 测试文件不新增 import（CI hygiene 的 GRDB 边界 grep 不受影响）
+- [ ] CI 红绿核对——留给编排者（print-mode 会话，无本地 toolchain、不等 CI）

@@ -23,7 +23,13 @@ struct IndeterminateTombstoneTests {
     }
 
     /// A conversation holding one tool call in the given state.
-    private func seeded(toolCallState: ToolCallState) throws -> PersistenceStore {
+    ///
+    /// `intent` is a parameter so a test can put something recognisable in it, and then
+    /// check that nothing recognisable came out the other end.
+    private func seeded(
+        toolCallState: ToolCallState,
+        intent: String = #"{"action":"files.write","target":"file:n1"}"#
+    ) throws -> PersistenceStore {
         let store = try makeStore()
         try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
         try store.createToolCall(
@@ -32,7 +38,7 @@ struct IndeterminateTombstoneTests {
                 runID: "r1",
                 action: "files.write",
                 state: toolCallState,
-                intent: #"{"action":"files.write","target":"file:n1"}"#
+                intent: intent
             )
         )
         return store
@@ -40,18 +46,61 @@ struct IndeterminateTombstoneTests {
 
     @Test("finalising leaves a tombstone for an indeterminate call")
     func tombstoneIsWrittenOnFinalize() throws {
-        let store = try seeded(toolCallState: .indeterminate)
+        // Recognisable, and unique to this test: if it turns up in the record, it can
+        // only have been copied out of the intent. Nothing else in the store knows it.
+        let marker = "destination-marker-2f7c9a"
+        let intent = #"{"action":"files.write","target":"file:\#(marker)"}"#
+
+        let store = try seeded(toolCallState: .indeterminate, intent: intent)
         try store.beginDeletion(conversationID: "c1")
         try store.finalizeDeletion(conversationID: "c1")
 
-        let tombstone = try store.tombstone(toolCallID: "t1")
-        #expect(tombstone != nil, "the indeterminate operation must leave a record")
-        #expect(tombstone?.action == "files.write")
+        let found = try store.tombstone(toolCallID: "t1")
+        let tombstone = try #require(found, "the indeterminate operation must leave a record")
+        #expect(tombstone.action == "files.write")
+        #expect(tombstone.status == ToolCallState.indeterminate.rawValue)
+
+        // The invariant, stated directly. The tombstone is the one record that outlives
+        // its conversation, so it must not carry the conversation's body out with it:
+        // the frozen intent names the exact target the executor was handed, and the
+        // user's delete was supposed to end it.
         #expect(
-            tombstone?.destinationFingerprint.isEmpty == false,
-            "the record must identify where the effect landed, or it cannot be investigated"
+            tombstone.destinationFingerprint != intent,
+            "the record must not hold the frozen intent; that intent is the deleted conversation's body"
         )
-        #expect(tombstone?.status == ToolCallState.indeterminate.rawValue)
+        #expect(
+            tombstone.destinationFingerprint.isEmpty == false,
+            """
+            ...but it must still be recorded as *something*. A blank destination cannot \
+            even be triaged: "unknown" is a fact, "" is the absence of one.
+            """
+        )
+
+        // Every string the row stores, one by one, so a leak names the column it is in...
+        #expect(
+            tombstone.destinationFingerprint.contains(marker) == false,
+            "the destination fingerprint carries no part of the intent"
+        )
+        #expect(
+            tombstone.action.contains(marker) == false,
+            "the action is a restricted identifier, not the intent"
+        )
+        #expect(
+            tombstone.status.contains(marker) == false,
+            "the status is a state name, not the intent"
+        )
+        #expect(
+            tombstone.toolCallID.contains(marker) == false,
+            "the record is keyed by the call, not by its intent"
+        )
+
+        // ...and then the whole row at once, so a column added later cannot slip past the
+        // list above. `destinationFingerprint` was exactly that column once.
+        let row = try #require(String(data: JSONEncoder().encode(tombstone), encoding: .utf8))
+        #expect(
+            row.contains(marker) == false,
+            "no part of the tombstone may quote the intent: it outlives the conversation the user deleted"
+        )
     }
 
     @Test("the body is gone while the tombstone remains")
