@@ -161,41 +161,40 @@ struct URLSessionHTTPTransportTests {
         }
     }
 
-    /// Disabled, not deleted: the intent is right and the instrument cannot measure it.
+    /// Restored onto a real local socket. It was disabled because a scripted
+    /// `URLProtocol` cannot deliver a small body and then stall — characterised in
+    /// `URLProtocolCharacterisationTests`, where a single `didLoad` with the request left
+    /// open never reached the consumer at all.
     ///
-    /// A scripted `URLProtocol` cannot make `bytes(for:)` deliver a small body and then
-    /// go quiet — characterised in `URLProtocolCharacterisationTests`, which found a
-    /// single `didLoad` with the request left open never reaching the consumer at all.
-    /// Every version of this test therefore asserted something the harness could not
-    /// produce, and failed for reasons indistinguishable from the behaviour under
-    /// investigation.
-    ///
-    /// It comes back on a real local HTTP server in the test target, where the bytes are
-    /// produced by an actual socket rather than by a stub pretending to be one.
-    @Test(
-        "a connection that dies after data was observed is an interrupted stream that delivered data",
-        .disabled("needs a real local HTTP server; a scripted URLProtocol cannot deliver a small body and then stall")
-    )
+    /// The close has to be **abortive**. A graceful one is measured to arrive at
+    /// `bytes(for:)` as a clean end, and a clean end is not a throwing failure, so it
+    /// cannot produce the condition this test asserts. `.chunkThenAbort` sends RST — and
+    /// that capability is characterised on its own before anything here relies on it.
+    @Test("a connection that dies after data was observed is an interrupted stream that delivered data")
     func failureAfterObservedDataIsInterrupted() async throws {
-        let url = makeURL()
-        var script = StubURLProtocol.Script.delivering(["data: partial ans"])
-        script.failureCode = .networkConnectionLost
-        // Delivered off the session's thread, because `bytes(for:)` does not hand back a
-        // response body delivered inline. That part is a fact about Foundation, not a
-        // guess. Everything after it is a handshake: the connection dies when the test
-        // says so, not when a delay has elapsed.
-        script.chunkDelay = 0.02
-        script.failsOnRequest = true
-        StubURLProtocol.register(script, for: url)
+        let partial = "data: partial ans"
+        let server = try LocalHTTPServer(script: .chunkThenAbort(partial))
+        server.start()
+        defer { server.shutdown() }
+
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let transport = URLSessionHTTPTransport(session: session)
+        let url = server.baseURL.appending(path: "chat/completions")
 
         var failure: Error?
         var received = Data()
+        var closureRequested = false
         do {
-            for try await chunk in try await makeTransport().stream(post(url)).body {
+            for try await chunk in try await transport.stream(post(url)).body {
                 received.append(chunk)
-                // The byte is in hand. *Now* kill the connection — so "the transport had
-                // observed data before the failure" is caused, not hoped for.
-                StubURLProtocol.requestFailure(for: url)
+                // Ask for the abort only once the **complete** intended body is in hand.
+                // That is what makes "the transport had observed data before the failure"
+                // caused rather than hoped for: nothing here waits, and nothing races.
+                if !closureRequested, String(decoding: received, as: UTF8.self) == partial {
+                    closureRequested = true
+                    server.requestClose()
+                }
             }
         } catch {
             failure = error
@@ -211,9 +210,11 @@ struct URLSessionHTTPTransportTests {
             "the server had already produced output, which is the fact that forbids replaying the request"
         )
         #expect(
-            String(decoding: received, as: UTF8.self) == "data: partial ans",
+            String(decoding: received, as: UTF8.self) == partial,
             "whatever arrived before the failure is the caller's to keep"
         )
+        #expect(server.wroteChunk, "the server never wrote its partial body")
+        #expect(server.shutdown(), "LocalHTTPServer worker did not terminate")
     }
 
     @Test("a connection that dies before delivering anything is a failed request, not an interruption")

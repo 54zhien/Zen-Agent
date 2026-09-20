@@ -110,24 +110,22 @@ struct StreamingCancellationTests {
     /// **not** prove the error is always `.cancelled`. What it proves is the pair that
     /// matters: the request reached the network and was cancelled there, and no failure
     /// was invented for a user who asked to stop.
-    /// Disabled, not deleted — the reason is the instrument, not the intent.
     ///
-    /// Cancelling a provider consumer can only be shown to reach the network once the
-    /// consumer is genuinely mid-stream and waiting for the next event. That requires a
-    /// server that sends a little and then holds the connection open, which a scripted
-    /// `URLProtocol` cannot produce: characterised in `URLProtocolCharacterisationTests`,
-    /// a single `didLoad` with the request left open never reaches the consumer.
-    ///
-    /// Without that, the test waits for a chunk that never arrives and then reports
-    /// `stopCount == 0` — a failure that looks like a cancellation bug and is not.
-    ///
-    /// It comes back on a real local HTTP server in the test target.
-    @Test(
-        "cancelling a provider consumer reaches the network without inventing a failure",
-        .disabled("needs a real local HTTP server; a scripted URLProtocol cannot hold a stream open mid-delivery")
-    )
+    /// Restored onto a real local socket. It was disabled because a scripted
+    /// `URLProtocol` could not hold a stream open mid-delivery, so the consumer was never
+    /// genuinely parked and the test reported `stopCount == 0` for reasons that had
+    /// nothing to do with cancellation.
+    @Test("cancelling a provider consumer reaches the network without inventing a failure")
     func cancellationReachesTheNetworkWithoutAFailure() async throws {
-        let endpoint = URL(string: "https://stub-\(UUID().uuidString).invalid")!
+        // A valid DeepSeek event, then silence with the connection open. That is what
+        // makes the consumer genuinely mid-stream - one chunk decoded, waiting for the
+        // next - which is the only state in which cancelling it says anything at all
+        // about cancellation.
+        let event = #"data: {"id":"c1","choices":[{"index":0,"delta":{"content":"hi"}}]}"# + "\n\n"
+        let server = try LocalHTTPServer(script: .chunkThenStall(event))
+        server.start()
+        defer { server.shutdown() }
+
         let reference = CredentialReference(id: "cred-1")
         let credentials = CredentialStore(
             secrets: InMemorySecretBackend(),
@@ -139,7 +137,9 @@ struct StreamingCancellationTests {
             id: ProviderInstanceID(rawValue: "pi-1"),
             providerID: .deepSeek,
             displayName: "DeepSeek",
-            baseURL: endpoint,
+            // The real socket. A run goes to the endpoint its instance names, so this is
+            // also what proves the endpoint resolution reaches the network.
+            baseURL: server.baseURL,
             configRevision: .initial,
             credentialReference: reference
         )
@@ -148,19 +148,6 @@ struct StreamingCancellationTests {
             modelID: ModelID(rawValue: "deepseek-flash"),
             credentialBinding: CredentialBindingSnapshot(reference: reference, generation: 1)
         )
-        let requestURL = endpoint.appending(path: "chat/completions")
-        // A valid DeepSeek event, then silence with the connection open. The earlier
-        // script sent `data: x`, which is not JSON and never becomes a
-        // `DeepSeekStreamChunk` — so a consumer could sit there having "received"
-        // nothing while the producer-side counter said otherwise. Cancellation can only
-        // be shown to reach the network once the consumer is genuinely mid-stream and
-        // waiting for the next event.
-        var script = StubURLProtocol.Script()
-        script.chunks = [Data(#"data: {"id":"c1","choices":[{"index":0,"delta":{"content":"hi"}}]}"#.utf8)
-                         + Data("\n\n".utf8)]
-        script.chunkDelay = 0.02
-        script.stalls = true
-        StubURLProtocol.register(script, for: requestURL)
 
         // A deadline far out, so nothing but the cancellation can end this.
         let policy = StreamTimeoutPolicy(
@@ -169,14 +156,17 @@ struct StreamingCancellationTests {
             betweenEvents: .seconds(30),
             checkInterval: .milliseconds(20)
         )
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+
         let provider = DeepSeekProvider(
-            transport: URLSessionHTTPTransport(session: StubURLProtocol.makeSession(), timeouts: policy),
+            transport: URLSessionHTTPTransport(session: session, timeouts: policy),
             streamTimeouts: policy
         )
 
-        // Raised by the consumer, from inside its own loop. Producer-side counts say the
-        // stub called `didLoad`; they say nothing about whether a chunk was decoded and
-        // handed over, which is the state this test needs before it cancels.
+        // Raised by the consumer, from inside its own loop. A server-side count would say
+        // the socket was written to; it would say nothing about whether a chunk was
+        // decoded and handed over, which is the state this test needs before it cancels.
         let observed = ObservedFlag()
 
         let consumer = Task { () -> ProviderError? in
@@ -198,7 +188,7 @@ struct StreamingCancellationTests {
             } catch {
                 // Reported rather than folded into `nil`. `nil` is accepted below as a
                 // clean end, so swallowing here would make any non-Zen error escaping
-                // `stream()` indistinguishable from a correct cancellation — and this
+                // `stream()` indistinguishable from a correct cancellation - and this
                 // test's whole point is the negative.
                 Issue.record("a non-Zen error escaped the adapter: \(error)")
                 return nil
@@ -207,7 +197,7 @@ struct StreamingCancellationTests {
 
         // Readiness is what the *consumer* observed. Bounded, so a harness that never
         // delivers fails the test in seconds rather than waiting out the three-minute
-        // runaway — and says which half failed.
+        // runaway - and says which half failed.
         for _ in 0..<300 where !observed.isRaised {
             try await Task.sleep(for: .milliseconds(10))
         }
@@ -229,9 +219,21 @@ struct StreamingCancellationTests {
             outcome == nil || outcome == .cancelled,
             "cancellation surfaced as \(String(describing: outcome))"
         )
+        #expect(server.wroteChunk, "the server never wrote its event")
+
+        // The server's own observation, not the client's report. A client that believes
+        // it cancelled while the connection stays open is the failure being tested for.
+        //
+        // This replaces the stub's `stopCount`, which could only ever report what the
+        // stub had been told to do; a real peer either sees the connection end or it
+        // does not.
+        for _ in 0..<300 where !server.observedPeerClose {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         #expect(
-            StubURLProtocol.stopCount(for: requestURL) >= 1,
-            "the request was never cancelled"
+            server.observedPeerClose,
+            "the server never saw the connection end - the transfer outlived the interest in it"
         )
+        #expect(server.shutdown(), "LocalHTTPServer worker did not terminate")
     }
 }
