@@ -195,7 +195,7 @@ struct MigrationTests {
         // Both readers, because they reached the column by different routes.
         let fromRun = readFailure { _ = try store.run(id: "r1") }
         #expect(
-            fromRun as? PersistenceError
+            fromRun as? ZenAgent.PersistenceError
                 == .unreadableRequestConfigSeed(runID: "r1", failure: .unversioned),
             """
             expected a typed failure naming the run; got \(String(describing: fromRun)). \
@@ -206,7 +206,7 @@ struct MigrationTests {
 
         let fromActive = readFailure { _ = try store.activeParentRuns(inConversation: "c1") }
         #expect(
-            fromActive as? PersistenceError
+            fromActive as? ZenAgent.PersistenceError
                 == .unreadableRequestConfigSeed(runID: "r1", failure: .unversioned),
             "the active-run query must report the same typed failure; got \(String(describing: fromActive))"
         )
@@ -228,7 +228,7 @@ struct MigrationTests {
 
         let failure = readFailure { _ = try store.run(id: "r1") }
         #expect(
-            failure as? PersistenceError
+            failure as? ZenAgent.PersistenceError
                 == .unreadableRequestConfigSeed(runID: "r1", failure: .malformedCurrentVersion(1)),
             "expected a malformed-current failure rather than the unversioned one; got \(String(describing: failure))"
         )
@@ -248,7 +248,7 @@ struct MigrationTests {
 
         let failure = readFailure { _ = try store.run(id: "r1") }
         #expect(
-            failure as? PersistenceError
+            failure as? ZenAgent.PersistenceError
                 == .unreadableRequestConfigSeed(runID: "r1", failure: .unsupportedVersion(99)),
             "a version this build does not understand must be named; got \(String(describing: failure))"
         )
