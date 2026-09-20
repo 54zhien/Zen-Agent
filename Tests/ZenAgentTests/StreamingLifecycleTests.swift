@@ -102,7 +102,28 @@ struct StreamingLifecycleTests {
         }
     }
 
-    private func expectTransferEnded(_ f: Fixture, _ exit: String) {
+    /// Waits for the transfer to have ended, then asserts that it did.
+    ///
+    /// **The wait is the fix, not a workaround.** The cancellation is delivered through
+    /// the adapter's `continuation.onTermination`, and Swift guarantees that handler is
+    /// used for cleanup — but it only specifies handler-before-resume ordering for
+    /// *task-cancellation* termination. On the ordinary `[DONE]` finish path there is no
+    /// such promise, so reading the counter immediately after `await exhaust(f)` was a
+    /// race. It failed once under the parallel load of two added tests and passed
+    /// unchanged on a rerun of the same commit, which is what a race looks like.
+    ///
+    /// **It waits on the fact, never on the clock.** The criterion is still
+    /// `streamCancellations >= 1`; the deadline exists only so that a path which never
+    /// ends its transfer fails this test instead of hanging it. The assertion below is
+    /// unchanged and still runs — a bounded wait that always passed would be worse than
+    /// the race it replaced.
+    private func expectTransferEnded(_ f: Fixture, _ exit: String) async {
+        // Generous, and deliberately so: this is a guard against hanging, not a
+        // performance budget, and the value decides nothing about correctness.
+        for _ in 0..<500 where f.transport.streamCancellations < 1 {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
         #expect(
             f.transport.streamCancellations >= 1,
             """
@@ -124,7 +145,7 @@ struct StreamingLifecycleTests {
 
         await exhaust(f)
 
-        expectTransferEnded(f, "[DONE]")
+        await expectTransferEnded(f, "[DONE]")
     }
 
     @Test("a malformed SSE frame ends the transfer")
@@ -135,7 +156,7 @@ struct StreamingLifecycleTests {
 
         await exhaust(f)
 
-        expectTransferEnded(f, "a malformed SSE frame")
+        await expectTransferEnded(f, "a malformed SSE frame")
     }
 
     @Test("a chunk that will not decode ends the transfer")
@@ -146,7 +167,7 @@ struct StreamingLifecycleTests {
 
         await exhaust(f)
 
-        expectTransferEnded(f, "a chunk that would not decode")
+        await expectTransferEnded(f, "a chunk that would not decode")
     }
 
     @Test("a progress deadline ends the transfer")
@@ -158,7 +179,7 @@ struct StreamingLifecycleTests {
 
         await exhaust(f)
 
-        expectTransferEnded(f, "a progress deadline")
+        await expectTransferEnded(f, "a progress deadline")
     }
 
     @Test("a stream that finishes has still ended its transfer")
@@ -168,6 +189,6 @@ struct StreamingLifecycleTests {
 
         await exhaust(f)
 
-        expectTransferEnded(f, "a completed stream")
+        await expectTransferEnded(f, "a completed stream")
     }
 }
