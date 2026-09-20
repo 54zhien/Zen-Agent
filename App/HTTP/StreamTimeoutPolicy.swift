@@ -94,15 +94,33 @@ final class StreamProgress: @unchecked Sendable {
 
     /// The deadline that has elapsed, or `nil` if none has.
     ///
-    /// Returns which one rather than a bare boolean so the error can say whether the
-    /// wait was for the first event or between two, which is the difference between
-    /// "the model never started" and "the model stopped partway".
-    func elapsedDeadline(first: Duration, then subsequent: Duration) -> Duration? {
+    /// Returns **which** window elapsed together with the progress it was chosen
+    /// against, decided in one locked read. Reading them separately - the window here,
+    /// the progress again when the error is built - leaves a gap a single chunk can
+    /// fall into, and the report then says "the model produced output and then stopped"
+    /// about a model that produced nothing at all.
+    func elapsedDeadline(first: Duration, then subsequent: Duration) -> ElapsedStreamDeadline? {
         lock.withLock {
             let window = started ? subsequent : first
-            return ContinuousClock.now - last > window ? window : nil
+            guard ContinuousClock.now - last > window else { return nil }
+            // `started` is read once, above. The answer leaves with the window chosen on
+            // the strength of it; nothing downstream may ask again.
+            return ElapsedStreamDeadline(after: window, hadAdvanced: started)
         }
     }
+}
+
+/// What a deadline ended up measuring, as one immutable answer.
+///
+/// The two fields are only meaningful together: the window is chosen by whether output
+/// had arrived, so a caller that takes one without the other can describe a wait that
+/// never happened. A value type makes that impossible rather than merely discouraged -
+/// there is no second read to get a different answer from.
+struct ElapsedStreamDeadline: Sendable, Equatable {
+    /// Which deadline elapsed: the wait for the first event, or the wait between two.
+    var after: Duration
+    /// Whether output had arrived at the moment that window was chosen.
+    var hadAdvanced: Bool
 }
 
 /// Runs a stream's reader and its deadline check together, and ends whichever finishes
@@ -128,7 +146,7 @@ enum StreamDeadline {
         first: Duration,
         subsequent: Duration,
         checkInterval: Duration,
-        onTimeout: @escaping @Sendable (Duration) -> Void,
+        onTimeout: @escaping @Sendable (ElapsedStreamDeadline) -> Void,
         reading: @escaping @Sendable () async -> Void
     ) async {
         await withTaskGroup(of: Void.self) { group in

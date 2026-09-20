@@ -201,11 +201,16 @@ struct DeepSeekProvider: ModelProvider {
                     checkInterval: timeouts.checkInterval,
                     onTimeout: { elapsed in
                         continuation.finish(throwing: ProviderError.streamProgressTimeout(
-                            // Which wait ran out, read from the same fact that rearmed
-                            // it: no output yet means the model never started, output
-                            // that stopped means it stalled partway.
-                            phase: progress.hasAdvanced ? .betweenEvents : .awaitingFirstEvent,
-                            after: elapsed
+                            // Which wait ran out, taken from the **same locked read** that
+                            // chose the window: no output yet means the model never
+                            // started, output that stopped means it stalled partway.
+                            //
+                            // Deliberately not `progress.hasAdvanced` here. Asking again
+                            // is a second read, and a chunk arriving between the two
+                            // flips "never started" into "stopped partway" - a report
+                            // about a stall that did not happen.
+                            phase: elapsed.hadAdvanced ? .betweenEvents : .awaitingFirstEvent,
+                            after: elapsed.after
                         ))
                     },
                     reading: {

@@ -136,7 +136,9 @@ struct URLSessionHTTPTransport: HTTPTransport {
                     onTimeout: { elapsed in
                         // Ending the stream cancels the reader below, which is the only
                         // way a read blocked on a silent socket ever lets go.
-                        continuation.finish(throwing: HTTPTransportError.inactivityTimeout(after: elapsed))
+                        continuation.finish(
+                            throwing: HTTPTransportError.inactivityTimeout(after: elapsed.after)
+                        )
                     },
                     reading: {
                         do {

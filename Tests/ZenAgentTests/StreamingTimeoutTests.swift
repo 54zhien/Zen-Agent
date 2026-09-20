@@ -194,6 +194,57 @@ struct StreamingTimeoutTests {
         #expect(phase == .betweenEvents, "output had already been produced, so this is a stall rather than a failure to start")
     }
 
+    // MARK: - The snapshot a deadline reports
+
+    @Test("the elapsed deadline carries the progress it was measured against")
+    func elapsedDeadlineCarriesItsOwnSnapshot() async throws {
+        // The window is chosen by whether output had arrived. If the caller then asks the
+        // progress *again* to describe the wait, a chunk landing between the two reads
+        // flips the answer - and a run that produced nothing at all gets reported as
+        // having stalled partway.
+        let progress = StreamProgress()
+
+        try await Task.sleep(for: .milliseconds(120))
+        let elapsed = try #require(
+            progress.elapsedDeadline(first: .milliseconds(100), then: .seconds(30)),
+            "the first-event window should have elapsed with nothing produced"
+        )
+        #expect(elapsed.hadAdvanced == false, "no output had arrived when the window was chosen")
+
+        // Output arrives *after* the measurement. The reading above was a snapshot, so it
+        // does not change retroactively - and that is the whole point of carrying it.
+        progress.advanced()
+        #expect(progress.hasAdvanced, "the live progress does now report output")
+
+        let phaseFromSnapshot: StreamProgressPhase =
+            elapsed.hadAdvanced ? .betweenEvents : .awaitingFirstEvent
+        let phaseFromLiveRead: StreamProgressPhase =
+            progress.hasAdvanced ? .betweenEvents : .awaitingFirstEvent
+
+        #expect(phaseFromSnapshot == .awaitingFirstEvent)
+        #expect(
+            phaseFromLiveRead == .betweenEvents,
+            "the live read now says the opposite, which is exactly the disagreement the snapshot removes"
+        )
+        #expect(
+            phaseFromSnapshot != phaseFromLiveRead,
+            """
+            the two readings agree only because the second one is not being taken. Asking \
+            the progress again to build the phase is what turns "the model never started" \
+            into "the model stopped partway" - a report about a stall that did not happen.
+            """
+        )
+
+        // A fresh reading is a different measurement of a different situation, and does
+        // see the output that has since arrived.
+        try await Task.sleep(for: .milliseconds(120))
+        let later = try #require(
+            progress.elapsedDeadline(first: .seconds(30), then: .milliseconds(100)),
+            "the between-events window should have elapsed once output stopped"
+        )
+        #expect(later.hadAdvanced, "a fresh reading sees the output that has since arrived")
+    }
+
     // MARK: - Retryability follows the Blueprint's rule
 
     @Test("a stall after output forbids replay; a stall before it does not permit one either")
