@@ -87,18 +87,34 @@ struct ProviderInstanceEditConcurrencyTests {
             return
         }
 
-        // A repoints the endpoint.
-        let afterA = try store.reconfigureProviderInstance(
+        // A edits twice, so the row ends up two revisions past the snapshot B holds.
+        // One edit would leave the assertion below unable to tell the row's current
+        // revision from `expected.next`, and an implementation that reported *that* as
+        // the conflict's `actual` would pass it for the wrong reason.
+        let afterAFirstEdit = try store.reconfigureProviderInstance(
             id: Self.instanceID,
             displayName: editorA.displayName,
             baseURL: URL(string: Self.editedEndpoint),
             expectedEditRevision: editorA.editRevision
         )
+        let afterA = try store.reconfigureProviderInstance(
+            id: Self.instanceID,
+            displayName: "DeepSeek (A)",
+            baseURL: afterAFirstEdit.baseURL,
+            expectedEditRevision: afterAFirstEdit.editRevision
+        )
+        #expect(
+            afterA.editRevision != editorB.editRevision.next,
+            """
+            the two-edit setup is what makes the `actual` assertion meaningful; collapse \
+            it back to one edit and a misreported `actual` goes unnoticed
+            """
+        )
 
-        // B submits a rename, still carrying the snapshot it read before A's write.
+        // B submits a rename, still carrying the snapshot it read before A's first write.
         let failure = reconfigure(
             store,
-            displayName: "DeepSeek (work)",
+            displayName: "DeepSeek (B)",
             baseURL: editorB.baseURL,
             expectedEditRevision: editorB.editRevision
         )
@@ -123,7 +139,7 @@ struct ProviderInstanceEditConcurrencyTests {
             "A's endpoint edit must stand; got \(String(describing: after?.baseURL?.absoluteString))"
         )
         #expect(
-            after?.displayName == editorA.displayName,
+            after?.displayName == "DeepSeek (A)",
             "and B's refused rename must not have landed; got \(String(describing: after?.displayName))"
         )
     }
@@ -139,14 +155,23 @@ struct ProviderInstanceEditConcurrencyTests {
             return
         }
 
-        // Another editor renames and repoints the endpoint while the credential attach
-        // is in flight, built from the snapshot above.
-        let renamed = try store.reconfigureProviderInstance(
+        // Another editor edits twice while the credential attach is in flight, built
+        // from the snapshot above — two edits for the same reason as
+        // `staleRenameIsRefused`: with one, `expected.next` would equal the row's
+        // revision and the `actual` assertion could not tell them apart.
+        let renamedOnce = try store.reconfigureProviderInstance(
             id: Self.instanceID,
             displayName: "renamed",
             baseURL: URL(string: Self.editedEndpoint),
             expectedEditRevision: beforeRename.editRevision
         )
+        let renamed = try store.reconfigureProviderInstance(
+            id: Self.instanceID,
+            displayName: "renamed again",
+            baseURL: renamedOnce.baseURL,
+            expectedEditRevision: renamedOnce.editRevision
+        )
+        #expect(renamed.editRevision != stale.editRevision.next)
 
         var failure: Error?
         do {
