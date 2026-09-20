@@ -99,12 +99,12 @@ struct DeepSeekProvider: ModelProvider {
             resolvedEndpoint: Self.resolvedEndpoint(for: instance)
         )
 
-        guard let reference = instance.credentialReference else {
+        guard instance.credentialReference != nil else {
             // Unreachable: `validate` refuses a missing reference. Kept as a guard rather
             // than a force-unwrap so a future reordering of the checks fails visibly.
             throw ProviderError.credentialMissing
         }
-        let secret = try Self.resolveSecret(reference, from: credentials)
+        let secret = try Self.resolveSecret(seed.credentialBinding, from: credentials)
 
         let httpRequest = try makeHTTPRequest(
             request, secret: secret, endpoint: seed.endpoint, streaming: false
@@ -158,11 +158,11 @@ struct DeepSeekProvider: ModelProvider {
             resolvedEndpoint: Self.resolvedEndpoint(for: instance)
         )
 
-        guard let reference = instance.credentialReference else {
+        guard instance.credentialReference != nil else {
             // Unreachable, as in `complete`: `validate` refuses a missing reference.
             throw ProviderError.credentialMissing
         }
-        let secret = try Self.resolveSecret(reference, from: credentials)
+        let secret = try Self.resolveSecret(seed.credentialBinding, from: credentials)
 
         let httpRequest = try makeHTTPRequest(
             request, secret: secret, endpoint: seed.endpoint, streaming: true
@@ -371,12 +371,22 @@ struct DeepSeekProvider: ModelProvider {
 
     /// The last moment the secret exists. Deliberately not stored, not cached, and not
     /// returned to any caller above this adapter.
+    ///
+    /// Resolved through the **frozen binding**, not the instance's current
+    /// reference: one critical-section read re-checks status and generation against
+    /// what the run was frozen with. A rebind committed between `validate` and
+    /// here is refused instead of silently substituting the new account's secret —
+    /// validation passed against generation N, so the secret must come from the
+    /// key versioned with N.
     private static func resolveSecret(
-        _ reference: CredentialReference,
+        _ binding: CredentialBindingSnapshot,
         from credentials: any CredentialStoring
     ) throws -> SecretValue {
         do {
-            guard let secret = try credentials.resolve(reference) else {
+            guard let secret = try credentials.resolve(
+                frozenReference: binding.reference,
+                generation: binding.generation
+            ) else {
                 throw ProviderError.credentialMissing
             }
             return secret
@@ -390,6 +400,18 @@ struct DeepSeekProvider: ModelProvider {
                 throw ProviderError.credentialRejected
             case .alreadyExists:
                 throw ProviderError.configurationMismatch("the credential store refused a read")
+            case .bindingMoved(_, let frozenGeneration, let currentGeneration):
+                // What `validate` checked has already moved by the time the secret
+                // was read. The same refusal, on the same grounds: the run goes out
+                // under the identity it was frozen with, or not at all.
+                throw ProviderError.configurationMismatch(
+                    """
+                    the credential binding moved between validation and resolution \
+                    (generation \(frozenGeneration) → \(currentGeneration)). The run was \
+                    frozen against the old generation, so it is refused rather than sent \
+                    under the new account's secret.
+                    """
+                )
             }
         }
     }

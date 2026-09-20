@@ -33,6 +33,18 @@ enum CredentialError: Error, Equatable {
     case notFound(CredentialReference)
     /// The reference exists but was logged out or invalidated.
     case authenticationRequired(CredentialReference)
+    /// The binding moved since the caller froze it: the metadata now records a
+    /// different generation than the frozen one. (In a corrupted store it may
+    /// even name a different reference — folded into the same case, because the
+    /// answer is the same: what the caller froze no longer exists.)
+    ///
+    /// The reference string cannot tell — it is unchanged across a rebind and a
+    /// logout — which is why this case carries both generations.
+    case bindingMoved(
+        CredentialReference,
+        frozenGeneration: Int,
+        currentGeneration: Int
+    )
     /// The secret is temporarily unreadable — a locked device during a background
     /// launch, for instance. **Not the same as missing.**
     ///
@@ -77,6 +89,23 @@ protocol CredentialStoring: Sendable {
     func logout(_ reference: CredentialReference, at now: Date) throws
 
     func resolve(_ reference: CredentialReference) throws -> SecretValue?
+
+    /// The secret, if the binding is still exactly the one the caller froze.
+    ///
+    /// One critical section: a **single** metadata read judges existence, status
+    /// and generation together, and the secret is then loaded under the frozen
+    /// generation. A rebind committed between a separate validation pass and
+    /// this read is refused — the two-step shape where validation reads once,
+    /// a rebind lands, and the second read hands the caller the new account's
+    /// secret cannot be expressed through this interface.
+    ///
+    /// Status is judged before generation: a logged-out binding has also moved
+    /// generations, and "the user logged out" is the diagnosis that tells them
+    /// what to do. The generation check cannot.
+    ///
+    /// `nil` means there genuinely is no record for the frozen reference.
+    func resolve(frozenReference: CredentialReference, generation: Int) throws -> SecretValue?
+
     func metadata(for reference: CredentialReference) throws -> CredentialMetadata?
     func matchesBinding(_ reference: CredentialReference, generation: Int) throws -> Bool
 }
@@ -206,6 +235,44 @@ struct CredentialStore: CredentialStoring {
             // has to decide whether "could not read" means "is not there". That
             // decision is the whole reason this error exists.
             throw CredentialError.unavailable(reference, underlying: reason)
+        }
+    }
+
+    /// The secret, if the binding is still exactly the one the caller froze.
+    ///
+    /// Everything is decided from one metadata read: whether the record exists,
+    /// whether it is active, and whether its generation is still the frozen one.
+    /// Only then is the secret loaded — under the **frozen** generation, not
+    /// whatever the metadata points at now, so the answer and the check can never
+    /// come from two different moments. A rebind that commits after this read can
+    /// at worst delete the frozen key (a safe, visible failure); it can never
+    /// substitute a different account's bytes, because the new bytes live under a
+    /// key this function will not look at.
+    func resolve(frozenReference: CredentialReference, generation: Int) throws -> SecretValue? {
+        guard let existing = try metadataRepository.loadMetadata(for: frozenReference) else {
+            return nil
+        }
+        // Status before generation. A logged-out binding has moved generations
+        // too, and reporting it as moved instead of logged out would send the
+        // user looking for the wrong cause.
+        guard existing.status == .active else {
+            throw CredentialError.authenticationRequired(frozenReference)
+        }
+        guard existing.reference == frozenReference, existing.bindingGeneration == generation else {
+            throw CredentialError.bindingMoved(
+                frozenReference,
+                frozenGeneration: generation,
+                currentGeneration: existing.bindingGeneration
+            )
+        }
+        // `SecretBackendError.failed` passes through raw until the store has a
+        // case for storage corruption — deliberately not folded into `unavailable`,
+        // which promises "wait and try again" and corruption does not go away by
+        // waiting.
+        do {
+            return try secrets.load(frozenReference, generation: generation)
+        } catch SecretBackendError.unavailable(let reason) {
+            throw CredentialError.unavailable(frozenReference, underlying: reason)
         }
     }
 

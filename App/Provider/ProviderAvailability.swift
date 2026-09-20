@@ -104,6 +104,12 @@ enum ProviderAvailabilityResolver {
                 // Not reachable from a read. Reported rather than swallowed, so a
                 // mis-wired call surfaces instead of looking like a missing key.
                 return .authenticationRequired(reason: .loggedOut)
+            case .bindingMoved:
+                // Not reachable from `resolve(_:)` — it checks no generation, so it
+                // cannot report one as moved. Kept explicit rather than defaulted, so
+                // a future frozen read here surfaces instead of looking like a clean
+                // login state.
+                return .authenticationRequired(reason: .loggedOut)
             }
         }
     }
