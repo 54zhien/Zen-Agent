@@ -46,7 +46,7 @@ enum RunKind: String, Codable, Sendable {
 }
 
 /// Where a run is. Answers "where is it now" and nothing else.
-enum RunState: String, Codable, Sendable {
+enum RunState: String, CaseIterable, Codable, Sendable {
     case preparing
     case requestingModel
     case streaming
@@ -153,6 +153,16 @@ enum ToolRecoveryDisposition: Equatable, Sendable {
 }
 
 extension ToolCallState {
+    /// Nothing further will happen to the call. `.waitingForApproval` and
+    /// `.waitingForSystemPermissionConsent` are settled but not terminal: they can
+    /// still move on.
+    var isTerminal: Bool {
+        switch self {
+        case .succeeded, .failed, .rejected, .cancelled, .notExecuted: return true
+        default: return false
+        }
+    }
+
     var recoveryDisposition: ToolRecoveryDisposition {
         switch self {
         case .prepared, .validated, .approved:

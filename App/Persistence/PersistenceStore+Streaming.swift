@@ -62,11 +62,26 @@ extension PersistenceStore {
                 "finishPart requires a settled state; got \(state.rawValue)"
             )
         }
+        let open = [
+            MessagePartState.streaming.rawValue,
+            MessagePartState.pending.rawValue,
+        ]
+        let questionMarks = databaseQuestionMarks(count: open.count)
+
         try database.write { db in
             try db.execute(
-                sql: "UPDATE messagePart SET state = ? WHERE id = ?",
-                arguments: [state.rawValue, id]
+                sql: "UPDATE messagePart SET state = ? WHERE id = ? AND state IN (\(questionMarks))",
+                arguments: StatementArguments([state.rawValue, id] + open)
             )
+            if db.changesCount == 0 {
+                try Self.refuseMissedStateUpdate(
+                    db,
+                    table: "messagePart",
+                    id: id,
+                    precondition: "an open state (streaming or pending)",
+                    notFound: PersistenceError.partNotFound(id)
+                )
+            }
         }
     }
 

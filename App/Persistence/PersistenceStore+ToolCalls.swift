@@ -27,20 +27,68 @@ extension PersistenceStore {
     /// opposite error — a call that never happened being reported as indeterminate —
     /// and that is the direction the design deliberately errs in.
     func markToolCallDispatched(id: String, at now: Date = Date()) throws {
+        // Derived from the disposition rather than listed: the marker may only be
+        // committed from a state where nothing left the process, and a state that
+        // later stops meaning that must stop being a valid source without a change
+        // here.
+        let allowed = ToolCallState.allCases
+            .filter { $0.recoveryDisposition == .mayDispatch }
+            .map(\.rawValue)
+        let questionMarks = databaseQuestionMarks(count: allowed.count)
+
         try database.write { db in
             try db.execute(
-                sql: "UPDATE toolCall SET state = ?, updatedAt = ? WHERE id = ?",
-                arguments: [ToolCallState.dispatched.rawValue, now, id]
+                sql: "UPDATE toolCall SET state = ?, updatedAt = ? WHERE id = ? AND state IN (\(questionMarks))",
+                arguments: StatementArguments(
+                    [ToolCallState.dispatched.rawValue, now, id]
+                        + allowed.map { $0 as (any DatabaseValueConvertible)? }
+                )
             )
+            if db.changesCount == 0 {
+                try Self.refuseMissedStateUpdate(
+                    db,
+                    table: "toolCall",
+                    id: id,
+                    precondition: "a state that may still be dispatched (\(allowed.joined(separator: ", ")))",
+                    notFound: PersistenceError.toolCallNotFound(id)
+                )
+            }
         }
     }
 
     func finishToolCall(id: String, state: ToolCallState, at now: Date = Date()) throws {
+        guard state.isTerminal else {
+            throw PersistenceError.invalidTransition(
+                "finishToolCall requires a terminal state; got \(state.rawValue)"
+            )
+        }
+
+        // Derived from the disposition rather than listed: the only calls whose
+        // outcome can be finished are the ones that may have reached the outside
+        // world. A call that never dispatched cannot jump straight to a terminal
+        // state without the marker — that is the window the marker exists to close.
+        let allowed = ToolCallState.allCases
+            .filter { $0.recoveryDisposition == .mustReportIndeterminate }
+            .map(\.rawValue)
+        let questionMarks = databaseQuestionMarks(count: allowed.count)
+
         try database.write { db in
             try db.execute(
-                sql: "UPDATE toolCall SET state = ?, updatedAt = ? WHERE id = ?",
-                arguments: [state.rawValue, now, id]
+                sql: "UPDATE toolCall SET state = ?, updatedAt = ? WHERE id = ? AND state IN (\(questionMarks))",
+                arguments: StatementArguments(
+                    [state.rawValue, now, id]
+                        + allowed.map { $0 as (any DatabaseValueConvertible)? }
+                )
             )
+            if db.changesCount == 0 {
+                try Self.refuseMissedStateUpdate(
+                    db,
+                    table: "toolCall",
+                    id: id,
+                    precondition: "dispatched or indeterminate",
+                    notFound: PersistenceError.toolCallNotFound(id)
+                )
+            }
         }
     }
 

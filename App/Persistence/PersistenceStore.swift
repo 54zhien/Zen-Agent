@@ -78,6 +78,9 @@ enum PersistenceError: Error, Equatable {
     /// The named run does not exist.
     case runNotFound(String)
 
+    /// The named tool call does not exist.
+    case toolCallNotFound(String)
+
     /// A run row was read, and its frozen request seed could not be understood.
     ///
     /// Distinct from a database failure, and deliberately so: the row was read fine, and
@@ -238,15 +241,32 @@ struct PersistenceStore: Sendable {
             )
         }
 
+        // Derived rather than listed: the pre-state rule is "not terminal", and
+        // `isTerminal` is the one definition of terminal.
+        let terminal = RunState.allCases.filter(\.isTerminal).map(\.rawValue)
+        let questionMarks = databaseQuestionMarks(count: terminal.count)
+
         try database.write { db in
             try db.execute(
                 sql: """
                     UPDATE agentRun
                     SET state = ?, endReason = ?, activeSlot = NULL, updatedAt = ?
-                    WHERE id = ?
+                    WHERE id = ? AND state NOT IN (\(questionMarks))
                     """,
-                arguments: [state.rawValue, endReason.rawValue, now, id]
+                arguments: StatementArguments(
+                    [state.rawValue, endReason.rawValue, now, id]
+                        + terminal.map { $0 as (any DatabaseValueConvertible)? }
+                )
             )
+            if db.changesCount == 0 {
+                try Self.refuseMissedStateUpdate(
+                    db,
+                    table: "agentRun",
+                    id: id,
+                    precondition: "a non-terminal state",
+                    notFound: PersistenceError.runNotFound(id)
+                )
+            }
         }
     }
 
@@ -343,5 +363,32 @@ struct PersistenceStore: Sendable {
                 )
                 .map(Self.decodeRun)
         }
+    }
+
+    // MARK: - Guarded updates
+
+    /// The refusal behind a state-preconditioned update that touched no row.
+    ///
+    /// Two different failures hide behind "nothing changed", and they must stay
+    /// distinguishable: the row never existed (`notFound`), or it exists in a state
+    /// the precondition refuses (`invalidTransition`, naming the state found). The
+    /// read happens inside the same write transaction as the update, so the answer
+    /// cannot be overtaken before it is reported.
+    static func refuseMissedStateUpdate(
+        _ db: Database,
+        table: String,
+        id: String,
+        precondition: String,
+        notFound: PersistenceError
+    ) throws -> Never {
+        let current = try String.fetchOne(
+            db,
+            sql: "SELECT state FROM \(table) WHERE id = ?",
+            arguments: [id]
+        )
+        guard let current else { throw notFound }
+        throw PersistenceError.invalidTransition(
+            "\(table) \(id) is \(current); this update requires \(precondition)"
+        )
     }
 }
