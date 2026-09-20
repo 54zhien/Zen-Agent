@@ -157,4 +157,50 @@ struct ConversationDeletionTests {
             "expected a not-found error, got \(String(describing: failure))"
         )
     }
+
+    @Test("finalising without the undo window is refused")
+    func finalizeWithoutUndoWindowIsRefused() throws {
+        let store = try seeded()
+
+        // `visible → finalizedDeletion` skips the undo window entirely: the body is
+        // burned while undo still claims it can bring it back. Without a guard on the
+        // finalise side this call succeeds silently.
+        var failure: Error?
+        do {
+            try store.finalizeDeletion(conversationID: "c1")
+        } catch {
+            failure = error
+        }
+
+        // Integrity first, so a wrong error cannot hide a wrong state.
+        #expect(
+            try store.messages(inConversation: "c1").count == 1,
+            "a refused finalise must not touch the body"
+        )
+        #expect(
+            try store.conversationLifecycle(id: "c1") == .visible,
+            "a refused finalise must leave the lifecycle where it was"
+        )
+        guard case .invalidTransition = failure as? ZenAgent.PersistenceError else {
+            Issue.record("expected invalidTransition, got \(String(describing: failure))")
+            return
+        }
+    }
+
+    @Test("finalising a conversation that does not exist is refused")
+    func finalizingUnknownConversationFails() throws {
+        let store = try makeStore()
+
+        var failure: Error?
+        do {
+            try store.finalizeDeletion(conversationID: "missing")
+        } catch {
+            failure = error
+        }
+
+        #expect(
+            failure as? ZenAgent.PersistenceError == .conversationNotFound("missing"),
+            "expected a not-found error, got \(String(describing: failure))"
+        )
+    }
 }
