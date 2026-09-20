@@ -200,6 +200,17 @@ then
   exit 1
 fi
 
+# Exit status alone is not a verdict. The program writes both files on every
+# path it completes, but a `ruby` that exited 0 without reaching those writes
+# would leave them absent — and `[ -s ]` on a file that was never created is
+# false, so "no violations" and "never ran" would look exactly alike.
+for verdict in "$project_hits" "$config_bindings"; do
+  if [ ! -f "$verdict" ]; then
+    echo "::error::the project.yml check produced no verdict: $verdict was never written, so the first invariant did not run."
+    exit 1
+  fi
+done
+
 if [ -s "$project_hits" ]; then
   echo "::error::project.yml must not declare a managed build setting, by name or through an XcodeGen key that sets one:"
   sed 's/^/  /' "$project_hits"
