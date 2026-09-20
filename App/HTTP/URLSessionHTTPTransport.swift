@@ -17,9 +17,11 @@ import Foundation
 /// output existed and leaves the decision alone.
 struct URLSessionHTTPTransport: HTTPTransport {
     let session: URLSession
-    /// Only `transportInactivity` is used here — the other deadlines ask a question
-    /// about the model, which a transport cannot answer. One policy value is passed to
-    /// both layers rather than each holding its own copy of half of it.
+    /// The transport reads the deadlines that are about the wire — `transportInactivity`
+    /// and `errorBodyDeadline` — plus `checkInterval`, which is how often the liveness
+    /// deadline is looked at. `firstEvent` and `betweenEvents` ask a question about the
+    /// model, which a transport cannot answer. One policy value is passed to both layers
+    /// rather than each holding its own copy of half of it.
     let timeouts: StreamTimeoutPolicy
 
     init(session: URLSession = .shared, timeouts: StreamTimeoutPolicy = .default) {
@@ -73,31 +75,117 @@ struct URLSessionHTTPTransport: HTTPTransport {
         }
 
         guard (200..<300).contains(http.statusCode) else {
-            // Drain the body from the response already in flight. Issuing a second
-            // request to collect an error body would be a second POST, and the whole
-            // point of this transport is that it makes exactly one.
-            var body = Data()
+            // **Every exit from this branch ends the transfer**, including the throw at
+            // the bottom. `bytes` carries the task that is actually doing the transfer,
+            // and this branch is the one place that stops reading without ever handing
+            // back an `HTTPStream` — so there is no cancel handle for a holder to call
+            // and nothing else in the process that can end it. Leaving one exit without
+            // this is how a refused request's connection outlives the interest in it.
+            //
+            // The scope is this branch, and that is not incidental. On the success path
+            // `bytes.task` is the very transfer the returned `HTTPStream` reads through,
+            // so this same line written one level out — outside the `guard` — would
+            // cancel the stream the function is about to return. It is a one-line move
+            // that silently breaks every successful request.
+            defer { bytes.task.cancel() }
+
+            // Bounded in space, like the parser's reassembly buffers. An error body is a
+            // small JSON envelope; a server that sends megabytes must not be able to
+            // grow this without limit.
+            let read = ErrorBodyRead(limit: Self.maximumErrorBodyBytes)
+
+            // A local, so the deadline task below captures a value rather than reaching
+            // back through the transport for it — the same copy the success path makes
+            // for its own escaping closures.
+            let timeouts = self.timeouts
+
+            // Bounded in time as well, and by a **total**: this fires once, a fixed
+            // distance from now, and no byte moves it. The liveness window is the wrong
+            // instrument here — every byte re-arms it, so a body arriving one byte at a
+            // time never trips it, and the cap above bounds space rather than time.
+            //
+            // Deliberately **not** `StreamDeadline`, though it is the same shape and
+            // would have been the obvious reuse. Its watchdog is a child task, so it
+            // stands down as soon as the caller's task is cancelled — which is right for
+            // a stream nobody is reading any more, and wrong here: a reader parked in a
+            // socket read has to be released either way, and the caller's cancellation
+            // is not reliably what releases it. Standing down would leave exactly the
+            // case this deadline exists for with no deadline at all. Unstructured is the
+            // point, not an oversight.
+            let deadline = Task {
+                try? await Task.sleep(for: timeouts.errorBodyDeadline)
+                // `cancel()` from the `defer` below is the ordinary way this task ends.
+                guard !Task.isCancelled else { return }
+                // Recorded **before** the transfer is ended, and the order is the whole
+                // argument. Ending it is how the reader is released, and what the reader
+                // sees when that happens is a cancellation — so the fact has to be on
+                // the record while the read is still running, or a body this deadline
+                // gave up on would be reported as one that somebody walked away from.
+                read.deadlineElapsed()
+                // Releases a reader parked in a socket read, which nothing else can:
+                // cancelling the reader's own task does not reliably reach `URLSession`.
+                // The same reason `HTTPStream.cancel` exists.
+                bytes.task.cancel()
+            }
+            // Ends the deadline task on every other exit, so a read that finished on its
+            // own does not leave a task sitting on this deadline for the rest of it.
+            defer { deadline.cancel() }
+
             do {
                 for try await byte in bytes {
-                    // Bounded, like the parser's reassembly buffers. An error body is a
-                    // small JSON envelope; a server that sends megabytes, or never ends,
-                    // must not be able to grow this without limit.
-                    guard body.count < Self.maximumErrorBodyBytes else { break }
-                    body.append(byte)
+                    // `false` means the cap was reached. Breaking is not "stop waiting
+                    // for this byte" — it is "this body is no longer wanted", and the
+                    // transfer has to be ended either way.
+                    guard read.append(byte) else { break }
                 }
             } catch {
-                // Cancellation is not a refusal. Swallowing it here would report a
-                // streamed 401 to someone who pressed Stop as "your credential was
-                // rejected" — the exact inversion of what cancellation reporting is for.
-                if Self.isCancellation(error) { throw HTTPTransportError.cancelled }
-                // The status line arrived before the failure, so the status is known
-                // even when the body is not. Reporting it with a partial body is more
-                // useful than reporting a network failure: a 401 is a 401, and the
-                // absence of readable diagnostic text is already a case the error
-                // mapping handles.
+                read.record(error)
             }
+
+            let outcome = read.outcome
+            // A caller who walked away is answered first, because that is the one fact
+            // here about the **caller** rather than about the body.
+            //
+            // It sits above the other two on purpose, and the routes it closes are real
+            // rather than theoretical. Expiring is how the deadline releases its reader,
+            // so a slow 401 would otherwise come back as an expiry — and an expiry
+            // carries the response, whose status is what marks the credential rejected.
+            // A cancellation arriving on its own is not reliably a *thrown* cancellation
+            // either: measured in `StreamingCancellationTests`, it can end the body
+            // cleanly, and a clean end reports the status just the same.
+            //
+            // So no route out of this branch may turn "the user pressed Stop" into a
+            // verdict about their credential. That status→error mapping is not a message
+            // — `credentialRejected` is what the availability judgement reads — and a
+            // cancellation is not evidence about a credential.
+            if Task.isCancelled { throw HTTPTransportError.cancelled }
+            // Then the deadline, before the reader's own failure. Expiring releases the
+            // reader by ending the transfer, which the reader reports as a cancellation
+            // — so checking that first would turn every expired deadline into a Stop.
+            if case .deadlineElapsed = outcome {
+                throw HTTPTransportError.errorBodyTimeout(
+                    HTTPResponse(
+                        status: http.statusCode,
+                        headers: Self.headers(from: http),
+                        body: outcome.body
+                    ),
+                    after: timeouts.errorBodyDeadline
+                )
+            }
+            // Cancellation is not a refusal. Swallowing it here would report a streamed
+            // 401 to someone who pressed Stop as "your credential was rejected" — the
+            // exact inversion of what cancellation reporting is for. Reached when the
+            // transfer was ended by something other than this call being cancelled:
+            // tearing the session down, for one.
+            if case .failed(_, let error) = outcome, Self.isCancellation(error) {
+                throw HTTPTransportError.cancelled
+            }
+            // The status line arrived before the failure, so the status is known even
+            // when the body is not. Reporting it with a partial body is more useful than
+            // reporting a network failure: a 401 is a 401, and the absence of readable
+            // diagnostic text is already a case the error mapping handles.
             throw HTTPTransportError.httpStatus(
-                HTTPResponse(status: http.statusCode, headers: Self.headers(from: http), body: body)
+                HTTPResponse(status: http.statusCode, headers: Self.headers(from: http), body: outcome.body)
             )
         }
 
@@ -184,10 +272,79 @@ struct URLSessionHTTPTransport: HTTPTransport {
         )
     }
 
-    // MARK: - Request building
+    // MARK: - A refused response's body
 
     /// The most of an error body worth keeping. Far above any real envelope.
     private static let maximumErrorBodyBytes = 64 << 10
+
+    /// Why a refused response's body stopped being read.
+    ///
+    /// Three ways, and two of them are worth telling apart. `.ended` covers both "the
+    /// body finished" and "the cap was reached" — from inside the loop those are the
+    /// same event, a read that ran to its own end, and neither is a failure: the status
+    /// is known either way. `.failed` is the connection giving out, and
+    /// `.deadlineElapsed` is this transport giving up, which is a different thing
+    /// entirely and the reason the case exists.
+    private enum ErrorBodyOutcome {
+        case ended(Data)
+        case failed(Data, Error)
+        case deadlineElapsed(Data)
+
+        /// Whatever arrived — the whole envelope, or as much of one as there was. A
+        /// partial body is still worth reporting: it is where the diagnostic message
+        /// comes from, and "no readable text" is already a case the error mapping
+        /// handles.
+        var body: Data {
+            switch self {
+            case .ended(let body), .failed(let body, _), .deadlineElapsed(let body):
+                return body
+            }
+        }
+    }
+
+    /// The bounded read of a refused response's body, and the one answer it produces.
+    ///
+    /// Lock-protected for the reason `StreamProgress` is: a reader and a deadline run
+    /// concurrently, and the outcome has to be a single value rather than three facts
+    /// that can be read in an order that makes them disagree. `deadlineElapsed` is
+    /// recorded before the transfer is ended, so the reader's own failure — a
+    /// cancellation, because that is what ending the transfer looks like from inside —
+    /// never becomes the report.
+    private final class ErrorBodyRead: @unchecked Sendable {
+        private let lock = NSLock()
+        private let limit: Int
+        private var data = Data()
+        private var failure: Error?
+        private var expired = false
+
+        init(limit: Int) { self.limit = limit }
+
+        /// Appends a byte, or reports that the cap has been reached.
+        func append(_ byte: UInt8) -> Bool {
+            lock.withLock {
+                guard data.count < limit else { return false }
+                data.append(byte)
+                return true
+            }
+        }
+
+        func record(_ error: Error) { lock.withLock { failure = error } }
+
+        func deadlineElapsed() { lock.withLock { expired = true } }
+
+        /// Decided in one locked read, for the same reason `elapsedDeadline` is: the
+        /// precedence between the deadline and the reader's failure is part of the
+        /// answer, not something a caller should be able to re-derive in the other order.
+        var outcome: ErrorBodyOutcome {
+            lock.withLock {
+                if expired { return .deadlineElapsed(data) }
+                if let failure { return .failed(data, failure) }
+                return .ended(data)
+            }
+        }
+    }
+
+    // MARK: - Request building
 
     private static func urlRequest(from request: HTTPRequest, timeout: TimeInterval? = nil) -> URLRequest {
         var urlRequest = URLRequest(url: request.url)

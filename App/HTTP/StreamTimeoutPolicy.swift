@@ -8,6 +8,7 @@ import Foundation
 /// | question | what answers it | what counts as progress |
 /// |---|---|---|
 /// | is the connection alive? | `transportInactivity` | **any byte**, including a `: keep-alive` |
+/// | is this refused body worth waiting for? | `errorBodyDeadline` | **nothing** — it only moves forward |
 /// | is the model producing? | `firstEvent` / `betweenEvents` | **only a dispatched event** |
 ///
 /// A provider that sends heartbeats while it thinks is keeping the connection open and
@@ -27,9 +28,31 @@ struct StreamTimeoutPolicy: Sendable, Equatable {
     /// thing this deadline is asking about.
     var transportInactivity: Duration
 
+    /// The longest a **refused response's body** may take to arrive, counted from the
+    /// moment the read starts rather than from the last byte that arrived.
+    ///
+    /// **Absolute, unlike the others.** `transportInactivity` asks "is the connection
+    /// alive", and every byte answers yes; this asks "is this body worth waiting for",
+    /// and no byte changes the answer. That is the difference between a window and a
+    /// total, and it is the whole reason this field exists: a server that trickles a
+    /// byte at intervals shorter than `transportInactivity` keeps the liveness window
+    /// happy forever, and the cap on the body's *size* bounds space rather than time —
+    /// so without this, an endless trickle is a read that never returns.
+    ///
+    /// Far tighter than `firstEvent`, deliberately. `firstEvent` waits on a model that
+    /// has to be *run* before it can say anything, which is why it is the most generous
+    /// of all of them; an error envelope is written by the server at the moment it writes
+    /// the status line, so it is already in flight before the first byte of it is read.
+    /// Waiting on something already produced must not be more patient than waiting on
+    /// something not yet produced. The value is generous for the job it does — an
+    /// envelope is a small JSON document, and this is orders of magnitude more time
+    /// than one needs on any working connection — while still ending a body that has
+    /// stopped being worth the wait.
+    var errorBodyDeadline: Duration
+
     /// The longest wait for the first event that carries model output.
     ///
-    /// Deliberately the most generous of the three: DeepSeek holds a request for up to
+    /// Deliberately the most generous of them all: DeepSeek holds a request for up to
     /// several minutes before it starts generating, sending keep-alives throughout. Being
     /// impatient here would abort requests the provider was still working on.
     var firstEvent: Duration
@@ -49,6 +72,10 @@ struct StreamTimeoutPolicy: Sendable, Equatable {
 
     static let `default` = StreamTimeoutPolicy(
         transportInactivity: .seconds(180),
+        // Tighter than `firstEvent` by design, and tighter than `transportInactivity`
+        // too. An envelope the server has already written does not need three minutes,
+        // and a refusal is a case where saying so promptly is worth more than waiting.
+        errorBodyDeadline: .seconds(15),
         firstEvent: .seconds(650),
         betweenEvents: .seconds(180),
         checkInterval: .seconds(1)

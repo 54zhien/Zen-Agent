@@ -193,6 +193,7 @@ struct StreamingCancellationTests {
         // A deadline far out, so nothing but the cancellation can end this.
         let policy = StreamTimeoutPolicy(
             transportInactivity: .seconds(30),
+            errorBodyDeadline: .seconds(30),
             firstEvent: .seconds(30),
             betweenEvents: .seconds(30),
             checkInterval: .milliseconds(20)

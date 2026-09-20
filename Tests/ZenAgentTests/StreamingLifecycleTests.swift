@@ -42,6 +42,7 @@ struct StreamingLifecycleTests {
     private func policy(betweenEvents: Duration = .seconds(30), firstEvent: Duration = .seconds(30)) -> StreamTimeoutPolicy {
         StreamTimeoutPolicy(
             transportInactivity: .seconds(30),
+            errorBodyDeadline: .seconds(30),
             firstEvent: firstEvent,
             betweenEvents: betweenEvents,
             checkInterval: .milliseconds(15)
@@ -50,6 +51,7 @@ struct StreamingLifecycleTests {
 
     private func makeFixture(policy: StreamTimeoutPolicy = StreamTimeoutPolicy(
         transportInactivity: .seconds(30),
+        errorBodyDeadline: .seconds(30),
         firstEvent: .seconds(30),
         betweenEvents: .seconds(30),
         checkInterval: .milliseconds(15)

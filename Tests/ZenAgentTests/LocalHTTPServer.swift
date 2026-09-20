@@ -55,6 +55,11 @@ final class LocalHTTPServer: @unchecked Sendable {
 
     private let listenFD: Int32
     private let script: Script
+    /// The status line to answer with. Anything outside `200..<300` exercises the
+    /// transport's **refusal** path, which reads a body it does not stream — a path
+    /// where the connection has to be ended by the client, because no stream handle
+    /// exists for anyone else to end it with.
+    private let status: Int
     /// Test-only. Runs after `accept()` returns and **before** the descriptor is
     /// published, so a regression can drive the publication race deterministically
     /// instead of hoping for the interleaving.
@@ -100,8 +105,13 @@ final class LocalHTTPServer: @unchecked Sendable {
 
     // MARK: - Lifecycle
 
-    init(script: Script, prePublicationHook: (@Sendable () -> Void)? = nil) throws {
+    init(
+        script: Script,
+        status: Int = 200,
+        prePublicationHook: (@Sendable () -> Void)? = nil
+    ) throws {
         self.script = script
+        self.status = status
         self.prePublicationHook = prePublicationHook
 
         let fd = socket(AF_INET, SOCK_STREAM, 0)
@@ -382,7 +392,11 @@ final class LocalHTTPServer: @unchecked Sendable {
         // Chunked, because the whole point is a body that arrives in pieces while the
         // response is still open. `Content-Length` would promise an end that these
         // scripts deliberately do not send.
-        let head = "HTTP/1.1 200 OK\r\n"
+        //
+        // The reason phrase comes from the system's own table rather than one invented
+        // here. Nothing reads it — HTTP/1.1 makes it advisory and the code is the
+        // contract — which is why no script or assertion depends on the text.
+        let head = "HTTP/1.1 \(status) \(HTTPURLResponse.localizedString(forStatusCode: status))\r\n"
             + "Content-Type: text/event-stream\r\n"
             + "Cache-Control: no-cache\r\n"
             + "Transfer-Encoding: chunked\r\n"

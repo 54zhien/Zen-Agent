@@ -217,6 +217,193 @@ struct URLSessionHTTPTransportTests {
         #expect(server.shutdown(), "LocalHTTPServer worker did not terminate")
     }
 
+    // MARK: - A refused response's body
+
+    /// Product invariant: **the body of a refused response is bounded in time as well as
+    /// in space, and the connection carrying it is ended either way.**
+    ///
+    /// These are the one branch that reads a response without ever producing a stream, so
+    /// they are the one branch where `HTTPStream.cancel` cannot help: no handle is handed
+    /// back, and the caller that would have called it gets a thrown error instead. If this
+    /// branch does not end its own transfer, nothing in the process can.
+
+    /// How a refusal ended.
+    private enum Refusal: Sendable {
+        case threw(HTTPTransportError)
+        case threwSomethingElse
+        case returnedWithoutThrowing
+        /// The bound expired with the call still running — the state an endless error
+        /// body produced before the absolute deadline existed, and the one both tests
+        /// below are written to catch.
+        case neverReturned
+    }
+
+    /// The outcome of a call that has to be given a bound.
+    private final class BoundedCall: @unchecked Sendable {
+        private let lock = NSLock()
+        private var finished: Refusal?
+
+        func record(_ outcome: Refusal) { lock.withLock { finished = outcome } }
+        var outcome: Refusal? { lock.withLock { finished } }
+    }
+
+    /// Deadlines for the refusal tests.
+    ///
+    /// The liveness window is deliberately many times the trickle interval in the second
+    /// test, so it can never be the thing that ends that read. That is the point being
+    /// made: a window re-armed by every byte cannot end an endless body, and if this one
+    /// fired the error would name a different deadline and the assertion would say so.
+    private func refusalPolicy(errorBodyDeadline: Duration) -> StreamTimeoutPolicy {
+        StreamTimeoutPolicy(
+            transportInactivity: .seconds(4),
+            errorBodyDeadline: errorBodyDeadline,
+            firstEvent: .seconds(30),
+            betweenEvents: .seconds(30),
+            checkInterval: .milliseconds(20)
+        )
+    }
+
+    /// Runs a refusal and reports how it ended, giving up after a bound.
+    ///
+    /// **Bounded because the failure under test is a call that never returns**, and a
+    /// test that hangs reports nothing — it takes the host with it, and the runner's
+    /// log then says "Restarting after unexpected exit" instead of naming the test. The
+    /// bound is a guard against that, not a performance budget: the deadlines under test
+    /// are milliseconds and this is seconds, so nothing here is close to it.
+    ///
+    /// A call still running when the bound expires is left to the caller's teardown.
+    /// Cancelling it would achieve nothing — cancelling a consumer does not reliably
+    /// reach `URLSession`, which is the fact this suite is built on — so the session's
+    /// `invalidateAndCancel` and the server's `shutdown` are what release it.
+    private func awaitRefusal(
+        _ transport: URLSessionHTTPTransport,
+        _ url: URL,
+        attempts: Int = 800
+    ) async -> Refusal {
+        let call = BoundedCall()
+        Task {
+            do {
+                _ = try await transport.stream(post(url))
+                call.record(.returnedWithoutThrowing)
+            } catch let error as HTTPTransportError {
+                call.record(.threw(error))
+            } catch {
+                call.record(.threwSomethingElse)
+            }
+        }
+
+        for _ in 0..<attempts where call.outcome == nil {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        // Waited for, never asserted on: the fact is the outcome, and a bounded wait that
+        // always passed would be worse than no bound at all.
+        return call.outcome ?? .neverReturned
+    }
+
+    @Test("a refused body is capped, and reaching the cap ends the transfer")
+    func nonSuccessBodyIsCappedAndEndsTheTransfer() async throws {
+        // 4 KiB per write with no pause, for as long as the socket allows. The cap is
+        // reached in milliseconds; the server is only ever told to keep writing.
+        let server = try LocalHTTPServer(
+            script: .continuous(String(repeating: "x", count: 4096), every: 0.001),
+            status: 401
+        )
+        server.start()
+        defer { server.shutdown() }
+
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        // A deadline far out, so the cap is provably what stopped the read — and so that
+        // a failure here cannot be the other mechanism's. The error case says which one
+        // fired, and this asserts on that rather than on a clock.
+        let transport = URLSessionHTTPTransport(
+            session: session,
+            timeouts: refusalPolicy(errorBodyDeadline: .seconds(10))
+        )
+
+        let outcome = await awaitRefusal(transport, server.baseURL.appending(path: "chat/completions"))
+
+        guard case .threw(.httpStatus(let response)) = outcome else {
+            Issue.record("expected .httpStatus, got \(String(describing: outcome))")
+            return
+        }
+        #expect(response.status == 401)
+        #expect(
+            !response.body.isEmpty && response.body.count <= 64 << 10,
+            """
+            the envelope kept has to be bounded by the documented cap and still worth \
+            reporting; got \(response.body.count) bytes
+            """
+        )
+        #expect(server.wroteChunk, "the server never wrote its body")
+
+        // **The server's own observation, which is the only thing that can report this.**
+        // The throw happens before any cancel does — this branch throws whether or not
+        // the transfer was ended — so asserting on the error says nothing about the
+        // connection. A client that stops reading while the peer keeps writing is exactly
+        // the failure being tested for, and only the peer can see it.
+        for _ in 0..<800 where !server.observedPeerClose {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(
+            server.observedPeerClose,
+            """
+            the cap stopped the read and left the transfer running. 64 KiB is a reason to \
+            stop reading a body; it is not a reason to keep the connection that is \
+            carrying it
+            """
+        )
+        #expect(server.shutdown(), "LocalHTTPServer worker did not terminate")
+    }
+
+    @Test("a refused body that trickles forever still ends, and ends the transfer")
+    func nonSuccessBodyTricklingForeverEndsAtTheAbsoluteDeadline() async throws {
+        // One byte every 300ms, forever. `transportInactivity` is 4s, so the gap the
+        // liveness window watches is never more than a thirteenth of it — that window is
+        // re-armed by every byte and can never fire. Nor is the 64 KiB cap in reach: at
+        // this rate it is hours away. The only thing that can end this read is a deadline
+        // counted from the **start** of it, which is what the field being tested is.
+        let server = try LocalHTTPServer(script: .continuous(".", every: 0.3), status: 503)
+        server.start()
+        defer { server.shutdown() }
+
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let transport = URLSessionHTTPTransport(
+            session: session,
+            timeouts: refusalPolicy(errorBodyDeadline: .milliseconds(900))
+        )
+
+        let outcome = await awaitRefusal(transport, server.baseURL.appending(path: "chat/completions"))
+
+        // The case is the assertion that matters. An expiry releases the reader by ending
+        // the transfer, which the reader sees as a cancellation — so a transport that
+        // reported the mechanism instead of the reason would land on `.cancelled` here,
+        // and one that reported the *other* deadline would land on `.inactivityTimeout`.
+        // Neither is this, and `neverReturned` is what today's code does.
+        guard case .threw(.errorBodyTimeout(let response, _)) = outcome else {
+            Issue.record(
+                """
+                expected .errorBodyTimeout, got \(String(describing: outcome)). A body \
+                that never finishes arriving has to be given up on, and the report has to \
+                say which deadline said so: "the connection died" and "the body was not \
+                worth waiting for" send someone to look in opposite places
+                """
+            )
+            return
+        }
+        #expect(response.status == 503, "the status line arrived before the body did")
+
+        for _ in 0..<800 where !server.observedPeerClose {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(
+            server.observedPeerClose,
+            "the deadline ended the read and left the transfer running"
+        )
+        #expect(server.shutdown(), "LocalHTTPServer worker did not terminate")
+    }
+
     @Test("a connection that dies before delivering anything is a failed request, not an interruption")
     func failureBeforeDataIsAFailedRequest() async throws {
         let url = makeURL()

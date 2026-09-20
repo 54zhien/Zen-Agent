@@ -108,6 +108,25 @@ enum HTTPTransportError: Error, Equatable {
     /// for this API must never do.
     case httpStatus(HTTPResponse)
 
+    /// A refused response's body did not finish arriving within the window allowed for
+    /// it — see `StreamTimeoutPolicy.errorBodyDeadline`.
+    ///
+    /// **Not `inactivityTimeout`.** Both are deadlines on a body that stopped arriving,
+    /// and they point in opposite directions: that one says the connection went quiet,
+    /// this one says the connection is fine and the body is not worth waiting for. A
+    /// report that confused them would send someone to look at keep-alives and read
+    /// timeouts for a server that was answering steadily the whole time.
+    ///
+    /// **Not `cancelled`**, although ending the transfer is how the deadline releases a
+    /// reader parked on a socket. That cancellation is the mechanism; this is the
+    /// reason. Reporting the mechanism would make an expired deadline look like
+    /// somebody pressing Stop.
+    ///
+    /// Carries the response because the status line arrives before the body does: a 401
+    /// whose envelope trickled is still a 401, and dropping the status would turn a
+    /// refusal into an unknown.
+    case errorBodyTimeout(HTTPResponse, after: Duration)
+
     /// No byte arrived within the transport's liveness window.
     ///
     /// Distinct from `streamInterrupted`, and the distinction is the diagnostic: this one

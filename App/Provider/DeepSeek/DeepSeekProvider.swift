@@ -25,9 +25,9 @@ struct DeepSeekProvider: ModelProvider {
     let id = ProviderID.deepSeek
     let transport: any HTTPTransport
     /// The same policy the transport is given. The transport reads `transportInactivity`
-    /// from it and this adapter reads `firstEvent` and `betweenEvents`, so the two
-    /// deadlines that must stay distinct are configured in one place rather than
-    /// drifting apart in two.
+    /// and `errorBodyDeadline` from it, and this adapter reads `firstEvent` and
+    /// `betweenEvents`, so the deadlines that must stay distinct are configured in one
+    /// place rather than drifting apart in two.
     let streamTimeouts: StreamTimeoutPolicy
 
     init(
@@ -448,6 +448,18 @@ struct DeepSeekProvider: ModelProvider {
                 // The same mapping `complete` applies to a non-streaming response. One
                 // status→error table, used by both paths, so a 401 cannot come to mean
                 // one thing when streamed and another when not.
+                return Self.error(for: response)
+            case .errorBodyTimeout(let response, _):
+                // The same table again, and for the same reason: the status line
+                // arrived before the body did, so a request that was refused is still
+                // refused and a 401 whose envelope trickled is still a 401. Reporting
+                // it as `transportFailure` would turn a refusal into "something went
+                // wrong", which is a worse answer than a slow body deserves.
+                //
+                // The deadline itself stops here. Above the transport, "the envelope
+                // was slow" changes nothing a caller can act on — what it can act on is
+                // the refusal, and this keeps it. The distinction stays where it is
+                // observable, which is the transport and its tests.
                 return Self.error(for: response)
             case .inactivityTimeout(let elapsed):
                 // Translated rather than folded into `streamInterrupted`. The two are

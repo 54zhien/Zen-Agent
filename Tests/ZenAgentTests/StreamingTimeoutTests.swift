@@ -28,6 +28,7 @@ struct StreamingTimeoutTests {
     ) -> StreamTimeoutPolicy {
         StreamTimeoutPolicy(
             transportInactivity: liveness,
+            errorBodyDeadline: .seconds(30),
             firstEvent: firstEvent,
             betweenEvents: betweenEvents,
             checkInterval: .milliseconds(15)
@@ -288,5 +289,34 @@ struct StreamingTimeoutTests {
                 "\(error) claimed to be provably safe to retry, which no streaming failure is"
             )
         }
+    }
+
+    // MARK: - The shape of the policy
+
+    /// **Relations, not numbers.**
+    ///
+    /// The values are a starting point and the notes forbid taking them from anywhere but
+    /// observed provider behaviour (`Agent Runtime.md:297`), so pinning one here would
+    /// assert a decision nobody has made. What must not drift is the ordering the
+    /// arguments rest on:
+    ///
+    /// - The error-body deadline is a **total** for a body the server has already
+    ///   written. `firstEvent` waits on a model that has to be *run* before it can say
+    ///   anything, so waiting for an error envelope cannot be allowed to outlast waiting
+    ///   for the model — that would be more patient with what has already happened than
+    ///   with what has not.
+    /// - It is tighter than `transportInactivity` too, because that window is re-armed by
+    ///   every byte and is therefore the one thing a trickle can hold open forever.
+    @Test("the error-body deadline stays tighter than the waits it is argued against")
+    func errorBodyDeadlineIsTheTightest() {
+        let policy = StreamTimeoutPolicy.default
+        #expect(
+            policy.errorBodyDeadline < policy.firstEvent,
+            "a body the server has already produced may not be waited on longer than one it has not"
+        )
+        #expect(
+            policy.errorBodyDeadline < policy.transportInactivity,
+            "an interval re-armed by every byte cannot bound a body that arrives one byte at a time"
+        )
     }
 }
