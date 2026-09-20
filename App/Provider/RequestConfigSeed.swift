@@ -33,7 +33,7 @@ struct CredentialBindingSnapshot: Codable, Sendable, Equatable {
 /// Those are capability-validated, and capability arrives in its own increment.
 /// Inventing an option vocabulary now would be guessing at what a Provider supports,
 /// which is the thing this stage exists to find out.
-struct RequestConfigSeed: Sendable, Equatable {
+struct RequestConfigSeed: Codable, Sendable, Equatable {
 
     /// The format this build writes, and the only one it reads.
     ///
