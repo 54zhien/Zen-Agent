@@ -139,3 +139,23 @@ Stage 0 的产出不是功能，是**一条可信的基线**：工程可从源�
 
 下一阶段（Stage 1）的第一件事应是审计本仓库真实状态，而不是从蓝图假设出发。
 
+## 增量 6：P1 — ToolCall 副作用状态机 + 领域 mutation 的 0-row 守卫
+
+> 双脑全量审查对账后的第一项修复。任务卡给了完整规格：X1 tombstone 筛选从
+> `recoveryDisposition` 派生；X2 四个 mutation（markToolCallDispatched / finishToolCall /
+> finishRun / finishPart）统一 guardedUpdate（WHERE 前置状态 + changesCount + typed error）；
+> 复活 `runNotFound`、新增 `toolCallNotFound`。
+> 本机无 Swift 工具链，CI 是唯一编译验证；探针提交预期红（lessons #4）；每步等 CI
+> 结束后再推下一步（concurrency.cancel-in-progress 会让同 ref 并发运行互相取消）。
+
+分支：`fix/guarded-domain-mutations`（首次误推的 `fix/toolcall-side-effect-guards` 因 GRDB `IN (?)` 写法无法编译被废弃，保留在远端未删；新分支按 corrected 提交重建）
+
+- [x] A `feat: ToolCallState: CaseIterable`（Records.swift；X1/X2 派生式集合的前提）→ CI 绿（run 35505203286）
+- [x] B `test: X1 探针——finalize 后 tombstone 存在 == mustReportIndeterminate，遍历 allCases`（预期红：.dispatched 被物理删除）→ CI 进行中（run 35505871999）
+- [x] C `fix: tombstone 集合从 recoveryDisposition 派生`（Deletion.swift；用 databaseQuestionMarks 显式占位符——GRDB 7 不支持 IN (?) 数组参数）→ 已提交待推
+- [x] D `test: X2 探针——0-row 与非法转换必须拒绝`（预期红：四处静默成功）→ 已提交待推
+- [x] E `fix: 四个 mutation guardedUpdate（含 ToolCallState.isTerminal、RunState: CaseIterable、refuseMissedStateUpdate helper）` → 已提交待推
+- [x] F `test: 探针升级为 typed 断言 + 钉住合法转换` → 已提交待推
+- [ ] 推送节奏：B 红确认 → C → D 红确认 → E → F，每步等 CI 结束（concurrency.cancel-in-progress）
+- [ ] 收尾：/code-review 复核分支 diff；lessons 追加；交付物（分支+sha+log+红绿过程+CI id+偏离说明）
+
