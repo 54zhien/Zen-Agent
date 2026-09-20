@@ -53,27 +53,40 @@ test-host restart 问题是在其后的 run 里才被发现的。
 - [x] `/code-review` 跑 diff → **4 个真实 bug 已修**（见下）
 - [x] **CI 全绿** `35441053882` → success —— 但**该次并非干净运行**（含 test-host restart），
   当时的 `181 / 23` 是「逐名合并」的重建值，**不是**任何一次真实运行的规模。见文末。
-- [ ] 两条 disabled 集成测试**尚未迁移**到 localhost harness（见下）
+- [x] **两条 disabled 集成测试已迁移到 localhost harness 并重新启用**（见下）。
+  其中 **Test B 不能沿用 `.chunkThenDisconnect`**：`LocalHTTPServerCharacterisationTests`
+  实测记录该脚本到达 `bytes(for:)` 是 ***clean end***，**不是**抛出错误；而 Test B 断言的是
+  **抛出的** `.streamInterrupted`。所以它需要一条**新的 abortive close**（`.chunkThenAbort`，
+  `SO_LINGER` 零间隔 → RST）。这个区分是本增量的实质，见下节。
 
-### 仍未完成：两条集成测试尚未迁移
+### 两条集成测试的迁移结果
 
-`LocalHTTPServer`（test-only localhost HTTP/1.1 fixture）**已经存在并通过 CI**：
-`LocalHTTPServerCharacterisationTests`（增量交付 / `bytes.task.cancel()` → peer close）
-与 `LocalHTTPServerLifecycleTests`（4 条 teardown 断言）全绿。
+**已合并到 `main`：`9056e8c..625bb43`（fast-forward，三个 commit）**
 
-`URLProtocolCharacterisationTests` 证明的是**旧桩**的局限：自定义 URLProtocol 驱动
-`bytes(for:)` 时，少量 didLoad 后保持 request open 无法可靠交付给 consumer。
-（**这是那个 harness 的观测，不推广到真实 HTTPS**；未测阈值。）
-
-因此以下两条**仍是 `.disabled`，尚未迁移到 `LocalHTTPServer`**：
-
-| 测试 | 需要的 server 行为 |
+| commit | 内容 |
 |---|---|
-| `URLSessionHTTPTransportTests.failureAfterObservedDataIsInterrupted` | 发 partial → consumer 收到 → 触发 close |
-| `StreamingCancellationTests.cancellationReachesTheNetworkWithoutAFailure` | 发合法 SSE → consumer 收到 → stall → cancel |
+| `f567cbe` | 密封 accepted 描述符发布竞态（检查 + 发布合入同一把 lock，附确定性回归）；新增 abortive close 能力（`chunkThenAbort`，`SO_LINGER` 零间隔），与**未改动**的 graceful 路径并存 |
+| `64c6e50` | 两条测试迁移到真实 socket 并重新启用 |
+| `625bb43` | 把「立即读计数器」换成**有界地等待事实成立** |
 
-迁移后按方案要求**重新启用或等价替代**。
-**不要改 production `URLSession.bytes(for:)`**，也不切 delegate。
+**改动范围**：6 个文件，全部在 `Tests/ZenAgentTests/` 下；375 insertions / 177 deletions。
+**没有任何 `App/` 文件被改动。**
+
+| 测试 | 需要的 server 行为 | 实际获得 |
+|---|---|---|
+| Test A `StreamingCancellationTests.cancellationReachesTheNetworkWithoutAFailure` | 发合法 SSE → consumer 收到 → stall → cancel | `.chunkThenStall(validSSE)`；`StubURLProtocol.stopCount` 换成 `server.observedPeerClose`；保留 30s policy、consumer 侧 readiness、`nil \|\| .cancelled` 结果断言 |
+| Test B `URLSessionHTTPTransportTests.failureAfterObservedDataIsInterrupted` | 发 partial → consumer 收到 → **触发抛出型断开** | **`.chunkThenAbort("data: partial ans")`**，**不是** `.chunkThenDisconnect`；只在完整 body 进入 `received` 后调一次 `requestClose()` |
+
+**Test B 的门槛是「先特征化、再恢复」**：`.chunkThenAbort` 先被单独测过
+（`an abortive close after delivery throws, unlike the graceful one`），该测试要求结果**以
+`threw ` 开头**。它通过，证明 `SO_LINGER` 零间隔在本平台确实产生 RST ——
+即 Test B 所需的**抛出型中途失败是可制造的**。若不通过，Test B 应保持 disabled 而
+**不得放宽断言**；这个顺序是刻意的。
+
+两条测试的断言**逐字未改**。**未改 production `URLSession.bytes(for:)`**，也不切 delegate。
+
+**分支上的 run 记录**：`35490301749`（`625bb43`，success）· `35489164861`（`64c6e50`，success）·
+`35488849050`（`f567cbe`，success，重跑）· `35488461525`（`f567cbe`，**failure**）。
 
 ### `/code-review` 查出并已修的 4 个 bug（出厂配置下均可达）
 
@@ -124,9 +137,15 @@ A 和 D 是其中影响最大的两条。
 
 ---
 
-## Review（增量结束时填）
+## Review（增量结束）
 
-_待填_
+Increment 5 的产出不是「流式功能」，而是**一条能被证伪的流式基线**：transport 的
+cancellation 是一条显式的 `HTTPStream.cancel()` 一跳链；timeout 分成连接活性与模型进展两个
+问题、各有自己的计时器；每一次「不再消费响应」的退出路径都结束真实网络传输。
+
+代价与教训都记在上面：**产品代码的主要缺陷不是测试发现的，是 `/code-review` 发现的** ——
+其中 3 个让增量的招牌功能完全不起作用，而测试全绿，因为测试自设了应用里从不使用的窗口值。
+另有 5 条 review 发现、本增量未修，见上表（A 与 D 影响最大）。
 
 
 ---
@@ -157,25 +176,43 @@ runningboardd[5281]: [app<com.zhien.zenagent.ZenAgent>:6766] exited with context
 |---|---|
 | 诊断 | `c8fd18f` — 用 `log show --archive` 解码 Unified Log，替代 grep 二进制 |
 | 修复 | `0ea1351` — accepted + listening fd 上设 `SO_NOSIGPIPE`（test-only） |
-| 最终 CI | `35479084907` → **success**，**0 test-host restart**，单次连续运行 |
+| 该任务当时的 CI | `35479084907` → **success**，**0 test-host restart**，单次连续运行 |
+| **当前 CI（两条集成测试恢复后）** | `35490514213` → **success**（两个 job 均绿），`✔ Test run with 190 tests in 25 suites passed after 25.030 seconds.`，零失败、零跳过 |
 
-### 最终测试规模 —— 188 = 186 实际执行 + 2 disabled / skipped
+### 最终测试规模 —— 190 declared = 190 started，0 disabled / skipped
 
-**最终口径只有一个：25 个 suite、188 个 test，其中 186 个实际启动并执行，2 个 `.disabled` test 被跳过。**
+**当前口径：25 个 suite、190 个 test，全部启动执行；无 disabled、无跳过。**
 
 | 数字 | 出处（精确命令 / 日志行） |
 |---|---|
-| **188 tests in 25 suites** | `✔ Test run with 188 tests in 25 suites passed` —— 框架汇总；源码中也有 188 个 `@Test`、25 个 `@Suite` 声明 |
-| **186** | `grep -c '◇ Test "'` —— 实际启动并执行的 test 数 |
-| **185** | `grep -oE '◇ Test "[^"]+"' \| sort -u \| wc -l` —— 这 186 次执行所使用的唯一 display string 数 |
-| **2** | `grep -c '➜ Test "'` —— 两条 `.disabled` 集成测试，名字分别是 `a connection that dies after data was observed...` 与 `cancelling a provider consumer reaches the network...` |
+| **190 tests in 25 suites** | `✔ Test run with 190 tests in 25 suites passed` —— 框架汇总；源码中同样有 190 个 `@Test`、25 个 `@Suite` 声明 |
+| **0 skipped** | 两条集成测试已恢复；`grep -rn '\.disabled(' Tests/ZenAgentTests` 为空 |
 
-**186 次执行只有 185 个唯一 display string，并不是少执行了 1 个 test。** 以下两个独立测试分别位于两个不同 suite，但刻意使用了同一个显示名：
+两条恢复的测试在该次日志中的原文：
+
+```
+✔ Test "cancelling a provider consumer reaches the network without inventing a failure" passed after 0.023 seconds.
+✔ Test "a connection that dies after data was observed is an interrupted stream that delivered data" passed after 0.010 seconds.
+```
+
+#### 历史：恢复之前的状态是 188 = 186 实际执行 + 2 disabled / skipped
+
+以下**只描述恢复之前**，不再适用于当前。
+
+| 数字 | 出处 |
+|---|---|
+| **188 tests in 25 suites** | `✔ Test run with 188 tests in 25 suites passed` —— 恢复前 |
+| **186** | `grep -c '◇ Test "'` —— 实际启动并执行的 test 数 |
+| **185** | `grep -oE '◇ Test "[^"]+"' \| sort -u \| wc -l` —— 这 186 次执行使用的唯一 display string 数 |
+| **2** | `grep -c '➜ Test "'` —— 当时的两条 `.disabled` 集成测试 |
+
+**186 次执行只有 185 个唯一 display string，并不是少执行了 1 个 test。** 两个独立测试分别
+位于两个不同 suite，但刻意使用了同一个显示名：
 
 - `DeepSeek provider` suite：`editedInstanceIsRefused`
 - `DeepSeek streaming` suite：`editedInstanceIsRefusedBeforeDispatch`
 
-二者的 display name 都是 `an edited instance is refused before anything is sent`，因此日志实测为：
+二者的 display name 都是 `an edited instance is refused before anything is sent`，实测为：
 
 ```text
 started lines : 186
@@ -183,25 +220,31 @@ unique names  : 185
 duplicated    : [('an edited instance is refused before anything is sent', 2)]
 ```
 
-所以完整关系是：**188 declared/reported = 186 started/executed + 2 disabled/skipped**；这 186 次执行对应 **185 个唯一显示字符串**。
+所以当时的关系是：**188 declared/reported = 186 started/executed + 2 disabled/skipped**。
 
-**历史 `185` 的出处必须纠正**：它是 `35447236888` 那次 restart 的诊断重建值，即
+**另一个历史上的 `185` 出处**：它是 `35447236888` 那次 restart 的诊断重建值，即
 **restart 前 92 + restart 后 93，零交集，合计 185**，不是此前误写的 `93 + 93`。
 尾段另含 2 个 skipped，因此当时框架只报 `95 tests in 15 suites`。
 这个 `185` 是对被 restart 切开的执行记录所做的重建，不是 suite 的完整规模。
 
-### 未完成（本任务边界之外）
+### 当时未完成、现已完成
 
-`LocalHTTPServer` harness **已经存在并可用**。未完成的是：
-**那两条 `.disabled` 的 integration test 尚未迁移到它上面并重新启用。**
+`LocalHTTPServer` harness 当时已存在并可用；**那两条 `.disabled` 的 integration test
+当时尚未迁移到它上面**。二者已于后续迁移中恢复，见 `## Increment 5` 一节。
 
-### follow-up（本轮未改代码）
+### follow-up：发布竞态（**已于后续修复**）
 
 评审指出一个**真实但独立**的既有竞态：`accept()` 已返回、`clientFD` 尚未发布的那段窗口里，
 `shutdown()` 会看到 `clientFD == -1`，随后 worker 才发布 accepted 并可能进入阻塞 `read()`。
-本轮的 `setsockopt` 只是把窗口略微拉长，**没有引入也没有修复**它。
-正确封法是让「检查 closed + 发布 accepted」在同一把 lock 下完成。
+本轮（SIGPIPE 修复）的 `setsockopt` 只是把窗口略微拉长，**没有引入也没有修复**它。
+
+**该竞态已在 `f567cbe` 密封**：`closed` 检查与 `clientFD` 发布合入**同一把 lock 的同一转换**，
+shutdown 要么看到已发布的描述符并释放它，要么赢下竞态而 worker 放弃该描述符。
+并附了一条**确定性**回归（test-only hook 停在 `accept()` 与发布之间），不依赖压力循环。
 
 ### 不变量
 
-`App/` 未改；两条 `.disabled` 集成测试未启用、未修改；未改任何 timeout / retry / budget。
+`App/` 未改；未改任何 timeout / retry / budget。
+
+（本节当时还写着「两条 `.disabled` 集成测试未启用、未修改」—— 那是当时的事实。
+二者已在后续迁移中恢复，见 `## Increment 5`。）
