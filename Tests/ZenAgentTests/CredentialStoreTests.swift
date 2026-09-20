@@ -274,15 +274,13 @@ struct CredentialStoreTests {
             failure = error
         }
 
-        // Typed, not raw. The caller must never see a `SecretBackendError` — the
-        // negative shape keeps this compiling before the typed case exists; the
-        // fix upgrades it to the exact case. Folding this into `unavailable` would
-        // also be wrong: that promises "wait and try again", and damaged storage
-        // does not recover by waiting.
+        // The exact typed case. The caller must never see a `SecretBackendError`,
+        // and the case must not be `unavailable` — that promises "wait and try
+        // again", and damaged storage does not recover by waiting.
         #expect(
-            failure is CredentialError,
-            "expected a CredentialError, got \(String(describing: failure)) — a backend failure escaping raw is an untyped leak"
+            failure as? CredentialError == .failed(Self.reference, underlying: "simulated damaged keychain item"),
+            "expected .failed, got \(String(describing: failure))"
         )
-        #expect(!(failure is SecretBackendError))
+        #expect(!(failure is SecretBackendError), "the backend error must not escape the store")
     }
 }

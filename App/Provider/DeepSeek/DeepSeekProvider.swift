@@ -101,7 +101,8 @@ struct DeepSeekProvider: ModelProvider {
 
         guard instance.credentialReference != nil else {
             // Unreachable: `validate` refuses a missing reference. Kept as a guard rather
-            // than a force-unwrap so a future reordering of the checks fails visibly.
+            // than trusting the seed blind so a future reordering of the checks fails
+            // visibly instead of resolving a secret for an instance with none.
             throw ProviderError.credentialMissing
         }
         let secret = try Self.resolveSecret(seed.credentialBinding, from: credentials)
@@ -412,6 +413,11 @@ struct DeepSeekProvider: ModelProvider {
                     under the new account's secret.
                     """
                 )
+            case .failed(_, let reason):
+                // Damaged storage, not a damaged credential. The provider never saw
+                // it, so this is not a rejection; waiting will not repair it, so it
+                // is not the temporary-unavailable case either.
+                throw ProviderError.credentialStorageFailed(reason: reason)
             }
         }
     }

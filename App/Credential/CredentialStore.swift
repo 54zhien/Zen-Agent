@@ -51,6 +51,13 @@ enum CredentialError: Error, Equatable {
     /// Kept distinct because collapsing it into `notFound` is how a background launch
     /// destroys a perfectly good token: the delete succeeds even when the read did not.
     case unavailable(CredentialReference, underlying: String)
+    /// The store itself is damaged: the item exists but cannot be read or written,
+    /// for a reason that is neither "missing" nor "temporarily locked".
+    ///
+    /// Distinct from `unavailable`, which promises "wait and try again" — damaged
+    /// storage does not recover by waiting. Distinct from `notFound`, which would
+    /// send the user to re-provision a credential that is still there.
+    case failed(CredentialReference, underlying: String)
 }
 
 /// The credential boundary. Callers never touch `Security.framework`.
@@ -221,8 +228,9 @@ struct CredentialStore: CredentialStoring {
     /// The secret, if it is readable right now.
     ///
     /// `nil` means there genuinely is none. A credential that exists but cannot be read
-    /// throws `unavailable` — the two are not interchangeable, and treating them as one
-    /// is the documented way to lose a valid token.
+    /// throws `unavailable` (temporarily locked) or `failed` (damaged storage) — the two
+    /// are not interchangeable, and treating either as "missing" is the documented way
+    /// to lose a valid token.
     func resolve(_ reference: CredentialReference) throws -> SecretValue? {
         guard let existing = try metadataRepository.loadMetadata(for: reference) else { return nil }
         guard existing.status == .active else {
@@ -230,11 +238,8 @@ struct CredentialStore: CredentialStoring {
         }
         do {
             return try secrets.load(reference, generation: existing.bindingGeneration)
-        } catch SecretBackendError.unavailable(let reason) {
-            // Translated here rather than left raw, so no caller sees an OSStatus and
-            // has to decide whether "could not read" means "is not there". That
-            // decision is the whole reason this error exists.
-            throw CredentialError.unavailable(reference, underlying: reason)
+        } catch let error as SecretBackendError {
+            throw Self.credentialError(from: error, reference: reference)
         }
     }
 
@@ -265,14 +270,26 @@ struct CredentialStore: CredentialStoring {
                 currentGeneration: existing.bindingGeneration
             )
         }
-        // `SecretBackendError.failed` passes through raw until the store has a
-        // case for storage corruption — deliberately not folded into `unavailable`,
-        // which promises "wait and try again" and corruption does not go away by
-        // waiting.
         do {
             return try secrets.load(frozenReference, generation: generation)
-        } catch SecretBackendError.unavailable(let reason) {
-            throw CredentialError.unavailable(frozenReference, underlying: reason)
+        } catch let error as SecretBackendError {
+            throw Self.credentialError(from: error, reference: frozenReference)
+        }
+    }
+
+    /// A backend failure, in the credential vocabulary. The one place
+    /// `SecretBackendError` is translated, so no caller sees an OSStatus and has
+    /// to decide whether "could not read" means "is not there" — that decision
+    /// is the whole reason these two cases exist.
+    private static func credentialError(
+        from error: SecretBackendError,
+        reference: CredentialReference
+    ) -> CredentialError {
+        switch error {
+        case .unavailable(let reason):
+            return .unavailable(reference, underlying: reason)
+        case .failed(let reason):
+            return .failed(reference, underlying: reason)
         }
     }
 

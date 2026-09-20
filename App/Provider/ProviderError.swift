@@ -31,6 +31,15 @@ enum ProviderError: Error, Equatable {
     /// response to this is to wait, and confusing them is how a background launch ends up
     /// destroying a valid token.
     case credentialTemporarilyUnavailable(reason: String)
+    /// The credential store itself is damaged: it refused the read for a reason
+    /// that is neither "missing" nor "temporarily locked".
+    ///
+    /// **Not** `credentialMissing` — the credential exists; re-provisioning would
+    /// overwrite a record whose problem is elsewhere. **Not**
+    /// `credentialTemporarilyUnavailable` — waiting cannot repair damaged storage.
+    /// **Not** `credentialRejected` — the provider never saw the credential, so it
+    /// is not evidence against the token.
+    case credentialStorageFailed(reason: String)
     /// The request itself was malformed.
     case invalidRequest(String)
     /// The account cannot pay for the request.
@@ -152,8 +161,9 @@ extension ProviderError {
         case .streamInterrupted(let deliveredOutput, _):
             // The same rule, and the same reason the fact is carried rather than assumed.
             return deliveredOutput ? .doNotRetry : .retrySuggested
-        case .credentialRejected, .credentialMissing, .insufficientBalance, .invalidRequest,
-             .invalidParameters, .malformedResponse, .cancelled, .configurationMismatch:
+        case .credentialRejected, .credentialMissing, .credentialStorageFailed,
+             .insufficientBalance, .invalidRequest, .invalidParameters, .malformedResponse,
+             .cancelled, .configurationMismatch:
             return .doNotRetry
         }
     }

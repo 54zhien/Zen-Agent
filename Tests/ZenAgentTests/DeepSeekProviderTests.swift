@@ -521,14 +521,15 @@ struct DeepSeekProviderTests {
             failure = error
         }
 
-        // Typed, not raw. A `SecretBackendError` escaping `complete` would put a
-        // credential-layer type in front of the Runtime — the leak this abstraction
-        // exists to prevent. The negative shape keeps this compiling before the
-        // typed case exists; the fix upgrades it to the exact case.
+        // The exact typed case — and one nothing retries, because retrying against
+        // damaged storage changes nothing. A `SecretBackendError` escaping `complete`
+        // would put a credential-layer type in front of the Runtime, the leak this
+        // abstraction exists to prevent.
         #expect(
-            failure is ProviderError,
-            "expected a ProviderError, got \(String(describing: failure))"
+            failure as? ProviderError == .credentialStorageFailed(reason: "simulated damaged keychain item"),
+            "expected .credentialStorageFailed, got \(String(describing: failure))"
         )
+        #expect((failure as? ProviderError)?.retryDisposition == .doNotRetry)
         #expect(!(failure is SecretBackendError), "the backend error must not escape the adapter")
         #expect(f.transport.requestCount == 0, "damaged storage must not send anything")
     }

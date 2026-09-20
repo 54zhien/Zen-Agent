@@ -11,15 +11,15 @@ import Foundation
 /// |---|---|---|
 /// | `credentialMissing` | nothing has been provisioned | — |
 /// | `credentialTemporarilyUnavailable` | it exists but cannot be read now | **must not be treated as missing**, must not delete or re-provision |
-/// | `authenticationRequired` | it was rejected, or the user logged out | must not be retried without the user acting |
+/// | `authenticationRequired` | it was rejected, the user logged out, or the store is damaged | must not be retried without the user acting |
 /// | `available` | usable | — |
 ///
-/// The last two both need the user to act, which is exactly why they are tempting to
-/// merge — and why merging loses something. "The provider rejected this credential" is
-/// evidence the token is bad; "the user logged out" is a deliberate act with a known
-/// cause. Collapsing them into one value means a diagnostic cannot say which happened,
-/// and a future automatic response — refresh on rejection, prompt on logout — has
-/// nothing to distinguish on.
+/// The authentication-required reasons are the tempting ones to merge, and they are
+/// exactly the ones where merging loses something: "the provider rejected this
+/// credential" is evidence the token is bad; "the user logged out" is a deliberate act
+/// with a known cause; "the store is damaged" is neither. Collapsing them means a
+/// diagnostic cannot say which happened, and a future automatic response — refresh on
+/// rejection, prompt on logout, repair on corruption — has nothing to distinguish on.
 ///
 /// Reachability is not modelled here. There is no transport yet, and inventing network
 /// states before there is a network would be designing against a guess.
@@ -52,6 +52,13 @@ enum AuthenticationRequirementReason: Sendable, Hashable {
     /// and the notes are explicit that only explicit user data operations delete
     /// (`安全与权限.md:236-247`).
     case providerRejected
+    /// The credential store itself is damaged: it refused the read for a reason
+    /// that is neither "missing" nor "temporarily locked".
+    ///
+    /// The user still has to act — no automatic path repairs damaged storage —
+    /// and it must not be reported as a logout or a rejection, because neither
+    /// happened and both would send the user to fix the wrong thing.
+    case storageFailed
 }
 
 /// Combines what the credential store knows with what the provider reports.
@@ -110,6 +117,11 @@ enum ProviderAvailabilityResolver {
                 // a future frozen read here surfaces instead of looking like a clean
                 // login state.
                 return .authenticationRequired(reason: .loggedOut)
+            case .failed:
+                // Damaged storage is neither a logout nor a rejection, and must not
+                // look like either: both say "the credential is the problem", and
+                // here the storage is. Still the user who has to act.
+                return .authenticationRequired(reason: .storageFailed)
             }
         }
     }
