@@ -1,0 +1,305 @@
+name: Guard self-test
+
+# A check that has never been seen to fail is not a check.
+#
+# ci.yml proves the managed-build-settings guard passes on the tree as it
+# stands. That is not evidence that the guard rejects anything: the step it
+# replaced — `xcodebuild -showBuildSettings | grep ... || true` — could not fail,
+# and stayed green through every violation it was supposed to catch. This
+# workflow supplies the missing half. Each probe manufactures one specific
+# violation in a throwaway copy of the checkout, runs the frozen old guard and
+# the real guard on that same copy, and asserts the contrast:
+#
+#     old guard: exit 0           the violation goes unnoticed
+#     new guard: exit non-zero    rejected, for the expected reason
+#
+# Exit codes alone would not be enough, so the assertions pin the reason too: a
+# guard that dies of an unrelated error also exits non-zero.
+#
+# Deliberately not triggered by `push`. The probes need a macOS runner and
+# XcodeGen, and the repository keeps push-triggered CI fast; `pull_request` and
+# `workflow_dispatch` are enough to gather the evidence before a merge.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: guard-selftest-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  managed-build-settings-guard:
+    name: Managed build settings guard rejects real violations
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Freeze the guard this repository replaced
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          harness="${RUNNER_TEMP}/guard-selftest"
+          rm -rf "$harness"
+          mkdir -p "$harness"
+
+          # main at bb3256f, step "Confirm the app resolves its deployment target
+          # from xcconfig", verbatim. The `|| true` is the whole point: it exits
+          # 0 whatever happens, which is why "old guard: exit 0" in the probes
+          # below is evidence of a false green rather than of a healthy tree.
+          #
+          # Re-verify the transcription with:
+          #   git show bb3256f:.github/workflows/ci.yml
+          printf '%s\n' \
+            'set -euo pipefail' \
+            'xcodebuild -project ZenAgent.xcodeproj -scheme ZenAgent -showBuildSettings \' \
+            "  | grep -E 'IPHONEOS_DEPLOYMENT_TARGET|SWIFT_VERSION|SWIFT_STRICT_CONCURRENCY' || true" \
+            > "${harness}/old-deployment-guard.sh"
+
+          echo "Frozen old guard, run unchanged by every probe below:"
+          sed 's/^/  /' "${harness}/old-deployment-guard.sh"
+
+      - name: Control — the guard passes on an unmodified tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${GITHUB_WORKSPACE}/.github/scripts/guard-selftest-harness.sh"
+
+          tree=$(fresh_tree control)
+          generate_project "$tree"
+
+          run_guard "the guard, on the tree as pushed" "$tree" "$new_guard" "${RUNNER_TEMP}/control.log"
+          assert_exit "the guard on an unmodified tree" zero "$guard_status"
+
+          # This is the Release evidence, and it pins the whole policy rather
+          # than one setting of it. Without -configuration the guard resolved
+          # whichever configuration xcodebuild defaults to and said nothing about
+          # the other, so a Release binding could rot while that check stayed
+          # green; and a setting dropped from the guard's list would stop being
+          # enforced without anything going red. Every managed setting must be
+          # resolved and reported for every supported configuration.
+          for configuration in Debug Release; do
+            for setting in IPHONEOS_DEPLOYMENT_TARGET SWIFT_VERSION SWIFT_STRICT_CONCURRENCY; do
+              assert_log "the guard" "${RUNNER_TEMP}/control.log" "^OK: ${configuration} ${setting} = [^ ]"
+            done
+          done
+
+      - name: Probe 2.1 — a managed setting in project.yml must be rejected, even at the same value
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${GITHUB_WORKSPACE}/.github/scripts/guard-selftest-harness.sh"
+
+          tree=$(fresh_tree project-yml-same-value)
+          cd "$tree"
+
+          # The violation: project.yml declares the setting that
+          # Config/Common.xcconfig already declares, at the same value. Nothing
+          # about the resolved value is wrong — the second source is the defect,
+          # and it is invisible to anything that only reads resolved values.
+          strip_cr project.yml
+          awk '{ print } $0 == "        GENERATE_INFOPLIST_FILE: NO" { print "        IPHONEOS_DEPLOYMENT_TARGET: \"26.0\"" }' \
+            project.yml > project.yml.new
+          mv project.yml.new project.yml
+          assert_contains "the probe input to have changed" project.yml '^        IPHONEOS_DEPLOYMENT_TARGET: "26\.0"$'
+          generate_project "$tree"
+
+          run_guard "old guard (main, before the managed-settings guard)" "$tree" "$old_guard" "${RUNNER_TEMP}/probe-2.1-old.log"
+          assert_exit "old guard" zero "$guard_status"
+          # The false green, made visible: the old guard printed a resolved value
+          # and called the step a success while project.yml had become a second
+          # source of the very setting it was meant to confirm.
+          assert_log "old guard" "${RUNNER_TEMP}/probe-2.1-old.log" '^[[:space:]]*IPHONEOS_DEPLOYMENT_TARGET = 26\.0[[:space:]]*$'
+
+          run_guard "managed-build-settings-guard.sh" "$tree" "$new_guard" "${RUNNER_TEMP}/probe-2.1-new.log"
+          assert_exit "new guard" nonzero "$guard_status"
+          assert_log "new guard" "${RUNNER_TEMP}/probe-2.1-new.log" 'project\.yml must not declare a managed build setting'
+          assert_log "new guard" "${RUNNER_TEMP}/probe-2.1-new.log" 'project\.yml:[0-9]+: IPHONEOS_DEPLOYMENT_TARGET'
+
+      - name: Probe 2.2 — competing values in Common.xcconfig and Debug.xcconfig must be rejected
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${GITHUB_WORKSPACE}/.github/scripts/guard-selftest-harness.sh"
+
+          tree=$(fresh_tree competing-config-values)
+          cd "$tree"
+
+          # Config/Debug.xcconfig includes Common.xcconfig, so this is a second
+          # declaration of one setting with a different value: the case the
+          # single-authority rule exists for.
+          printf '\nIPHONEOS_DEPLOYMENT_TARGET = 25.0\n' >> Config/Debug.xcconfig
+          assert_contains "the probe input to have changed" Config/Debug.xcconfig '^IPHONEOS_DEPLOYMENT_TARGET = 25\.0$'
+          generate_project "$tree"
+
+          run_guard "old guard (main, before the managed-settings guard)" "$tree" "$old_guard" "${RUNNER_TEMP}/probe-2.2-old.log"
+          assert_exit "old guard" zero "$guard_status"
+          # Exit code alone is not evidence here: `|| true` makes it 0 even if
+          # xcodebuild never ran. The value is deliberately not pinned — the old
+          # guard takes no -configuration, so which value it prints depends on
+          # which configuration xcodebuild defaults to.
+          assert_log "old guard" "${RUNNER_TEMP}/probe-2.2-old.log" '^[[:space:]]*IPHONEOS_DEPLOYMENT_TARGET = [0-9]'
+
+          run_guard "managed-build-settings-guard.sh" "$tree" "$new_guard" "${RUNNER_TEMP}/probe-2.2-new.log"
+          assert_exit "new guard" nonzero "$guard_status"
+          assert_log "new guard" "${RUNNER_TEMP}/probe-2.2-new.log" 'competing Config values'
+          assert_log "new guard" "${RUNNER_TEMP}/probe-2.2-new.log" 'Config/Debug\.xcconfig:[0-9]+ => 25\.0'
+
+      - name: Probe 3 — a Release binding pointed at Debug.xcconfig must be rejected
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${GITHUB_WORKSPACE}/.github/scripts/guard-selftest-harness.sh"
+
+          tree=$(fresh_tree release-config-binding)
+          cd "$tree"
+
+          # The violation no value comparison can see. Debug.xcconfig and
+          # Release.xcconfig both include Common.xcconfig, so every managed
+          # setting still resolves to exactly the same value — which is why the
+          # step needs a static assertion on the binding itself, not just on what
+          # xcodebuild reports.
+          strip_cr project.yml
+          awk '{ if ($0 == "  Release: Config/Release.xcconfig") print "  Release: Config/Debug.xcconfig"; else print }' \
+            project.yml > project.yml.new
+          mv project.yml.new project.yml
+          assert_contains "the probe input to have changed" project.yml '^  Release: Config/Debug\.xcconfig$'
+          generate_project "$tree"
+
+          run_guard "old guard (main, before the managed-settings guard)" "$tree" "$old_guard" "${RUNNER_TEMP}/probe-3-old.log"
+          assert_exit "old guard" zero "$guard_status"
+          # Release now builds through Debug's xcconfig and the old guard still
+          # calls the step a success. It takes no -configuration, so it cannot
+          # name the configuration it read — which is the blindness this probe is
+          # about. The probe-5 loop below is what separates the two.
+          assert_log "old guard" "${RUNNER_TEMP}/probe-3-old.log" '^[[:space:]]*IPHONEOS_DEPLOYMENT_TARGET = [0-9]'
+
+          run_guard "managed-build-settings-guard.sh" "$tree" "$new_guard" "${RUNNER_TEMP}/probe-3-new.log"
+          assert_exit "new guard" nonzero "$guard_status"
+          assert_log "new guard" "${RUNNER_TEMP}/probe-3-new.log" 'does not bind every supported build configuration'
+          assert_log "new guard" "${RUNNER_TEMP}/probe-3-new.log" "configFiles\.Release is 'Config/Debug\.xcconfig'"
+
+      - name: Probe 4 — a same-valued deploymentTarget in project.yml must be rejected
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${GITHUB_WORKSPACE}/.github/scripts/guard-selftest-harness.sh"
+
+          # First, that the rule is not superstition. XcodeGen turns a target's
+          # `deploymentTarget` into IPHONEOS_DEPLOYMENT_TARGET in the generated
+          # project, where it outranks the xcconfig the guard calls the only
+          # source — so a *different* value has to win over
+          # Config/Common.xcconfig's 26.0. If a future XcodeGen stops mapping the
+          # key, this fails instead of the rule below quietly rejecting a key
+          # that no longer means anything.
+          tree=$(fresh_tree deployment-target-key-is-live)
+          cd "$tree"
+          strip_cr project.yml
+          awk '{ print } $0 == "    type: application" { print "    deploymentTarget: \"25.0\"" }' \
+            project.yml > project.yml.new
+          mv project.yml.new project.yml
+          assert_contains "the probe input to have changed" project.yml '^    deploymentTarget: "25\.0"$'
+          generate_project "$tree"
+
+          run_guard "old guard (main, before the managed-settings guard)" "$tree" "$old_guard" "${RUNNER_TEMP}/probe-4-live.log"
+          assert_exit "old guard" zero "$guard_status"
+          assert_log "old guard" "${RUNNER_TEMP}/probe-4-live.log" '^[[:space:]]*IPHONEOS_DEPLOYMENT_TARGET = 25\.0[[:space:]]*$'
+
+          # Now the violation the guard has to reject: the same key carrying the
+          # same value Config/Common.xcconfig already declares. Nothing in
+          # project.yml names IPHONEOS_DEPLOYMENT_TARGET, and the resolved value
+          # does not change, so a guard that only matches setting names stays
+          # green while project.yml becomes a second source.
+          tree=$(fresh_tree deployment-target-key)
+          cd "$tree"
+          strip_cr project.yml
+          awk '{ print } $0 == "    type: application" { print "    deploymentTarget: \"26.0\"" }' \
+            project.yml > project.yml.new
+          mv project.yml.new project.yml
+          assert_contains "the probe input to have changed" project.yml '^    deploymentTarget: "26\.0"$'
+          generate_project "$tree"
+
+          run_guard "old guard (main, before the managed-settings guard)" "$tree" "$old_guard" "${RUNNER_TEMP}/probe-4-old.log"
+          assert_exit "old guard" zero "$guard_status"
+          assert_log "old guard" "${RUNNER_TEMP}/probe-4-old.log" '^[[:space:]]*IPHONEOS_DEPLOYMENT_TARGET = 26\.0[[:space:]]*$'
+
+          run_guard "managed-build-settings-guard.sh" "$tree" "$new_guard" "${RUNNER_TEMP}/probe-4-new.log"
+          assert_exit "new guard" nonzero "$guard_status"
+          assert_log "new guard" "${RUNNER_TEMP}/probe-4-new.log" 'project\.yml:[0-9]+: deploymentTarget \(XcodeGen writes this into IPHONEOS_DEPLOYMENT_TARGET\)'
+
+      - name: Probe 5 — each configuration must be resolved on its own
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${GITHUB_WORKSPACE}/.github/scripts/guard-selftest-harness.sh"
+
+          # Invariant 3 is the only one that reads xcodebuild, and its claim is
+          # "every supported configuration" — not "the one xcodebuild happens to
+          # default to". So this probe has to make the two configurations
+          # disagree; only then does dropping -configuration, or letting one
+          # configuration's binding rot, stop being invisible.
+          #
+          # The difference cannot be introduced in Config/*.xcconfig: invariant 2
+          # scans that whole glob and would fail first, which would prove nothing
+          # about invariant 3. It goes in a file outside Config/, reached by an
+          # #include — the one direction invariant 2 does not follow.
+          for configuration in Debug Release; do
+            tree=$(fresh_tree "configuration-${configuration}")
+            cd "$tree"
+
+            mkdir -p Managed
+            printf 'IPHONEOS_DEPLOYMENT_TARGET = 25.0\n' > Managed/deployment.xcconfig
+            printf '#include "../Managed/deployment.xcconfig"\n' >> "Config/${configuration}.xcconfig"
+            assert_contains "${configuration}.xcconfig to include the out-of-tree file" \
+              "Config/${configuration}.xcconfig" '^#include "\.\./Managed/deployment\.xcconfig"$'
+            generate_project "$tree"
+
+            run_guard "old guard (main, before the managed-settings guard)" "$tree" "$old_guard" "${RUNNER_TEMP}/probe-5-${configuration}-old.log"
+            assert_exit "old guard, ${configuration} resolving the wrong value" zero "$guard_status"
+
+            run_guard "managed-build-settings-guard.sh" "$tree" "$new_guard" "${RUNNER_TEMP}/probe-5-${configuration}-new.log"
+            assert_exit "new guard, ${configuration} resolving the wrong value" nonzero "$guard_status"
+            assert_log "new guard" "${RUNNER_TEMP}/probe-5-${configuration}-new.log" "in ${configuration}, IPHONEOS_DEPLOYMENT_TARGET resolved to"
+          done
+
+      - name: Clean up, and assert the checkout was never modified
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          rm -rf "${RUNNER_TEMP}/guard-selftest"
+
+          # Every probe worked in a copy under $RUNNER_TEMP. If that ever stops
+          # being true, this step is where it shows up — before the branch is
+          # merged rather than after.
+          #
+          # git status does not report ignored paths, and both artifacts a stray
+          # `xcodegen generate` would leave in the checkout are ignored
+          # (.gitignore: *.xcodeproj/, App/Info.plist). Without this, a probe
+          # that generated into the workspace instead of into its own copy would
+          # read as clean.
+          for stray in ZenAgent.xcodeproj App/Info.plist; do
+            if [ -e "${GITHUB_WORKSPACE}/${stray}" ]; then
+              echo "::error::${stray} is in the checkout; a probe generated into the workspace instead of into its own copy."
+              exit 1
+            fi
+          done
+
+          if ! status=$(git -C "$GITHUB_WORKSPACE" status --short); then
+            echo "::error::git status failed; the working tree cannot be shown to be clean."
+            exit 1
+          fi
+          if [ -n "$status" ]; then
+            echo "::error::the working tree is not clean after the self-test:"
+            printf '%s\n' "$status"
+            exit 1
+          fi
+          echo "OK: the checkout is clean; no probe touched it"
