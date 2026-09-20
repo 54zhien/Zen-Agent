@@ -117,7 +117,7 @@ enum SuspendReason: String, Codable, Sendable {
     case authRequired
 }
 
-enum ToolCallState: String, Codable, Sendable {
+enum ToolCallState: String, CaseIterable, Codable, Sendable {
     case validated
     case waitingForApproval
     case waitingForSystemPermissionConsent
