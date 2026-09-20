@@ -159,34 +159,36 @@ runningboardd[5281]: [app<com.zhien.zenagent.ZenAgent>:6766] exited with context
 | 修复 | `0ea1351` — accepted + listening fd 上设 `SO_NOSIGPIPE`（test-only） |
 | 最终 CI | `35479084907` → **success**，**0 test-host restart**，单次连续运行 |
 
-### 最终测试规模 —— 四个数字，各自出处，差额未解释
+### 最终测试规模 —— 188 = 186 实际执行 + 2 disabled / skipped
 
-**这四个数字互不相等，且我没有把它们对齐。** 每个的来源如下，不做推断：
+**最终口径只有一个：25 个 suite、188 个 test，其中 186 个实际启动并执行，2 个 `.disabled` test 被跳过。**
 
 | 数字 | 出处（精确命令 / 日志行） |
 |---|---|
-| **188 tests in 25 suites** | `✓ Test run with 188 tests in 25 suites passed` —— **框架自己报的总数**，不是执行数 |
-| **186** | `grep -c '◇ Test "'` —— **starts 行数**（同名可重复，见下） |
-| **185** | `grep -oE '◇ Test "[^"]+"' \| sort -u \| wc -l` —— **唯一测试名个数** |
+| **188 tests in 25 suites** | `✔ Test run with 188 tests in 25 suites passed` —— 框架汇总；源码中也有 188 个 `@Test`、25 个 `@Suite` 声明 |
+| **186** | `grep -c '◇ Test "'` —— 实际启动并执行的 test 数 |
+| **185** | `grep -oE '◇ Test "[^"]+"' \| sort -u \| wc -l` —— 这 186 次执行所使用的唯一 display string 数 |
 | **2** | `grep -c '➜ Test "'` —— 两条 `.disabled` 集成测试，名字分别是 `a connection that dies after data was observed...` 与 `cancelling a provider consumer reaches the network...` |
 
-**186 与 185 的差额是实测出来的，不是推测。** 在 `35480007880` 的日志里：
+**186 次执行只有 185 个唯一 display string，并不是少执行了 1 个 test。** 以下两个独立测试分别位于两个不同 suite，但刻意使用了同一个显示名：
 
-```
+- `DeepSeek provider` suite：`editedInstanceIsRefused`
+- `DeepSeek streaming` suite：`editedInstanceIsRefusedBeforeDispatch`
+
+二者的 display name 都是 `an edited instance is refused before anything is sent`，因此日志实测为：
+
+```text
 started lines : 186
 unique names  : 185
 duplicated    : [('an edited instance is refused before anything is sent', 2)]
 ```
 
-唯一被重复 start 的名字是 `an edited instance is refused before anything is sent`（2 次）。
-**此前我在这里写的「参数化测试同一名字会出现多行」是未经证实的推测，已删除。**
+所以完整关系是：**188 declared/reported = 186 started/executed + 2 disabled/skipped**；这 186 次执行对应 **185 个唯一显示字符串**。
 
-**188（框架自报总数）与 187（185 unique started + 2 skipped）之间差 1，来源未核实，
-不编造解释。**
-
-**历史 `185` 的出处必须纠正**：它是 `35447236888` 那次「restart 前 93 + restart 后 93，零交集」
-的重建值 —— 且那次日志实为 `92 + 93`（不是 `93 + 93`），尾段另含 2 skipped，
-故当时框架只报 `95 tests in 15 suites`。它是**诊断用的重建值**，不是 suite 的完整规模。
+**历史 `185` 的出处必须纠正**：它是 `35447236888` 那次 restart 的诊断重建值，即
+**restart 前 92 + restart 后 93，零交集，合计 185**，不是此前误写的 `93 + 93`。
+尾段另含 2 个 skipped，因此当时框架只报 `95 tests in 15 suites`。
+这个 `185` 是对被 restart 切开的执行记录所做的重建，不是 suite 的完整规模。
 
 ### 未完成（本任务边界之外）
 

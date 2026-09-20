@@ -238,14 +238,24 @@ jobs:
           XCODE_STATUS=${PIPESTATUS[0]}
           set -e
 
-          # A restarted test host reports success while having run only part of the
-          # suite: it happened here, and the only total it printed described the second
-          # launch. The guard is about the banner, not about any particular test count -
-          # which is why it names no numbers. A green tick describing half a run is
-          # worse than a red one.
-          if grep -Fq 'Restarting after unexpected exit, crash, or test timeout' \
-              "$RUNNER_TEMP/ZenAgentTests.log"; then
-            echo "::error::The test host restarted during the suite - the reported totals cover only part of the run."
+          # This workflow makes exactly one xcodebuild test invocation, with one
+          # destination, one test target, and no retry or test-iteration options.
+          # A normal invocation therefore has exactly one Swift Testing run start.
+          # More than one proves that the test host was relaunched, independently
+          # of the restart banner's wording. Keep the current banner only as a
+          # fallback for a relaunch announced before its second run can begin.
+          TEST_RUN_START_COUNT=0
+          if [ -f "$RUNNER_TEMP/ZenAgentTests.log" ]; then
+            TEST_RUN_START_COUNT=$(
+              grep -cF '◇ Test run started.' \
+                "$RUNNER_TEMP/ZenAgentTests.log" || true
+            )
+          fi
+
+          if [ "$TEST_RUN_START_COUNT" -gt 1 ] || \
+             grep -Fq 'Restarting after unexpected exit, crash, or test timeout' \
+               "$RUNNER_TEMP/ZenAgentTests.log"; then
+            echo "::error::Test-host restart evidence detected during the suite ($TEST_RUN_START_COUNT test-run starts); refusing a partial or relaunched run."
             exit 1
           fi
 
@@ -259,19 +269,32 @@ jobs:
         # of well over a hundred megabytes. That is not a cost to pay on every clean
         # push.
         #
-        # The check below narrows it further. An ordinary failure - a failing assertion,
-        # a compile error - leaves no restart banner, so the step says so and stops
-        # without exporting anything. Only a test-host restart, the one failure this
+        # An ordinary failure has at most one test-run start and no restart banner, so
+        # it returns before exporting anything. A repeated run-start is sufficient even
+        # if the banner wording changes; the banner remains a fallback for a relaunch
+        # that is announced but dies before the second run starts.
         # machinery exists for, goes on to the full export.
         if: failure()
         shell: bash
         run: |
           set -uo pipefail
 
-          if ! grep -Fq 'Restarting after unexpected exit, crash, or test timeout'               "$RUNNER_TEMP/ZenAgentTests.log" 2>/dev/null; then
-            echo "No test-host restart in this run; nothing to diagnose."
+          TEST_RUN_START_COUNT=0
+          if [ -f "$RUNNER_TEMP/ZenAgentTests.log" ]; then
+            TEST_RUN_START_COUNT=$(
+              grep -cF '◇ Test run started.' \
+                "$RUNNER_TEMP/ZenAgentTests.log" || true
+            )
+          fi
+
+          if [ "$TEST_RUN_START_COUNT" -le 1 ] && \
+             ! grep -Fq 'Restarting after unexpected exit, crash, or test timeout' \
+               "$RUNNER_TEMP/ZenAgentTests.log" 2>/dev/null; then
+            echo "No test-host restart evidence in this run ($TEST_RUN_START_COUNT test-run start(s)); nothing to diagnose."
             exit 0
           fi
+
+          echo "Test-host restart evidence found ($TEST_RUN_START_COUNT test-run start(s)); collecting diagnostics."
 
           DIAG="$RUNNER_TEMP/xcdiagnostics"
           DECODED="$RUNNER_TEMP/decoded-system-logs"
