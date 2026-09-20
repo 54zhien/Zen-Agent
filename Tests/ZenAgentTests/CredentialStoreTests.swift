@@ -120,6 +120,41 @@ struct CredentialStoreTests {
         #expect(try store.matchesBinding(Self.reference, generation: 2))
     }
 
+    // MARK: - Failed rebind
+
+    @Test("a rebind whose metadata write fails must not hand the new secret to the old generation")
+    func failedRebindDoesNotLeakSecret() throws {
+        // In-memory pair only: the Keychain backend has no way to fail a *subsequent*
+        // metadata write on demand. The rule being pinned lives in `CredentialStore`,
+        // above both seams — that is the whole point of the two-backend split.
+        let metadata = InMemoryCredentialMetadataRepository()
+        let store = CredentialStore(secrets: InMemorySecretBackend(), metadataRepository: metadata)
+        try store.provision(secret("sk-first"), as: Self.reference)
+
+        metadata.failNextSave = true
+        var failure: Error?
+        do {
+            try store.rebind(secret("sk-other-account"), as: Self.reference, principalFingerprint: "acct-b")
+        } catch {
+            failure = error
+        }
+        #expect(failure != nil, "the rebind must surface the metadata failure")
+
+        #expect(
+            try store.resolve(Self.reference)?.revealed != "sk-other-account",
+            """
+            a run frozen against generation 1 must never receive the new account's \
+            secret. The rebind writes the secret first and the metadata second, so a \
+            failed metadata write leaves the new principal's token readable under the \
+            old generation — the exact two-step hole this test probes.
+            """
+        )
+        #expect(
+            try store.metadata(for: Self.reference)?.bindingGeneration == 1,
+            "the metadata must not have moved past the failed write"
+        )
+    }
+
     // MARK: - Logout
 
     @Test("logout removes the secret and bumps the binding", arguments: Backend.allCases)

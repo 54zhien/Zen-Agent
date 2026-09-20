@@ -57,6 +57,12 @@ final class InMemoryCredentialMetadataRepository: CredentialMetadataRepository, 
     private let lock = NSLock()
     private var store: [String: CredentialMetadata] = [:]
 
+    /// When set, the next `saveMetadata` throws. Consumed by the throw, so a later
+    /// save succeeds. Simulates the persistence layer refusing a write after the
+    /// secret backend has already committed — the interleaving a versioned key must
+    /// survive.
+    var failNextSave = false
+
     init() {}
 
     private func key(_ reference: CredentialReference) -> String {
@@ -70,6 +76,10 @@ final class InMemoryCredentialMetadataRepository: CredentialMetadataRepository, 
 
     func saveMetadata(_ metadata: CredentialMetadata) throws {
         lock.lock(); defer { lock.unlock() }
+        if failNextSave {
+            failNextSave = false
+            throw SimulatedMetadataWriteFailure()
+        }
         store[key(metadata.reference)] = metadata
     }
 
@@ -78,3 +88,7 @@ final class InMemoryCredentialMetadataRepository: CredentialMetadataRepository, 
         store.removeValue(forKey: key(reference))
     }
 }
+
+/// What `failNextSave` throws. A concrete type rather than a generic `Error` so a
+/// test can assert on it if it ever needs to.
+struct SimulatedMetadataWriteFailure: Error, Equatable {}
