@@ -264,17 +264,6 @@ struct URLSessionHTTPTransportTests {
     }
 
     /// Runs a refusal and reports how it ended, giving up after a bound.
-    ///
-    /// **Bounded because the failure under test is a call that never returns**, and a
-    /// test that hangs reports nothing — it takes the host with it, and the runner's
-    /// log then says "Restarting after unexpected exit" instead of naming the test. The
-    /// bound is a guard against that, not a performance budget: the deadlines under test
-    /// are milliseconds and this is seconds, so nothing here is close to it.
-    ///
-    /// A call still running when the bound expires is left to the caller's teardown.
-    /// Cancelling it would achieve nothing — cancelling a consumer does not reliably
-    /// reach `URLSession`, which is the fact this suite is built on — so the session's
-    /// `invalidateAndCancel` and the server's `shutdown` are what release it.
     private func awaitRefusal(
         _ transport: URLSessionHTTPTransport,
         _ url: URL,
@@ -292,6 +281,29 @@ struct URLSessionHTTPTransportTests {
             }
         }
 
+        return await awaitOutcome(call, attempts: attempts)
+    }
+
+    /// Waits out a call that has to be given a bound, and reports how it ended.
+    ///
+    /// **Bounded because the failure under test is a call that never returns**, and a
+    /// test that hangs reports nothing — it takes the host with it, and the runner's
+    /// log then says "Restarting after unexpected exit" instead of naming the test. The
+    /// bound is a guard against that, not a performance budget: the deadlines under test
+    /// are milliseconds and this is seconds, so nothing here is close to it.
+    ///
+    /// Separate from `awaitRefusal` because one caller has to cancel the call itself and
+    /// so has to hold its `Task`, which `awaitRefusal` does not give back. Sharing this
+    /// loop is what keeps the two callers from disagreeing about *how an outcome wait
+    /// ends* — the fact they have in common. It does not pool the per-fact polls below:
+    /// those wait on the server (`wroteChunk`, `observedPeerClose`) rather than on this
+    /// box, and each states its own bound at its use site.
+    ///
+    /// A call still running when the bound expires is left to the caller's teardown.
+    /// Cancelling it would achieve nothing — cancelling a consumer does not reliably
+    /// reach `URLSession`, which is the fact this suite is built on — so the session's
+    /// `invalidateAndCancel` and the server's `shutdown` are what release it.
+    private func awaitOutcome(_ call: BoundedCall, attempts: Int) async -> Refusal {
         for _ in 0..<attempts where call.outcome == nil {
             try? await Task.sleep(for: .milliseconds(10))
         }
@@ -328,12 +340,25 @@ struct URLSessionHTTPTransportTests {
             return
         }
         #expect(response.status == 401)
+        // **Exactly** the cap, not merely under it. The 65,536th byte is stored and is the
+        // last one this transport was ever going to keep, so an exact count is what shows
+        // the cap is the thing that stopped the read. `<=` would also pass for a read that
+        // stopped early for some other reason, which is a different bug wearing the same
+        // symptom.
         #expect(
-            !response.body.isEmpty && response.body.count <= 64 << 10,
+            response.body.count == 64 << 10,
             """
-            the envelope kept has to be bounded by the documented cap and still worth \
-            reporting; got \(response.body.count) bytes
+            the envelope kept has to be exactly the documented cap: the cap is what proves \
+            this read stopped because the body was too big rather than because something \
+            else ended it; got \(response.body.count) bytes
             """
+        )
+        // And it is the **first** 64 KiB of what the server sent, in order. A read that
+        // kept the last 64 KiB, or that dropped a byte at the boundary, would satisfy a
+        // count and fail this.
+        #expect(
+            response.body == Data(repeating: UInt8(ascii: "x"), count: 64 << 10),
+            "the bytes kept must be the ones the server actually sent, from the start"
         )
         #expect(server.wroteChunk, "the server never wrote its body")
 
@@ -342,6 +367,14 @@ struct URLSessionHTTPTransportTests {
         // the transfer was ended — so asserting on the error says nothing about the
         // connection. A client that stops reading while the peer keeps writing is exactly
         // the failure being tested for, and only the peer can see it.
+        //
+        // This is a **resource-ownership** regression test, and it is deliberately not
+        // phrased as "the previous implementation must fail here". Whether Foundation
+        // closes a connection once the `AsyncBytes` reference goes away is not something
+        // this suite has characterised, and it may well close one by luck — in which case
+        // a broken implementation would pass. What is asserted is the end state a holder
+        // can rely on: a client that stopped reading at the cap did not leave the peer
+        // writing into a live connection.
         for _ in 0..<800 where !server.observedPeerClose {
             try? await Task.sleep(for: .milliseconds(10))
         }
@@ -380,8 +413,9 @@ struct URLSessionHTTPTransportTests {
         // the transfer, which the reader sees as a cancellation — so a transport that
         // reported the mechanism instead of the reason would land on `.cancelled` here,
         // and one that reported the *other* deadline would land on `.inactivityTimeout`.
-        // Neither is this, and `neverReturned` is what today's code does.
-        guard case .threw(.errorBodyTimeout(let response, _)) = outcome else {
+        // Neither is this, and `neverReturned` is what the code did before the absolute
+        // deadline existed.
+        guard case .threw(.errorBodyTimeout(let response, let after)) = outcome else {
             Issue.record(
                 """
                 expected .errorBodyTimeout, got \(String(describing: outcome)). A body \
@@ -393,6 +427,14 @@ struct URLSessionHTTPTransportTests {
             return
         }
         #expect(response.status == 503, "the status line arrived before the body did")
+        // The **configured** deadline, reported by the mechanism that fired — not a
+        // measurement of the wall clock. Which deadline the error names is the fact a
+        // caller acts on, and it stays true on a loaded CI machine where releasing the
+        // read itself may take noticeably longer than the deadline did to elapse.
+        #expect(
+            after == .milliseconds(900),
+            "the error must name the deadline that fired, got \(after)"
+        )
 
         for _ in 0..<800 where !server.observedPeerClose {
             try? await Task.sleep(for: .milliseconds(10))
@@ -400,6 +442,106 @@ struct URLSessionHTTPTransportTests {
         #expect(
             server.observedPeerClose,
             "the deadline ended the read and left the transfer running"
+        )
+        #expect(server.shutdown(), "LocalHTTPServer worker did not terminate")
+    }
+
+    /// The same refusal, ended by the **caller** rather than by any deadline.
+    ///
+    /// This is the one route through the refusal branch that neither of the tests above
+    /// can stand in for. Ending the transfer is how a deadline releases its reader, so
+    /// "this deadline expired" and "the caller pressed Stop" arrive at the reader as the
+    /// same event — and the two must not be confused, because one of them is a verdict
+    /// about the credential and the other is a decision the caller already made. The
+    /// transport's ordering is what keeps them apart, and this drives it through a real
+    /// socket rather than through a stub that could only claim to have.
+    @Test("a caller who cancels while a refused body is draining is answered with .cancelled")
+    func cancellingDuringARefusalBodyIsCancelled() async throws {
+        // The same slow trickle the deadline test uses, and for the same reason: a byte
+        // every 300ms never finishes the body, so the read is still in progress whenever
+        // the cancellation lands, and 64 KiB is hours away.
+        //
+        // **401, not 503.** It is the status whose mapping is `credentialRejected`, so a
+        // transport that let the known status win over the caller's decision would be
+        // caught by the case assertion below rather than passing quietly.
+        let server = try LocalHTTPServer(script: .continuous(".", every: 0.3), status: 401)
+        server.start()
+        defer { server.shutdown() }
+
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        // Thirty seconds, so the deadline provably cannot be what ends this read. A body
+        // this test gave up on by itself would say nothing about the ordering under test.
+        let transport = URLSessionHTTPTransport(
+            session: session,
+            timeouts: refusalPolicy(errorBodyDeadline: .seconds(30))
+        )
+
+        let call = BoundedCall()
+        let task = Task {
+            do {
+                _ = try await transport.stream(post(server.baseURL.appending(path: "chat/completions")))
+                call.record(.returnedWithoutThrowing)
+            } catch let error as HTTPTransportError {
+                call.record(.threw(error))
+            } catch {
+                call.record(.threwSomethingElse)
+            }
+        }
+
+        // **The barrier, and it is the test's soundness rather than a courtesy.** The
+        // server writes the head before it writes any body, so once a body byte exists the
+        // client is past "waiting for a response" and into the refusal branch — that is
+        // what makes this a test of draining a refused body rather than of cancelling a
+        // request whose response never arrived. The wait is bounded and asserted on, so a
+        // server that never got that far fails loudly instead of passing vacuously.
+        for _ in 0..<800 where !server.wroteChunk {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(
+            server.wroteChunk,
+            "the server never wrote the first body byte, so nothing was draining and nothing was tested"
+        )
+
+        task.cancel()
+
+        // Bounded to roughly three seconds: this call has to return, and one that does
+        // not is the failure, not a slow success.
+        let outcome = await awaitOutcome(call, attempts: 300)
+        guard case .threw(let error) = outcome else {
+            Issue.record(
+                """
+                expected the call to end as a thrown HTTPTransportError, got \
+                \(String(describing: outcome)). A caller who cancelled is not waiting for \
+                this body, and the refusal branch has to let go of it
+                """
+            )
+            return
+        }
+        // The case, and it excludes both of the other two by name. `.httpStatus` would
+        // carry the 401 up into a `credentialRejected` verdict about someone who pressed
+        // Stop; `.errorBodyTimeout` would blame a deadline that had thirty seconds left.
+        guard case .cancelled = error else {
+            Issue.record(
+                "expected .cancelled, got \(error) — a cancellation is not evidence about a credential"
+            )
+            return
+        }
+
+        // Asserted **before** `session.invalidateAndCancel()` runs, so the close cannot
+        // be the teardown's doing. Same bounded wait the tests above use, for the same
+        // reason: the fact belongs to the peer, which only reports it when its next write
+        // fails.
+        for _ in 0..<800 where !server.observedPeerClose {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(
+            server.observedPeerClose,
+            """
+            the cancellation answered the caller and left the transfer running. Nobody is \
+            waiting for this response any more, and no stream handle was handed back — so \
+            if this branch does not end the transfer, nothing does
+            """
         )
         #expect(server.shutdown(), "LocalHTTPServer worker did not terminate")
     }

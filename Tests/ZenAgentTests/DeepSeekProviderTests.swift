@@ -319,17 +319,39 @@ struct DeepSeekProviderTests {
         }
     }
 
+    /// The provider's half of a chain whose transport half is a real socket.
+    ///
+    /// `URLSessionHTTPTransportTests` establishes that cancelling a caller while a
+    /// refused response's body is draining surfaces `HTTPTransportError.cancelled` and
+    /// not a status. This is the other end of that: the adapter turns it into
+    /// `.cancelled` and into nothing else.
+    ///
+    /// The two halves are asserted in different suites because they are separately
+    /// breakable, and each layer can be right on its own while the pair is wrong. A
+    /// transport that reported the 401 it had already read would be behaving
+    /// defensibly, and an adapter that mapped that 401 faithfully would be too — and the
+    /// user who pressed Stop would be told their credential was rejected.
     @Test("cancellation surfaces as cancellation, not as a failure")
     func cancellation() async throws {
         let f = try makeFixture()
         f.transport.fail(with: .cancelled)
 
+        var failure: ProviderError?
+        do {
+            _ = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+        } catch let error as ProviderError {
+            failure = error
+        }
+
         // Distinct from a failure on purpose: a cancelled request is not a request that
         // went wrong, and reporting it as one would put an error in front of a user who
         // pressed Stop.
-        await #expect(throws: ProviderError.cancelled) {
-            try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
-        }
+        //
+        // Exact, so it also excludes `.credentialRejected` — which is the specific
+        // inversion to guard against, because that case is not a message but the value
+        // the availability judgement reads, and a cancellation is not evidence about a
+        // credential.
+        #expect(failure == .cancelled, "expected .cancelled, got \(String(describing: failure))")
     }
 
     // MARK: - No retry

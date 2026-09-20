@@ -2,8 +2,8 @@ import Foundation
 
 /// The deadlines a stream runs under.
 ///
-/// **Two ideas of "no progress", kept apart on purpose.** They fail for different
-/// reasons and point at different fixes, and a single timer cannot express both:
+/// **Three ideas of "no progress", kept apart on purpose.** They fail for different
+/// reasons and point at different fixes, and a single timer cannot express all three:
 ///
 /// | question | what answers it | what counts as progress |
 /// |---|---|---|
@@ -12,9 +12,10 @@ import Foundation
 /// | is the model producing? | `firstEvent` / `betweenEvents` | **only a dispatched event** |
 ///
 /// A provider that sends heartbeats while it thinks is keeping the connection open and
-/// saying nothing about the answer. Collapsing the two would either kill a request the
-/// provider was still working on, or wait forever on a connection that had quietly died
-/// — and the resulting error text would point at the wrong layer
+/// saying nothing about the answer. Collapsing any two of them would either kill a
+/// request the provider was still working on, wait forever on a connection that had
+/// quietly died, or keep reading a refusal's envelope long after it had stopped being
+/// worth reading — and the resulting error text would point at the wrong layer
 /// (`Agent Runtime.md:151-153`).
 ///
 /// The values are a starting point, not a finding. The design notes say explicitly that
@@ -28,7 +29,8 @@ struct StreamTimeoutPolicy: Sendable, Equatable {
     /// thing this deadline is asking about.
     var transportInactivity: Duration
 
-    /// The longest a **refused response's body** may take to arrive, counted from the
+    /// The longest a **refused response's body** may take, as a **total patience for
+    /// reading a diagnostic body once a non-2xx head has arrived** — counted from the
     /// moment the read starts rather than from the last byte that arrived.
     ///
     /// **Absolute, unlike the others.** `transportInactivity` asks "is the connection
@@ -39,15 +41,22 @@ struct StreamTimeoutPolicy: Sendable, Equatable {
     /// happy forever, and the cap on the body's *size* bounds space rather than time —
     /// so without this, an endless trickle is a read that never returns.
     ///
-    /// Far tighter than `firstEvent`, deliberately. `firstEvent` waits on a model that
-    /// has to be *run* before it can say anything, which is why it is the most generous
-    /// of all of them; an error envelope is written by the server at the moment it writes
-    /// the status line, so it is already in flight before the first byte of it is read.
-    /// Waiting on something already produced must not be more patient than waiting on
-    /// something not yet produced. The value is generous for the job it does — an
-    /// envelope is a small JSON document, and this is orders of magnitude more time
-    /// than one needs on any working connection — while still ending a body that has
-    /// stopped being worth the wait.
+    /// Far tighter than `firstEvent`, deliberately, and the comparison is about what is
+    /// being waited on rather than about how the bytes travel. `firstEvent` waits on a
+    /// model that has to be *run* before it can say anything, which is why it is the most
+    /// generous of all of them; this one is only ever started **after** the non-2xx head
+    /// has been received, so the server has already refused and already has an envelope
+    /// to write. Nothing here waits on work that has not begun.
+    ///
+    /// It does **not** claim that HTTP delivers the status line and the envelope
+    /// together. The head is all this transport has seen; the body that follows may come
+    /// at once, may trickle, and may never finish — which is precisely why this is a
+    /// deadline and not a formality. What justifies making it tight is that the server
+    /// side of the work is already done, not that the bytes are already on the wire.
+    ///
+    /// The value is generous for the job it does — an envelope is a small JSON document,
+    /// and this is orders of magnitude more time than one needs on any working
+    /// connection — while still ending a body that has stopped being worth the wait.
     var errorBodyDeadline: Duration
 
     /// The longest wait for the first event that carries model output.
@@ -73,8 +82,9 @@ struct StreamTimeoutPolicy: Sendable, Equatable {
     static let `default` = StreamTimeoutPolicy(
         transportInactivity: .seconds(180),
         // Tighter than `firstEvent` by design, and tighter than `transportInactivity`
-        // too. An envelope the server has already written does not need three minutes,
-        // and a refusal is a case where saying so promptly is worth more than waiting.
+        // too. A server that has already refused does not need three minutes to hand over
+        // the envelope it refused with, and a refusal is a case where saying so promptly
+        // is worth more than waiting.
         errorBodyDeadline: .seconds(15),
         firstEvent: .seconds(650),
         betweenEvents: .seconds(180),
