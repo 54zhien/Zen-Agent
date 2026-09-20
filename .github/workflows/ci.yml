@@ -239,9 +239,10 @@ jobs:
           set -e
 
           # A restarted test host reports success while having run only part of the
-          # suite. It happened here: the workflow said success, the log said
-          # "Restarting after unexpected exit", and the only total printed covered 95
-          # of 185 tests. A green tick describing half a run is worse than a red one.
+          # suite: it happened here, and the only total it printed described the second
+          # launch. The guard is about the banner, not about any particular test count -
+          # which is why it names no numbers. A green tick describing half a run is
+          # worse than a red one.
           if grep -Fq 'Restarting after unexpected exit, crash, or test timeout' \
               "$RUNNER_TEMP/ZenAgentTests.log"; then
             echo "::error::The test host restarted during the suite - the reported totals cover only part of the run."
@@ -251,12 +252,26 @@ jobs:
           exit "$XCODE_STATUS"
 
       - name: Inspect test host termination
-        # Diagnostics only, and deliberately temporary. Do not change product or
-        # test-fixture behaviour until this produces a classifiable exit reason.
-        if: always()
+        # Diagnostics only, and deliberately temporary.
+        #
+        # Gated on failure rather than run always. On a green run there is nothing to
+        # diagnose, and this step exports a diagnostics bundle and decodes a logarchive
+        # of well over a hundred megabytes. That is not a cost to pay on every clean
+        # push.
+        #
+        # The check below narrows it further. An ordinary failure - a failing assertion,
+        # a compile error - leaves no restart banner, so the step says so and stops
+        # without exporting anything. Only a test-host restart, the one failure this
+        # machinery exists for, goes on to the full export.
+        if: failure()
         shell: bash
         run: |
           set -uo pipefail
+
+          if ! grep -Fq 'Restarting after unexpected exit, crash, or test timeout'               "$RUNNER_TEMP/ZenAgentTests.log" 2>/dev/null; then
+            echo "No test-host restart in this run; nothing to diagnose."
+            exit 0
+          fi
 
           DIAG="$RUNNER_TEMP/xcdiagnostics"
           DECODED="$RUNNER_TEMP/decoded-system-logs"

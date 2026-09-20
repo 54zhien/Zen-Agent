@@ -51,4 +51,4 @@ App/Info.plist
 # Keep source, config, docs and bundled resources versioned.
 
 # Downloaded CI artifacts (diagnostics bundles; not source)
-.tmp/
+/.tmp/

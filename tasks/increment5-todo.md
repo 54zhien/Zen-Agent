@@ -46,24 +46,28 @@
 - [x] 5E `StreamingCancellationTests`（`stopLoading` 真被调用 + 取消后不再交付）
 - [x] 5G 分类缺口补齐（malformed SSE / 首个事件前断流 / parser 错误映射）
 - [x] `/code-review` 跑 diff → **4 个真实 bug 已修**（见下）
-- [x] **CI 全绿** `35441053882` → success，**181 测试 / 23 suite**（main = `11bff63`）
-- [ ] 两条测试待搬到 localhost harness（见下）
+- [x] **CI 全绿** `35441053882` → success —— 但**该次并非干净运行**（含 test-host restart），
+  当时的 `181 / 23` 是「逐名合并」的重建值，**不是**任何一次真实运行的规模。见文末。
+- [ ] 两条 disabled 集成测试**尚未迁移**到 localhost harness（见下）
 
-### 仍未完成：localhost streaming harness
+### 仍未完成：两条集成测试尚未迁移
 
-`URLProtocolCharacterisationTests` 证明：**自定义 URLProtocol 驱动 `bytes(for:)` 时，
-少量 didLoad 后保持 request open 无法可靠交付给 consumer。**
-（**这是 harness 的观测，不推广到真实 HTTPS**；未测阈值。）
+`LocalHTTPServer`（test-only localhost HTTP/1.1 fixture）**已经存在并通过 CI**：
+`LocalHTTPServerCharacterisationTests`（增量交付 / `bytes.task.cancel()` → peer close）
+与 `LocalHTTPServerLifecycleTests`（4 条 teardown 断言）全绿。
 
-因此两条测试被 `.disabled`（保留意图与理由，非删除）：
+`URLProtocolCharacterisationTests` 证明的是**旧桩**的局限：自定义 URLProtocol 驱动
+`bytes(for:)` 时，少量 didLoad 后保持 request open 无法可靠交付给 consumer。
+（**这是那个 harness 的观测，不推广到真实 HTTPS**；未测阈值。）
+
+因此以下两条**仍是 `.disabled`，尚未迁移到 `LocalHTTPServer`**：
 
 | 测试 | 需要的 server 行为 |
 |---|---|
 | `URLSessionHTTPTransportTests.failureAfterObservedDataIsInterrupted` | 发 partial → consumer 收到 → 触发 close |
 | `StreamingCancellationTests.cancellationReachesTheNetworkWithoutAFailure` | 发合法 SSE → consumer 收到 → stall → cancel |
 
-需要 test-only localhost HTTP server（三个脚本：`sendChunkThenStall` /
-`sendChunkThenDisconnect` / `slowContinuousStream`），并**先**用它做 characterization。
+迁移后按方案要求**重新启用或等价替代**。
 **不要改 production `URLSession.bytes(for:)`**，也不切 delegate。
 
 ### `/code-review` 查出并已修的 4 个 bug（出厂配置下均可达）
@@ -118,3 +122,67 @@ A 和 D 是其中影响最大的两条。
 ## Review（增量结束时填）
 
 _待填_
+
+
+---
+
+## inc5-ci-restart 任务结论（2026-09-20）
+
+### 根因
+
+test-only 的 `LocalHTTPServer` 在 client cancellation 之后继续对已断开的 peer 调用 `write(2)`，
+而 accepted socket 未设 `SO_NOSIGPIPE`。`SIGPIPE(13)` 的默认处置是**终止进程**，于是 test host
+在全部断言都已通过之后被杀，runner 重启 host —— 而 workflow 仍然报 success。
+
+证据（解码后的 simulator Unified Log，非 `.ips`）：
+
+```
+launchd_sim[5273]: [user/501/UIKitApplication:com.zhien.zenagent.ZenAgent[9bea][rb-legacy] [6766]:]
+  exited due to SIGPIPE | sent by ZenAgent[6766], ran for 21299ms
+runningboardd[5281]: [app<com.zhien.zenagent.ZenAgent>:6766] exited with context
+  <RBSProcessExitContext| status:<RBSProcessExitStatus| domain:signal(2) code:SIGPIPE(13)>>
+```
+
+同次导出的 `001-UsageTrackingAgent-*.ips` 是 `EXC_BREAKPOINT (SIGTRAP)`，**与 test host 无关**，
+按判定表不作为根因。
+
+### commits / CI
+
+| | |
+|---|---|
+| 诊断 | `c8fd18f` — 用 `log show --archive` 解码 Unified Log，替代 grep 二进制 |
+| 修复 | `0ea1351` — accepted + listening fd 上设 `SO_NOSIGPIPE`（test-only） |
+| 最终 CI | `35479084907` → **success**，**0 test-host restart**，单次连续运行 |
+
+### 最终测试规模 —— 四个数字，各自出处，差额未解释
+
+**这四个数字互不相等，且我没有把它们对齐。** 每个的来源如下，不做推断：
+
+| 数字 | 出处（精确命令 / 日志行） |
+|---|---|
+| **188 tests in 25 suites** | `✓ Test run with 188 tests in 25 suites passed` —— **框架自己报的总数**，不是执行数 |
+| **186** | `grep -c '◇ Test "'` —— **starts 行数**；参数化测试同一名字会出现多行 |
+| **185** | `grep -oE '◇ Test "[^"]+"' \| sort -u \| wc -l` —— **唯一测试名个数** |
+| **2** | `grep -c '➜ Test "'` —— 两条 `.disabled` 集成测试，名字分别是 `a connection that dies after data was observed...` 与 `cancelling a provider consumer reaches the network...` |
+
+**差额没有编造解释。** 我没有验证 188 / 186 / 185 之间差在哪，也不声称知道。
+
+**历史 `185` 的出处必须纠正**：它是 `35447236888` 那次「restart 前 93 + restart 后 93，零交集」
+的重建值 —— 且那次日志实为 `92 + 93`（不是 `93 + 93`），尾段另含 2 skipped，
+故当时框架只报 `95 tests in 15 suites`。它是**诊断用的重建值**，不是 suite 的完整规模。
+
+### 未完成（本任务边界之外）
+
+`LocalHTTPServer` harness **已经存在并可用**。未完成的是：
+**那两条 `.disabled` 的 integration test 尚未迁移到它上面并重新启用。**
+
+### follow-up（本轮未改代码）
+
+评审指出一个**真实但独立**的既有竞态：`accept()` 已返回、`clientFD` 尚未发布的那段窗口里，
+`shutdown()` 会看到 `clientFD == -1`，随后 worker 才发布 accepted 并可能进入阻塞 `read()`。
+本轮的 `setsockopt` 只是把窗口略微拉长，**没有引入也没有修复**它。
+正确封法是让「检查 closed + 发布 accepted」在同一把 lock 下完成。
+
+### 不变量
+
+`App/` 未改；两条 `.disabled` 集成测试未启用、未修改；未改任何 timeout / retry / budget。

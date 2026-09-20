@@ -236,9 +236,10 @@ final class LocalHTTPServer: @unchecked Sendable {
     private func serveOneConnection() {
         let accepted = retryingOnInterrupt { accept(listenFD, nil, nil) }
         guard accepted >= 0 else { return }
-        // Applied to the accepted socket as well as the listening one. Apple's guidance
-        // is explicit that the option is not inherited, and this is the descriptor the
-        // server actually writes to.
+        // Set on the accepted socket too, not only the listening one. This is the
+        // descriptor the server actually writes to, so the behaviour must not depend on
+        // an option propagating from the listener - and whether it does is not something
+        // this repository has verified. Setting it here makes the question moot.
         guard Self.suppressSIGPIPE(on: accepted) else {
             close(accepted)
             return
