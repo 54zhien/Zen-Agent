@@ -196,11 +196,11 @@ CI 节奏：本机无 Swift toolchain（PATH/常见安装目录均无，docker �
 
 - [x] 1 `test: X3 探针——saveMetadata 抛错时旧 generation 不得解析出新秘密`（预期红；含 InMemory 双替身的 failNextSave 开关）— `fe44f6c`，CI 已确认红得对
 - [x] 2 `fix: X3——secret 按 generation 版本化，rebind 重排`（预期 (a) 绿，(b)(c) 未写仍无红；含 DeepSeekProviderTests:532 直调 delete 带 gen）— `271622a`
-- [ ] 3 `test: A-5 探针——validate 通过后插 rebind 必须 configurationMismatch 且零请求`（预期红；含 metadata 替身 onLoadMetadata 钩子）
-- [ ] 4 `fix: A-5——frozen resolve 单临界区，resolveSecret 走 seed 冻结 binding`（预期 (b) 绿；新增 CredentialError.bindingMoved，两个消费方 switch 显式处理）
-- [ ] 5 `test: X4 探针——SecretBackend.failed 必须 typed`（预期红；含 InMemorySecretBackend failedReferences 开关；断言用否定式 `is CredentialError`/`is ProviderError` 保证改前可编译）
-- [ ] 6 `fix: X4——failed 穷尽映射`（预期全绿；探针升级为 typed 断言 .failed/.credentialStorageFailed）
-- [ ] 收尾：/security-review 复核 diff；lessons 追加；交付报告（git log + CI run id + 红绿过程）
+- [x] 3 `test: A-5 探针——validate 通过后插 rebind 必须 configurationMismatch 且零请求`（预期红；含 metadata 替身 onLoadMetadata 钩子）— `793aace`
+- [x] 4 `fix: A-5——frozen resolve 单临界区，resolveSecret 走 seed 冻结 binding`（预期 (b) 绿；新增 CredentialError.bindingMoved，两个消费方 switch 显式处理）— `2fc2906`
+- [x] 5 `test: X4 探针——SecretBackend.failed 必须 typed`（预期红；含 InMemorySecretBackend failedReferences 开关；断言用否定式 `is CredentialError`/`is ProviderError` 保证改前可编译）— `1c5976d`
+- [x] 6 `fix: X4——failed 穷尽映射`（预期全绿；探针升级为 typed 断言 .failed/.credentialStorageFailed/.storageFailed）— `9b63b42`
+- [ ] 收尾：/security-review 复核 diff；lessons 追加；交付报告（git log + CI run id + 红绿过程）——留给编排者（本会话为 print-mode，无 CI 结果）
 
 ### 验证点（防遗漏）
 
@@ -209,3 +209,22 @@ CI 节奏：本机无 Swift toolchain（PATH/常见安装目录均无，docker �
 - [ ] Backend.allCases 双后端语义不分叉；keychain e2e（DeepSeekProviderTests:498）正常
 - [ ] 错误/日志不打印秘密（SecretValue 空镜像，勿 .revealed 入文案）
 - [ ] CI hygiene：import Security 仍在 App/Credential 内、SecretValue 声明位置不变
+
+### Review（本续轮，会话内自查）
+
+- **A-5 单临界区**：`CredentialStore.resolve(frozenReference:generation:)` 一次 `loadMetadata` 判
+  存在/status/generation，再按冻结 generation 读秘密。status 先于 generation（logged-out 报
+  authenticationRequired）。`resolveSecret` 改传 `seed.credentialBinding`，`matchesBinding` 快速
+  路径保留在 validate。`ProviderAvailabilityResolver` 继续用旧 `resolve(_:)`（generation 无关）。
+- **X4 穷尽映射**：`CredentialError.failed` ← `SecretBackendError.failed`，两处 resolve 经共享
+  helper 映射；Provider 层 `credentialStorageFailed`（doNotRetry）、Availability 层
+  `authenticationRequired(.storageFailed)`。两个消费方 switch 均无 default。
+- **探针可表达性自查**（lessons #3）：探针 b 的窗口（validate 之后、resolve 之前）在旧两步 API
+  下可表达——钩子放在 metadata 层而非 secret backend 层（后者在 X3 之后物理上读不到新秘密，
+  探针会假绿）。探针 c 用否定式断言保证改前可编译、红在运行时。
+- **残留窗口（已知、不可消除）**：frozen resolve 的单次 metadata 读与 secrets.load 之间仍可插
+  rebind；此时冻结 generation 的键已被删，表现为安全的失败（credentialMissing），绝不可能是
+  新秘密——X3 版本化键保证。两个存储无法共享临界区，这是物理下限。
+- **CI 守卫自查**：import Security 仅 App/Credential/KeychainSecretBackend.swift；无新增 GRDB 引用；
+  错误文案只含 generation 计数与 reference id（非秘密）；SecretValue 空 mirror 未动。
+- **未做**（留给编排者收尾会话）：CI 红绿核对、/security-review、lessons 追加、合并 main。
