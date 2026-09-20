@@ -88,6 +88,29 @@ struct IndeterminateTombstoneTests {
         )
     }
 
+    /// Every state, not just the two the rule names: the tombstone set must be derived
+    /// from `recoveryDisposition`, so a state that later comes to mean "may have
+    /// happened" starts producing tombstones without a change here.
+    @Test("finalising writes a tombstone exactly for states that may have happened", arguments: ToolCallState.allCases)
+    func tombstoneMatchesDisposition(state: ToolCallState) throws {
+        let store = try seeded(toolCallState: state)
+        try store.beginDeletion(conversationID: "c1")
+        try store.finalizeDeletion(conversationID: "c1")
+
+        let tombstone = try store.tombstone(toolCallID: "t1")
+        let mustReport = state.recoveryDisposition == .mustReportIndeterminate
+        #expect(
+            (tombstone != nil) == mustReport,
+            "\(state.rawValue): tombstone presence must match the recovery disposition"
+        )
+        if mustReport {
+            #expect(
+                tombstone?.status == state.rawValue,
+                "the tombstone must record the state the call was found in"
+            )
+        }
+    }
+
     @Test("finalising twice keeps one tombstone and does not fail")
     func finalizeIsIdempotent() throws {
         let store = try seeded(toolCallState: .indeterminate)
