@@ -72,6 +72,15 @@ final class InMemoryCredentialMetadataRepository: CredentialMetadataRepository, 
     /// survive.
     var failNextSave = false
 
+    /// When set, invoked at the top of every `loadMetadata`, **before** the read —
+    /// so a test can commit a rebind *between* two metadata reads. That is the
+    /// window a two-step validate-then-resolve leaves open: the second read sees
+    /// the moved binding and carries on with it. The single-critical-section
+    /// resolve must not.
+    ///
+    /// Invoked outside the lock because the hook writes back into this store.
+    var onLoadMetadata: (() -> Void)?
+
     init() {}
 
     private func key(_ reference: CredentialReference) -> String {
@@ -79,6 +88,10 @@ final class InMemoryCredentialMetadataRepository: CredentialMetadataRepository, 
     }
 
     func loadMetadata(for reference: CredentialReference) throws -> CredentialMetadata? {
+        lock.lock()
+        let hook = onLoadMetadata
+        lock.unlock()
+        hook?()
         lock.lock(); defer { lock.unlock() }
         return store[key(reference)]
     }

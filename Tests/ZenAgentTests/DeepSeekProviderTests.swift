@@ -18,6 +18,8 @@ struct DeepSeekProviderTests {
         let instance: ProviderInstance
         let seed: RequestConfigSeed
         let credentials: CredentialStore
+        let secrets: InMemorySecretBackend
+        let metadata: InMemoryCredentialMetadataRepository
         var reference: CredentialReference { CredentialReference(id: "cred-1") }
     }
 
@@ -26,7 +28,8 @@ struct DeepSeekProviderTests {
         model: String = "deepseek-flash"
     ) throws -> Fixture {
         let secrets = InMemorySecretBackend()
-        let credentials = CredentialStore(secrets: secrets, metadataRepository: InMemoryCredentialMetadataRepository())
+        let metadata = InMemoryCredentialMetadataRepository()
+        let credentials = CredentialStore(secrets: secrets, metadataRepository: metadata)
         try credentials.provision(SecretValue("sk-test-9f3a7c"), as: CredentialReference(id: "cred-1"))
 
         let instance = ProviderInstance(
@@ -52,7 +55,9 @@ struct DeepSeekProviderTests {
                 ),
                 resolvedEndpoint: DeepSeekProvider.resolvedEndpoint(for: instance)
             ),
-            credentials: credentials
+            credentials: credentials,
+            secrets: secrets,
+            metadata: metadata
         )
     }
 
@@ -386,6 +391,50 @@ struct DeepSeekProviderTests {
             return
         }
         #expect(f.transport.requestCount == 0)
+    }
+
+    @Test("a rebind landing between validation and resolution is refused, and nothing is sent")
+    func rebindInterleavingIsRefused() async throws {
+        // The window: validation has passed against generation 1, and the *next*
+        // metadata read — the one that resolves the secret — finds a rebind
+        // committed in between. The adapter must refuse the run, not carry the
+        // new account's secret out.
+        let f = try makeFixture()
+        f.transport.enqueue(status: 200, json: Self.successJSON)
+
+        var reads = 0
+        f.metadata.onLoadMetadata = {
+            reads += 1
+            guard reads == 2 else { return }
+            // The second read is `resolve`'s: validation is done, the secret is
+            // not yet fetched. Committing the rebind here is exactly the moment
+            // a two-step read can be handed the new generation's secret.
+            try? f.credentials.rebind(
+                SecretValue("sk-other-account"), as: f.reference, principalFingerprint: "acct-b"
+            )
+        }
+
+        var failure: ProviderError?
+        do {
+            _ = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+        } catch let error as ProviderError {
+            failure = error
+        }
+
+        guard case .configurationMismatch = failure else {
+            Issue.record(
+                """
+                expected .configurationMismatch, got \(String(describing: failure)). A \
+                rebind between validation and resolution must not let the request go out \
+                under the new account's secret — the run was frozen against the old one.
+                """
+            )
+            return
+        }
+        #expect(
+            f.transport.requestCount == 0,
+            "a run whose binding moved mid-dispatch must not reach the network at all"
+        )
     }
 
     @Test("a model other than the frozen one is refused")
