@@ -36,6 +36,28 @@ struct StreamingCancellationTests {
         HTTPRequest(method: .post, url: url, headers: [:], body: Data(#"{"stream":true}"#.utf8))
     }
 
+    /// Waits for `condition` to hold, bounded, and reports whether it did.
+    ///
+    /// The same shape `StreamingLifecycleTests` uses, and for the same reason: a fact
+    /// delivered by an asynchronous callback cannot be read immediately after the call
+    /// that triggers it. Reading at once is a race the callback can lose, and losing it
+    /// looks exactly like the thing under test having failed.
+    ///
+    /// The deadline is a guard against hanging, not a performance budget. The caller
+    /// still asserts the fact itself afterwards, so a condition that never becomes true
+    /// fails the test rather than passing it slowly — a bounded wait that always passed
+    /// would be worse than the race it replaced.
+    private func waitFor(
+        _ condition: () -> Bool,
+        attempts: Int = 500,
+        every: Duration = .milliseconds(10)
+    ) async {
+        for _ in 0..<attempts {
+            if condition() { return }
+            try? await Task.sleep(for: every)
+        }
+    }
+
     /// A stream that never ends on its own, so cancellation is the only way out.
     private func endlessScript() -> StubURLProtocol.Script {
         var script = StubURLProtocol.Script()
@@ -68,15 +90,29 @@ struct StreamingCancellationTests {
             }
         }
 
-        // Let it get properly under way before stopping it.
-        try await Task.sleep(for: .milliseconds(60))
-        let beforeCancelling = deliveries.recorded
-        #expect(beforeCancelling > 0, "the stream should have delivered something before it was cancelled")
+        // Let it get properly under way before stopping it — waited for, not slept
+        // through. A fixed delay is a race on a loaded runner, and this test is about
+        // cancellation, not about how quickly the stub gets going.
+        await waitFor { deliveries.recorded > 0 }
+        #expect(
+            deliveries.recorded > 0,
+            "the stream should have delivered something before it was cancelled"
+        )
 
         // The holder ends the transfer. One call, and the point of the type.
         handle.cancel()
         _ = await consumer.value
 
+        // **Waited for, not read at once.** `handle.cancel()` calls
+        // `URLSessionDataTask.cancel()`; `stopLoading` is called back by URLSession on
+        // its own schedule, and the consumer's task finishing does not mean that has
+        // happened. There is no ordering between them, so sampling immediately is a race
+        // the callback can lose — and losing it reads as the cancellation never having
+        // reached the network, which is the opposite of what occurred.
+        //
+        // Everything below depends on it: the assertion that the transfer stopped, and
+        // the sampling that asks whether anything arrived after it did.
+        await waitFor { StubURLProtocol.stopCount(for: url) >= 1 }
         #expect(
             StubURLProtocol.stopCount(for: url) >= 1,
             """
@@ -91,6 +127,10 @@ struct StreamingCancellationTests {
         // has stopped, so asserting it did not move would prove nothing. This one keeps
         // climbing if the underlying task was never cancelled — which is the failure
         // being tested for.
+        //
+        // Sampled only once the transfer is known to have stopped. Taken before that,
+        // the count is still climbing, and the claim below would be about a request that
+        // is still running rather than one that has been ended.
         let atRest = StubURLProtocol.deliveryCount(for: url)
         try await Task.sleep(for: .milliseconds(150))
         #expect(
