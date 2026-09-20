@@ -261,4 +261,19 @@ struct ActiveParentRunUniquenessTests {
             "a refused re-finish must leave the original outcome in place"
         )
     }
+
+    @Test("a suspended run can still be finished")
+    func suspendedRunCanBeFinished() throws {
+        let store = try makeStore()
+        try store.commitUserTurnAndCreateParentRun(
+            Fixtures.send(messageID: "m1", runID: "r1", runState: .suspended)
+        )
+
+        try store.finishRun(id: "r1", state: .completed, endReason: .completed)
+
+        #expect(
+            try store.activeParentRuns(inConversation: "c1").isEmpty,
+            "finishing a suspended run must release the slot like any other non-terminal state"
+        )
+    }
 }

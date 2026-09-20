@@ -142,9 +142,10 @@ struct ToolDispatchRecoveryTests {
             failure = error
         }
 
-        // Typed `toolCallNotFound` once the case exists; today the update touches
-        // no row and reports success either way.
-        #expect(failure != nil, "a marker for a call that is not on disk must not report success")
+        #expect(
+            failure as? ZenAgent.PersistenceError == .toolCallNotFound("never"),
+            "a marker for a call that is not on disk must be a typed refusal; got \(String(describing: failure))"
+        )
     }
 
     @Test("a settled call must not be marked dispatched")
@@ -181,9 +182,10 @@ struct ToolDispatchRecoveryTests {
             failure = error
         }
 
-        // Typed `toolCallNotFound` once the case exists; today the update touches
-        // no row and reports success either way.
-        #expect(failure != nil, "finishing a call that is not on disk must not report success")
+        #expect(
+            failure as? ZenAgent.PersistenceError == .toolCallNotFound("never"),
+            "finishing a call that is not on disk must be a typed refusal; got \(String(describing: failure))"
+        )
     }
 
     @Test("an already settled call must not be finished again")
@@ -228,5 +230,35 @@ struct ToolDispatchRecoveryTests {
             Issue.record("expected invalidTransition, got \(String(describing: failure))")
             return
         }
+    }
+
+    @Test("every state that may still be dispatched accepts the marker", arguments: [
+        ToolCallState.validated, .approved, .prepared,
+    ])
+    func dispatchableStatesAcceptTheMarker(state: ToolCallState) throws {
+        let store = try makeStore()
+        try makeRun(store)
+        try store.createToolCall(Fixtures.toolCall(id: "t1", runID: "r1", state: state))
+
+        try store.markToolCallDispatched(id: "t1")
+
+        #expect(try store.toolCall(id: "t1")?.state == .dispatched)
+    }
+
+    @Test("a dispatched or indeterminate call may be finished", arguments: [
+        ToolCallState.dispatched, .indeterminate,
+    ])
+    func unresolvedCallsMayBeFinished(preState: ToolCallState) throws {
+        let store = try makeStore()
+        try makeRun(store)
+        try store.createToolCall(Fixtures.toolCall(id: "t1", runID: "r1", state: preState))
+
+        try store.finishToolCall(id: "t1", state: .succeeded)
+
+        #expect(try store.toolCall(id: "t1")?.state == .succeeded)
+        #expect(
+            try store.toolCallsNeedingRecovery(inRun: "r1").isEmpty,
+            "a finished call leaves recovery nothing to decide"
+        )
     }
 }

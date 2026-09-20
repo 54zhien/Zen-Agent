@@ -172,4 +172,17 @@ struct StreamingPersistenceTests {
             "a refused re-finish must leave the recorded outcome in place"
         )
     }
+
+    @Test("a part that never left pending can still be closed")
+    func pendingPartCanBeClosed() throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
+        var part = Fixtures.streamingPart(id: "part1", messageID: "m1")
+        part.state = .pending
+        try store.createPart(part)
+
+        try store.finishPart(id: "part1", state: .cancelled)
+
+        #expect(try store.part(id: "part1")?.state == .cancelled)
+    }
 }
