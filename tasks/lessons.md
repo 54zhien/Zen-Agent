@@ -71,3 +71,26 @@ E 的机制就在那里，不是可选的优化。
 
 **规则**：绿只说明**已有断言**通过，不说明没写下的断言也成立。
 审查发现的问题，即使 CI 全绿也要修 —— 「CI 绿」和「正确」是两个命题。
+
+### 8. 「不破坏现有测试」要先 grep 全量调用点，不只规格点名的文件
+
+P3 S1-9 的规格说「现有 ConversationDeletionTests 里的正路测试不能被破坏」，
+并照字面检查了该文件。但 `/code-review` 五个角度独立命中同一个事实：
+`IndeterminateTombstoneTests.finalizeIsIdempotent`（另一个文件）对同一
+conversation 调两次 `finalizeDeletion` 并断言不抛——按规格字面实现的守卫
+（非 pendingDeletion 一律抛）会打破这条文档化的幂等契约，CI 必然红。
+
+**规则**：改一个方法前 `grep -rn "<方法名>" Tests/` 找**所有**调用点。
+规格作者可能只读过点名的那几个文件；「按字面实现会红」的证据是 grep 出来的，
+不是规格里写明的。
+
+### 9. 修复 commit 本身必须预期绿；自查发现的打破要 amend，不叠加新 commit
+
+print-mode 下探针 commit 可以故意红（lessons #4），但**修复 commit 必须是
+预期绿**的状态。若 /code-review 自查发现某个已提交未推送的修复 commit
+会打破既有测试（如 S1-9 的幂等冲突），要 `reset --soft` + 重放提交序列
+把修正编入原 commit —— 而不是把「红修复 + 补丁修复」两个 commit 都推上去。
+编排者按 commit 顺序核对红绿，红中间态会让账目失真。
+
+**规则**：推出去的每个 commit 都要处于其 message 宣称的状态；
+「预期的红」只能出现在探针 commit 里。

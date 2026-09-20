@@ -228,3 +228,72 @@ CI 节奏：本机无 Swift toolchain（PATH/常见安装目录均无，docker �
 - **CI 守卫自查**：import Security 仅 App/Credential/KeychainSecretBackend.swift；无新增 GRDB 引用；
   错误文案只含 generation 计数与 reference id（非秘密）；SecretValue 空 mirror 未动。
 - **未做**（留给编排者收尾会话）：CI 红绿核对、/security-review、lessons 追加、合并 main。
+
+## 增量 8：P3 — 删除生命周期封口（S1-9 + B-1）
+
+> **将调用**：/code-review（提交后自查 diff）。其余 skill 与任务意图不匹配：本任务是
+> 持久层两处守卫 + 回归测试的最小改动，无 UI/前端、无重构需求、无可视化/文档产出。
+
+分支：`fix/deletion-lifecycle-guards`（已存在，指向 main 尖端 `95fe0f1`，干净）。
+CI 节奏：本机无 Swift toolchain（lessons #4），CI 是唯一编译验证。**print-mode 一次性会话**：
+不等待任何 CI run，探针红绿由编排者在会话外核对；本会话边界 = 代码 + 提交 + 推送。
+
+### 设计决策（实现前定死；/code-review 后三处修订，见 Review）
+
+- **S1-9**：`finalizeDeletion` 在 `database.write` 事务**开头**加守卫。**不能调
+  `transition`**（它自己开一个 write，GRDB 禁止嵌套 write，会死锁）。守卫与 `transition`
+  现有 guard 同构 → fetch+notFound 抽共享 helper `requireConversation(_:in:)`（传入已打开的
+  `db`，在调用方事务内执行），拒绝文案抽 `PersistenceError.invalidLifecycleTransition(expected:actual:)`
+  工厂（delete 侧与 send 侧共用，单一事实源）；`transition` 改为调用两者，行为不变，
+  由现有 6 条删除测试保护。
+- **B-1**：`commitUserTurnAndCreateParentRun` 事务内、`commit.conversation.upsert(db)`
+  **之前**读回现有行：`nil`（首次创建）→ 照常 upsert；行与快照均 `.visible` → 照常
+  upsert（追加 turn 的正常路径，含 userActiveAt 更新）；任一非 `.visible` → `invalidTransition`。
+  不用「无条件 insert(onConflict:)」替换——那会破坏追加消息时更新 userActiveAt 的正常路径。
+- **测试 (b) 的播种**：run 用 `runState: .completed`。若 r1 是 active，occupied 检查会在
+  upsert 之前抛 `conversationAlreadyHasActiveRun`，复活路径在改前根本不可达，探针会假红
+  （lessons #3 可表达性）——completed 后 slot 空出，提交才能走到 upsert，改前红才是真的。
+
+### 提交序列（一步一提交，红/绿预期写进 commit message）
+
+- [x] 1 `test: S1-9 探针`（(a) visible→finalize 必须 invalidTransition 且 body/lifecycle 原样；(c) finalize(missing) 必须 conversationNotFound；预期红）— `d26a548`
+- [x] 2 `fix: S1-9`（requireConversation 共享守卫 + 幂等 no-op，finalizeDeletion 事务开头守卫；预期 (a)(c) 绿，finalizeIsIdempotent 保持绿）— `37d74ae`
+- [x] 3 `test: B-1 探针`（(b) pendingDeletion 后旧 .visible 快照必须被拒且不复活；(d) undo 后旧 .pendingDeletion 快照不得再隐藏；预期红）— `136a986`
+- [x] 4 `fix: B-1`（upsert 前读回校验，双向对称，键用 run 的 conversationID，置于 occupied 检查前；预期 (b)(d) 绿）— `bef5052`
+- [x] 5 `chore: 记录 P3 完成与 review notes` — 本 commit
+
+### 验证点（防遗漏）
+
+- [x] import GRDB 只在 App/Persistence/（CI grep 守卫；本会话已本地 grep 确认）
+- [x] 正路测试不破：`finalizeRemovesTheBody` 从 `.pendingDeletion` 出发，守卫放行；
+      `finalizeIsIdempotent`（IndeterminateTombstoneTests）由 `.finalizedDeletion` no-op 分支保持
+- [x] `requireConversation` 重构不改 `transition` 语义（begin/undo 全部现有拒绝路径不变）
+- [x] B-1 守卫放行 nil（首建）与「行+快照均 .visible」（追加）；只拦生命周期任一方向被改写
+- [ ] CI 红绿核对——留给编排者（print-mode 会话，无本地 toolchain、不等 CI）
+
+### Review（/code-review 后修订 + 会话内自查）
+
+code-review（forked，10 个角度）收敛到 5 处真实问题，全部在推送前修复（重放提交序列，
+未把红中间态推上分支）：
+
+1. **S1-9 与幂等契约冲突**（5 个角度独立命中）：原方案 `!= .pendingDeletion 一律抛` 会打破
+   `IndeterminateTombstoneTests.finalizeIsIdempotent`（两次 finalize 不抛）和行内注释
+   「finalising twice must not fail」。改为三态 switch：`.finalizedDeletion` → no-op 返回。
+2. **B-1 键错误**：原按规格用 `commit.conversation.id`，与 message/run 实际落地的
+   `run.conversationID` 可能不一致（SendCommit 无一致性校验）→ 守卫形同虚设。改用 `conversationID`。
+3. **B-1 方向不对称**：只查行不查快照 → undo 后旧 `.pendingDeletion` 快照仍会写回并再隐藏会话。
+   守卫补快照侧检查（对称），并新增探针 (d) 覆盖（任务规格未要求，属同一缺陷的镜像方向）。
+4. **错误排序**：occupied 检查在守卫前，pendingDeletion+active run 时报「busy」而非「deleted」。
+   守卫移到 occupied 检查之前。
+5. **拒绝文案三处手写漂移**：抽 `PersistenceError.invalidLifecycleTransition` 工厂，三处共用。
+
+**已知残留（记录，不在本任务范围）**：
+- 读回守卫每次 send 多一次主键 SELECT + 全行解码（Angle H 提出单列 String 读或
+  conditional UPDATE 替代；按任务规格保留 readback 形状，send 为人类频率，成本可忽略）。
+- 行内 lifecycle 出现未知值（新版本写入/损坏）时 `fetchOne` 抛 GRDB RecordError 越过
+  类型边界——与既有 `transition` 的暴露模式一致，属 store 全层既有模式，非本 diff 引入的新类。
+- 更彻底的方向（Angle I 提出、未采纳）：列限定 upsert（send 路径根本不写 lifecycle）或
+  schema 级 BEFORE UPDATE trigger——两者都改 write 语义/加迁移，超出「只做两个子项」。
+- `requireConversation` 与 `refuseMissedStateUpdate`（run 侧）是平行机制，统一它们属跨表重构。
+
+**验证边界**：本机无 Swift toolchain，以上红/绿均为**预期**；真实红绿由 CI 判定（编排者核对）。
