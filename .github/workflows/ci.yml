@@ -251,37 +251,309 @@ jobs:
           exit "$XCODE_STATUS"
 
       - name: Inspect test host termination
-        # Diagnostics only, and deliberately temporary: it turns "the host went away"
-        # into a classifiable reason, because the restart banner does not say why.
+        # Diagnostics only, and deliberately temporary. Do not change product or
+        # test-fixture behaviour until this produces a classifiable exit reason.
         if: always()
+        shell: bash
         run: |
           set -uo pipefail
-          xcrun xcresulttool get log \
-            --path "$RUNNER_TEMP/ZenAgentTests.xcresult" \
-            --type console \
-            > "$RUNNER_TEMP/xcresult-console.log" 2>/dev/null || true
 
-          rm -rf "$RUNNER_TEMP/xcdiagnostics"
-          xcrun xcresulttool export diagnostics \
-            --path "$RUNNER_TEMP/ZenAgentTests.xcresult" \
-            --output-path "$RUNNER_TEMP/xcdiagnostics" 2>/dev/null || true
+          DIAG="$RUNNER_TEMP/xcdiagnostics"
+          DECODED="$RUNNER_TEMP/decoded-system-logs"
+          REPORTS="$RUNNER_TEMP/DiagnosticReports"
+          IPS_SUMMARY="$RUNNER_TEMP/ips-summary.txt"
+          SUMMARY="$RUNNER_TEMP/termination-summary.txt"
 
-          echo "--- termination reasons, if any ---"
-          grep -RniE 'SIGPIPE|SIGABRT|SIGKILL|Termination Reason|Exception Type|Exception Codes|unexpected exit' \
-            "$RUNNER_TEMP/xcdiagnostics" \
-            "$RUNNER_TEMP/xcresult-console.log" \
-            "$RUNNER_TEMP/ZenAgentTests.log" 2>/dev/null || echo "(none found)"
+          rm -rf "$DIAG" "$DECODED" "$REPORTS"
+          mkdir -p "$DECODED" "$REPORTS"
 
-          echo "--- crash reports newer than the test run ---"
-          find "$HOME/Library/Logs/DiagnosticReports" -type f \
-            -newer "$RUNNER_TEMP/test-start.marker" -print 2>/dev/null || true
+          echo "=== xcresult console log ==="
+          if [ -d "$RUNNER_TEMP/ZenAgentTests.xcresult" ]; then
+            xcrun xcresulttool get log \
+              --path "$RUNNER_TEMP/ZenAgentTests.xcresult" \
+              --type console \
+              > "$RUNNER_TEMP/xcresult-console.log" \
+              2> "$RUNNER_TEMP/xcresult-console.stderr" || true
 
+            xcrun xcresulttool export diagnostics \
+              --path "$RUNNER_TEMP/ZenAgentTests.xcresult" \
+              --output-path "$DIAG" \
+              > "$RUNNER_TEMP/xcresult-export-diagnostics.log" \
+              2> "$RUNNER_TEMP/xcresult-export-diagnostics.stderr" || true
+          else
+            echo "ZenAgentTests.xcresult was not produced" \
+              > "$RUNNER_TEMP/xcresult-console.stderr"
+          fi
+
+          # export diagnostics normally creates this directory itself. Create it only
+          # afterwards so a failed export still leaves the rest of this step runnable.
+          mkdir -p "$DIAG"
+
+          echo "=== decode Unified Logging archives ==="
+          archive_count=0
+          while IFS= read -r -d '' archive; do
+            archive_count=$((archive_count + 1))
+            number=$(printf '%03d' "$archive_count")
+            output="$DECODED/system-$number.log"
+
+            echo "Decoding: $archive"
+
+            # Correct decoder for .logarchive / tracev3.
+            #
+            # Deliberately do not use a process or message predicate here:
+            # the exact name/PID of the first test-host process is evidence we are
+            # trying to discover, and an incorrect predicate could discard it.
+            /usr/bin/log show \
+              --archive "$archive" \
+              --style syslog \
+              --timezone local \
+              --info \
+              --debug \
+              --no-signpost \
+              --no-pager \
+              --color none \
+              > "$output" \
+              2> "$output.stderr" || true
+          done < <(
+            find "$DIAG" -type d -name '*.logarchive' -print0 2>/dev/null
+          )
+
+          echo "Decoded $archive_count log archive(s)"
+
+          echo "=== copy DiagnosticReports created after test start ==="
+          report_count=0
+
+          if [ -f "$RUNNER_TEMP/test-start.marker" ] && \
+             [ -d "$HOME/Library/Logs/DiagnosticReports" ]; then
+
+            while IFS= read -r -d '' report; do
+              report_count=$((report_count + 1))
+              number=$(printf '%03d' "$report_count")
+              base=$(basename "$report")
+              destination="$REPORTS/$number-$base"
+
+              cp -p "$report" "$destination"
+
+              printf '%s\t%s\n' \
+                "$destination" \
+                "$report" \
+                >> "$REPORTS/index.txt"
+            done < <(
+              find "$HOME/Library/Logs/DiagnosticReports" \
+                -type f \
+                -newer "$RUNNER_TEMP/test-start.marker" \
+                -print0 2>/dev/null
+            )
+          fi
+
+          echo "Copied $report_count DiagnosticReports file(s)"
+
+          echo "=== parse modern .ips crash reports ==="
+
+          python3 - "$REPORTS" "$DIAG" > "$IPS_SUMMARY" <<'PY' || true
+          import json
+          import sys
+          from pathlib import Path
+
+          roots = [Path(arg) for arg in sys.argv[1:]]
+          reports = []
+          seen = set()
+
+          for root in roots:
+              if not root.exists():
+                  continue
+              for path in root.rglob("*.ips"):
+                  resolved = str(path.resolve())
+                  if resolved not in seen:
+                      seen.add(resolved)
+                      reports.append(path)
+
+          if not reports:
+              print("(no .ips crash reports found)")
+              raise SystemExit(0)
+
+          for path in sorted(reports):
+              print(f"FILE: {path}")
+
+              try:
+                  with path.open("r", encoding="utf-8", errors="replace") as f:
+                      first_line = f.readline()
+                      remainder = f.read()
+
+                  metadata = json.loads(first_line)
+                  report = json.loads(remainder)
+              except Exception as exc:
+                  print(f"  parse-error: {exc}")
+                  print()
+                  continue
+
+              exception = report.get("exception") or {}
+              termination = report.get("termination") or {}
+
+              process = (
+                  report.get("procName")
+                  or metadata.get("name")
+                  or "(unknown)"
+              )
+
+              print(f"  process: {process}")
+              print(f"  pid: {report.get('pid')}")
+              print(f"  captureTime: {report.get('captureTime')}")
+              print(f"  bug_type: {metadata.get('bug_type')}")
+
+              exc_type = exception.get("type")
+              signal = exception.get("signal")
+              codes = exception.get("codes")
+              message = exception.get("message")
+
+              print(f"  Exception Type: {exc_type} ({signal})")
+              print(f"  Exception Codes: {codes}")
+              if message is not None:
+                  print(f"  Exception Message: {message}")
+
+              namespace = termination.get("namespace")
+              code = termination.get("code")
+              indicator = termination.get("indicator")
+
+              if isinstance(code, int):
+                  code_display = f"{code} ({hex(code)})"
+              else:
+                  code_display = str(code)
+
+              print(
+                  "  Termination Reason: "
+                  f"namespace={namespace} "
+                  f"code={code_display} "
+                  f"indicator={indicator}"
+              )
+
+              faulting = report.get("faultingThread")
+              print(f"  faultingThread: {faulting}")
+
+              threads = report.get("threads") or []
+              images = report.get("usedImages") or []
+
+              if (
+                  isinstance(faulting, int)
+                  and 0 <= faulting < len(threads)
+              ):
+                  frames = threads[faulting].get("frames") or []
+                  print("  faulting frames:")
+
+                  for index, frame in enumerate(frames[:12]):
+                      image_index = frame.get("imageIndex")
+                      image_name = "?"
+
+                      if (
+                          isinstance(image_index, int)
+                          and 0 <= image_index < len(images)
+                      ):
+                          image_name = images[image_index].get("name", "?")
+
+                      symbol = frame.get("symbol")
+                      image_offset = frame.get("imageOffset")
+
+                      if symbol:
+                          location = frame.get("symbolLocation")
+                          if location is not None:
+                              symbol = f"{symbol} + {location}"
+                      elif isinstance(image_offset, int):
+                          symbol = f"image+{hex(image_offset)}"
+                      else:
+                          symbol = "(unknown)"
+
+                      print(
+                          f"    {index}: "
+                          f"{image_name} "
+                          f"{symbol}"
+                      )
+
+              print()
+          PY
+
+          # Search only decoded/textual material. Do not grep raw tracev3 data.
+          scan_all() {
+            local regex="$1"
+            local file
+
+            for file in \
+              "$RUNNER_TEMP/ZenAgentTests.log" \
+              "$RUNNER_TEMP/xcresult-console.log" \
+              "$IPS_SUMMARY"
+            do
+              if [ -f "$file" ]; then
+                grep -IHniE "$regex" "$file" 2>/dev/null || true
+              fi
+            done
+
+            for root in "$DECODED" "$REPORTS" "$DIAG"; do
+              [ -d "$root" ] || continue
+
+              while IFS= read -r -d '' file; do
+                case "$file" in
+                  *.ips)
+                    # Already parsed into ips-summary.txt.
+                    continue
+                    ;;
+                  *.logarchive/*)
+                    # Raw Unified Logging storage. It was decoded with log show above.
+                    continue
+                    ;;
+                esac
+
+                grep -IHniE "$regex" "$file" 2>/dev/null || true
+              done < <(
+                find "$root" -type f -print0 2>/dev/null
+              )
+            done
+          }
+
+          {
+            echo "===== PARSED CRASH REPORTS ====="
+            cat "$IPS_SUMMARY"
+            echo
+
+            echo "===== SIGNAL / MEMORY-FAULT EVIDENCE ====="
+            scan_all \
+              'SIGPIPE|SIGKILL|SIGABRT|EXC_BAD_ACCESS|SIGSEGV|SIGBUS|Broken pipe|signal[[:space:]:=]+(13|9|6)([^0-9]|$)'
+            echo
+
+            echo "===== TERMINATION-REASON EVIDENCE ====="
+            scan_all \
+              'Termination Reason|Termination Signal|exited due to signal|termination[^[:cntrl:]]*namespace|namespace[[:space:]:=]+"?SIGNAL'
+            echo
+
+            echo "===== OS WATCHDOG EVIDENCE ====="
+            scan_all \
+              '0x8badf00d|2343432205|WatchdogEvent|watchdog transgression|exhausted real .*time allowance'
+            echo
+
+            echo "===== EXPLICIT XCTEST TIMEOUT EVIDENCE ====="
+            # Intentionally does NOT match the generic
+            # "unexpected exit, crash, or test timeout" restart banner.
+            scan_all \
+              'test( case)?[^[:cntrl:]]*(timed out|exceeded[^[:cntrl:]]*time)|timed out waiting for test|test execution[^[:cntrl:]]*timeout'
+          } > "$SUMMARY"
+
+          cat "$SUMMARY"
 
       - name: Upload test results on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: xcresult
-          path: ~/Library/Developer/Xcode/DerivedData/**/Logs/Test/*.xcresult
+          path: |
+            ${{ runner.temp }}/ZenAgentTests.xcresult
+            ${{ runner.temp }}/ZenAgentTests.log
+            ${{ runner.temp }}/test-start.marker
+            ${{ runner.temp }}/xcresult-console.log
+            ${{ runner.temp }}/xcresult-console.stderr
+            ${{ runner.temp }}/xcresult-export-diagnostics.log
+            ${{ runner.temp }}/xcresult-export-diagnostics.stderr
+            ${{ runner.temp }}/xcdiagnostics
+            ${{ runner.temp }}/decoded-system-logs
+            ${{ runner.temp }}/DiagnosticReports
+            ${{ runner.temp }}/ips-summary.txt
+            ${{ runner.temp }}/termination-summary.txt
           if-no-files-found: ignore
           retention-days: 7
