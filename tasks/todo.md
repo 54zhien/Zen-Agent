@@ -159,3 +159,53 @@ Stage 0 的产出不是功能，是**一条可信的基线**：工程可从源�
 - [ ] 推送节奏：B 红确认 → C → D 红确认 → E → F，每步等 CI 结束（concurrency.cancel-in-progress）
 - [ ] 收尾：/code-review 复核分支 diff；lessons 追加；交付物（分支+sha+log+红绿过程+CI id+偏离说明）
 
+
+## 增量 7：P2 — 凭据绑定原子性（X3 + A-5 + X4）
+
+> **将调用**：/codebase-design（SecretBackend 版本化 + frozen resolve 单临界区接口设计）、
+> /security-review（收尾：对分支 diff 复核安全属性）。zh-readme / zh-code-reviewer / 其余 skill 与任务意图不匹配。
+
+分支：`fix/credential-binding-atomicity`（已存在，指向 main 尖端 `c68c41b`，干净）。
+CI 节奏：本机无 Swift toolchain（PATH/常见安装目录均无，docker 无法编译 iOS 目标），CI 是唯一编译验证
+（lessons #4）。**本续轮（A-5 + X4）为 print-mode 一次性会话**：不等待任何 CI run，探针红绿判断由
+编排者在会话外核对；本会话边界 = 代码 + 提交 + 推送。探针/修复的预期红绿写进 commit message。
+
+### 设计决策（实现前定死，codebase-design 复核后微调）
+
+- **X3 版本化 secret**：`SecretBackend.store/load/delete` 带 `generation`；keychain account 键 =
+  `"\(id)#\(generation)"`（`KeychainSecretBackend.baseQuery`）；in-memory 同格式复合键，`storedSecret(for:)`
+  同步带 generation（现为死代码，改签名保持替身诚实）。
+- **rebind 顺序 = store(gen+1) → saveMetadata(gen+1) → delete(旧 gen 键)**。saveMetadata 失败时旧键完好，
+  旧 run 继续读到 A；delete 只在元数据提交后清理被替换的键（崩溃后残留旧键由下一次 rebind 自愈）。
+  不采用「先 metadata 后 secret」（任务卡明令禁止——只是换个方向错配），不采用 delete-before-save
+  （saveMetadata 失败会让旧 run 从「读到 A」降级为「读不到」）。
+- **A-5 单临界区**：`CredentialStoring.resolve(frozenReference:generation:)` — 一次 `loadMetadata`
+  同时判存在性、status、generation，再按冻结 generation 取秘密；generation 不匹配抛新 case
+  `CredentialError.bindingMoved(reference, frozenGeneration:, currentGeneration:)`。
+  秘密读取按冻结 generation 定键，元数据提交后的任何 rebind 在物理上无法污染本次读（读到的键要么
+  是旧值、要么已删）。`FrozenConfiguration.validate` 不动（matchesBinding 保留作快速路径，
+  单临界区在 resolveSecret 里；FrozenCredentialIdentityTests 依赖 validate 的拒绝语义）。
+- **X4 穷尽映射**：`CredentialError.failed(reference, underlying:)` ← `SecretBackendError.failed`（不得折成
+  unavailable）；`DeepSeekProvider` 映射到新增的具体 case `ProviderError.credentialStorageFailed(reason:)`
+  （retryDisposition = doNotRetry；不发明笼统 storageFailure，也不复用 unavailable/missing/rejected——
+  三者都会指向错误的用户动作）；`ProviderAvailability` 映射到
+  `authenticationRequired(reason: .storageFailed)`（AuthenticationRequirementReason 新 case，
+  「用户必须行动」语义成立，且与 loggedOut/providerRejected 可区分）。
+
+### 提交序列（一步一提交，红/绿预期写进 commit message）
+
+- [x] 1 `test: X3 探针——saveMetadata 抛错时旧 generation 不得解析出新秘密`（预期红；含 InMemory 双替身的 failNextSave 开关）— `fe44f6c`，CI 已确认红得对
+- [x] 2 `fix: X3——secret 按 generation 版本化，rebind 重排`（预期 (a) 绿，(b)(c) 未写仍无红；含 DeepSeekProviderTests:532 直调 delete 带 gen）— `271622a`
+- [ ] 3 `test: A-5 探针——validate 通过后插 rebind 必须 configurationMismatch 且零请求`（预期红；含 metadata 替身 onLoadMetadata 钩子）
+- [ ] 4 `fix: A-5——frozen resolve 单临界区，resolveSecret 走 seed 冻结 binding`（预期 (b) 绿；新增 CredentialError.bindingMoved，两个消费方 switch 显式处理）
+- [ ] 5 `test: X4 探针——SecretBackend.failed 必须 typed`（预期红；含 InMemorySecretBackend failedReferences 开关；断言用否定式 `is CredentialError`/`is ProviderError` 保证改前可编译）
+- [ ] 6 `fix: X4——failed 穷尽映射`（预期全绿；探针升级为 typed 断言 .failed/.credentialStorageFailed）
+- [ ] 收尾：/security-review 复核 diff；lessons 追加；交付报告（git log + CI run id + 红绿过程）
+
+### 验证点（防遗漏）
+
+- [ ] 两个 switch（DeepSeekProvider / ProviderAvailability）都显式加新 case，无 default
+- [ ] 协议改动牵连：KeychainSecretBackend、InMemorySecretBackend、CredentialStore 三处同步编译
+- [ ] Backend.allCases 双后端语义不分叉；keychain e2e（DeepSeekProviderTests:498）正常
+- [ ] 错误/日志不打印秘密（SecretValue 空镜像，勿 .revealed 入文案）
+- [ ] CI hygiene：import Security 仍在 App/Credential 内、SecretValue 声明位置不变
