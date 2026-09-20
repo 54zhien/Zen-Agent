@@ -35,11 +35,17 @@ extension PersistenceStore {
             guard try ProviderInstanceRecord.fetchOne(db, key: instance.id.rawValue) == nil else {
                 throw PersistenceError.providerInstanceAlreadyExists(instance.id)
             }
-            try Self.providerInstanceRecord(from: instance, at: now).insert(db)
+            try Self.newProviderInstanceRecord(from: instance, at: now).insert(db)
         }
     }
 
-    /// The one path every edit to an instance that already exists takes.
+    /// The one path every **mutation of a row that already exists** takes.
+    ///
+    /// `deleteProviderInstance` is deliberately not routed through here. There is no
+    /// read-modify-write to lose: a delete either removes the row or does nothing, and
+    /// "the row I acted on is gone" is the outcome the caller asked for. Guarding it
+    /// would mean a user who confirmed a deletion could be told their confirmation had
+    /// gone stale, which is a worse answer than the deletion winning.
     ///
     /// **Read, decide and write happen inside a single transaction.** A `DatabaseQueue`
     /// serialises whole transactions, not individual statements: two calls that each
@@ -80,7 +86,8 @@ extension PersistenceStore {
                 }
 
                 var assignments = try Self.assignments(for: mutation, on: current)
-                assignments.append(Column("editRevision").set(to: expectedEditRevision.next.rawValue))
+                let nextEditRevision = try expectedEditRevision.next()
+                assignments.append(Column("editRevision").set(to: nextEditRevision.rawValue))
                 assignments.append(Column("updatedAt").set(to: now))
 
                 let updated = try ProviderInstanceRecord
@@ -116,6 +123,8 @@ extension PersistenceStore {
             throw error
         } catch ConfigRevision.FormatError.notACounter(let rawValue) {
             throw PersistenceError.providerInstanceRevisionUnreadable(id: id, rawValue: rawValue)
+        } catch ProviderInstanceEditRevision.FormatError.notACounter(let rawValue) {
+            throw PersistenceError.providerInstanceRevisionUnreadable(id: id, rawValue: String(rawValue))
         } catch {
             // Nothing from the storage engine reaches a caller.
             throw PersistenceError.providerInstanceMutationFailed(id: id, reason: String(describing: error))
@@ -252,7 +261,22 @@ extension PersistenceStore {
         )
     }
 
-    private static func providerInstanceRecord(from instance: ProviderInstance, at now: Date) -> ProviderInstanceRecord {
+    /// The row to insert for a **new** instance.
+    ///
+    /// `editRevision` is the schema's start, not the caller's. A `ProviderInstance` read
+    /// from somewhere else carries the revision of the row it was read from, and writing
+    /// that onto a fresh row would make the counter mean something different: an editor
+    /// holding the old snapshot would find its revision "matching" a row it never read,
+    /// which is the one thing the counter exists to prevent. It is derived here for the
+    /// same reason `createdAt` is — a value the store owns is not something a caller
+    /// should be able to supply.
+    ///
+    /// What this does not close: a snapshot taken at revision N, followed by a delete and
+    /// then a re-create, is back at N and would be accepted. Telling those two rows apart
+    /// needs an identity for the row itself rather than a counter — a counter's whole
+    /// premise is that the row it counts is the row that was read. Deleting an instance
+    /// and adding one are two acts the user asked for, and a fresh row genuinely is fresh.
+    private static func newProviderInstanceRecord(from instance: ProviderInstance, at now: Date) -> ProviderInstanceRecord {
         ProviderInstanceRecord(
             id: instance.id.rawValue,
             providerID: instance.providerID.rawValue,
@@ -261,7 +285,7 @@ extension PersistenceStore {
             configRevision: instance.configRevision.rawValue,
             credentialID: instance.credentialReference?.id,
             credentialKind: instance.credentialReference?.kind.rawValue,
-            editRevision: instance.editRevision.rawValue,
+            editRevision: ProviderInstanceEditRevision.initial.rawValue,
             createdAt: now,
             updatedAt: now
         )

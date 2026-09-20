@@ -49,13 +49,20 @@ enum PersistenceError: Error, Equatable {
         actual: ProviderInstanceEditRevision
     )
 
-    /// An instance's stored `configRevision` is not a counter this build can advance.
+    /// An instance's stored revision is not a counter this build can advance.
     ///
-    /// Its own case rather than the catch-all below, because it is the one mutation
-    /// failure that is a statement about the *data* rather than about the write: the row
-    /// reads fine, and what it holds cannot be edited safely. Reported rather than
-    /// defaulted — `ConfigRevision.next()` explains why the fallback was the dangerous
-    /// direction.
+    /// Covers both counters on the row — `configRevision`, which a caller cannot parse,
+    /// and `editRevision`, which is already at the end of its range. Its own case rather
+    /// than the catch-all below, because it is the one mutation failure that is a
+    /// statement about the *data* rather than about the write: the row reads fine, and
+    /// what it holds cannot be edited safely. Reported rather than defaulted —
+    /// `ConfigRevision.next()` explains why the fallback was the dangerous direction.
+    ///
+    /// There is no repair path yet. Refusing leaves such an instance uneditable until
+    /// something resets it, which is worse for the user than the old silent renumber and
+    /// strictly better for every run frozen against the value it would have collided
+    /// with. A store that can hold an uncountable revision needs a way to fix one; that
+    /// is its own piece of work, not a reason to renumber silently.
     case providerInstanceRevisionUnreadable(id: ProviderInstanceID, rawValue: String)
 
     /// The write failed for a reason that is not one of the above — a storage-engine

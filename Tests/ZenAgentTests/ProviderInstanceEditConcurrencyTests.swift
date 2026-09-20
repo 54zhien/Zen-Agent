@@ -217,7 +217,74 @@ struct ProviderInstanceEditConcurrencyTests {
         )
     }
 
+    // MARK: - The counter starts where the schema starts it
+
+    @Test("creating an instance starts its counter at the schema's zero, not the caller's")
+    func createStartsTheCounterAtZero() throws {
+        let store = try makeStore()
+        let original = try seedInstance(store)
+
+        // An instance that has been edited, then deleted and re-created from that
+        // snapshot — an undo, or simply adding it again.
+        let edited = try store.reconfigureProviderInstance(
+            id: Self.instanceID,
+            displayName: "renamed",
+            baseURL: nil,
+            expectedEditRevision: original.editRevision
+        )
+        try store.deleteProviderInstance(id: Self.instanceID)
+        try store.createProviderInstance(edited)
+
+        let recreated = try store.providerInstance(id: Self.instanceID)
+        #expect(
+            recreated?.editRevision == .initial,
+            """
+            a new row must start where the schema starts one. Carrying the snapshot's \
+            counter onto it would let an editor still holding that snapshot pass the \
+            guard against a row it never read — the counter would be comparing a value \
+            that no longer means "the row I read". Got \
+            \(String(describing: recreated?.editRevision.rawValue)).
+            """
+        )
+        #expect(recreated?.displayName == "renamed", "and the re-created row keeps what it was given")
+    }
+
     // MARK: - The two ways the read-then-write shape failed on its own
+
+    @Test("an edit revision at the end of its range is refused rather than trapping")
+    func unbumpableEditRevisionIsRefused() throws {
+        let store = try makeStore()
+        try seedInstance(store)
+
+        // The counter's ceiling, which a hand-edited or badly imported store can hold —
+        // and which `rawValue + 1` does not throw on, it traps. A process killed by a
+        // counter is not the typed refusal the rest of this path promises.
+        try store.database.write { db in
+            try db.execute(
+                sql: "UPDATE providerInstance SET editRevision = ? WHERE id = ?",
+                arguments: [Int.max, Self.instanceID.rawValue]
+            )
+        }
+
+        guard let stale = try store.providerInstance(id: Self.instanceID) else {
+            Issue.record("expected the instance to read back")
+            return
+        }
+        #expect(stale.editRevision.rawValue == Int.max, "the fixture must actually plant the ceiling")
+
+        let failure = reconfigure(
+            store,
+            displayName: "renamed",
+            baseURL: nil,
+            expectedEditRevision: stale.editRevision
+        )
+
+        #expect(
+            failure as? ZenAgent.PersistenceError
+                == .providerInstanceRevisionUnreadable(id: Self.instanceID, rawValue: String(Int.max)),
+            "expected the typed refusal; got \(String(describing: failure))"
+        )
+    }
 
     @Test("a stale edit against a deleted instance is a typed failure")
     func staleEditAfterDeleteIsTyped() throws {

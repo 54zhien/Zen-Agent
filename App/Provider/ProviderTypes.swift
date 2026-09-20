@@ -46,7 +46,8 @@ struct ConfigRevision: RawRepresentable, Codable, Sendable, Hashable {
 
     /// Why a stored revision could not be advanced.
     enum FormatError: Error, Equatable {
-        /// The stored value is not a counter this build knows how to count.
+        /// The stored value is not a counter this build can advance — it is either not a
+        /// number at all, or it is already at the end of the range.
         case notACounter(String)
     }
 
@@ -59,11 +60,21 @@ struct ConfigRevision: RawRepresentable, Codable, Sendable, Hashable {
     /// collided with*, and every run frozen against that value would go on reporting a
     /// match. Refusing is the only safe direction, and the caller reports it as a typed
     /// failure rather than as a silent renumber.
+    ///
+    /// Overflow is refused the same way rather than trapping. `value + 1` at the top of
+    /// the range kills the process, and the data that reaches here is exactly the data
+    /// that cannot be trusted to be an ordinary counter — a hand-edited or badly
+    /// imported store. A counter this build cannot advance is the failure the caller
+    /// already has a vocabulary for.
     func next() throws -> ConfigRevision {
         guard let value = Int(rawValue) else {
             throw FormatError.notACounter(rawValue)
         }
-        return ConfigRevision(rawValue: String(value + 1))
+        let (advanced, overflowed) = value.addingReportingOverflow(1)
+        guard !overflowed else {
+            throw FormatError.notACounter(rawValue)
+        }
+        return ConfigRevision(rawValue: String(advanced))
     }
 }
 
@@ -95,8 +106,23 @@ struct ProviderInstanceEditRevision: RawRepresentable, Codable, Sendable, Hashab
     /// instance that has never been edited reports.
     static let initial = ProviderInstanceEditRevision(rawValue: 0)
 
-    var next: ProviderInstanceEditRevision {
-        ProviderInstanceEditRevision(rawValue: rawValue + 1)
+    /// Why a stored revision could not be advanced.
+    enum FormatError: Error, Equatable {
+        /// Already at the end of the range.
+        case notACounter(Int)
+    }
+
+    /// The revision after this one.
+    ///
+    /// Refuses rather than trapping, for the same reason `ConfigRevision.next()` does:
+    /// a revision at the top of the range is a value this build cannot advance, which is
+    /// a diagnosis the caller already has a vocabulary for, and a trap is not.
+    func next() throws -> ProviderInstanceEditRevision {
+        let (advanced, overflowed) = rawValue.addingReportingOverflow(1)
+        guard !overflowed else {
+            throw FormatError.notACounter(rawValue)
+        }
+        return ProviderInstanceEditRevision(rawValue: advanced)
     }
 }
 

@@ -116,6 +116,65 @@ test-host restart 问题是在其后的 run 里才被发现的。
 
 A 和 D 是其中影响最大的两条。
 
+### 上表的处置（`inc5-review-debt` 分支，全部已对当前源码核实）
+
+表是 review 当刻写的，之后没随修复更新，所以开工前逐条对过源码。结论：
+
+| # | 状态 | 依据 |
+|---|---|---|
+| A | **不成立** | `DeepSeekProvider.swift:194` 的 `onTermination` 绑 `HTTPStream.cancel`（背后是 `URLSessionDataTask`），没有回到 continuation 的路径。`486cdc9` 已移除该环，`cb723b7` 清掉残留绑定 |
+| B | **已修** | `4f68e4f`：窗口与 phase 来自同一次加锁快照 |
+| C | **已基本修掉** | `FakeHTTPTransport.stream` 现在记录取消、head/tail failure 走 `HTTPTransportError`；`deliveredData` 仍为手写，未重开 |
+| D | **已修** | `fdf1f87` + `3c88374` + `e201258`：逐行容错、typed error、旧形状 seed 的测试补上 |
+| E | **已修** | 见下节 |
+| F | **已修** | `db29f66`：seed 冻结完整 request endpoint 并在校验时比对 |
+
+---
+
+## E：单事务 CAS + 独立 edit revision（`inc5-review-debt`，2026-09-20）
+
+**问题**：`reconfigureProviderInstance` / `attachCredential` **读在一个事务、写在另一个**，
+且把读到的**整个对象**写回。后果两条：中间被删 → 裸 GRDB `RecordError` 逃到调用方；
+并发编辑静默丢失一次更新（后写者用早先读到的整行覆盖）。
+
+`PersistenceStore+ProviderInstances.swift` 的注释自称「it has to be impossible to change
+an instance without changing what a frozen run compares against」—— 两次并发编辑都读到
+revision N、都写 N+1，这句不成立。这不是遗漏，是**注释承诺了实现没有提供的东西**。
+
+**做法**：读、判定、写收敛进同一个 `database.write`；更新带
+`WHERE id = ? AND editRevision = ?` 条件，陈旧写入改 0 行而不是覆盖；
+只更新该 mutation 允许改的列。
+
+**两个计数器，不是一个**：`configRevision` 回答「冻结的 run 是否仍然匹配」，
+所以 `attachCredential` 不能 bump 它（既有决定，未动）。检测丢失更新需要一个
+**每次编辑都动**的计数器，包括凭据那一次 —— 一个列没法同时满足两件事，
+所以新加 `ProviderInstanceEditRevision`（`INTEGER`，V5 migration，存量行从 0 起）。
+
+**`ConfigRevision.next` 改为 fail-loud**：`Int(rawValue) ?? 0` 会把不可解析的值变成
+`"1"`，也就是 `initial` —— 一个 run 可能已经冻结过的 revision，实例于是**在 run 的
+checksum 没动的情况下被改掉**。改成抛出。（在 SQL 里原子递增**不能**修这个：
+`CAST('config-r1' AS INTEGER)` 是 0，仍然得到 `"1"`。）
+
+**红→绿**：
+- `63f0867`（红）CI `35500976001` → failure。两条真红：
+  - `a rename built on a stale snapshot does not revert another editor's endpoint`
+    → `api.deepseek.com == proxy.example.com` 失败（A 的 endpoint 被 B 的陈旧写回滚）
+  - `a revision that cannot be counted is not silently renumbered`
+    → `"1" != "1"` 失败（`config-r1` 被静默重编号为 `1`）
+- `7bce7f5`（绿）CI `35501448459` → success
+
+**第 3 条探针没有红**，且原因是结论性的：旧 API **根本不接受调用方的快照**，
+`attachCredential` 在内部重新读一次，所以「陈旧快照」在旧代码里无法表达。
+这正是 E 的修法必须是 **API 变更**的原因 —— 必填的 `expectedEditRevision`
+才让「基于陈旧快照的写入」成为一个可陈述的事实。
+
+**`/code-review` 之后又修的两条**（都是本轮自己引入的）：
+1. `createProviderInstance` 原样持久化调用方给的 `editRevision` —— 与 V5 注释的
+   「存量行从 0 起」矛盾，并让「删除 → 用旧快照重建」绕过 guard。改为由 store 派生。
+2. 两个 `next()` 的 `rawValue + 1` 在范围顶部**直接 trap**，而不是设计承诺的 typed
+   refusal —— 而触发它的正是测试自己点名的威胁模型（手改 / 坏导入）。改为
+   `addingReportingOverflow` + 抛出。
+
 **5D 的证明性测试**（三条各证一件事，只有一个 timer 时必有一条红）：
 
 | 输入 | 期望 |
