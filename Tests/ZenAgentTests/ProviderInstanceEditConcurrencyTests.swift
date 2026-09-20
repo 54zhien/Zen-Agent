@@ -103,8 +103,9 @@ struct ProviderInstanceEditConcurrencyTests {
             baseURL: afterAFirstEdit.baseURL,
             expectedEditRevision: afterAFirstEdit.editRevision
         )
+        let revisionBWouldWrite = try editorB.editRevision.next()
         #expect(
-            afterA.editRevision != editorB.editRevision.next,
+            afterA.editRevision != revisionBWouldWrite,
             """
             the two-edit setup is what makes the `actual` assertion meaningful; collapse \
             it back to one edit and a misreported `actual` goes unnoticed
@@ -171,7 +172,8 @@ struct ProviderInstanceEditConcurrencyTests {
             baseURL: renamedOnce.baseURL,
             expectedEditRevision: renamedOnce.editRevision
         )
-        #expect(renamed.editRevision != stale.editRevision.next)
+        let revisionTheAttachWouldWrite = try stale.editRevision.next()
+        #expect(renamed.editRevision != revisionTheAttachWouldWrite)
 
         var failure: Error?
         do {
