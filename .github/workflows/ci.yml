@@ -72,6 +72,16 @@ jobs:
       - name: GRDB must not escape the persistence layer
         run: |
           set -euo pipefail
+          # A grep proves nothing about a tree that is not there. Rename App/ and
+          # this step searches nothing, finds no offenders, and prints OK — so the
+          # premise is asserted first: the tree searched, and the layer directory
+          # whose confinement is the actual claim.
+          for required in App App/Persistence; do
+            if [ ! -d "$required" ]; then
+              echo "::error::$required/ is missing; this check needs updating rather than removing."
+              exit 1
+            fi
+          done
           offenders=$(grep -rl "import GRDB" App --include="*.swift" | grep -v '^App/Persistence/' || true)
           if [ -n "$offenders" ]; then
             echo "::error::GRDB is imported outside App/Persistence/:"
@@ -84,6 +94,14 @@ jobs:
       - name: Security.framework must not escape the credential layer
         run: |
           set -euo pipefail
+          # See the GRDB step above: an absent tree cannot produce offenders, so a
+          # rename of App/ or of the credential layer would read as a pass.
+          for required in App App/Credential; do
+            if [ ! -d "$required" ]; then
+              echo "::error::$required/ is missing; this check needs updating rather than removing."
+              exit 1
+            fi
+          done
           offenders=$(grep -rl "import Security" App --include="*.swift" | grep -v '^App/Credential/' || true)
           if [ -n "$offenders" ]; then
             echo "::error::Security.framework is imported outside App/Credential/:"
@@ -101,6 +119,14 @@ jobs:
           # false positive that gets a check deleted rather than fixed. Lines whose first
           # non-whitespace is a comment marker are ignored; a trailing comment on a code
           # line still counts, because the code line counts anyway.
+          # See the GRDB step above: an absent tree cannot produce offenders, so a
+          # rename of App/ or of the HTTP layer would read as a pass.
+          for required in App App/HTTP; do
+            if [ ! -d "$required" ]; then
+              echo "::error::$required/ is missing; this check needs updating rather than removing."
+              exit 1
+            fi
+          done
           offenders=$(grep -rn "URLSession" App --include="*.swift"             | grep -v '^App/HTTP/'             | grep -vE ':[[:space:]]*(//|///|\*)'             || true)
           if [ -n "$offenders" ]; then
             echo "::error::URLSession is referenced outside App/HTTP/:"
@@ -116,6 +142,14 @@ jobs:
           # Type *declarations* only, at column zero, which is where a top-level Swift
           # type sits. Extensions and ordinary references are not the problem; a DTO
           # defined somewhere else is.
+          # See the GRDB step above: an absent tree cannot produce offenders, so a
+          # rename of App/ or of the adapter's directory would read as a pass.
+          for required in App App/Provider/DeepSeek; do
+            if [ ! -d "$required" ]; then
+              echo "::error::$required/ is missing; this check needs updating rather than removing."
+              exit 1
+            fi
+          done
           offenders=$(grep -rnE '^(struct|final class|class|enum) DeepSeek' App --include="*.swift" \
             | grep -v '^App/Provider/DeepSeek/' || true)
           if [ -n "$offenders" ]; then
@@ -129,7 +163,14 @@ jobs:
       - name: SecretValue must stay non-Codable
         run: |
           set -euo pipefail
-          line=$(grep -n "struct SecretValue" App/Credential/CredentialTypes.swift || true)
+
+          # A line whose first non-whitespace is a comment marker *names* this rule;
+          # it does not break it. Same exclusion as the URLSession check, defined once
+          # so that both shapes below are read the same way.
+          comment_line=':[[:space:]]*(//|///|\*)'
+
+          line=$(grep -n 'struct SecretValue' App/Credential/CredentialTypes.swift \
+            | grep -vE "$comment_line" || true)
           if [ -z "$line" ]; then
             echo "::error::SecretValue has moved; this check needs updating rather than removing."
             exit 1
@@ -138,7 +179,24 @@ jobs:
             echo "::error::SecretValue became Codable. Not being Codable is what makes 'a secret cannot reach the database or the frozen seed' a compile-time property rather than a rule to remember."
             exit 1
           fi
-          echo "OK: SecretValue is not Codable"
+
+          # The other shape, and the one a declaration-line grep cannot see: a
+          # retroactive `extension SecretValue: Codable`, which is how it would
+          # actually arrive. Encodable and Decodable are the same hole a word over —
+          # either half is enough to write a secret out. This is a tripwire for the
+          # shapes that occur in practice, not a conformance checker.
+          conformances=$(
+            grep -rnE 'struct SecretValue.*(Codable|Encodable|Decodable)|extension[[:space:]]+SecretValue.*(Codable|Encodable|Decodable)' \
+              App --include="*.swift" \
+              | grep -vE "$comment_line" || true
+          )
+          if [ -n "$conformances" ]; then
+            echo "::error::SecretValue became Codable, here:"
+            echo "$conformances"
+            echo "An extension conforming it is the same escape as a conformance on the declaration: a secret that can be encoded is a secret that reaches the database, the seed, or an export."
+            exit 1
+          fi
+          echo "OK: SecretValue is not Codable, on its declaration or in an extension"
 
       - name: Files that must stay versioned are not accidentally ignored
         run: |
@@ -151,11 +209,28 @@ jobs:
             "AGENTS.md" \
             "Docs/ADR/0001-persistence-engine.md"
           do
-            if git check-ignore -q "$f"; then
-              echo "::error::$f is ignored but must be versioned"
+            # Two questions, and the step needs both answers.
+            #
+            # "Is it in the index?" must not be answerable with a shrug. `git
+            # check-ignore` exits non-zero both for a path that is not ignored and
+            # for a path that does not exist at all, so a file renamed away printed
+            # OK. `ls-files --error-unmatch` exits non-zero for missing, ignored and
+            # never-added alike, which is exactly the set that must not pass.
+            #
+            # "Does an ignore rule match it anyway?" needs --no-index to be worth
+            # asking: plain check-ignore consults the index, so it answers "not
+            # ignored" for precisely the tracked files this step is about. With
+            # --no-index it reports the pattern, and a rule that covers a versioned
+            # file is the accident this step is named after — the file is versioned
+            # today, and would not survive a removal and re-add.
+            if ! git ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then
+              echo "::error::$f is not tracked. It must be versioned; if it was renamed, update this list rather than dropping the file."
+              failed=1
+            elif git check-ignore --no-index -q -- "$f"; then
+              echo "::error::$f is tracked, but an ignore rule matches it — a removal and re-add would silently lose it."
               failed=1
             else
-              echo "OK: $f is tracked"
+              echo "OK: $f is tracked and no ignore rule matches it"
             fi
           done
           exit $failed
@@ -186,8 +261,69 @@ jobs:
       - name: Confirm the app resolves its deployment target from xcconfig
         run: |
           set -euo pipefail
-          xcodebuild -project ZenAgent.xcodeproj -scheme ZenAgent -showBuildSettings \
-            | grep -E 'IPHONEOS_DEPLOYMENT_TARGET|SWIFT_VERSION|SWIFT_STRICT_CONCURRENCY' || true
+
+          # This asserts the *relationship*, not a number. Spelling "26.0" out here
+          # would only prove that this line and Config/Common.xcconfig agreed on the
+          # day it was written, and would turn a deliberate bump into a failure in a
+          # file nobody edited on purpose. The value is read from the xcconfig and
+          # compared against what the generated project actually resolves to.
+          declared=$(
+            grep -hE '^[[:space:]]*IPHONEOS_DEPLOYMENT_TARGET[[:space:]]*=' Config/*.xcconfig \
+              | sed -E 's,//.*$,,; s/^[^=]*=[[:space:]]*//; s/[[:space:]]+$//' \
+              | sort -u || true
+          )
+          if [ -z "$declared" ]; then
+            echo "::error::No IPHONEOS_DEPLOYMENT_TARGET is declared in Config/*.xcconfig; this check needs updating rather than removing."
+            exit 1
+          fi
+
+          settings="$RUNNER_TEMP/build-settings.txt"
+          if ! xcodebuild -project ZenAgent.xcodeproj -scheme ZenAgent -showBuildSettings \
+                 > "$settings" 2>&1; then
+            echo "::error::xcodebuild -showBuildSettings failed:"
+            tail -n 40 "$settings"
+            exit 1
+          fi
+
+          # Presence with a value, all three. They are declared in
+          # Config/Common.xcconfig and nowhere else in the project, so seeing them
+          # resolved is itself evidence the xcconfig reached the target — and a
+          # setting that silently stopped being applied is otherwise invisible.
+          missing=0
+          for setting in IPHONEOS_DEPLOYMENT_TARGET SWIFT_VERSION SWIFT_STRICT_CONCURRENCY; do
+            if ! grep -qE "^[[:space:]]*${setting}[[:space:]]*=[[:space:]]*[^[:space:]]" "$settings"; then
+              echo "::error::${setting} resolved to nothing; the xcconfig is no longer reaching the target."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+          # Every block xcodebuild printed must name a value some xcconfig declares.
+          # A scheme has more than one target, and a value written into project.yml
+          # or into either target would override the xcconfig silently — which is
+          # what precedence does, and the failure this step exists to catch.
+          resolved=$(
+            grep -E '^[[:space:]]*IPHONEOS_DEPLOYMENT_TARGET[[:space:]]*=' "$settings" \
+              | sed -E 's,//.*$,,; s/^[^=]*=[[:space:]]*//; s/[[:space:]]+$//' \
+              | sort -u || true
+          )
+          echo "Declared in Config/*.xcconfig: $(printf '%s ' $declared)"
+          echo "Resolved by xcodebuild:        $(printf '%s ' $resolved)"
+
+          undeclared=0
+          for value in $resolved; do
+            if ! printf '%s\n' "$declared" | grep -qxF "$value"; then
+              echo "::error::IPHONEOS_DEPLOYMENT_TARGET resolves to '$value', which no Config/*.xcconfig declares."
+              undeclared=1
+            fi
+          done
+          if [ "$undeclared" -ne 0 ]; then
+            echo "The xcconfig files are the single source of truth for deployment targets; see the note in project.yml."
+            exit 1
+          fi
+          echo "OK: the deployment target resolves from Config/*.xcconfig"
 
       - name: Cache Swift Package Manager
         uses: actions/cache@v4
