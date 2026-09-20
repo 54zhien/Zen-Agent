@@ -255,4 +255,34 @@ struct CredentialStoreTests {
             )
         }
     }
+
+    @Test("a backend failure must surface as a typed credential error, not a raw backend error")
+    func failedBackendIsTyped() throws {
+        let secrets = InMemorySecretBackend()
+        let store = CredentialStore(
+            secrets: secrets,
+            metadataRepository: InMemoryCredentialMetadataRepository()
+        )
+        try store.provision(secret("sk-first"), as: Self.reference)
+
+        secrets.failedReferences = [Self.reference.id]
+
+        var failure: Error?
+        do {
+            _ = try store.resolve(Self.reference)
+        } catch {
+            failure = error
+        }
+
+        // Typed, not raw. The caller must never see a `SecretBackendError` — the
+        // negative shape keeps this compiling before the typed case exists; the
+        // fix upgrades it to the exact case. Folding this into `unavailable` would
+        // also be wrong: that promises "wait and try again", and damaged storage
+        // does not recover by waiting.
+        #expect(
+            failure is CredentialError,
+            "expected a CredentialError, got \(String(describing: failure)) — a backend failure escaping raw is an untyped leak"
+        )
+        #expect(!(failure is SecretBackendError))
+    }
 }

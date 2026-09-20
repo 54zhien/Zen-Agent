@@ -155,6 +155,34 @@ struct ProviderAvailabilityTests {
         )
     }
 
+    // MARK: - Storage failures stay typed
+
+    @Test("a storage failure is a typed availability, not a raw throw")
+    func storageFailureIsTyped() throws {
+        let secrets = InMemorySecretBackend()
+        let credentials = makeCredentials(secrets)
+        try credentials.provision(SecretValue("sk-1"), as: Self.reference)
+        secrets.failedReferences = [Self.reference.id]
+
+        // Pre-fix, the raw `SecretBackendError` escapes the resolver's CredentialError
+        // switch and this call throws — which is exactly the leak the fix must close.
+        // The user has to act, and it must not be reported as a logout or a rejection:
+        // neither happened.
+        var availability: ProviderAvailability?
+        do {
+            availability = try ProviderAvailabilityResolver.resolve(
+                instance: instance(), credentials: credentials, verdict: nil
+            )
+        } catch {
+            Issue.record("a storage failure must map to a typed availability, not escape raw: \(error)")
+        }
+
+        guard case .authenticationRequired = availability else {
+            Issue.record("expected .authenticationRequired, got \(String(describing: availability))")
+            return
+        }
+    }
+
     // MARK: - FakeProvider
 
     @Test("the fake provider answers a known model")

@@ -506,6 +506,33 @@ struct DeepSeekProviderTests {
         #expect(f.transport.requestCount == 0)
     }
 
+    // MARK: - Storage failures stay typed
+
+    @Test("a backend failure surfaces as a provider error, not as a raw backend error")
+    func storageFailureIsTyped() async throws {
+        let f = try makeFixture()
+        f.secrets.failedReferences = [f.reference.id]
+        f.transport.enqueue(status: 200, json: Self.successJSON)
+
+        var failure: Error?
+        do {
+            _ = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+        } catch {
+            failure = error
+        }
+
+        // Typed, not raw. A `SecretBackendError` escaping `complete` would put a
+        // credential-layer type in front of the Runtime — the leak this abstraction
+        // exists to prevent. The negative shape keeps this compiling before the
+        // typed case exists; the fix upgrades it to the exact case.
+        #expect(
+            failure is ProviderError,
+            "expected a ProviderError, got \(String(describing: failure))"
+        )
+        #expect(!(failure is SecretBackendError), "the backend error must not escape the adapter")
+        #expect(f.transport.requestCount == 0, "damaged storage must not send anything")
+    }
+
     // MARK: - Secrets
 
     @Test("the secret appears in no description, dump, or error")

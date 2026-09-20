@@ -29,6 +29,12 @@ final class InMemorySecretBackend: SecretBackend, @unchecked Sendable {
     /// and a naive implementation confuses with "not there".
     var unreadableReferences: Set<String> = []
 
+    /// When set, `load` throws `.failed` for these references — standing in for
+    /// damaged storage: the item exists but cannot be read as a secret, and no
+    /// amount of waiting or re-provisioning changes that. What the Keychain
+    /// produces for a corrupt item or an unexpected OSStatus.
+    var failedReferences: Set<String> = []
+
     init() {}
 
     private func key(_ reference: CredentialReference, generation: Int) -> String {
@@ -44,6 +50,9 @@ final class InMemorySecretBackend: SecretBackend, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         if unreadableReferences.contains(reference.id) {
             throw SecretBackendError.unavailable("simulated locked device")
+        }
+        if failedReferences.contains(reference.id) {
+            throw SecretBackendError.failed("simulated damaged keychain item")
         }
         return secrets[key(reference, generation: generation)].map(SecretValue.init)
     }
