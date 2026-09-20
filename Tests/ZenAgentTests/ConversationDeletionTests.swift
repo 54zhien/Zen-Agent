@@ -203,4 +203,83 @@ struct ConversationDeletionTests {
             "expected a not-found error, got \(String(describing: failure))"
         )
     }
+
+    @Test("a snapshot from before the deletion must not resurrect the conversation")
+    func staleSnapshotDoesNotResurrect() throws {
+        // The run finishes first, so the commit below is otherwise a legitimate new
+        // turn: the only thing wrong with it is the conversation snapshot it carries.
+        // (With an active run the occupied-slot check refuses the commit first, and
+        // the resurrection path would never be exercised.)
+        let store = try makeStore()
+        try store.commitUserTurnAndCreateParentRun(
+            Fixtures.send(messageID: "m1", runID: "r1", runState: .completed)
+        )
+        try store.beginDeletion(conversationID: "c1")
+
+        // The snapshot a caller read before the deletion began: `.visible`. The send
+        // commit upserts the whole conversation row, so this snapshot would write
+        // `.visible` back over the pending deletion and land a new message on it.
+        let staleCommit = Fixtures.send(messageID: "m2", runID: "r2")
+
+        var failure: Error?
+        do {
+            try store.commitUserTurnAndCreateParentRun(staleCommit)
+        } catch {
+            failure = error
+        }
+
+        // Integrity first, so a wrong error cannot hide a wrong state.
+        #expect(
+            try store.conversationLifecycle(id: "c1") == .pendingDeletion,
+            "a refused commit must not write .visible back over a deleted conversation"
+        )
+        #expect(
+            try store.messages(inConversation: "c1").count == 1,
+            "a refused commit must not add its message to a deleted conversation"
+        )
+        guard case .invalidTransition = failure as? ZenAgent.PersistenceError else {
+            Issue.record("expected invalidTransition, got \(String(describing: failure))")
+            return
+        }
+    }
+
+    @Test("a snapshot read during the undo window must not re-hide the conversation")
+    func stalePendingSnapshotDoesNotRehide() throws {
+        let store = try makeStore()
+        try store.commitUserTurnAndCreateParentRun(
+            Fixtures.send(messageID: "m1", runID: "r1", runState: .completed)
+        )
+        try store.beginDeletion(conversationID: "c1")
+
+        // Read during the undo window — the snapshot says `.pendingDeletion` — and
+        // committed after the user undid. The upsert writes the whole row, so this
+        // snapshot would hide the restored conversation again.
+        let staleCommit = SendCommit(
+            conversation: Fixtures.conversation(lifecycle: .pendingDeletion),
+            message: Fixtures.message(id: "m2", conversationID: "c1", sequence: 1),
+            parts: [Fixtures.textPart(id: "m2-p0", messageID: "m2")],
+            run: Fixtures.run(id: "r2", conversationID: "c1", triggerMessageID: "m2")
+        )
+        try store.undoDeletion(conversationID: "c1")
+
+        var failure: Error?
+        do {
+            try store.commitUserTurnAndCreateParentRun(staleCommit)
+        } catch {
+            failure = error
+        }
+
+        #expect(
+            try store.conversationLifecycle(id: "c1") == .visible,
+            "a refused commit must not write .pendingDeletion back over a restored conversation"
+        )
+        #expect(
+            try store.messages(inConversation: "c1").count == 1,
+            "a refused commit must not add its message to a restored conversation"
+        )
+        guard case .invalidTransition = failure as? ZenAgent.PersistenceError else {
+            Issue.record("expected invalidTransition, got \(String(describing: failure))")
+            return
+        }
+    }
 }
