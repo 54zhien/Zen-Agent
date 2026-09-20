@@ -90,6 +90,18 @@ enum PersistenceError: Error, Equatable {
     case unreadableRequestConfigSeed(runID: String, failure: RequestConfigSeedReadFailure)
 }
 
+extension PersistenceError {
+    /// The refusal shared by the lifecycle guards: the conversation is not where the
+    /// mutation says it is. One place, so the wording cannot drift between the
+    /// deletion-side guards and the send-side guard.
+    static func invalidLifecycleTransition(
+        expected: ConversationLifecycle,
+        actual: ConversationLifecycle
+    ) -> PersistenceError {
+        .invalidTransition("expected \(expected.rawValue) but the conversation is \(actual.rawValue)")
+    }
+}
+
 /// Why a run's frozen request seed could not be read.
 ///
 /// The persistence-facing vocabulary for `RequestConfigSeed.FormatError`. Translated

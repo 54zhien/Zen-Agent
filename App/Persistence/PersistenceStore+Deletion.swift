@@ -49,6 +49,26 @@ extension PersistenceStore {
     /// side effect later.
     func finalizeDeletion(conversationID: String, at now: Date = Date()) throws {
         try database.write { db in
+            // Refused before any write — a refused finalise must not even write
+            // tombstones. Run in this transaction rather than via `transition`, which
+            // would open a second `database.write` here; GRDB forbids nesting writes.
+            let conversation = try requireConversation(conversationID, in: db)
+            switch conversation.lifecycle {
+            case .pendingDeletion:
+                break // the one state from which finalising does anything
+            case .finalizedDeletion:
+                // A retry must not throw forever: the outcome is already known, and
+                // "finalising twice must not fail" is the tombstone's contract below.
+                return
+            case .visible:
+                // This would skip the undo window and burn a body undo still claims
+                // it can bring back. Refused.
+                throw PersistenceError.invalidLifecycleTransition(
+                    expected: .pendingDeletion,
+                    actual: conversation.lifecycle
+                )
+            }
+
             // Derived from the disposition rather than listed: a state that later
             // comes to mean "may have happened" must start producing tombstones
             // without a change here.
@@ -121,12 +141,11 @@ extension PersistenceStore {
         at now: Date
     ) throws {
         try database.write { db in
-            guard let conversation = try ConversationRecord.fetchOne(db, key: conversationID) else {
-                throw PersistenceError.conversationNotFound(conversationID)
-            }
+            let conversation = try requireConversation(conversationID, in: db)
             guard conversation.lifecycle == expected else {
-                throw PersistenceError.invalidTransition(
-                    "expected \(expected.rawValue) but the conversation is \(conversation.lifecycle.rawValue)"
+                throw PersistenceError.invalidLifecycleTransition(
+                    expected: expected,
+                    actual: conversation.lifecycle
                 )
             }
             try db.execute(
@@ -134,6 +153,18 @@ extension PersistenceStore {
                 arguments: [next.rawValue, now, conversationID]
             )
         }
+    }
+
+    /// Fetches the conversation a lifecycle mutation names. A mutation on a
+    /// conversation that does not exist is a caller bug, not a no-op.
+    private func requireConversation(
+        _ conversationID: String,
+        in db: Database
+    ) throws -> ConversationRecord {
+        guard let conversation = try ConversationRecord.fetchOne(db, key: conversationID) else {
+            throw PersistenceError.conversationNotFound(conversationID)
+        }
+        return conversation
     }
 
     /// Best-effort extraction of the target identity from a frozen execution intent.
