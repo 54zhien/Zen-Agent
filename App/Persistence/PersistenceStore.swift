@@ -169,7 +169,9 @@ struct PersistenceStore: Sendable {
     /// the API can express.
     ///
     /// Throws `PersistenceError.conversationAlreadyHasActiveRun` when the conversation
-    /// is already occupied.
+    /// is already occupied, and `PersistenceError.invalidTransition` when the
+    /// conversation has left `.visible` — a send must not move a conversation across
+    /// the deletion lifecycle in either direction.
     ///
     /// **Two layers, and the order matters.** The explicit check inside the transaction
     /// exists to produce a precise error message; it is *not* what guarantees the
@@ -190,6 +192,30 @@ struct PersistenceStore: Sendable {
 
         do {
             try database.write { db in
+                // A send must not change a conversation's lifecycle: the upsert below
+                // writes the whole snapshot row. A snapshot read before a deletion
+                // began would resurrect the conversation, and one read during the undo
+                // window would re-hide a conversation the user just restored. Refuse
+                // unless both the stored row and the snapshot say `.visible`; a
+                // missing row is the normal first send. Keyed on the run's
+                // conversationID — the id the message and run actually land on — and
+                // checked first, so a deleted conversation is never reported as merely
+                // busy.
+                if let existing = try ConversationRecord.fetchOne(db, key: conversationID) {
+                    guard existing.lifecycle == .visible else {
+                        throw PersistenceError.invalidLifecycleTransition(
+                            expected: .visible,
+                            actual: existing.lifecycle
+                        )
+                    }
+                    guard commit.conversation.lifecycle == .visible else {
+                        throw PersistenceError.invalidLifecycleTransition(
+                            expected: .visible,
+                            actual: commit.conversation.lifecycle
+                        )
+                    }
+                }
+
                 let occupied = try AgentRunRecord
                     .filter(Column("activeSlot") == conversationID)
                     .fetchCount(db) > 0
