@@ -6,7 +6,12 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # Every branch, not just main: this box has no local Swift toolchain, so a
+    # compile error on a working branch goes undetected until it is merged — which
+    # is how the Codable omission reached `main` review instead of dying on the
+    # branch's own push. `concurrency.cancel-in-progress` already collapses rapid
+    # pushes to the same ref, so running on every branch costs nothing extra.
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 
