@@ -258,72 +258,331 @@ jobs:
       - name: Generate Xcode project from project.yml
         run: xcodegen generate
 
-      - name: Confirm the app resolves its deployment target from xcconfig
+      - name: Managed build settings have one xcconfig source of truth
+        shell: sh
         run: |
-          set -euo pipefail
+          set -eu
 
-          # This asserts the *relationship*, not a number. Spelling "26.0" out here
-          # would only prove that this line and Config/Common.xcconfig agreed on the
-          # day it was written, and would turn a deliberate bump into a failure in a
-          # file nobody edited on purpose. The value is read from the xcconfig and
-          # compared against what the generated project actually resolves to.
-          declared=$(
-            grep -hE '^[[:space:]]*IPHONEOS_DEPLOYMENT_TARGET[[:space:]]*=' Config/*.xcconfig \
-              | sed -E 's,//.*$,,; s/^[^=]*=[[:space:]]*//; s/[[:space:]]+$//' \
-              | sort -u || true
-          )
-          if [ -z "$declared" ]; then
-            echo "::error::No IPHONEOS_DEPLOYMENT_TARGET is declared in Config/*.xcconfig; this check needs updating rather than removing."
+          managed_settings='IPHONEOS_DEPLOYMENT_TARGET SWIFT_VERSION SWIFT_STRICT_CONCURRENCY'
+          temp_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+          guard_tmp=$(mktemp -d "$temp_root/managed-build-settings.XXXXXX")
+          trap 'rm -rf "$guard_tmp"' EXIT HUP INT TERM
+
+          # First invariant: project.yml must not declare any managed setting.
+          # Psych inspects YAML mapping keys, so comments do not count while
+          # quoted keys, flow mappings and duplicate mapping keys are still seen.
+          if ! command -v ruby >/dev/null 2>&1; then
+            echo "::error::ruby is unavailable; project.yml cannot be checked safely."
             exit 1
           fi
 
-          settings="$RUNNER_TEMP/build-settings.txt"
-          if ! xcodebuild -project ZenAgent.xcodeproj -scheme ZenAgent -showBuildSettings \
-                 > "$settings" 2>&1; then
+          project_hits="$guard_tmp/project-yml-hits.txt"
+          if ! ruby >"$project_hits" <<'RUBY'
+          require "psych"
+
+          managed = %w[
+            IPHONEOS_DEPLOYMENT_TARGET
+            SWIFT_VERSION
+            SWIFT_STRICT_CONCURRENCY
+          ].freeze
+
+          source = File.read("project.yml")
+          stream = Psych.parse_stream(source, "project.yml")
+          hits = []
+
+          visit_yaml = nil
+          visit_yaml = lambda do |node|
+            if node.is_a?(Psych::Nodes::Mapping)
+              node.children.each_slice(2) do |key_node, value_node|
+                if key_node.is_a?(Psych::Nodes::Scalar) &&
+                   managed.include?(key_node.value)
+                  hits << "project.yml:#{key_node.start_line + 1}: #{key_node.value}"
+                end
+                visit_yaml.call(value_node)
+              end
+            elsif node.respond_to?(:children)
+              node.children.each { |child| visit_yaml.call(child) }
+            end
+          end
+          visit_yaml.call(stream)
+
+          # Also inspect the resolved YAML object. This closes the exotic case
+          # where an alias is used as a mapping key.
+          if hits.empty?
+            document = Psych.safe_load(source, aliases: true)
+            visit_value = nil
+            visit_value = lambda do |value, path|
+              case value
+              when Hash
+                value.each do |key, child|
+                  key_text = key.to_s
+                  child_path = "#{path}.#{key_text}"
+                  hits << "project.yml resolved path #{child_path}" if managed.include?(key_text)
+                  visit_value.call(child, child_path)
+                end
+              when Array
+                value.each_with_index do |child, index|
+                  visit_value.call(child, "#{path}[#{index}]")
+                end
+              end
+            end
+            visit_value.call(document, "$")
+          end
+
+          puts hits.uniq
+          RUBY
+          then
+            echo "::error::project.yml could not be parsed while checking managed settings."
+            exit 1
+          fi
+
+          if [ -s "$project_hits" ]; then
+            echo "::error::Managed build settings must not be declared in project.yml:"
+            sed 's/^/  /' "$project_hits"
+            echo "Config/*.xcconfig is their only source of truth."
+            exit 1
+          fi
+
+          # Second invariant: every managed setting must have exactly one distinct,
+          # literal value across Config/*.xcconfig.
+          set -- Config/*.xcconfig
+          if [ "$1" = 'Config/*.xcconfig' ] || [ ! -f "$1" ]; then
+            echo "::error::No Config/*.xcconfig files were found."
+            exit 1
+          fi
+
+          config_records="$guard_tmp/config-records.tsv"
+          if ! awk '
+            BEGIN {
+              managed["IPHONEOS_DEPLOYMENT_TARGET"] = 1
+              managed["SWIFT_VERSION"] = 1
+              managed["SWIFT_STRICT_CONCURRENCY"] = 1
+            }
+
+            function strip_comments(text,    output, line_comment, block_comment) {
+              output = ""
+
+              while (length(text) > 0) {
+                if (in_block_comment) {
+                  block_comment = index(text, "*/")
+                  if (block_comment == 0) {
+                    return output
+                  }
+
+                  text = substr(text, block_comment + 2)
+                  in_block_comment = 0
+                  continue
+                }
+
+                line_comment = index(text, "//")
+                block_comment = index(text, "/*")
+
+                if (line_comment > 0 &&
+                    (block_comment == 0 || line_comment < block_comment)) {
+                  output = output substr(text, 1, line_comment - 1)
+                  return output
+                }
+
+                if (block_comment > 0) {
+                  output = output substr(text, 1, block_comment - 1)
+                  text = substr(text, block_comment + 2)
+                  in_block_comment = 1
+                  block_start_file = FILENAME
+                  block_start_line = FNR
+                } else {
+                  output = output text
+                  return output
+                }
+              }
+
+              return output
+            }
+
+            FNR == 1 && NR != 1 && in_block_comment {
+              printf "::error file=%s,line=%d::Unterminated block comment in xcconfig.\n",
+                     block_start_file, block_start_line
+              bad = 1
+              in_block_comment = 0
+            }
+
+            {
+              code = strip_comments($0)
+              sub(/^[[:space:]]+/, "", code)
+              sub(/[[:space:]]+$/, "", code)
+
+              if (code == "") {
+                next
+              }
+
+              for (setting in managed) {
+                boundary = "^" setting "([[:space:]]|\\[|=)"
+                if (code !~ boundary) {
+                  continue
+                }
+
+                assignment = "^" setting \
+                             "([[:space:]]*\\[[^]]+\\])*" \
+                             "[[:space:]]*="
+
+                if (code !~ assignment) {
+                  printf "::error file=%s,line=%d::Unsupported assignment syntax for %s.\n",
+                         FILENAME, FNR, setting
+                  bad = 1
+                  next
+                }
+
+                value = code
+                sub(assignment "[[:space:]]*", "", value)
+                sub(/[[:space:]]+$/, "", value)
+
+                if (value == "") {
+                  printf "::error file=%s,line=%d::%s has an empty value.\n",
+                         FILENAME, FNR, setting
+                  bad = 1
+                  next
+                }
+
+                if (value ~ /[$][(]/ || value ~ /[$][{]/) {
+                  printf "::error file=%s,line=%d::%s uses variable expansion; managed settings must have one literal authority and may not use $(inherited).\n",
+                         FILENAME, FNR, setting
+                  bad = 1
+                  next
+                }
+
+                if (value !~ /^[[:alnum:]_.+-]+$/) {
+                  printf "::error file=%s,line=%d::%s must be one literal token; continuations and compound values are not accepted.\n",
+                         FILENAME, FNR, setting
+                  bad = 1
+                  next
+                }
+
+                printf "%s\t%s:%d\t%s\n",
+                       setting, FILENAME, FNR, value
+              }
+            }
+
+            END {
+              if (in_block_comment) {
+                printf "::error file=%s,line=%d::Unterminated block comment in xcconfig.\n",
+                       block_start_file, block_start_line
+                bad = 1
+              }
+
+              if (bad) {
+                exit 2
+              }
+            }
+          ' "$@" >"$config_records"
+          then
+            cat "$config_records"
+            echo "::error::Config/*.xcconfig could not be reduced to authoritative literal values."
+            exit 1
+          fi
+
+          expected_values="$guard_tmp/expected-values.tsv"
+          : >"$expected_values"
+
+          for setting in $managed_settings; do
+            raw_values="$guard_tmp/$setting.raw"
+            unique_values="$guard_tmp/$setting.unique"
+
+            if ! awk -F '	' -v setting="$setting" '
+              $1 == setting { print $3 }
+            ' "$config_records" >"$raw_values"
+            then
+              echo "::error::Failed to collect Config values for $setting."
+              exit 1
+            fi
+
+            if ! LC_ALL=C sort -u "$raw_values" >"$unique_values"; then
+              echo "::error::Failed to normalize Config values for $setting."
+              exit 1
+            fi
+
+            value_count=$(awk 'END { print NR + 0 }' "$unique_values")
+            if [ "$value_count" -ne 1 ]; then
+              if [ "$value_count" -eq 0 ]; then
+                echo "::error::$setting is not declared in Config/*.xcconfig."
+              else
+                echo "::error::$setting has $value_count competing Config values:"
+                awk -F '	' -v setting="$setting" '
+                  $1 == setting {
+                    printf "  %s => %s\n", $2, $3
+                  }
+                ' "$config_records"
+              fi
+              exit 1
+            fi
+
+            expected_value=$(sed -n '1p' "$unique_values")
+            printf '%s\t%s\n' "$setting" "$expected_value" >>"$expected_values"
+          done
+
+          # Third invariant: xcodebuild must resolve exactly the unique value
+          # established above, for all three managed settings.
+          build_settings="$guard_tmp/build-settings.txt"
+          if ! xcodebuild \
+                 -project ZenAgent.xcodeproj \
+                 -scheme ZenAgent \
+                 -showBuildSettings \
+                 >"$build_settings" 2>&1
+          then
             echo "::error::xcodebuild -showBuildSettings failed:"
-            tail -n 40 "$settings"
+            tail -n 40 "$build_settings"
             exit 1
           fi
 
-          # Presence with a value, all three. They are declared in
-          # Config/Common.xcconfig and nowhere else in the project, so seeing them
-          # resolved is itself evidence the xcconfig reached the target — and a
-          # setting that silently stopped being applied is otherwise invisible.
-          missing=0
-          for setting in IPHONEOS_DEPLOYMENT_TARGET SWIFT_VERSION SWIFT_STRICT_CONCURRENCY; do
-            if ! grep -qE "^[[:space:]]*${setting}[[:space:]]*=[[:space:]]*[^[:space:]]" "$settings"; then
-              echo "::error::${setting} resolved to nothing; the xcconfig is no longer reaching the target."
-              missing=1
+          for setting in $managed_settings; do
+            expected_value=$(awk -F '	' -v setting="$setting" '
+              $1 == setting {
+                print $2
+                exit
+              }
+            ' "$expected_values")
+
+            resolved_raw="$guard_tmp/$setting.resolved-raw"
+            resolved_unique="$guard_tmp/$setting.resolved-unique"
+
+            if ! awk -v setting="$setting" '
+              {
+                pattern = "^[[:space:]]*" setting \
+                          "[[:space:]]*=[[:space:]]*"
+              }
+
+              $0 ~ pattern {
+                value = $0
+                sub(pattern, "", value)
+                sub(/[[:space:]]+$/, "", value)
+                if (value != "") {
+                  print value
+                }
+              }
+            ' "$build_settings" >"$resolved_raw"
+            then
+              echo "::error::Failed to parse xcodebuild value for $setting."
+              exit 1
             fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
 
-          # Every block xcodebuild printed must name a value some xcconfig declares.
-          # A scheme has more than one target, and a value written into project.yml
-          # or into either target would override the xcconfig silently — which is
-          # what precedence does, and the failure this step exists to catch.
-          resolved=$(
-            grep -E '^[[:space:]]*IPHONEOS_DEPLOYMENT_TARGET[[:space:]]*=' "$settings" \
-              | sed -E 's,//.*$,,; s/^[^=]*=[[:space:]]*//; s/[[:space:]]+$//' \
-              | sort -u || true
-          )
-          echo "Declared in Config/*.xcconfig: $(printf '%s ' $declared)"
-          echo "Resolved by xcodebuild:        $(printf '%s ' $resolved)"
-
-          undeclared=0
-          for value in $resolved; do
-            if ! printf '%s\n' "$declared" | grep -qxF "$value"; then
-              echo "::error::IPHONEOS_DEPLOYMENT_TARGET resolves to '$value', which no Config/*.xcconfig declares."
-              undeclared=1
+            if ! LC_ALL=C sort -u "$resolved_raw" >"$resolved_unique"; then
+              echo "::error::Failed to normalize xcodebuild values for $setting."
+              exit 1
             fi
+
+            resolved_count=$(awk 'END { print NR + 0 }' "$resolved_unique")
+            if [ "$resolved_count" -ne 1 ]; then
+              echo "::error::$setting resolved to $resolved_count distinct values; expected exactly one:"
+              sed 's/^/  /' "$resolved_unique"
+              exit 1
+            fi
+
+            resolved_value=$(sed -n '1p' "$resolved_unique")
+            if [ "$resolved_value" != "$expected_value" ]; then
+              echo "::error::$setting resolved to '$resolved_value'; Config/*.xcconfig authoritatively declares '$expected_value'."
+              exit 1
+            fi
+
+            echo "OK: $setting = $resolved_value"
           done
-          if [ "$undeclared" -ne 0 ]; then
-            echo "The xcconfig files are the single source of truth for deployment targets; see the note in project.yml."
-            exit 1
-          fi
-          echo "OK: the deployment target resolves from Config/*.xcconfig"
 
       - name: Cache Swift Package Manager
         uses: actions/cache@v4
