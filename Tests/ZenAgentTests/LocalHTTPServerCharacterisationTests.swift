@@ -137,6 +137,57 @@ struct LocalHTTPServerCharacterisationTests {
         )
     }
 
+    @Test("an abortive close after delivery throws, unlike the graceful one")
+    func abortiveDisconnect() async throws {
+        // The graceful script above is measured to end cleanly, and a clean end is not a
+        // throwing failure. The transport's `streamInterrupted` is reserved for failures
+        // that throw, so a test asserting it needs a connection that dies badly rather
+        // than politely - hence the RST.
+        //
+        // **This is the characterisation that decides whether it is producible at all.**
+        // The transport test that consumes it stays disabled unless this says an abortive
+        // close actually surfaces as a network failure. If it does not, the honest answer
+        // is that the instrument still cannot create the condition, not that the
+        // assertion should be relaxed.
+        let server = try LocalHTTPServer(script: .chunkThenAbort("partial-answer"))
+        server.start()
+        defer { server.shutdown() }
+
+        let url = server.baseURL.appending(path: Self.chatCompletions)
+
+        let outcome = await observed { [session = session()] in
+            var received = Data()
+            do {
+                let (bytes, _) = try await session.bytes(for: URLRequest(url: url))
+                for try await byte in bytes {
+                    received.append(byte)
+                    // The same handshake as the graceful case: the abort is caused by
+                    // the observation, not by elapsed time.
+                    if received.count == 14 { server.requestClose() }
+                }
+                return "ended cleanly after \(received.count) bytes"
+            } catch {
+                let code = (error as? URLError)?.code.rawValue ?? -1
+                return "threw \(code) after \(received.count) bytes"
+            }
+        }
+
+        #expect(
+            outcome.hasSuffix("after 14 bytes"),
+            """
+            the 14 bytes written before the abort must arrive, and the iteration must             end; got: \(outcome)
+            """
+        )
+        #expect(
+            outcome.hasPrefix("threw "),
+            """
+            the abortive close did not surface as a throwing failure - got: \(outcome). A             clean end here means SO_LINGER with a zero interval is not producing an RST             on this platform, so the capability this test needs does not exist yet.
+            """
+        )
+        #expect(server.wroteChunk, "the server never wrote its piece")
+        #expect(server.shutdown(), "LocalHTTPServer worker did not terminate")
+    }
+
     @Test("cancelling the URLSession task ends a real connection")
     func taskCancellationClosesTheConnection() async throws {
         let server = try LocalHTTPServer(script: .continuous("piece", every: 0.02))

@@ -86,6 +86,57 @@ struct LocalHTTPServerLifecycleTests {
         #expect(server.hasTerminated)
     }
 
+    @Test("a shutdown that wins the publication race still terminates the worker")
+    func shutdownWinsThePublicationRace() async throws {
+        // Deterministic, not a stress loop. The server parks between `accept()` returning
+        // and the descriptor being published - exactly the window the old code left open -
+        // and this test decides when the worker may continue. The interleaving is caused
+        // rather than hoped for, which is the only kind of evidence worth having here.
+        let accepted = ObservedFlag()
+        let releasePublication = ObservedFlag()
+
+        let server = try LocalHTTPServer(
+            script: .chunkThenStall("piece"),
+            prePublicationHook: {
+                accepted.raise()
+                while !releasePublication.isRaised { Thread.sleep(forTimeInterval: 0.002) }
+            }
+        )
+        server.start()
+
+        // Connecting is what makes `accept()` return, which is what lets the hook run.
+        // The hook parks the worker before it reads the request, so this never completes
+        // and is cancelled at the end.
+        let client = Task { () -> Void in
+            let session = URLSession(configuration: .ephemeral)
+            defer { session.invalidateAndCancel() }
+            _ = try? await session.bytes(for: URLRequest(url: server.baseURL))
+        }
+        defer { client.cancel() }
+
+        for _ in 0..<300 where !accepted.isRaised {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(accepted.isRaised, "accept() never returned, so the race window was never entered")
+
+        // Shutdown must run while the worker is parked, and it blocks until the worker
+        // exits - so it cannot be awaited on this task without deadlocking the test.
+        let shutdownResult = Task { server.shutdown() }
+
+        // Prove shutdown got in first, rather than assuming it did.
+        for _ in 0..<300 where !server.isClosed {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(server.isClosed, "shutdown never marked the server closed")
+
+        // Now let the worker continue. It must notice it lost the race and give the
+        // descriptor up rather than publish a socket nothing will ever release.
+        releasePublication.raise()
+
+        #expect(await shutdownResult.value, "shutdown() reported the worker still running")
+        #expect(server.hasTerminated)
+    }
+
     @Test("teardown is safe to call twice, and the second call is a no-op")
     func teardownIsIdempotent() async throws {
         let server = try LocalHTTPServer(script: .chunkThenStall("piece"))

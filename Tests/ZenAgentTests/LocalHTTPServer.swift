@@ -22,13 +22,26 @@ final class LocalHTTPServer: @unchecked Sendable {
         /// Write one body piece, flush, and hold the connection open indefinitely.
         case chunkThenStall(String)
         /// Write a partial body, flush, wait for `requestClose`, then disconnect.
+        ///
+        /// A **graceful** close, kept exactly as it is: its clean-EOF behaviour is
+        /// measured and recorded in `LocalHTTPServerCharacterisationTests`. Do not
+        /// repurpose it for a test that needs a throwing failure.
         case chunkThenDisconnect(String)
+        /// Write a partial body, flush, wait for `requestClose`, then disconnect
+        /// **abortively** — an RST rather than a FIN.
+        ///
+        /// Distinct from `chunkThenDisconnect` for a measured reason: a graceful close
+        /// reaches `bytes(for:)` as a clean end, and a clean end is not a throwing
+        /// failure. The graceful script produced "ended cleanly after 14 bytes".
+        case chunkThenAbort(String)
         /// Keep writing pieces until the peer goes away.
         case continuous(String, every: TimeInterval)
 
         var body: String {
             switch self {
-            case .chunkThenStall(let body), .chunkThenDisconnect(let body): return body
+            case .chunkThenStall(let body), .chunkThenDisconnect(let body),
+                 .chunkThenAbort(let body):
+                return body
             case .continuous(let body, _): return body
             }
         }
@@ -42,6 +55,10 @@ final class LocalHTTPServer: @unchecked Sendable {
 
     private let listenFD: Int32
     private let script: Script
+    /// Test-only. Runs after `accept()` returns and **before** the descriptor is
+    /// published, so a regression can drive the publication race deterministically
+    /// instead of hoping for the interleaving.
+    private let prePublicationHook: (@Sendable () -> Void)?
     private let queue = DispatchQueue(label: "local-http-server")
     private let lock = NSLock()
     /// Records that the worker has actually finished, so teardown can prove it rather
@@ -73,13 +90,19 @@ final class LocalHTTPServer: @unchecked Sendable {
     /// have finished.
     var hasTerminated: Bool { lock.withLock { terminated } }
 
+    /// Whether teardown has begun. Test-only observation, for the publication race:
+    /// the regression needs to see that `shutdown()` has won before it lets the worker
+    /// continue.
+    var isClosed: Bool { lock.withLock { closed } }
+
     /// Lets a `.chunkThenDisconnect` script proceed to closing.
     func requestClose() { lock.withLock { closeRequested = true } }
 
     // MARK: - Lifecycle
 
-    init(script: Script) throws {
+    init(script: Script, prePublicationHook: (@Sendable () -> Void)? = nil) throws {
         self.script = script
+        self.prePublicationHook = prePublicationHook
 
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw Failure.socket("socket() failed: \(errno)") }
@@ -227,6 +250,23 @@ final class LocalHTTPServer: @unchecked Sendable {
         ) == 0
     }
 
+    /// Makes the next `close` on this descriptor abortive.
+    ///
+    /// `SO_LINGER` with a zero interval makes `close` discard the send buffer and send
+    /// RST, which the client observes as a failed transfer rather than a tidy end of
+    /// body. That distinction is the whole reason this exists: the graceful close used
+    /// by `chunkThenDisconnect` arrives at `bytes(for:)` as a **clean end**, which is
+    /// not a throwing failure and so cannot produce the condition the transport's
+    /// `streamInterrupted` describes.
+    ///
+    /// Best-effort by design. If the option cannot be set the close is merely graceful,
+    /// which is a weaker test rather than a broken server - and the characterisation
+    /// that depends on the abort is what decides whether that happened.
+    private static func enableAbortiveClose(on fd: Int32) {
+        var option = linger(l_onoff: 1, l_linger: 0)
+        setsockopt(fd, SOL_SOCKET, SO_LINGER, &option, socklen_t(MemoryLayout<linger>.size))
+    }
+
     /// `< 0` after a retry is a genuine error, which for a socket we are reading or
     /// writing means the same thing as EOF: the peer is gone.
     private func readSome(_ fd: Int32, _ buffer: inout [UInt8]) -> Int {
@@ -244,7 +284,32 @@ final class LocalHTTPServer: @unchecked Sendable {
             close(accepted)
             return
         }
-        lock.withLock { clientFD = accepted }
+
+        prePublicationHook?()
+
+        // Publication and the closed check are **one transition under one lock**.
+        //
+        // They used to be separate, which left a window: `shutdown()` could run between
+        // `accept()` returning and `clientFD` being published, see -1, and conclude
+        // there was nothing to release - while the worker went on to publish the
+        // descriptor and park in a blocking `read()`. Shutdown then returned having
+        // released nothing, and the worker kept the process alive until the runner
+        // reaped it.
+        //
+        // Taking the same lock for both means shutdown either sees a published
+        // descriptor and releases it, or wins the race and the worker gives the
+        // descriptor up instead of using it.
+        let published: Bool = lock.withLock {
+            guard !closed else { return false }
+            clientFD = accepted
+            return true
+        }
+        guard published else {
+            // Shutdown won, so this descriptor was never published and nothing else
+            // will close it. The worker must not use it either.
+            close(accepted)
+            return
+        }
 
         defer {
             lock.withLock {
@@ -275,6 +340,13 @@ final class LocalHTTPServer: @unchecked Sendable {
             // Wait for the test, never for a duration.
             while !closeRequestedNow() { Thread.sleep(forTimeInterval: 0.005) }
             // Closing here is what the client observes as the connection dying.
+
+        case .chunkThenAbort(let body):
+            _ = writeChunk(body, to: accepted)
+            while !closeRequestedNow() { Thread.sleep(forTimeInterval: 0.005) }
+            // Arm the close the `defer` is about to perform, so it aborts rather than
+            // says goodbye politely.
+            Self.enableAbortiveClose(on: accepted)
 
         case .continuous(let body, let every):
             while !closeRequestedNow() {
