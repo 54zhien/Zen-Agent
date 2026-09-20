@@ -126,4 +126,50 @@ struct StreamingPersistenceTests {
             """
         )
     }
+
+    @Test("finishing a part that does not exist is refused")
+    func finishingUnknownPartIsRefused() throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+
+        var failure: Error?
+        do {
+            try store.finishPart(id: "typo", state: .completed)
+        } catch {
+            failure = error
+        }
+
+        // `partNotFound` exists but is never thrown here — today the update touches
+        // no row and reports success.
+        #expect(
+            failure as? ZenAgent.PersistenceError == .partNotFound("typo"),
+            "finishing a part that is not on disk must not report success; got \(String(describing: failure))"
+        )
+    }
+
+    @Test("a part that is already settled must not be finished again")
+    func settledPartCannotBeFinishedAgain() throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
+        try store.createPart(Fixtures.streamingPart(id: "part1", messageID: "m1"))
+        try store.finishPart(id: "part1", state: .completed)
+
+        var failure: Error?
+        do {
+            try store.finishPart(id: "part1", state: .failed)
+        } catch {
+            failure = error
+        }
+
+        guard
+            let failure = failure as? ZenAgent.PersistenceError,
+            case .invalidTransition = failure
+        else {
+            Issue.record("expected invalidTransition, got \(String(describing: failure))")
+            return
+        }
+        #expect(
+            try store.part(id: "part1")?.state == .completed,
+            "a refused re-finish must leave the recorded outcome in place"
+        )
+    }
 }

@@ -216,4 +216,49 @@ struct ActiveParentRunUniquenessTests {
             "every completed run's message must still be there"
         )
     }
+
+    @Test("finishRun for a run that does not exist is refused")
+    func finishingUnknownRunIsRefused() throws {
+        let store = try makeStore()
+
+        var failure: Error?
+        do {
+            try store.finishRun(id: "typo", state: .completed, endReason: .completed)
+        } catch {
+            failure = error
+        }
+
+        // `runNotFound` exists but nothing throws it yet — today the update touches
+        // no row and reports success, and the real run keeps the slot forever.
+        #expect(
+            failure as? ZenAgent.PersistenceError == .runNotFound("typo"),
+            "finishing a run that is not on disk must not report success; got \(String(describing: failure))"
+        )
+    }
+
+    @Test("a run that is already terminal must not be finished again")
+    func terminalRunCannotBeFinishedAgain() throws {
+        let store = try makeStore()
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
+        try store.finishRun(id: "r1", state: .completed, endReason: .completed)
+
+        var failure: Error?
+        do {
+            try store.finishRun(id: "r1", state: .failed, endReason: .providerFailed)
+        } catch {
+            failure = error
+        }
+
+        guard
+            let failure = failure as? ZenAgent.PersistenceError,
+            case .invalidTransition = failure
+        else {
+            Issue.record("expected invalidTransition, got \(String(describing: failure))")
+            return
+        }
+        #expect(
+            try store.run(id: "r1")?.endReason == .completed,
+            "a refused re-finish must leave the original outcome in place"
+        )
+    }
 }

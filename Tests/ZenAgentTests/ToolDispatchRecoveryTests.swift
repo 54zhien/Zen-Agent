@@ -126,4 +126,107 @@ struct ToolDispatchRecoveryTests {
             "a call without its frozen intent cannot be re-validated before dispatch, and an approval could be redirected"
         )
     }
+
+    // The refusals below are probes: today every one of them reports success on a
+    // zero-row update. The guarded mutations turn them into typed errors.
+
+    @Test("a dispatch marker for a tool call that does not exist is refused")
+    func dispatchMarkerForUnknownCallIsRefused() throws {
+        let store = try makeStore()
+        try makeRun(store)
+
+        var failure: Error?
+        do {
+            try store.markToolCallDispatched(id: "never")
+        } catch {
+            failure = error
+        }
+
+        // Typed `toolCallNotFound` once the case exists; today the update touches
+        // no row and reports success either way.
+        #expect(failure != nil, "a marker for a call that is not on disk must not report success")
+    }
+
+    @Test("a settled call must not be marked dispatched")
+    func settledCallCannotBeDispatched() throws {
+        let store = try makeStore()
+        try makeRun(store)
+        try store.createToolCall(Fixtures.toolCall(id: "t1", runID: "r1", state: .succeeded))
+
+        var failure: Error?
+        do {
+            try store.markToolCallDispatched(id: "t1")
+        } catch {
+            failure = error
+        }
+
+        guard
+            let failure = failure as? ZenAgent.PersistenceError,
+            case .invalidTransition = failure
+        else {
+            Issue.record("expected invalidTransition, got \(String(describing: failure))")
+            return
+        }
+    }
+
+    @Test("finishing a tool call that does not exist is refused")
+    func finishingUnknownCallIsRefused() throws {
+        let store = try makeStore()
+        try makeRun(store)
+
+        var failure: Error?
+        do {
+            try store.finishToolCall(id: "never", state: .succeeded)
+        } catch {
+            failure = error
+        }
+
+        // Typed `toolCallNotFound` once the case exists; today the update touches
+        // no row and reports success either way.
+        #expect(failure != nil, "finishing a call that is not on disk must not report success")
+    }
+
+    @Test("an already settled call must not be finished again")
+    func settledCallCannotBeFinishedAgain() throws {
+        let store = try makeStore()
+        try makeRun(store)
+        try store.createToolCall(Fixtures.toolCall(id: "t1", runID: "r1", state: .succeeded))
+
+        var failure: Error?
+        do {
+            try store.finishToolCall(id: "t1", state: .failed)
+        } catch {
+            failure = error
+        }
+
+        guard
+            let failure = failure as? ZenAgent.PersistenceError,
+            case .invalidTransition = failure
+        else {
+            Issue.record("expected invalidTransition, got \(String(describing: failure))")
+            return
+        }
+    }
+
+    @Test("finishing a tool call into a non-terminal state is refused")
+    func finishRequiresTerminalState() throws {
+        let store = try makeStore()
+        try makeRun(store)
+        try store.createToolCall(Fixtures.toolCall(id: "t1", runID: "r1", state: .dispatched))
+
+        var failure: Error?
+        do {
+            try store.finishToolCall(id: "t1", state: .prepared)
+        } catch {
+            failure = error
+        }
+
+        guard
+            let failure = failure as? ZenAgent.PersistenceError,
+            case .invalidTransition = failure
+        else {
+            Issue.record("expected invalidTransition, got \(String(describing: failure))")
+            return
+        }
+    }
 }
