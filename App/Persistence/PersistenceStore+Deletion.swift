@@ -49,13 +49,21 @@ extension PersistenceStore {
     /// side effect later.
     func finalizeDeletion(conversationID: String, at now: Date = Date()) throws {
         try database.write { db in
-            let indeterminate = try ToolCallRecord.fetchAll(db, sql: """
+            // Derived from the disposition rather than listed: a state that later
+            // comes to mean "may have happened" must start producing tombstones
+            // without a change here.
+            let mustReport = ToolCallState.allCases
+                .filter { $0.recoveryDisposition == .mustReportIndeterminate }
+                .map(\.rawValue)
+            let questionMarks = databaseQuestionMarks(count: mustReport.count)
+
+            let mustReportCalls = try ToolCallRecord.fetchAll(db, sql: """
                 SELECT toolCall.* FROM toolCall
                 JOIN agentRun ON agentRun.id = toolCall.agentRunID
-                WHERE agentRun.conversationID = ? AND toolCall.state = ?
-                """, arguments: [conversationID, ToolCallState.indeterminate.rawValue])
+                WHERE agentRun.conversationID = ? AND toolCall.state IN (\(questionMarks))
+                """, arguments: StatementArguments([conversationID] + mustReport))
 
-            for call in indeterminate {
+            for call in mustReportCalls {
                 let tombstone = OperationTombstoneRecord(
                     toolCallID: call.id,
                     action: call.action,
