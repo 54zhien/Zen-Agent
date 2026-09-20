@@ -29,8 +29,13 @@
 | 5B | SSE parser | `35435036167` **failure** — `finish()` 是 mutating，不能对临时值调用 |
 | 5A | Streaming transport + 5B 修复 | `35435234355` **failure** — 4 个失败，全在测试支撑层 |
 | 5C | DeepSeek streaming wire format + 桩并发修复 | `35435579220` **failure** — 剩 2 个，仍是桩的问题 |
-| 5D+5F | Timeout 分层 + Base URL 单真值 + 桩串行修复 | `35435945399` 跑中 |
-| 5E+5G | 真取消 + 分类收尾 | 待推 |
+| 5D+5F | Timeout 分层 + Base URL 单真值 + 桩串行修复 | `fb88c66` → `35435945399` **failure**（4 个失败，全在测试支撑层）。**该步没有单独成功过** |
+| 5E+5G | 真取消 + 分类收尾 | `5e0aeb7` → `35436363149` **cancelled**（被同 ref 后一次推送取代）。**该步没有单独成功过** |
+
+**5D+5F 与 5E+5G 各自都没有一次单独的成功 run。** 两步的代码首次随**同一次绿运行**
+通过：`35441053882`（`11bff63`）→ success —— 那次同时包含 5A–5G 与 `/code-review` 的修复，
+且当时两条集成测试**已处于 disabled**。该次是否为「单次干净运行」**当时未核实**；
+test-host restart 问题是在其后的 run 里才被发现的。
 
 **三次失败全部在测试支撑层，没有一次是产品代码。** 共同点：都是「断言正确行为」而非
 「描述现状」的测试抓出来的 —— 桩按并发投递、桩把整条连接塞进一个 runloop turn，
@@ -161,11 +166,23 @@ runningboardd[5281]: [app<com.zhien.zenagent.ZenAgent>:6766] exited with context
 | 数字 | 出处（精确命令 / 日志行） |
 |---|---|
 | **188 tests in 25 suites** | `✓ Test run with 188 tests in 25 suites passed` —— **框架自己报的总数**，不是执行数 |
-| **186** | `grep -c '◇ Test "'` —— **starts 行数**；参数化测试同一名字会出现多行 |
+| **186** | `grep -c '◇ Test "'` —— **starts 行数**（同名可重复，见下） |
 | **185** | `grep -oE '◇ Test "[^"]+"' \| sort -u \| wc -l` —— **唯一测试名个数** |
 | **2** | `grep -c '➜ Test "'` —— 两条 `.disabled` 集成测试，名字分别是 `a connection that dies after data was observed...` 与 `cancelling a provider consumer reaches the network...` |
 
-**差额没有编造解释。** 我没有验证 188 / 186 / 185 之间差在哪，也不声称知道。
+**186 与 185 的差额是实测出来的，不是推测。** 在 `35480007880` 的日志里：
+
+```
+started lines : 186
+unique names  : 185
+duplicated    : [('an edited instance is refused before anything is sent', 2)]
+```
+
+唯一被重复 start 的名字是 `an edited instance is refused before anything is sent`（2 次）。
+**此前我在这里写的「参数化测试同一名字会出现多行」是未经证实的推测，已删除。**
+
+**188（框架自报总数）与 187（185 unique started + 2 skipped）之间差 1，来源未核实，
+不编造解释。**
 
 **历史 `185` 的出处必须纠正**：它是 `35447236888` 那次「restart 前 93 + restart 后 93，零交集」
 的重建值 —— 且那次日志实为 `92 + 93`（不是 `93 + 93`），尾段另含 2 skipped，
