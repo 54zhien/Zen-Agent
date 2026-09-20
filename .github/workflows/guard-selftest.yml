@@ -153,7 +153,7 @@ jobs:
           assert_log "new guard" "${RUNNER_TEMP}/probe-2.2-new.log" 'competing Config values'
           assert_log "new guard" "${RUNNER_TEMP}/probe-2.2-new.log" 'Config/Debug\.xcconfig:[0-9]+ => 25\.0'
 
-      - name: Probe 3 — a Release binding pointed at Debug.xcconfig must be rejected
+      - name: Probe 3 — a mis-bound or unbound configuration must be rejected
         shell: bash
         run: |
           set -euo pipefail
@@ -186,6 +186,27 @@ jobs:
           assert_exit "new guard" nonzero "$guard_status"
           assert_log "new guard" "${RUNNER_TEMP}/probe-3-new.log" 'does not bind every supported build configuration'
           assert_log "new guard" "${RUNNER_TEMP}/probe-3-new.log" "configFiles\.Release is 'Config/Debug\.xcconfig'"
+
+          # The other branch of the same assertion: a configuration that is
+          # declared and never bound. Nothing binds Staging, so it would take all
+          # three managed settings from Xcode's defaults — and a check that only
+          # reads configFiles would not notice, because every binding it looks at
+          # would still be correct.
+          tree=$(fresh_tree unbound-configuration)
+          cd "$tree"
+          strip_cr project.yml
+          awk '{ print } $0 == "  Debug: debug" { print "  Staging: release" }' \
+            project.yml > project.yml.new
+          mv project.yml.new project.yml
+          assert_contains "the probe input to have changed" project.yml '^  Staging: release$'
+          generate_project "$tree"
+
+          run_guard "old guard (main, before the managed-settings guard)" "$tree" "$old_guard" "${RUNNER_TEMP}/probe-3b-old.log"
+          assert_exit "old guard" zero "$guard_status"
+
+          run_guard "managed-build-settings-guard.sh" "$tree" "$new_guard" "${RUNNER_TEMP}/probe-3b-new.log"
+          assert_exit "new guard" nonzero "$guard_status"
+          assert_log "new guard" "${RUNNER_TEMP}/probe-3b-new.log" "declares the build configuration 'Staging'"
 
       - name: Probe 4 — a same-valued deploymentTarget in project.yml must be rejected
         shell: bash

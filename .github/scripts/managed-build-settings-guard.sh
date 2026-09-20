@@ -105,6 +105,7 @@ visit_yaml.call(stream)
 document = Psych.safe_load(source, aliases: true, permitted_classes: [Date, Time])
 
 config_files = []
+declared_configs = []
 
 visit_value = nil
 visit_value = lambda do |value, path|
@@ -123,6 +124,11 @@ visit_value = lambda do |value, path|
       end
 
       config_files << [child_path, child] if key_text == "configFiles"
+
+      # Only the project-level `configs:` declares build configurations; a
+      # `settings.configs:` further down only overrides settings for a
+      # configuration that already exists.
+      declared_configs << child if child_path == "$.configs" && child.is_a?(Hash)
 
       visit_value.call(child, child_path)
     end
@@ -168,6 +174,17 @@ else
         problems << "#{path}.#{name} is '#{actual}', which does not exist; a binding to a missing file is not a binding."
       end
     end
+  end
+end
+
+# A configuration nobody binds is a configuration nobody checks: Xcode resolves
+# the managed settings for it from its own defaults, which is the state this
+# whole invariant exists to forbid. Checking only the bindings would let a
+# `Staging:` appear under `configs:` and go unverified — the same hole, one key
+# over.
+declared_configs.each do |mapping|
+  (mapping.keys.map(&:to_s) - configurations).sort.each do |extra|
+    problems << "project.yml declares the build configuration '#{extra}', which the guard does not verify; add it to the guard's supported configurations and give it a Config/#{extra}.xcconfig, or drop it."
   end
 end
 
