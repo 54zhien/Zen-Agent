@@ -41,6 +41,19 @@ struct AtomicSendCommitTests {
             run?.requestConfigSeed.modelID == ModelID(rawValue: "deepseek-chat"),
             "the frozen seed must name the model the run was sent to, not leave it to be re-derived from current settings"
         )
+        // The endpoint and the format version are the two things a resumed run cannot
+        // re-derive: the first is where it goes, the second is whether this build can
+        // read the row at all. Both have to survive the round trip, which is what this
+        // asserts — the in-memory value is checked at the construction sites.
+        #expect(
+            run?.requestConfigSeed.endpoint.absoluteString
+                == "https://api.deepseek.com/chat/completions",
+            "the endpoint the run was frozen against must survive the write and read back"
+        )
+        #expect(
+            run?.requestConfigSeed.formatVersion == RequestConfigSeed.currentFormatVersion,
+            "and the format version it was written under, so a later build can tell whether it can read this row"
+        )
         #expect(
             run?.triggerMessageID == "m1",
             "the run must point back at the message that triggered it, or the conversation cannot be grouped"

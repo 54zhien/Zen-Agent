@@ -93,7 +93,9 @@ struct SecretContainmentTests {
             providerInstanceID: ProviderInstanceID(rawValue: "pi1"),
             modelID: ModelID(rawValue: "deepseek-chat"),
             providerConfigRevision: ConfigRevision(rawValue: "r1"),
-            credentialBinding: CredentialBindingSnapshot(reference: Self.reference, generation: 1)
+            credentialBinding: CredentialBindingSnapshot(reference: Self.reference, generation: 1),
+            // Hand-built, as above: the endpoint is spelled out rather than resolved.
+            resolvedEndpoint: URL(string: "https://api.deepseek.com/chat/completions")!
         )
         let seedJSON = String(decoding: try encoder.encode(seed), as: UTF8.self)
         #expect(!seedJSON.contains(Self.marker))

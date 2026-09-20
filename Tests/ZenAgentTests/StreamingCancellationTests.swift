@@ -186,7 +186,8 @@ struct StreamingCancellationTests {
         let seed = RequestConfigSeed(
             instance: instance,
             modelID: ModelID(rawValue: "deepseek-flash"),
-            credentialBinding: CredentialBindingSnapshot(reference: reference, generation: 1)
+            credentialBinding: CredentialBindingSnapshot(reference: reference, generation: 1),
+            resolvedEndpoint: DeepSeekProvider.resolvedEndpoint(for: instance)
         )
 
         // A deadline far out, so nothing but the cancellation can end this.

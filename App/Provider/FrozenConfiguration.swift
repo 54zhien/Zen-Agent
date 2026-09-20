@@ -14,12 +14,33 @@ import Foundation
 /// request.
 enum FrozenConfiguration {
 
+    /// - Parameter resolvedEndpoint: what this instance resolves to **now**. Compared
+    ///   against the frozen endpoint, which is the one the request will actually use.
     static func validate(
         seed: RequestConfigSeed,
         modelID: ModelID,
         instance: ProviderInstance,
-        credentials: any CredentialStoring
+        credentials: any CredentialStoring,
+        resolvedEndpoint: URL
     ) throws {
+        // **Where the run goes is part of what was frozen.** An instance with no
+        // `baseURL` resolves to a compile-time default, and a constant can move between
+        // builds: a run frozen before such a change would otherwise resume against a
+        // host it was never frozen against, carrying its credential with it, with every
+        // other check in this function still passing.
+        //
+        // The revision check below cannot see this. Nothing about the instance changed —
+        // only the code that turns it into a URL.
+        guard resolvedEndpoint == seed.endpoint else {
+            throw ProviderError.configurationMismatch(
+                """
+                the run was frozen against \(seed.endpoint), but this instance now resolves \
+                to \(resolvedEndpoint). A run executes against the endpoint it was frozen \
+                with, so this one is refused rather than sent somewhere it was never \
+                pointed at.
+                """
+            )
+        }
         guard instance.id == seed.providerInstanceID else {
             throw ProviderError.configurationMismatch(
                 "the run was frozen against instance \(seed.providerInstanceID.rawValue), not \(instance.id.rawValue)"

@@ -71,7 +71,8 @@ struct EndpointResolutionTests {
             seed: RequestConfigSeed(
                 instance: instance,
                 modelID: ModelID(rawValue: "deepseek-flash"),
-                credentialBinding: CredentialBindingSnapshot(reference: Self.reference, generation: 1)
+                credentialBinding: CredentialBindingSnapshot(reference: Self.reference, generation: 1),
+                resolvedEndpoint: DeepSeekProvider.resolvedEndpoint(for: instance)
             ),
             credentials: credentials
         )
@@ -95,6 +96,73 @@ struct EndpointResolutionTests {
             afterStream.url.absoluteString == expected,
             "the two paths must not resolve the endpoint differently — that is the bug this suite exists for"
         )
+        // And the URL that went out is the one the seed names, not one rebuilt from the
+        // instance. With the check below in place these cannot differ, which is the
+        // point — this pins that the seed is what the request is built from.
+        #expect(afterComplete.url == f.seed.endpoint)
+        #expect(afterStream.url == f.seed.endpoint)
+    }
+
+    /// **The drift case.** An instance with no endpoint resolves to a compile-time
+    /// default, and a default can move between builds. A run frozen before such a change
+    /// must be refused, not quietly sent somewhere it was never pointed at — carrying its
+    /// credential with it, with every other check in the validation still passing.
+    ///
+    /// This is what the endpoint being *in* the seed buys. Without it the seed records
+    /// the instance and the revision, both of which are unchanged here, and the run
+    /// resumes against whatever the constant says now.
+    @Test("a run frozen against one endpoint is refused when the instance resolves elsewhere")
+    func frozenEndpointDriftIsRefused() async throws {
+        let f = try makeFixture(instanceBaseURL: nil)
+
+        // The instance resolves to the provider default. The seed says somewhere else,
+        // which is exactly what a run frozen before the default changed looks like.
+        let drifted = RequestConfigSeed(
+            instance: f.instance,
+            modelID: ModelID(rawValue: "deepseek-flash"),
+            credentialBinding: CredentialBindingSnapshot(reference: Self.reference, generation: 1),
+            resolvedEndpoint: URL(string: "https://frozen.example/v1/chat/completions")!
+        )
+        // Nothing about the instance moved, so the checks that existed before this one
+        // all still pass. That is what makes the case worth a test of its own.
+        #expect(f.instance.configRevision == drifted.providerConfigRevision)
+        #expect(f.instance.matches(drifted))
+
+        f.transport.enqueue(status: 200, json: Self.successJSON)
+        f.transport.enqueueStream(["data: [DONE]\n\n"])
+
+        let fromComplete = await failure {
+            _ = try await f.provider.complete(f.request, seed: drifted, instance: f.instance, credentials: f.credentials)
+        }
+        guard case .configurationMismatch = fromComplete else {
+            Issue.record("expected the non-streaming path to refuse, got \(String(describing: fromComplete))")
+            return
+        }
+
+        let fromStream = await failure {
+            _ = try await f.provider.stream(f.request, seed: drifted, instance: f.instance, credentials: f.credentials)
+        }
+        guard case .configurationMismatch = fromStream else {
+            Issue.record("expected the streaming path to refuse, got \(String(describing: fromStream))")
+            return
+        }
+
+        #expect(
+            f.transport.requestCount == 0,
+            "a refused run must not reach the network — not even to find out"
+        )
+    }
+
+    /// Runs a call that is expected to fail, and reports what it threw.
+    private func failure(_ body: () async throws -> Void) async -> ProviderError? {
+        do {
+            try await body()
+            return nil
+        } catch let error as ProviderError {
+            return error
+        } catch {
+            return nil
+        }
     }
 
     @Test("an instance with no endpoint falls back to the provider default, on both paths")

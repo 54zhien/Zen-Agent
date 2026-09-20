@@ -116,7 +116,8 @@ struct ProviderInstanceTests {
         let seed = RequestConfigSeed(
             instance: instance,
             modelID: ModelID(rawValue: "deepseek-chat"),
-            credentialBinding: CredentialBindingSnapshot(reference: Self.reference, generation: 1)
+            credentialBinding: CredentialBindingSnapshot(reference: Self.reference, generation: 1),
+            resolvedEndpoint: DeepSeekProvider.resolvedEndpoint(for: instance)
         )
         #expect(instance.matches(seed), "the seed must match the instance it was frozen from")
 
@@ -137,7 +138,8 @@ struct ProviderInstanceTests {
         #expect(edited.matches(RequestConfigSeed(
             instance: edited,
             modelID: ModelID(rawValue: "deepseek-chat"),
-            credentialBinding: CredentialBindingSnapshot(reference: Self.reference, generation: 1)
+            credentialBinding: CredentialBindingSnapshot(reference: Self.reference, generation: 1),
+            resolvedEndpoint: DeepSeekProvider.resolvedEndpoint(for: edited)
         )))
     }
 
@@ -192,7 +194,8 @@ struct ProviderInstanceTests {
         let seed = RequestConfigSeed(
             instance: instance,
             modelID: ModelID(rawValue: "deepseek-chat"),
-            credentialBinding: CredentialBindingSnapshot(reference: reference, generation: generation)
+            credentialBinding: CredentialBindingSnapshot(reference: reference, generation: generation),
+            resolvedEndpoint: DeepSeekProvider.resolvedEndpoint(for: instance)
         )
         #expect(seed.credentialBinding.generation == 1)
 

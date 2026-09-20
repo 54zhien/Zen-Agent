@@ -46,11 +46,19 @@ struct DeepSeekProvider: ModelProvider {
     /// streaming could quietly use while non-streaming used the first is the shape of
     /// bug where a credential is sent somewhere the run was never frozen against.
     ///
-    /// The instance's endpoint wins when it has one; the provider default is the
-    /// fallback, and the frozen configuration has already established that this instance
-    /// is the one the run was frozen against by the time either path builds a request.
-    func resolveBaseURL(for instance: ProviderInstance) -> URL {
-        instance.baseURL ?? Self.defaultBaseURL
+    /// The instance's endpoint wins when it has one; the provider default is the fallback.
+    ///
+    /// **This is the freezing-time answer, not the sending-time one.** What it returns
+    /// goes into the seed, and the request is later built from the seed — so the default
+    /// host above cannot move underneath a run that has already been frozen. If it ever
+    /// does, `FrozenConfiguration` refuses the run rather than quietly redirecting it,
+    /// credential and all.
+    ///
+    /// A complete request URL rather than a base: the path is as much a part of where the
+    /// request goes as the host, and freezing half of it would leave the other half free
+    /// to change.
+    static func resolvedEndpoint(for instance: ProviderInstance) -> URL {
+        (instance.baseURL ?? Self.defaultBaseURL).appending(path: "chat/completions")
     }
 
     // MARK: - ModelProvider
@@ -87,7 +95,8 @@ struct DeepSeekProvider: ModelProvider {
             seed: seed,
             modelID: request.modelID,
             instance: instance,
-            credentials: credentials
+            credentials: credentials,
+            resolvedEndpoint: Self.resolvedEndpoint(for: instance)
         )
 
         guard let reference = instance.credentialReference else {
@@ -97,7 +106,9 @@ struct DeepSeekProvider: ModelProvider {
         }
         let secret = try Self.resolveSecret(reference, from: credentials)
 
-        let httpRequest = try makeHTTPRequest(request, secret: secret, instance: instance, streaming: false)
+        let httpRequest = try makeHTTPRequest(
+            request, secret: secret, endpoint: seed.endpoint, streaming: false
+        )
 
         let httpResponse: HTTPResponse
         do {
@@ -143,7 +154,8 @@ struct DeepSeekProvider: ModelProvider {
             seed: seed,
             modelID: request.modelID,
             instance: instance,
-            credentials: credentials
+            credentials: credentials,
+            resolvedEndpoint: Self.resolvedEndpoint(for: instance)
         )
 
         guard let reference = instance.credentialReference else {
@@ -152,7 +164,9 @@ struct DeepSeekProvider: ModelProvider {
         }
         let secret = try Self.resolveSecret(reference, from: credentials)
 
-        let httpRequest = try makeHTTPRequest(request, secret: secret, instance: instance, streaming: true)
+        let httpRequest = try makeHTTPRequest(
+            request, secret: secret, endpoint: seed.endpoint, streaming: true
+        )
 
         let upstream: HTTPStream
         do {
@@ -317,7 +331,7 @@ struct DeepSeekProvider: ModelProvider {
     private func makeHTTPRequest(
         _ request: ProviderChatRequest,
         secret: SecretValue,
-        instance: ProviderInstance,
+        endpoint: URL,
         streaming: Bool
     ) throws -> HTTPRequest {
         let body = DeepSeekChatRequest(
@@ -337,7 +351,10 @@ struct DeepSeekProvider: ModelProvider {
 
         return HTTPRequest(
             method: .post,
-            url: resolveBaseURL(for: instance).appending(path: "chat/completions"),
+            // The frozen endpoint, verbatim. Nothing here re-resolves it: a URL built at
+            // send time from a default constant is exactly the drift the seed now
+            // prevents.
+            url: endpoint,
             headers: [
                 "Content-Type": "application/json",
                 // The secret's only appearance outside the keychain, and it lives here

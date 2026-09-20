@@ -49,7 +49,8 @@ struct DeepSeekProviderTests {
                 credentialBinding: CredentialBindingSnapshot(
                     reference: CredentialReference(id: "cred-1"),
                     generation: 1
-                )
+                ),
+                resolvedEndpoint: DeepSeekProvider.resolvedEndpoint(for: instance)
             ),
             credentials: credentials
         )
@@ -518,7 +519,8 @@ struct DeepSeekProviderTests {
         let seed = RequestConfigSeed(
             instance: instance,
             modelID: ModelID(rawValue: "deepseek-flash"),
-            credentialBinding: CredentialBindingSnapshot(reference: reference, generation: 1)
+            credentialBinding: CredentialBindingSnapshot(reference: reference, generation: 1),
+            resolvedEndpoint: DeepSeekProvider.resolvedEndpoint(for: instance)
         )
         let response = try await provider.complete(request(), seed: seed, instance: instance, credentials: credentials)
 

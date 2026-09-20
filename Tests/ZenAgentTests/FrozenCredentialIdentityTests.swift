@@ -44,7 +44,8 @@ struct FrozenCredentialIdentityTests {
                     seed: seed,
                     modelID: FrozenCredentialIdentityTests.modelID,
                     instance: instance ?? self.instance,
-                    credentials: credentials
+                    credentials: credentials,
+                    resolvedEndpoint: DeepSeekProvider.resolvedEndpoint(for: instance ?? self.instance)
                 )
                 return nil
             } catch let error as ProviderError {
@@ -81,7 +82,8 @@ struct FrozenCredentialIdentityTests {
         let seed = RequestConfigSeed(
             instance: instance,
             modelID: Self.modelID,
-            credentialBinding: CredentialBindingSnapshot(reference: Self.credentialA, generation: 1)
+            credentialBinding: CredentialBindingSnapshot(reference: Self.credentialA, generation: 1),
+            resolvedEndpoint: DeepSeekProvider.resolvedEndpoint(for: instance)
         )
         return Fixture(store: store, credentials: credentials, instance: instance, seed: seed)
     }

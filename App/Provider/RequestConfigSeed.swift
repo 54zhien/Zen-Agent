@@ -69,19 +69,32 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
     /// And the *reference* is frozen alongside it, so it cannot silently continue on a
     /// different credential either.
     var credentialBinding: CredentialBindingSnapshot
+    /// The **complete** request URL this run was frozen against, not a base URL.
+    ///
+    /// The endpoint was the one part of "where does this run actually go" that the seed
+    /// did not record. When an instance carries no `baseURL`, the endpoint that goes out
+    /// is a compile-time constant — and a constant can change between builds, so a run
+    /// resumed after an update would silently go somewhere it was never frozen against.
+    /// Freezing the resolved URL makes that visible instead.
+    ///
+    /// The provider-specific part of the resolution — which path, which default host —
+    /// stays in the adapter. This stores the answer, it does not compute it.
+    var endpoint: URL
 
     init(
         formatVersion: Int = RequestConfigSeed.currentFormatVersion,
         providerInstanceID: ProviderInstanceID,
         modelID: ModelID,
         providerConfigRevision: ConfigRevision,
-        credentialBinding: CredentialBindingSnapshot
+        credentialBinding: CredentialBindingSnapshot,
+        resolvedEndpoint: URL
     ) {
         self.formatVersion = formatVersion
         self.providerInstanceID = providerInstanceID
         self.modelID = modelID
         self.providerConfigRevision = providerConfigRevision
         self.credentialBinding = credentialBinding
+        self.endpoint = resolvedEndpoint
     }
 
     // MARK: - Versioned coding
@@ -92,6 +105,7 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         case modelID
         case providerConfigRevision
         case credentialBinding
+        case endpoint
     }
 
     /// Reads the version before the payload, and refuses rather than guesses.
@@ -115,6 +129,7 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
             modelID = try container.decode(ModelID.self, forKey: .modelID)
             providerConfigRevision = try container.decode(ConfigRevision.self, forKey: .providerConfigRevision)
             credentialBinding = try container.decode(CredentialBindingSnapshot.self, forKey: .credentialBinding)
+            endpoint = try container.decode(URL.self, forKey: .endpoint)
         } catch {
             throw FormatError.malformedCurrentVersion(version)
         }
@@ -128,6 +143,7 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         try container.encode(modelID, forKey: .modelID)
         try container.encode(providerConfigRevision, forKey: .providerConfigRevision)
         try container.encode(credentialBinding, forKey: .credentialBinding)
+        try container.encode(endpoint, forKey: .endpoint)
     }
 }
 
@@ -144,12 +160,24 @@ extension RequestConfigSeed {
     /// carries a reference but not a generation — that belongs to the credential, and is
     /// read from the credential store — so a seed built from the instance alone could
     /// not contain both halves.
-    init(instance: ProviderInstance, modelID: ModelID, credentialBinding: CredentialBindingSnapshot) {
+    /// The endpoint is passed in rather than derived here.
+    ///
+    /// How a provider turns an instance into a request URL is the adapter's business —
+    /// which default host, which path — and a general seed that knew about
+    /// `chat/completions` would be the wrong shape for the second provider. The seed
+    /// records the resolved answer; `DeepSeekProvider.resolvedEndpoint(for:)` produces it.
+    init(
+        instance: ProviderInstance,
+        modelID: ModelID,
+        credentialBinding: CredentialBindingSnapshot,
+        resolvedEndpoint: URL
+    ) {
         self.init(
             providerInstanceID: instance.id,
             modelID: modelID,
             providerConfigRevision: instance.configRevision,
-            credentialBinding: credentialBinding
+            credentialBinding: credentialBinding,
+            resolvedEndpoint: resolvedEndpoint
         )
     }
 }

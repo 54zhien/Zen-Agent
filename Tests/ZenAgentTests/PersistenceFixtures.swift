@@ -86,7 +86,11 @@ enum Fixtures {
                 credentialBinding: CredentialBindingSnapshot(
                     reference: CredentialReference(id: "cred-1"),
                     generation: 1
-                )
+                ),
+                // Hand-built, so the endpoint is spelled out rather than resolved from
+                // an instance: this fixture exists to make a row, not to exercise the
+                // adapter's resolution.
+                resolvedEndpoint: URL(string: "https://api.deepseek.com/chat/completions")!
             ),
             executionSnapshot: nil,
             createdAt: epoch,
