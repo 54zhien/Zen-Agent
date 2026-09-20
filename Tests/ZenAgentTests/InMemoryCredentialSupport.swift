@@ -15,6 +15,11 @@ import Foundation
 /// this. Both are exercised.
 
 /// Deterministic secret storage. No Keychain, no OSStatus, no device state.
+///
+/// Keys are versioned the same way the Keychain backend's are —
+/// `"\(reference.id)#\(generation)"` — so the fake and the real store agree on the
+/// one fact the binding-atomicity rules rest on: a secret stored for one generation
+/// cannot be read under another.
 final class InMemorySecretBackend: SecretBackend, @unchecked Sendable {
     private let lock = NSLock()
     private var secrets: [String: String] = [:]
@@ -26,29 +31,33 @@ final class InMemorySecretBackend: SecretBackend, @unchecked Sendable {
 
     init() {}
 
-    func store(_ secret: SecretValue, for reference: CredentialReference) throws {
-        lock.lock(); defer { lock.unlock() }
-        secrets[reference.id] = secret.revealed
+    private func key(_ reference: CredentialReference, generation: Int) -> String {
+        "\(reference.id)#\(generation)"
     }
 
-    func load(_ reference: CredentialReference) throws -> SecretValue? {
+    func store(_ secret: SecretValue, for reference: CredentialReference, generation: Int) throws {
+        lock.lock(); defer { lock.unlock() }
+        secrets[key(reference, generation: generation)] = secret.revealed
+    }
+
+    func load(_ reference: CredentialReference, generation: Int) throws -> SecretValue? {
         lock.lock(); defer { lock.unlock() }
         if unreadableReferences.contains(reference.id) {
             throw SecretBackendError.unavailable("simulated locked device")
         }
-        return secrets[reference.id].map(SecretValue.init)
+        return secrets[key(reference, generation: generation)].map(SecretValue.init)
     }
 
-    func delete(_ reference: CredentialReference) throws {
+    func delete(_ reference: CredentialReference, generation: Int) throws {
         lock.lock(); defer { lock.unlock() }
-        secrets.removeValue(forKey: reference.id)
+        secrets.removeValue(forKey: key(reference, generation: generation))
     }
 
     /// What is actually stored. Used by the test that checks the secret never reaches
     /// the database — it needs to know the exact bytes to search for.
-    func storedSecret(for reference: CredentialReference) -> String? {
+    func storedSecret(for reference: CredentialReference, generation: Int) -> String? {
         lock.lock(); defer { lock.unlock() }
-        return secrets[reference.id]
+        return secrets[key(reference, generation: generation)]
     }
 }
 

@@ -7,9 +7,9 @@ import Foundation
 /// the overwrite behaviour and the missing-credential handling are written once, above
 /// this protocol, and both backends inherit them.
 protocol SecretBackend: Sendable {
-    func store(_ secret: SecretValue, for reference: CredentialReference) throws
-    func load(_ reference: CredentialReference) throws -> SecretValue?
-    func delete(_ reference: CredentialReference) throws
+    func store(_ secret: SecretValue, for reference: CredentialReference, generation: Int) throws
+    func load(_ reference: CredentialReference, generation: Int) throws -> SecretValue?
+    func delete(_ reference: CredentialReference, generation: Int) throws
 }
 
 /// Non-secret metadata storage.
@@ -82,6 +82,14 @@ protocol CredentialStoring: Sendable {
 }
 
 /// The single implementation of the domain rules. Both backends go through it.
+///
+/// Secrets are **versioned by generation**: the backend keys every stored secret by
+/// `(reference, generation)`, so a secret written for generation N+1 lives under a
+/// different key than the one a run frozen at N reads. "The old generation reads the
+/// new account's secret" is therefore physically impossible — the old key is either
+/// intact (old secret) or deleted (safe failure), and the new bytes are nowhere the
+/// old generation looks. This is what makes the two-step rebind below safe: the
+/// metadata write can fail at any point without ever misdirecting a secret.
 struct CredentialStore: CredentialStoring {
     let secrets: any SecretBackend
     let metadataRepository: any CredentialMetadataRepository
@@ -98,7 +106,7 @@ struct CredentialStore: CredentialStoring {
         guard try metadataRepository.loadMetadata(for: reference) == nil else {
             throw CredentialError.alreadyExists(reference)
         }
-        try secrets.store(secret, for: reference)
+        try secrets.store(secret, for: reference, generation: 1)
         try metadataRepository.saveMetadata(CredentialMetadata(
             reference: reference,
             bindingGeneration: 1,
@@ -113,7 +121,7 @@ struct CredentialStore: CredentialStoring {
         guard let existing = try metadataRepository.loadMetadata(for: reference) else {
             throw CredentialError.notFound(reference)
         }
-        try secrets.store(secret, for: reference)
+        try secrets.store(secret, for: reference, generation: existing.bindingGeneration)
         try metadataRepository.saveMetadata(CredentialMetadata(
             reference: reference,
             bindingGeneration: existing.bindingGeneration,
@@ -124,6 +132,21 @@ struct CredentialStore: CredentialStoring {
     }
 
     /// A different account behind the same reference. **Generation +1.**
+    ///
+    /// The order is the mechanism. Store the new secret under the **next**
+    /// generation's key first, commit the metadata, and only then delete the
+    /// superseded key:
+    ///
+    /// 1. `store(gen+1)` puts the new bytes under a key nothing reads yet.
+    /// 2. `saveMetadata(gen+1)` flips the world to the new generation.
+    /// 3. `delete(gen)` removes the superseded key.
+    ///
+    /// If the metadata write fails, the old key is untouched and the old generation
+    /// keeps reading its own secret — the new bytes sit under a key no metadata points
+    /// at, and a later successful rebind reuses it. Deleting the old key only after
+    /// the commit also means there is no state where the metadata has moved but the
+    /// rebind is reported as failed; a crash between steps leaves at worst a stale
+    /// old-generation key, which the next rebind's step 3 removes.
     func rebind(
         _ secret: SecretValue,
         as reference: CredentialReference,
@@ -133,14 +156,16 @@ struct CredentialStore: CredentialStoring {
         guard let existing = try metadataRepository.loadMetadata(for: reference) else {
             throw CredentialError.notFound(reference)
         }
-        try secrets.store(secret, for: reference)
+        let nextGeneration = existing.bindingGeneration + 1
+        try secrets.store(secret, for: reference, generation: nextGeneration)
         try metadataRepository.saveMetadata(CredentialMetadata(
             reference: reference,
-            bindingGeneration: existing.bindingGeneration + 1,
+            bindingGeneration: nextGeneration,
             principalFingerprint: principalFingerprint,
             status: .active,
             updatedAt: now
         ))
+        try secrets.delete(reference, generation: existing.bindingGeneration)
     }
 
     /// Forgets the secret. **Generation +1**, and the metadata stays.
@@ -152,7 +177,7 @@ struct CredentialStore: CredentialStoring {
         guard let existing = try metadataRepository.loadMetadata(for: reference) else {
             throw CredentialError.notFound(reference)
         }
-        try secrets.delete(reference)
+        try secrets.delete(reference, generation: existing.bindingGeneration)
         try metadataRepository.saveMetadata(CredentialMetadata(
             reference: reference,
             bindingGeneration: existing.bindingGeneration + 1,
@@ -175,7 +200,7 @@ struct CredentialStore: CredentialStoring {
             throw CredentialError.authenticationRequired(reference)
         }
         do {
-            return try secrets.load(reference)
+            return try secrets.load(reference, generation: existing.bindingGeneration)
         } catch SecretBackendError.unavailable(let reason) {
             // Translated here rather than left raw, so no caller sees an OSStatus and
             // has to decide whether "could not read" means "is not there". That

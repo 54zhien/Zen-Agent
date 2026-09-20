@@ -529,6 +529,8 @@ struct DeepSeekProviderTests {
         #expect(sent.headers["Authorization"] == "Bearer sk-e2e-secret")
         #expect(sent.url.absoluteString == "https://api.deepseek.com/chat/completions")
 
-        try? secrets.delete(reference)
+        // Cleanup. The secret was provisioned at generation 1 and never rebound, so
+        // the generation-versioned key is "e2e-cred#1".
+        try? secrets.delete(reference, generation: 1)
     }
 }
