@@ -31,16 +31,38 @@ baseline is recorded in `Docs/ADR/`.
 
 ## Status
 
-**Stage 0 complete — a real baseline exists.** The persistence engine is decided
-(GRDB, see `Docs/ADR/0001-persistence-engine.md`), the schema and migrator exist, and
-the seven invariants the decision rests on are covered by regression tests.
+**Stage 0 is complete; implementation beyond Stage 0 is in progress.**
 
-No product feature is implemented. Explicitly not started: Provider (DeepSeek or
-otherwise), AgentRuntime, ToolRuntime, Conversation UI, App Space, Soul, Memory,
-Skills, MCP, Subagent.
+**Under the Blueprint's definitions, Stage 1 is in progress; it is not complete.**
+The repository also contains partial implementation belonging to later stages — Stage 2
+run-state, send-commit and tool-recovery concepts among them — and out-of-order
+implementation is not evidence that the stage it jumped ahead of is finished.
 
-`App/Persistence/` is a data layer, not a head start on the next stage. GRDB is
-confined to it, and CI fails the build if that stops being true.
+The Stage 0 baseline remains in place: the persistence engine is GRDB
+(see `Docs/ADR/0001-persistence-engine.md`), the schema and numbered migrator exist,
+and the seven invariants behind that decision have regression coverage.
+
+At the implementation baseline immediately preceding this documentation sync
+(`5523ce0`), the repository also contains partial, tested implementation surfaces for:
+
+- Provider contracts and shared types, including a `FakeProvider` and DeepSeek
+  implementation under `App/Provider/`;
+- credential storage and a Keychain-backed secret backend under `App/Credential/`;
+- HTTP transport, SSE parsing, streaming timeout policy, and a URLSession-backed
+  transport under `App/HTTP/`; and
+- persistence support for provider instances, credential metadata, steps, streaming,
+  tool calls, and deletion.
+
+Their presence does not mean the enclosing Blueprint stage is complete or that an
+end-to-end product runtime exists.
+
+No implementation surface for AgentRuntime, ToolRuntime, Conversation UI / Composer,
+App Space / Split, Soul, Memory, Skills, MCP, or Subagent is present in the tracked
+`App/` sources at that baseline. Persistence records or recovery tests concerning
+steps and tool calls are not an AgentRuntime or ToolRuntime.
+
+`App/Persistence/` remains a data layer. GRDB is confined to it, and the existing
+repository guard must continue to fail the build if that boundary is violated.
 
 ## Getting started
 
