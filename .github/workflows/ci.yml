@@ -279,6 +279,7 @@ jobs:
           project_hits="$guard_tmp/project-yml-hits.txt"
           if ! ruby >"$project_hits" <<'RUBY'
           require "psych"
+          require "date"
 
           managed = %w[
             IPHONEOS_DEPLOYMENT_TARGET
@@ -287,7 +288,7 @@ jobs:
           ].freeze
 
           source = File.read("project.yml")
-          stream = Psych.parse_stream(source, "project.yml")
+          stream = Psych.parse_stream(source, filename: "project.yml")
           hits = []
 
           visit_yaml = nil
@@ -300,7 +301,10 @@ jobs:
                 end
                 visit_yaml.call(value_node)
               end
-            elsif node.respond_to?(:children)
+            # Scalar and Alias never initialise @children, so the reader returns nil
+            # for them; only containers can be descended into. respond_to? is not
+            # enough — every node class responds to :children and would then crash.
+            elsif node.children
               node.children.each { |child| visit_yaml.call(child) }
             end
           end
@@ -309,7 +313,7 @@ jobs:
           # Also inspect the resolved YAML object. This closes the exotic case
           # where an alias is used as a mapping key.
           if hits.empty?
-            document = Psych.safe_load(source, aliases: true)
+            document = Psych.safe_load(source, aliases: true, permitted_classes: [Date, Time])
             visit_value = nil
             visit_value = lambda do |value, path|
               case value
