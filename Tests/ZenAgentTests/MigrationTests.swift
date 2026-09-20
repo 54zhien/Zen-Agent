@@ -151,6 +151,121 @@ struct MigrationTests {
         // otherwise pass every other test.
         #expect(failure != nil, "the composite primary key must exist in the migrated schema")
     }
+
+    // MARK: - An unreadable frozen seed
+
+    /// Writes `seed` straight into the column, bypassing every typed path.
+    ///
+    /// Which is the point: these rows are what an older build, or a damaged database,
+    /// actually leaves behind, and no typed API can produce one.
+    private func plantSeed(_ seed: String, forRun id: String, in store: PersistenceStore) throws {
+        try store.database.write { db in
+            try db.execute(
+                sql: "UPDATE agentRun SET requestConfigSeed = ? WHERE id = ?",
+                arguments: [seed, id]
+            )
+        }
+    }
+
+    private func readFailure(_ body: () throws -> Void) -> Error? {
+        do {
+            try body()
+            return nil
+        } catch {
+            return error
+        }
+    }
+
+    @Test("a seed written before versioning is reported, not crashed on")
+    func legacySeedIsReported() throws {
+        let url = try Fixtures.scratchPath(name: "legacy-seed.sqlite")
+        defer { Fixtures.cleanUp(url) }
+
+        let store = PersistenceStore(database: try ZenDatabase.open(at: url.path()))
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
+
+        // The pre-versioning shape: no `formatVersion`, and the old P6 field name rather
+        // than today's `credentialBinding`.
+        //
+        // No test has ever put one of these in the database. That is precisely why the
+        // reader's behaviour on one was unknown.
+        let legacy = #"{"providerInstanceID":"pi1","modelID":"deepseek-chat","providerConfigRevision":"config-r1","credentialBindingRevision":1}"#
+        try plantSeed(legacy, forRun: "r1", in: store)
+
+        // Both readers, because they reached the column by different routes.
+        let fromRun = readFailure { _ = try store.run(id: "r1") }
+        #expect(
+            fromRun as? PersistenceError
+                == .unreadableRequestConfigSeed(runID: "r1", failure: .unversioned),
+            """
+            expected a typed failure naming the run; got \(String(describing: fromRun)). \
+            Before this change GRDB's own decoding error came out here - a storage-engine \
+            type in front of the caller, about a payload problem.
+            """
+        )
+
+        let fromActive = readFailure { _ = try store.activeParentRuns(inConversation: "c1") }
+        #expect(
+            fromActive as? PersistenceError
+                == .unreadableRequestConfigSeed(runID: "r1", failure: .unversioned),
+            "the active-run query must report the same typed failure; got \(String(describing: fromActive))"
+        )
+    }
+
+    @Test("a seed this build wrote and something damaged is reported differently")
+    func malformedCurrentSeedIsItsOwnFailure() throws {
+        let url = try Fixtures.scratchPath(name: "damaged-seed.sqlite")
+        defer { Fixtures.cleanUp(url) }
+
+        let store = PersistenceStore(database: try ZenDatabase.open(at: url.path()))
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
+
+        // Version present and current, payload missing a required field. Of the three
+        // ways a seed can be unreadable this is the only one that is a bug, and it must
+        // not be reported as the clean cut.
+        let damaged = #"{"formatVersion":1,"providerInstanceID":"pi1","modelID":"deepseek-chat"}"#
+        try plantSeed(damaged, forRun: "r1", in: store)
+
+        let failure = readFailure { _ = try store.run(id: "r1") }
+        #expect(
+            failure as? PersistenceError
+                == .unreadableRequestConfigSeed(runID: "r1", failure: .malformedCurrentVersion(1)),
+            "expected a malformed-current failure rather than the unversioned one; got \(String(describing: failure))"
+        )
+    }
+
+    @Test("an unknown format version is named, not treated as corruption")
+    func unsupportedVersionIsItsOwnFailure() throws {
+        let url = try Fixtures.scratchPath(name: "future-seed.sqlite")
+        defer { Fixtures.cleanUp(url) }
+
+        let store = PersistenceStore(database: try ZenDatabase.open(at: url.path()))
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
+
+        // A version this build does not know. The payload body is never reached, so what
+        // it contains does not matter - which is the point of checking the version first.
+        try plantSeed(#"{"formatVersion":99,"anything":"at all"}"#, forRun: "r1", in: store)
+
+        let failure = readFailure { _ = try store.run(id: "r1") }
+        #expect(
+            failure as? PersistenceError
+                == .unreadableRequestConfigSeed(runID: "r1", failure: .unsupportedVersion(99)),
+            "a version this build does not understand must be named; got \(String(describing: failure))"
+        )
+    }
+
+    @Test("a readable seed still reads")
+    func readableSeedStillReads() throws {
+        // The counterpart to the three above. A failure path that swallowed the ordinary
+        // one would leave every other assertion in this file passing for the wrong reason.
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
+
+        let run = try store.run(id: "r1")
+        #expect(run?.id == "r1")
+        #expect(run?.requestConfigSeed.formatVersion == RequestConfigSeed.currentFormatVersion)
+        #expect(try store.activeParentRuns(inConversation: "c1").count == 1)
+    }
 }
 
 /// Raised to interrupt a migration partway. Distinct from any other test's error type so

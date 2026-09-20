@@ -38,6 +38,38 @@ enum PersistenceError: Error, Equatable {
 
     /// The named run does not exist.
     case runNotFound(String)
+
+    /// A run row was read, and its frozen request seed could not be understood.
+    ///
+    /// Distinct from a database failure, and deliberately so: the row was read fine, and
+    /// what it held could not be. The row's id travels with the failure so a caller can
+    /// say *which* run is unreadable, and the reason separates "written before
+    /// versioning" from "written by this build and damaged".
+    case unreadableRequestConfigSeed(runID: String, failure: RequestConfigSeedReadFailure)
+}
+
+/// Why a run's frozen request seed could not be read.
+///
+/// The persistence-facing vocabulary for `RequestConfigSeed.FormatError`. Translated
+/// rather than re-exported: `PersistenceError` is what callers of the store see, and a
+/// Provider type inside it would put the adapter's vocabulary in front of the Runtime.
+enum RequestConfigSeedReadFailure: Equatable {
+    /// Written before the seed carried a version. Reported, not migrated — see `P6`.
+    case unversioned
+    /// Written by a build whose format this one does not know.
+    case unsupportedVersion(Int)
+    /// Written by this build, and damaged since.
+    case malformedCurrentVersion(Int)
+    /// Not the seed's JSON at all.
+    case malformedPayload
+
+    init(_ error: RequestConfigSeed.FormatError) {
+        switch error {
+        case .unversioned: self = .unversioned
+        case .unsupportedVersion(let version): self = .unsupportedVersion(version)
+        case .malformedCurrentVersion(let version): self = .malformedCurrentVersion(version)
+        }
+    }
 }
 
 /// Everything one send commit writes, as a single unit.
@@ -198,7 +230,56 @@ struct PersistenceStore: Sendable {
 
     func run(id: String) throws -> AgentRunRecord? {
         try database.read { db in
-            try AgentRunRecord.fetchOne(db, key: id)
+            guard let row = try Row.fetchOne(
+                db, sql: "SELECT * FROM agentRun WHERE id = ?", arguments: [id]
+            ) else { return nil }
+            return try Self.decodeRun(row)
+        }
+    }
+
+    /// Reads one run row, reporting an unreadable seed as a typed failure.
+    ///
+    /// `AgentRunRecord` is `Codable`, so GRDB decodes the seed column itself and a row
+    /// written by an older build surfaces as **GRDB's own decoding error** — a
+    /// storage-engine type, in front of the caller, about a payload problem. The seed is
+    /// therefore read and checked *before* GRDB is asked to decode the row, so the
+    /// diagnosis is ours rather than the engine's.
+    ///
+    /// The seed is decoded here and then again inside `AgentRunRecord(row:)`. That is one
+    /// decode more than strictly needed, and it is deliberate: validating through the
+    /// same implementation the reader uses means the check and the read cannot disagree,
+    /// and it avoids a hand-written column-by-column mapping that could drift from the
+    /// schema — a drift nothing here would catch until a row was written and read back.
+    private static func decodeRun(_ row: Row) throws -> AgentRunRecord {
+        let runID: String = row["id"]
+        let raw: String = row["requestConfigSeed"]
+        try validateSeed(raw, runID: runID)
+
+        do {
+            return try AgentRunRecord(row: row)
+        } catch {
+            // The seed was readable a moment ago on this same row, so this is not a
+            // version problem. Something else about the row will not decode, and it
+            // still must not escape as a GRDB type.
+            throw PersistenceError.unreadableRequestConfigSeed(runID: runID, failure: .malformedPayload)
+        }
+    }
+
+    /// Reads the seed and reports why it could not be, in the store's vocabulary.
+    private static func validateSeed(_ raw: String, runID: String) throws {
+        guard let data = raw.data(using: .utf8) else {
+            throw PersistenceError.unreadableRequestConfigSeed(runID: runID, failure: .malformedPayload)
+        }
+        do {
+            _ = try JSONDecoder().decode(RequestConfigSeed.self, from: data)
+        } catch let failure as RequestConfigSeed.FormatError {
+            throw PersistenceError.unreadableRequestConfigSeed(
+                runID: runID, failure: RequestConfigSeedReadFailure(failure)
+            )
+        } catch {
+            // Not the seed's format at all: truncated text, another encoding, a column
+            // something wrote by hand.
+            throw PersistenceError.unreadableRequestConfigSeed(runID: runID, failure: .malformedPayload)
         }
     }
 
@@ -208,9 +289,20 @@ struct PersistenceStore: Sendable {
     /// from the rule the index enforces.
     func activeParentRuns(inConversation id: String) throws -> [AgentRunRecord] {
         try database.read { db in
-            try AgentRunRecord
-                .filter(Column("activeSlot") == id)
-                .fetchAll(db)
+            // Row by row, so an unreadable seed is reported as *that run's* failure with
+            // its id, rather than as the whole query failing with a GRDB error.
+            //
+            // The signature stays `throws -> [AgentRunRecord]`. The partial unique index
+            // on `activeSlot` means this returns at most one row, so "the batch failed"
+            // and "this row failed" are the same event — there is no larger result to
+            // salvage by reporting per-row.
+            try Row
+                .fetchAll(
+                    db,
+                    sql: "SELECT * FROM agentRun WHERE activeSlot = ?",
+                    arguments: [id]
+                )
+                .map(Self.decodeRun)
         }
     }
 }

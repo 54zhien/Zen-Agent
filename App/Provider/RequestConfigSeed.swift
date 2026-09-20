@@ -33,7 +33,30 @@ struct CredentialBindingSnapshot: Codable, Sendable, Equatable {
 /// Those are capability-validated, and capability arrives in its own increment.
 /// Inventing an option vocabulary now would be guessing at what a Provider supports,
 /// which is the thing this stage exists to find out.
-struct RequestConfigSeed: Codable, Sendable, Equatable {
+struct RequestConfigSeed: Sendable, Equatable {
+
+    /// The format this build writes, and the only one it reads.
+    ///
+    /// Exists so that "written by a build that predates versioning" and "written by this
+    /// build and damaged since" are different diagnoses. Without it both look like a
+    /// handful of missing keys, and the only honest report is a vague one.
+    static let currentFormatVersion = 1
+
+    /// A payload this build cannot read as its own format.
+    ///
+    /// Three cases because they are three situations. An unversioned payload was written
+    /// before versioning existed - the clean cut `P6` decided on. An unsupported one was
+    /// written by a build this one does not understand, which is not corruption. And a
+    /// malformed current payload was written by this build and damaged afterwards, which
+    /// is the only one of the three that is a bug.
+    enum FormatError: Error, Equatable {
+        case unversioned
+        case unsupportedVersion(Int)
+        case malformedCurrentVersion(Int)
+    }
+
+    /// Written first, and read first. See `init(from:)`.
+    var formatVersion: Int
     var providerInstanceID: ProviderInstanceID
     var modelID: ModelID
     /// The instance's configuration revision at the moment of the freeze, so a later
@@ -46,6 +69,66 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
     /// And the *reference* is frozen alongside it, so it cannot silently continue on a
     /// different credential either.
     var credentialBinding: CredentialBindingSnapshot
+
+    init(
+        formatVersion: Int = RequestConfigSeed.currentFormatVersion,
+        providerInstanceID: ProviderInstanceID,
+        modelID: ModelID,
+        providerConfigRevision: ConfigRevision,
+        credentialBinding: CredentialBindingSnapshot
+    ) {
+        self.formatVersion = formatVersion
+        self.providerInstanceID = providerInstanceID
+        self.modelID = modelID
+        self.providerConfigRevision = providerConfigRevision
+        self.credentialBinding = credentialBinding
+    }
+
+    // MARK: - Versioned coding
+
+    private enum CodingKeys: String, CodingKey {
+        case formatVersion
+        case providerInstanceID
+        case modelID
+        case providerConfigRevision
+        case credentialBinding
+    }
+
+    /// Reads the version before the payload, and refuses rather than guesses.
+    ///
+    /// The version is decoded by hand, outside the `do` below, so a payload written
+    /// before versioning is reported as *unversioned* rather than as a pile of missing
+    /// keys. Everything else is then read as the current shape, and a failure there is a
+    /// malformed current payload - a different thing, named differently.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        guard let version = try? container.decode(Int.self, forKey: .formatVersion) else {
+            throw FormatError.unversioned
+        }
+        guard version == Self.currentFormatVersion else {
+            throw FormatError.unsupportedVersion(version)
+        }
+
+        do {
+            providerInstanceID = try container.decode(ProviderInstanceID.self, forKey: .providerInstanceID)
+            modelID = try container.decode(ModelID.self, forKey: .modelID)
+            providerConfigRevision = try container.decode(ConfigRevision.self, forKey: .providerConfigRevision)
+            credentialBinding = try container.decode(CredentialBindingSnapshot.self, forKey: .credentialBinding)
+        } catch {
+            throw FormatError.malformedCurrentVersion(version)
+        }
+        self.formatVersion = version
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(formatVersion, forKey: .formatVersion)
+        try container.encode(providerInstanceID, forKey: .providerInstanceID)
+        try container.encode(modelID, forKey: .modelID)
+        try container.encode(providerConfigRevision, forKey: .providerConfigRevision)
+        try container.encode(credentialBinding, forKey: .credentialBinding)
+    }
 }
 
 extension RequestConfigSeed {
