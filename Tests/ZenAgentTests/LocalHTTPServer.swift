@@ -83,6 +83,10 @@ final class LocalHTTPServer: @unchecked Sendable {
 
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw Failure.socket("socket() failed: \(errno)") }
+        guard Self.suppressSIGPIPE(on: fd) else {
+            close(fd)
+            throw Failure.socket("SO_NOSIGPIPE could not be set: \(errno)")
+        }
 
         var reuse: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
@@ -197,6 +201,32 @@ final class LocalHTTPServer: @unchecked Sendable {
         }
     }
 
+    /// Stops a write to a closed peer from killing the process.
+    ///
+    /// A `write` to a socket whose peer has gone raises `SIGPIPE`, and the **default
+    /// disposition of that signal is to terminate the process**. The test host died of
+    /// exactly this: the simulator's Unified Log records
+    /// `com.zhien.zenagent.ZenAgent[6766] exited due to SIGPIPE`, and RunningBoard
+    /// reports `domain:signal(2) code:SIGPIPE(13)`.
+    ///
+    /// `SO_NOSIGPIPE` is set per-socket rather than ignoring the signal process-wide.
+    /// `signal(SIGPIPE, SIG_IGN)` would change behaviour for the whole test host and
+    /// could mask the same bug anywhere else; this keeps the change to the descriptors
+    /// this server owns. With it set, a write to a departed peer returns `EPIPE`
+    /// instead, which `sendAll` already treats as the peer being gone.
+    ///
+    /// - Returns: whether the option was applied. A socket without it must not be used.
+    private static func suppressSIGPIPE(on fd: Int32) -> Bool {
+        var enabled: Int32 = 1
+        return setsockopt(
+            fd,
+            SOL_SOCKET,
+            SO_NOSIGPIPE,
+            &enabled,
+            socklen_t(MemoryLayout.size(ofValue: enabled))
+        ) == 0
+    }
+
     /// `< 0` after a retry is a genuine error, which for a socket we are reading or
     /// writing means the same thing as EOF: the peer is gone.
     private func readSome(_ fd: Int32, _ buffer: inout [UInt8]) -> Int {
@@ -206,6 +236,13 @@ final class LocalHTTPServer: @unchecked Sendable {
     private func serveOneConnection() {
         let accepted = retryingOnInterrupt { accept(listenFD, nil, nil) }
         guard accepted >= 0 else { return }
+        // Applied to the accepted socket as well as the listening one. Apple's guidance
+        // is explicit that the option is not inherited, and this is the descriptor the
+        // server actually writes to.
+        guard Self.suppressSIGPIPE(on: accepted) else {
+            close(accepted)
+            return
+        }
         lock.withLock { clientFD = accepted }
 
         defer {

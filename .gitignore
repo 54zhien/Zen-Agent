@@ -49,3 +49,6 @@ App/Info.plist
 .vscode/
 
 # Keep source, config, docs and bundled resources versioned.
+
+# Downloaded CI artifacts (diagnostics bundles; not source)
+.tmp/
