@@ -6,6 +6,7 @@ enum ModelCapability: String, Codable, Sendable, Hashable {
     case reasoning
     case vision
     case files
+    case tools
 }
 
 /// Provider-owned description of one model.
@@ -32,6 +33,12 @@ struct ModelDescriptor: Codable, Sendable, Equatable, Identifiable {
 protocol ModelProvider: Sendable {
     var id: ProviderID { get }
 
+    /// Stable identity for the adapter implementation that prepared a run.
+    var adapterRevision: String { get }
+
+    /// Provider-specific instructions that belong in the frozen prompt snapshot.
+    var adapterPromptInstructions: String { get }
+
     /// Every model this provider knows about for the instance, without network access.
     ///
     /// A remote list would be fetched by a transport and cached; this is the local
@@ -46,10 +53,29 @@ protocol ModelProvider: Sendable {
     /// (`Provider 与模型.md:120`).
     func descriptor(for modelID: ModelID, in instance: ProviderInstance) -> ModelDescriptor?
 
+    /// Freeze the provider-owned portion of a run before execution begins.
+    func makeRequestConfigSeed(
+        instance: ProviderInstance,
+        modelID: ModelID,
+        credentialBinding: CredentialBindingSnapshot
+    ) throws -> RequestConfigSeed
+
+    func stream(
+        _ request: ProviderChatRequest,
+        seed: RequestConfigSeed,
+        credentials: any CredentialStoring
+    ) async throws -> AsyncThrowingStream<ProviderStreamEvent, Error>
+}
+
+extension ModelProvider {
+    /// Stage 1 source compatibility. New execution code must use the overload without
+    /// `instance`; the mutable instance is not an execution input after send-time freeze.
     func stream(
         _ request: ProviderChatRequest,
         seed: RequestConfigSeed,
         instance: ProviderInstance,
         credentials: any CredentialStoring
-    ) async throws -> AsyncThrowingStream<ProviderStreamEvent, Error>
+    ) async throws -> AsyncThrowingStream<ProviderStreamEvent, Error> {
+        try await stream(request, seed: seed, credentials: credentials)
+    }
 }

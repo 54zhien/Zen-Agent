@@ -49,6 +49,12 @@ struct FakeProvider: ModelProvider {
         }
     }
 
+    var adapterRevision: String { "fake-provider.v1" }
+
+    var adapterPromptInstructions: String {
+        "Preserve the provider-neutral message and tool-call structures in the request."
+    }
+
     func knownModels(for instance: ProviderInstance) -> [ModelDescriptor] {
         // Re-stamped with the instance asked about, so an instance cannot be handed
         // descriptors belonging to another one.
@@ -66,13 +72,29 @@ struct FakeProvider: ModelProvider {
         knownModels(for: instance).first { $0.id == modelID }
     }
 
+    func makeRequestConfigSeed(
+        instance: ProviderInstance,
+        modelID: ModelID,
+        credentialBinding: CredentialBindingSnapshot
+    ) throws -> RequestConfigSeed {
+        guard descriptor(for: modelID, in: instance) != nil else {
+            throw ProviderError.invalidRequest("unknown model \(modelID.rawValue)")
+        }
+
+        return RequestConfigSeed(
+            instance: instance,
+            modelID: modelID,
+            credentialBinding: credentialBinding,
+            resolvedEndpoint: URL(string: "https://fake.invalid/chat/completions")!
+        )
+    }
+
     func stream(
         _ request: ProviderChatRequest,
         seed: RequestConfigSeed,
-        instance: ProviderInstance,
         credentials: any CredentialStoring
     ) async throws -> AsyncThrowingStream<ProviderStreamEvent, Error> {
-        guard descriptor(for: request.modelID, in: instance) != nil else {
+        guard models.contains(where: { $0.id == request.modelID }) else {
             throw ProviderError.invalidRequest("unknown model \(request.modelID.rawValue)")
         }
 

@@ -24,6 +24,7 @@ struct DeepSeekProvider: ModelProvider {
         .text,
         .streaming,
         .reasoning,
+        .tools,
     ]
 
     static let defaultBaseURL = URL(string: "https://api.deepseek.com")!
@@ -35,6 +36,12 @@ struct DeepSeekProvider: ModelProvider {
     /// `betweenEvents`, so the deadlines that must stay distinct are configured in one
     /// place rather than drifting apart in two.
     let streamTimeouts: StreamTimeoutPolicy
+
+    var adapterRevision: String { "deepseek-chat-completions.v1" }
+
+    var adapterPromptInstructions: String {
+        "Use DeepSeek's chat-completions protocol and preserve structured tool calls."
+    }
 
     init(
         transport: any HTTPTransport,
@@ -84,6 +91,26 @@ struct DeepSeekProvider: ModelProvider {
         knownModels(for: instance).first { $0.id == modelID }
     }
 
+    func makeRequestConfigSeed(
+        instance: ProviderInstance,
+        modelID: ModelID,
+        credentialBinding: CredentialBindingSnapshot
+    ) throws -> RequestConfigSeed {
+        guard instance.providerID == id else {
+            throw ProviderError.invalidRequest("provider instance belongs to \(instance.providerID.rawValue)")
+        }
+        guard descriptor(for: modelID, in: instance) != nil else {
+            throw ProviderError.invalidRequest("unknown model \(modelID.rawValue)")
+        }
+
+        return RequestConfigSeed(
+            instance: instance,
+            modelID: modelID,
+            credentialBinding: credentialBinding,
+            resolvedEndpoint: Self.resolvedEndpoint(for: instance)
+        )
+    }
+
     // MARK: - Completion
 
     /// Sends one non-streaming chat completion.
@@ -99,23 +126,9 @@ struct DeepSeekProvider: ModelProvider {
     func complete(
         _ request: ProviderChatRequest,
         seed: RequestConfigSeed,
-        instance: ProviderInstance,
         credentials: any CredentialStoring
     ) async throws -> ProviderResponse {
-        try FrozenConfiguration.validate(
-            seed: seed,
-            modelID: request.modelID,
-            instance: instance,
-            credentials: credentials,
-            resolvedEndpoint: Self.resolvedEndpoint(for: instance)
-        )
-
-        guard instance.credentialReference != nil else {
-            // Unreachable: `validate` refuses a missing reference. Kept as a guard rather
-            // than trusting the seed blind so a future reordering of the checks fails
-            // visibly instead of resolving a secret for an instance with none.
-            throw ProviderError.credentialMissing
-        }
+        try Self.validate(request: request, against: seed)
         let secret = try Self.resolveSecret(seed.credentialBinding, from: credentials)
 
         let httpRequest = try makeHTTPRequest(
@@ -139,6 +152,25 @@ struct DeepSeekProvider: ModelProvider {
         return try Self.normalise(httpResponse.body)
     }
 
+    /// Stage 1 source compatibility. The overload that takes an instance keeps the
+    /// old pre-Stage-2 guard for callers that have not moved to the frozen-seed API.
+    /// Runtime execution uses the overload above and never re-reads mutable settings.
+    func complete(
+        _ request: ProviderChatRequest,
+        seed: RequestConfigSeed,
+        instance: ProviderInstance,
+        credentials: any CredentialStoring
+    ) async throws -> ProviderResponse {
+        try FrozenConfiguration.validate(
+            seed: seed,
+            modelID: request.modelID,
+            instance: instance,
+            credentials: credentials,
+            resolvedEndpoint: Self.resolvedEndpoint(for: instance)
+        )
+        return try await complete(request, seed: seed, credentials: credentials)
+    }
+
     // MARK: - Streaming completion
 
     /// Streams one chat completion, yielding provider-neutral events.
@@ -157,21 +189,9 @@ struct DeepSeekProvider: ModelProvider {
     func stream(
         _ request: ProviderChatRequest,
         seed: RequestConfigSeed,
-        instance: ProviderInstance,
         credentials: any CredentialStoring
     ) async throws -> AsyncThrowingStream<ProviderStreamEvent, Error> {
-        try FrozenConfiguration.validate(
-            seed: seed,
-            modelID: request.modelID,
-            instance: instance,
-            credentials: credentials,
-            resolvedEndpoint: Self.resolvedEndpoint(for: instance)
-        )
-
-        guard instance.credentialReference != nil else {
-            // Unreachable, as in `complete`: `validate` refuses a missing reference.
-            throw ProviderError.credentialMissing
-        }
+        try Self.validate(request: request, against: seed)
         let secret = try Self.resolveSecret(seed.credentialBinding, from: credentials)
 
         let httpRequest = try makeHTTPRequest(
@@ -186,6 +206,34 @@ struct DeepSeekProvider: ModelProvider {
         }
 
         return Self.events(from: upstream, timeouts: streamTimeouts, redacting: secret)
+    }
+
+    /// Stage 1 source compatibility; new execution must use the seed-only overload.
+    func stream(
+        _ request: ProviderChatRequest,
+        seed: RequestConfigSeed,
+        instance: ProviderInstance,
+        credentials: any CredentialStoring
+    ) async throws -> AsyncThrowingStream<ProviderStreamEvent, Error> {
+        try FrozenConfiguration.validate(
+            seed: seed,
+            modelID: request.modelID,
+            instance: instance,
+            credentials: credentials,
+            resolvedEndpoint: Self.resolvedEndpoint(for: instance)
+        )
+        return try await stream(request, seed: seed, credentials: credentials)
+    }
+
+    private static func validate(
+        request: ProviderChatRequest,
+        against seed: RequestConfigSeed
+    ) throws {
+        guard request.modelID == seed.modelID else {
+            throw ProviderError.configurationMismatch(
+                "the run was frozen against model \(seed.modelID.rawValue), not \(request.modelID.rawValue)"
+            )
+        }
     }
 
     /// Reassembles DeepSeek's provider-neutral events out of the byte stream.
@@ -246,11 +294,15 @@ struct DeepSeekProvider: ModelProvider {
                         // Declared inside the reader, so nothing outlives the task that
                         // owns it and no `var` is captured across a suspension point.
                         var parser = SSEParser()
+                        var toolCallAssembler = ToolCallAssembler()
                         do {
                             for try await chunk in upstream.body {
                                 for element in try parser.consume(chunk) {
                                     switch element {
                                     case .done:
+                                        for toolCall in try toolCallAssembler.finish() {
+                                            continuation.yield(.toolCall(toolCall))
+                                        }
                                         continuation.finish()
                                         return
                                     case .event(let event):
@@ -271,7 +323,10 @@ struct DeepSeekProvider: ModelProvider {
                                         // never be caught, and the run would hang with
                                         // nothing produced.
                                         if Self.carriesOutput(decoded) { progress.advanced() }
-                                        for event in Self.normalizedEvents(from: decoded) {
+                                        for event in try Self.normalizedEvents(
+                                            from: decoded,
+                                            assembling: &toolCallAssembler
+                                        ) {
                                             continuation.yield(event)
                                         }
                                     }
@@ -313,11 +368,25 @@ struct DeepSeekProvider: ModelProvider {
     /// nothing else.
     static func carriesOutput(_ chunk: DeepSeekStreamChunk) -> Bool {
         guard let delta = chunk.choices?.first?.delta else { return false }
-        return !(delta.content ?? "").isEmpty || !(delta.reasoning_content ?? "").isEmpty
+        return !(delta.content ?? "").isEmpty
+            || !(delta.reasoning_content ?? "").isEmpty
+            || !(delta.tool_calls ?? []).isEmpty
     }
 
     static func normalizedEvents(from chunk: DeepSeekStreamChunk) -> [ProviderStreamEvent] {
+        var assembler = ToolCallAssembler()
+        return (try? normalizedEvents(from: chunk, assembling: &assembler)) ?? []
+    }
+
+    private static func normalizedEvents(
+        from chunk: DeepSeekStreamChunk,
+        assembling assembler: inout ToolCallAssembler
+    ) throws -> [ProviderStreamEvent] {
         var events: [ProviderStreamEvent] = []
+
+        if let fragments = chunk.choices?.first?.delta?.tool_calls {
+            assembler.append(fragments)
+        }
 
         if let reasoning = chunk.choices?.first?.delta?.reasoning_content, !reasoning.isEmpty {
             events.append(.reasoningDelta(reasoning))
@@ -326,6 +395,9 @@ struct DeepSeekProvider: ModelProvider {
             events.append(.textDelta(text))
         }
         if let finishReason = chunk.choices?.first?.finish_reason {
+            for toolCall in try assembler.finish() {
+                events.append(.toolCall(toolCall))
+            }
             events.append(.finish(FinishReason(wire: finishReason)))
         }
         if let usage = chunk.usage {
@@ -337,6 +409,58 @@ struct DeepSeekProvider: ModelProvider {
         }
 
         return events
+    }
+
+    private struct ToolCallAssembly {
+        var id = ""
+        var name = ""
+        var arguments = ""
+    }
+
+    private struct ToolCallAssembler {
+        private var calls: [Int: ToolCallAssembly] = [:]
+        private var nextFallbackIndex = 0
+
+        var isEmpty: Bool { calls.isEmpty }
+
+        mutating func append(_ fragments: [DeepSeekToolCallDelta]) {
+            for fragment in fragments {
+                let index = fragment.index ?? nextFallbackIndex
+                nextFallbackIndex = max(nextFallbackIndex, index + 1)
+
+                var call = calls[index, default: ToolCallAssembly()]
+                if let id = fragment.id, !id.isEmpty {
+                    call.id = id
+                }
+                if let name = fragment.function?.name, !name.isEmpty {
+                    call.name = name
+                }
+                if let arguments = fragment.function?.arguments {
+                    call.arguments += arguments
+                }
+                calls[index] = call
+            }
+        }
+
+        mutating func finish() throws -> [ProviderToolCall] {
+            guard !calls.isEmpty else { return [] }
+
+            let result = try calls.keys.sorted().map { index -> ProviderToolCall in
+                guard let call = calls[index], !call.id.isEmpty, !call.name.isEmpty else {
+                    throw ProviderError.malformedResponse(
+                        "a streamed tool call was missing its id or function name"
+                    )
+                }
+                return ProviderToolCall(
+                    id: call.id,
+                    index: index,
+                    name: call.name,
+                    argumentsJSON: call.arguments
+                )
+            }
+            calls.removeAll(keepingCapacity: false)
+            return result
+        }
     }
 
     /// One event payload to one chunk.
@@ -388,8 +512,16 @@ struct DeepSeekProvider: ModelProvider {
     ) throws -> HTTPRequest {
         let body = DeepSeekChatRequest(
             model: request.modelID.rawValue,
-            messages: request.messages.map {
-                DeepSeekChatRequest.Message(role: $0.role.rawValue, content: $0.content)
+            messages: request.messages.map(Self.makeMessage),
+            tools: request.tools.map {
+                DeepSeekChatRequest.Tool(
+                    type: "function",
+                    function: DeepSeekChatRequest.Function(
+                        name: $0.name,
+                        description: $0.description,
+                        parameters: $0.parameters
+                    )
+                )
             },
             stream: streaming
         )
@@ -417,6 +549,52 @@ struct DeepSeekProvider: ModelProvider {
             ],
             body: encoded
         )
+    }
+
+    private static func makeMessage(_ message: ProviderChatMessage) -> DeepSeekChatRequest.Message {
+        switch message {
+        case .system(let content):
+            return DeepSeekChatRequest.Message(
+                role: "system",
+                content: content,
+                reasoning_content: nil,
+                tool_calls: nil,
+                tool_call_id: nil
+            )
+        case .user(let content):
+            return DeepSeekChatRequest.Message(
+                role: "user",
+                content: content,
+                reasoning_content: nil,
+                tool_calls: nil,
+                tool_call_id: nil
+            )
+        case .assistant(let content, let reasoning, let toolCalls):
+            return DeepSeekChatRequest.Message(
+                role: "assistant",
+                content: content,
+                reasoning_content: reasoning,
+                tool_calls: toolCalls.map {
+                    DeepSeekToolCall(
+                        id: $0.id,
+                        type: "function",
+                        function: DeepSeekToolCallFunction(
+                            name: $0.name,
+                            arguments: $0.argumentsJSON
+                        )
+                    )
+                },
+                tool_call_id: nil
+            )
+        case .toolResult(let toolCallID, let content):
+            return DeepSeekChatRequest.Message(
+                role: "tool",
+                content: content,
+                reasoning_content: nil,
+                tool_calls: nil,
+                tool_call_id: toolCallID
+            )
+        }
     }
 
     // MARK: - Credential resolution
@@ -699,6 +877,7 @@ struct DeepSeekProvider: ModelProvider {
             // Absent, not empty, when the model is not in thinking mode — the two mean
             // different things to anything deciding whether to show a reasoning section.
             reasoning: choice.message?.reasoning_content,
+            toolCalls: try Self.providerToolCalls(from: choice.message?.tool_calls),
             finishReason: FinishReason(wire: choice.finish_reason),
             usage: decoded.usage.map {
                 ProviderTokenUsage(
@@ -708,6 +887,30 @@ struct DeepSeekProvider: ModelProvider {
                 )
             }
         )
+    }
+
+    private static func providerToolCalls(
+        from calls: [DeepSeekToolCall]?
+    ) throws -> [ProviderToolCall] {
+        try (calls ?? []).enumerated().map { index, call in
+            guard
+                let id = call.id,
+                !id.isEmpty,
+                let function = call.function,
+                let name = function.name,
+                !name.isEmpty
+            else {
+                throw ProviderError.malformedResponse(
+                    "a response tool call was missing its id or function name"
+                )
+            }
+            return ProviderToolCall(
+                id: id,
+                index: index,
+                name: name,
+                argumentsJSON: function.arguments ?? ""
+            )
+        }
     }
 }
 

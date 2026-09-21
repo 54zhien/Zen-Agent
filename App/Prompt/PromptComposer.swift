@@ -29,6 +29,7 @@ struct PromptCompositionInput: Sendable, Equatable {
     var providerAdapterInstructions: String
     var history: [PromptHistoryMessage]
     var currentUserMessage: String
+    var tools: [ProviderToolDefinition] = []
 }
 
 /// Pure prompt assembly. Owns no business state and performs no I/O.
@@ -58,31 +59,30 @@ struct PromptComposer: Sendable {
         """
 
         var messages: [ProviderChatMessage] = [
-            ProviderChatMessage(
-                role: .system,
-                content: systemMessage
-            )
+            .system(systemMessage)
         ]
 
         messages.append(
             contentsOf: input.history.map {
-                ProviderChatMessage(
-                    role: $0.role.providerRole,
-                    content: $0.content
-                )
+                switch $0.role {
+                case .user:
+                    return .user($0.content)
+                case .assistant:
+                    return .assistant(
+                        content: $0.content,
+                        reasoning: nil,
+                        toolCalls: []
+                    )
+                }
             }
         )
 
-        messages.append(
-            ProviderChatMessage(
-                role: .user,
-                content: input.currentUserMessage
-            )
-        )
+        messages.append(.user(input.currentUserMessage))
 
         return ProviderChatRequest(
             modelID: input.modelID,
-            messages: messages
+            messages: messages,
+            tools: input.tools
         )
     }
 }

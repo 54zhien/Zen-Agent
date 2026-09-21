@@ -8,17 +8,100 @@ import Foundation
 struct ProviderChatRequest: Sendable, Equatable {
     var modelID: ModelID
     var messages: [ProviderChatMessage]
+    var tools: [ProviderToolDefinition]
+
+    init(
+        modelID: ModelID,
+        messages: [ProviderChatMessage],
+        tools: [ProviderToolDefinition] = []
+    ) {
+        self.modelID = modelID
+        self.messages = messages
+        self.tools = tools
+    }
 }
 
-struct ProviderChatMessage: Sendable, Equatable {
-    var role: ProviderChatRole
-    var content: String
+struct ProviderToolDefinition: Sendable, Equatable {
+    var name: String
+    var description: String
+    var parameters: JSONValue
 }
 
+struct ProviderToolCall: Sendable, Equatable {
+    var id: String
+    var index: Int
+    var name: String
+    var argumentsJSON: String
+}
+
+/// A provider-neutral message. Tool calls and their results remain structured so a
+/// continuation can be encoded as protocol messages instead of being flattened into
+/// user-visible text.
+enum ProviderChatMessage: Sendable, Equatable {
+    case system(String)
+    case user(String)
+    case assistant(
+        content: String?,
+        reasoning: String?,
+        toolCalls: [ProviderToolCall]
+    )
+    case toolResult(
+        toolCallID: String,
+        content: String
+    )
+}
+
+/// Kept as a small source-compatibility vocabulary for Stage 1 callers. The
+/// provider-neutral message itself is the enum above; new code should construct its
+/// cases directly.
 enum ProviderChatRole: String, Sendable, Codable {
     case system
     case user
     case assistant
+    case tool
+}
+
+extension ProviderChatMessage {
+    /// Stage 1 source compatibility for tests and older composition callers.
+    init(role: ProviderChatRole, content: String) {
+        switch role {
+        case .system:
+            self = .system(content)
+        case .user:
+            self = .user(content)
+        case .assistant:
+            self = .assistant(content: content, reasoning: nil, toolCalls: [])
+        case .tool:
+            self = .toolResult(toolCallID: "", content: content)
+        }
+    }
+
+    /// Compatibility projection for plain-text Stage 1 callers. Structured callers
+    /// should pattern-match the enum instead of using this projection.
+    var role: ProviderChatRole {
+        switch self {
+        case .system:
+            return .system
+        case .user:
+            return .user
+        case .assistant:
+            return .assistant
+        case .toolResult:
+            return .tool
+        }
+    }
+
+    /// Compatibility projection for plain-text Stage 1 callers.
+    var content: String {
+        switch self {
+        case .system(let content), .user(let content):
+            return content
+        case .assistant(let content, _, _):
+            return content ?? ""
+        case .toolResult(_, let content):
+            return content
+        }
+    }
 }
 
 /// What came back, normalised.
@@ -33,8 +116,26 @@ struct ProviderResponse: Sendable, Equatable {
     /// not a response field and must not be smuggled into one — see
     /// `消息与数据.md:49` for why the distinction matters to what the UI may show.
     var reasoning: String?
+    /// Complete tool calls in a non-streaming response, when present.
+    var toolCalls: [ProviderToolCall]
     var finishReason: FinishReason
     var usage: ProviderTokenUsage?
+
+    init(
+        id: String,
+        text: String,
+        reasoning: String?,
+        toolCalls: [ProviderToolCall] = [],
+        finishReason: FinishReason,
+        usage: ProviderTokenUsage?
+    ) {
+        self.id = id
+        self.text = text
+        self.reasoning = reasoning
+        self.toolCalls = toolCalls
+        self.finishReason = finishReason
+        self.usage = usage
+    }
 }
 
 /// Why generation stopped.
@@ -59,6 +160,7 @@ struct ProviderTokenUsage: Sendable, Equatable {
 enum ProviderStreamEvent: Sendable, Equatable {
     case textDelta(String)
     case reasoningDelta(String)
+    case toolCall(ProviderToolCall)
     case finish(FinishReason)
     case usage(ProviderTokenUsage)
 }
