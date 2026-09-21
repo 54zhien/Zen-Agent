@@ -136,6 +136,7 @@ actor AgentRuntime {
                 // because the stopping notification could not be observed.
                 stopRequested.insert(runID)
                 execution.task.cancel()
+                finishProjectionFailure(runID: runID)
                 throw error
             }
         }
@@ -447,22 +448,30 @@ actor AgentRuntime {
                 )
             }
         } catch ControlError.stopRequested {
-            try? await finishCancellation(
-                runID: runID,
-                output: &outputState,
-                continuation: continuation,
-                project: project
-            )
-        } catch ControlError.projectionFailed {
-            finishProjectionFailure(runID: runID)
-        } catch {
-            if stopRequested.contains(runID) || Task.isCancelled {
-                try? await finishCancellation(
+            do {
+                try await finishCancellation(
                     runID: runID,
                     output: &outputState,
                     continuation: continuation,
                     project: project
                 )
+            } catch {
+                finishProjectionFailure(runID: runID)
+            }
+        } catch ControlError.projectionFailed {
+            finishProjectionFailure(runID: runID)
+        } catch {
+            if stopRequested.contains(runID) || Task.isCancelled {
+                do {
+                    try await finishCancellation(
+                        runID: runID,
+                        output: &outputState,
+                        continuation: continuation,
+                        project: project
+                    )
+                } catch {
+                    finishProjectionFailure(runID: runID)
+                }
             } else {
                 do {
                     try await finishFailure(

@@ -25,7 +25,7 @@ struct RunStateMachine: Sendable {
         case .continuing:
             return [.requestingModel, .stopping, .suspended, .failed]
         case .stopping:
-            return [.cancelled]
+            return [.cancelled, .failed]
         case .suspended:
             return [.recovering, .stopping, .failed]
         case .recovering:

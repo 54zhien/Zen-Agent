@@ -3,6 +3,10 @@ import Testing
 
 @testable import ZenAgent
 
+private enum I05StopProjectionFailure: Error, Sendable {
+    case rejected
+}
+
 /// A provider stream that keeps its continuation alive after the first delta. The
 /// runtime must cancel it on Stop and discard anything yielded after stopping.
 final class I05BlockingStreamBox: @unchecked Sendable {
@@ -196,5 +200,69 @@ struct AgentRuntimeStopTests {
             !(try fixture.store.text(ofPart: parts[0].id)?.contains("late") ?? false),
             "late provider output after stopping must not mutate the partial"
         )
+    }
+
+    @Test("Stop projection failure fails the run and releases the provider and slot")
+    func stopProjectionFailureFailsTheRun() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let box = I05BlockingStreamBox()
+        let provider = I05BlockingProvider(box: box, instanceID: fixture.instance.id)
+        let snapshot = RunExecutionSnapshot(
+            providerID: provider.id,
+            providerAdapterRevision: provider.adapterRevision,
+            prompt: PromptExecutionSnapshot(
+                runtimeSafetyBaseline: "runtime-safety-v1",
+                zenCore: "zen-core-v1",
+                providerAdapterInstructions: provider.adapterPromptInstructions
+            ),
+            modelCapabilities: [.text, .streaming],
+            exposedTools: [],
+            maxProviderSteps: 4
+        )
+        let runID = "run-agent-stop-projection-failure"
+        try fixture.store.commitUserTurnAndCreateParentRun(
+            Fixtures.send(
+                conversationID: I05RuntimeTestFixtures.conversationID,
+                messageID: "user-agent-stop-projection-failure",
+                runID: runID
+            )
+        )
+        try fixture.store.completeExecutionSnapshot(
+            runID: runID,
+            encodedSnapshot: try ExecutionSnapshotCodec.encode(snapshot)
+        )
+
+        let recorder = I05EventRecorder()
+        let runtime = AgentRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials
+        )
+        let stream = await runtime.advance(
+            runID: runID,
+            request: ProviderChatRequest(
+                modelID: I05RuntimeTestFixtures.modelID,
+                messages: [.user("hello")]
+            ),
+            snapshot: snapshot,
+            project: { event in
+                await recorder.append(event)
+                if case .messagePartDelta = event {
+                    throw I05StopProjectionFailure.rejected
+                }
+            }
+        )
+
+        await box.waitUntilReady()
+        await recorder.waitForState(.streaming)
+        try await runtime.stop(runID: runID)
+        for try await _ in stream { }
+        await box.waitUntilCancelled()
+
+        let run = try fixture.store.run(id: runID)
+        #expect(run?.state == .failed)
+        #expect(run?.endReason == .providerFailed)
+        #expect(run?.activeSlot == nil)
+        #expect(box.cancellationCount > 0, "the provider stream must be cancelled")
     }
 }

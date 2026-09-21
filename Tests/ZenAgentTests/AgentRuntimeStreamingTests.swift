@@ -103,6 +103,18 @@ private enum I05ProjectionFailure: Error, Sendable {
     case rejected
 }
 
+private actor I05EventOrderRecorder {
+    private var recordedEvents: [AgentEvent] = []
+
+    func append(_ event: AgentEvent) {
+        recordedEvents.append(event)
+    }
+
+    func events() -> [AgentEvent] {
+        recordedEvents
+    }
+}
+
 @Suite("Agent runtime streaming")
 struct AgentRuntimeStreamingTests {
 
@@ -250,6 +262,61 @@ struct AgentRuntimeStreamingTests {
         #expect(
             try fixture.store.run(id: "run-agent-projection-failure")?.endReason == .providerFailed
         )
+    }
+
+    @Test("text is flushed before a tool request and survives unavailable-tools failure")
+    func textToToolRequestedFlushesBeforeFailure() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let provider = FakeProvider(
+            id: .deepSeek,
+            instanceID: fixture.instance.id,
+            modelNames: [I05RuntimeTestFixtures.modelID.rawValue],
+            capabilities: [.text, .streaming],
+            scriptedEvents: [
+                .textDelta("partial before tool"),
+                .toolCall(.init(
+                    id: "tool-call-i05",
+                    name: "unavailable-tool",
+                    arguments: "{}"
+                )),
+            ]
+        )
+        let recorder = I05EventOrderRecorder()
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials,
+            onEvent: { event in await recorder.append(event) }
+        )
+
+        let runID = try await runtime.send(I05RuntimeTestFixtures.command())
+        let events = await recorder.events()
+        guard let deltaIndex = events.firstIndex(where: { event in
+            if case .messagePartDelta = event { return true }
+            return false
+        }) else {
+            #expect(false, "text before a tool call must be projected")
+            return
+        }
+        guard let toolRequestedIndex = events.firstIndex(where: { event in
+            if case .runStateChanged(_, .toolRequested) = event { return true }
+            return false
+        }) else {
+            #expect(false, "the tool call must enter toolRequested before the later failure")
+            return
+        }
+        #expect(deltaIndex < toolRequestedIndex)
+
+        guard let run = try fixture.store.run(id: runID),
+              let responseID = run.responseMessageID else {
+            #expect(false, "the partial assistant response must remain durable")
+            return
+        }
+        let parts = try fixture.store.parts(ofMessage: responseID)
+        #expect(parts.count == 1)
+        #expect(try fixture.store.text(ofPart: parts[0].id) == "partial before tool")
+        #expect(run.state == .failed)
+        #expect(run.endReason == .providerFailed)
     }
 
     @Test("a re-entry increments the durable attempt and rejects a late old-stream delta")
