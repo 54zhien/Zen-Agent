@@ -170,19 +170,11 @@ private func installProjectionDatabaseInjection(
 
         case .casWinnerTerminal:
             try db.execute(
-                sql: "CREATE TABLE i07_cas_once (id INTEGER PRIMARY KEY)"
-            )
-            try db.execute(
-                sql: "INSERT INTO i07_cas_once (id) VALUES (1)"
-            )
-            try db.execute(
                 sql: """
                     CREATE TRIGGER i07_cas_terminal_owner_wins
                     BEFORE UPDATE OF state ON agentRun
                     WHEN NEW.state = 'failed'
-                        AND EXISTS (
-                            SELECT 1 FROM i07_cas_once WHERE id = 1
-                        )
+                        AND OLD.state = 'executingTools'
                     BEGIN
                         UPDATE agentRun
                         SET state = 'completed',
@@ -192,7 +184,6 @@ private func installProjectionDatabaseInjection(
                             activeSlot = NULL,
                             updatedAt = NEW.updatedAt
                         WHERE id = OLD.id;
-                        DELETE FROM i07_cas_once WHERE id = 1;
                         SELECT RAISE(IGNORE);
                     END
                     """
@@ -200,29 +191,20 @@ private func installProjectionDatabaseInjection(
 
         case .casWinnerActive:
             try db.execute(
-                sql: "CREATE TABLE i07_cas_once (id INTEGER PRIMARY KEY)"
-            )
-            try db.execute(
-                sql: "INSERT INTO i07_cas_once (id) VALUES (1)"
-            )
-            try db.execute(
                 sql: """
                     CREATE TRIGGER i07_cas_active_owner_wins
                     BEFORE UPDATE OF state ON agentRun
                     WHEN NEW.state = 'failed'
-                        AND EXISTS (
-                            SELECT 1 FROM i07_cas_once WHERE id = 1
-                        )
+                        AND OLD.state = 'executingTools'
                     BEGIN
                         UPDATE agentRun
-                        SET state = 'stopping',
+                        SET state = 'toolRequested',
                             endReason = NULL,
                             recoveryAction = NULL,
                             suspendReason = NULL,
                             activeSlot = OLD.activeSlot,
                             updatedAt = NEW.updatedAt
                         WHERE id = OLD.id;
-                        DELETE FROM i07_cas_once WHERE id = 1;
                         SELECT RAISE(IGNORE);
                     END
                     """
@@ -333,7 +315,7 @@ struct ProjectionDiagnosticsTests {
             return
         }
         #expect(partID == "projection-injected-0")
-        #expect(reason.contains("CAS verification found active state stopping"))
+        #expect(reason.contains("CAS verification found active state toolRequested"))
         #expect(try result.store.run(id: result.runID)?.state == .failed)
     }
 
