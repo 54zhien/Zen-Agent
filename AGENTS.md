@@ -66,42 +66,39 @@ Follow the dependency order in the Blueprint's `Design/Zen Agent 开发规划.md
 jump ahead because a later feature is more interesting, and do not build scaffolding
 for a stage that has not started.
 
-**Stage 0 is complete; work beyond Stage 0 has started.**
+**Stage 0 and Stage 1 are complete. Stage 2 has not started.**
 
-**Under the Blueprint's definitions, Stage 1 is in progress; it is not complete.**
-The repository also contains partial implementation belonging to later stages — Stage 2
-run-state, send-commit and tool-recovery concepts among them — and out-of-order
-implementation is not evidence that the stage it jumped ahead of is finished.
+The authoritative Stage 1 closure record is `tasks/stage1-closure.md`. Its
+implementation gate is `1b7394b4545861b0645962dcf8bf4954aaa9279b`; the closure
+evidence was recorded on main in `7eddf5fcdc854f5c2a66028a0676d8ddbc4476eb`.
 
-Stage 0 produced a real baseline: a regenerable Xcode project, a green CI, a decided
-persistence engine (GRDB — `Docs/ADR/0001-persistence-engine.md`), a schema with a
-numbered migrator, and regression tests for the seven invariants the decision rests
-on. The throwaway spike that decided it has been deleted, and CI is green without it.
+Stage 1 delivered these implementation boundaries:
 
-At the implementation baseline immediately preceding this documentation sync
-(`5523ce0`), the following tracked implementation surfaces exist:
+- Conversation / Message / Part persistence and repository support.
+- AgentRun / AgentStep / ToolCall persistence skeletons.
+- CredentialStore and the Keychain-backed credential boundary.
+- Provider / ProviderInstance / HTTP transport contracts, `FakeProvider`, and the
+  concrete DeepSeek adapter.
+- SSE parsing, provider-neutral streaming events, cancellation / timeout handling,
+  and streaming normalization.
+- `ModelDescriptor` capability metadata.
+- The minimal `PromptComposer` owned by Stage 1.
+- The logical FileAsset / FileAssetVersion / MessageAttachment identity boundary.
 
-- Provider contracts and shared types, a `FakeProvider`, and a concrete DeepSeek
-  implementation under `App/Provider/`.
-- Credential types, a credential store, and a Keychain-backed secret backend under
-  `App/Credential/`.
-- HTTP transport abstractions, SSE parsing, streaming timeout policy, and a
-  URLSession-backed transport under `App/HTTP/`.
-- Persistence support for provider instances, credential metadata, steps, streaming,
-  tool calls, and deletion.
-- Unit, regression, and characterisation tests for these component surfaces.
+Some persistence records intentionally anticipate later runtime work. Their presence
+does not mean the runtime stage that consumes them has started.
 
-These are existence claims, not stage-completion claims. A directory, concrete
-Provider, persistence record, or passing component test does not by itself prove
-that the enclosing Blueprint stage is complete.
-
-No implementation surface for the following product/runtime areas is present in the
-tracked `App/` sources at that baseline:
+Until a new explicit Stage 2 planning / review round is approved, the following
+remain outside the active implementation boundary:
 
 ```
-AgentRuntime
+full AgentRuntime state machine
+RunProjection and business-event flow
+Parent Run ↔ Assistant Response runtime mapping
+Stage 2 execution-snapshot semantics
 ToolRuntime
-Conversation UI / Composer
+Conversation UI / input Composer
+physical FileAsset ingest / copy / delete
 Soul
 Memory
 Skills
@@ -110,19 +107,15 @@ Subagent
 App Space / Split
 ```
 
-Persistence records and recovery tests concerning steps or tool calls do not
-constitute an AgentRuntime or ToolRuntime.
+The minimal Stage 1 `PromptComposer` must not be confused with the later
+Conversation UI / input Composer.
 
-**The Stage 0 boundary was not bureaucratic, and later stage boundaries are not
-either.** Nothing beyond Stage 0 was to be built until the engine was chosen, because
-it would have been rewritten had the choice gone the other way. The same reasoning
-continues to apply: build each capability in the stage that owns it, and do not infer
-stage completion from partial later-stage implementation.
+`App/Persistence/` remains a **data layer, not proof that a runtime exists.**
+Likewise, a persisted run, step or tool call is not permission to implement
+AgentRuntime or ToolRuntime before the stage that owns those capabilities.
 
-`App/Persistence/` remains a **data layer, not proof that a runtime exists.** Its
-provider, credential, streaming, step, and tool-call records support the implemented
-slices, but they are not permission to claim AgentRuntime, ToolRuntime, or another
-product layer before that layer is actually implemented and accepted.
+Do not begin Stage 2 from the Stage 1 closure. Stage 2 starts only after a new
+explicit planning / review round establishes its scope, invariants and gate.
 
 ## 3. XcodeGen is the project's source of truth
 

@@ -1,7 +1,8 @@
 # Stage 1 · 前置修复 + Increment 5（Streaming）执行清单
 
-> 本文件是**当前增量**的活清单。
-> `tasks/todo.md` 是 Stage 0 的历史记录（含 Review 段），**不被覆盖**。
+> 状态：**历史执行快照。Increment 5 已完成并纳入已 CLOSED 的 Stage 1；Stage 1 最终实现与证据见 `tasks/stage1-closure.md`。**
+> 下文保留 Increment 5 当时的执行清单、RED/GREEN、review debt、CI 诊断与后续修复记录，不代表当前待办或当前阶段状态。
+> `tasks/todo.md` 是 Stage 0 的历史记录（含 Review 段），不被覆盖。
 
 **纪律**：小步提交 → 每步 CI 验证 → 增量结束停下等确认。CI 失败即停下重新规划，不硬推。
 **推送**用 `if git push` 判断，不用管道（handoff `:61`）。
