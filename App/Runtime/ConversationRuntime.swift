@@ -258,8 +258,9 @@ actor ConversationRuntime {
 
     /// Waits for the AgentRuntime stream to reach its durable outcome. Provider errors
     /// are intentionally not thrown here: they are already represented by Run.state
-    /// and Run.endReason. Projection diagnostics are different: the caller needs the
-    /// typed corruption category and part identity, so those are rethrown here.
+    /// and Run.endReason. Projection and settlement diagnostics are different: the
+    /// caller needs to observe the durable failure category instead of receiving a
+    /// successful return for a Run whose event stream failed.
     func waitForCompletion(runID: String) async throws {
         guard let task = operations[runID] else {
             if let error = completionErrors.removeValue(forKey: runID) {
@@ -308,6 +309,16 @@ actor ConversationRuntime {
             for try await _ in stream { }
         } catch let error as ConversationProjectionError {
             completionErrors[runID] = error
+            await failCommittedRun(runID: runID)
+        } catch let error as AgentRuntimeError {
+            if case .cancellationSettlementFailed = error {
+                // A settlement error is not a provider business outcome. Keep it
+                // visible even when another lifecycle owner already made the Run
+                // terminal; failCommittedRun only changes active Runs.
+                completionErrors[runID] = .other(
+                    "tool cancellation settlement failed: \(String(describing: error))"
+                )
+            }
             await failCommittedRun(runID: runID)
         } catch {
             await failCommittedRun(runID: runID)
@@ -511,6 +522,11 @@ actor ConversationRuntime {
             )
             await publishFailureEvents(failureEvents)
         } catch let error {
+            if let existing = completionErrors[runID] {
+                if case .terminalizationFailed = existing {
+                    return
+                }
+            }
             let primary = completionErrors[runID] ?? .other(
                 "the AgentRuntime stream failed before it could record a projection diagnostic"
             )

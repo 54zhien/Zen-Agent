@@ -3,13 +3,20 @@ import OSLog
 
 typealias AgentEventProjection = @Sendable (AgentEvent) async throws -> Void
 
-/// Errors that prevent an AgentRuntime stream from being started at all. Provider
-/// failures after a run exists are business outcomes and are written to the Run row
-/// instead of escaping as these errors.
+/// Errors that prevent an AgentRuntime stream from starting, or that must remain
+/// observable after a run has started. Provider failures after a run exists are
+/// business outcomes and are written to the Run row instead of escaping as these
+/// errors.
 enum AgentRuntimeError: Error, Equatable, Sendable {
     case alreadyRunning(String)
     case runNotFound(String)
     case runIsNotActive(String)
+    case cancellationSettlementFailed(
+        providerCallID: String,
+        crossedDispatchBoundary: Bool,
+        leftDurableCallNonterminal: Bool,
+        reason: String
+    )
 }
 
 /// The sole owner of Run state transitions for an executing Parent Run.
@@ -32,6 +39,13 @@ actor AgentRuntime {
     private enum FailureDisposition {
         case failed(EndReason)
         case suspended(SuspendReason)
+    }
+
+    private enum FailureFinalization {
+        case transitioned
+        case alreadyTerminal(RunState)
+        case runMissing
+        case notTransitioned
     }
 
     private struct OutputState {
@@ -647,32 +661,102 @@ actor AgentRuntime {
             )
         }
 
-        if report.hasDispatchBoundaryFailure {
-            try await finishFailure(
-                runID: runID,
-                output: &output,
-                error: ProviderRuntimeFailure.toolOutcomeUnknown,
-                continuation: continuation,
-                project: project
-            )
-        } else if !report.failures.isEmpty {
-            try await finishFailure(
-                runID: runID,
-                output: &output,
-                error: ProviderRuntimeFailure.toolSettlementFailed,
-                continuation: continuation,
-                project: project
-            )
-        } else {
+        if report.failures.isEmpty {
             try await finishCancellation(
                 runID: runID,
                 output: &output,
                 continuation: continuation,
                 project: project
             )
+            return nil
         }
 
-        return report.failures.first.map { $0 as Error }
+        guard let failure = report.failures.first else { return nil }
+        let finalization: FailureFinalization
+        do {
+            if report.hasDispatchBoundaryFailure {
+                finalization = try await finishFailure(
+                    runID: runID,
+                    output: &output,
+                    error: ProviderRuntimeFailure.toolOutcomeUnknown,
+                    continuation: continuation,
+                    project: project
+                )
+            } else {
+                finalization = try await finishFailure(
+                    runID: runID,
+                    output: &output,
+                    error: ProviderRuntimeFailure.toolSettlementFailed,
+                    continuation: continuation,
+                    project: project
+                )
+            }
+        } catch ControlError.projectionFailed(let diagnostic) {
+            throw ControlError.projectionFailed(diagnostic)
+        } catch let failureError {
+            guard let latest = try store.run(id: runID) else {
+                throw failureError
+            }
+            guard latest.state == .cancelled,
+                  try hasUnsettledToolCall(inRun: runID)
+            else {
+                if latest.state.isTerminal {
+                    return nil
+                }
+                throw failureError
+            }
+            return cancellationSettlementError(for: failure)
+        }
+
+        switch finalization {
+        case .transitioned:
+            return cancellationSettlementError(for: failure)
+        case .alreadyTerminal(let state):
+            guard state == .cancelled,
+                  try hasUnsettledToolCall(inRun: runID)
+            else {
+                // Another lifecycle owner completed cancellation correctly. The
+                // failed owner's state write must not reopen or replace that result.
+                return nil
+            }
+            return cancellationSettlementError(for: failure)
+        case .runMissing:
+            return cancellationSettlementError(for: failure)
+        case .notTransitioned:
+            return cancellationSettlementError(for: failure)
+        }
+    }
+
+    private func cancellationSettlementError(
+        for failure: CancellationSettlementFailure
+    ) -> AgentRuntimeError {
+        .cancellationSettlementFailed(
+            providerCallID: failure.providerCallID,
+            crossedDispatchBoundary: failure.crossedDispatchBoundary,
+            leftDurableCallNonterminal: failure.leftDurableCallNonterminal,
+            reason: failure.reason
+        )
+    }
+
+    private func hasUnsettledToolCall(inRun runID: String) throws -> Bool {
+        try store.toolCalls(inRun: runID).contains { call in
+            switch call.state {
+            case .validated,
+                 .waitingForApproval,
+                 .waitingForSystemPermissionConsent,
+                 .approved,
+                 .prepared,
+                 .dispatched:
+                return true
+            case .succeeded,
+                 .failed,
+                 .rejected,
+                 .cancelled,
+                 .notExecuted,
+                 .indeterminate:
+                return false
+            }
+        }
     }
 
     private func settleActiveBatchForCancellation(
@@ -1201,8 +1285,17 @@ actor AgentRuntime {
         error: Error,
         continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
         project: @escaping AgentEventProjection
-    ) async throws {
-        guard let current = try store.run(id: runID), current.state.isActive else { return }
+    ) async throws -> FailureFinalization {
+        guard let current = try store.run(id: runID) else {
+            return .runMissing
+        }
+        guard current.state.isActive else {
+            // A terminal owner keeps its durable outcome. Cancellation settlement
+            // reports the caller-visible failure separately when a call is still
+            // nonterminal, so this guard never turns a correct terminal result into
+            // a second failed result.
+            return .alreadyTerminal(current.state)
+        }
 
         try await flush(
             &output,
@@ -1225,7 +1318,7 @@ actor AgentRuntime {
         switch failureDisposition(error: error, run: current) {
         case .failed(let reason):
             guard RunStateMachine.canTransition(from: current.state, to: .failed) else {
-                return
+                return .notTransitioned
             }
             try await transition(
                 runID: runID,
@@ -1242,7 +1335,7 @@ actor AgentRuntime {
 
         case .suspended(let reason):
             guard RunStateMachine.canTransition(from: current.state, to: .suspended) else {
-                return
+                return .notTransitioned
             }
             try await transition(
                 runID: runID,
@@ -1253,6 +1346,8 @@ actor AgentRuntime {
                 project: project
             )
         }
+
+        return .transitioned
     }
 
     private func emit(
@@ -1326,10 +1421,17 @@ actor AgentRuntime {
                         )
                     }
 
-                    // The row changed after our read, so another lifecycle owner won
-                    // the compare-and-set transition. That is normal concurrency, not
-                    // a failed terminalization, and the primary diagnostic remains the
-                    // caller-visible result.
+                    guard latest.state.isTerminal else {
+                        return .terminalizationFailed(
+                            primary: diagnostic,
+                            reason: "\(transitionError); CAS verification found active state \(latest.state.rawValue)"
+                        )
+                    }
+
+                    // A changed row is benign only when the re-read proves that
+                    // another lifecycle owner completed terminalization. An active
+                    // state merely means that owner progressed the lifecycle; it did
+                    // not complete the failed transition for this projection error.
                     return diagnostic
                 } catch let verificationError {
                     return .terminalizationFailed(

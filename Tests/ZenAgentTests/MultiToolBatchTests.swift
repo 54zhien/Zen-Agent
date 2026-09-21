@@ -14,6 +14,25 @@ private func i07ToolResults(
     }
 }
 
+private actor I07CancellationRaceOwner {
+    private var transitionError: String?
+
+    func cancel(runID: String, store: PersistenceStore) {
+        do {
+            try store.transitionRun(
+                id: runID,
+                expectedState: .stopping,
+                to: .cancelled,
+                endReason: .cancelledByUser
+            )
+        } catch {
+            transitionError = String(describing: error)
+        }
+    }
+
+    func error() -> String? { transitionError }
+}
+
 @Suite("Multi-tool batch continuation")
 struct MultiToolBatchTests {
     @Test("all calls in one provider response settle before continuation")
@@ -350,7 +369,12 @@ struct MultiToolBatchTests {
         let runID = try await runtime.start(I05RuntimeTestFixtures.command())
         await toolLedger.waitForDispatchCount(1)
         try await runtime.stop(runID: runID)
-        try await runtime.waitForCompletion(runID: runID)
+        var completionError: Error?
+        do {
+            try await runtime.waitForCompletion(runID: runID)
+        } catch {
+            completionError = error
+        }
 
         let run = try fixture.store.run(id: runID)
         let calls = try fixture.store.toolCalls(inRun: runID).sorted {
@@ -360,6 +384,17 @@ struct MultiToolBatchTests {
 
         #expect(run?.state == .failed)
         #expect(run?.endReason == .toolOutcomeUnknown)
+        guard let completionError,
+              let diagnostic = completionError as? ConversationProjectionError
+        else {
+            #expect(false, "the caller must observe the settlement failure")
+            return
+        }
+        guard case .other(let reason) = diagnostic else {
+            #expect(false, "the settlement failure must not be dropped or reclassified")
+            return
+        }
+        #expect(reason.contains("cancellationSettlementFailed"))
         #expect(requests.count == 1)
         #expect(calls.count == 2)
         guard calls.count == 2 else {
@@ -462,7 +497,12 @@ struct MultiToolBatchTests {
         let runID = try await runtime.start(I05RuntimeTestFixtures.command())
         await toolLedger.waitForDispatchCount(1)
         try await runtime.stop(runID: runID)
-        try await runtime.waitForCompletion(runID: runID)
+        var completionError: Error?
+        do {
+            try await runtime.waitForCompletion(runID: runID)
+        } catch {
+            completionError = error
+        }
 
         let run = try fixture.store.run(id: runID)
         let calls = try fixture.store.toolCalls(inRun: runID).sorted {
@@ -474,6 +514,17 @@ struct MultiToolBatchTests {
         #expect(run?.endReason == .toolFailed)
         #expect(run?.state != .cancelled)
         #expect(run?.endReason != .cancelledByUser)
+        guard let completionError,
+              let diagnostic = completionError as? ConversationProjectionError
+        else {
+            #expect(false, "the caller must observe the settlement failure")
+            return
+        }
+        guard case .other(let reason) = diagnostic else {
+            #expect(false, "the settlement failure must not be dropped or reclassified")
+            return
+        }
+        #expect(reason.contains("cancellationSettlementFailed"))
         #expect(requests.count == 1)
         #expect(calls.count == 1)
         guard let call = calls.first else {
@@ -488,5 +539,104 @@ struct MultiToolBatchTests {
             }) == nil,
             "the injected INSERT must leave the notExecuted row absent"
         )
+    }
+
+    @Test("a settlement failure after concurrent cancellation remains observable")
+    func settlementFailureAfterConcurrentCancellationIsNotDropped() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let ledger = I07ProviderLedger()
+        let toolLedger = I07ToolLedger()
+        let raceOwner = I07CancellationRaceOwner()
+        let provider = I07ScriptedProvider(
+            ledger: ledger,
+            instanceID: fixture.instance.id,
+            scripts: [
+                [
+                    .toolCall(.init(
+                        id: "provider-call-cancelled-race",
+                        index: 0,
+                        name: "echo",
+                        argumentsJSON: #"{"value":"race"}"#
+                    )),
+                    .finish(.toolCalls),
+                ],
+                [
+                    .textDelta("must not be requested"),
+                    .finish(.stop),
+                ],
+            ],
+            toolLedger: toolLedger,
+            store: fixture.store,
+            conversationID: I05RuntimeTestFixtures.conversationID
+        )
+        let toolRegistry = try ToolRegistry(tools: [
+            I07RecordingTool(
+                id: "echo",
+                approvalRequirement: .notRequired,
+                ledger: toolLedger,
+                executionMode: .waitForCancellation
+            ),
+        ])
+
+        try fixture.store.database.write { db in
+            try db.execute(
+                sql: """
+                    CREATE TRIGGER i07_fail_raced_indeterminate_settlement
+                    BEFORE UPDATE OF state ON toolCall
+                    WHEN NEW.state = 'indeterminate'
+                        AND OLD.state = 'dispatched'
+                    BEGIN
+                        SELECT RAISE(ABORT, 'I07 injected raced settlement write failure');
+                    END
+                    """
+            )
+        }
+
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials,
+            onEvent: { event in
+                guard case .runStateChanged(let runID, .stopping) = event else {
+                    return
+                }
+                await raceOwner.cancel(runID: runID, store: fixture.store)
+            },
+            toolRegistry: toolRegistry
+        )
+
+        let runID = try await runtime.start(I05RuntimeTestFixtures.command())
+        await toolLedger.waitForDispatchCount(1)
+        try await runtime.stop(runID: runID)
+
+        var observedError: Error?
+        do {
+            try await runtime.waitForCompletion(runID: runID)
+        } catch {
+            observedError = error
+        }
+
+        #expect(await raceOwner.error() == nil)
+        guard let observedError else {
+            #expect(false, "a cancelled Run with an unsettled dispatched call must not look successful")
+            return
+        }
+        guard let diagnostic = observedError as? ConversationProjectionError else {
+            #expect(false, "settlement failure must reach waitForCompletion as a diagnostic")
+            return
+        }
+        guard case .other(let reason) = diagnostic else {
+            #expect(false, "settlement failure must not be replaced by a projection category")
+            return
+        }
+        #expect(reason.contains("cancellationSettlementFailed"))
+
+        let run = try fixture.store.run(id: runID)
+        let calls = try fixture.store.toolCalls(inRun: runID)
+        let requests = await ledger.requestsSnapshot()
+        #expect(run?.state == .cancelled)
+        #expect(calls.count == 1)
+        #expect(calls.first?.state == .dispatched)
+        #expect(requests.count == 1)
     }
 }

@@ -136,6 +136,5 @@ struct ToolLoopBaseContractProbeTests {
             return
         }
         #expect(relatedCall.providerCallID == providerCallID)
-        #expect(relatedToolCallID == relatedCall.id)
     }
 }

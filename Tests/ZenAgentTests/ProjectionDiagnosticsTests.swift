@@ -21,6 +21,14 @@ private actor ProjectionInjectionBox {
     func error() -> String? { injectionError }
 }
 
+private enum ProjectionDatabaseInjection {
+    case none
+    case projectionPersistenceFailure
+    case terminalizationFailure
+    case casWinnerTerminal
+    case casWinnerActive
+}
+
 private enum ProjectionDiagnosticsTestError: Error, Equatable {
     case missingRunID
     case injectionFailed(String)
@@ -33,9 +41,14 @@ private struct ProjectionScenarioResult {
 }
 
 private func runProjectionScenario(
-    injectedParts: [(kind: MessagePartKind, payload: String)]
+    injectedParts: [(kind: MessagePartKind, payload: String)],
+    databaseInjection: ProjectionDatabaseInjection = .none
 ) async throws -> ProjectionScenarioResult {
     let fixture = try I05RuntimeTestFixtures.makeFixture()
+    try installProjectionDatabaseInjection(
+        databaseInjection,
+        in: fixture.store
+    )
     let ledger = I07ProviderLedger()
     let toolLedger = I07ToolLedger()
     let injection = ProjectionInjectionBox()
@@ -122,6 +135,102 @@ private func runProjectionScenario(
     )
 }
 
+private func installProjectionDatabaseInjection(
+    _ injection: ProjectionDatabaseInjection,
+    in store: PersistenceStore
+) throws {
+    try store.database.write { db in
+        switch injection {
+        case .none:
+            break
+
+        case .projectionPersistenceFailure:
+            try db.execute(
+                sql: """
+                    CREATE TRIGGER i07_fail_projection_part_insert
+                    BEFORE INSERT ON messagePart
+                    WHEN NEW.id LIKE 'tool-call-%'
+                    BEGIN
+                        SELECT RAISE(ABORT, 'I07 injected projection persistence failure');
+                    END
+                    """
+            )
+
+        case .terminalizationFailure:
+            try db.execute(
+                sql: """
+                    CREATE TRIGGER i07_fail_projection_terminalization
+                    BEFORE UPDATE OF state ON agentRun
+                    WHEN NEW.state = 'failed'
+                    BEGIN
+                        SELECT RAISE(ABORT, 'I07 injected terminalization write failure');
+                    END
+                    """
+            )
+
+        case .casWinnerTerminal:
+            try db.execute(
+                sql: "CREATE TABLE i07_cas_once (id INTEGER PRIMARY KEY)"
+            )
+            try db.execute(
+                sql: "INSERT INTO i07_cas_once (id) VALUES (1)"
+            )
+            try db.execute(
+                sql: """
+                    CREATE TRIGGER i07_cas_terminal_owner_wins
+                    BEFORE UPDATE OF state ON agentRun
+                    WHEN NEW.state = 'failed'
+                        AND EXISTS (
+                            SELECT 1 FROM i07_cas_once WHERE id = 1
+                        )
+                    BEGIN
+                        UPDATE agentRun
+                        SET state = 'completed',
+                            endReason = 'completed',
+                            recoveryAction = NULL,
+                            suspendReason = NULL,
+                            activeSlot = NULL,
+                            updatedAt = NEW.updatedAt
+                        WHERE id = OLD.id;
+                        DELETE FROM i07_cas_once WHERE id = 1;
+                        SELECT RAISE(IGNORE);
+                    END
+                    """
+            )
+
+        case .casWinnerActive:
+            try db.execute(
+                sql: "CREATE TABLE i07_cas_once (id INTEGER PRIMARY KEY)"
+            )
+            try db.execute(
+                sql: "INSERT INTO i07_cas_once (id) VALUES (1)"
+            )
+            try db.execute(
+                sql: """
+                    CREATE TRIGGER i07_cas_active_owner_wins
+                    BEFORE UPDATE OF state ON agentRun
+                    WHEN NEW.state = 'failed'
+                        AND EXISTS (
+                            SELECT 1 FROM i07_cas_once WHERE id = 1
+                        )
+                    BEGIN
+                        UPDATE agentRun
+                        SET state = 'stopping',
+                            endReason = NULL,
+                            recoveryAction = NULL,
+                            suspendReason = NULL,
+                            activeSlot = OLD.activeSlot,
+                            updatedAt = NEW.updatedAt
+                        WHERE id = OLD.id;
+                        DELETE FROM i07_cas_once WHERE id = 1;
+                        SELECT RAISE(IGNORE);
+                    END
+                    """
+            )
+        }
+    }
+}
+
 @Suite("Conversation projection diagnostics")
 struct ProjectionDiagnosticsTests {
     @Test("a malformed tool-call Part preserves its kind and part ID")
@@ -181,5 +290,94 @@ struct ProjectionDiagnosticsTests {
         #expect(try result.store.run(id: result.runID)?.state == .completed)
         let parts = try result.store.parts(ofMessage: "assistant-\(result.runID)")
         #expect(parts.contains { $0.kind == .toolResult })
+    }
+
+    @Test("a CAS miss that rereads a terminal state preserves the primary diagnostic")
+    func casMissWithTerminalRereadKeepsPrimaryDiagnostic() async throws {
+        let result = try await runProjectionScenario(
+            injectedParts: [
+                (
+                    kind: .toolCall,
+                    payload: #"{"notToolCall":true}"#
+                ),
+            ],
+            databaseInjection: .casWinnerTerminal
+        )
+
+        guard case .malformedToolCallPart(let partID) = result.error else {
+            #expect(false, "a terminal CAS winner must preserve the primary projection diagnostic")
+            return
+        }
+        #expect(partID == "projection-injected-0")
+        #expect(try result.store.run(id: result.runID)?.state == .completed)
+    }
+
+    @Test("a CAS miss that rereads an active state reports terminalization failure")
+    func casMissWithActiveRereadReportsTerminalizationFailure() async throws {
+        let result = try await runProjectionScenario(
+            injectedParts: [
+                (
+                    kind: .toolCall,
+                    payload: #"{"notToolCall":true}"#
+                ),
+            ],
+            databaseInjection: .casWinnerActive
+        )
+
+        guard case .terminalizationFailed(let primary, let reason) = result.error else {
+            #expect(false, "an active CAS winner must not be treated as completed terminalization")
+            return
+        }
+        guard case .malformedToolCallPart(let partID) = primary else {
+            #expect(false, "terminalization failure must retain the primary projection diagnostic")
+            return
+        }
+        #expect(partID == "projection-injected-0")
+        #expect(reason.contains("CAS verification found active state stopping"))
+        #expect(try result.store.run(id: result.runID)?.state == .failed)
+    }
+
+    @Test("a real projection write failure remains a persistence diagnostic")
+    func projectionPersistenceFailureIsDiagnosable() async throws {
+        let result = try await runProjectionScenario(
+            injectedParts: [
+                (
+                    kind: .toolCall,
+                    payload: #"{"toolCallID":"unrelated-call"}"#
+                ),
+            ],
+            databaseInjection: .projectionPersistenceFailure
+        )
+
+        guard case .persistenceFailure(let reason) = result.error else {
+            #expect(false, "a projection write failure must remain a persistence diagnostic")
+            return
+        }
+        #expect(reason.contains("I07 injected projection persistence failure"))
+        #expect(try result.store.run(id: result.runID)?.state == .failed)
+    }
+
+    @Test("a real terminalization write failure retains its primary diagnostic")
+    func terminalizationFailureRetainsPrimaryDiagnostic() async throws {
+        let result = try await runProjectionScenario(
+            injectedParts: [
+                (
+                    kind: .toolCall,
+                    payload: #"{"notToolCall":true}"#
+                ),
+            ],
+            databaseInjection: .terminalizationFailure
+        )
+
+        guard case .terminalizationFailed(let primary, let reason) = result.error else {
+            #expect(false, "a failed terminalization write must be reported as terminalizationFailed")
+            return
+        }
+        guard case .malformedToolCallPart(let partID) = primary else {
+            #expect(false, "terminalization failure must carry the original projection diagnostic")
+            return
+        }
+        #expect(partID == "projection-injected-0")
+        #expect(reason.contains("I07 injected terminalization write failure"))
     }
 }
