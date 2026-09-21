@@ -281,4 +281,115 @@ struct MultiToolBatchTests {
         #expect(invocation.idempotencyKey == calls[0].id)
         #expect(invocation.outcome == "dispatched")
     }
+
+    @Test("a settlement write failure cannot produce a clean cancellation")
+    func settlementWriteFailureDoesNotFakeCancellation() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let ledger = I07ProviderLedger()
+        let toolLedger = I07ToolLedger()
+        let provider = I07ScriptedProvider(
+            ledger: ledger,
+            instanceID: fixture.instance.id,
+            scripts: [
+                [
+                    .toolCall(.init(
+                        id: "provider-call-failing-settlement-0",
+                        index: 0,
+                        name: "echo",
+                        argumentsJSON: #"{"value":"first"}"#
+                    )),
+                    .toolCall(.init(
+                        id: "provider-call-failing-settlement-1",
+                        index: 1,
+                        name: "echo",
+                        argumentsJSON: #"{"value":"second"}"#
+                    )),
+                    .finish(.toolCalls),
+                ],
+                [
+                    .textDelta("must not be requested"),
+                    .finish(.stop),
+                ],
+            ],
+            toolLedger: toolLedger,
+            store: fixture.store,
+            conversationID: I05RuntimeTestFixtures.conversationID
+        )
+        let toolRegistry = try ToolRegistry(tools: [
+            I07RecordingTool(
+                id: "echo",
+                approvalRequirement: .notRequired,
+                ledger: toolLedger,
+                executionMode: .waitForCancellation
+            ),
+        ])
+
+        // This is a real SQLite write failure: the trigger aborts the UPDATE that
+        // would record `.indeterminate`, while leaving the already-dispatched row
+        // durable as `.dispatched` for the assertions below.
+        try fixture.store.database.write { db in
+            try db.execute(
+                sql: """
+                    CREATE TRIGGER i07_fail_indeterminate_settlement
+                    BEFORE UPDATE OF state ON toolCall
+                    WHEN NEW.state = 'indeterminate'
+                    BEGIN
+                        SELECT RAISE(ABORT, 'I07 injected settlement write failure');
+                    END
+                    """
+            )
+        }
+
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials,
+            toolRegistry: toolRegistry
+        )
+
+        let runID = try await runtime.start(I05RuntimeTestFixtures.command())
+        await toolLedger.waitForDispatchCount(1)
+        try await runtime.stop(runID: runID)
+        try await runtime.waitForCompletion(runID: runID)
+
+        let run = try fixture.store.run(id: runID)
+        let calls = try fixture.store.toolCalls(inRun: runID).sorted {
+            ($0.batchSequence ?? -1) < ($1.batchSequence ?? -1)
+        }
+        let requests = await ledger.requestsSnapshot()
+
+        #expect(run?.state == .failed)
+        #expect(run?.endReason == .toolOutcomeUnknown)
+        #expect(requests.count == 1)
+        #expect(calls.count == 2)
+        guard calls.count == 2 else {
+            #expect(false, "the failure injection must still leave both batch calls inspectable")
+            return
+        }
+        #expect(calls[0].state == .dispatched)
+        #expect(calls[1].state == .notExecuted)
+
+        let hasUnsettledCall = calls.contains { call in
+            switch call.state {
+            case .validated,
+                 .waitingForApproval,
+                 .waitingForSystemPermissionConsent,
+                 .approved,
+                 .prepared,
+                 .dispatched:
+                return true
+            case .succeeded,
+                 .failed,
+                 .rejected,
+                 .cancelled,
+                 .notExecuted,
+                 .indeterminate:
+                return false
+            }
+        }
+        #expect(
+            !(run?.state == .cancelled && hasUnsettledCall),
+            "a cancelled Run must not coexist with a ToolCall that still needs settlement"
+        )
+    }
 }

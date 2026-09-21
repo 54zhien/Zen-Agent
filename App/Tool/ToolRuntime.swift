@@ -7,6 +7,12 @@ enum ToolRuntimeError: Error, Equatable, Sendable {
     case invalidToolCallState(id: String, expected: ToolCallState, actual: ToolCallState)
     case missingExecutionIntent(String)
     case invalidStoredExecutionIntent(String)
+    case cancellationSettlementFailed(
+        providerCallID: String,
+        crossedDispatchBoundary: Bool,
+        leftDurableCallNonterminal: Bool,
+        reason: String
+    )
 }
 
 /// The Stage 2 boundary between a provider tool call and an external executor.
@@ -136,30 +142,73 @@ final class ToolRuntime: @unchecked Sendable {
         batchSequence: Int,
         at now: Date = Date()
     ) throws {
-        if let call = try store.toolCalls(inRun: agentRunID).first(where: {
-            $0.providerCallID == providerCallID &&
-                $0.batchID == batchID &&
-                $0.batchSequence == batchSequence
-        }) {
-            try store.settleToolCallForCancellation(id: call.id, at: now)
-            return
+        let call: ToolCallRecord?
+        do {
+            call = try store.toolCalls(inRun: agentRunID).first(where: {
+                $0.providerCallID == providerCallID &&
+                    $0.batchID == batchID &&
+                    $0.batchSequence == batchSequence
+            })
+        } catch {
+            throw ToolRuntimeError.cancellationSettlementFailed(
+                providerCallID: providerCallID,
+                crossedDispatchBoundary: true,
+                leftDurableCallNonterminal: true,
+                reason: String(describing: error)
+            )
         }
 
-        try store.createToolCall(
-            ToolCallRecord(
-                id: UUID().uuidString,
-                agentRunID: agentRunID,
-                action: toolID,
-                state: .notExecuted,
-                executionIntent: nil,
-                attempt: 1,
-                providerCallID: providerCallID,
-                batchID: batchID,
-                batchSequence: batchSequence,
-                createdAt: now,
-                updatedAt: now
+        do {
+            if let call {
+                try store.settleToolCallForCancellation(id: call.id, at: now)
+                return
+            }
+
+            try store.createToolCall(
+                ToolCallRecord(
+                    id: UUID().uuidString,
+                    agentRunID: agentRunID,
+                    action: toolID,
+                    state: .notExecuted,
+                    executionIntent: nil,
+                    attempt: 1,
+                    providerCallID: providerCallID,
+                    batchID: batchID,
+                    batchSequence: batchSequence,
+                    createdAt: now,
+                    updatedAt: now
+                )
             )
-        )
+        } catch {
+            let crossedDispatchBoundary = call?.state == .dispatched
+            let leftDurableCallNonterminal: Bool
+            if let state = call?.state {
+                switch state {
+                case .validated,
+                     .waitingForApproval,
+                     .waitingForSystemPermissionConsent,
+                     .approved,
+                     .prepared,
+                     .dispatched:
+                    leftDurableCallNonterminal = true
+                case .succeeded,
+                     .failed,
+                     .rejected,
+                     .cancelled,
+                     .notExecuted,
+                     .indeterminate:
+                    leftDurableCallNonterminal = false
+                }
+            } else {
+                leftDurableCallNonterminal = false
+            }
+            throw ToolRuntimeError.cancellationSettlementFailed(
+                providerCallID: providerCallID,
+                crossedDispatchBoundary: crossedDispatchBoundary,
+                leftDurableCallNonterminal: leftDurableCallNonterminal,
+                reason: String(describing: error)
+            )
+        }
     }
 
     /// Records approval on the existing waiting call. Execution is intentionally a
@@ -241,7 +290,10 @@ final class ToolRuntime: @unchecked Sendable {
             )
         } catch {
             if error is CancellationError || Task.isCancelled {
-                try? store.markToolCallIndeterminate(id: call.id, at: now)
+                // This marker is the durable proof that recovery must not retry the
+                // external operation. A failed write is therefore a real runtime
+                // error, never an ignorable side effect of cancellation.
+                try store.markToolCallIndeterminate(id: call.id, at: now)
                 throw error
             }
             let failureResult = ToolExecutionResult(

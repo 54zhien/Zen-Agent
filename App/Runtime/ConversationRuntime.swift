@@ -1,5 +1,10 @@
 import Foundation
 
+private enum ConversationProjectionError: Error, Equatable, Sendable {
+    case malformedToolCallPart(String)
+    case malformedToolResultPart(String)
+}
+
 /// The Parent Send boundary.
 ///
 /// It owns the 12-step preparation/commit order and is the only business writer for
@@ -364,9 +369,12 @@ actor ConversationRuntime {
         for batchCall in callsInBatch {
             let reference = batchCall.id
             let parts = try store.parts(ofMessage: response.id)
-            let hasCallPart = parts.contains { part in
-                guard part.kind == .toolCall else { return false }
-                return (try? decodeToolCallPayload(part.payload).toolCallID) == reference
+            var hasCallPart = false
+            for part in parts where part.kind == .toolCall {
+                if try decodeToolCallPayload(part.payload, partID: part.id).toolCallID == reference {
+                    hasCallPart = true
+                    break
+                }
             }
             if !hasCallPart {
                 try store.createPart(
@@ -386,9 +394,13 @@ actor ConversationRuntime {
 
         guard try store.toolResult(toolCallID: call.id) != nil else { return }
         let reference = call.id
-        let hasResultPart = try store.parts(ofMessage: response.id).contains { part in
-            guard part.kind == .toolResult else { return false }
-            return (try? decodeToolResultPayload(part.payload).toolCallID) == reference
+        var hasResultPart = false
+        let parts = try store.parts(ofMessage: response.id)
+        for part in parts where part.kind == .toolResult {
+            if try decodeToolResultPayload(part.payload, partID: part.id).toolCallID == reference {
+                hasResultPart = true
+                break
+            }
         }
         guard !hasResultPart else { return }
         try store.createPart(
@@ -415,8 +427,18 @@ actor ConversationRuntime {
         return String(decoding: try encoder.encode(payload), as: UTF8.self)
     }
 
-    private func decodeToolCallPayload(_ payload: String) throws -> ToolCallPartPayload {
-        try JSONDecoder().decode(ToolCallPartPayload.self, from: Data(payload.utf8))
+    private func decodeToolCallPayload(
+        _ payload: String,
+        partID: String
+    ) throws -> ToolCallPartPayload {
+        do {
+            return try JSONDecoder().decode(
+                ToolCallPartPayload.self,
+                from: Data(payload.utf8)
+            )
+        } catch {
+            throw ConversationProjectionError.malformedToolCallPart(partID)
+        }
     }
 
     private func encodeToolResultPayload(_ payload: ToolResultPartPayload) throws -> String {
@@ -425,8 +447,18 @@ actor ConversationRuntime {
         return String(decoding: try encoder.encode(payload), as: UTF8.self)
     }
 
-    private func decodeToolResultPayload(_ payload: String) throws -> ToolResultPartPayload {
-        try JSONDecoder().decode(ToolResultPartPayload.self, from: Data(payload.utf8))
+    private func decodeToolResultPayload(
+        _ payload: String,
+        partID: String
+    ) throws -> ToolResultPartPayload {
+        do {
+            return try JSONDecoder().decode(
+                ToolResultPartPayload.self,
+                from: Data(payload.utf8)
+            )
+        } catch {
+            throw ConversationProjectionError.malformedToolResultPart(partID)
+        }
     }
 
     private func runID(from event: AgentEvent) -> String {

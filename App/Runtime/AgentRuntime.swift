@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 typealias AgentEventProjection = @Sendable (AgentEvent) async throws -> Void
 
@@ -69,6 +70,30 @@ actor AgentRuntime {
         let continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
         let project: AgentEventProjection
     }
+
+    private struct CancellationSettlementFailure: Error, Sendable {
+        let providerCallID: String
+        let crossedDispatchBoundary: Bool
+        let leftDurableCallNonterminal: Bool
+        let reason: String
+    }
+
+    private struct CancellationSettlementReport {
+        var failures: [CancellationSettlementFailure] = []
+
+        var hasDispatchBoundaryFailure: Bool {
+            failures.contains(where: \.crossedDispatchBoundary)
+        }
+
+        var hasDurableNonterminalFailure: Bool {
+            failures.contains(where: \.leftDurableCallNonterminal)
+        }
+    }
+
+    private static let logger = Logger(
+        subsystem: "com.zhien.zenagent",
+        category: "AgentRuntime"
+    )
 
     private let store: PersistenceStore
     private let provider: any ModelProvider
@@ -232,6 +257,7 @@ actor AgentRuntime {
         var currentRequest = request
         var isFirstProviderRequest = true
         var activeBatch: ActiveToolBatch?
+        var completionError: Error?
 
         do {
             guard let initialRun = try store.run(id: runID) else {
@@ -530,20 +556,10 @@ actor AgentRuntime {
             }
         } catch ControlError.stopRequested {
             do {
-                if let batch = activeBatch {
-                    for (sequence, call) in batch.calls.enumerated() {
-                        try? toolRuntime.settleForCancellation(
-                            agentRunID: runID,
-                            providerCallID: call.id,
-                            toolID: call.name,
-                            batchID: batch.batchID,
-                            batchSequence: sequence
-                        )
-                    }
-                }
-                try await finishCancellation(
+                completionError = try await finishCancellationAfterSettlement(
                     runID: runID,
                     output: &outputState,
+                    activeBatch: activeBatch,
                     continuation: continuation,
                     project: project
                 )
@@ -555,20 +571,10 @@ actor AgentRuntime {
         } catch {
             if stopRequested.contains(runID) || Task.isCancelled {
                 do {
-                    if let batch = activeBatch {
-                        for (sequence, call) in batch.calls.enumerated() {
-                            try? toolRuntime.settleForCancellation(
-                                agentRunID: runID,
-                                providerCallID: call.id,
-                                toolID: call.name,
-                                batchID: batch.batchID,
-                                batchSequence: sequence
-                            )
-                        }
-                    }
-                    try await finishCancellation(
+                    completionError = try await finishCancellationAfterSettlement(
                         runID: runID,
                         output: &outputState,
+                        activeBatch: activeBatch,
                         continuation: continuation,
                         project: project
                     )
@@ -592,7 +598,115 @@ actor AgentRuntime {
             }
         }
 
-        finishStream(runID: runID, continuation: continuation)
+        finishStream(
+            runID: runID,
+            continuation: continuation,
+            error: completionError
+        )
+    }
+
+    private func finishCancellationAfterSettlement(
+        runID: String,
+        output: inout OutputState,
+        activeBatch: ActiveToolBatch?,
+        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
+        project: @escaping AgentEventProjection
+    ) async throws -> Error? {
+        let report = settleActiveBatchForCancellation(
+            runID: runID,
+            activeBatch: activeBatch
+        )
+
+        for failure in report.failures {
+            Self.logger.error(
+                "Cancellation settlement failed for provider call \(failure.providerCallID, privacy: .public); dispatch boundary crossed: \(failure.crossedDispatchBoundary, privacy: .public); reason: \(failure.reason, privacy: .public)"
+            )
+        }
+
+        if report.hasDispatchBoundaryFailure {
+            try await finishFailure(
+                runID: runID,
+                output: &output,
+                error: ProviderRuntimeFailure.toolOutcomeUnknown,
+                continuation: continuation,
+                project: project
+            )
+        } else if report.hasDurableNonterminalFailure {
+            try await finishFailure(
+                runID: runID,
+                output: &output,
+                error: ProviderRuntimeFailure.toolSettlementFailed,
+                continuation: continuation,
+                project: project
+            )
+        } else {
+            try await finishCancellation(
+                runID: runID,
+                output: &output,
+                continuation: continuation,
+                project: project
+            )
+        }
+
+        return report.failures.first.map { $0 as Error }
+    }
+
+    private func settleActiveBatchForCancellation(
+        runID: String,
+        activeBatch: ActiveToolBatch?
+    ) -> CancellationSettlementReport {
+        guard let activeBatch else { return CancellationSettlementReport() }
+
+        var report = CancellationSettlementReport()
+        for (sequence, call) in activeBatch.calls.enumerated() {
+            do {
+                try toolRuntime.settleForCancellation(
+                    agentRunID: runID,
+                    providerCallID: call.id,
+                    toolID: call.name,
+                    batchID: activeBatch.batchID,
+                    batchSequence: sequence
+                )
+            } catch let error as ToolRuntimeError {
+                switch error {
+                case .cancellationSettlementFailed(
+                    let providerCallID,
+                    let crossedDispatchBoundary,
+                    let leftDurableCallNonterminal,
+                    let reason
+                ):
+                    report.failures.append(
+                        CancellationSettlementFailure(
+                            providerCallID: providerCallID,
+                            crossedDispatchBoundary: crossedDispatchBoundary,
+                            leftDurableCallNonterminal: leftDurableCallNonterminal,
+                            reason: reason
+                        )
+                    )
+                default:
+                    report.failures.append(
+                        CancellationSettlementFailure(
+                            providerCallID: call.id,
+                            crossedDispatchBoundary: true,
+                            leftDurableCallNonterminal: true,
+                            reason: String(describing: error)
+                        )
+                    )
+                }
+            } catch {
+                report.failures.append(
+                    CancellationSettlementFailure(
+                        providerCallID: call.id,
+                        // A failure outside ToolRuntime's typed settlement error is
+                        // not classifiable from this owner, so fail closed.
+                        crossedDispatchBoundary: true,
+                        leftDurableCallNonterminal: true,
+                        reason: String(describing: error)
+                    )
+                )
+            }
+        }
+        return report
     }
 
     private func finishCurrentOutput(
@@ -1163,7 +1277,10 @@ actor AgentRuntime {
     ) -> FailureDisposition {
         if let failure = error as? ProviderRuntimeFailure {
             switch failure {
-            case .stepLimit, .toolsNotAvailable:
+            case .stepLimit,
+                 .toolsNotAvailable,
+                 .toolOutcomeUnknown,
+                 .toolSettlementFailed:
                 return .failed(failure.endReason)
             }
         }
@@ -1223,9 +1340,14 @@ actor AgentRuntime {
 
     private func finishStream(
         runID: String,
-        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
+        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
+        error: Error? = nil
     ) {
-        continuation.finish()
+        if let error {
+            continuation.finish(throwing: error)
+        } else {
+            continuation.finish()
+        }
         active.removeValue(forKey: runID)
         stopRequested.remove(runID)
     }
@@ -1234,11 +1356,15 @@ actor AgentRuntime {
 private enum ProviderRuntimeFailure: Error {
     case stepLimit
     case toolsNotAvailable
+    case toolOutcomeUnknown
+    case toolSettlementFailed
 
     var endReason: EndReason {
         switch self {
         case .stepLimit: return .stepLimit
         case .toolsNotAvailable: return .providerFailed
+        case .toolOutcomeUnknown: return .toolOutcomeUnknown
+        case .toolSettlementFailed: return .toolFailed
         }
     }
 }
