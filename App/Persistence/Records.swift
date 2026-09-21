@@ -117,7 +117,7 @@ enum SuspendReason: String, Codable, Sendable {
     case authRequired
 }
 
-enum ToolCallState: String, CaseIterable, Codable, Sendable {
+enum ToolCallState: String, CaseIterable, Codable, Sendable, Equatable {
     case validated
     case waitingForApproval
     case waitingForSystemPermissionConsent
@@ -351,8 +351,21 @@ struct ToolCallRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Id
     /// value, so an approval cannot be redirected to a different target.
     var executionIntent: String?
     var attempt: Int
+    var providerCallID: String? = nil
+    var batchID: String? = nil
+    var batchSequence: Int? = nil
     var createdAt: Date
     var updatedAt: Date
+}
+
+struct ToolResultRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Identifiable {
+    static let databaseTableName = "toolResult"
+
+    var toolCallID: String
+    var payload: String
+    var createdAt: Date
+
+    var id: String { toolCallID }
 }
 
 struct OperationTombstoneRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Identifiable {

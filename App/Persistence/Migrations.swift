@@ -22,6 +22,7 @@ enum Migrations {
         registerV4(&migrator)
         registerV5(&migrator)
         registerV6(&migrator)
+        registerV7(&migrator)
         return migrator
     }
 
@@ -190,6 +191,22 @@ enum Migrations {
                 columns: ["messageID", "sequence"],
                 unique: true
             )
+        }
+    }
+
+    static func registerV7(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v7_add_tool_continuation_state") { db in
+            try db.execute(sql: "ALTER TABLE toolCall ADD COLUMN providerCallID TEXT")
+            try db.execute(sql: "ALTER TABLE toolCall ADD COLUMN batchID TEXT")
+            try db.execute(sql: "ALTER TABLE toolCall ADD COLUMN batchSequence INTEGER")
+            try db.execute(sql: """
+                CREATE TABLE toolResult (
+                    toolCallID TEXT PRIMARY KEY
+                        REFERENCES toolCall(id) ON DELETE CASCADE,
+                    payload TEXT NOT NULL,
+                    createdAt DATETIME NOT NULL
+                )
+                """)
         }
     }
 

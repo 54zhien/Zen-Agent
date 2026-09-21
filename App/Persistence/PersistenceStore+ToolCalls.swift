@@ -19,6 +19,97 @@ extension PersistenceStore {
         }
     }
 
+    func toolResult(toolCallID: String) throws -> ToolResultRecord? {
+        try database.read { db in
+            try ToolResultRecord.fetchOne(db, key: toolCallID)
+        }
+    }
+
+    /// Moves an approved call into the prepared state without opening the dispatch
+    /// window. The dispatch marker remains a separate transaction boundary.
+    func markToolCallPrepared(id: String, at now: Date = Date()) throws {
+        try database.write { db in
+            try db.execute(
+                sql: "UPDATE toolCall SET state = ?, updatedAt = ? WHERE id = ? AND state = ?",
+                arguments: StatementArguments([
+                    ToolCallState.prepared.rawValue,
+                    now,
+                    id,
+                    ToolCallState.approved.rawValue,
+                ])
+            )
+            if db.changesCount == 0 {
+                try Self.refuseMissedStateUpdate(
+                    db,
+                    table: "toolCall",
+                    id: id,
+                    precondition: "state = approved",
+                    notFound: PersistenceError.toolCallNotFound(id)
+                )
+            }
+        }
+    }
+
+    /// Records an approval decision on the existing call. Approval never creates a
+    /// replacement call and never crosses the dispatch boundary by itself.
+    func approveToolCall(id: String, at now: Date = Date()) throws {
+        try database.write { db in
+            try db.execute(
+                sql: "UPDATE toolCall SET state = ?, updatedAt = ? WHERE id = ? AND state = ?",
+                arguments: StatementArguments([
+                    ToolCallState.approved.rawValue,
+                    now,
+                    id,
+                    ToolCallState.waitingForApproval.rawValue,
+                ])
+            )
+            if db.changesCount == 0 {
+                try Self.refuseMissedStateUpdate(
+                    db,
+                    table: "toolCall",
+                    id: id,
+                    precondition: "state = waitingForApproval",
+                    notFound: PersistenceError.toolCallNotFound(id)
+                )
+            }
+        }
+    }
+
+    /// Settles an approval rejection and its model-visible result in one transaction.
+    func rejectWaitingForApprovalToolCall(
+        id: String,
+        result: ToolResultRecord,
+        at now: Date = Date()
+    ) throws {
+        guard result.toolCallID == id else {
+            throw PersistenceError.invalidTransition(
+                "rejectWaitingForApprovalToolCall result belongs to \(result.toolCallID), not \(id)"
+            )
+        }
+
+        try database.write { db in
+            try db.execute(
+                sql: "UPDATE toolCall SET state = ?, updatedAt = ? WHERE id = ? AND state = ?",
+                arguments: StatementArguments([
+                    ToolCallState.rejected.rawValue,
+                    now,
+                    id,
+                    ToolCallState.waitingForApproval.rawValue,
+                ])
+            )
+            if db.changesCount == 0 {
+                try Self.refuseMissedStateUpdate(
+                    db,
+                    table: "toolCall",
+                    id: id,
+                    precondition: "state = waitingForApproval",
+                    notFound: PersistenceError.toolCallNotFound(id)
+                )
+            }
+            try result.insert(db)
+        }
+    }
+
     /// Commits the marker that says an external call is about to be attempted.
     ///
     /// Called **before** the call, never after. Committing it afterwards would leave a
@@ -88,6 +179,55 @@ extension PersistenceStore {
                     precondition: "dispatched or indeterminate",
                     notFound: PersistenceError.toolCallNotFound(id)
                 )
+            }
+        }
+    }
+
+    /// Completes only the dispatched attempt that the executor was handed.
+    ///
+    /// This is deliberately narrower than `finishToolCall`: recovery may turn a
+    /// dispatched call into `indeterminate`, and a late executor callback must not be
+    /// able to overwrite that conclusion. Inserting the result shares the same database
+    /// transaction as the compare-and-set state change.
+    func finishDispatchedToolCall(
+        id: String,
+        expectedAttempt: Int,
+        state: ToolCallState,
+        result: ToolResultRecord?,
+        at now: Date = Date()
+    ) throws {
+        guard state.isTerminal else {
+            throw PersistenceError.invalidTransition(
+                "finishDispatchedToolCall requires a terminal state; got \(state.rawValue)"
+            )
+        }
+        if let result, result.toolCallID != id {
+            throw PersistenceError.invalidTransition(
+                "finishDispatchedToolCall result belongs to \(result.toolCallID), not \(id)"
+            )
+        }
+
+        try database.write { db in
+            try db.execute(
+                sql: "UPDATE toolCall SET state = ?, updatedAt = ? WHERE id = ? AND state = 'dispatched' AND attempt = ?",
+                arguments: StatementArguments([
+                    state.rawValue,
+                    now,
+                    id,
+                    expectedAttempt,
+                ])
+            )
+            if db.changesCount == 0 {
+                try Self.refuseMissedStateUpdate(
+                    db,
+                    table: "toolCall",
+                    id: id,
+                    precondition: "state = dispatched and attempt = \(expectedAttempt)",
+                    notFound: PersistenceError.toolCallNotFound(id)
+                )
+            }
+            if let result {
+                try result.insert(db)
             }
         }
     }
