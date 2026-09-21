@@ -7,9 +7,9 @@ import Testing
 /// under no other.**
 ///
 /// This suite exists because of a specific hole. The seed used to record only a binding
-/// *generation*, and validation looked that generation up on whatever credential the
-/// instance happened to point at by then. Generation 1 exists on every freshly
-/// provisioned credential, so:
+/// *generation*, and execution could look that generation up on whatever credential the
+/// mutable instance happened to point at by then. Generation 1 exists on every freshly
+/// provisioned credential, so the frozen reference must travel with the seed:
 ///
 ///     freeze A at generation 1  →  attach a brand-new credential B  →  B is also at
 ///     generation 1  →  every check passes  →  the request goes out under B
@@ -25,6 +25,7 @@ struct FrozenCredentialIdentityTests {
     private static let credentialB = CredentialReference(id: "cred-b")
     private static let instanceID = ProviderInstanceID(rawValue: "pi-1")
     private static let modelID = ModelID(rawValue: "deepseek-flash")
+    private static let adapterRevision = "deepseek-chat-completions.v1"
 
     // MARK: - Fixture
 
@@ -33,19 +34,18 @@ struct FrozenCredentialIdentityTests {
         let credentials: CredentialStore
         let instance: ProviderInstance
         let seed: RequestConfigSeed
+        let snapshot: RunExecutionSnapshot
+        let adapter: AdapterIdentity
 
         /// Runs dispatch validation the way the provider does.
         ///
-        /// `FrozenCredentialIdentityTests.modelID` rather than `Self.modelID`: inside this
-        /// nested type `Self` means `Fixture`, which has no such member.
-        func validate(against instance: ProviderInstance? = nil) -> ProviderError? {
+        func validate(using adapter: AdapterIdentity? = nil) -> ProviderError? {
             do {
                 try FrozenConfiguration.validate(
                     seed: seed,
-                    modelID: FrozenCredentialIdentityTests.modelID,
-                    instance: instance ?? self.instance,
-                    credentials: credentials,
-                    resolvedEndpoint: DeepSeekProvider.resolvedEndpoint(for: instance ?? self.instance)
+                    snapshot: snapshot,
+                    adapter: adapter ?? self.adapter,
+                    credentials: credentials
                 )
                 return nil
             } catch let error as ProviderError {
@@ -85,13 +85,36 @@ struct FrozenCredentialIdentityTests {
             credentialBinding: CredentialBindingSnapshot(reference: Self.credentialA, generation: 1),
             resolvedEndpoint: DeepSeekProvider.resolvedEndpoint(for: instance)
         )
-        return Fixture(store: store, credentials: credentials, instance: instance, seed: seed)
+        let adapter = AdapterIdentity(
+            providerID: .deepSeek,
+            adapterRevision: Self.adapterRevision
+        )
+        let snapshot = RunExecutionSnapshot(
+            providerID: adapter.providerID,
+            providerAdapterRevision: adapter.adapterRevision,
+            prompt: PromptExecutionSnapshot(
+                runtimeSafetyBaseline: "baseline",
+                zenCore: "core",
+                providerAdapterInstructions: "adapter"
+            ),
+            modelCapabilities: [.text],
+            exposedTools: [],
+            maxProviderSteps: 1
+        )
+        return Fixture(
+            store: store,
+            credentials: credentials,
+            instance: instance,
+            seed: seed,
+            snapshot: snapshot,
+            adapter: adapter
+        )
     }
 
     // MARK: - The hole
 
-    @Test("attaching a different credential at the same generation is refused")
-    func differentCredentialSameGenerationIsRefused() throws {
+    @Test("changing the instance credential does not change a frozen binding")
+    func changingInstanceCredentialDoesNotInvalidateFrozenBinding() throws {
         let f = try makeFixture()
         #expect(f.validate() == nil, "the frozen configuration must validate before anything moves")
 
@@ -107,24 +130,17 @@ struct FrozenCredentialIdentityTests {
             "credential B must be at generation 1, or this test would pass for the wrong reason"
         )
 
-        // And the instance's revision must NOT have moved, or the older revision check
-        // would be catching this instead and the reference check would go untested.
+        // The instance's revision must NOT have moved: attaching a credential is a
+        // mutable-instance edit, not a change to the frozen binding.
         #expect(
             moved.configRevision == f.seed.providerConfigRevision,
-            "attaching a credential is not a configuration edit, so the revision is unchanged — which is exactly why the seed has to name the credential itself"
+            "attaching a credential does not change the instance configuration revision"
         )
 
-        let outcome = f.validate(against: moved)
-        guard case .configurationMismatch = outcome else {
-            Issue.record(
-                """
-                expected a refusal, got \(String(describing: outcome)). A run frozen \
-                against credential A went out under credential B: same generation, \
-                different principal, and nothing else in the seed can tell.
-                """
-            )
-            return
-        }
+        // Validation intentionally does not inspect the mutable instance. Execution
+        // resolves the frozen reference from the seed, so this edit cannot redirect
+        // the already-sent run to credential B.
+        #expect(f.validate() == nil)
     }
 
     @Test("a rebind to a different principal is refused")
@@ -132,8 +148,8 @@ struct FrozenCredentialIdentityTests {
         let f = try makeFixture()
         try f.credentials.rebind(SecretValue("sk-a2"), as: Self.credentialA, principalFingerprint: "acct-other")
 
-        // Same reference, moved generation. The reference check passes and the
-        // generation check is what catches this one.
+        // The frozen reference is still the same, but its binding generation moved.
+        // `matchesBinding` checks the frozen reference before comparing that generation.
         guard case .configurationMismatch = f.validate() else {
             Issue.record("expected a refusal after a rebind")
             return
@@ -151,8 +167,8 @@ struct FrozenCredentialIdentityTests {
         }
     }
 
-    @Test("a detached credential is refused")
-    func detachIsRefused() throws {
+    @Test("detaching the current instance credential does not invalidate a frozen binding")
+    func detachingCurrentInstanceCredentialDoesNotInvalidateFrozenBinding() throws {
         let f = try makeFixture()
         let detached = try f.store.attachCredential(
             nil,
@@ -161,8 +177,51 @@ struct FrozenCredentialIdentityTests {
         )
         #expect(detached.credentialReference == nil)
 
-        guard case .configurationMismatch = f.validate(against: detached) else {
-            Issue.record("expected a refusal once the instance has no credential")
+        #expect(f.validate() == nil)
+    }
+
+    @Test("ordinary instance edits do not invalidate a frozen run")
+    func ordinaryInstanceEditsDoNotInvalidateFrozenRun() throws {
+        let f = try makeFixture()
+        var edited = f.instance
+
+        edited.displayName = "Personal DeepSeek"
+        #expect(edited.displayName != f.instance.displayName)
+        #expect(f.validate() == nil)
+
+        edited.baseURL = URL(string: "https://proxy.example.com")
+        #expect(DeepSeekProvider.resolvedEndpoint(for: edited) != f.seed.endpoint)
+        #expect(f.validate() == nil)
+
+        edited.configRevision = try edited.configRevision.next()
+        #expect(edited.configRevision != f.seed.providerConfigRevision)
+        #expect(f.validate() == nil)
+
+        #expect(edited.displayName == "Personal DeepSeek")
+        #expect(edited.baseURL?.absoluteString == "https://proxy.example.com")
+        #expect(edited.configRevision != f.instance.configRevision)
+        #expect(f.validate() == nil)
+    }
+
+    @Test("a different adapter identity is refused")
+    func differentAdapterIdentityIsRefused() throws {
+        let f = try makeFixture()
+
+        let differentProvider = AdapterIdentity(
+            providerID: ProviderID(rawValue: "other-provider"),
+            adapterRevision: f.adapter.adapterRevision
+        )
+        guard case .configurationMismatch = f.validate(using: differentProvider) else {
+            Issue.record("expected a refusal for a different provider adapter")
+            return
+        }
+
+        let differentRevision = AdapterIdentity(
+            providerID: f.adapter.providerID,
+            adapterRevision: "deepseek-chat-completions.v2"
+        )
+        guard case .configurationMismatch = f.validate(using: differentRevision) else {
+            Issue.record("expected a refusal for a different adapter revision")
             return
         }
     }
