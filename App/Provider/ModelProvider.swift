@@ -1,20 +1,23 @@
 import Foundation
 
-/// Identity and presentation of a model. **Nothing about what it can do.**
+enum ModelCapability: String, Codable, Sendable, Hashable {
+    case text
+    case streaming
+    case reasoning
+    case vision
+    case files
+}
+
+/// Provider-owned description of one model.
 ///
-/// Capability modelling is its own increment, and the temptation to start it here is
-/// exactly what the notes warn about: a vocabulary invented before there is a Provider
-/// to validate it against becomes a vocabulary every later Provider has to be bent to
-/// fit. So this carries an id, the instance it belongs to, and a name to show — and
-/// stops.
-///
-/// The absence is load-bearing. A caller that wants to know whether a model supports
-/// something has nowhere to look here, which is the correct state of affairs until
-/// capability exists.
+/// Capabilities describe what Zen can actually execute through this Provider
+/// adapter. They are not inferred from the model id, and upstream support that
+/// the current adapter cannot encode must not be advertised here.
 struct ModelDescriptor: Codable, Sendable, Equatable, Identifiable {
     var id: ModelID
     var providerInstanceID: ProviderInstanceID
     var displayName: String
+    var capabilities: Set<ModelCapability>
 }
 
 /// What a Provider implementation must be able to answer.

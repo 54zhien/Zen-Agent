@@ -28,6 +28,11 @@ struct FakeProvider: ModelProvider {
         id: ProviderID = .deepSeek,
         instanceID: ProviderInstanceID = ProviderInstanceID(rawValue: "fake-instance"),
         modelNames: [String] = ["fake-model"],
+        capabilities: Set<ModelCapability> = [
+            .text,
+            .streaming,
+            .reasoning,
+        ],
         scriptedEvents: [ProviderStreamEvent] = [
             .textDelta("fake")
         ]
@@ -38,7 +43,8 @@ struct FakeProvider: ModelProvider {
             ModelDescriptor(
                 id: ModelID(rawValue: $0),
                 providerInstanceID: instanceID,
-                displayName: $0
+                displayName: $0,
+                capabilities: capabilities
             )
         }
     }
@@ -50,7 +56,8 @@ struct FakeProvider: ModelProvider {
             ModelDescriptor(
                 id: $0.id,
                 providerInstanceID: instance.id,
-                displayName: $0.displayName
+                displayName: $0.displayName,
+                capabilities: $0.capabilities
             )
         }
     }

@@ -20,6 +20,12 @@ struct DeepSeekProvider: ModelProvider {
         ModelID(rawValue: "deepseek-v4-pro"),
     ]
 
+    private static let adapterCapabilities: Set<ModelCapability> = [
+        .text,
+        .streaming,
+        .reasoning,
+    ]
+
     static let defaultBaseURL = URL(string: "https://api.deepseek.com")!
 
     let id = ProviderID.deepSeek
@@ -65,7 +71,12 @@ struct DeepSeekProvider: ModelProvider {
 
     func knownModels(for instance: ProviderInstance) -> [ModelDescriptor] {
         Self.modelIDs.map {
-            ModelDescriptor(id: $0, providerInstanceID: instance.id, displayName: $0.rawValue)
+            ModelDescriptor(
+                id: $0,
+                providerInstanceID: instance.id,
+                displayName: $0.rawValue,
+                capabilities: Self.adapterCapabilities
+            )
         }
     }
 
