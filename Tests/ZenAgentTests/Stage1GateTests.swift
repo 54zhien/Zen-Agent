@@ -261,17 +261,24 @@ struct Stage1GateTests {
 
         let transport = FakeHTTPTransport()
 
+        // Each frame ends with a blank line, which is where the SSE parser dispatches
+        // (SSEParserTests: "a blank line dispatches the event that preceded it"). A
+        // multiline literal drops the newline before its closing delimiter, so the blank
+        // line above each `"""` is what puts the terminator on the wire.
         transport.enqueueStream([
             """
             data: {"id":"gate","choices":[{"index":0,"delta":{"content":"Hel"}}]}
+
 
             """,
             """
             data: {"id":"gate","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":"stop"}]}
 
+
             """,
             """
             data: [DONE]
+
 
             """,
         ])
