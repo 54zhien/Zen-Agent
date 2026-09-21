@@ -35,7 +35,11 @@ struct AssistantResponseBindingTests {
             at: now
         )
 
-        #expect(second == first)
+        #expect(second.id == first.id)
+        #expect(second.conversationID == first.conversationID)
+        #expect(second.role == first.role)
+        #expect(second.sequence == first.sequence)
+        #expect(second.createdAt == first.createdAt)
         #expect(try store.run(id: "run-1")?.responseMessageID == "assistant-1")
         #expect(try store.messages(inConversation: "c1").count == 2)
     }

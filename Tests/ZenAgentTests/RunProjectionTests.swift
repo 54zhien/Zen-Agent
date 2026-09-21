@@ -46,6 +46,10 @@ struct RunProjectionTests {
         #expect(projection.state == .requestingModel)
 
         projection.apply(.approvalRequired(runID: "r1", toolCallID: "t1"))
+        #expect(projection.state == .requestingModel)
+        #expect(!projection.isWaitingForApproval)
+
+        projection.apply(.runStateChanged(runID: "r1", state: .waitingForApproval))
         #expect(projection.state == .waitingForApproval)
         #expect(projection.isWaitingForApproval)
 
