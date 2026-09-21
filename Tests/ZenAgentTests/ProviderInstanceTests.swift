@@ -194,7 +194,7 @@ struct ProviderInstanceTests {
         }
 
         #expect(
-            failure as? PersistenceError == .providerInstanceNotFound(ProviderInstanceID(rawValue: "nope"))
+            failure as? ZenAgent.PersistenceError == .providerInstanceNotFound(ProviderInstanceID(rawValue: "nope"))
         )
     }
 
