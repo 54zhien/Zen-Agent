@@ -214,31 +214,19 @@ jobs:
           set -euo pipefail
           . "${GITHUB_WORKSPACE}/.github/scripts/guard-selftest-harness.sh"
 
-          # First, that the rule is not superstition. XcodeGen turns a target's
-          # `deploymentTarget` into IPHONEOS_DEPLOYMENT_TARGET in the generated
-          # project, where it outranks the xcconfig the guard calls the only
-          # source — so a *different* value has to win over
-          # Config/Common.xcconfig's 26.0. If a future XcodeGen stops mapping the
-          # key, this fails instead of the rule below quietly rejecting a key
-          # that no longer means anything.
-          tree=$(fresh_tree deployment-target-key-is-live)
-          cd "$tree"
-          strip_cr project.yml
-          awk '{ print } $0 == "    type: application" { print "    deploymentTarget: \"25.0\"" }' \
-            project.yml > project.yml.new
-          mv project.yml.new project.yml
-          assert_contains "the probe input to have changed" project.yml '^    deploymentTarget: "25\.0"$'
-          generate_project "$tree"
-
-          run_guard "old guard (main, before the managed-settings guard)" "$tree" "$old_guard" "${RUNNER_TEMP}/probe-4-live.log"
-          assert_exit "old guard" zero "$guard_status"
-          assert_log "old guard" "${RUNNER_TEMP}/probe-4-live.log" '^[[:space:]]*IPHONEOS_DEPLOYMENT_TARGET = 25\.0[[:space:]]*$'
-
-          # Now the violation the guard has to reject: the same key carrying the
-          # same value Config/Common.xcconfig already declares. Nothing in
-          # project.yml names IPHONEOS_DEPLOYMENT_TARGET, and the resolved value
-          # does not change, so a guard that only matches setting names stays
-          # green while project.yml becomes a second source.
+          # The violation: project.yml carries a managed setting through the one
+          # XcodeGen key that establishes it without naming it, at the value
+          # Config/Common.xcconfig already declares. Nothing in project.yml names
+          # IPHONEOS_DEPLOYMENT_TARGET, and the resolved value does not change, so
+          # a guard that only matches setting names stays green while project.yml
+          # becomes a second source.
+          #
+          # The injected value is deliberately the *same* one. A different value
+          # would make this probe turn on which of the two sources wins in the
+          # generated project — a precedence question that is not the defect here,
+          # and one the probe cannot settle anyway, since it only ever reads the
+          # single resolved value. Pinning both sides to 26.0 keeps the evidence
+          # about the second source and nothing else.
           tree=$(fresh_tree deployment-target-key)
           cd "$tree"
           strip_cr project.yml
@@ -250,10 +238,20 @@ jobs:
 
           run_guard "old guard (main, before the managed-settings guard)" "$tree" "$old_guard" "${RUNNER_TEMP}/probe-4-old.log"
           assert_exit "old guard" zero "$guard_status"
+          # Exit code alone is not evidence here: the old guard's `|| true` makes
+          # it 0 even if xcodebuild never ran. This pins what it actually read —
+          # 26.0, the same value Config/Common.xcconfig declares — so "the old
+          # guard saw nothing wrong" is a fact about a guard that ran and looked,
+          # not about a step that quietly did nothing.
           assert_log "old guard" "${RUNNER_TEMP}/probe-4-old.log" '^[[:space:]]*IPHONEOS_DEPLOYMENT_TARGET = 26\.0[[:space:]]*$'
 
           run_guard "managed-build-settings-guard.sh" "$tree" "$new_guard" "${RUNNER_TEMP}/probe-4-new.log"
           assert_exit "new guard" nonzero "$guard_status"
+          # The reason, not just the code. The guard has to fail because it saw
+          # project.yml establishing the setting through `deploymentTarget`, and
+          # the second assertion names that key specifically — an unrelated error
+          # also exits non-zero, and would not produce this line.
+          assert_log "new guard" "${RUNNER_TEMP}/probe-4-new.log" 'project\.yml must not declare a managed build setting'
           assert_log "new guard" "${RUNNER_TEMP}/probe-4-new.log" 'project\.yml:[0-9]+: deploymentTarget \(XcodeGen writes this into IPHONEOS_DEPLOYMENT_TARGET\)'
 
       - name: Probe 5 — each configuration must be resolved on its own
