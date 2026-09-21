@@ -26,7 +26,7 @@ configFiles:
 packages:
   GRDB:
     url: https://github.com/groue/GRDB.swift
-    from: "7.11.1"
+    exactVersion: "7.11.1"
 
 # Build-setting policy (deployment targets, Swift language mode, concurrency
 # checking) lives in Config/*.xcconfig, not here — for the same precedence reason
@@ -36,9 +36,6 @@ packages:
 targets:
 
   # ---------------------------------------------------------------- app target
-  # Stage 0 keeps this empty on purpose. No Provider, no AgentRuntime, no
-  # ToolRuntime, no Conversation UI.
-  # See Zen-Agent-Blueprint → Design/Zen Agent 开发规划.md (Stage 0).
   ZenAgent:
     type: application
     platform: iOS

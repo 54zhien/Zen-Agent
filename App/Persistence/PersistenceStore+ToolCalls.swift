@@ -4,7 +4,7 @@ import GRDB
 /// Tool call persistence — the minimum needed to prove the crash-window invariant.
 ///
 /// **Not a Tool Runtime.** There is no registry, no policy, no approval flow and no
-/// executor here, and none of them belong in Stage 0. What is here is the storage
+/// executor here. What is here is the storage
 /// side of one question: after a crash, can recovery tell a call that provably never
 /// left the process from one that might have reached the outside world?
 ///

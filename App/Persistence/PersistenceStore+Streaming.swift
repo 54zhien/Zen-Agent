@@ -4,7 +4,7 @@ import GRDB
 /// Persistence for a streaming assistant message.
 ///
 /// **Not a transport.** There is no SSE parsing, no provider, no coalescing timer and
-/// no UI here, and none of them belong in Stage 0. What is here is the storage side of
+/// no UI here. What is here is the storage side of
 /// one question: when a stream is interrupted, how much of it is on disk, and is the
 /// terminal flush actually durable?
 ///
