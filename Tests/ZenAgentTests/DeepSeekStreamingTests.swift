@@ -75,19 +75,21 @@ struct DeepSeekStreamingTests {
     }
 
     private func drain(
-        _ stream: AsyncThrowingStream<DeepSeekStreamChunk, Error>
-    ) async throws -> [DeepSeekStreamChunk] {
-        var chunks: [DeepSeekStreamChunk] = []
-        for try await chunk in stream { chunks.append(chunk) }
-        return chunks
+        _ stream: AsyncThrowingStream<ProviderStreamEvent, Error>
+    ) async throws -> [ProviderStreamEvent] {
+        var events: [ProviderStreamEvent] = []
+        for try await event in stream { events.append(event) }
+        return events
     }
 
-    private func text(of chunk: DeepSeekStreamChunk) -> String? {
-        chunk.choices?.first?.delta?.content
+    private func text(of event: ProviderStreamEvent) -> String? {
+        guard case .textDelta(let value) = event else { return nil }
+        return value
     }
 
-    private func reasoning(of chunk: DeepSeekStreamChunk) -> String? {
-        chunk.choices?.first?.delta?.reasoning_content
+    private func reasoning(of event: ProviderStreamEvent) -> String? {
+        guard case .reasoningDelta(let value) = event else { return nil }
+        return value
     }
 
     // MARK: - What goes out
@@ -139,9 +141,9 @@ struct DeepSeekStreamingTests {
             #"{"id":"c1","choices":[{"index":0,"delta":{"content":"lo"}}]}"#,
         ]))
 
-        let chunks = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+        let events = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
 
-        #expect(chunks.map { text(of: $0) } == ["", "Hel", "lo"])
+        #expect(events.map { text(of: $0) } == ["Hel", "lo"])
     }
 
     @Test("reasoning arrives as deltas alongside the answer")
@@ -153,12 +155,37 @@ struct DeepSeekStreamingTests {
             #"{"id":"c1","choices":[{"index":0,"delta":{"content":"answer"}}]}"#,
         ]))
 
-        let chunks = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+        let events = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
 
         // Not a separate phase: reasoning deltas and content deltas come through the
         // same channel, and nothing here may assume the reasoning all arrives first.
-        #expect(chunks.map { reasoning(of: $0) } == ["because ", "of this", nil])
-        #expect(chunks.map { text(of: $0) } == [nil, nil, "answer"])
+        #expect(events.map { reasoning(of: $0) } == ["because ", "of this", nil])
+        #expect(events.map { text(of: $0) } == [nil, nil, "answer"])
+    }
+
+    @Test("normalization preserves reasoning, text, finish, and usage order")
+    func normalizationPreservesEventOrder() throws {
+        let chunk = try DeepSeekProvider.decodeStreamChunk(
+            #"{"id":"c1","choices":[{"index":0,"delta":{"reasoning_content":"think","content":"answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}"#
+        )
+
+        #expect(
+            DeepSeekProvider.normalizedEvents(from: chunk) == [
+                .reasoningDelta("think"),
+                .textDelta("answer"),
+                .finish(.stop),
+                .usage(ProviderTokenUsage(promptTokens: 2, completionTokens: 3, totalTokens: 5)),
+            ]
+        )
+    }
+
+    @Test("normalization preserves an unknown finish reason")
+    func normalizationPreservesUnknownFinishReason() throws {
+        let chunk = try DeepSeekProvider.decodeStreamChunk(
+            #"{"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"future_reason"}]}"#
+        )
+
+        #expect(DeepSeekProvider.normalizedEvents(from: chunk) == [.finish(.unknown("future_reason"))])
     }
 
     @Test("the final chunk carries a finish reason and its usage")
@@ -169,12 +196,13 @@ struct DeepSeekStreamingTests {
             #"{"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":3,"total_tokens":12}}"#,
         ]))
 
-        let chunks = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+        let events = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
 
-        #expect(chunks.count == 2, "a chunk with no content is still a chunk")
-        #expect(chunks.last?.choices?.first?.finish_reason == "stop")
-        #expect(chunks.last?.usage?.total_tokens == 12)
-        #expect(chunks.last?.id == "c1")
+        #expect(events == [
+            .textDelta("done"),
+            .finish(.stop),
+            .usage(ProviderTokenUsage(promptTokens: 9, completionTokens: 3, totalTokens: 12)),
+        ])
     }
 
     @Test("a chunk with no content at all is not malformed")
@@ -188,11 +216,13 @@ struct DeepSeekStreamingTests {
             #"{"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#,
         ]))
 
-        let chunks = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+        let events = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
 
-        #expect(chunks.count == 2)
-        #expect(chunks.last?.choices?.first?.delta?.content == nil)
-        #expect(chunks.last?.choices?.first?.finish_reason == "stop")
+        #expect(events == [
+            .textDelta("x"),
+            .finish(.stop),
+            .usage(ProviderTokenUsage(promptTokens: 1, completionTokens: 1, totalTokens: 2)),
+        ])
     }
 
     @Test("the terminator ends the stream normally")
@@ -202,8 +232,8 @@ struct DeepSeekStreamingTests {
 
         // Reaching here without throwing is the assertion: `[DONE]` is a clean end, and
         // it must not be decoded as a chunk.
-        let chunks = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
-        #expect(chunks.count == 1)
+        let events = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+        #expect(events == [.textDelta("x")])
     }
 
     // MARK: - How it can stop
