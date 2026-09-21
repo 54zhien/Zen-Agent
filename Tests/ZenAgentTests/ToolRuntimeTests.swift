@@ -177,7 +177,7 @@ final class ToolRuntimeTests: XCTestCase {
         XCTAssertEqual(settled.state, ToolCallState.rejected)
         XCTAssertEqual(
             try store.toolResult(toolCallID: waiting.id)?.payload,
-            rejection.content
+            "Tool execution was rejected by the user."
         )
         let dispatchCount = await observation.dispatchCount()
         XCTAssertEqual(dispatchCount, 0)
