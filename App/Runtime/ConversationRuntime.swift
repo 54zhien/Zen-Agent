@@ -204,7 +204,14 @@ actor ConversationRuntime {
         let stream = await agent.advance(
             runID: runID,
             request: request,
-            snapshot: snapshot
+            snapshot: snapshot,
+            // The projection owns the durability acknowledgement. Keep this
+            // runtime alive until the active execution has either applied or
+            // rejected every event; a vanished weak observer cannot acknowledge
+            // durable content.
+            project: { event in
+                try await self.applyAndPublish(event)
+            }
         )
         let task: Task<Void, Never> = Task { [weak self] in
             await self?.consume(runID: runID, stream: stream)
@@ -241,13 +248,19 @@ actor ConversationRuntime {
         stream: AsyncThrowingStream<AgentEvent, Error>
     ) async {
         do {
-            for try await event in stream {
-                try apply(event)
-                await publish(event)
-            }
+            // AgentRuntime awaits the projection callback before it advances its
+            // lifecycle. This loop only drains the public event stream so the
+            // caller-facing stream remains live; applying here would reintroduce
+            // the terminal-state race that the acknowledgement boundary closes.
+            for try await _ in stream { }
         } catch {
             await failCommittedRun(runID: runID)
         }
+    }
+
+    private func applyAndPublish(_ event: AgentEvent) async throws {
+        try apply(event)
+        await publish(event)
     }
 
     private func apply(_ event: AgentEvent) throws {

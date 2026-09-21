@@ -3,9 +3,32 @@ import Testing
 
 @testable import ZenAgent
 
+enum I05CredentialMutation: Sendable {
+    case none
+    case logout
+    case rebind
+}
+
 struct I05FailingProvider: ModelProvider {
     let failure: ProviderError
     let instanceID: ProviderInstanceID
+    let partialText: String?
+    let credentialMutation: I05CredentialMutation
+    let seedFailure: Bool
+
+    init(
+        failure: ProviderError,
+        instanceID: ProviderInstanceID,
+        partialText: String? = nil,
+        credentialMutation: I05CredentialMutation = .none,
+        seedFailure: Bool = false
+    ) {
+        self.failure = failure
+        self.instanceID = instanceID
+        self.partialText = partialText
+        self.credentialMutation = credentialMutation
+        self.seedFailure = seedFailure
+    }
 
     var id: ProviderID { .deepSeek }
     var adapterRevision: String { "i05-failing-provider.v1" }
@@ -29,6 +52,9 @@ struct I05FailingProvider: ModelProvider {
         modelID: ModelID,
         credentialBinding: CredentialBindingSnapshot
     ) throws -> RequestConfigSeed {
+        if seedFailure {
+            throw ProviderError.invalidRequest("seed construction failed")
+        }
         guard descriptor(for: modelID, in: instance) != nil else {
             throw ProviderError.invalidRequest("unknown model")
         }
@@ -46,7 +72,25 @@ struct I05FailingProvider: ModelProvider {
         credentials: any CredentialStoring
     ) async throws -> AsyncThrowingStream<ProviderStreamEvent, Error> {
         let failure = failure
+        let partialText = partialText
+        if let credentialStore = credentials as? CredentialStore {
+            switch credentialMutation {
+            case .none:
+                break
+            case .logout:
+                try credentialStore.logout(I05RuntimeTestFixtures.credentialReference)
+            case .rebind:
+                try credentialStore.rebind(
+                    SecretValue("i05-moved-secret"),
+                    as: I05RuntimeTestFixtures.credentialReference,
+                    principalFingerprint: "i05-moved-account"
+                )
+            }
+        }
         return AsyncThrowingStream { continuation in
+            if let partialText {
+                continuation.yield(.textDelta(partialText))
+            }
             continuation.finish(throwing: failure)
         }
     }
@@ -57,12 +101,16 @@ struct AgentRuntimeFailureTests {
 
     private func run(
         with failure: ProviderError,
-        expected reason: EndReason
+        expected reason: EndReason,
+        partialText: String? = nil,
+        credentialMutation: I05CredentialMutation = .none
     ) async throws {
         let fixture = try I05RuntimeTestFixtures.makeFixture()
         let provider = I05FailingProvider(
             failure: failure,
-            instanceID: fixture.instance.id
+            instanceID: fixture.instance.id,
+            partialText: partialText,
+            credentialMutation: credentialMutation
         )
         let runtime = ConversationRuntime(
             store: fixture.store,
@@ -75,6 +123,17 @@ struct AgentRuntimeFailureTests {
         #expect(record?.state == .failed)
         #expect(record?.endReason == reason)
         #expect(record?.activeSlot == nil)
+
+        if let partialText {
+            guard let responseID = record?.responseMessageID else {
+                #expect(false, "partial provider output must bind an assistant response")
+                return
+            }
+            let parts = try fixture.store.parts(ofMessage: responseID)
+            #expect(parts.count == 1)
+            #expect(parts[0].state == .failed)
+            #expect(try fixture.store.text(ofPart: parts[0].id) == partialText)
+        }
     }
 
     @Test("stream inactivity timeout maps to its durable run reason")
@@ -124,6 +183,48 @@ struct AgentRuntimeFailureTests {
         try await run(
             with: .transportFailure("connection lost"),
             expected: .providerFailed
+        )
+    }
+
+    @Test("an authentication-required failure suspends after flushing partial output")
+    func authenticationRequiredSuspendsWithPartialOutput() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let provider = I05FailingProvider(
+            failure: .credentialRejected,
+            instanceID: fixture.instance.id,
+            partialText: "before auth",
+            credentialMutation: .logout
+        )
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials
+        )
+
+        let runID = try await runtime.send(I05RuntimeTestFixtures.command())
+        let record = try fixture.store.run(id: runID)
+        #expect(record?.state == .suspended)
+        #expect(record?.suspendReason == .authRequired)
+        #expect(record?.endReason == nil)
+        #expect(record?.activeSlot == I05RuntimeTestFixtures.conversationID)
+
+        guard let responseID = record?.responseMessageID else {
+            #expect(false, "suspended partial output must bind an assistant response")
+            return
+        }
+        let parts = try fixture.store.parts(ofMessage: responseID)
+        #expect(parts.count == 1)
+        #expect(parts[0].state == .failed)
+        #expect(try fixture.store.text(ofPart: parts[0].id) == "before auth")
+    }
+
+    @Test("a moved credential binding fails after flushing partial output")
+    func movedCredentialBindingFailsWithPartialOutput() async throws {
+        try await run(
+            with: .credentialRejected,
+            expected: .credentialExpired,
+            partialText: "before rebinding",
+            credentialMutation: .rebind
         )
     }
 }

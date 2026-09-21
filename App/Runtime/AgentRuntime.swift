@@ -1,5 +1,7 @@
 import Foundation
 
+typealias AgentEventProjection = @Sendable (AgentEvent) async throws -> Void
+
 /// Errors that prevent an AgentRuntime stream from being started at all. Provider
 /// failures after a run exists are business outcomes and are written to the Run row
 /// instead of escaping as these errors.
@@ -23,6 +25,7 @@ actor AgentRuntime {
 
     private enum ControlError: Error {
         case stopRequested
+        case projectionFailed
     }
 
     private enum FailureDisposition {
@@ -40,6 +43,7 @@ actor AgentRuntime {
     private struct ActiveExecution {
         let task: Task<Void, Never>
         let continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
+        let project: AgentEventProjection
     }
 
     private let store: PersistenceStore
@@ -63,10 +67,13 @@ actor AgentRuntime {
     ///
     /// The step identity is created from durable rows inside `execute`, not from an
     /// in-memory counter, so a later recovery cannot reset the loop budget.
+    /// `project` is awaited before each event is released to the stream, making the
+    /// ConversationRuntime's durable apply the acknowledgement boundary for content.
     func advance(
         runID: String,
         request: ProviderChatRequest,
-        snapshot: RunExecutionSnapshot
+        snapshot: RunExecutionSnapshot,
+        project: @escaping AgentEventProjection = { _ in }
     ) -> AsyncThrowingStream<AgentEvent, Error> {
         let box = ContinuationBox()
         let stream = AsyncThrowingStream<AgentEvent, Error> { created in
@@ -86,17 +93,22 @@ actor AgentRuntime {
                 runID: runID,
                 request: request,
                 snapshot: snapshot,
-                continuation: continuation
+                continuation: continuation,
+                project: project
             )
         }
-        active[runID] = ActiveExecution(task: task, continuation: continuation)
+        active[runID] = ActiveExecution(
+            task: task,
+            continuation: continuation,
+            project: project
+        )
         return stream
     }
 
     /// Moves a live run into `stopping` before cancelling the provider task. The
     /// stopping row keeps the active slot occupied until the task records the terminal
     /// `.cancelled` transition.
-    func stop(runID: String) throws {
+    func stop(runID: String) async throws {
         guard let run = try store.run(id: runID) else {
             throw AgentRuntimeError.runNotFound(runID)
         }
@@ -113,9 +125,19 @@ actor AgentRuntime {
                 expectedState: run.state,
                 to: .stopping
             )
-            execution.continuation.yield(
-                .runStateChanged(runID: runID, state: .stopping)
-            )
+            do {
+                try await emit(
+                    .runStateChanged(runID: runID, state: .stopping),
+                    continuation: execution.continuation,
+                    project: execution.project
+                )
+            } catch {
+                // A projection failure must not leave the provider alive merely
+                // because the stopping notification could not be observed.
+                stopRequested.insert(runID)
+                execution.task.cancel()
+                throw error
+            }
         }
 
         stopRequested.insert(runID)
@@ -153,7 +175,8 @@ actor AgentRuntime {
         runID: String,
         request: ProviderChatRequest,
         snapshot: RunExecutionSnapshot,
-        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
+        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
+        project: @escaping AgentEventProjection
     ) async {
         let messageID = "assistant-\(runID)"
         let output = OutputState(
@@ -171,45 +194,68 @@ actor AgentRuntime {
                 throw ControlError.stopRequested
             }
 
-            if initialRun.state == .preparing {
-                try transition(
+            let entryState = initialRun.state
+            if entryState == .preparing {
+                try await transition(
                     runID: runID,
                     to: .requestingModel,
-                    continuation: continuation
+                    continuation: continuation,
+                    project: project
                 )
             }
 
             guard let requestingRun = try store.run(id: runID) else {
                 throw AgentRuntimeError.runNotFound(runID)
             }
-            guard requestingRun.state == .requestingModel else {
+            guard requestingRun.state == .requestingModel || requestingRun.state == .streaming else {
                 throw ControlError.stopRequested
             }
 
             let durableSteps = try store.steps(inRun: runID)
             guard durableSteps.count < snapshot.maxProviderSteps else {
-                try finishFailure(
+                try await finishFailure(
                     runID: runID,
                     output: &outputState,
                     error: ProviderRuntimeFailure.stepLimit,
-                    continuation: continuation
+                    continuation: continuation,
+                    project: project
                 )
                 finishStream(runID: runID, continuation: continuation)
                 return
             }
 
-            let sequence = (durableSteps.map(\.sequence).max() ?? -1) + 1
-            let attempt = (durableSteps
-                .filter { $0.sequence == sequence }
-                .map(\.attempt)
-                .max() ?? 0) + 1
-            let step = AgentStepRecord(
-                stepID: "step-\(runID)-\(sequence)",
-                runID: runID,
-                sequence: sequence,
-                attempt: attempt,
-                createdAt: Date()
-            )
+            let latestStep = durableSteps.max {
+                if $0.sequence == $1.sequence {
+                    return $0.attempt < $1.attempt
+                }
+                return $0.sequence < $1.sequence
+            }
+            let step: AgentStepRecord
+            if (entryState == .requestingModel || entryState == .streaming),
+               let currentStep = latestStep {
+                // Re-entry while the same provider step is active is a replay of
+                // that logical step. The durable step id and sequence stay stable;
+                // only the provider attempt generation moves forward.
+                step = AgentStepRecord(
+                    stepID: currentStep.stepID,
+                    runID: runID,
+                    sequence: currentStep.sequence,
+                    attempt: currentStep.attempt + 1,
+                    createdAt: Date()
+                )
+            } else {
+                // A preparing run is entering a new logical step. Its first
+                // provider request is attempt one, even when earlier logical steps
+                // already exist in the durable run.
+                let sequence = (durableSteps.map(\.sequence).max() ?? -1) + 1
+                step = AgentStepRecord(
+                    stepID: "step-\(runID)-\(sequence)",
+                    runID: runID,
+                    sequence: sequence,
+                    attempt: 1,
+                    createdAt: Date()
+                )
+            }
             try store.recordStep(step)
             let identity = step.attemptIdentity
 
@@ -243,25 +289,33 @@ actor AgentRuntime {
                     switch event {
                     case .textDelta(let delta):
                         guard !delta.isEmpty else { continue }
-                        try ensureStreaming(runID: runID, continuation: continuation)
+                        try await ensureStreaming(
+                            runID: runID,
+                            continuation: continuation,
+                            project: project
+                        )
                         if !outputState.started {
-                            continuation.yield(
+                            try await emit(
                                 .messagePartStarted(
                                     runID: runID,
                                     messageID: outputState.messageID,
                                     partID: outputState.partID,
                                     kind: .text
-                                )
+                                ),
+                                continuation: continuation,
+                                project: project
                             )
                             outputState.started = true
                         }
                         if let coalesced = outputState.accumulator.append(delta) {
-                            continuation.yield(
+                            try await emit(
                                 .messagePartDelta(
                                     runID: runID,
                                     partID: outputState.partID,
                                     delta: coalesced
-                                )
+                                ),
+                                continuation: continuation,
+                                project: project
                             )
                         }
 
@@ -269,45 +323,68 @@ actor AgentRuntime {
                         // Text-only I05 does not materialise a reasoning surface. It is
                         // still provider output, so it advances the Run into streaming
                         // and is covered by the same stale-event guard.
-                        try ensureStreaming(runID: runID, continuation: continuation)
+                        try await ensureStreaming(
+                            runID: runID,
+                            continuation: continuation,
+                            project: project
+                        )
 
                     case .toolCall(let toolCall):
-                        try ensureStreaming(runID: runID, continuation: continuation)
-                        flush(&outputState, runID: runID, continuation: continuation)
-                        try transition(
+                        try await ensureStreaming(
+                            runID: runID,
+                            continuation: continuation,
+                            project: project
+                        )
+                        try await flush(
+                            &outputState,
+                            runID: runID,
+                            continuation: continuation,
+                            project: project
+                        )
+                        try await transition(
                             runID: runID,
                             to: .toolRequested,
-                            continuation: continuation
+                            continuation: continuation,
+                            project: project
                         )
-                        continuation.yield(
+                        try await emit(
                             .toolCallChanged(
                                 runID: runID,
                                 toolCallID: toolCall.id,
                                 state: .validated
-                            )
+                            ),
+                            continuation: continuation,
+                            project: project
                         )
-                        try finishFailure(
+                        try await finishFailure(
                             runID: runID,
                             output: &outputState,
                             error: ProviderRuntimeFailure.toolsNotAvailable,
-                            continuation: continuation
+                            continuation: continuation,
+                            project: project
                         )
                         reachedTerminalFinish = true
 
                     case .finish(let reason):
-                        try ensureStreaming(runID: runID, continuation: continuation)
+                        try await ensureStreaming(
+                            runID: runID,
+                            continuation: continuation,
+                            project: project
+                        )
                         if reason == .toolCalls {
-                            try finishFailure(
+                            try await finishFailure(
                                 runID: runID,
                                 output: &outputState,
                                 error: ProviderRuntimeFailure.toolsNotAvailable,
-                                continuation: continuation
+                                continuation: continuation,
+                                project: project
                             )
                         } else {
-                            try finishSuccess(
+                            try await finishSuccess(
                                 runID: runID,
                                 output: &outputState,
-                                continuation: continuation
+                                continuation: continuation,
+                                project: project
                             )
                         }
                         reachedTerminalFinish = true
@@ -326,11 +403,15 @@ actor AgentRuntime {
                 if stopRequested.contains(runID) || Task.isCancelled {
                     throw ControlError.stopRequested
                 }
-                try finishFailure(
+                if error is ControlError {
+                    throw error
+                }
+                try await finishFailure(
                     runID: runID,
                     output: &outputState,
                     error: error,
-                    continuation: continuation
+                    continuation: continuation,
+                    project: project
                 )
                 reachedTerminalFinish = true
             }
@@ -351,38 +432,51 @@ actor AgentRuntime {
             }
 
             if !receivedAcceptedEvent {
-                try finishSuccess(
+                try await finishSuccess(
                     runID: runID,
                     output: &outputState,
-                    continuation: continuation
+                    continuation: continuation,
+                    project: project
                 )
             } else if !reachedTerminalFinish {
-                try finishSuccess(
+                try await finishSuccess(
                     runID: runID,
                     output: &outputState,
-                    continuation: continuation
+                    continuation: continuation,
+                    project: project
                 )
             }
         } catch ControlError.stopRequested {
-            try? finishCancellation(
+            try? await finishCancellation(
                 runID: runID,
                 output: &outputState,
-                continuation: continuation
+                continuation: continuation,
+                project: project
             )
+        } catch ControlError.projectionFailed {
+            finishProjectionFailure(runID: runID)
         } catch {
             if stopRequested.contains(runID) || Task.isCancelled {
-                try? finishCancellation(
+                try? await finishCancellation(
                     runID: runID,
                     output: &outputState,
-                    continuation: continuation
+                    continuation: continuation,
+                    project: project
                 )
             } else {
-                try? finishFailure(
-                    runID: runID,
-                    output: &outputState,
-                    error: error,
-                    continuation: continuation
-                )
+                do {
+                    try await finishFailure(
+                        runID: runID,
+                        output: &outputState,
+                        error: error,
+                        continuation: continuation,
+                        project: project
+                    )
+                } catch ControlError.projectionFailed {
+                    finishProjectionFailure(runID: runID)
+                } catch {
+                    finishProjectionFailure(runID: runID)
+                }
             }
         }
 
@@ -402,17 +496,19 @@ actor AgentRuntime {
 
     private func ensureStreaming(
         runID: String,
-        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
-    ) throws {
+        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
+        project: @escaping AgentEventProjection
+    ) async throws {
         guard let state = try store.run(id: runID)?.state else {
             throw AgentRuntimeError.runNotFound(runID)
         }
         switch state {
         case .requestingModel:
-            try transition(
+            try await transition(
                 runID: runID,
                 to: .streaming,
-                continuation: continuation
+                continuation: continuation,
+                project: project
             )
         case .streaming:
             return
@@ -427,8 +523,9 @@ actor AgentRuntime {
         endReason: EndReason? = nil,
         recoveryAction: RecoveryAction? = nil,
         suspendReason: SuspendReason? = nil,
-        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
-    ) throws {
+        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
+        project: @escaping AgentEventProjection
+    ) async throws {
         guard let current = try store.run(id: runID) else {
             throw AgentRuntimeError.runNotFound(runID)
         }
@@ -441,39 +538,54 @@ actor AgentRuntime {
             recoveryAction: recoveryAction,
             suspendReason: suspendReason
         )
-        continuation.yield(.runStateChanged(runID: runID, state: nextState))
+        try await emit(
+            .runStateChanged(runID: runID, state: nextState),
+            continuation: continuation,
+            project: project
+        )
     }
 
     private func flush(
         _ output: inout OutputState,
         runID: String,
-        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
-    ) {
+        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
+        project: @escaping AgentEventProjection
+    ) async throws {
         guard output.started,
               let delta = output.accumulator.flush()
         else { return }
-        continuation.yield(
+        try await emit(
             .messagePartDelta(
                 runID: runID,
                 partID: output.partID,
                 delta: delta
-            )
+            ),
+            continuation: continuation,
+            project: project
         )
     }
 
     private func finishSuccess(
         runID: String,
         output: inout OutputState,
-        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
-    ) throws {
-        flush(&output, runID: runID, continuation: continuation)
+        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
+        project: @escaping AgentEventProjection
+    ) async throws {
+        try await flush(
+            &output,
+            runID: runID,
+            continuation: continuation,
+            project: project
+        )
         if output.started {
-            continuation.yield(
+            try await emit(
                 .messagePartCompleted(
                     runID: runID,
                     partID: output.partID,
                     state: .completed
-                )
+                ),
+                continuation: continuation,
+                project: project
             )
         }
 
@@ -481,72 +593,88 @@ actor AgentRuntime {
             throw AgentRuntimeError.runNotFound(runID)
         }
         if current.state == .requestingModel {
-            try transition(
+            try await transition(
                 runID: runID,
                 to: .streaming,
-                continuation: continuation
+                continuation: continuation,
+                project: project
             )
         }
         guard try store.run(id: runID)?.state == .streaming else {
             throw ControlError.stopRequested
         }
-        try transition(
+        try await transition(
             runID: runID,
             to: .completed,
             endReason: .completed,
-            continuation: continuation
+            continuation: continuation,
+            project: project
         )
-        continuation.yield(
+        try await emit(
             .runEnded(
                 runID: runID,
                 state: .completed,
                 endReason: .completed
-            )
+            ),
+            continuation: continuation,
+            project: project
         )
     }
 
     private func finishCancellation(
         runID: String,
         output: inout OutputState,
-        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
-    ) throws {
+        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
+        project: @escaping AgentEventProjection
+    ) async throws {
         guard let current = try store.run(id: runID), current.state.isActive else { return }
 
         if current.state != .stopping {
             guard RunStateMachine.canTransition(from: current.state, to: .stopping) else {
                 return
             }
-            try transition(
+            try await transition(
                 runID: runID,
                 to: .stopping,
-                continuation: continuation
+                continuation: continuation,
+                project: project
             )
         }
 
-        flush(&output, runID: runID, continuation: continuation)
+        try await flush(
+            &output,
+            runID: runID,
+            continuation: continuation,
+            project: project
+        )
         if output.started {
-            continuation.yield(
+            try await emit(
                 .messagePartCompleted(
                     runID: runID,
                     partID: output.partID,
                     state: .cancelled
-                )
+                ),
+                continuation: continuation,
+                project: project
             )
         }
 
         guard try store.run(id: runID)?.state == .stopping else { return }
-        try transition(
+        try await transition(
             runID: runID,
             to: .cancelled,
             endReason: .cancelledByUser,
-            continuation: continuation
+            continuation: continuation,
+            project: project
         )
-        continuation.yield(
+        try await emit(
             .runEnded(
                 runID: runID,
                 state: .cancelled,
                 endReason: .cancelledByUser
-            )
+            ),
+            continuation: continuation,
+            project: project
         )
     }
 
@@ -554,18 +682,26 @@ actor AgentRuntime {
         runID: String,
         output: inout OutputState,
         error: Error,
-        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
-    ) throws {
+        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
+        project: @escaping AgentEventProjection
+    ) async throws {
         guard let current = try store.run(id: runID), current.state.isActive else { return }
 
-        flush(&output, runID: runID, continuation: continuation)
+        try await flush(
+            &output,
+            runID: runID,
+            continuation: continuation,
+            project: project
+        )
         if output.started {
-            continuation.yield(
+            try await emit(
                 .messagePartCompleted(
                     runID: runID,
                     partID: output.partID,
                     state: .failed
-                )
+                ),
+                continuation: continuation,
+                project: project
             )
         }
 
@@ -574,27 +710,71 @@ actor AgentRuntime {
             guard RunStateMachine.canTransition(from: current.state, to: .failed) else {
                 return
             }
-            try transition(
+            try await transition(
                 runID: runID,
                 to: .failed,
                 endReason: reason,
-                continuation: continuation
+                continuation: continuation,
+                project: project
             )
-            continuation.yield(
-                .runEnded(runID: runID, state: .failed, endReason: reason)
+            try await emit(
+                .runEnded(runID: runID, state: .failed, endReason: reason),
+                continuation: continuation,
+                project: project
             )
 
         case .suspended(let reason):
             guard RunStateMachine.canTransition(from: current.state, to: .suspended) else {
                 return
             }
-            try transition(
+            try await transition(
                 runID: runID,
                 to: .suspended,
                 recoveryAction: .reprepare,
                 suspendReason: reason,
-                continuation: continuation
+                continuation: continuation,
+                project: project
             )
+        }
+    }
+
+    private func emit(
+        _ event: AgentEvent,
+        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
+        project: @escaping AgentEventProjection
+    ) async throws {
+        do {
+            try await project(event)
+        } catch {
+            throw ControlError.projectionFailed
+        }
+        continuation.yield(event)
+    }
+
+    /// Projection is an acknowledgement boundary, not a best-effort observer. Once
+    /// it rejects an event, stop consuming provider output and commit the failed
+    /// outcome directly; emitting another event would only depend on the broken
+    /// projection again.
+    private func finishProjectionFailure(runID: String) {
+        // Cancellation is also the provider-stream termination signal. The task may
+        // be handling this error itself, but cancelling it here makes the stop
+        // observable to a provider that keeps its stream continuation alive.
+        active[runID]?.task.cancel()
+        do {
+            guard let current = try store.run(id: runID),
+                  current.state.isActive,
+                  RunStateMachine.canTransition(from: current.state, to: .failed)
+            else { return }
+
+            try store.transitionRun(
+                id: runID,
+                expectedState: current.state,
+                to: .failed,
+                endReason: .providerFailed
+            )
+        } catch {
+            // The provider task still exits and releases its active slot even if a
+            // concurrent lifecycle owner won the compare-and-set transition.
         }
     }
 

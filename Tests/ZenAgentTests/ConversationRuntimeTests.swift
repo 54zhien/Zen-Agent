@@ -12,20 +12,27 @@ enum I05RuntimeTestFixtures {
     static let modelID = ModelID(rawValue: "fake-model")
     static let credentialReference = CredentialReference(id: "credential-i05")
 
-    static func makeFixture() throws -> (
+    static func makeFixture(
+        credentialReference: CredentialReference? = nil,
+        attachCredential: Bool = true,
+        provisionCredential: Bool = true
+    ) throws -> (
         store: PersistenceStore,
         credentials: CredentialStore,
         instance: ProviderInstance
     ) {
+        let reference = credentialReference ?? Self.credentialReference
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
         let credentials = CredentialStore(
             secrets: InMemorySecretBackend(),
             metadataRepository: InMemoryCredentialMetadataRepository()
         )
-        try credentials.provision(
-            SecretValue("i05-test-secret"),
-            as: credentialReference
-        )
+        if provisionCredential {
+            try credentials.provision(
+                SecretValue("i05-test-secret"),
+                as: reference
+            )
+        }
 
         let instance = ProviderInstance(
             id: instanceID,
@@ -33,7 +40,7 @@ enum I05RuntimeTestFixtures {
             displayName: "I05 provider",
             baseURL: URL(string: "https://fake.invalid"),
             configRevision: .initial,
-            credentialReference: credentialReference
+            credentialReference: attachCredential ? reference : nil
         )
         try store.createProviderInstance(instance)
         try store.database.write { db in
@@ -117,6 +124,53 @@ actor I05EventRecorder {
 @Suite("Conversation runtime")
 struct ConversationRuntimeTests {
 
+    private func expectNoCommittedTurn(
+        in fixture: (
+            store: PersistenceStore,
+            credentials: CredentialStore,
+            instance: ProviderInstance
+        )
+    ) throws {
+        #expect(
+            try fixture.store.messages(inConversation: I05RuntimeTestFixtures.conversationID).isEmpty,
+            "pre-commit failure must not leave a user message"
+        )
+        #expect(
+            try fixture.store.activeParentRuns(inConversation: I05RuntimeTestFixtures.conversationID).isEmpty,
+            "pre-commit failure must not leave an active Parent Run"
+        )
+    }
+
+    @Test("a missing conversation fails before the send commit")
+    func missingConversationLeavesNoHalfState() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let provider = FakeProvider(
+            id: .deepSeek,
+            instanceID: fixture.instance.id,
+            modelNames: [I05RuntimeTestFixtures.modelID.rawValue]
+        )
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials
+        )
+        let command = SendCommand(
+            conversationID: "missing-conversation",
+            text: "question",
+            providerInstanceID: fixture.instance.id,
+            modelID: I05RuntimeTestFixtures.modelID,
+            maxProviderSteps: 4
+        )
+
+        do {
+            _ = try await runtime.send(command)
+            #expect(false, "a missing conversation must be rejected")
+        } catch {
+            // Expected preparation failure.
+        }
+        try expectNoCommittedTurn(in: fixture)
+    }
+
     @Test("send commits the user turn, freezes the snapshot, and completes text output")
     func sendRunsTheTextOnlyVerticalSlice() async throws {
         let fixture = try I05RuntimeTestFixtures.makeFixture()
@@ -191,13 +245,220 @@ struct ConversationRuntimeTests {
         }
 
         #expect(failure != nil)
-        #expect(
-            try fixture.store.messages(inConversation: I05RuntimeTestFixtures.conversationID).isEmpty,
-            "steps 1-7 must not leave a user message behind"
+        try expectNoCommittedTurn(in: fixture)
+    }
+
+    @Test("a non-streaming model fails before the send commit")
+    func nonStreamingModelLeavesNoHalfState() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let provider = FakeProvider(
+            id: .deepSeek,
+            instanceID: fixture.instance.id,
+            modelNames: [I05RuntimeTestFixtures.modelID.rawValue],
+            capabilities: [.text]
         )
-        #expect(
-            try fixture.store.activeParentRuns(inConversation: I05RuntimeTestFixtures.conversationID).isEmpty,
-            "steps 1-7 must not leave a parent run behind"
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials
         )
+
+        do {
+            _ = try await runtime.send(I05RuntimeTestFixtures.command())
+            #expect(false, "a non-streaming model must be rejected")
+        } catch {
+            // Expected preparation failure.
+        }
+        try expectNoCommittedTurn(in: fixture)
+    }
+
+    @Test("invalid max steps fails before the send commit")
+    func invalidMaxStepsLeavesNoHalfState() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let provider = FakeProvider(
+            id: .deepSeek,
+            instanceID: fixture.instance.id,
+            modelNames: [I05RuntimeTestFixtures.modelID.rawValue]
+        )
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials
+        )
+
+        do {
+            _ = try await runtime.send(I05RuntimeTestFixtures.command(maxProviderSteps: 0))
+            #expect(false, "zero maxProviderSteps must be rejected")
+        } catch {
+            // Expected preparation failure.
+        }
+        try expectNoCommittedTurn(in: fixture)
+    }
+
+    @Test("a missing provider instance fails before the send commit")
+    func missingProviderInstanceLeavesNoHalfState() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let provider = FakeProvider(
+            id: .deepSeek,
+            instanceID: fixture.instance.id,
+            modelNames: [I05RuntimeTestFixtures.modelID.rawValue]
+        )
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials
+        )
+        let command = SendCommand(
+            conversationID: I05RuntimeTestFixtures.conversationID,
+            text: "question",
+            providerInstanceID: ProviderInstanceID(rawValue: "missing-provider-instance"),
+            modelID: I05RuntimeTestFixtures.modelID,
+            maxProviderSteps: 4
+        )
+
+        do {
+            _ = try await runtime.send(command)
+            #expect(false, "a missing provider instance must be rejected")
+        } catch {
+            // Expected preparation failure.
+        }
+        try expectNoCommittedTurn(in: fixture)
+    }
+
+    @Test("a missing credential reference fails before the send commit")
+    func missingCredentialReferenceLeavesNoHalfState() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture(attachCredential: false)
+        let provider = FakeProvider(
+            id: .deepSeek,
+            instanceID: fixture.instance.id,
+            modelNames: [I05RuntimeTestFixtures.modelID.rawValue],
+            capabilities: [.text, .streaming]
+        )
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials
+        )
+
+        do {
+            _ = try await runtime.send(I05RuntimeTestFixtures.command())
+            #expect(false, "an unattached credential must be rejected")
+        } catch {
+            // Expected preparation failure.
+        }
+        try expectNoCommittedTurn(in: fixture)
+    }
+
+    @Test("missing credential metadata fails before the send commit")
+    func missingCredentialMetadataLeavesNoHalfState() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture(provisionCredential: false)
+        let provider = FakeProvider(
+            id: .deepSeek,
+            instanceID: fixture.instance.id,
+            modelNames: [I05RuntimeTestFixtures.modelID.rawValue],
+            capabilities: [.text, .streaming]
+        )
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials
+        )
+
+        do {
+            _ = try await runtime.send(I05RuntimeTestFixtures.command())
+            #expect(false, "missing credential metadata must be rejected")
+        } catch {
+            // Expected preparation failure.
+        }
+        try expectNoCommittedTurn(in: fixture)
+    }
+
+    @Test("unavailable credential metadata fails before the send commit")
+    func unavailableCredentialLeavesNoHalfState() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        try fixture.credentials.logout(I05RuntimeTestFixtures.credentialReference)
+        let provider = FakeProvider(
+            id: .deepSeek,
+            instanceID: fixture.instance.id,
+            modelNames: [I05RuntimeTestFixtures.modelID.rawValue],
+            capabilities: [.text, .streaming]
+        )
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials
+        )
+
+        do {
+            _ = try await runtime.send(I05RuntimeTestFixtures.command())
+            #expect(false, "an unavailable credential must be rejected")
+        } catch {
+            // Expected preparation failure.
+        }
+        try expectNoCommittedTurn(in: fixture)
+    }
+
+    @Test("request seed construction failure leaves no half state")
+    func requestSeedFailureLeavesNoHalfState() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let provider = I05FailingProvider(
+            failure: .transportFailure("stream must not start"),
+            instanceID: fixture.instance.id,
+            seedFailure: true
+        )
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials
+        )
+
+        do {
+            _ = try await runtime.send(I05RuntimeTestFixtures.command())
+            #expect(false, "request seed construction must be able to fail pre-commit")
+        } catch {
+            // Expected preparation failure.
+        }
+        try expectNoCommittedTurn(in: fixture)
+    }
+
+    @Test("a post-commit snapshot failure preserves the user turn and records a failed run")
+    func snapshotFailureAfterCommitPreservesBusinessObject() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let store = fixture.store
+        let provider = FakeProvider(
+            id: .deepSeek,
+            instanceID: fixture.instance.id,
+            modelNames: [I05RuntimeTestFixtures.modelID.rawValue],
+            capabilities: [.text, .streaming],
+            scriptedEvents: [.finish(.stop)]
+        )
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials,
+            onEvent: { event in
+                guard case .runAccepted(let runID, _) = event else { return }
+                try? store.database.write { db in
+                    try db.execute(
+                        sql: "UPDATE agentRun SET executionSnapshot = ? WHERE id = ?",
+                        arguments: ["already-complete", runID]
+                    )
+                }
+            }
+        )
+
+        let runID = try await runtime.send(I05RuntimeTestFixtures.command())
+        let messages = try fixture.store.messages(
+            inConversation: I05RuntimeTestFixtures.conversationID
+        )
+        #expect(messages.count == 1)
+        #expect(messages.first?.role == .user)
+        #expect(try fixture.store.activeParentRuns(
+            inConversation: I05RuntimeTestFixtures.conversationID
+        ).isEmpty)
+        let run = try fixture.store.run(id: runID)
+        #expect(run?.state == .failed)
+        #expect(run?.endReason == .providerFailed)
+        #expect(run?.activeSlot == nil)
     }
 }
