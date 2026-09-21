@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 
 @testable import ZenAgent
@@ -49,6 +50,95 @@ struct ProviderInstanceTests {
     func unknownInstanceIsNil() throws {
         let store = try makeStore()
         #expect(try store.providerInstance(id: ProviderInstanceID(rawValue: "nope")) == nil)
+    }
+
+    @Test("an unknown stored credential kind is rejected rather than rewritten as apiKey")
+    func corruptedCredentialKindIsRejected() throws {
+        let store = try makeStore()
+        try seedInstance(store)
+
+        try store.database.write { db in
+            try db.execute(
+                sql: "UPDATE providerInstance SET credentialKind = ? WHERE id = ?",
+                arguments: [
+                    "oauth-that-this-build-does-not-know",
+                    Self.instanceID.rawValue,
+                ]
+            )
+        }
+
+        var failure: Error?
+        do {
+            _ = try store.providerInstance(id: Self.instanceID)
+        } catch {
+            failure = error
+        }
+
+        #expect(
+            failure != nil,
+            "corrupted credential metadata must not silently become .apiKey"
+        )
+    }
+
+    @Test("half of a stored credential reference is rejected rather than completed by default")
+    func incompleteCredentialReferenceIsRejected() throws {
+        let store = try makeStore()
+        try seedInstance(store)
+
+        try store.database.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE providerInstance
+                    SET credentialKind = NULL
+                    WHERE id = ?
+                    """,
+                arguments: [Self.instanceID.rawValue]
+            )
+        }
+
+        var failure: Error?
+        do {
+            _ = try store.providerInstance(id: Self.instanceID)
+        } catch {
+            failure = error
+        }
+
+        #expect(
+            failure != nil,
+            "credentialID without credentialKind must not be rewritten as apiKey"
+        )
+    }
+
+    @Test("a stored provider base URL must remain an absolute URL")
+    func corruptedBaseURLIsRejected() throws {
+        let store = try makeStore()
+        try seedInstance(store)
+
+        try store.database.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE providerInstance
+                    SET baseURL = ?
+                    WHERE id = ?
+                    """,
+                arguments: [
+                    "not-an-absolute-url",
+                    Self.instanceID.rawValue,
+                ]
+            )
+        }
+
+        var failure: Error?
+        do {
+            _ = try store.providerInstance(id: Self.instanceID)
+        } catch {
+            failure = error
+        }
+
+        #expect(
+            failure != nil,
+            "damaged stored configuration must not be returned as usable"
+        )
     }
 
     // MARK: - Config revision
