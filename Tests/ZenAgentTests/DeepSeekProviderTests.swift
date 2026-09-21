@@ -10,6 +10,152 @@ import Testing
 @Suite("DeepSeek provider")
 struct DeepSeekProviderTests {
 
+    private final class RebindingCredentialStoreProxy:
+        CredentialStoring,
+        @unchecked Sendable
+    {
+        private let base: CredentialStore
+        private let reference: CredentialReference
+        private let generation: Int
+        private let replacementSecret: SecretValue
+        private let replacementPrincipalFingerprint: String
+
+        private let stateLock = NSLock()
+        private var hasRebound = false
+
+        init(
+            base: CredentialStore,
+            reference: CredentialReference,
+            generation: Int,
+            replacementSecret: SecretValue,
+            replacementPrincipalFingerprint: String
+        ) {
+            self.base = base
+            self.reference = reference
+            self.generation = generation
+            self.replacementSecret = replacementSecret
+            self.replacementPrincipalFingerprint =
+                replacementPrincipalFingerprint
+        }
+
+        func provision(
+            _ secret: SecretValue,
+            as reference: CredentialReference,
+            principalFingerprint: String?,
+            at now: Date
+        ) throws {
+            try base.provision(
+                secret,
+                as: reference,
+                principalFingerprint: principalFingerprint,
+                at: now
+            )
+        }
+
+        func refresh(
+            _ secret: SecretValue,
+            for reference: CredentialReference,
+            at now: Date
+        ) throws {
+            try base.refresh(
+                secret,
+                for: reference,
+                at: now
+            )
+        }
+
+        func rebind(
+            _ secret: SecretValue,
+            as reference: CredentialReference,
+            principalFingerprint: String,
+            at now: Date
+        ) throws {
+            try base.rebind(
+                secret,
+                as: reference,
+                principalFingerprint: principalFingerprint,
+                at: now
+            )
+        }
+
+        func logout(
+            _ reference: CredentialReference,
+            at now: Date
+        ) throws {
+            try base.logout(
+                reference,
+                at: now
+            )
+        }
+
+        func resolve(
+            _ reference: CredentialReference
+        ) throws -> SecretValue? {
+            try base.resolve(reference)
+        }
+
+        func resolve(
+            frozenReference: CredentialReference,
+            generation: Int
+        ) throws -> SecretValue? {
+            try base.resolve(
+                frozenReference: frozenReference,
+                generation: generation
+            )
+        }
+
+        func metadata(
+            for reference: CredentialReference
+        ) throws -> CredentialMetadata? {
+            try base.metadata(for: reference)
+        }
+
+        func matchesBinding(
+            _ reference: CredentialReference,
+            generation: Int
+        ) throws -> Bool {
+            let matched = try base.matchesBinding(
+                reference,
+                generation: generation
+            )
+
+            guard
+                matched,
+                reference == self.reference,
+                generation == self.generation
+            else {
+                return matched
+            }
+
+            var shouldRebind = false
+
+            stateLock.lock()
+
+            if !hasRebound {
+                hasRebound = true
+                shouldRebind = true
+            }
+
+            stateLock.unlock()
+
+            if shouldRebind {
+                try base.rebind(
+                    replacementSecret,
+                    as: self.reference,
+                    principalFingerprint:
+                        replacementPrincipalFingerprint
+                )
+            }
+
+            // Deliberately return the result obtained before the rebind.
+            //
+            // This forces the exact dispatch window under test:
+            // validation has observed the frozen binding as valid, then the binding
+            // moves before the frozen resolve begins.
+            return matched
+        }
+    }
+
     // MARK: - Fixture
 
     struct Fixture {
@@ -415,30 +561,33 @@ struct DeepSeekProviderTests {
         #expect(f.transport.requestCount == 0)
     }
 
-    @Test("a rebind landing between validation and resolution is refused, and nothing is sent")
+    @Test(
+        "a rebind landing between validation and resolution is refused, and nothing is sent"
+    )
     func rebindInterleavingIsRefused() async throws {
-        // The window: validation has passed against generation 1, and the *next*
-        // metadata read — the one that resolves the secret — finds a rebind
-        // committed in between. The adapter must refuse the run, not carry the
-        // new account's secret out.
         let f = try makeFixture()
+
         f.transport.enqueue(status: 200, json: Self.successJSON)
 
-        var reads = 0
-        f.metadata.onLoadMetadata = {
-            reads += 1
-            guard reads == 2 else { return }
-            // The second read is `resolve`'s: validation is done, the secret is
-            // not yet fetched. Committing the rebind here is exactly the moment
-            // a two-step read can be handed the new generation's secret.
-            try? f.credentials.rebind(
-                SecretValue("sk-other-account"), as: f.reference, principalFingerprint: "acct-b"
-            )
-        }
+        let credentials = RebindingCredentialStoreProxy(
+            base: f.credentials,
+            reference: f.reference,
+            generation: 1,
+            replacementSecret:
+                SecretValue("sk-other-account"),
+            replacementPrincipalFingerprint:
+                "acct-b"
+        )
 
         var failure: ProviderError?
+
         do {
-            _ = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+            _ = try await f.provider.complete(
+                request(),
+                seed: f.seed,
+                instance: f.instance,
+                credentials: credentials
+            )
         } catch let error as ProviderError {
             failure = error
         }
@@ -446,16 +595,31 @@ struct DeepSeekProviderTests {
         guard case .configurationMismatch = failure else {
             Issue.record(
                 """
-                expected .configurationMismatch, got \(String(describing: failure)). A \
-                rebind between validation and resolution must not let the request go out \
-                under the new account's secret — the run was frozen against the old one.
+                expected .configurationMismatch, got \(String(describing: failure)). \
+                Validation observed the frozen generation as matching, then the binding \
+                moved before frozen resolution. The request must be refused rather than \
+                sent under the new account.
                 """
             )
             return
         }
+
         #expect(
             f.transport.requestCount == 0,
-            "a run whose binding moved mid-dispatch must not reach the network at all"
+            """
+            a run whose binding moved after validation but before frozen resolution \
+            must not reach the network at all
+            """
+        )
+
+        #expect(
+            try f.credentials
+                .metadata(for: f.reference)?
+                .bindingGeneration == 2,
+            """
+            the fixture must actually have performed the rebind between validation \
+            and frozen resolution
+            """
         )
     }
 

@@ -128,7 +128,18 @@ struct CredentialStoreTests {
         // metadata write on demand. The rule being pinned lives in `CredentialStore`,
         // above both seams — that is the whole point of the two-backend split.
         let metadata = InMemoryCredentialMetadataRepository()
-        let store = CredentialStore(secrets: InMemorySecretBackend(), metadataRepository: metadata)
+        let secrets = InMemorySecretBackend()
+
+        let store = CredentialStore(
+            secrets: secrets,
+            metadataRepository: metadata
+        )
+
+        let secondStore = CredentialStore(
+            secrets: secrets,
+            metadataRepository: metadata
+        )
+
         try store.provision(secret("sk-first"), as: Self.reference)
 
         metadata.failNextSave = true
@@ -152,6 +163,30 @@ struct CredentialStoreTests {
         #expect(
             try store.metadata(for: Self.reference)?.bindingGeneration == 1,
             "the metadata must not have moved past the failed write"
+        )
+
+        try secondStore.rebind(
+            secret("sk-recovered"),
+            as: Self.reference,
+            principalFingerprint: "acct-c"
+        )
+
+        #expect(
+            try secondStore
+                .metadata(for: Self.reference)?
+                .bindingGeneration == 2
+        )
+
+        #expect(
+            try secondStore
+                .metadata(for: Self.reference)?
+                .principalFingerprint == "acct-c"
+        )
+
+        #expect(
+            try secondStore
+                .resolve(Self.reference)?
+                .revealed == "sk-recovered"
         )
     }
 
