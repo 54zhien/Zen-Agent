@@ -11,21 +11,21 @@ struct RunStateMachine: Sendable {
     static func allowedTransitions(from state: RunState) -> [RunState] {
         switch state {
         case .preparing:
-            return [.requestingModel, .stopping, .suspended, .failed]
+            return [.requestingModel, .stopping, .suspended, .recovering, .failed]
         case .requestingModel:
-            return [.streaming, .toolRequested, .stopping, .suspended, .failed]
+            return [.streaming, .toolRequested, .stopping, .suspended, .recovering, .failed]
         case .streaming:
-            return [.toolRequested, .completed, .stopping, .suspended, .failed]
+            return [.toolRequested, .completed, .stopping, .suspended, .recovering, .failed]
         case .toolRequested:
-            return [.waitingForApproval, .executingTools, .stopping, .failed]
+            return [.waitingForApproval, .executingTools, .stopping, .recovering, .failed]
         case .waitingForApproval:
-            return [.executingTools, .continuing, .stopping, .suspended, .failed]
+            return [.executingTools, .continuing, .stopping, .suspended, .recovering, .failed]
         case .executingTools:
-            return [.waitingForApproval, .continuing, .stopping, .suspended, .failed]
+            return [.waitingForApproval, .continuing, .stopping, .suspended, .recovering, .failed]
         case .continuing:
-            return [.requestingModel, .stopping, .suspended, .failed]
+            return [.requestingModel, .stopping, .suspended, .recovering, .failed]
         case .stopping:
-            return [.cancelled, .failed]
+            return [.cancelled, .recovering, .failed]
         case .suspended:
             return [.recovering, .stopping, .failed]
         case .recovering:
