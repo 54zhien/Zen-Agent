@@ -26,6 +26,10 @@ enum PersistenceError: Error, Equatable {
     /// something that was never written, or has already been erased.
     case partNotFound(String)
 
+    case fileAssetNotFound(String)
+    case fileAssetVersionNotFound(String)
+    case fileAssetVersionMismatch(assetID: String, versionID: String)
+
     /// The named Provider instance does not exist.
     case providerInstanceNotFound(ProviderInstanceID)
 
@@ -128,7 +132,7 @@ enum RequestConfigSeedReadFailure: Equatable {
 
 /// Everything one send commit writes, as a single unit.
 ///
-/// Grouped into one type rather than passed as loose arguments because these five
+/// Grouped into one type rather than passed as loose arguments because these six
 /// things are not independently meaningful: a message whose run is missing is a
 /// conversation nothing can resume, and a run whose seed is missing cannot be
 /// replayed. Making them one value makes "forgot to write the seed" a compile error
@@ -137,6 +141,7 @@ struct SendCommit: Sendable {
     var conversation: ConversationRecord
     var message: MessageRecord
     var parts: [MessagePartRecord]
+    var attachments: [MessageAttachmentRecord] = []
     var run: AgentRunRecord
 }
 
@@ -228,6 +233,12 @@ struct PersistenceStore: Sendable {
                 for part in commit.parts {
                     try part.insert(db)
                 }
+
+                for attachment in commit.attachments {
+                    try Self.validateAttachment(attachment, in: db)
+                    try attachment.insert(db)
+                }
+
                 try run.insert(db)
             }
         } catch let error as DatabaseError where error.resultCode == .SQLITE_CONSTRAINT {

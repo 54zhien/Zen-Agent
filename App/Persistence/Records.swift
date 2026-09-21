@@ -227,6 +227,46 @@ struct MessagePartRecord: Codable, FetchableRecord, PersistableRecord, Sendable,
     var payload: String
 }
 
+enum FileAssetOrigin: String, Codable, Sendable {
+    case imported
+    case conversation
+    case generated
+}
+
+struct FileAssetRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Identifiable {
+    static let databaseTableName = "fileAsset"
+
+    var id: String
+    var displayName: String
+    var currentVersionID: String
+    var origin: FileAssetOrigin
+    var createdAt: Date
+    var updatedAt: Date
+}
+
+struct FileAssetVersionRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Identifiable {
+    static let databaseTableName = "fileAssetVersion"
+
+    var id: String
+    var assetID: String
+    /// Scheme-qualified immutable content identity, for example `sha256:<hex>`.
+    var contentFingerprint: String
+    var byteCount: Int64
+    /// MIME/UTType-equivalent metadata when reliably known. `nil` means unknown.
+    var mediaType: String?
+    var createdAt: Date
+}
+
+struct MessageAttachmentRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Identifiable {
+    static let databaseTableName = "messageAttachment"
+
+    var id: String
+    var messageID: String
+    var assetID: String
+    var versionID: String
+    var sequence: Int
+}
+
 struct AgentRunRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Identifiable {
     static let databaseTableName = "agentRun"
 

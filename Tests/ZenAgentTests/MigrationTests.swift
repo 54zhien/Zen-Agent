@@ -55,6 +55,16 @@ struct MigrationTests {
         return migrator
     }
 
+    private func v5Migrator() -> DatabaseMigrator {
+        var migrator = DatabaseMigrator()
+        Migrations.registerV1(&migrator)
+        Migrations.registerV2(&migrator)
+        Migrations.registerV3(&migrator)
+        Migrations.registerV4(&migrator)
+        Migrations.registerV5(&migrator)
+        return migrator
+    }
+
     private func seedV1(at url: URL) throws {
         let store = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: v1Migrator()))
         try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
@@ -64,6 +74,34 @@ struct MigrationTests {
         try store.database.read { db in
             try db.tableExists("agentStep")
         }
+    }
+
+    @Test("V5 → V6 adds file asset identity tables and preserves messages")
+    func migrationAddsFileAssetIdentityTables() throws {
+        let url = try Fixtures.scratchPath(name: "file-asset-migration.sqlite")
+        defer { Fixtures.cleanUp(url) }
+
+        let before = PersistenceStore(
+            database: try ZenDatabase.open(at: url.path(), migrator: v5Migrator())
+        )
+        try before.commitUserTurnAndCreateParentRun(
+            Fixtures.send(messageID: "m1", runID: "r1")
+        )
+        #expect(
+            try before.database.read { db in try db.tableExists("fileAsset") } == false,
+            "the V5 schema must not already carry the V6 table"
+        )
+
+        let after = PersistenceStore(
+            database: try ZenDatabase.open(at: url.path(), migrator: currentMigrator())
+        )
+        #expect(try after.database.read { db in try db.tableExists("fileAsset") })
+        #expect(try after.database.read { db in try db.tableExists("fileAssetVersion") })
+        #expect(try after.database.read { db in try db.tableExists("messageAttachment") })
+        #expect(
+            try after.messages(inConversation: "c1").contains { $0.id == "m1" },
+            "an existing Message must survive the V5 to V6 migration"
+        )
     }
 
     // MARK: D1

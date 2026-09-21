@@ -21,6 +21,7 @@ enum Migrations {
         registerV3(&migrator)
         registerV4(&migrator)
         registerV5(&migrator)
+        registerV6(&migrator)
         return migrator
     }
 
@@ -138,6 +139,57 @@ enum Migrations {
             try db.alter(table: "providerInstance") { t in
                 t.add(column: "editRevision", .integer).notNull().defaults(to: 0)
             }
+        }
+    }
+
+    static func registerV6(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v6_add_file_asset_identity") { db in
+            try db.create(table: "fileAsset") { t in
+                t.primaryKey("id", .text)
+                t.column("displayName", .text).notNull()
+                t.column("currentVersionID", .text).notNull()
+                t.column("origin", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+
+            try db.create(table: "fileAssetVersion") { t in
+                t.primaryKey("id", .text)
+                t.column("assetID", .text)
+                    .notNull()
+                    .references("fileAsset", onDelete: .cascade)
+                t.column("contentFingerprint", .text).notNull()
+                t.column("byteCount", .integer).notNull()
+                t.column("mediaType", .text)
+                t.column("createdAt", .datetime).notNull()
+            }
+
+            try db.create(
+                index: "fileAssetVersion_by_asset",
+                on: "fileAssetVersion",
+                columns: ["assetID", "createdAt"]
+            )
+
+            try db.create(table: "messageAttachment") { t in
+                t.primaryKey("id", .text)
+                t.column("messageID", .text)
+                    .notNull()
+                    .references("message", onDelete: .cascade)
+                t.column("assetID", .text)
+                    .notNull()
+                    .references("fileAsset", onDelete: .restrict)
+                t.column("versionID", .text)
+                    .notNull()
+                    .references("fileAssetVersion", onDelete: .restrict)
+                t.column("sequence", .integer).notNull()
+            }
+
+            try db.create(
+                index: "messageAttachment_by_message",
+                on: "messageAttachment",
+                columns: ["messageID", "sequence"],
+                unique: true
+            )
         }
     }
 
