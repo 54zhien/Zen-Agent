@@ -2,6 +2,8 @@ import Foundation
 import GRDB
 import XCTest
 
+@testable import ZenAgent
+
 final class ToolRuntimeTests: XCTestCase {
     func testFinishDispatchedToolCallCannotOverwriteRecoveredIndeterminate() throws {
         let database = try makeMigratedDatabase()
