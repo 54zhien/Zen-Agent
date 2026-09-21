@@ -14,7 +14,11 @@ final class ToolRuntimeTests: XCTestCase {
             id: "call-cas",
             agentRunID: "run-cas",
             action: "side_effect",
-            state: .dispatched,
+            // Recovery has already concluded this call is indeterminate. That
+            // transition belongs to the recovery path (finishToolCall refuses a
+            // non-terminal target state), so the row is seeded in it directly,
+            // the same way IndeterminateTombstoneTests seeds its rows.
+            state: ToolCallState.indeterminate,
             executionIntent: "{}",
             attempt: 1,
             providerCallID: "provider-cas",
@@ -24,7 +28,6 @@ final class ToolRuntimeTests: XCTestCase {
             updatedAt: now
         )
         try store.createToolCall(call)
-        try store.finishToolCall(id: call.id, state: ToolCallState.indeterminate, at: now)
 
         XCTAssertThrowsError(
             try store.finishDispatchedToolCall(
