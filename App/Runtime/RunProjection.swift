@@ -28,8 +28,8 @@ extension RunProjection {
             self.init(runID: runID, state: .preparing)
         case .runStateChanged(let runID, let state):
             self.init(runID: runID, state: state)
-        case .approvalRequired(let runID, _):
-            self.init(runID: runID, state: .waitingForApproval)
+        case .approvalRequired:
+            return nil
         case .runEnded(let runID, let state, _):
             self.init(runID: runID, state: state)
         case .messagePartStarted,
@@ -54,7 +54,7 @@ extension RunProjection {
             nextState = state
         case .approvalRequired(let runID, _):
             eventRunID = runID
-            nextState = .waitingForApproval
+            nextState = nil
         case .runEnded(let runID, let state, _):
             eventRunID = runID
             nextState = state
