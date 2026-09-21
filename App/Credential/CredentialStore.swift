@@ -117,6 +117,44 @@ protocol CredentialStoring: Sendable {
     func matchesBinding(_ reference: CredentialReference, generation: Int) throws -> Bool
 }
 
+/// Serializes every multi-backend credential operation for one reference across all
+/// `CredentialStore` values in this process.
+///
+/// The store is a value type, so an instance-owned lock would protect only one copy.
+/// Keeping the owner here makes two stores that share the same backends — and every
+/// other store in this process — enter the same critical section for the same reference.
+private final class CredentialOperationCoordinator: @unchecked Sendable {
+    static let shared = CredentialOperationCoordinator()
+
+    private let registryLock = NSLock()
+    private var locks: [CredentialReference: NSLock] = [:]
+
+    private init() {}
+
+    func withCriticalSection<Value>(
+        for reference: CredentialReference,
+        _ operation: () throws -> Value
+    ) rethrows -> Value {
+        let operationLock = lock(for: reference)
+        operationLock.lock()
+        defer { operationLock.unlock() }
+        return try operation()
+    }
+
+    private func lock(for reference: CredentialReference) -> NSLock {
+        registryLock.lock()
+        defer { registryLock.unlock() }
+
+        if let existing = locks[reference] {
+            return existing
+        }
+
+        let created = NSLock()
+        locks[reference] = created
+        return created
+    }
+}
+
 /// The single implementation of the domain rules. Both backends go through it.
 ///
 /// Secrets are **versioned by generation**: the backend keys every stored secret by
@@ -126,6 +164,11 @@ protocol CredentialStoring: Sendable {
 /// intact (old secret) or deleted (safe failure), and the new bytes are nowhere the
 /// old generation looks. This is what makes the two-step rebind below safe: the
 /// metadata write can fail at any point without ever misdirecting a secret.
+///
+/// Every mutation and both resolve paths also enter one process-wide critical section
+/// keyed by `CredentialReference`. The owner is shared by every `CredentialStore` value:
+/// a second store over the same backends cannot interleave another operation between the
+/// metadata and secret steps for this reference.
 struct CredentialStore: CredentialStoring {
     let secrets: any SecretBackend
     let metadataRepository: any CredentialMetadataRepository
@@ -139,32 +182,56 @@ struct CredentialStore: CredentialStoring {
         principalFingerprint: String? = nil,
         at now: Date = Date()
     ) throws {
-        guard try metadataRepository.loadMetadata(for: reference) == nil else {
-            throw CredentialError.alreadyExists(reference)
+        try CredentialOperationCoordinator.shared.withCriticalSection(for: reference) {
+            guard try metadataRepository.loadMetadata(for: reference) == nil else {
+                throw CredentialError.alreadyExists(reference)
+            }
+
+            try secrets.store(
+                secret,
+                for: reference,
+                generation: 1
+            )
+
+            try metadataRepository.saveMetadata(
+                CredentialMetadata(
+                    reference: reference,
+                    bindingGeneration: 1,
+                    principalFingerprint: principalFingerprint,
+                    status: .active,
+                    updatedAt: now
+                )
+            )
         }
-        try secrets.store(secret, for: reference, generation: 1)
-        try metadataRepository.saveMetadata(CredentialMetadata(
-            reference: reference,
-            bindingGeneration: 1,
-            principalFingerprint: principalFingerprint,
-            status: .active,
-            updatedAt: now
-        ))
     }
 
     /// A new token for the same binding. **Generation unchanged.**
-    func refresh(_ secret: SecretValue, for reference: CredentialReference, at now: Date = Date()) throws {
-        guard let existing = try metadataRepository.loadMetadata(for: reference) else {
-            throw CredentialError.notFound(reference)
+    func refresh(
+        _ secret: SecretValue,
+        for reference: CredentialReference,
+        at now: Date = Date()
+    ) throws {
+        try CredentialOperationCoordinator.shared.withCriticalSection(for: reference) {
+            guard let existing = try metadataRepository.loadMetadata(for: reference) else {
+                throw CredentialError.notFound(reference)
+            }
+
+            try secrets.store(
+                secret,
+                for: reference,
+                generation: existing.bindingGeneration
+            )
+
+            try metadataRepository.saveMetadata(
+                CredentialMetadata(
+                    reference: reference,
+                    bindingGeneration: existing.bindingGeneration,
+                    principalFingerprint: existing.principalFingerprint,
+                    status: .active,
+                    updatedAt: now
+                )
+            )
         }
-        try secrets.store(secret, for: reference, generation: existing.bindingGeneration)
-        try metadataRepository.saveMetadata(CredentialMetadata(
-            reference: reference,
-            bindingGeneration: existing.bindingGeneration,
-            principalFingerprint: existing.principalFingerprint,
-            status: .active,
-            updatedAt: now
-        ))
     }
 
     /// A different account behind the same reference. **Generation +1.**
@@ -189,19 +256,34 @@ struct CredentialStore: CredentialStoring {
         principalFingerprint: String,
         at now: Date = Date()
     ) throws {
-        guard let existing = try metadataRepository.loadMetadata(for: reference) else {
-            throw CredentialError.notFound(reference)
+        try CredentialOperationCoordinator.shared.withCriticalSection(for: reference) {
+            guard let existing = try metadataRepository.loadMetadata(for: reference) else {
+                throw CredentialError.notFound(reference)
+            }
+
+            let nextGeneration = existing.bindingGeneration + 1
+
+            try secrets.store(
+                secret,
+                for: reference,
+                generation: nextGeneration
+            )
+
+            try metadataRepository.saveMetadata(
+                CredentialMetadata(
+                    reference: reference,
+                    bindingGeneration: nextGeneration,
+                    principalFingerprint: principalFingerprint,
+                    status: .active,
+                    updatedAt: now
+                )
+            )
+
+            try secrets.delete(
+                reference,
+                generation: existing.bindingGeneration
+            )
         }
-        let nextGeneration = existing.bindingGeneration + 1
-        try secrets.store(secret, for: reference, generation: nextGeneration)
-        try metadataRepository.saveMetadata(CredentialMetadata(
-            reference: reference,
-            bindingGeneration: nextGeneration,
-            principalFingerprint: principalFingerprint,
-            status: .active,
-            updatedAt: now
-        ))
-        try secrets.delete(reference, generation: existing.bindingGeneration)
     }
 
     /// Forgets the secret. **Generation +1**, and the metadata stays.
@@ -209,18 +291,30 @@ struct CredentialStore: CredentialStoring {
     /// Kept rather than deleted so that "logged out" and "never provisioned" remain
     /// distinguishable, and so a run frozen against the old generation learns that the
     /// binding moved rather than that the record vanished.
-    func logout(_ reference: CredentialReference, at now: Date = Date()) throws {
-        guard let existing = try metadataRepository.loadMetadata(for: reference) else {
-            throw CredentialError.notFound(reference)
+    func logout(
+        _ reference: CredentialReference,
+        at now: Date = Date()
+    ) throws {
+        try CredentialOperationCoordinator.shared.withCriticalSection(for: reference) {
+            guard let existing = try metadataRepository.loadMetadata(for: reference) else {
+                throw CredentialError.notFound(reference)
+            }
+
+            try secrets.delete(
+                reference,
+                generation: existing.bindingGeneration
+            )
+
+            try metadataRepository.saveMetadata(
+                CredentialMetadata(
+                    reference: reference,
+                    bindingGeneration: existing.bindingGeneration + 1,
+                    principalFingerprint: nil,
+                    status: .authenticationRequired,
+                    updatedAt: now
+                )
+            )
         }
-        try secrets.delete(reference, generation: existing.bindingGeneration)
-        try metadataRepository.saveMetadata(CredentialMetadata(
-            reference: reference,
-            bindingGeneration: existing.bindingGeneration + 1,
-            principalFingerprint: nil,
-            status: .authenticationRequired,
-            updatedAt: now
-        ))
     }
 
     // MARK: - Resolution
@@ -231,15 +325,29 @@ struct CredentialStore: CredentialStoring {
     /// throws `unavailable` (temporarily locked) or `failed` (damaged storage) — the two
     /// are not interchangeable, and treating either as "missing" is the documented way
     /// to lose a valid token.
-    func resolve(_ reference: CredentialReference) throws -> SecretValue? {
-        guard let existing = try metadataRepository.loadMetadata(for: reference) else { return nil }
-        guard existing.status == .active else {
-            throw CredentialError.authenticationRequired(reference)
-        }
-        do {
-            return try secrets.load(reference, generation: existing.bindingGeneration)
-        } catch let error as SecretBackendError {
-            throw Self.credentialError(from: error, reference: reference)
+    func resolve(
+        _ reference: CredentialReference
+    ) throws -> SecretValue? {
+        try CredentialOperationCoordinator.shared.withCriticalSection(for: reference) {
+            guard let existing = try metadataRepository.loadMetadata(for: reference) else {
+                return nil
+            }
+
+            guard existing.status == .active else {
+                throw CredentialError.authenticationRequired(reference)
+            }
+
+            do {
+                return try secrets.load(
+                    reference,
+                    generation: existing.bindingGeneration
+                )
+            } catch let error as SecretBackendError {
+                throw Self.credentialError(
+                    from: error,
+                    reference: reference
+                )
+            }
         }
     }
 
@@ -253,27 +361,47 @@ struct CredentialStore: CredentialStoring {
     /// at worst delete the frozen key (a safe, visible failure); it can never
     /// substitute a different account's bytes, because the new bytes live under a
     /// key this function will not look at.
-    func resolve(frozenReference: CredentialReference, generation: Int) throws -> SecretValue? {
-        guard let existing = try metadataRepository.loadMetadata(for: frozenReference) else {
-            return nil
-        }
-        // Status before generation. A logged-out binding has moved generations
-        // too, and reporting it as moved instead of logged out would send the
-        // user looking for the wrong cause.
-        guard existing.status == .active else {
-            throw CredentialError.authenticationRequired(frozenReference)
-        }
-        guard existing.reference == frozenReference, existing.bindingGeneration == generation else {
-            throw CredentialError.bindingMoved(
-                frozenReference,
-                frozenGeneration: generation,
-                currentGeneration: existing.bindingGeneration
-            )
-        }
-        do {
-            return try secrets.load(frozenReference, generation: generation)
-        } catch let error as SecretBackendError {
-            throw Self.credentialError(from: error, reference: frozenReference)
+    func resolve(
+        frozenReference: CredentialReference,
+        generation: Int
+    ) throws -> SecretValue? {
+        try CredentialOperationCoordinator.shared.withCriticalSection(
+            for: frozenReference
+        ) {
+            guard let existing = try metadataRepository.loadMetadata(
+                for: frozenReference
+            ) else {
+                return nil
+            }
+
+            guard existing.status == .active else {
+                throw CredentialError.authenticationRequired(
+                    frozenReference
+                )
+            }
+
+            guard
+                existing.reference == frozenReference,
+                existing.bindingGeneration == generation
+            else {
+                throw CredentialError.bindingMoved(
+                    frozenReference,
+                    frozenGeneration: generation,
+                    currentGeneration: existing.bindingGeneration
+                )
+            }
+
+            do {
+                return try secrets.load(
+                    frozenReference,
+                    generation: generation
+                )
+            } catch let error as SecretBackendError {
+                throw Self.credentialError(
+                    from: error,
+                    reference: frozenReference
+                )
+            }
         }
     }
 
