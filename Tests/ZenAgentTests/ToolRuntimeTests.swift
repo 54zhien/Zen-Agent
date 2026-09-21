@@ -79,6 +79,47 @@ final class ToolRuntimeTests: XCTestCase {
         )
     }
 
+    func testExecutorFailurePersistsFailedCallAndDurableResult() async throws {
+        let database = try makeMigratedDatabase()
+        try insertRun(into: database, runID: "run-runtime-failure")
+        let store = try PersistenceStore(database: database)
+        let observation = I06SideEffectObservation()
+        let registry = try ToolRegistry(
+            tools: [I06SideEffectTool(observation: observation, failure: .sentinel)]
+        )
+        let runtime = ToolRuntime(store: store, registry: registry)
+
+        do {
+            _ = try await runtime.complete(
+                agentRunID: "run-runtime-failure",
+                providerCallID: "provider-runtime-failure",
+                toolID: "side_effect",
+                argumentsJSON: "{}",
+                batchID: "batch-runtime-failure",
+                batchSequence: 3
+            )
+            XCTFail("complete should rethrow the executor failure")
+        } catch {
+            XCTAssertEqual(error as? I06ExecutorFailure, .sentinel)
+        }
+
+        let calls = try store.toolCalls(inRun: "run-runtime-failure")
+        XCTAssertEqual(calls.count, 1)
+        let call = try XCTUnwrap(calls.first)
+        XCTAssertEqual(call.state, ToolCallState.failed)
+        XCTAssertEqual(call.providerCallID, "provider-runtime-failure")
+        XCTAssertEqual(call.batchID, "batch-runtime-failure")
+        XCTAssertEqual(call.batchSequence, 3)
+        let dispatchCount = await observation.dispatchCount()
+        XCTAssertEqual(dispatchCount, 1)
+        let idempotencyKeys = await observation.idempotencyKeys()
+        XCTAssertEqual(idempotencyKeys, [call.id])
+        XCTAssertEqual(
+            try store.toolResult(toolCallID: call.id)?.payload,
+            "Tool execution failed: sentinel"
+        )
+    }
+
     func testApprovalMovesTheSameCallToApprovedWithoutAutoExecution() async throws {
         let database = try makeMigratedDatabase()
         try insertRun(into: database, runID: "run-approval")
@@ -159,15 +200,22 @@ private actor I06SideEffectObservation {
     }
 }
 
+private enum I06ExecutorFailure: Error, Equatable, Sendable {
+    case sentinel
+}
+
 private struct I06SideEffectTool: ToolExecutable {
     let descriptor: ToolDescriptor
     private let observation: I06SideEffectObservation
+    private let failure: I06ExecutorFailure?
 
     init(
         observation: I06SideEffectObservation,
-        approval: ToolApprovalRequirement = .notRequired
+        approval: ToolApprovalRequirement = .notRequired,
+        failure: I06ExecutorFailure? = nil
     ) {
         self.observation = observation
+        self.failure = failure
         self.descriptor = ToolDescriptor(
             id: "side_effect",
             displayName: "Side Effect",
@@ -208,6 +256,9 @@ private struct I06SideEffectTool: ToolExecutable {
             throw ToolExecutionError.invalidIntent
         }
         await observation.record(idempotencyKey: idempotencyKey)
+        if let failure {
+            throw failure
+        }
         return ToolExecutionResult(content: "side effect complete")
     }
 }
