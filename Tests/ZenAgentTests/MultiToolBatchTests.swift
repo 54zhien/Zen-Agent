@@ -392,4 +392,101 @@ struct MultiToolBatchTests {
             "a cancelled Run must not coexist with a ToolCall that still needs settlement"
         )
     }
+
+    @Test("a notExecuted insert failure cannot produce a clean cancellation")
+    func notExecutedInsertFailureDoesNotFakeCancellation() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let ledger = I07ProviderLedger()
+        let toolLedger = I07ToolLedger()
+        let provider = I07ScriptedProvider(
+            ledger: ledger,
+            instanceID: fixture.instance.id,
+            scripts: [
+                [
+                    .toolCall(.init(
+                        id: "provider-call-failing-insert-0",
+                        index: 0,
+                        name: "echo",
+                        argumentsJSON: #"{"value":"first"}"#
+                    )),
+                    .toolCall(.init(
+                        id: "provider-call-failing-insert-1",
+                        index: 1,
+                        name: "echo",
+                        argumentsJSON: #"{"value":"second"}"#
+                    )),
+                    .finish(.toolCalls),
+                ],
+                [
+                    .textDelta("must not be requested"),
+                    .finish(.stop),
+                ],
+            ],
+            toolLedger: toolLedger,
+            store: fixture.store,
+            conversationID: I05RuntimeTestFixtures.conversationID
+        )
+        let toolRegistry = try ToolRegistry(tools: [
+            I07RecordingTool(
+                id: "echo",
+                approvalRequirement: .notRequired,
+                ledger: toolLedger,
+                executionMode: .waitForCancellation
+            ),
+        ])
+
+        // The second call has not reached ToolRuntime.complete when Stop wins the
+        // serial batch. Abort only the compensating INSERT, leaving no durable row
+        // for that provider call and exercising the report-with-no-flags path.
+        try fixture.store.database.write { db in
+            try db.execute(
+                sql: """
+                    CREATE TRIGGER i07_fail_not_executed_insert
+                    BEFORE INSERT ON toolCall
+                    WHEN NEW.state = 'notExecuted'
+                        AND NEW.providerCallID = 'provider-call-failing-insert-1'
+                    BEGIN
+                        SELECT RAISE(ABORT, 'I07 injected notExecuted insert failure');
+                    END
+                    """
+            )
+        }
+
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials,
+            toolRegistry: toolRegistry
+        )
+
+        let runID = try await runtime.start(I05RuntimeTestFixtures.command())
+        await toolLedger.waitForDispatchCount(1)
+        try await runtime.stop(runID: runID)
+        try await runtime.waitForCompletion(runID: runID)
+
+        let run = try fixture.store.run(id: runID)
+        let calls = try fixture.store.toolCalls(inRun: runID).sorted {
+            ($0.batchSequence ?? -1) < ($1.batchSequence ?? -1)
+        }
+        let requests = await ledger.requestsSnapshot()
+
+        #expect(run?.state == .failed)
+        #expect(run?.endReason == .toolFailed)
+        #expect(run?.state != .cancelled)
+        #expect(run?.endReason != .cancelledByUser)
+        #expect(requests.count == 1)
+        #expect(calls.count == 1)
+        guard let call = calls.first else {
+            #expect(false, "the already-dispatched call must remain inspectable")
+            return
+        }
+        #expect(call.providerCallID == "provider-call-failing-insert-0")
+        #expect(call.state == .indeterminate)
+        #expect(
+            try fixture.store.toolCalls(inRun: runID).first(where: {
+                $0.providerCallID == "provider-call-failing-insert-1"
+            }) == nil,
+            "the injected INSERT must leave the notExecuted row absent"
+        )
+    }
 }

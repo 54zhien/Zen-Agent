@@ -1,8 +1,14 @@
 import Foundation
 
-private enum ConversationProjectionError: Error, Equatable, Sendable {
+indirect enum ConversationProjectionError: Error, Equatable, Sendable {
     case malformedToolCallPart(String)
     case malformedToolResultPart(String)
+    case persistenceFailure(String)
+    case other(String)
+    case terminalizationFailed(
+        primary: ConversationProjectionError,
+        reason: String
+    )
 }
 
 /// The Parent Send boundary.
@@ -21,6 +27,7 @@ actor ConversationRuntime {
     private let onEvent: @Sendable (AgentEvent) async -> Void
 
     private var operations: [String: Task<Void, Never>] = [:]
+    private var completionErrors: [String: ConversationProjectionError] = [:]
 
     init(
         store: PersistenceStore,
@@ -251,9 +258,13 @@ actor ConversationRuntime {
 
     /// Waits for the AgentRuntime stream to reach its durable outcome. Provider errors
     /// are intentionally not thrown here: they are already represented by Run.state
-    /// and Run.endReason.
+    /// and Run.endReason. Projection diagnostics are different: the caller needs the
+    /// typed corruption category and part identity, so those are rethrown here.
     func waitForCompletion(runID: String) async throws {
         guard let task = operations[runID] else {
+            if let error = completionErrors.removeValue(forKey: runID) {
+                throw error
+            }
             if let run = try store.run(id: runID), run.state.isTerminal {
                 return
             }
@@ -261,6 +272,9 @@ actor ConversationRuntime {
         }
         await task.value
         operations.removeValue(forKey: runID)
+        if let error = completionErrors.removeValue(forKey: runID) {
+            throw error
+        }
     }
 
     /// Requests Stop through AgentRuntime. That owner first records `stopping`; the
@@ -292,13 +306,27 @@ actor ConversationRuntime {
             // caller-facing stream remains live; applying here would reintroduce
             // the terminal-state race that the acknowledgement boundary closes.
             for try await _ in stream { }
+        } catch let error as ConversationProjectionError {
+            completionErrors[runID] = error
+            await failCommittedRun(runID: runID)
         } catch {
             await failCommittedRun(runID: runID)
         }
     }
 
     private func applyAndPublish(_ event: AgentEvent) async throws {
-        try apply(event)
+        do {
+            try apply(event)
+        } catch let error as ConversationProjectionError {
+            completionErrors[runID(from: event)] = error
+            throw error
+        } catch {
+            let diagnostic = ConversationProjectionError.persistenceFailure(
+                String(describing: error)
+            )
+            completionErrors[runID(from: event)] = diagnostic
+            throw diagnostic
+        }
         await publish(event)
     }
 
@@ -476,11 +504,21 @@ actor ConversationRuntime {
     }
 
     private func failCommittedRun(runID: String) async {
-        let failureEvents = (try? await agentRuntime.fail(
-            runID: runID,
-            endReason: .providerFailed
-        )) ?? []
-        await publishFailureEvents(failureEvents)
+        do {
+            let failureEvents = try await agentRuntime.fail(
+                runID: runID,
+                endReason: .providerFailed
+            )
+            await publishFailureEvents(failureEvents)
+        } catch let error {
+            let primary = completionErrors[runID] ?? .other(
+                "the AgentRuntime stream failed before it could record a projection diagnostic"
+            )
+            completionErrors[runID] = .terminalizationFailed(
+                primary: primary,
+                reason: String(describing: error)
+            )
+        }
     }
 
     private func publishFailureEvents(_ events: [AgentEvent]) async {

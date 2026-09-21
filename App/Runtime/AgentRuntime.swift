@@ -26,7 +26,7 @@ actor AgentRuntime {
 
     private enum ControlError: Error {
         case stopRequested
-        case projectionFailed
+        case projectionFailed(ConversationProjectionError)
     }
 
     private enum FailureDisposition {
@@ -83,10 +83,6 @@ actor AgentRuntime {
 
         var hasDispatchBoundaryFailure: Bool {
             failures.contains(where: \.crossedDispatchBoundary)
-        }
-
-        var hasDurableNonterminalFailure: Bool {
-            failures.contains(where: \.leftDurableCallNonterminal)
         }
     }
 
@@ -192,8 +188,11 @@ actor AgentRuntime {
                 // because the stopping notification could not be observed.
                 stopRequested.insert(runID)
                 execution.task.cancel()
-                finishProjectionFailure(runID: runID)
-                throw error
+                let diagnostic = projectionDiagnostic(for: error)
+                throw finishProjectionFailure(
+                    runID: runID,
+                    diagnostic: diagnostic
+                )
             }
         }
 
@@ -563,11 +562,22 @@ actor AgentRuntime {
                     continuation: continuation,
                     project: project
                 )
-            } catch {
-                finishProjectionFailure(runID: runID)
+            } catch ControlError.projectionFailed(let diagnostic) {
+                completionError = projectionCompletionError(
+                    runID: runID,
+                    diagnostic: diagnostic
+                )
+            } catch let error {
+                completionError = projectionCompletionError(
+                    runID: runID,
+                    diagnostic: projectionDiagnostic(for: error)
+                )
             }
-        } catch ControlError.projectionFailed {
-            finishProjectionFailure(runID: runID)
+        } catch ControlError.projectionFailed(let diagnostic) {
+            completionError = projectionCompletionError(
+                runID: runID,
+                diagnostic: diagnostic
+            )
         } catch {
             if stopRequested.contains(runID) || Task.isCancelled {
                 do {
@@ -578,8 +588,16 @@ actor AgentRuntime {
                         continuation: continuation,
                         project: project
                     )
-                } catch {
-                    finishProjectionFailure(runID: runID)
+                } catch ControlError.projectionFailed(let diagnostic) {
+                    completionError = projectionCompletionError(
+                        runID: runID,
+                        diagnostic: diagnostic
+                    )
+                } catch let error {
+                    completionError = projectionCompletionError(
+                        runID: runID,
+                        diagnostic: projectionDiagnostic(for: error)
+                    )
                 }
             } else {
                 do {
@@ -590,10 +608,16 @@ actor AgentRuntime {
                         continuation: continuation,
                         project: project
                     )
-                } catch ControlError.projectionFailed {
-                    finishProjectionFailure(runID: runID)
-                } catch {
-                    finishProjectionFailure(runID: runID)
+                } catch ControlError.projectionFailed(let diagnostic) {
+                    completionError = projectionCompletionError(
+                        runID: runID,
+                        diagnostic: diagnostic
+                    )
+                } catch let error {
+                    completionError = projectionCompletionError(
+                        runID: runID,
+                        diagnostic: projectionDiagnostic(for: error)
+                    )
                 }
             }
         }
@@ -631,7 +655,7 @@ actor AgentRuntime {
                 continuation: continuation,
                 project: project
             )
-        } else if report.hasDurableNonterminalFailure {
+        } else if !report.failures.isEmpty {
             try await finishFailure(
                 runID: runID,
                 output: &output,
@@ -1238,8 +1262,12 @@ actor AgentRuntime {
     ) async throws {
         do {
             try await project(event)
+        } catch let error as ConversationProjectionError {
+            throw ControlError.projectionFailed(error)
         } catch {
-            throw ControlError.projectionFailed
+            throw ControlError.projectionFailed(
+                .other(String(describing: error))
+            )
         }
         continuation.yield(event)
     }
@@ -1248,27 +1276,100 @@ actor AgentRuntime {
     /// it rejects an event, stop consuming provider output and commit the failed
     /// outcome directly; emitting another event would only depend on the broken
     /// projection again.
-    private func finishProjectionFailure(runID: String) {
+    private func finishProjectionFailure(
+        runID: String,
+        diagnostic: ConversationProjectionError
+    ) -> ConversationProjectionError {
         // Cancellation is also the provider-stream termination signal. The task may
         // be handling this error itself, but cancelling it here makes the stop
         // observable to a provider that keeps its stream continuation alive.
         active[runID]?.task.cancel()
-        do {
-            guard let current = try store.run(id: runID),
-                  current.state.isActive,
-                  RunStateMachine.canTransition(from: current.state, to: .failed)
-            else { return }
 
-            try store.transitionRun(
-                id: runID,
-                expectedState: current.state,
-                to: .failed,
-                endReason: .providerFailed
+        do {
+            guard let current = try store.run(id: runID) else {
+                return .terminalizationFailed(
+                    primary: diagnostic,
+                    reason: "run \(runID) was not found while recording projection failure"
+                )
+            }
+            guard current.state.isActive else {
+                // A different lifecycle owner has already completed the run. There
+                // is no terminalization failure for this owner to report.
+                return diagnostic
+            }
+            guard RunStateMachine.canTransition(from: current.state, to: .failed) else {
+                return .terminalizationFailed(
+                    primary: diagnostic,
+                    reason: "run \(runID) cannot transition from \(current.state.rawValue) to failed"
+                )
+            }
+
+            do {
+                try store.transitionRun(
+                    id: runID,
+                    expectedState: current.state,
+                    to: .failed,
+                    endReason: .providerFailed
+                )
+            } catch let transitionError {
+                do {
+                    guard let latest = try store.run(id: runID) else {
+                        return .terminalizationFailed(
+                            primary: diagnostic,
+                            reason: "\(transitionError); run \(runID) disappeared while verifying the CAS result"
+                        )
+                    }
+                    guard latest.state != current.state else {
+                        return .terminalizationFailed(
+                            primary: diagnostic,
+                            reason: String(describing: transitionError)
+                        )
+                    }
+
+                    // The row changed after our read, so another lifecycle owner won
+                    // the compare-and-set transition. That is normal concurrency, not
+                    // a failed terminalization, and the primary diagnostic remains the
+                    // caller-visible result.
+                    return diagnostic
+                } catch let verificationError {
+                    return .terminalizationFailed(
+                        primary: diagnostic,
+                        reason: "\(transitionError); CAS verification failed: \(verificationError)"
+                    )
+                }
+            }
+        } catch let persistenceError {
+            return .terminalizationFailed(
+                primary: diagnostic,
+                reason: String(describing: persistenceError)
             )
-        } catch {
-            // The provider task still exits and releases its active slot even if a
-            // concurrent lifecycle owner won the compare-and-set transition.
         }
+
+        return diagnostic
+    }
+
+    private func projectionCompletionError(
+        runID: String,
+        diagnostic: ConversationProjectionError
+    ) -> Error? {
+        let result = finishProjectionFailure(
+            runID: runID,
+            diagnostic: diagnostic
+        )
+        guard result != diagnostic else {
+            // ConversationRuntime records the primary diagnostic at the projection
+            // callback boundary. A successful terminal transition must not turn that
+            // already-observable failure into a second stream error.
+            return nil
+        }
+        return result
+    }
+
+    private func projectionDiagnostic(for error: Error) -> ConversationProjectionError {
+        if let diagnostic = error as? ConversationProjectionError {
+            return diagnostic
+        }
+        return .other(String(describing: error))
     }
 
     private func failureDisposition(
