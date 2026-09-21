@@ -21,9 +21,10 @@ enum AgentEvent: Sendable, Equatable {
     )
     case toolCallChanged(
         runID: String,
-        toolCallID: String,
+        providerCallID: String,
         state: ToolCallState
     )
+    /// Carries the durable ToolCallRecord.id consumed by approve/reject.
     case approvalRequired(
         runID: String,
         toolCallID: String

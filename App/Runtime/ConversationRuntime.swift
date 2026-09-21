@@ -328,8 +328,8 @@ actor ConversationRuntime {
         case .messagePartCompleted(_, let partID, let state):
             try store.finishPart(id: partID, state: state)
 
-        case .toolCallChanged(let runID, let toolCallID, _):
-            try materializeToolParts(runID: runID, providerCallID: toolCallID)
+        case .toolCallChanged(let runID, let providerCallID, _):
+            try materializeToolParts(runID: runID, providerCallID: providerCallID)
 
         case .runAccepted,
              .runStateChanged,
@@ -339,7 +339,7 @@ actor ConversationRuntime {
         }
     }
 
-    /// Tool message parts deliberately carry only the stable provider call identity.
+    /// Tool message parts deliberately carry only the durable ToolCall identity.
     /// The ToolCall and ToolResult rows remain the source of truth for state and body.
     private func materializeToolParts(runID: String, providerCallID: String) throws {
         guard let run = try store.run(id: runID) else {
@@ -362,7 +362,7 @@ actor ConversationRuntime {
         }
 
         for batchCall in callsInBatch {
-            let reference = batchCall.providerCallID ?? batchCall.id
+            let reference = batchCall.id
             let parts = try store.parts(ofMessage: response.id)
             let hasCallPart = parts.contains { part in
                 guard part.kind == .toolCall else { return false }
@@ -385,7 +385,7 @@ actor ConversationRuntime {
         }
 
         guard try store.toolResult(toolCallID: call.id) != nil else { return }
-        let reference = call.providerCallID ?? call.id
+        let reference = call.id
         let hasResultPart = try store.parts(ofMessage: response.id).contains { part in
             guard part.kind == .toolResult else { return false }
             return (try? decodeToolResultPayload(part.payload).toolCallID) == reference

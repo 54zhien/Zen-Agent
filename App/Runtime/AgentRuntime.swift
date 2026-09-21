@@ -393,7 +393,7 @@ actor AgentRuntime {
                                 try await emit(
                                     .toolCallChanged(
                                         runID: runID,
-                                        toolCallID: toolCall.id,
+                                        providerCallID: toolCall.id,
                                         state: .validated
                                     ),
                                     continuation: continuation,
@@ -712,7 +712,7 @@ actor AgentRuntime {
                     try await emit(
                         .toolCallChanged(
                             runID: runID,
-                            toolCallID: completed.providerCall.id,
+                            providerCallID: completed.providerCall.id,
                             state: completed.record.state
                         ),
                         continuation: continuation,
@@ -723,7 +723,7 @@ actor AgentRuntime {
                         try await emit(
                             .approvalRequired(
                                 runID: runID,
-                                toolCallID: completed.providerCall.id
+                                toolCallID: completed.record.id
                             ),
                             continuation: continuation,
                             project: project
@@ -767,7 +767,7 @@ actor AgentRuntime {
                 try await emit(
                     .toolCallChanged(
                         runID: runID,
-                        toolCallID: providerCall.id,
+                        providerCallID: providerCall.id,
                         state: settledRecord.state
                     ),
                     continuation: continuation,
@@ -780,7 +780,7 @@ actor AgentRuntime {
             try await emit(
                 .toolCallChanged(
                     runID: runID,
-                    toolCallID: completed.providerCall.id,
+                    providerCallID: completed.providerCall.id,
                     state: completed.record.state
                 ),
                 continuation: continuation,
