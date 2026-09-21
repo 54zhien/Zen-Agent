@@ -68,7 +68,7 @@ struct CurrentDateTool: ToolExecutable {
 
         let date = formatter.string(from: clock())
         return ToolExecutionResult(
-            content: "(date) (\(timeZone.identifier))"
+            content: "\(date) (\(timeZone.identifier))"
         )
     }
 }
