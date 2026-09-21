@@ -127,7 +127,7 @@ jobs:
               exit 1
             fi
           done
-          offenders=$(grep -rn "URLSession" App --include="*.swift"             | grep -v '^App/HTTP/'             | grep -vE ':[[:space:]]*(//|///|\*)'             || true)
+          offenders=$(grep -rn "URLSession" App --include="*.swift"             | grep -v '^App/HTTP/'             | grep -vE '^([^:]*:)?[0-9]+:[[:space:]]*(//|///|\*)'             || true)
           if [ -n "$offenders" ]; then
             echo "::error::URLSession is referenced outside App/HTTP/:"
             echo "$offenders"
@@ -167,7 +167,18 @@ jobs:
           # A line whose first non-whitespace is a comment marker *names* this rule;
           # it does not break it. Same exclusion as the URLSession check, defined once
           # so that both shapes below are read the same way.
-          comment_line=':[[:space:]]*(//|///|\*)'
+          #
+          # Anchored to the line-number field, so a code line that merely mentions a
+          # comment marker later on — a doc URL in a trailing comment, say — is still
+          # read as code. Without the anchor, `extension SecretValue: Codable { //
+          # https://… }` was excluded as if it were a comment, which is the one shape
+          # this check exists to catch.
+          #
+          # The filename field is optional because the greps below are not one shape:
+          # `grep -rn` prints `file:line:text` and `grep -n` prints `line:text`. A
+          # mandatory filename would match nothing in the second, and the exclusion
+          # would silently stop applying to the declaration line.
+          comment_line='^([^:]*:)?[0-9]+:[[:space:]]*(//|///|\*)'
 
           line=$(grep -n 'struct SecretValue' App/Credential/CredentialTypes.swift \
             | grep -vE "$comment_line" || true)
