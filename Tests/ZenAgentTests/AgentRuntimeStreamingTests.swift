@@ -276,8 +276,9 @@ struct AgentRuntimeStreamingTests {
                 .textDelta("partial before tool"),
                 .toolCall(.init(
                     id: "tool-call-i05",
+                    index: 0,
                     name: "unavailable-tool",
-                    arguments: "{}"
+                    argumentsJSON: "{}"
                 )),
             ]
         )
@@ -315,8 +316,8 @@ struct AgentRuntimeStreamingTests {
         let parts = try fixture.store.parts(ofMessage: responseID)
         #expect(parts.count == 1)
         #expect(try fixture.store.text(ofPart: parts[0].id) == "partial before tool")
-        #expect(run.state == .failed)
-        #expect(run.endReason == .providerFailed)
+        #expect(run.state == RunState.failed)
+        #expect(run.endReason == EndReason.providerFailed)
     }
 
     @Test("a re-entry increments the durable attempt and rejects a late old-stream delta")
