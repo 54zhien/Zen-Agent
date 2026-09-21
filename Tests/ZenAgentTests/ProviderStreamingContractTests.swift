@@ -18,7 +18,7 @@ struct ProviderStreamingContractTests {
     private func request(modelID: String = "fake-model") -> ProviderChatRequest {
         ProviderChatRequest(
             modelID: ModelID(rawValue: modelID),
-            messages: [ProviderChatMessage(role: .user, content: "Hello")]
+            messages: [.user("Hello")]
         )
     }
 
@@ -69,7 +69,6 @@ struct ProviderStreamingContractTests {
             try await provider.stream(
                 request(),
                 seed: seed(),
-                instance: instance,
                 credentials: credentials()
             )
         )
@@ -89,7 +88,6 @@ struct ProviderStreamingContractTests {
             _ = try await provider.stream(
                 request(modelID: "missing-model"),
                 seed: seed(for: "missing-model"),
-                instance: instance,
                 credentials: credentials()
             )
         } catch {

@@ -57,22 +57,10 @@ struct PromptComposerTests {
             request == ProviderChatRequest(
                 modelID: modelID,
                 messages: [
-                    ProviderChatMessage(
-                        role: .system,
-                        content: expectedSystem
-                    ),
-                    ProviderChatMessage(
-                        role: .user,
-                        content: "Earlier user"
-                    ),
-                    ProviderChatMessage(
-                        role: .assistant,
-                        content: "Earlier assistant"
-                    ),
-                    ProviderChatMessage(
-                        role: .user,
-                        content: "Current user"
-                    ),
+                    .system(expectedSystem),
+                    .user("Earlier user"),
+                    .assistant(content: "Earlier assistant", reasoning: nil, toolCalls: []),
+                    .user("Current user"),
                 ]
             )
         )
@@ -89,10 +77,16 @@ struct PromptComposerTests {
             input(providerAdapterInstructions: "Adapter B")
         )
 
-        #expect(first.messages[0].content.contains("Adapter A"))
-        #expect(!first.messages[0].content.contains("Adapter B"))
-        #expect(second.messages[0].content.contains("Adapter B"))
-        #expect(!second.messages[0].content.contains("Adapter A"))
+        guard case .system(let firstSystem) = first.messages[0],
+              case .system(let secondSystem) = second.messages[0]
+        else {
+            Issue.record("expected the composer to create system messages")
+            return
+        }
+        #expect(firstSystem.contains("Adapter A"))
+        #expect(!firstSystem.contains("Adapter B"))
+        #expect(secondSystem.contains("Adapter B"))
+        #expect(!secondSystem.contains("Adapter A"))
     }
 
     @Test("an empty history still leaves the current user after the system baseline")
@@ -105,11 +99,11 @@ struct PromptComposerTests {
         )
 
         #expect(request.messages.count == 2)
-        #expect(request.messages[0].role == .system)
-        #expect(request.messages[1] == ProviderChatMessage(
-            role: .user,
-            content: "Only current user"
-        ))
+        guard case .system = request.messages[0] else {
+            Issue.record("expected the first message to be structured as system")
+            return
+        }
+        #expect(request.messages[1] == .user("Only current user"))
     }
 
     @Test("composition is deterministic for identical prepared input")

@@ -104,7 +104,6 @@ struct Stage1GateTests {
         let stream = try await provider.stream(
             request,
             seed: seed,
-            instance: instance,
             credentials: credentials
         )
 

@@ -3,15 +3,6 @@ import Foundation
 enum PromptHistoryRole: Sendable, Equatable {
     case user
     case assistant
-
-    var providerRole: ProviderChatRole {
-        switch self {
-        case .user:
-            return .user
-        case .assistant:
-            return .assistant
-        }
-    }
 }
 
 struct PromptHistoryMessage: Sendable, Equatable {

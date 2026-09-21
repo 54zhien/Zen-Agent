@@ -51,59 +51,6 @@ enum ProviderChatMessage: Sendable, Equatable {
     )
 }
 
-/// Kept as a small source-compatibility vocabulary for Stage 1 callers. The
-/// provider-neutral message itself is the enum above; new code should construct its
-/// cases directly.
-enum ProviderChatRole: String, Sendable, Codable {
-    case system
-    case user
-    case assistant
-    case tool
-}
-
-extension ProviderChatMessage {
-    /// Stage 1 source compatibility for tests and older composition callers.
-    init(role: ProviderChatRole, content: String) {
-        switch role {
-        case .system:
-            self = .system(content)
-        case .user:
-            self = .user(content)
-        case .assistant:
-            self = .assistant(content: content, reasoning: nil, toolCalls: [])
-        case .tool:
-            self = .toolResult(toolCallID: "", content: content)
-        }
-    }
-
-    /// Compatibility projection for plain-text Stage 1 callers. Structured callers
-    /// should pattern-match the enum instead of using this projection.
-    var role: ProviderChatRole {
-        switch self {
-        case .system:
-            return .system
-        case .user:
-            return .user
-        case .assistant:
-            return .assistant
-        case .toolResult:
-            return .tool
-        }
-    }
-
-    /// Compatibility projection for plain-text Stage 1 callers.
-    var content: String {
-        switch self {
-        case .system(let content), .user(let content):
-            return content
-        case .assistant(let content, _, _):
-            return content ?? ""
-        case .toolResult(_, let content):
-            return content
-        }
-    }
-}
-
 /// What came back, normalised.
 struct ProviderResponse: Sendable, Equatable {
     /// The provider's own id for this response, kept so a later diagnostic can refer to

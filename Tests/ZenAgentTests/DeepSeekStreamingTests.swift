@@ -63,7 +63,7 @@ struct DeepSeekStreamingTests {
     private func request() -> ProviderChatRequest {
         ProviderChatRequest(
             modelID: ModelID(rawValue: "deepseek-flash"),
-            messages: [ProviderChatMessage(role: .user, content: "Hello")]
+            messages: [.user("Hello")]
         )
     }
 
@@ -99,7 +99,7 @@ struct DeepSeekStreamingTests {
         let f = try makeFixture()
         f.transport.enqueueStream(sse([#"{"id":"c1","choices":[{"index":0,"delta":{"content":"hi"}}]}"#]))
 
-        _ = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+        _ = try await drain(try await f.provider.stream(request(), seed: f.seed, credentials: f.credentials))
 
         let sent = try #require(f.transport.lastRequest)
         guard let body = sent.body,
@@ -117,7 +117,7 @@ struct DeepSeekStreamingTests {
         let f = try makeFixture()
         f.transport.enqueueStream(sse([]))
 
-        _ = try? await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+        _ = try? await drain(try await f.provider.stream(request(), seed: f.seed, credentials: f.credentials))
 
         guard let body = f.transport.lastRequest?.body,
               let json = try JSONSerialization.jsonObject(with: body) as? [String: Any] else {
@@ -141,7 +141,7 @@ struct DeepSeekStreamingTests {
             #"{"id":"c1","choices":[{"index":0,"delta":{"content":"lo"}}]}"#,
         ]))
 
-        let events = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+        let events = try await drain(try await f.provider.stream(request(), seed: f.seed, credentials: f.credentials))
 
         #expect(events.map { text(of: $0) } == ["Hel", "lo"])
     }
@@ -155,7 +155,7 @@ struct DeepSeekStreamingTests {
             #"{"id":"c1","choices":[{"index":0,"delta":{"content":"answer"}}]}"#,
         ]))
 
-        let events = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+        let events = try await drain(try await f.provider.stream(request(), seed: f.seed, credentials: f.credentials))
 
         // Not a separate phase: reasoning deltas and content deltas come through the
         // same channel, and nothing here may assume the reasoning all arrives first.
@@ -196,7 +196,7 @@ struct DeepSeekStreamingTests {
             #"{"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":3,"total_tokens":12}}"#,
         ]))
 
-        let events = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+        let events = try await drain(try await f.provider.stream(request(), seed: f.seed, credentials: f.credentials))
 
         #expect(events == [
             .textDelta("done"),
@@ -216,7 +216,7 @@ struct DeepSeekStreamingTests {
             #"{"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#,
         ]))
 
-        let events = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+        let events = try await drain(try await f.provider.stream(request(), seed: f.seed, credentials: f.credentials))
 
         #expect(events == [
             .textDelta("x"),
@@ -232,7 +232,7 @@ struct DeepSeekStreamingTests {
 
         // Reaching here without throwing is the assertion: `[DONE]` is a clean end, and
         // it must not be decoded as a chunk.
-        let events = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+        let events = try await drain(try await f.provider.stream(request(), seed: f.seed, credentials: f.credentials))
         #expect(events == [.textDelta("x")])
     }
 
@@ -245,7 +245,7 @@ struct DeepSeekStreamingTests {
 
         var failure: ProviderError?
         do {
-            _ = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+            _ = try await drain(try await f.provider.stream(request(), seed: f.seed, credentials: f.credentials))
         } catch let error as ProviderError {
             failure = error
         }
@@ -267,7 +267,7 @@ struct DeepSeekStreamingTests {
 
         var failure: ProviderError?
         do {
-            _ = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+            _ = try await drain(try await f.provider.stream(request(), seed: f.seed, credentials: f.credentials))
         } catch let error as ProviderError {
             failure = error
         }
@@ -290,7 +290,7 @@ struct DeepSeekStreamingTests {
 
         var failure: ProviderError?
         do {
-            _ = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+            _ = try await drain(try await f.provider.stream(request(), seed: f.seed, credentials: f.credentials))
         } catch let error as ProviderError {
             failure = error
         }
@@ -313,7 +313,7 @@ struct DeepSeekStreamingTests {
 
         var failure: ProviderError?
         do {
-            _ = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+            _ = try await drain(try await f.provider.stream(request(), seed: f.seed, credentials: f.credentials))
         } catch let error as ProviderError {
             failure = error
         }
@@ -334,7 +334,7 @@ struct DeepSeekStreamingTests {
 
         var failure: ProviderError?
         do {
-            _ = try await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+            _ = try await drain(try await f.provider.stream(request(), seed: f.seed, credentials: f.credentials))
         } catch let error as ProviderError {
             failure = error
         }
@@ -382,7 +382,7 @@ struct DeepSeekStreamingTests {
 
         var failure: ProviderError?
         do {
-            _ = try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+            _ = try await f.provider.stream(request(), seed: f.seed, credentials: f.credentials)
         } catch let error as ProviderError {
             failure = error
         }
@@ -398,7 +398,7 @@ struct DeepSeekStreamingTests {
 
         var failure: ProviderError?
         do {
-            _ = try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+            _ = try await f.provider.stream(request(), seed: f.seed, credentials: f.credentials)
         } catch let error as ProviderError {
             failure = error
         }
@@ -406,28 +406,7 @@ struct DeepSeekStreamingTests {
         #expect(failure == .cancelled)
     }
 
-    // MARK: - Frozen configuration, unchanged
-
-    @Test("an edited instance is refused before anything is sent")
-    func editedInstanceIsRefusedBeforeDispatch() async throws {
-        let f = try makeFixture()
-        var edited = f.instance
-        edited.configRevision = ConfigRevision(rawValue: "2")
-        f.transport.enqueueStream(sse([]))
-
-        var failure: ProviderError?
-        do {
-            _ = try await f.provider.stream(request(), seed: f.seed, instance: edited, credentials: f.credentials)
-        } catch let error as ProviderError {
-            failure = error
-        }
-
-        guard case .configurationMismatch = failure else {
-            Issue.record("expected .configurationMismatch, got \(String(describing: failure))")
-            return
-        }
-        #expect(f.transport.requestCount == 0, "a refused run must not reach the network at all")
-    }
+    // MARK: - Frozen credential binding
 
     @Test("a credential change since the freeze is refused")
     func credentialChangeIsRefused() async throws {
@@ -437,7 +416,7 @@ struct DeepSeekStreamingTests {
 
         var failure: ProviderError?
         do {
-            _ = try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+            _ = try await f.provider.stream(request(), seed: f.seed, credentials: f.credentials)
         } catch let error as ProviderError {
             failure = error
         }
@@ -459,7 +438,7 @@ struct DeepSeekStreamingTests {
             thenFailWith: .streamInterrupted(deliveredData: true, reason: "URLError code -1005")
         )
 
-        _ = try? await drain(try await f.provider.stream(request(), seed: f.seed, instance: f.instance, credentials: f.credentials))
+        _ = try? await drain(try await f.provider.stream(request(), seed: f.seed, credentials: f.credentials))
 
         #expect(
             f.transport.requestCount == 1,

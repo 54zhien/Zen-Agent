@@ -66,16 +66,3 @@ protocol ModelProvider: Sendable {
         credentials: any CredentialStoring
     ) async throws -> AsyncThrowingStream<ProviderStreamEvent, Error>
 }
-
-extension ModelProvider {
-    /// Stage 1 source compatibility. New execution code must use the overload without
-    /// `instance`; the mutable instance is not an execution input after send-time freeze.
-    func stream(
-        _ request: ProviderChatRequest,
-        seed: RequestConfigSeed,
-        instance: ProviderInstance,
-        credentials: any CredentialStoring
-    ) async throws -> AsyncThrowingStream<ProviderStreamEvent, Error> {
-        try await stream(request, seed: seed, credentials: credentials)
-    }
-}

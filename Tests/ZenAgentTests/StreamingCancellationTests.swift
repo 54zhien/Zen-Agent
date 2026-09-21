@@ -216,10 +216,9 @@ struct StreamingCancellationTests {
                 for try await _ in try await provider.stream(
                     ProviderChatRequest(
                         modelID: ModelID(rawValue: "deepseek-flash"),
-                        messages: [ProviderChatMessage(role: .user, content: "Hello")]
+                        messages: [.user("Hello")]
                     ),
                     seed: seed,
-                    instance: instance,
                     credentials: credentials
                 ) {
                     observed.raise()

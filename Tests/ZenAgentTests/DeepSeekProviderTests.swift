@@ -98,6 +98,7 @@ struct DeepSeekProviderTests {
             frozenReference: CredentialReference,
             generation: Int
         ) throws -> SecretValue? {
+            _ = try matchesBinding(frozenReference, generation: generation)
             try base.resolve(
                 frozenReference: frozenReference,
                 generation: generation
@@ -212,8 +213,8 @@ struct DeepSeekProviderTests {
         ProviderChatRequest(
             modelID: ModelID(rawValue: model),
             messages: [
-                ProviderChatMessage(role: .system, content: "You are terse."),
-                ProviderChatMessage(role: .user, content: "Hello"),
+                .system("You are terse."),
+                .user("Hello"),
             ]
         )
     }
@@ -254,7 +255,7 @@ struct DeepSeekProviderTests {
         let f = try makeFixture()
         f.transport.enqueue(status: 200, json: Self.successJSON)
 
-        _ = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+        _ = try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
 
         let sent = try #require(f.transport.lastRequest)
         #expect(sent.method == .post)
@@ -266,7 +267,7 @@ struct DeepSeekProviderTests {
         let f = try makeFixture()
         f.transport.enqueue(status: 200, json: Self.successJSON)
 
-        _ = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+        _ = try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
 
         let sent = try #require(f.transport.lastRequest)
         #expect(sent.headers["Authorization"] == "Bearer sk-test-9f3a7c")
@@ -278,7 +279,7 @@ struct DeepSeekProviderTests {
         let f = try makeFixture()
         f.transport.enqueue(status: 200, json: Self.successJSON)
 
-        _ = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+        _ = try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
 
         guard let body = f.transport.lastRequest?.body,
               let json = try JSONSerialization.jsonObject(with: body) as? [String: Any] else {
@@ -302,7 +303,7 @@ struct DeepSeekProviderTests {
         let f = try makeFixture()
         f.transport.enqueue(status: 200, json: Self.successJSON)
 
-        _ = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+        _ = try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
 
         guard let body = f.transport.lastRequest?.body,
               let json = try JSONSerialization.jsonObject(with: body) as? [String: Any] else {
@@ -323,7 +324,7 @@ struct DeepSeekProviderTests {
         let f = try makeFixture()
         f.transport.enqueue(status: 200, json: Self.successJSON)
 
-        let response = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+        let response = try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
 
         #expect(response.id == "chat-abc")
         #expect(response.text == "Hi there.")
@@ -338,14 +339,14 @@ struct DeepSeekProviderTests {
         """
         let f1 = try makeFixture()
         f1.transport.enqueue(status: 200, json: withReasoning)
-        let reasoned = try await f1.provider.complete(request(), seed: f1.seed, instance: f1.instance, credentials: f1.credentials)
+        let reasoned = try await f1.provider.complete(request(), seed: f1.seed, credentials: f1.credentials)
         #expect(reasoned.reasoning == "because")
 
         // Absent, not empty. A UI deciding whether to show a reasoning section needs the
         // difference, and `nil` versus `""` is the only way to carry it.
         let f2 = try makeFixture()
         f2.transport.enqueue(status: 200, json: Self.successJSON)
-        let plain = try await f2.provider.complete(request(), seed: f2.seed, instance: f2.instance, credentials: f2.credentials)
+        let plain = try await f2.provider.complete(request(), seed: f2.seed, credentials: f2.credentials)
         #expect(plain.reasoning == nil)
     }
 
@@ -356,7 +357,7 @@ struct DeepSeekProviderTests {
         {"id":"c1","choices":[{"index":0,"message":{"role":"assistant","content":"A"},"finish_reason":"something_new"}]}
         """)
 
-        let response = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+        let response = try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
 
         // Reporting it as `.stop` is the shape of bug where a truncated answer looks
         // finished — which is exactly the case a user cannot detect for themselves.
@@ -369,7 +370,7 @@ struct DeepSeekProviderTests {
         f.transport.enqueue(status: 200, json: #"{"id":"c1","choices":[]}"#)
 
         await #expect(throws: ProviderError.malformedResponse("the response carried no choices")) {
-            try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+            try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
         }
     }
 
@@ -380,7 +381,7 @@ struct DeepSeekProviderTests {
 
         var failure: Error?
         do {
-            _ = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+            _ = try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
         } catch {
             failure = error
         }
@@ -407,7 +408,7 @@ struct DeepSeekProviderTests {
 
         var failure: ProviderError?
         do {
-            _ = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+            _ = try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
         } catch let error as ProviderError {
             failure = error
         }
@@ -429,7 +430,7 @@ struct DeepSeekProviderTests {
 
         var failure: ProviderError?
         do {
-            _ = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+            _ = try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
         } catch let error as ProviderError {
             failure = error
         }
@@ -444,7 +445,7 @@ struct DeepSeekProviderTests {
 
         var failure: ProviderError?
         do {
-            _ = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+            _ = try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
         } catch let error as ProviderError {
             failure = error
         }
@@ -462,7 +463,7 @@ struct DeepSeekProviderTests {
         f.transport.fail(with: .networkFailure("URLError code -1009"))
 
         await #expect(throws: ProviderError.transportFailure("URLError code -1009")) {
-            try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+            try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
         }
     }
 
@@ -485,7 +486,7 @@ struct DeepSeekProviderTests {
 
         var failure: ProviderError?
         do {
-            _ = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+            _ = try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
         } catch let error as ProviderError {
             failure = error
         }
@@ -511,7 +512,7 @@ struct DeepSeekProviderTests {
         f.transport.enqueue(status: status, json: #"{"error":{"message":"try later"}}"#)
         f.transport.enqueue(status: 200, json: Self.successJSON)
 
-        _ = try? await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+        _ = try? await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
 
         #expect(
             f.transport.requestCount == 1,
@@ -519,28 +520,7 @@ struct DeepSeekProviderTests {
         )
     }
 
-    // MARK: - Frozen configuration
-
-    @Test("an edited instance is refused before anything is sent")
-    func editedInstanceIsRefused() async throws {
-        let f = try makeFixture()
-        var edited = f.instance
-        edited.configRevision = ConfigRevision(rawValue: "2")
-        f.transport.enqueue(status: 200, json: Self.successJSON)
-
-        var failure: ProviderError?
-        do {
-            _ = try await f.provider.complete(request(), seed: f.seed, instance: edited, credentials: f.credentials)
-        } catch let error as ProviderError {
-            failure = error
-        }
-
-        guard case .configurationMismatch = failure else {
-            Issue.record("expected .configurationMismatch, got \(String(describing: failure))")
-            return
-        }
-        #expect(f.transport.requestCount == 0, "a refused run must not reach the network at all")
-    }
+    // MARK: - Frozen credential binding
 
     @Test("a rebind since the freeze is refused")
     func rebindIsRefused() async throws {
@@ -550,7 +530,7 @@ struct DeepSeekProviderTests {
 
         var failure: ProviderError?
         do {
-            _ = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+            _ = try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
         } catch let error as ProviderError {
             failure = error
         }
@@ -586,7 +566,6 @@ struct DeepSeekProviderTests {
             _ = try await f.provider.complete(
                 request(),
                 seed: f.seed,
-                instance: f.instance,
                 credentials: credentials
             )
         } catch let error as ProviderError {
@@ -634,7 +613,6 @@ struct DeepSeekProviderTests {
             _ = try await f.provider.complete(
                 request("deepseek-v4-pro"),
                 seed: f.seed,
-                instance: f.instance,
                 credentials: f.credentials
             )
         } catch let error as ProviderError {
@@ -655,7 +633,7 @@ struct DeepSeekProviderTests {
         let f = try makeFixture()
         f.transport.enqueue(status: 401, json: #"{"error":{"message":"Authentication Fails"}}"#)
 
-        _ = try? await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+        _ = try? await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
 
         // The provider answered 401. That is evidence the credential is not accepted —
         // it is not an instruction to erase it. Destroying a user's credential on the
@@ -675,19 +653,26 @@ struct DeepSeekProviderTests {
     @Test("a missing credential is reported as missing, not as rejected")
     func missingCredentialIsItsOwnError() async throws {
         let f = try makeFixture()
-        var detached = f.instance
-        detached.credentialReference = nil
+        let missingSeed = RequestConfigSeed(
+            instance: f.instance,
+            modelID: f.seed.modelID,
+            credentialBinding: CredentialBindingSnapshot(
+                reference: CredentialReference(id: "missing-credential"),
+                generation: 1
+            ),
+            resolvedEndpoint: f.seed.endpoint
+        )
         f.transport.enqueue(status: 200, json: Self.successJSON)
 
         var failure: ProviderError?
         do {
-            _ = try await f.provider.complete(request(), seed: f.seed, instance: detached, credentials: f.credentials)
+            _ = try await f.provider.complete(request(), seed: missingSeed, credentials: f.credentials)
         } catch let error as ProviderError {
             failure = error
         }
 
-        guard case .configurationMismatch = failure else {
-            Issue.record("expected a refusal, got \(String(describing: failure))")
+        guard case .credentialMissing = failure else {
+            Issue.record("expected .credentialMissing, got \(String(describing: failure))")
             return
         }
         #expect(f.transport.requestCount == 0)
@@ -703,7 +688,7 @@ struct DeepSeekProviderTests {
 
         var failure: Error?
         do {
-            _ = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+            _ = try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
         } catch {
             failure = error
         }
@@ -727,7 +712,7 @@ struct DeepSeekProviderTests {
     func secretDoesNotLeak() async throws {
         let f = try makeFixture()
         f.transport.enqueue(status: 200, json: Self.successJSON)
-        _ = try await f.provider.complete(request(), seed: f.seed, instance: f.instance, credentials: f.credentials)
+        _ = try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
 
         let sent = try #require(f.transport.lastRequest)
         let marker = "sk-test-9f3a7c"
@@ -745,7 +730,7 @@ struct DeepSeekProviderTests {
         g.transport.enqueue(status: 401, json: #"{"error":{"message":"Authentication Fails"}}"#)
         var failure: Error?
         do {
-            _ = try await g.provider.complete(request(), seed: g.seed, instance: g.instance, credentials: g.credentials)
+            _ = try await g.provider.complete(request(), seed: g.seed, credentials: g.credentials)
         } catch {
             failure = error
         }
@@ -769,7 +754,6 @@ struct DeepSeekProviderTests {
             _ = try await f.provider.complete(
                 request(),
                 seed: f.seed,
-                instance: f.instance,
                 credentials: f.credentials
             )
         } catch let error as ProviderError {
@@ -806,7 +790,6 @@ struct DeepSeekProviderTests {
             _ = try await f.provider.complete(
                 request(),
                 seed: f.seed,
-                instance: f.instance,
                 credentials: f.credentials
             )
         } catch let error as ProviderError {
@@ -832,7 +815,6 @@ struct DeepSeekProviderTests {
             _ = try await f.provider.complete(
                 request(),
                 seed: f.seed,
-                instance: f.instance,
                 credentials: f.credentials
             )
         } catch let error as ProviderError {
@@ -853,7 +835,6 @@ struct DeepSeekProviderTests {
             _ = try await f.provider.complete(
                 request(),
                 seed: f.seed,
-                instance: f.instance,
                 credentials: f.credentials
             )
         } catch let error as ProviderError {
@@ -874,7 +855,6 @@ struct DeepSeekProviderTests {
             _ = try await f.provider.complete(
                 request(),
                 seed: f.seed,
-                instance: f.instance,
                 credentials: f.credentials
             )
         } catch let error as ProviderError {
@@ -895,7 +875,6 @@ struct DeepSeekProviderTests {
             _ = try await f.provider.complete(
                 request(),
                 seed: f.seed,
-                instance: f.instance,
                 credentials: f.credentials
             )
         } catch let error as ProviderError {
@@ -925,7 +904,6 @@ struct DeepSeekProviderTests {
             _ = try await f.provider.complete(
                 request(),
                 seed: f.seed,
-                instance: f.instance,
                 credentials: f.credentials
             )
         } catch let error as ProviderError {
@@ -956,7 +934,6 @@ struct DeepSeekProviderTests {
             _ = try await f.provider.complete(
                 request(),
                 seed: f.seed,
-                instance: f.instance,
                 credentials: f.credentials
             )
         } catch let error as ProviderError {
@@ -1003,7 +980,7 @@ struct DeepSeekProviderTests {
             credentialBinding: CredentialBindingSnapshot(reference: reference, generation: 1),
             resolvedEndpoint: DeepSeekProvider.resolvedEndpoint(for: instance)
         )
-        let response = try await provider.complete(request(), seed: seed, instance: instance, credentials: credentials)
+        let response = try await provider.complete(request(), seed: seed, credentials: credentials)
 
         #expect(response.text == "Hi there.")
         let sent = try #require(transport.lastRequest)

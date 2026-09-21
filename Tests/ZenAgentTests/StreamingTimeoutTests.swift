@@ -94,10 +94,9 @@ struct StreamingTimeoutTests {
             for try await _ in try await f.provider.stream(
                 ProviderChatRequest(
                     modelID: ModelID(rawValue: "deepseek-flash"),
-                    messages: [ProviderChatMessage(role: .user, content: "Hello")]
+                    messages: [.user("Hello")]
                 ),
                 seed: f.seed,
-                instance: f.instance,
                 credentials: f.credentials
             ) {}
             return nil

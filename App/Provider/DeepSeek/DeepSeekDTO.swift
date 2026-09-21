@@ -86,11 +86,12 @@ struct DeepSeekToolCall: Codable, Sendable {
     var function: DeepSeekToolCallFunction?
 }
 
-/// A streamed tool-call fragment carries its ordering index alongside the optional
-/// fields. The first fragment normally carries id/name and later fragments only carry
-/// more argument text.
+/// A streamed tool-call fragment carries its required ordering index alongside the
+/// optional identity fields. The first fragment normally carries id/name and later
+/// fragments only carry more argument text. A missing index is malformed wire data and
+/// must fail decoding rather than being assigned a guessed position.
 struct DeepSeekToolCallDelta: Decodable, Sendable {
-    var index: Int?
+    var index: Int
     var id: String?
     var type: String?
     var function: DeepSeekToolCallFunction?

@@ -166,6 +166,37 @@ struct ProviderToolCallingTests {
         ])
     }
 
+    @Test("a streamed tool-call delta without an index fails as malformed and emits no call")
+    func missingToolCallIndexFailsWithoutEmittingCall() async throws {
+        let f = try fixture()
+        f.transport.enqueueStream(sse([
+            #"{"id":"stream-missing-index","choices":[{"index":0,"delta":{"tool_calls":[{"id":"call-1","type":"function","function":{"name":"first","arguments":"{}"}}]}}]}"#,
+        ]))
+
+        var events: [ProviderStreamEvent] = []
+        var failure: ProviderError?
+        do {
+            events = try await drain(
+                try await f.provider.stream(
+                    ProviderChatRequest(modelID: f.seed.modelID, messages: [.user("calculate")]),
+                    seed: f.seed,
+                    credentials: f.credentials
+                )
+            )
+        } catch let error as ProviderError {
+            failure = error
+        }
+
+        guard case .malformedResponse = failure else {
+            Issue.record("expected .malformedResponse, got \(String(describing: failure))")
+            return
+        }
+        #expect(!events.contains { event in
+            if case .toolCall = event { return true }
+            return false
+        })
+    }
+
     @Test("prompt composition carries structured tools without flattening messages")
     func composerCarriesTools() {
         let tool = ProviderToolDefinition(

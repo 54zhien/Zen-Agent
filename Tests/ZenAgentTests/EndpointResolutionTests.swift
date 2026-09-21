@@ -31,19 +31,19 @@ struct EndpointResolutionTests {
         func runBothPaths() async {
             transport.enqueue(status: 200, json: EndpointResolutionTests.successJSON)
             _ = try? await provider.complete(
-                request, seed: seed, instance: instance, credentials: credentials
+                request, seed: seed, credentials: credentials
             )
 
             transport.enqueueStream(["data: [DONE]\n\n"])
             _ = try? await provider.stream(
-                request, seed: seed, instance: instance, credentials: credentials
+                request, seed: seed, credentials: credentials
             )
         }
 
         var request: ProviderChatRequest {
             ProviderChatRequest(
                 modelID: ModelID(rawValue: "deepseek-flash"),
-                messages: [ProviderChatMessage(role: .user, content: "Hello")]
+                messages: [.user("Hello")]
             )
         }
     }
@@ -83,11 +83,11 @@ struct EndpointResolutionTests {
         let f = try makeFixture(instanceBaseURL: Self.custom)
 
         f.transport.enqueue(status: 200, json: Self.successJSON)
-        _ = try? await f.provider.complete(f.request, seed: f.seed, instance: f.instance, credentials: f.credentials)
+        _ = try? await f.provider.complete(f.request, seed: f.seed, credentials: f.credentials)
         let afterComplete = try #require(f.transport.lastRequest)
 
         f.transport.enqueueStream(["data: [DONE]\n\n"])
-        _ = try? await f.provider.stream(f.request, seed: f.seed, instance: f.instance, credentials: f.credentials)
+        _ = try? await f.provider.stream(f.request, seed: f.seed, credentials: f.credentials)
         let afterStream = try #require(f.transport.lastRequest)
 
         let expected = "https://proxy.example.com/\(Self.chatCompletions)"
@@ -103,66 +103,34 @@ struct EndpointResolutionTests {
         #expect(afterStream.url == f.seed.endpoint)
     }
 
-    /// **The drift case.** An instance with no endpoint resolves to a compile-time
-    /// default, and a default can move between builds. A run frozen before such a change
-    /// must be refused, not quietly sent somewhere it was never pointed at — carrying its
-    /// credential with it, with every other check in the validation still passing.
-    ///
-    /// This is what the endpoint being *in* the seed buys. Without it the seed records
-    /// the instance and the revision, both of which are unchanged here, and the run
-    /// resumes against whatever the constant says now.
-    @Test("a run frozen against one endpoint is refused when the instance resolves elsewhere")
-    func frozenEndpointDriftIsRefused() async throws {
+    /// The endpoint in the seed is the execution input. A mutable instance is only used
+    /// while preparing that seed and must not be re-read by either execution path.
+    @Test("seed-only execution uses the endpoint frozen in the seed")
+    func frozenEndpointIsUsed() async throws {
         let f = try makeFixture(instanceBaseURL: nil)
 
-        // The instance resolves to the provider default. The seed says somewhere else,
-        // which is exactly what a run frozen before the default changed looks like.
+        // The instance resolves to the provider default, while the frozen seed names a
+        // different endpoint. Execution must use the latter without consulting the former.
         let drifted = RequestConfigSeed(
             instance: f.instance,
             modelID: ModelID(rawValue: "deepseek-flash"),
             credentialBinding: CredentialBindingSnapshot(reference: Self.reference, generation: 1),
             resolvedEndpoint: URL(string: "https://frozen.example/v1/chat/completions")!
         )
-        // Nothing about the instance moved, so the checks that existed before this one
-        // all still pass. That is what makes the case worth a test of its own.
         #expect(f.instance.configRevision == drifted.providerConfigRevision)
         #expect(f.instance.matches(drifted))
 
         f.transport.enqueue(status: 200, json: Self.successJSON)
         f.transport.enqueueStream(["data: [DONE]\n\n"])
 
-        let fromComplete = await failure {
-            _ = try await f.provider.complete(f.request, seed: drifted, instance: f.instance, credentials: f.credentials)
-        }
-        guard case .configurationMismatch = fromComplete else {
-            Issue.record("expected the non-streaming path to refuse, got \(String(describing: fromComplete))")
-            return
-        }
+        _ = try await f.provider.complete(f.request, seed: drifted, credentials: f.credentials)
+        let afterComplete = try #require(f.transport.requests.first)
 
-        let fromStream = await failure {
-            _ = try await f.provider.stream(f.request, seed: drifted, instance: f.instance, credentials: f.credentials)
-        }
-        guard case .configurationMismatch = fromStream else {
-            Issue.record("expected the streaming path to refuse, got \(String(describing: fromStream))")
-            return
-        }
+        _ = try await f.provider.stream(f.request, seed: drifted, credentials: f.credentials)
+        let afterStream = try #require(f.transport.requests.last)
 
-        #expect(
-            f.transport.requestCount == 0,
-            "a refused run must not reach the network — not even to find out"
-        )
-    }
-
-    /// Runs a call that is expected to fail, and reports what it threw.
-    private func failure(_ body: () async throws -> Void) async -> ProviderError? {
-        do {
-            try await body()
-            return nil
-        } catch let error as ProviderError {
-            return error
-        } catch {
-            return nil
-        }
+        #expect(afterComplete.url == drifted.endpoint)
+        #expect(afterStream.url == drifted.endpoint)
     }
 
     @Test("an instance with no endpoint falls back to the provider default, on both paths")
@@ -171,11 +139,11 @@ struct EndpointResolutionTests {
         let expected = DeepSeekProvider.defaultBaseURL.appending(path: Self.chatCompletions)
 
         f.transport.enqueue(status: 200, json: Self.successJSON)
-        _ = try? await f.provider.complete(f.request, seed: f.seed, instance: f.instance, credentials: f.credentials)
+        _ = try? await f.provider.complete(f.request, seed: f.seed, credentials: f.credentials)
         #expect(try #require(f.transport.lastRequest).url == expected)
 
         f.transport.enqueueStream(["data: [DONE]\n\n"])
-        _ = try? await f.provider.stream(f.request, seed: f.seed, instance: f.instance, credentials: f.credentials)
+        _ = try? await f.provider.stream(f.request, seed: f.seed, credentials: f.credentials)
         #expect(try #require(f.transport.lastRequest).url == expected)
     }
 

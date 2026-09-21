@@ -89,7 +89,7 @@ struct StreamingLifecycleTests {
     private func request() -> ProviderChatRequest {
         ProviderChatRequest(
             modelID: ModelID(rawValue: "deepseek-flash"),
-            messages: [ProviderChatMessage(role: .user, content: "Hello")]
+            messages: [.user("Hello")]
         )
     }
 
@@ -98,7 +98,7 @@ struct StreamingLifecycleTests {
     private func exhaust(_ f: Fixture) async {
         do {
             for try await _ in try await f.provider.stream(
-                request(), seed: f.seed, instance: f.instance, credentials: f.credentials
+                request(), seed: f.seed, credentials: f.credentials
             ) {}
         } catch {
             // Expected. The exit path is the subject of the test, not its result.

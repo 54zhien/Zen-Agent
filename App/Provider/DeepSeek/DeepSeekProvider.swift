@@ -3,7 +3,8 @@ import Foundation
 /// The DeepSeek adapter.
 ///
 /// Two ways in, one shape: `complete` returns a whole response, `stream` yields normalized
-/// provider events as they arrive. Both verify the frozen configuration before resolving a secret,
+/// provider events as they arrive. Both validate the request against the frozen seed before
+/// resolving a secret,
 /// both build their request from the same endpoint resolution, and neither retries.
 ///
 /// It speaks `ModelProvider` and `HTTPTransport`, so it neither invents its own protocol
@@ -63,9 +64,8 @@ struct DeepSeekProvider: ModelProvider {
     ///
     /// **This is the freezing-time answer, not the sending-time one.** What it returns
     /// goes into the seed, and the request is later built from the seed — so the default
-    /// host above cannot move underneath a run that has already been frozen. If it ever
-    /// does, `FrozenConfiguration` refuses the run rather than quietly redirecting it,
-    /// credential and all.
+    /// host above cannot move underneath a run that has already been frozen. Execution
+    /// never resolves the endpoint again.
     ///
     /// A complete request URL rather than a base: the path is as much a part of where the
     /// request goes as the host, and freezing half of it would leave the other half free
@@ -115,7 +115,7 @@ struct DeepSeekProvider: ModelProvider {
 
     /// Sends one non-streaming chat completion.
     ///
-    /// The order is the design: verify the frozen configuration, then resolve the secret,
+    /// The order is the design: validate the request against the frozen seed, then resolve the secret,
     /// then build the request, then send. Resolving before verifying would fetch a secret
     /// for a request that is about to be refused, and verifying after building would mean
     /// the secret had already been placed in a request that may not go out.
@@ -152,25 +152,6 @@ struct DeepSeekProvider: ModelProvider {
         return try Self.normalise(httpResponse.body)
     }
 
-    /// Stage 1 source compatibility. The overload that takes an instance keeps the
-    /// old pre-Stage-2 guard for callers that have not moved to the frozen-seed API.
-    /// Runtime execution uses the overload above and never re-reads mutable settings.
-    func complete(
-        _ request: ProviderChatRequest,
-        seed: RequestConfigSeed,
-        instance: ProviderInstance,
-        credentials: any CredentialStoring
-    ) async throws -> ProviderResponse {
-        try FrozenConfiguration.validate(
-            seed: seed,
-            modelID: request.modelID,
-            instance: instance,
-            credentials: credentials,
-            resolvedEndpoint: Self.resolvedEndpoint(for: instance)
-        )
-        return try await complete(request, seed: seed, credentials: credentials)
-    }
-
     // MARK: - Streaming completion
 
     /// Streams one chat completion, yielding provider-neutral events.
@@ -178,7 +159,7 @@ struct DeepSeekProvider: ModelProvider {
     /// DeepSeek's wire shape stays inside this adapter. The stream exposes only the
     /// provider-neutral contract declared by `ModelProvider`.
     ///
-    /// The order matches `complete`: verify the frozen configuration, resolve the
+    /// The order matches `complete`: validate the request against the frozen seed, resolve the
     /// secret, build the request, then send. Nothing reaches the network for a run that
     /// is about to be refused.
     ///
@@ -206,23 +187,6 @@ struct DeepSeekProvider: ModelProvider {
         }
 
         return Self.events(from: upstream, timeouts: streamTimeouts, redacting: secret)
-    }
-
-    /// Stage 1 source compatibility; new execution must use the seed-only overload.
-    func stream(
-        _ request: ProviderChatRequest,
-        seed: RequestConfigSeed,
-        instance: ProviderInstance,
-        credentials: any CredentialStoring
-    ) async throws -> AsyncThrowingStream<ProviderStreamEvent, Error> {
-        try FrozenConfiguration.validate(
-            seed: seed,
-            modelID: request.modelID,
-            instance: instance,
-            credentials: credentials,
-            resolvedEndpoint: Self.resolvedEndpoint(for: instance)
-        )
-        return try await stream(request, seed: seed, credentials: credentials)
     }
 
     private static func validate(
@@ -419,14 +383,12 @@ struct DeepSeekProvider: ModelProvider {
 
     private struct ToolCallAssembler {
         private var calls: [Int: ToolCallAssembly] = [:]
-        private var nextFallbackIndex = 0
 
         var isEmpty: Bool { calls.isEmpty }
 
         mutating func append(_ fragments: [DeepSeekToolCallDelta]) {
             for fragment in fragments {
-                let index = fragment.index ?? nextFallbackIndex
-                nextFallbackIndex = max(nextFallbackIndex, index + 1)
+                let index = fragment.index
 
                 var call = calls[index, default: ToolCallAssembly()]
                 if let id = fragment.id, !id.isEmpty {
