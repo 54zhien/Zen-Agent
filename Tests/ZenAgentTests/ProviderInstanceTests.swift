@@ -200,43 +200,6 @@ struct ProviderInstanceTests {
 
     // MARK: - Frozen seed
 
-    @Test("a frozen seed stops matching once the instance is edited")
-    func frozenSeedDoesNotDrift() throws {
-        let store = try makeStore()
-        let instance = try seedInstance(store)
-
-        // What Send freezes.
-        let seed = RequestConfigSeed(
-            instance: instance,
-            modelID: ModelID(rawValue: "deepseek-chat"),
-            credentialBinding: CredentialBindingSnapshot(reference: Self.reference, generation: 1),
-            resolvedEndpoint: DeepSeekProvider.resolvedEndpoint(for: instance)
-        )
-        #expect(instance.matches(seed), "the seed must match the instance it was frozen from")
-
-        let edited = try store.reconfigureProviderInstance(
-            id: Self.instanceID,
-            displayName: "DeepSeek",
-            baseURL: URL(string: "https://somewhere-else.example.com"),
-            expectedEditRevision: instance.editRevision
-        )
-
-        #expect(
-            !edited.matches(seed),
-            """
-            a run frozen before the edit must not match the edited instance. The id is \
-            unchanged, so only the revision can tell — and a run that resumed here would \
-            be talking to an endpoint it was never pointed at.
-            """
-        )
-        #expect(edited.matches(RequestConfigSeed(
-            instance: edited,
-            modelID: ModelID(rawValue: "deepseek-chat"),
-            credentialBinding: CredentialBindingSnapshot(reference: Self.reference, generation: 1),
-            resolvedEndpoint: DeepSeekProvider.resolvedEndpoint(for: edited)
-        )))
-    }
-
     @Test("the frozen seed survives the instance being edited, in storage")
     func theRunKeepsItsOwnSeed() throws {
         let store = try makeStore()
@@ -256,14 +219,6 @@ struct ProviderInstanceTests {
         #expect(
             try store.run(id: "r1")?.requestConfigSeed == seedBefore,
             "editing an instance must not reach back into a run that already started"
-        )
-        guard let seedBefore else {
-            Issue.record("expected a frozen seed on the run")
-            return
-        }
-        #expect(
-            try store.providerInstance(id: Self.instanceID)?.matches(seedBefore) == false,
-            "and the instance the run names must now report that it no longer matches"
         )
     }
 

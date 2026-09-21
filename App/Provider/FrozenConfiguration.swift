@@ -42,9 +42,10 @@ enum FrozenConfiguration {
             )
         }
 
-        // `matchesBinding` atomically checks the frozen reference's existence, status and
-        // generation. Status is judged before generation, so logout/deletion remains a
-        // useful invalidation diagnosis rather than being mistaken for a mere rotation.
+        // `matchesBinding` checks the frozen reference's metadata generation. A logout
+        // bumps that generation and metadata disappearing makes it return false; the
+        // later `resolve(frozenReference:generation:)` call performs the stronger
+        // atomic status, generation, and secret validation when the credential is read.
         guard try credentials.matchesBinding(
             seed.credentialBinding.reference,
             generation: seed.credentialBinding.generation

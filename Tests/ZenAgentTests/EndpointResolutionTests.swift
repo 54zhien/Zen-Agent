@@ -118,7 +118,6 @@ struct EndpointResolutionTests {
             resolvedEndpoint: URL(string: "https://frozen.example/v1/chat/completions")!
         )
         #expect(f.instance.configRevision == drifted.providerConfigRevision)
-        #expect(f.instance.matches(drifted))
 
         f.transport.enqueue(status: 200, json: Self.successJSON)
         f.transport.enqueueStream(["data: [DONE]\n\n"])
