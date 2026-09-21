@@ -227,6 +227,19 @@ struct MessagePartRecord: Codable, FetchableRecord, PersistableRecord, Sendable,
     var payload: String
 }
 
+/// The only identity a tool-call message part needs. Execution state belongs to the
+/// ToolCall row; duplicating it here would create a second truth that can drift during
+/// approval, cancellation or recovery.
+struct ToolCallPartPayload: Codable, Sendable, Equatable {
+    var toolCallID: String
+}
+
+/// The only identity a tool-result message part needs. The result body remains in the
+/// ToolResult row and is reconstructed for the provider continuation.
+struct ToolResultPartPayload: Codable, Sendable, Equatable {
+    var toolCallID: String
+}
+
 enum FileAssetOrigin: String, Codable, Sendable {
     case imported
     case conversation

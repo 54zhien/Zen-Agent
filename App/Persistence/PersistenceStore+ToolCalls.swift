@@ -19,6 +19,83 @@ extension PersistenceStore {
         }
     }
 
+    /// Atomically creates a model-visible rejection for a call that never reached a
+    /// registered executor. This is intentionally separate from `complete`: unknown
+    /// tools remain an error at the direct ToolRuntime boundary, while a provider batch
+    /// still needs a durable result before it can continue.
+    func createRejectedToolCall(
+        _ toolCall: ToolCallRecord,
+        result: ToolResultRecord
+    ) throws {
+        guard toolCall.state == .rejected, result.toolCallID == toolCall.id else {
+            throw PersistenceError.invalidTransition(
+                "createRejectedToolCall requires a rejected call and matching result"
+            )
+        }
+        try database.write { db in
+            try toolCall.insert(db)
+            try result.insert(db)
+        }
+    }
+
+    /// Stops a call without inventing a successful outcome. A call that has not crossed
+    /// the dispatch marker becomes `notExecuted`; one that has crossed it becomes
+    /// `indeterminate` because cancellation cannot prove whether its side effect landed.
+    func settleToolCallForCancellation(id: String, at now: Date = Date()) throws {
+        try database.write { db in
+            guard let call = try ToolCallRecord.fetchOne(db, key: id) else {
+                throw PersistenceError.toolCallNotFound(id)
+            }
+
+            let nextState: ToolCallState?
+            switch call.state {
+            case .validated, .waitingForApproval, .waitingForSystemPermissionConsent,
+                 .approved, .prepared:
+                nextState = .notExecuted
+            case .dispatched:
+                nextState = .indeterminate
+            case .succeeded, .failed, .rejected, .cancelled, .notExecuted, .indeterminate:
+                nextState = nil
+            }
+
+            guard let nextState else { return }
+            try db.execute(
+                sql: "UPDATE toolCall SET state = ?, updatedAt = ? WHERE id = ?",
+                arguments: [nextState.rawValue, now, id]
+            )
+        }
+    }
+
+    /// Marks a dispatched call indeterminate when its executor stops before reporting
+    /// whether the external side effect landed.
+    func markToolCallIndeterminate(id: String, at now: Date = Date()) throws {
+        try database.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE toolCall
+                    SET state = ?, updatedAt = ?
+                    WHERE id = ? AND state = ?
+                    """,
+                arguments: [
+                    ToolCallState.indeterminate.rawValue,
+                    now,
+                    id,
+                    ToolCallState.dispatched.rawValue,
+                ]
+            )
+            if db.changesCount == 0 {
+                guard let call = try ToolCallRecord.fetchOne(db, key: id) else {
+                    throw PersistenceError.toolCallNotFound(id)
+                }
+                guard call.state == .indeterminate else {
+                    throw PersistenceError.invalidTransition(
+                        "only a dispatched tool call can become indeterminate"
+                    )
+                }
+            }
+        }
+    }
+
     func toolResult(toolCallID: String) throws -> ToolResultRecord? {
         try database.read { db in
             try ToolResultRecord.fetchOne(db, key: toolCallID)

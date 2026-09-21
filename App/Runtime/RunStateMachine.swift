@@ -21,7 +21,7 @@ struct RunStateMachine: Sendable {
         case .waitingForApproval:
             return [.executingTools, .continuing, .stopping, .suspended, .failed]
         case .executingTools:
-            return [.continuing, .stopping, .suspended, .failed]
+            return [.waitingForApproval, .continuing, .stopping, .suspended, .failed]
         case .continuing:
             return [.requestingModel, .stopping, .suspended, .failed]
         case .stopping:

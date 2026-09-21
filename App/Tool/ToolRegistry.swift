@@ -64,6 +64,12 @@ struct ToolRegistry: Sendable {
     private let executorsByID: [String: any ToolExecutable]
     let descriptors: [ToolDescriptor]
 
+    static let empty: ToolRegistry = {
+        // The empty registry is the safe default for callers that have not exposed a
+        // tool surface yet. Stage 2 callers can still inject an explicit registry.
+        try! ToolRegistry(tools: [])
+    }()
+
     init(tools: [any ToolExecutable]) throws {
         var executorsByID: [String: any ToolExecutable] = [:]
         var descriptors: [ToolDescriptor] = []
