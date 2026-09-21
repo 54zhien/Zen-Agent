@@ -24,6 +24,7 @@ struct ModelCapabilityTests {
             .text,
             .streaming,
             .reasoning,
+            .tools,
         ]
 
         #expect(models.count == DeepSeekProvider.modelIDs.count)
