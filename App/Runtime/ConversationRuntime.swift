@@ -12,6 +12,7 @@ actor ConversationRuntime {
     private let provider: any ModelProvider
     private let credentials: any CredentialStoring
     private let agentRuntime: AgentRuntime
+    private let toolRegistry: ToolRegistry
     private let onEvent: @Sendable (AgentEvent) async -> Void
 
     private var operations: [String: Task<Void, Never>] = [:]
@@ -20,15 +21,23 @@ actor ConversationRuntime {
         store: PersistenceStore,
         provider: any ModelProvider,
         credentials: any CredentialStoring,
-        onEvent: @escaping @Sendable (AgentEvent) async -> Void = { _ in }
+        onEvent: @escaping @Sendable (AgentEvent) async -> Void = { _ in },
+        toolRegistry: ToolRegistry? = nil,
+        toolRuntime: ToolRuntime? = nil
     ) {
         self.store = store
         self.provider = provider
         self.credentials = credentials
+        let resolvedRegistry = toolRegistry ?? ToolRegistry.empty
+        self.toolRegistry = resolvedRegistry
         self.agentRuntime = AgentRuntime(
             store: store,
             provider: provider,
-            credentials: credentials
+            credentials: credentials,
+            toolRuntime: toolRuntime ?? ToolRuntime(
+                store: store,
+                registry: resolvedRegistry
+            )
         )
         self.onEvent = onEvent
     }
@@ -173,7 +182,15 @@ actor ConversationRuntime {
                 providerAdapterInstructions: provider.adapterPromptInstructions
             ),
             modelCapabilities: descriptor.capabilities,
-            exposedTools: [],
+            exposedTools: toolRegistry.descriptors.map {
+                ToolExposureSnapshot(
+                    toolID: $0.id,
+                    descriptorRevision: $0.revision,
+                    displayName: $0.displayName,
+                    description: $0.description,
+                    inputSchema: $0.inputSchema
+                )
+            },
             maxProviderSteps: command.maxProviderSteps
         )
         do {
@@ -198,7 +215,14 @@ actor ConversationRuntime {
         // 12. Only now may AgentRuntime advance the Run into provider execution.
         let request = ProviderChatRequest(
             modelID: command.modelID,
-            messages: [.user(command.text)]
+            messages: [.user(command.text)],
+            tools: toolRegistry.descriptors.map {
+                ProviderToolDefinition(
+                    name: $0.id,
+                    description: $0.description,
+                    parameters: $0.inputSchema
+                )
+            }
         )
         let agent = agentRuntime
         let stream = await agent.advance(
@@ -239,6 +263,16 @@ actor ConversationRuntime {
     /// flushed the open part.
     func stop(runID: String) async throws {
         try await agentRuntime.stop(runID: runID)
+    }
+
+    /// Resolves an approval gate without creating a replacement ToolCall.
+    func approve(toolCallID: String) async throws {
+        try await agentRuntime.approveToolCall(toolCallID: toolCallID)
+    }
+
+    /// Persists a real rejection and lets the waiting batch continue in order.
+    func reject(toolCallID: String) async throws -> ToolExecutionResult {
+        try await agentRuntime.rejectToolCall(toolCallID: toolCallID)
     }
 
     // MARK: - AgentEvent projection
@@ -294,13 +328,105 @@ actor ConversationRuntime {
         case .messagePartCompleted(_, let partID, let state):
             try store.finishPart(id: partID, state: state)
 
+        case .toolCallChanged(let runID, let toolCallID, _):
+            try materializeToolParts(runID: runID, providerCallID: toolCallID)
+
         case .runAccepted,
              .runStateChanged,
-             .toolCallChanged,
              .approvalRequired,
              .runEnded:
             break
         }
+    }
+
+    /// Tool message parts deliberately carry only the stable provider call identity.
+    /// The ToolCall and ToolResult rows remain the source of truth for state and body.
+    private func materializeToolParts(runID: String, providerCallID: String) throws {
+        guard let run = try store.run(id: runID) else {
+            throw PersistenceError.runNotFound(runID)
+        }
+        let response = try store.ensureAssistantResponse(
+            forRunID: runID,
+            messageID: run.responseMessageID ?? "assistant-\(runID)"
+        )
+        guard let call = try store.toolCalls(inRun: runID).first(where: {
+            $0.providerCallID == providerCallID || $0.id == providerCallID
+        }) else { return }
+
+        let callsInBatch: [ToolCallRecord]
+        if let batchID = call.batchID {
+            callsInBatch = try store.toolCalls(inRun: runID).filter { $0.batchID == batchID }
+                .sorted { ($0.batchSequence ?? 0) < ($1.batchSequence ?? 0) }
+        } else {
+            callsInBatch = [call]
+        }
+
+        for batchCall in callsInBatch {
+            let reference = batchCall.providerCallID ?? batchCall.id
+            let parts = try store.parts(ofMessage: response.id)
+            let hasCallPart = parts.contains { part in
+                guard part.kind == .toolCall else { return false }
+                return (try? decodeToolCallPayload(part.payload).toolCallID) == reference
+            }
+            if !hasCallPart {
+                try store.createPart(
+                    MessagePartRecord(
+                        id: "tool-call-\(runID)-\(batchCall.id)",
+                        messageID: response.id,
+                        sequence: nextPartSequence(messageID: response.id),
+                        kind: .toolCall,
+                        state: .completed,
+                        payload: try encodeToolCallPayload(
+                            ToolCallPartPayload(toolCallID: reference)
+                        )
+                    )
+                )
+            }
+        }
+
+        guard try store.toolResult(toolCallID: call.id) != nil else { return }
+        let reference = call.providerCallID ?? call.id
+        let hasResultPart = try store.parts(ofMessage: response.id).contains { part in
+            guard part.kind == .toolResult else { return false }
+            return (try? decodeToolResultPayload(part.payload).toolCallID) == reference
+        }
+        guard !hasResultPart else { return }
+        try store.createPart(
+            MessagePartRecord(
+                id: "tool-result-\(runID)-\(call.id)",
+                messageID: response.id,
+                sequence: nextPartSequence(messageID: response.id),
+                kind: .toolResult,
+                state: .completed,
+                payload: try encodeToolResultPayload(
+                    ToolResultPartPayload(toolCallID: reference)
+                )
+            )
+        )
+    }
+
+    private func nextPartSequence(messageID: String) throws -> Int {
+        (try store.parts(ofMessage: messageID).map(\.sequence).max() ?? -1) + 1
+    }
+
+    private func encodeToolCallPayload(_ payload: ToolCallPartPayload) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return String(decoding: try encoder.encode(payload), as: UTF8.self)
+    }
+
+    private func decodeToolCallPayload(_ payload: String) throws -> ToolCallPartPayload {
+        try JSONDecoder().decode(ToolCallPartPayload.self, from: Data(payload.utf8))
+    }
+
+    private func encodeToolResultPayload(_ payload: ToolResultPartPayload) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return String(decoding: try encoder.encode(payload), as: UTF8.self)
+    }
+
+    private func decodeToolResultPayload(_ payload: String) throws -> ToolResultPartPayload {
+        try JSONDecoder().decode(ToolResultPartPayload.self, from: Data(payload.utf8))
     }
 
     private func runID(from event: AgentEvent) -> String {

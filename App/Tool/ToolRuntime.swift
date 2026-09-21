@@ -86,6 +86,82 @@ final class ToolRuntime: @unchecked Sendable {
         return try await executePrepared(toolCallID: callID, at: now)
     }
 
+    /// Converts an unavailable provider call into a durable model-visible rejection.
+    /// The direct `complete` API remains strict and reports `unknownTool`; the Agent
+    /// Runtime uses this path so one rejected call does not discard the rest of a
+    /// provider batch.
+    func rejectUnknown(
+        agentRunID: String,
+        providerCallID: String,
+        toolID: String,
+        batchID: String,
+        batchSequence: Int,
+        at now: Date = Date()
+    ) throws -> ToolExecutionResult {
+        let callID = UUID().uuidString
+        let result = ToolExecutionResult(
+            content: "Tool execution was rejected: the tool is not available."
+        )
+        try store.createRejectedToolCall(
+            ToolCallRecord(
+                id: callID,
+                agentRunID: agentRunID,
+                action: toolID,
+                state: .rejected,
+                executionIntent: nil,
+                attempt: 1,
+                providerCallID: providerCallID,
+                batchID: batchID,
+                batchSequence: batchSequence,
+                createdAt: now,
+                updatedAt: now
+            ),
+            result: ToolResultRecord(
+                toolCallID: callID,
+                payload: result.content,
+                createdAt: now
+            )
+        )
+        return result
+    }
+
+    /// Settles one call when a parent stop interrupts a serial batch. Calls that have
+    /// not crossed dispatch are safe `notExecuted`; dispatched calls remain
+    /// `indeterminate` because cancellation cannot prove the external side effect.
+    func settleForCancellation(
+        agentRunID: String,
+        providerCallID: String,
+        toolID: String,
+        batchID: String,
+        batchSequence: Int,
+        at now: Date = Date()
+    ) throws {
+        if let call = try store.toolCalls(inRun: agentRunID).first(where: {
+            $0.providerCallID == providerCallID &&
+                $0.batchID == batchID &&
+                $0.batchSequence == batchSequence
+        }) {
+            try store.settleToolCallForCancellation(id: call.id, at: now)
+            return
+        }
+
+        try store.createToolCall(
+            ToolCallRecord(
+                id: UUID().uuidString,
+                agentRunID: agentRunID,
+                action: toolID,
+                state: .notExecuted,
+                executionIntent: nil,
+                attempt: 1,
+                providerCallID: providerCallID,
+                batchID: batchID,
+                batchSequence: batchSequence,
+                createdAt: now,
+                updatedAt: now
+            )
+        )
+    }
+
     /// Records approval on the existing waiting call. Execution is intentionally a
     /// separate operation so approval presentation cannot accidentally cross the
     /// durable-dispatch boundary.
@@ -164,6 +240,10 @@ final class ToolRuntime: @unchecked Sendable {
                 idempotencyKey: call.id
             )
         } catch {
+            if error is CancellationError || Task.isCancelled {
+                try? store.markToolCallIndeterminate(id: call.id, at: now)
+                throw error
+            }
             let failureResult = ToolExecutionResult(
                 content: "Tool execution failed: \(String(describing: error))"
             )
