@@ -104,6 +104,83 @@ struct MigrationTests {
         )
     }
 
+    @Test("V6 → V7 adds tool continuation state and preserves existing tool calls")
+    func v6ToV7PreservesExistingToolCalls() throws {
+        let database = try DatabaseQueue()
+        var v6Migrator = DatabaseMigrator()
+        Migrations.registerV1(&v6Migrator)
+        Migrations.registerV2(&v6Migrator)
+        Migrations.registerV3(&v6Migrator)
+        Migrations.registerV4(&v6Migrator)
+        Migrations.registerV5(&v6Migrator)
+        Migrations.registerV6(&v6Migrator)
+        try v6Migrator.migrate(database)
+
+        let store = PersistenceStore(database: database)
+        try store.commitUserTurnAndCreateParentRun(
+            Fixtures.send(messageID: "m-v6", runID: "run-v6")
+        )
+        let oldDate = Date(timeIntervalSince1970: 1_600_000_000)
+        try database.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO toolCall
+                    (id, agentRunID, action, state, executionIntent, attempt, createdAt, updatedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                arguments: StatementArguments([
+                    "call-v6", "run-v6", "legacy", ToolCallState.prepared.rawValue,
+                    "{}", 1, oldDate, oldDate,
+                ])
+            )
+        }
+
+        try Migrations.makeMigrator().migrate(database)
+
+        let oldCall = try database.read { db in
+            try ToolCallRecord.fetchOne(db, key: "call-v6")
+        }
+        #expect(oldCall?.id == "call-v6")
+        #expect(oldCall?.providerCallID == nil)
+        #expect(oldCall?.batchID == nil)
+        #expect(oldCall?.batchSequence == nil)
+        #expect(try database.read { db in try db.tableExists("toolResult") })
+
+        let newCall = ToolCallRecord(
+            id: "call-v7",
+            agentRunID: "run-v6",
+            action: "stage2",
+            state: .succeeded,
+            executionIntent: "{}",
+            attempt: 1,
+            providerCallID: "provider-v7",
+            batchID: "batch-v7",
+            batchSequence: 4,
+            createdAt: oldDate,
+            updatedAt: oldDate
+        )
+        let newResult = ToolResultRecord(
+            toolCallID: newCall.id,
+            payload: "round trip",
+            createdAt: oldDate
+        )
+        try database.write { db in
+            try newCall.insert(db)
+            try newResult.insert(db)
+        }
+
+        let roundTrip = try database.read { db in
+            (
+                try ToolCallRecord.fetchOne(db, key: newCall.id),
+                try ToolResultRecord.fetchOne(db, key: newCall.id)
+            )
+        }
+        #expect(roundTrip.0?.providerCallID == "provider-v7")
+        #expect(roundTrip.0?.batchID == "batch-v7")
+        #expect(roundTrip.0?.batchSequence == 4)
+        #expect(roundTrip.1?.payload == "round trip")
+    }
+
     // MARK: D1
 
     @Test("V1 → V2 applies, and existing rows survive")
