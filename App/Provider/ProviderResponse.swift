@@ -55,3 +55,10 @@ struct ProviderTokenUsage: Sendable, Equatable {
     var completionTokens: Int
     var totalTokens: Int
 }
+
+enum ProviderStreamEvent: Sendable, Equatable {
+    case textDelta(String)
+    case reasoningDelta(String)
+    case finish(FinishReason)
+    case usage(ProviderTokenUsage)
+}

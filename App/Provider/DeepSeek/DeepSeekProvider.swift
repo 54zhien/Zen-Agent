@@ -2,8 +2,8 @@ import Foundation
 
 /// The DeepSeek adapter.
 ///
-/// Two ways in, one shape: `complete` returns a whole response, `stream` yields DeepSeek's
-/// chunks as they arrive. Both verify the frozen configuration before resolving a secret,
+/// Two ways in, one shape: `complete` returns a whole response, `stream` yields normalized
+/// provider events as they arrive. Both verify the frozen configuration before resolving a secret,
 /// both build their request from the same endpoint resolution, and neither retries.
 ///
 /// It speaks `ModelProvider` and `HTTPTransport`, so it neither invents its own protocol
@@ -130,12 +130,10 @@ struct DeepSeekProvider: ModelProvider {
 
     // MARK: - Streaming completion
 
-    /// Streams one chat completion, yielding DeepSeek's own chunks.
+    /// Streams one chat completion, yielding provider-neutral events.
     ///
-    /// **Raw, not normalised.** These elements are DeepSeek's wire shape. Mapping them
-    /// onto something provider-neutral is its own increment, and doing it here would
-    /// mean designing that vocabulary against a single provider — which is exactly what
-    /// these increments exist to avoid.
+    /// DeepSeek's wire shape stays inside this adapter. The stream exposes only the
+    /// provider-neutral contract declared by `ModelProvider`.
     ///
     /// The order matches `complete`: verify the frozen configuration, resolve the
     /// secret, build the request, then send. Nothing reaches the network for a run that
@@ -150,7 +148,7 @@ struct DeepSeekProvider: ModelProvider {
         seed: RequestConfigSeed,
         instance: ProviderInstance,
         credentials: any CredentialStoring
-    ) async throws -> AsyncThrowingStream<DeepSeekStreamChunk, Error> {
+    ) async throws -> AsyncThrowingStream<ProviderStreamEvent, Error> {
         try FrozenConfiguration.validate(
             seed: seed,
             modelID: request.modelID,
@@ -176,10 +174,10 @@ struct DeepSeekProvider: ModelProvider {
             throw Self.providerError(from: error, deliveredOutput: false, redacting: secret)
         }
 
-        return Self.chunks(from: upstream, timeouts: streamTimeouts, redacting: secret)
+        return Self.events(from: upstream, timeouts: streamTimeouts, redacting: secret)
     }
 
-    /// Reassembles DeepSeek's chunks out of the byte stream.
+    /// Reassembles DeepSeek's provider-neutral events out of the byte stream.
     ///
     /// The three layers are composed here and nowhere else: bytes from the transport,
     /// SSE framing from the parser, and DeepSeek's JSON from `decodeStreamChunk`. Each
@@ -195,11 +193,11 @@ struct DeepSeekProvider: ModelProvider {
     /// `redacting` is carried because failures raised after streaming begins can still
     /// contain a refused response body. The value is captured in memory for this stream's
     /// error mapping; it is not persisted or returned as part of the resulting error.
-    private static func chunks(
+    private static func events(
         from upstream: HTTPStream,
         timeouts: StreamTimeoutPolicy,
         redacting secret: SecretValue
-    ) -> AsyncThrowingStream<DeepSeekStreamChunk, Error> {
+    ) -> AsyncThrowingStream<ProviderStreamEvent, Error> {
         let progress = StreamProgress()
 
         return AsyncThrowingStream { continuation in
@@ -262,7 +260,9 @@ struct DeepSeekProvider: ModelProvider {
                                         // never be caught, and the run would hang with
                                         // nothing produced.
                                         if Self.carriesOutput(decoded) { progress.advanced() }
-                                        continuation.yield(decoded)
+                                        for event in Self.normalizedEvents(from: decoded) {
+                                            continuation.yield(event)
+                                        }
                                     }
                                 }
                             }
@@ -303,6 +303,29 @@ struct DeepSeekProvider: ModelProvider {
     static func carriesOutput(_ chunk: DeepSeekStreamChunk) -> Bool {
         guard let delta = chunk.choices?.first?.delta else { return false }
         return !(delta.content ?? "").isEmpty || !(delta.reasoning_content ?? "").isEmpty
+    }
+
+    static func normalizedEvents(from chunk: DeepSeekStreamChunk) -> [ProviderStreamEvent] {
+        var events: [ProviderStreamEvent] = []
+
+        if let reasoning = chunk.choices?.first?.delta?.reasoning_content, !reasoning.isEmpty {
+            events.append(.reasoningDelta(reasoning))
+        }
+        if let text = chunk.choices?.first?.delta?.content, !text.isEmpty {
+            events.append(.textDelta(text))
+        }
+        if let finishReason = chunk.choices?.first?.finish_reason {
+            events.append(.finish(FinishReason(wire: finishReason)))
+        }
+        if let usage = chunk.usage {
+            events.append(.usage(ProviderTokenUsage(
+                promptTokens: usage.prompt_tokens ?? 0,
+                completionTokens: usage.completion_tokens ?? 0,
+                totalTokens: usage.total_tokens ?? 0
+            )))
+        }
+
+        return events
     }
 
     /// One event payload to one chunk.

@@ -2,7 +2,7 @@ import Foundation
 
 /// A Provider that answers without network, deterministically.
 ///
-/// It implements `ModelProvider` — the same protocol a real adapter will — so a test
+/// It implements `ModelProvider` — the same protocol a real adapter does — so a test
 /// that passes against this one is testing the seam rather than a stand-in for it. That
 /// is the whole point of building it now: the DeepSeek adapter should slot into a
 /// protocol that already has a passing implementation, rather than the protocol being
@@ -19,18 +19,21 @@ import Foundation
 /// | model exists | it is in `models` |
 /// | unknown model | it is not — and the answer is `nil`, not a guess |
 ///
-/// It does **not** simulate streaming. There is no transport yet, and a fake that
-/// pretended to stream would be shaping the event model before the real events exist.
 struct FakeProvider: ModelProvider {
     let id: ProviderID
     private let models: [ModelDescriptor]
+    private let scriptedEvents: [ProviderStreamEvent]
 
     init(
         id: ProviderID = .deepSeek,
         instanceID: ProviderInstanceID = ProviderInstanceID(rawValue: "fake-instance"),
-        modelNames: [String] = ["fake-model"]
+        modelNames: [String] = ["fake-model"],
+        scriptedEvents: [ProviderStreamEvent] = [
+            .textDelta("fake")
+        ]
     ) {
         self.id = id
+        self.scriptedEvents = scriptedEvents
         self.models = modelNames.map {
             ModelDescriptor(
                 id: ModelID(rawValue: $0),
@@ -54,5 +57,23 @@ struct FakeProvider: ModelProvider {
 
     func descriptor(for modelID: ModelID, in instance: ProviderInstance) -> ModelDescriptor? {
         knownModels(for: instance).first { $0.id == modelID }
+    }
+
+    func stream(
+        _ request: ProviderChatRequest,
+        seed: RequestConfigSeed,
+        instance: ProviderInstance,
+        credentials: any CredentialStoring
+    ) async throws -> AsyncThrowingStream<ProviderStreamEvent, Error> {
+        guard descriptor(for: request.modelID, in: instance) != nil else {
+            throw ProviderError.invalidRequest("unknown model \(request.modelID.rawValue)")
+        }
+
+        return AsyncThrowingStream { continuation in
+            for event in scriptedEvents {
+                continuation.yield(event)
+            }
+            continuation.finish()
+        }
     }
 }

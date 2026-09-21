@@ -20,8 +20,7 @@ struct ModelDescriptor: Codable, Sendable, Equatable, Identifiable {
 /// What a Provider implementation must be able to answer.
 ///
 /// Deliberately small. This increment establishes the seam a real adapter will slot
-/// into; it has no request method, because there is no transport yet, and adding one
-/// before the transport exists would mean designing it against a guess.
+/// into for both model discovery and provider-neutral streaming.
 ///
 /// One protocol, not a provider framework. The product needs several Providers, not a
 /// plugin system — no type erasure layer, no registry of factories, no dependency
@@ -43,4 +42,11 @@ protocol ModelProvider: Sendable {
     /// and the notes are explicit that unknown capability must not be guessed
     /// (`Provider 与模型.md:120`).
     func descriptor(for modelID: ModelID, in instance: ProviderInstance) -> ModelDescriptor?
+
+    func stream(
+        _ request: ProviderChatRequest,
+        seed: RequestConfigSeed,
+        instance: ProviderInstance,
+        credentials: any CredentialStoring
+    ) async throws -> AsyncThrowingStream<ProviderStreamEvent, Error>
 }
