@@ -31,21 +31,23 @@ final class I05BlockingStreamBox: @unchecked Sendable {
     }
 
     func waitUntilReady() async {
-        lock.lock()
-        if continuation != nil {
-            lock.unlock()
+        let alreadyReady = lock.withLock { continuation != nil }
+        if alreadyReady {
             return
         }
-        lock.unlock()
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            lock.lock()
-            if self.continuation != nil {
-                lock.unlock()
-                continuation.resume()
-            } else {
+            let alreadyReady = lock.withLock {
+                if self.continuation != nil {
+                    return true
+                }
+
                 readyWaiters.append(continuation)
-                lock.unlock()
+                return false
+            }
+
+            if alreadyReady {
+                continuation.resume()
             }
         }
     }
@@ -58,21 +60,23 @@ final class I05BlockingStreamBox: @unchecked Sendable {
     }
 
     func waitUntilCancelled() async {
-        lock.lock()
-        if cancellationCount > 0 {
-            lock.unlock()
+        let alreadyCancelled = lock.withLock { cancellationCount > 0 }
+        if alreadyCancelled {
             return
         }
-        lock.unlock()
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            lock.lock()
-            if cancellationCount > 0 {
-                lock.unlock()
-                continuation.resume()
-            } else {
+            let alreadyCancelled = lock.withLock {
+                if cancellationCount > 0 {
+                    return true
+                }
+
                 cancellationWaiters.append(continuation)
-                lock.unlock()
+                return false
+            }
+
+            if alreadyCancelled {
+                continuation.resume()
             }
         }
     }
