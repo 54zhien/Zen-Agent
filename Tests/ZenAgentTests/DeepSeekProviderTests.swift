@@ -171,12 +171,13 @@ struct DeepSeekProviderTests {
 
     private func makeFixture(
         modelID: ModelID = ModelID(rawValue: "deepseek-flash"),
-        model: String = "deepseek-flash"
+        model: String = "deepseek-flash",
+        secret: String = "sk-test-9f3a7c"
     ) throws -> Fixture {
         let secrets = InMemorySecretBackend()
         let metadata = InMemoryCredentialMetadataRepository()
         let credentials = CredentialStore(secrets: secrets, metadataRepository: metadata)
-        try credentials.provision(SecretValue("sk-test-9f3a7c"), as: CredentialReference(id: "cred-1"))
+        try credentials.provision(SecretValue(secret), as: CredentialReference(id: "cred-1"))
 
         let instance = ProviderInstance(
             id: ProviderInstanceID(rawValue: "pi-1"),
@@ -749,6 +750,223 @@ struct DeepSeekProviderTests {
             failure = error
         }
         #expect(!String(describing: failure).contains(marker), "an error description leaked the secret")
+    }
+
+    // MARK: - Provider diagnostics
+
+    @Test("a provider echo does not put the sent credential into the error")
+    func echoedCredentialIsRedacted() async throws {
+        let f = try makeFixture()
+        let stored = try f.credentials.resolve(f.reference)
+        let secret = try #require(stored).revealed
+
+        f.transport.enqueue(status: 400, json: """
+        {"error":{"message":"your key is not valid: Authorization: Bearer \(secret)"}}
+        """)
+
+        var failure: ProviderError?
+        do {
+            _ = try await f.provider.complete(
+                request(),
+                seed: f.seed,
+                instance: f.instance,
+                credentials: f.credentials
+            )
+        } catch let error as ProviderError {
+            failure = error
+        }
+
+        let refusal = try #require(failure, "a 400 must be refused as a ProviderError")
+        let sent = try #require(f.transport.lastRequest)
+        #expect(sent.headers["Authorization"] == "Bearer \(secret)")
+
+        // These are two common stringification entry points that must remain safe.
+        #expect(!String(describing: refusal).contains(secret))
+        #expect(!String(reflecting: refusal).contains(secret))
+        #expect(
+            refusal == .invalidRequest("your key is not valid: Authorization: Bearer <redacted>"),
+            "got \(String(describing: refusal))"
+        )
+    }
+
+    @Test("a bearer token that is not this run's is folded too")
+    func unrelatedBearerTokenIsFolded() async throws {
+        let f = try makeFixture()
+        let stored = try f.credentials.resolve(f.reference)
+        let mine = try #require(stored).revealed
+        let anotherAccount = "sk-4b21e0-not-this-run"
+        #expect(anotherAccount != mine)
+
+        f.transport.enqueue(status: 400, json: """
+        {"error":{"message":"upstream rejected Authorization: Bearer \(anotherAccount) for this route"}}
+        """)
+
+        var failure: ProviderError?
+        do {
+            _ = try await f.provider.complete(
+                request(),
+                seed: f.seed,
+                instance: f.instance,
+                credentials: f.credentials
+            )
+        } catch let error as ProviderError {
+            failure = error
+        }
+
+        let refusal = try #require(failure, "a 400 must be refused as a ProviderError")
+        #expect(
+            refusal == .invalidRequest("upstream rejected Authorization: Bearer <redacted> for this route"),
+            "got \(String(describing: refusal))"
+        )
+        #expect(!String(describing: refusal).contains(anotherAccount))
+        #expect(!String(reflecting: refusal).contains(anotherAccount))
+    }
+
+    @Test("an empty secret leaves the diagnostic alone rather than shredding it")
+    func emptySecretDoesNotShredTheDiagnostic() async throws {
+        let f = try makeFixture(secret: "")
+        f.transport.enqueue(status: 400, json: #"{"error":{"message":"model is required"}}"#)
+
+        var failure: ProviderError?
+        do {
+            _ = try await f.provider.complete(
+                request(),
+                seed: f.seed,
+                instance: f.instance,
+                credentials: f.credentials
+            )
+        } catch let error as ProviderError {
+            failure = error
+        }
+
+        let refusal = try #require(failure, "a 400 must be refused as a ProviderError")
+        #expect(refusal == .invalidRequest("model is required"))
+    }
+
+    @Test("a non-empty whitespace secret is redacted exactly")
+    func nonEmptyWhitespaceSecretIsRedacted() async throws {
+        let f = try makeFixture(secret: " ")
+        f.transport.enqueue(status: 400, json: #"{"error":{"message":"prefix suffix"}}"#)
+
+        var failure: ProviderError?
+        do {
+            _ = try await f.provider.complete(
+                request(),
+                seed: f.seed,
+                instance: f.instance,
+                credentials: f.credentials
+            )
+        } catch let error as ProviderError {
+            failure = error
+        }
+
+        let refusal = try #require(failure, "a 400 must be refused as a ProviderError")
+        #expect(refusal == .invalidRequest("prefix<redacted>suffix"))
+    }
+
+    @Test("bearer inside a longer word is not treated as an auth scheme")
+    func bearerInsideALongerWordIsNotFolded() async throws {
+        let f = try makeFixture()
+        f.transport.enqueue(status: 400, json: #"{"error":{"message":"notbearer token remains readable"}}"#)
+
+        var failure: ProviderError?
+        do {
+            _ = try await f.provider.complete(
+                request(),
+                seed: f.seed,
+                instance: f.instance,
+                credentials: f.credentials
+            )
+        } catch let error as ProviderError {
+            failure = error
+        }
+
+        let refusal = try #require(failure, "a 400 must be refused as a ProviderError")
+        #expect(refusal == .invalidRequest("notbearer token remains readable"))
+    }
+
+    @Test("the word bearer on its own is not a header")
+    func bearerWithoutATokenIsLeftAlone() async throws {
+        let f = try makeFixture()
+        f.transport.enqueue(status: 400, json: #"{"error":{"message":"the request carried no bearer"}}"#)
+
+        var failure: ProviderError?
+        do {
+            _ = try await f.provider.complete(
+                request(),
+                seed: f.seed,
+                instance: f.instance,
+                credentials: f.credentials
+            )
+        } catch let error as ProviderError {
+            failure = error
+        }
+
+        let refusal = try #require(failure, "a 400 must be refused as a ProviderError")
+        #expect(refusal == .invalidRequest("the request carried no bearer"))
+    }
+
+    @Test("a timed-out refused body still redacts the run secret")
+    func errorBodyTimeoutDiagnosticRedactsTheRunSecret() async throws {
+        let f = try makeFixture()
+        let stored = try f.credentials.resolve(f.reference)
+        let secret = try #require(stored).revealed
+        let response = HTTPResponse(
+            status: 400,
+            json: """
+            {"error":{"message":"timed out after Authorization: Bearer \(secret)"}}
+            """
+        )
+
+        f.transport.fail(with: .errorBodyTimeout(response, after: .milliseconds(900)))
+
+        var failure: ProviderError?
+        do {
+            _ = try await f.provider.complete(
+                request(),
+                seed: f.seed,
+                instance: f.instance,
+                credentials: f.credentials
+            )
+        } catch let error as ProviderError {
+            failure = error
+        }
+
+        let refusal = try #require(failure, "a timed-out body must map to a ProviderError")
+        #expect(
+            refusal == .invalidRequest("timed out after Authorization: Bearer <redacted>")
+        )
+        #expect(!String(describing: refusal).contains(secret))
+        #expect(!String(reflecting: refusal).contains(secret))
+    }
+
+    @Test("a credential cut by the length bound leaves no fragment")
+    func truncationCannotLeaveAFragmentOfTheCredential() async throws {
+        let f = try makeFixture()
+        let stored = try f.credentials.resolve(f.reference)
+        let secret = try #require(stored).revealed
+        let padding = String(repeating: "x", count: 194)
+
+        f.transport.enqueue(status: 400, json: """
+        {"error":{"message":"\(padding)\(secret) is not a valid key"}}
+        """)
+
+        var failure: ProviderError?
+        do {
+            _ = try await f.provider.complete(
+                request(),
+                seed: f.seed,
+                instance: f.instance,
+                credentials: f.credentials
+            )
+        } catch let error as ProviderError {
+            failure = error
+        }
+
+        let refusal = try #require(failure, "a 400 must be refused as a ProviderError")
+        let rendered = String(describing: refusal)
+        #expect(!rendered.contains(secret))
+        #expect(!rendered.contains(String(secret.prefix(4))))
     }
 
     // MARK: - The full path

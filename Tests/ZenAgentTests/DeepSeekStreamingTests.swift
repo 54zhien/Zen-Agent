@@ -320,6 +320,9 @@ struct DeepSeekStreamingTests {
 
     @Test("a parser failure becomes a Zen error, and an unterminated one keeps its distinction")
     func parserFailuresAreMapped() {
+        // Parser failures use fixed mappings and carry no provider response body, so they
+        // deliberately use the dedicated two-argument overload. There is no diagnostic
+        // text here that needs the run secret.
         #expect(
             DeepSeekProvider.providerError(from: .invalidUTF8, deliveredOutput: false)
                 == .malformedResponse("a stream event was not valid UTF-8")

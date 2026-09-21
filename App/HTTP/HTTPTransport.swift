@@ -44,9 +44,15 @@ struct HTTPRequest: Sendable {
         sensitiveHeaderNames.contains(name.lowercased())
     }
 
+    /// The marker used whenever a sensitive value is removed from diagnostics.
+    ///
+    /// Keeping the request-side and provider-side redaction markers identical makes the
+    /// two containment boundaries one contract rather than two literals that can drift.
+    static let redactedMarker = "<redacted>"
+
     /// The headers with sensitive values replaced. Safe to log.
     var redactedHeaders: [String: String] {
-        headers.mapValues { _ in "<redacted>" }
+        headers.mapValues { _ in Self.redactedMarker }
             .merging(
                 headers.filter { !Self.isSensitive(header: $0.key) },
                 uniquingKeysWith: { _, safe in safe }

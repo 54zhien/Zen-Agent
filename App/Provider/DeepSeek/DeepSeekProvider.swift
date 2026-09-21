@@ -119,11 +119,11 @@ struct DeepSeekProvider: ModelProvider {
             // a transport-layer type in front of the Runtime — the exact leak this
             // abstraction exists to prevent, and one that would make every later
             // transport's vocabulary the Runtime's problem.
-            throw Self.providerError(from: error, deliveredOutput: false)
+            throw Self.providerError(from: error, deliveredOutput: false, redacting: secret)
         }
 
         guard (200..<300).contains(httpResponse.status) else {
-            throw Self.error(for: httpResponse)
+            throw Self.error(for: httpResponse, redacting: secret)
         }
         return try Self.normalise(httpResponse.body)
     }
@@ -173,10 +173,10 @@ struct DeepSeekProvider: ModelProvider {
         do {
             upstream = try await transport.stream(httpRequest)
         } catch {
-            throw Self.providerError(from: error, deliveredOutput: false)
+            throw Self.providerError(from: error, deliveredOutput: false, redacting: secret)
         }
 
-        return Self.chunks(from: upstream, timeouts: streamTimeouts)
+        return Self.chunks(from: upstream, timeouts: streamTimeouts, redacting: secret)
     }
 
     /// Reassembles DeepSeek's chunks out of the byte stream.
@@ -191,9 +191,14 @@ struct DeepSeekProvider: ModelProvider {
     /// keeps its connection open under the transport's deadline and still runs out the
     /// one here. That separation is the point: the two facts are different, so they get
     /// different timers.
+    ///
+    /// `redacting` is carried because failures raised after streaming begins can still
+    /// contain a refused response body. The value is captured in memory for this stream's
+    /// error mapping; it is not persisted or returned as part of the resulting error.
     private static func chunks(
         from upstream: HTTPStream,
-        timeouts: StreamTimeoutPolicy
+        timeouts: StreamTimeoutPolicy,
+        redacting secret: SecretValue
     ) -> AsyncThrowingStream<DeepSeekStreamChunk, Error> {
         let progress = StreamProgress()
 
@@ -265,11 +270,23 @@ struct DeepSeekProvider: ModelProvider {
                             try parser.finish()
                             continuation.finish()
                         } catch let failure as SSEParserError {
+                            // Parser failures use the dedicated SSEParserError overload.
+                            // They contain no provider response body and already have
+                            // precise ProviderError mappings, so there is no diagnostic text
+                            // here that needs the run secret.
                             continuation.finish(
                                 throwing: providerError(from: failure, deliveredOutput: progress.hasAdvanced)
                             )
                         } catch {
-                            continuation.finish(throwing: providerError(from: error, deliveredOutput: progress.hasAdvanced))
+                            // Other failures may carry a refused response body, so keep the
+                            // run secret on this mapping path for diagnostic redaction.
+                            continuation.finish(
+                                throwing: providerError(
+                                    from: error,
+                                    deliveredOutput: progress.hasAdvanced,
+                                    redacting: secret
+                                )
+                            )
                         }
                     }
                 )
@@ -436,7 +453,11 @@ struct DeepSeekProvider: ModelProvider {
     /// byte count is a different fact. An earlier version forwarded the transport's count
     /// here, which made a stream of keep-alive comments look like a partially delivered
     /// answer and forbade a retry the notes permit.
-    static func providerError(from error: Error, deliveredOutput: Bool) -> ProviderError {
+    static func providerError(
+        from error: Error,
+        deliveredOutput: Bool,
+        redacting secret: SecretValue
+    ) -> ProviderError {
         switch error {
         case let transport as HTTPTransportError:
             switch transport {
@@ -448,7 +469,7 @@ struct DeepSeekProvider: ModelProvider {
                 // The same mapping `complete` applies to a non-streaming response. One
                 // status→error table, used by both paths, so a 401 cannot come to mean
                 // one thing when streamed and another when not.
-                return Self.error(for: response)
+                return Self.error(for: response, redacting: secret)
             case .errorBodyTimeout(let response, _):
                 // The same table again, and for the same reason: the status line
                 // arrived before the body did, so a request that was refused is still
@@ -460,7 +481,7 @@ struct DeepSeekProvider: ModelProvider {
                 // was slow" changes nothing a caller can act on — what it can act on is
                 // the refusal, and this keeps it. The distinction stays where it is
                 // observable, which is the transport and its tests.
-                return Self.error(for: response)
+                return Self.error(for: response, redacting: secret)
             case .inactivityTimeout(let elapsed):
                 // Translated rather than folded into `streamInterrupted`. The two are
                 // diagnosed differently — one is a read timeout or a provider that
@@ -496,10 +517,10 @@ struct DeepSeekProvider: ModelProvider {
     /// text of an associated value but never becomes a type. A DeepSeek error body that
     /// reached the Runtime would make every later Provider's failures a special case of
     /// DeepSeek's.
-    static func error(for response: HTTPResponse) -> ProviderError {
+    static func error(for response: HTTPResponse, redacting secret: SecretValue) -> ProviderError {
         switch response.status {
         case 400:
-            return .invalidRequest(diagnostic(from: response.body))
+            return .invalidRequest(diagnostic(from: response.body, redacting: secret))
         case 401:
             // Only the error changes. Nothing here — and nothing above — may delete the
             // credential, log the user out, or re-provision: a 401 is evidence about the
@@ -508,7 +529,7 @@ struct DeepSeekProvider: ModelProvider {
         case 402:
             return .insufficientBalance
         case 422:
-            return .invalidParameters(diagnostic(from: response.body))
+            return .invalidParameters(diagnostic(from: response.body, redacting: secret))
         case 429:
             return .rateLimited(retryAfter: retryAfter(from: response.headers))
         case 503:
@@ -516,7 +537,7 @@ struct DeepSeekProvider: ModelProvider {
         default:
             return response.status >= 500
                 ? .serverError(status: response.status)
-                : .invalidRequest(diagnostic(from: response.body))
+                : .invalidRequest(diagnostic(from: response.body, redacting: secret))
         }
     }
 
@@ -525,14 +546,87 @@ struct DeepSeekProvider: ModelProvider {
     /// Only the parsed `message` field, truncated — never the raw body, which could be
     /// arbitrarily large and could echo parts of the request. And it is a *value* inside
     /// a Zen error, not a type anything switches on.
-    static func diagnostic(from body: Data) -> String {
+    ///
+    /// The run secret is removed before the length bound is applied. The value is used only
+    /// for this in-memory mapping; it is not persisted or returned separately.
+    static func diagnostic(from body: Data, redacting secret: SecretValue) -> String {
         guard let decoded = try? JSONDecoder().decode(DeepSeekErrorResponse.self, from: body),
               let message = decoded.error?.message,
               !message.isEmpty
         else {
             return "the provider rejected the request without a readable message"
         }
-        return String(message.prefix(200))
+        var text = message
+
+        // Primary defence: replace the actual secret used by this run.
+        // Only the empty string is skipped: replacing an empty pattern would insert the
+        // marker between characters. Any non-empty SecretValue, including whitespace-only
+        // values, is still the run's credential.
+        let raw = secret.revealed
+        if !raw.isEmpty {
+            text = text.replacingOccurrences(
+                of: raw,
+                with: HTTPRequest.redactedMarker
+            )
+        }
+
+        // Secondary defence for a bearer token that is not this run's secret. It is applied
+        // after exact replacement and before shortening, so a cut cannot leave a fragment
+        // that no longer matches the full secret.
+        text = Self.foldingBearerTokens(in: text)
+
+        return String(text.prefix(200))
+    }
+
+    /// Folds every `Bearer <token>` shape back to `Bearer <redacted>`.
+    ///
+    /// The scheme must begin at a string boundary or after a non-word character. It must
+    /// still be followed by at least one whitespace character and a non-empty token.
+    private static func foldingBearerTokens(in message: String) -> String {
+        var folded = ""
+        var cursor = message.startIndex
+
+        while let scheme = message.range(
+            of: "bearer",
+            options: .caseInsensitive,
+            range: cursor..<message.endIndex
+        ) {
+            let afterScheme = scheme.upperBound
+
+            if scheme.lowerBound != message.startIndex {
+                let previousIndex = message.index(before: scheme.lowerBound)
+                let previous = message[previousIndex]
+
+                if previous.isLetter || previous.isNumber || previous == "_" {
+                    folded += message[cursor..<afterScheme]
+                    cursor = afterScheme
+                    continue
+                }
+            }
+
+            var tokenStart = afterScheme
+            while tokenStart < message.endIndex, message[tokenStart].isWhitespace {
+                tokenStart = message.index(after: tokenStart)
+            }
+            var tokenEnd = tokenStart
+            while tokenEnd < message.endIndex, !message[tokenEnd].isWhitespace {
+                tokenEnd = message.index(after: tokenEnd)
+            }
+
+            guard tokenStart > afterScheme, tokenEnd > tokenStart else {
+                folded += message[cursor..<afterScheme]
+                cursor = afterScheme
+                continue
+            }
+
+            folded += message[cursor..<scheme.lowerBound]
+            folded += message[scheme]
+            folded += message[afterScheme..<tokenStart]
+            folded += HTTPRequest.redactedMarker
+            cursor = tokenEnd
+        }
+
+        return folded + message[cursor...]
     }
 
     static func retryAfter(from headers: [String: String]) -> TimeInterval? {
