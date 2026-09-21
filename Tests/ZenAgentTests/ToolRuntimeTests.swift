@@ -24,13 +24,13 @@ final class ToolRuntimeTests: XCTestCase {
             updatedAt: now
         )
         try store.createToolCall(call)
-        try store.finishToolCall(id: call.id, state: .indeterminate, at: now)
+        try store.finishToolCall(id: call.id, state: ToolCallState.indeterminate, at: now)
 
         XCTAssertThrowsError(
             try store.finishDispatchedToolCall(
                 id: call.id,
                 expectedAttempt: 1,
-                state: .succeeded,
+                state: ToolCallState.succeeded,
                 result: ToolResultRecord(
                     toolCallID: call.id,
                     payload: "late",
@@ -39,7 +39,7 @@ final class ToolRuntimeTests: XCTestCase {
                 at: now
             )
         )
-        XCTAssertEqual(try store.toolCall(id: call.id)?.state, .indeterminate)
+        XCTAssertEqual(try store.toolCall(id: call.id)?.state, ToolCallState.indeterminate)
         XCTAssertNil(try store.toolResult(toolCallID: call.id))
     }
 
@@ -64,7 +64,7 @@ final class ToolRuntimeTests: XCTestCase {
         let calls = try store.toolCalls(inRun: "run-runtime")
         XCTAssertEqual(calls.count, 1)
         let call = try XCTUnwrap(calls.first)
-        XCTAssertEqual(call.state, .succeeded)
+        XCTAssertEqual(call.state, ToolCallState.succeeded)
         XCTAssertEqual(call.providerCallID, "provider-runtime")
         XCTAssertEqual(call.batchID, "batch-runtime")
         XCTAssertEqual(call.batchSequence, 2)
@@ -97,12 +97,12 @@ final class ToolRuntimeTests: XCTestCase {
         XCTAssertNil(result)
 
         let waiting = try XCTUnwrap(try store.toolCalls(inRun: "run-approval").first)
-        XCTAssertEqual(waiting.state, .waitingForApproval)
+        XCTAssertEqual(waiting.state, ToolCallState.waitingForApproval)
         try runtime.approve(toolCallID: waiting.id)
 
-        let approved = try XCTUnwrap(try store.toolCall(id: waiting.id))
+        let approved: ToolCallRecord = try XCTUnwrap(try store.toolCall(id: waiting.id))
         XCTAssertEqual(approved.id, waiting.id)
-        XCTAssertEqual(approved.state, .approved)
+        XCTAssertEqual(approved.state, ToolCallState.approved)
         let dispatchCount = await observation.dispatchCount()
         XCTAssertEqual(dispatchCount, 0)
     }
@@ -125,12 +125,12 @@ final class ToolRuntimeTests: XCTestCase {
             batchID: "batch-reject",
             batchSequence: 0
         )
-        let waiting = try XCTUnwrap(try store.toolCalls(inRun: "run-reject").first)
+        let waiting: ToolCallRecord = try XCTUnwrap(try store.toolCalls(inRun: "run-reject").first)
 
         let rejection = try runtime.reject(toolCallID: waiting.id)
-        let settled = try XCTUnwrap(try store.toolCall(id: waiting.id))
+        let settled: ToolCallRecord = try XCTUnwrap(try store.toolCall(id: waiting.id))
         XCTAssertEqual(settled.id, waiting.id)
-        XCTAssertEqual(settled.state, .rejected)
+        XCTAssertEqual(settled.state, ToolCallState.rejected)
         XCTAssertEqual(
             try store.toolResult(toolCallID: waiting.id)?.payload,
             rejection.content
@@ -284,42 +284,18 @@ private struct I06SideEffectTool: ToolExecutable {
     }
 }
 
-private func makeMigratedDatabase() throws -> DatabaseQueue {
-    let database = try DatabaseQueue()
-    try Migrations.makeMigrator().migrate(database)
-    return database
+private func makeMigratedDatabase() throws -> ZenDatabase {
+    try ZenDatabase.inMemory()
 }
 
-private func insertRun(into database: DatabaseQueue, runID: String) throws {
+private func insertRun(into database: ZenDatabase, runID: String) throws {
     try database.write { db in
         try insertRun(into: db, runID: runID)
     }
 }
 
 private func insertRun(into db: Database, runID: String) throws {
-    let now = Date(timeIntervalSince1970: 1_700_000_000)
-    try db.execute(
-        sql: """
-        INSERT INTO conversation
-            (id, title, createdAt, updatedAt, userActiveAt, pinned, lifecycle)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        arguments: StatementArguments([
-            runID + "-conversation", "Test", now, now, now, false, "visible",
-        ])
-    )
-    try db.execute(
-        sql: """
-        INSERT INTO agentRun
-            (id, conversationID, kind, parentRunID, state, endReason, recoveryAction,
-             suspendReason, triggerMessageID, responseMessageID, retryOfRunID,
-             requestConfigSeed, executionSnapshot, createdAt, updatedAt, activeSlot)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        arguments: StatementArguments([
-            runID, runID + "-conversation", RunKind.parent.rawValue, nil,
-            RunState.preparing.rawValue, nil, nil, nil, nil, nil, nil,
-            "{}", nil, now, now, runID + "-conversation",
-        ])
-    )
+    let conversationID = runID + "-conversation"
+    try Fixtures.conversation(id: conversationID).insert(db)
+    try Fixtures.run(id: runID, conversationID: conversationID).insert(db)
 }
