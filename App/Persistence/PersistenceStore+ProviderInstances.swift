@@ -9,7 +9,9 @@ extension PersistenceStore {
 
     func providerInstance(id: ProviderInstanceID) throws -> ProviderInstance? {
         try database.read { db in
-            try ProviderInstanceRecord.fetchOne(db, key: id.rawValue).map(Self.providerInstance(from:))
+            try ProviderInstanceRecord.fetchOne(db, key: id.rawValue).map {
+                try Self.providerInstance(from: $0)
+            }
         }
     }
 
@@ -18,7 +20,7 @@ extension PersistenceStore {
             try ProviderInstanceRecord
                 .order(Column("displayName"))
                 .fetchAll(db)
-                .map(Self.providerInstance(from:))
+                .map { try Self.providerInstance(from: $0) }
         }
     }
 
@@ -115,7 +117,7 @@ extension PersistenceStore {
                 guard let record = try ProviderInstanceRecord.fetchOne(db, key: id.rawValue) else {
                     throw PersistenceError.providerInstanceNotFound(id)
                 }
-                return Self.providerInstance(from: record)
+                return try Self.providerInstance(from: record)
             }
         } catch let error as PersistenceError {
             // Already this layer's vocabulary, and a better diagnosis than the
@@ -244,20 +246,64 @@ extension PersistenceStore {
 
     // MARK: - Row mapping
 
-    private static func providerInstance(from record: ProviderInstanceRecord) -> ProviderInstance {
-        ProviderInstance(
-            id: ProviderInstanceID(rawValue: record.id),
-            providerID: ProviderID(rawValue: record.providerID),
-            displayName: record.displayName,
-            baseURL: record.baseURL.flatMap(URL.init(string:)),
-            configRevision: ConfigRevision(rawValue: record.configRevision),
-            editRevision: ProviderInstanceEditRevision(rawValue: record.editRevision),
-            credentialReference: record.credentialID.map {
-                CredentialReference(
-                    id: $0,
-                    kind: CredentialKind(rawValue: record.credentialKind ?? "") ?? .apiKey
+    private static func providerInstance(
+        from record: ProviderInstanceRecord
+    ) throws -> ProviderInstance {
+        let id = ProviderInstanceID(rawValue: record.id)
+
+        let baseURL: URL?
+        if let raw = record.baseURL {
+            guard
+                let parsed = URL(string: raw),
+                parsed.scheme != nil,
+                parsed.host != nil
+            else {
+                throw PersistenceError.unreadableProviderInstance(
+                    id: id,
+                    failure: .invalidBaseURL(raw)
                 )
             }
+            baseURL = parsed
+        } else {
+            baseURL = nil
+        }
+
+        let credentialReference: CredentialReference?
+
+        switch (record.credentialID, record.credentialKind) {
+        case (nil, nil):
+            credentialReference = nil
+
+        case let (credentialID?, rawKind?):
+            guard let kind = CredentialKind(rawValue: rawKind) else {
+                throw PersistenceError.unreadableProviderInstance(
+                    id: id,
+                    failure: .unsupportedCredentialKind(rawKind)
+                )
+            }
+
+            credentialReference = CredentialReference(
+                id: credentialID,
+                kind: kind
+            )
+
+        case (.some, .none), (.none, .some):
+            throw PersistenceError.unreadableProviderInstance(
+                id: id,
+                failure: .incompleteCredentialReference
+            )
+        }
+
+        return ProviderInstance(
+            id: id,
+            providerID: ProviderID(rawValue: record.providerID),
+            displayName: record.displayName,
+            baseURL: baseURL,
+            configRevision: ConfigRevision(rawValue: record.configRevision),
+            editRevision: ProviderInstanceEditRevision(
+                rawValue: record.editRevision
+            ),
+            credentialReference: credentialReference
         )
     }
 

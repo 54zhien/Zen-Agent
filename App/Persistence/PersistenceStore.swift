@@ -1,6 +1,12 @@
 import Foundation
 import GRDB
 
+enum ProviderInstanceReadFailure: Equatable, Sendable {
+    case invalidBaseURL(String)
+    case incompleteCredentialReference
+    case unsupportedCredentialKind(String)
+}
+
 /// Domain-level failures. Callers get these instead of GRDB errors, so the storage
 /// engine's vocabulary never reaches the Runtime or the UI.
 enum PersistenceError: Error, Equatable {
@@ -32,6 +38,8 @@ enum PersistenceError: Error, Equatable {
 
     /// The named Provider instance does not exist.
     case providerInstanceNotFound(ProviderInstanceID)
+
+    case unreadableProviderInstance(id: ProviderInstanceID, failure: ProviderInstanceReadFailure)
 
     /// A create was asked to make an instance whose id is already taken.
     ///
