@@ -99,7 +99,7 @@ struct DeepSeekProviderTests {
             generation: Int
         ) throws -> SecretValue? {
             _ = try matchesBinding(frozenReference, generation: generation)
-            try base.resolve(
+            return try base.resolve(
                 frozenReference: frozenReference,
                 generation: generation
             )
