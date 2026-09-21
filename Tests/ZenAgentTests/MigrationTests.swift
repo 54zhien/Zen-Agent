@@ -65,6 +65,19 @@ struct MigrationTests {
         return migrator
     }
 
+    /// The schema as it stood immediately before V7, so the tool-continuation
+    /// upgrade can be exercised over a real store rather than a synthetic one.
+    private func v6Migrator() -> DatabaseMigrator {
+        var migrator = DatabaseMigrator()
+        Migrations.registerV1(&migrator)
+        Migrations.registerV2(&migrator)
+        Migrations.registerV3(&migrator)
+        Migrations.registerV4(&migrator)
+        Migrations.registerV5(&migrator)
+        Migrations.registerV6(&migrator)
+        return migrator
+    }
+
     private func seedV1(at url: URL) throws {
         let store = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: v1Migrator()))
         try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
@@ -106,22 +119,17 @@ struct MigrationTests {
 
     @Test("V6 → V7 adds tool continuation state and preserves existing tool calls")
     func v6ToV7PreservesExistingToolCalls() throws {
-        let database = try DatabaseQueue()
-        var v6Migrator = DatabaseMigrator()
-        Migrations.registerV1(&v6Migrator)
-        Migrations.registerV2(&v6Migrator)
-        Migrations.registerV3(&v6Migrator)
-        Migrations.registerV4(&v6Migrator)
-        Migrations.registerV5(&v6Migrator)
-        Migrations.registerV6(&v6Migrator)
-        try v6Migrator.migrate(database)
+        let url = try Fixtures.scratchPath(name: "tool-continuation-migration.sqlite")
+        defer { Fixtures.cleanUp(url) }
 
-        let store = PersistenceStore(database: database)
-        try store.commitUserTurnAndCreateParentRun(
+        let before = PersistenceStore(
+            database: try ZenDatabase.open(at: url.path(), migrator: v6Migrator())
+        )
+        try before.commitUserTurnAndCreateParentRun(
             Fixtures.send(messageID: "m-v6", runID: "run-v6")
         )
         let oldDate = Date(timeIntervalSince1970: 1_600_000_000)
-        try database.write { db in
+        try before.database.write { db in
             try db.execute(
                 sql: """
                 INSERT INTO toolCall
@@ -135,16 +143,16 @@ struct MigrationTests {
             )
         }
 
-        try Migrations.makeMigrator().migrate(database)
+        let after = PersistenceStore(
+            database: try ZenDatabase.open(at: url.path(), migrator: currentMigrator())
+        )
 
-        let oldCall = try database.read { db in
-            try ToolCallRecord.fetchOne(db, key: "call-v6")
-        }
+        let oldCall = try after.toolCall(id: "call-v6")
         #expect(oldCall?.id == "call-v6")
         #expect(oldCall?.providerCallID == nil)
         #expect(oldCall?.batchID == nil)
         #expect(oldCall?.batchSequence == nil)
-        #expect(try database.read { db in try db.tableExists("toolResult") })
+        #expect(try after.database.read { db in try db.tableExists("toolResult") })
 
         let newCall = ToolCallRecord(
             id: "call-v7",
@@ -164,21 +172,17 @@ struct MigrationTests {
             payload: "round trip",
             createdAt: oldDate
         )
-        try database.write { db in
-            try newCall.insert(db)
+        try after.createToolCall(newCall)
+        try after.database.write { db in
             try newResult.insert(db)
         }
 
-        let roundTrip = try database.read { db in
-            (
-                try ToolCallRecord.fetchOne(db, key: newCall.id),
-                try ToolResultRecord.fetchOne(db, key: newCall.id)
-            )
-        }
-        #expect(roundTrip.0?.providerCallID == "provider-v7")
-        #expect(roundTrip.0?.batchID == "batch-v7")
-        #expect(roundTrip.0?.batchSequence == 4)
-        #expect(roundTrip.1?.payload == "round trip")
+        let roundTripped = try after.toolCall(id: newCall.id)
+        let roundTrippedResult = try after.toolResult(toolCallID: newCall.id)
+        #expect(roundTripped?.providerCallID == "provider-v7")
+        #expect(roundTripped?.batchID == "batch-v7")
+        #expect(roundTripped?.batchSequence == 4)
+        #expect(roundTrippedResult?.payload == "round trip")
     }
 
     // MARK: D1
