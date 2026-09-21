@@ -1,6 +1,7 @@
 # Stage 1 — 审计与最小垂直切片计划
 
-> 状态：**审计完成，待确认后开工**。
+> 状态：**历史规划快照。Stage 1 已完成；最终实现与证据见 `tasks/stage1-closure.md`。**
+> 下文保留开工前审计原貌，不代表当前仓库状态。
 > 审计对象：本仓库真实状态（`App/`、`Tests/`、`project.yml`、CI）+ Blueprint 中
 > Stage 1 / Provider 与模型 / 消息与数据 / 工程与发布 相关内容。
 
