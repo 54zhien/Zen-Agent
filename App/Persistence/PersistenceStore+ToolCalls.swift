@@ -31,12 +31,12 @@ extension PersistenceStore {
         try database.write { db in
             try db.execute(
                 sql: "UPDATE toolCall SET state = ?, updatedAt = ? WHERE id = ? AND state = ?",
-                arguments: StatementArguments([
+                arguments: [
                     ToolCallState.prepared.rawValue,
                     now,
                     id,
                     ToolCallState.approved.rawValue,
-                ])
+                ]
             )
             if db.changesCount == 0 {
                 try Self.refuseMissedStateUpdate(
@@ -56,12 +56,12 @@ extension PersistenceStore {
         try database.write { db in
             try db.execute(
                 sql: "UPDATE toolCall SET state = ?, updatedAt = ? WHERE id = ? AND state = ?",
-                arguments: StatementArguments([
+                arguments: [
                     ToolCallState.approved.rawValue,
                     now,
                     id,
                     ToolCallState.waitingForApproval.rawValue,
-                ])
+                ]
             )
             if db.changesCount == 0 {
                 try Self.refuseMissedStateUpdate(
@@ -90,12 +90,12 @@ extension PersistenceStore {
         try database.write { db in
             try db.execute(
                 sql: "UPDATE toolCall SET state = ?, updatedAt = ? WHERE id = ? AND state = ?",
-                arguments: StatementArguments([
+                arguments: [
                     ToolCallState.rejected.rawValue,
                     now,
                     id,
                     ToolCallState.waitingForApproval.rawValue,
-                ])
+                ]
             )
             if db.changesCount == 0 {
                 try Self.refuseMissedStateUpdate(
@@ -210,12 +210,12 @@ extension PersistenceStore {
         try database.write { db in
             try db.execute(
                 sql: "UPDATE toolCall SET state = ?, updatedAt = ? WHERE id = ? AND state = 'dispatched' AND attempt = ?",
-                arguments: StatementArguments([
+                arguments: [
                     state.rawValue,
                     now,
                     id,
                     expectedAttempt,
-                ])
+                ]
             )
             if db.changesCount == 0 {
                 try Self.refuseMissedStateUpdate(
