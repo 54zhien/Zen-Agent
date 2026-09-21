@@ -88,7 +88,7 @@ struct ProviderStreamingContractTests {
         do {
             _ = try await provider.stream(
                 request(modelID: "missing-model"),
-                seed: seed(modelID: "missing-model"),
+                seed: seed(for: "missing-model"),
                 instance: instance,
                 credentials: credentials()
             )
