@@ -65,6 +65,19 @@ struct MigrationTests {
         return migrator
     }
 
+    /// The schema as it stood immediately before V7, so the tool-continuation
+    /// upgrade can be exercised over a real store rather than a synthetic one.
+    private func v6Migrator() -> DatabaseMigrator {
+        var migrator = DatabaseMigrator()
+        Migrations.registerV1(&migrator)
+        Migrations.registerV2(&migrator)
+        Migrations.registerV3(&migrator)
+        Migrations.registerV4(&migrator)
+        Migrations.registerV5(&migrator)
+        Migrations.registerV6(&migrator)
+        return migrator
+    }
+
     private func seedV1(at url: URL) throws {
         let store = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: v1Migrator()))
         try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
@@ -102,6 +115,74 @@ struct MigrationTests {
             try after.messages(inConversation: "c1").contains { $0.id == "m1" },
             "an existing Message must survive the V5 to V6 migration"
         )
+    }
+
+    @Test("V6 → V7 adds tool continuation state and preserves existing tool calls")
+    func v6ToV7PreservesExistingToolCalls() throws {
+        let url = try Fixtures.scratchPath(name: "tool-continuation-migration.sqlite")
+        defer { Fixtures.cleanUp(url) }
+
+        let before = PersistenceStore(
+            database: try ZenDatabase.open(at: url.path(), migrator: v6Migrator())
+        )
+        try before.commitUserTurnAndCreateParentRun(
+            Fixtures.send(messageID: "m-v6", runID: "run-v6")
+        )
+        let oldDate = Date(timeIntervalSince1970: 1_600_000_000)
+        try before.database.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO toolCall
+                    (id, agentRunID, action, state, executionIntent, attempt, createdAt, updatedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                arguments: StatementArguments([
+                    "call-v6", "run-v6", "legacy", ToolCallState.prepared.rawValue,
+                    "{}", 1, oldDate, oldDate,
+                ])
+            )
+        }
+
+        let after = PersistenceStore(
+            database: try ZenDatabase.open(at: url.path(), migrator: currentMigrator())
+        )
+
+        let oldCall = try after.toolCall(id: "call-v6")
+        #expect(oldCall?.id == "call-v6")
+        #expect(oldCall?.providerCallID == nil)
+        #expect(oldCall?.batchID == nil)
+        #expect(oldCall?.batchSequence == nil)
+        #expect(try after.database.read { db in try db.tableExists("toolResult") })
+
+        let newCall = ToolCallRecord(
+            id: "call-v7",
+            agentRunID: "run-v6",
+            action: "stage2",
+            state: .succeeded,
+            executionIntent: "{}",
+            attempt: 1,
+            providerCallID: "provider-v7",
+            batchID: "batch-v7",
+            batchSequence: 4,
+            createdAt: oldDate,
+            updatedAt: oldDate
+        )
+        let newResult = ToolResultRecord(
+            toolCallID: newCall.id,
+            payload: "round trip",
+            createdAt: oldDate
+        )
+        try after.createToolCall(newCall)
+        try after.database.write { db in
+            try newResult.insert(db)
+        }
+
+        let roundTripped = try after.toolCall(id: newCall.id)
+        let roundTrippedResult = try after.toolResult(toolCallID: newCall.id)
+        #expect(roundTripped?.providerCallID == "provider-v7")
+        #expect(roundTripped?.batchID == "batch-v7")
+        #expect(roundTripped?.batchSequence == 4)
+        #expect(roundTrippedResult?.payload == "round trip")
     }
 
     // MARK: D1
