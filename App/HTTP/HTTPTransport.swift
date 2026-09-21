@@ -196,8 +196,22 @@ protocol HTTPTransport: Sendable {
     /// making cancellation reach the underlying request. It does not retry, and it does
     /// not decide what a failure means — see `URLSessionHTTPTransport`.
     ///
-    /// A non-2xx status throws `HTTPTransportError.httpStatus` rather than returning a
-    /// stream, because a refused request did not produce one.
+    /// **A non-2xx status throws rather than returning a stream**, because a refused
+    /// request did not produce one. The refusal branch is the one place that reads a
+    /// response without ever handing back a handle, so its exits are the whole of what a
+    /// caller can be told — and there are three of them, all a throw:
+    ///
+    /// - the error body **finishes arriving, or reaches this transport's size cap**:
+    ///   `HTTPTransportError.httpStatus`, carrying the status and whatever body was read;
+    /// - the **total deadline for that body elapses first**:
+    ///   `HTTPTransportError.errorBodyTimeout`, carrying the same response, because the
+    ///   status line arrived before the body did;
+    /// - **the caller cancels, or the transfer is ended under it**, before either of the
+    ///   above: `HTTPTransportError.cancelled`.
+    ///
+    /// Only the first of those is a statement about the response. The last is a statement
+    /// about the caller, and it is reported as one even when the status that happened to
+    /// arrive first was a 401 — a cancellation is not evidence about a credential.
     ///
     /// The caller **owns the returned handle** and must call `cancel` when it stops
     /// caring — including when it stops caring because the stream finished. Nothing

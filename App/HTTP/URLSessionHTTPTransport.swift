@@ -24,9 +24,27 @@ struct URLSessionHTTPTransport: HTTPTransport {
     /// rather than each holding its own copy of half of it.
     let timeouts: StreamTimeoutPolicy
 
-    init(session: URLSession = .shared, timeouts: StreamTimeoutPolicy = .default) {
+    /// Test-only observation point; `nil` in the app. Runs inside the refusal branch once
+    /// the first byte of a refused response's body has actually been taken off the wire.
+    ///
+    /// It exists because "the server wrote a byte" and "the client is draining that body"
+    /// are two different facts, and only the second makes a cancellation test a test of
+    /// this branch. A test that cancelled on the server's evidence alone could be
+    /// cancelling a request whose response head had not arrived yet, and it would assert
+    /// the same `.cancelled` — passing without ever exercising the code it names.
+    ///
+    /// It observes and nothing else: it cannot influence the read, and the refusal branch
+    /// behaves identically whether it is set or not.
+    let errorBodyFirstByteHook: (@Sendable () -> Void)?
+
+    init(
+        session: URLSession = .shared,
+        timeouts: StreamTimeoutPolicy = .default,
+        errorBodyFirstByteHook: (@Sendable () -> Void)? = nil
+    ) {
         self.session = session
         self.timeouts = timeouts
+        self.errorBodyFirstByteHook = errorBodyFirstByteHook
     }
 
     // MARK: - One response
@@ -162,32 +180,65 @@ struct URLSessionHTTPTransport: HTTPTransport {
             // from looking, in order of events, like a deadline that fired.
             defer { deadlineTask.cancel() }
 
-            do {
-                for try await byte in bytes {
-                    // Answered before the byte is considered, because a caller who has
-                    // walked away is not waiting for it. Without this the loop would run
-                    // to whatever end the server chose — the cap, or an endless trickle
-                    // held open until the deadline — and report the body's fate instead
-                    // of the caller's decision.
-                    try Task.checkCancellation()
-                    // `false` means the cap was reached, and the cap is committed as a
-                    // terminal state inside `append` rather than after it: returning
-                    // first would leave a window in which the deadline could win a race
-                    // it should have lost.
-                    guard read.append(byte) else { break }
-                }
+            // A local, for the same reason as `errorBodyDeadline` above: the hook is
+            // called from inside a closure, and this keeps it a captured value rather than
+            // a reach back through the transport.
+            let firstByteHook = self.errorBodyFirstByteHook
 
-                // Natural EOF. `append` has already committed the cap for itself, and
-                // this call is a no-op if it did — or if a failure got here first.
-                read.end()
-            } catch {
-                // Ignored when a terminal state was already committed, which is the
-                // whole point: ending the transfer is how the deadline releases its
-                // reader, so the reader's own report of that is a cancellation, and a
-                // cancellation must not overwrite the fact that this transport gave up
-                // on a body. Same the other way round — a read that failed on its own
-                // keeps its failure against a deadline that never fired.
-                read.fail(error)
+            // **The exit that does not wait for a byte.** The loop below is the other half
+            // of `HTTPStream.cancel`, for the branch that has no `HTTPStream` to cancel
+            // with — and `Task.checkCancellation()` inside it is not enough on its own.
+            // That call runs when the **next** byte arrives, so it says nothing to a caller
+            // who cancels while the server has gone quiet: nothing would reach `URLSession`
+            // until the deadline above expired, which is up to the full `errorBodyDeadline`
+            // of pressing Stop and being ignored.
+            //
+            // `onCancel` runs the moment the calling task is cancelled, byte or no byte,
+            // and does the one thing that releases a reader parked in a socket read. It
+            // deliberately does **not** touch `read`: a terminal state is still committed
+            // only through `ErrorBodyRead`'s own lock, by whichever party actually reached
+            // it first. Writing a state here would hand a second, unsynchronised path into
+            // the same decision — and would let a cancellation arriving after a perfectly
+            // good body claimed that body's outcome.
+            await withTaskCancellationHandler {
+                do {
+                    // Fired once, on the first byte this loop actually takes off the wire.
+                    // A local rather than state on the transport: this closure runs once,
+                    // on one task, so "the first one" is a fact about this loop alone.
+                    var announcedFirstByte = false
+
+                    for try await byte in bytes {
+                        if !announcedFirstByte {
+                            announcedFirstByte = true
+                            firstByteHook?()
+                        }
+                        // Answered before the byte is considered, because a caller who has
+                        // walked away is not waiting for it. Without this the loop would run
+                        // to whatever end the server chose — the cap, or an endless trickle
+                        // held open until the deadline — and report the body's fate instead
+                        // of the caller's decision.
+                        try Task.checkCancellation()
+                        // `false` means the cap was reached, and the cap is committed as a
+                        // terminal state inside `append` rather than after it: returning
+                        // first would leave a window in which the deadline could win a race
+                        // it should have lost.
+                        guard read.append(byte) else { break }
+                    }
+
+                    // Natural EOF. `append` has already committed the cap for itself, and
+                    // this call is a no-op if it did — or if a failure got here first.
+                    read.end()
+                } catch {
+                    // Ignored when a terminal state was already committed, which is the
+                    // whole point: ending the transfer is how the deadline releases its
+                    // reader, so the reader's own report of that is a cancellation, and a
+                    // cancellation must not overwrite the fact that this transport gave up
+                    // on a body. Same the other way round — a read that failed on its own
+                    // keeps its failure against a deadline that never fired.
+                    read.fail(error)
+                }
+            } onCancel: {
+                networkTask.cancel()
             }
 
             let snapshot = read.snapshot()

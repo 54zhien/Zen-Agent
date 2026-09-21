@@ -247,6 +247,23 @@ struct URLSessionHTTPTransportTests {
         var outcome: Refusal? { lock.withLock { finished } }
     }
 
+    /// Set by the transport — through `errorBodyFirstByteHook` — when the refusal branch
+    /// has actually taken a body byte off the wire.
+    ///
+    /// **The client's own evidence, and the only kind that makes the cancellation test
+    /// sound.** The server writing a byte says the server got that far; it does not say
+    /// the client parsed the head and entered the refusal branch. A cancellation delivered
+    /// while `bytes(for:)` is still awaiting the response produces the same `.cancelled`
+    /// and the same peer close, so a test barriered on the server alone can pass without
+    /// ever draining anything.
+    private final class FirstByteBarrier: @unchecked Sendable {
+        private let lock = NSLock()
+        private var hit = false
+
+        func reached() { lock.withLock { hit = true } }
+        var isReached: Bool { lock.withLock { hit } }
+    }
+
     /// Deadlines for the refusal tests.
     ///
     /// The liveness window is deliberately many times the trickle interval in the second
@@ -455,16 +472,25 @@ struct URLSessionHTTPTransportTests {
     /// about the credential and the other is a decision the caller already made. The
     /// transport's ordering is what keeps them apart, and this drives it through a real
     /// socket rather than through a stub that could only claim to have.
+    ///
+    /// **The server goes silent after its first body byte, and that is the case under
+    /// test.** A server that kept trickling would hand the reader a byte to notice the
+    /// cancellation on — `Task.checkCancellation()` runs when the *next* byte arrives —
+    /// so the transfer would be released by the server's own pacing and the test would
+    /// pass without the transport doing anything. Here nothing further is ever written
+    /// and no EOF is sent: `.chunkThenStall` writes one piece and then only watches for
+    /// the peer to leave. The silence is therefore unbounded by construction, which is
+    /// what puts it beyond the three-second bound asserted below for as long as the
+    /// assertions take. The only exits are the cancellation itself reaching the
+    /// `URLSession` task, and the thirty-second `errorBodyDeadline` — far outside that
+    /// bound, so a transport that ignored the caller reports `.neverReturned` rather than
+    /// quietly succeeding half a minute later.
     @Test("a caller who cancels while a refused body is draining is answered with .cancelled")
     func cancellingDuringARefusalBodyIsCancelled() async throws {
-        // The same slow trickle the deadline test uses, and for the same reason: a byte
-        // every 300ms never finishes the body, so the read is still in progress whenever
-        // the cancellation lands, and 64 KiB is hours away.
-        //
         // **401, not 503.** It is the status whose mapping is `credentialRejected`, so a
         // transport that let the known status win over the caller's decision would be
         // caught by the case assertion below rather than passing quietly.
-        let server = try LocalHTTPServer(script: .continuous(".", every: 0.3), status: 401)
+        let server = try LocalHTTPServer(script: .chunkThenStall("."), status: 401)
         server.start()
         defer { server.shutdown() }
 
@@ -472,9 +498,14 @@ struct URLSessionHTTPTransportTests {
         defer { session.invalidateAndCancel() }
         // Thirty seconds, so the deadline provably cannot be what ends this read. A body
         // this test gave up on by itself would say nothing about the ordering under test.
+        //
+        // The hook is the barrier: it fires from inside the refusal branch, once a byte of
+        // the body has actually been taken off the wire, and not before.
+        let barrier = FirstByteBarrier()
         let transport = URLSessionHTTPTransport(
             session: session,
-            timeouts: refusalPolicy(errorBodyDeadline: .seconds(30))
+            timeouts: refusalPolicy(errorBodyDeadline: .seconds(30)),
+            errorBodyFirstByteHook: { barrier.reached() }
         )
 
         let call = BoundedCall()
@@ -489,19 +520,31 @@ struct URLSessionHTTPTransportTests {
             }
         }
 
-        // **The barrier, and it is the test's soundness rather than a courtesy.** The
-        // server writes the head before it writes any body, so once a body byte exists the
-        // client is past "waiting for a response" and into the refusal branch — that is
-        // what makes this a test of draining a refused body rather than of cancelling a
-        // request whose response never arrived. The wait is bounded and asserted on, so a
-        // server that never got that far fails loudly instead of passing vacuously.
-        for _ in 0..<800 where !server.wroteChunk {
+        // **The barrier, and it is the test's soundness rather than a courtesy.** Waiting
+        // on the *client* is the whole point: a byte in the server's socket buffer proves
+        // the server wrote, not that the transport got as far as parsing the head and
+        // entering the refusal branch. Cancelling earlier would produce the same
+        // `.cancelled` and the same peer close from a completely different path, and this
+        // test would be reporting on a request whose response never arrived. The wait is
+        // bounded and asserted on, so a transport that never reaches the branch fails
+        // loudly instead of passing vacuously.
+        for _ in 0..<800 where !barrier.isReached {
             try? await Task.sleep(for: .milliseconds(10))
         }
-        #expect(
-            server.wroteChunk,
-            "the server never wrote the first body byte, so nothing was draining and nothing was tested"
-        )
+        // Diagnostic, deliberately not the barrier: it distinguishes "the server never
+        // sent anything" from "the server sent and the client never took it" when the
+        // assertion below fails.
+        #expect(server.wroteChunk, "the server never wrote its body")
+        guard barrier.isReached else {
+            Issue.record(
+                """
+                the transport never took a byte of the refused body off the wire, so \
+                nothing was draining and nothing was tested
+                """
+            )
+            task.cancel()
+            return
+        }
 
         task.cancel()
 
@@ -530,8 +573,10 @@ struct URLSessionHTTPTransportTests {
 
         // Asserted **before** `session.invalidateAndCancel()` runs, so the close cannot
         // be the teardown's doing. Same bounded wait the tests above use, for the same
-        // reason: the fact belongs to the peer, which only reports it when its next write
-        // fails.
+        // reason: the fact belongs to the peer, and only the peer can report it. This
+        // script is parked reading rather than writing, so it learns of the close the way
+        // a quiet peer does — its `read` returns zero — which is exactly the observation
+        // that makes it evidence about a connection nobody was writing to.
         for _ in 0..<800 where !server.observedPeerClose {
             try? await Task.sleep(for: .milliseconds(10))
         }
