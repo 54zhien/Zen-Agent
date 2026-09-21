@@ -269,7 +269,7 @@ CI 节奏：本机无 Swift toolchain（lessons #4），CI 是唯一编译验证
       `finalizeIsIdempotent`（IndeterminateTombstoneTests）由 `.finalizedDeletion` no-op 分支保持
 - [x] `requireConversation` 重构不改 `transition` 语义（begin/undo 全部现有拒绝路径不变）
 - [x] B-1 守卫放行 nil（首建）与「行+快照均 .visible」（追加）；只拦生命周期任一方向被改写
-- [ ] CI 红绿核对——留给编排者（print-mode 会话，无本地 toolchain、不等 CI）
+- [x] CI 红绿核对（编排者补记）：P3 合入 main 后 CI run `35514657012` success（tip `bb3256f`）
 
 ### Review（/code-review 后修订 + 会话内自查）
 
@@ -346,4 +346,45 @@ code-review（forked，10 个角度）收敛到 5 处真实问题，全部在推
       `OperationTombstoneRecord` / `operationTombstone` 无其他读方
 - [x] `destinationFingerprint` 无其他读取者 ⇒ 改值不惊动任何按值比较的断言
 - [x] 测试文件不新增 import（CI hygiene 的 GRDB 边界 grep 不受影响）
-- [ ] CI 红绿核对——留给编排者（print-mode 会话，无本地 toolchain、不等 CI）
+- [x] CI 红绿核对（编排者补记）：P4 合入 main 后 CI run `35520878436` success（commit `5523ce0`）
+
+---
+
+## P6 / P10 落地记录（编排者，2026-09-21 上午）
+
+两项均已合入 `main`，落地方式都是把已推送分支 **ff** 推到 main（无 merge commit）。
+
+### P6 `fix/error-body-drain-bounds` → `420eb33`
+
+三项修复：error body 读取结束传输并加绝对截止（`StreamTimeoutPolicy.errorBodyDeadline`）、
+`ErrorBodyRead` 改为「首个终态获胜」、取消经 `withTaskCancellationHandler` 立即释放 socket
+（不再等下一个字节）。
+
+- 审查：Codex 第四轮 **Approve**，依据是状态机终态收敛、锁序、竞态语义与测试承重的**源码级核对**，
+  不是 CI 绿。逐条判定上一轮四项整改已在语义上兑现。
+- 设计取舍已裁定可接受：为做出「客户端侧屏障」，生产的 `URLSessionHTTPTransport` initializer
+  增加了默认 nil 的 `@Sendable` 测试观察闭包（`errorBodyFirstByteHook`）。
+  审查结论是保留它比替换它（`#if DEBUG` / 抽象 `AsyncBytes` / delegate）代价更小，合并前不必换。
+- CI：`35551721967`（push，head=`420eb33`）success；合入 main 后 CI `35555609276` success。
+- **两条已知后续项**（审查判定不阻断本题）：`send(_:)` 仍无 error body cap/deadline；
+  Provider 的 `.errorBodyTimeout` 映射缺直接测试（映射在 `DeepSeekProvider.swift:452-463`）。
+- 一处非阻断文字瑕疵：`420eb33` 提交信息称 `Task.isCancelled check ahead of the snapshot`，
+  实际顺序是 snapshot 在前、检查在后。审查明确判定不值得为此改 sha 重跑 CI。
+
+### P10 `fix/ci-guards-fail-loud` → `b760990`
+
+rebase 到含 P6 的 main 后合入。合并条件按审查要求逐条满足：
+
+- diff 仍只含 `.github/**` 四个文件（`scripts/managed-build-settings-guard.sh`、
+  `scripts/guard-selftest-harness.sh`、`workflows/ci.yml`、`workflows/guard-selftest.yml`）。
+- 新 sha 上三绿：CI push `35555618171`、CI pull_request `35555619873`、Guard self-test `35555619865`。
+- **负向证据到位**：Guard self-test 的步骤列表核对为 Probe 2.1 / 2.2 / 3 / 4 / 5 全部实际执行并通过
+  （不是只看 job 结论）。这正是上一轮缺的那一项——「守卫真的会失败」。
+- 合入 main 后 CI `35556016905`。
+
+### 仍未合入的
+
+- `docs/status-sync`（`8b66b20`）：文档同步，CI 绿，但**从未经过审查**，按现行规矩不能凭 CI 绿合并。
+- `fix/provider-diagnostic-containment`（P5，`1b7e34c`）：需按 `c18-codex-p5-fix-plan.md` 返工，
+  并 rebase 到含 P6 的 main。
+
