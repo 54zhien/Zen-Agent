@@ -36,12 +36,15 @@ actor SideEffectLedger {
 struct Stage2SideEffectTool: ToolExecutable {
     let descriptor: ToolDescriptor
     private let ledger: SideEffectLedger
+    private let gate: Stage2DispatchGate?
 
     init(
         ledger: SideEffectLedger = SideEffectLedger(),
-        descriptorID: String = "stage2_side_effect"
+        descriptorID: String = "stage2_side_effect",
+        gate: Stage2DispatchGate? = nil
     ) {
         self.ledger = ledger
+        self.gate = gate
         self.descriptor = ToolDescriptor(
             id: descriptorID,
             displayName: "Stage 2 Side Effect",
@@ -92,6 +95,17 @@ struct Stage2SideEffectTool: ToolExecutable {
             idempotencyKey: idempotencyKey,
             outcome: "succeeded"
         )
+
+        // The external write has happened by the time `record` returns. The optional
+        // gate holds the executor here — after the side effect, before any terminal
+        // result — so the closure gate can restart against the same database while
+        // this process is still inside the dispatch window. Without a gate the call
+        // returns immediately, which is what the I08 crash probes rely on.
+        if let gate {
+            gate.signalDispatched()
+            await gate.waitForRelease()
+        }
+
         return ToolExecutionResult(content: "succeeded")
     }
 }
