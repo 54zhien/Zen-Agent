@@ -60,8 +60,10 @@ enum Stage2GateFixture {
 
         var conversation = Fixtures.conversation(id: conversationID)
         conversation.title = conversationTitle
+        let persistedConversation = conversation
+
         try store.database.write { db in
-            try conversation.insert(db)
+            try persistedConversation.insert(db)
         }
 
         return Components(

@@ -167,7 +167,8 @@ struct Stage2GateTests {
         _ = try await sendTask.value
         await box.waitUntilCancelled()
 
-        let run = try #require(components.store.run(id: runID))
+        let storedRun = try components.store.run(id: runID)
+        let run = try #require(storedRun)
         #expect(run.state == .cancelled)
         #expect(run.endReason == .cancelledByUser)
         #expect(run.activeSlot == nil, "the cancelled transition releases the slot")
@@ -203,7 +204,8 @@ struct Stage2GateTests {
             Stage2GateFixture.command(text: "after cancellation")
         )
         #expect(secondRunID != runID, "a new send is a new Parent Run")
-        let secondRun = try #require(components.store.run(id: secondRunID))
+        let storedSecondRun = try components.store.run(id: secondRunID)
+        let secondRun = try #require(storedSecondRun)
         #expect(secondRun.state == .completed)
         #expect(secondRun.endReason == .completed)
         #expect(
@@ -273,7 +275,8 @@ struct Stage2GateTests {
         // Durable state at the crash point, read through a second connection so the
         // answer is the database's and not the live runtime's memory.
         let witness = try Stage2GateFixture.reopen(url)
-        let call = try #require(witness.toolCall(id: callID))
+        let storedCall = try witness.toolCall(id: callID)
+        let call = try #require(storedCall)
         #expect(call.state == .dispatched, "the marker commits before the executor is entered")
         #expect(try witness.toolResult(toolCallID: callID) == nil)
         #expect(try witness.run(id: runID)?.state == .executingTools)
@@ -318,7 +321,8 @@ struct Stage2GateTests {
             afterLateCompletion.first?.dispatchCount == 1,
             "the late completion must not produce a second external write"
         )
-        let settled = try #require(reopened.toolCall(id: callID))
+        let storedSettled = try reopened.toolCall(id: callID)
+        let settled = try #require(storedSettled)
         #expect(settled.state == .indeterminate, "a late success must not overwrite the verdict")
         #expect(try reopened.toolResult(toolCallID: callID) == nil, "no result may be written late")
         #expect(try reopened.run(id: runID)?.state == .failed)
@@ -343,7 +347,8 @@ struct Stage2GateTests {
         let reopened = try Stage2GateFixture.reopen(url)
         try assertClosedParentRun(in: reopened, runID: runID)
 
-        let run = try #require(reopened.run(id: runID))
+        let storedRun = try reopened.run(id: runID)
+        let run = try #require(storedRun)
 
         // The frozen seed survived. It is what a later request would have to be sent
         // with, so a lost or rewritten seed is a lost run.
@@ -431,8 +436,9 @@ struct Stage2GateTests {
         in store: PersistenceStore,
         runID: String
     ) throws {
+        let storedRun = try store.run(id: runID)
         let run = try #require(
-            store.run(id: runID),
+            storedRun,
             "the send must leave a durable Parent Run"
         )
         #expect(run.kind == .parent)
@@ -475,8 +481,9 @@ struct Stage2GateTests {
         #expect(call.action == CalculatorTool.toolID)
         #expect(call.state == .succeeded)
 
+        let storedResult = try store.toolResult(toolCallID: call.id)
         let result = try #require(
-            store.toolResult(toolCallID: call.id),
+            storedResult,
             "a succeeded ToolCall must have its durable result"
         )
         #expect(result.payload == Self.toolResultPayload)
