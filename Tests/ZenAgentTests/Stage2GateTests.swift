@@ -143,22 +143,30 @@ struct Stage2GateTests {
         // provably lands while `stopping` is durable and the terminal transition has not
         // begun. Asking from the test body without the park would instead be a race
         // against cancellation settling.
+        let messagesBeforeRejectedSend = try components.store.messages(
+            inConversation: Stage2GateFixture.conversationID
+        )
+
         var secondSendFailure: Error?
         do {
             _ = try await runtime.send(Stage2GateFixture.command(text: "second send"))
         } catch {
             secondSendFailure = error
         }
+
         #expect(
             secondSendFailure as? PersistenceError == .conversationAlreadyHasActiveRun(
                 conversationID: Stage2GateFixture.conversationID
             ),
             "stopping still owns the conversation's active slot"
         )
+
+        let messagesAfterRejectedSend = try components.store.messages(
+            inConversation: Stage2GateFixture.conversationID
+        )
+
         #expect(
-            try components.store.messages(
-                inConversation: Stage2GateFixture.conversationID
-            ).count == 1,
+            Set(messagesAfterRejectedSend.map(\.id)) == Set(messagesBeforeRejectedSend.map(\.id)),
             "a rejected send must not leave its user message behind"
         )
 
