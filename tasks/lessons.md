@@ -94,3 +94,18 @@ print-mode 下探针 commit 可以故意红（lessons #4），但**修复 commit
 
 **规则**：推出去的每个 commit 都要处于其 message 宣称的状态；
 「预期的红」只能出现在探针 commit 里。
+
+## 2026-09-23 · S3-02：契约之外的加断言，期望值必须从产品代码的分支推出
+
+`manyRunsStayInOrder()`（`ConversationTimelineProjectionTests.swift`）里我加了一条**契约没要求**的
+`allSatisfy { $0.items == [.userText("hello")] }`。契约 §3（实现：`ConversationTimeline.swift:105-115`
+的 `if let responseID … else`）规定 `responseMessageID == nil` 时**必须**追加 `.runNotice`，而那
+1000 个 run 全是这个形态。产品代码对、契约对，只有我这条断言红——CI `35762774921` 整轮 failure。
+
+**规则**：写契约点名之外的断言时，期望值必须**从产出它的那个分支逐条推**（这里是 `else` 支：
+`RunNoticePresentation(runID: run.id, state: run.state, endReason: run.endReason)`，
+对应 fixture 缺省 `state: .completed` / `endReason: nil` / `responseMessageID: nil`），
+不能从「正常路径长什么样」的直觉写。
+**为什么**：加断言是自愿的，但**加错的断言与产品 bug 在 CI 上不可区分**——两者都是一片红、
+一条 `Expectation failed`，编排者得自己去扒代码才能分辨，账目因此失真。代价是一整轮 CI 加一次人工核对。
+**推论**：契约点名之外的断言，要么不写，要么写之前把产出它的分支读一遍；「看着对」不算推导。

@@ -509,3 +509,29 @@ rebase 到含 P6 的 main 后合入。合并条件按审查要求逐条满足：
   不新增交互；若规划者要的是「可展开」，那是一处行为变更。
 - 工具 `state` 与运行 `state`/`endReason` 直接显示枚举 rawValue：不发明用户可见文案（文案表与 Retry 入口属于第 7 项）。
 - 用户 Capsule 的底色用契约 §5 给出的 `Color(.secondarySystemBackground)`（系统语义色），未自建色板。
+
+### CI 红修复 · `35762774921`（`Run app unit tests` 唯一失败：`manyRunsStayInOrder`）
+
+**将调用**：`/zh-code-reviewer`（自查本轮改动是否严格符合契约分支语义、有无同类错误期望）。
+不调用：`/run`（本机无 iOS 工具链）、`/apple-design`+`/frontend-design`（本次不动 UI）、
+`/refactor-advisor`+`/perf-profiler`（契约 §0 只许碰测试文件一行）。
+
+根因：`ConversationTimelineProjectionTests.swift:476` 的
+`allSatisfy { $0.items == [.userText("hello")] }` 是**我上一轮自己加的、契约未要求**的断言，且写错了。
+那 1000 个 run 都只传 `triggerMessageID`、没有 `responseMessageID`，按
+`App/Conversation/ConversationTimeline.swift:105-115` 的 `if let responseID … else` 分支，
+每个 Turn 的 items 必须是
+`[.userText("hello"), .runNotice(runID:state:.completed, endReason:nil)]`。
+产品代码正确，红的是这条断言（契约 §6.1 第 12 条只要求 `turns.count == 1000` + 顺序，未要求此条）。
+
+- [x] 只改 `Tests/ZenAgentTests/ConversationTimelineProjectionTests.swift` 的 `manyRunsStayInOrder()`：
+      改为**逐 Turn 全量比对** items（含每条 `.runNotice` 的 `runID`/`state`/`endReason`），
+      断言强度高于旧写法（旧写法只比 items 形状，新写法额外要求 notice 的 `runID` 与其所在 Turn 对应）
+- [x] 未改成 `count > 0` / `allSatisfy { !$0.items.isEmpty }` 等放松写法；未删断言、未删测试
+- [x] 自查两个契约测试文件共 12 处 Turn-items 断言（逐条按该 run 的 `responseMessageID` 是否为 nil
+      重推期望值）：**除这一条外无同类问题**——`Projection:411`（响应 id 非 nil → 无 notice）、
+      `Projection:436`（`"m-absent"` 非 nil，走 `if let` 支，「绑定但读不到」≠「从未产出」）、
+      `Loader:129`（值级否定断言，未声称 items 只有文本）三处最易误判的已单独确认
+- [x] 改动面：`git diff --numstat` = `18 1`，仅 1 个测试文件；`App/**`、`project.yml`、
+      `.github/workflows/ci.yml` 未触碰；`tasks/**` 纯追加
+- [ ] **未在本机运行**：本机无 Swift/Xcode 工具链，这份改动一行都没过编译器；绿/红只能由 CI 回答
