@@ -473,6 +473,23 @@ struct ConversationTimelineProjectionTests {
             projection.turns.map(\.runID) == runs.map(\.id),
             "a long conversation keeps the order the runs were created in"
         )
-        #expect(projection.turns.allSatisfy { $0.items == [.userText("hello")] })
+        // None of these runs carries a `responseMessageID`, so every one of them is the case
+        // the projection has an explicit rule for: the user message, then a notice carrying
+        // the run's own id and state — and no fabricated assistant message. The turns are
+        // compared one by one, notice included, so the run id inside each notice has to match
+        // the turn it sits in; a shape check over the items alone cannot see that.
+        let expectedItems: [[TimelineItem]] = (0..<runCount).map { index -> [TimelineItem] in
+            [
+                .userText("hello"),
+                .runNotice(RunNoticePresentation(runID: "r\(index)", state: .completed, endReason: nil)),
+            ]
+        }
+        #expect(
+            projection.turns.map(\.items) == expectedItems,
+            """
+            a run that produced no assistant message reads as its user message plus the run's \
+            own state, and each notice names the run it belongs to, in the runs' own order
+            """
+        )
     }
 }
