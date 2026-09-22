@@ -105,6 +105,29 @@ actor AgentRuntime {
         category: "AgentRuntime"
     )
 
+    static func casVerificationVerdict(
+        latestState: RunState,
+        expectedState: RunState,
+        primary: ConversationProjectionError,
+        transitionError: Error
+    ) -> ConversationProjectionError? {
+        guard latestState != expectedState else {
+            return .terminalizationFailed(
+                primary: primary,
+                reason: String(describing: transitionError)
+            )
+        }
+
+        guard latestState.isTerminal else {
+            return .terminalizationFailed(
+                primary: primary,
+                reason: "\(transitionError); CAS verification found active state \(latestState.rawValue)"
+            )
+        }
+
+        return nil
+    }
+
     private let store: PersistenceStore
     private let provider: any ModelProvider
     private let credentials: any CredentialStoring
@@ -1414,25 +1437,12 @@ actor AgentRuntime {
                             reason: "\(transitionError); run \(runID) disappeared while verifying the CAS result"
                         )
                     }
-                    guard latest.state != current.state else {
-                        return .terminalizationFailed(
-                            primary: diagnostic,
-                            reason: String(describing: transitionError)
-                        )
-                    }
-
-                    guard latest.state.isTerminal else {
-                        return .terminalizationFailed(
-                            primary: diagnostic,
-                            reason: "\(transitionError); CAS verification found active state \(latest.state.rawValue)"
-                        )
-                    }
-
-                    // A changed row is benign only when the re-read proves that
-                    // another lifecycle owner completed terminalization. An active
-                    // state merely means that owner progressed the lifecycle; it did
-                    // not complete the failed transition for this projection error.
-                    return diagnostic
+                    return Self.casVerificationVerdict(
+                        latestState: latest.state,
+                        expectedState: current.state,
+                        primary: diagnostic,
+                        transitionError: transitionError
+                    ) ?? diagnostic
                 } catch let verificationError {
                     return .terminalizationFailed(
                         primary: diagnostic,

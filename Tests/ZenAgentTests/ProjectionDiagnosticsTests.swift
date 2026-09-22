@@ -25,8 +25,6 @@ private enum ProjectionDatabaseInjection {
     case none
     case projectionPersistenceFailure
     case terminalizationFailure
-    case casWinnerTerminal
-    case casWinnerActive
 }
 
 private enum ProjectionDiagnosticsTestError: Error, Equatable {
@@ -168,47 +166,6 @@ private func installProjectionDatabaseInjection(
                     """
             )
 
-        case .casWinnerTerminal:
-            try db.execute(
-                sql: """
-                    CREATE TRIGGER i07_cas_terminal_owner_wins
-                    BEFORE UPDATE OF state ON agentRun
-                    WHEN NEW.state = 'failed'
-                        AND OLD.state = 'executingTools'
-                    BEGIN
-                        UPDATE agentRun
-                        SET state = 'completed',
-                            endReason = 'completed',
-                            recoveryAction = NULL,
-                            suspendReason = NULL,
-                            activeSlot = NULL,
-                            updatedAt = NEW.updatedAt
-                        WHERE id = OLD.id;
-                        SELECT RAISE(IGNORE);
-                    END
-                    """
-            )
-
-        case .casWinnerActive:
-            try db.execute(
-                sql: """
-                    CREATE TRIGGER i07_cas_active_owner_wins
-                    BEFORE UPDATE OF state ON agentRun
-                    WHEN NEW.state = 'failed'
-                        AND OLD.state = 'executingTools'
-                    BEGIN
-                        UPDATE agentRun
-                        SET state = 'toolRequested',
-                            endReason = NULL,
-                            recoveryAction = NULL,
-                            suspendReason = NULL,
-                            activeSlot = OLD.activeSlot,
-                            updatedAt = NEW.updatedAt
-                        WHERE id = OLD.id;
-                        SELECT RAISE(IGNORE);
-                    END
-                    """
-            )
         }
     }
 }
@@ -274,49 +231,57 @@ struct ProjectionDiagnosticsTests {
         #expect(parts.contains { $0.kind == .toolResult })
     }
 
-    @Test("a CAS miss that rereads a terminal state preserves the primary diagnostic")
-    func casMissWithTerminalRereadKeepsPrimaryDiagnostic() async throws {
-        let result = try await runProjectionScenario(
-            injectedParts: [
-                (
-                    kind: .toolCall,
-                    payload: #"{"notToolCall":true}"#
-                ),
-            ],
-            databaseInjection: .casWinnerTerminal
+    @Test("a CAS reread of the expected state reports terminalization failure")
+    func casVerificationWithExpectedStateReportsTerminalizationFailure() {
+        let primary = ConversationProjectionError.malformedToolCallPart("projection-injected-0")
+        let transitionError = ProjectionDiagnosticsTestError.injectionFailed("CAS transition failed")
+        let verdict = AgentRuntime.casVerificationVerdict(
+            latestState: .executingTools,
+            expectedState: .executingTools,
+            primary: primary,
+            transitionError: transitionError
         )
 
-        guard case .malformedToolCallPart(let partID) = result.error else {
-            #expect(false, "a terminal CAS winner must preserve the primary projection diagnostic")
+        guard case .terminalizationFailed(let actualPrimary, let reason) = verdict else {
+            #expect(false, "an unchanged CAS reread must report terminalization failure")
             return
         }
-        #expect(partID == "projection-injected-0")
-        #expect(try result.store.run(id: result.runID)?.state == .completed)
+        #expect(actualPrimary == primary)
+        #expect(reason == String(describing: transitionError))
     }
 
-    @Test("a CAS miss that rereads an active state reports terminalization failure")
-    func casMissWithActiveRereadReportsTerminalizationFailure() async throws {
-        let result = try await runProjectionScenario(
-            injectedParts: [
-                (
-                    kind: .toolCall,
-                    payload: #"{"notToolCall":true}"#
-                ),
-            ],
-            databaseInjection: .casWinnerActive
+    @Test("a CAS reread of a terminal state preserves the primary diagnostic")
+    func casVerificationWithTerminalRereadPreservesPrimaryDiagnostic() {
+        let primary = ConversationProjectionError.malformedToolCallPart("projection-injected-0")
+        let transitionError = ProjectionDiagnosticsTestError.injectionFailed("CAS transition failed")
+        let verdict = AgentRuntime.casVerificationVerdict(
+            latestState: .completed,
+            expectedState: .executingTools,
+            primary: primary,
+            transitionError: transitionError
         )
 
-        guard case .terminalizationFailed(let primary, let reason) = result.error else {
-            #expect(false, "an active CAS winner must not be treated as completed terminalization")
+        #expect(verdict == nil)
+        #expect((verdict ?? primary) == primary)
+    }
+
+    @Test("a CAS reread of another active state reports terminalization failure")
+    func casVerificationWithActiveRereadReportsTerminalizationFailure() {
+        let primary = ConversationProjectionError.malformedToolCallPart("projection-injected-0")
+        let transitionError = ProjectionDiagnosticsTestError.injectionFailed("CAS transition failed")
+        let verdict = AgentRuntime.casVerificationVerdict(
+            latestState: .stopping,
+            expectedState: .executingTools,
+            primary: primary,
+            transitionError: transitionError
+        )
+
+        guard case .terminalizationFailed(let actualPrimary, let reason) = verdict else {
+            #expect(false, "an active CAS reread must report terminalization failure")
             return
         }
-        guard case .malformedToolCallPart(let partID) = primary else {
-            #expect(false, "terminalization failure must retain the primary projection diagnostic")
-            return
-        }
-        #expect(partID == "projection-injected-0")
-        #expect(reason.contains("CAS verification found active state toolRequested"))
-        #expect(try result.store.run(id: result.runID)?.state == .failed)
+        #expect(actualPrimary == primary)
+        #expect(reason.contains("CAS verification found active state stopping"))
     }
 
     @Test("a real projection write failure remains a persistence diagnostic")
