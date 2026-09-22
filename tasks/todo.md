@@ -388,3 +388,45 @@ rebase 到含 P6 的 main 后合入。合并条件按审查要求逐条满足：
 - `fix/provider-diagnostic-containment`（P5，`1b7e34c`）：需按 `c18-codex-p5-fix-plan.md` 返工，
   并 rebase 到含 P6 的 main。
 
+
+---
+
+## Stage 3 · S3-01 Typography / 字体注册 / fallback / Dynamic Type
+
+**将调用**：`/code-review`（完成前的自查，唯一匹配的 skill；`run`/`security-review` 不匹配——
+本机无 iOS 工具链跑不起 app，本项也不触碰认证/密钥边界）。
+
+**基点** `4be5c05` · 分支 `feat/s3-01-typography` · 工作树 `C:/Users/Azusa/.zen/worktrees/s3-01`。
+执行的是已通过覆盖轮复核的 S3-01 执行契约（v2，含覆盖轮后的三处机械修订）。
+
+### 触碰的文件（契约 §0 允许的 7 个）
+
+- [x] `project.yml` —— app target `sources` 增加 `Resources/Fonts`（`buildPhase: resources`）+ `info.properties.UIAppFonts` 三条裸文件名
+- [x] `App/Typography/FontRegistry.swift` —— 新建：显式登记 + 把「资产缺失」变成可指名失败
+- [x] `App/Typography/Typography.swift` —— 新建：9 个概念角色 → face/字号/textStyle/wght 的 token 层
+- [x] `App/ZenAgentApp.swift` —— 只加 `init()`；`body` 与 `StageZeroPlaceholderView` 未动
+- [x] `Tests/ZenAgentTests/FontAssetPresenceTests.swift` —— 新建：5 条，只用 main 上既有 API（RED 探针可用）
+- [x] `Tests/ZenAgentTests/TypographyTokenTests.swift` —— 新建：9 条
+- [x] `AGENTS.md` —— §8 Layout 补 `Typography/` 一行
+
+**未触碰**：`.github/workflows/ci.yml`、`Config/*.xcconfig`、`Resources/Fonts/**`、任何既有测试、
+`.xcodeproj`、任何依赖、任何 View。`tasks/**` 只追加。
+
+### 本地静态校验（本机唯一的验证手段）
+
+- [x] `project.yml` YAML 解析通过；`sources` 解析为 `[{path: App}, {path: Resources/Fonts, buildPhase: resources}]`，
+      `UIAppFonts` 解析为三条裸文件名；两个 `path` 在磁盘上存在
+- [x] CI hygiene 等价 grep：`import GRDB` / `import Security` / `URLSession` 均未越界
+- [x] `.xcodeproj` 未被跟踪；`App/Info.plist` 未被创建（XcodeGen 生成物，`.gitignore` 已覆盖）
+- [x] `managed-build-settings-guard.sh` 的禁名列（`IPHONEOS_DEPLOYMENT_TARGET` / `SWIFT_VERSION` /
+      `SWIFT_STRICT_CONCURRENCY` / `deploymentTarget`）与本次改动无交集
+- [ ] **未编译**：本机无 Swift/Xcode，Swift 代码一行都没过编译器。CI 是唯一判据。
+
+### 待 CI 回答的开放项（契约附录 4.1–4.4）
+
+| # | 问题 | 由哪条断言回答 |
+|---|---|---|
+| 4.1 | 「已登记」的返回码是否稳定 | TypographyTokenTests 第 9 条（登记幂等） |
+| 4.2 | 三个 PostScript 名是否与二进制一致 | FontAssetPresenceTests 2/3/5 + TypographyTokenTests 3 |
+| 4.3 | descriptor 上是否带得住 variation | TypographyTokenTests 4/5/6 |
+| 4.4 | `CTFontCopyVariation` 是否报告 400 | TypographyTokenTests 7 **（预测：可能红；红则上报不削弱）** |

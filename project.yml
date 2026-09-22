@@ -41,6 +41,14 @@ targets:
     platform: iOS
     sources:
       - path: App
+      # Declared as the whole directory, not file by file, so that adding a
+      # typeface later cannot half-land: a font that is on disk but missing from
+      # this list would fail `FontRegistry` at runtime rather than at review time.
+      # XcodeGen adds each file inside to Copy Bundle Resources, so the fonts land
+      # flat in the bundle root — which is what makes the bare-file-name
+      # `UIAppFonts` entries below correct rather than merely convenient.
+      - path: Resources/Fonts
+        buildPhase: resources
     dependencies:
       # The production persistence layer. Confined to App/Persistence/ and enforced
       # by the CI hygiene job. See Docs/ADR/0001.
@@ -50,6 +58,14 @@ targets:
       properties:
         CFBundleDisplayName: Zen Agent
         UILaunchScreen: {}
+        # Bare file names, with no `Fonts/` prefix: the resources above are copied
+        # to the bundle root, so a subdirectory here would name nothing. This is
+        # only the launch-time half of font wiring — `FontRegistry` re-registers the
+        # same manifest explicitly so a missing asset can name the file it wanted.
+        UIAppFonts:
+          - Anthropic Sans.ttf
+          - SourceHanSerifSC-VF.ttf
+          - JetBrainsMono-Regular.ttf
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:

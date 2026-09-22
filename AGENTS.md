@@ -203,6 +203,7 @@ comment or the PR. Do not duplicate a Blueprint ADR here.
 project.yml              project structure (XcodeGen input)
 Config/                  build settings — the single source of truth
 App/                     application target
+App/Typography/          typography tokens and font registration
 Tests/                   unit tests, including the persistence invariant regressions
 Docs/ADR/                engineering decision records
 Resources/               bundled assets (fonts, licences, manifests)
