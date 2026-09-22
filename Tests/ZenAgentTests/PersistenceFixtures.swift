@@ -57,15 +57,25 @@ enum Fixtures {
         )
     }
 
+    /// A run row.
+    ///
+    /// `endReason` and the timestamps are parameters because a test about why a run ended,
+    /// or about the order two runs were created in, has to be able to say so. Each sits
+    /// where the record itself puts it — `endReason` beside the state it explains — and
+    /// every one of them defaults to what this fixture has always written: `nil`, and the
+    /// shared `epoch`. Existing callers build exactly the row they built before.
     static func run(
         id: String,
         conversationID: String = "c1",
         kind: RunKind = .parent,
         state: RunState = .preparing,
+        endReason: EndReason? = nil,
         parentRunID: String? = nil,
         triggerMessageID: String? = nil,
         responseMessageID: String? = nil,
-        retryOfRunID: String? = nil
+        retryOfRunID: String? = nil,
+        createdAt: Date = epoch,
+        updatedAt: Date = epoch
     ) -> AgentRunRecord {
         AgentRunRecord(
             id: id,
@@ -73,7 +83,7 @@ enum Fixtures {
             kind: kind,
             parentRunID: parentRunID,
             state: state,
-            endReason: nil,
+            endReason: endReason,
             recoveryAction: nil,
             suspendReason: nil,
             triggerMessageID: triggerMessageID,
@@ -93,8 +103,8 @@ enum Fixtures {
                 resolvedEndpoint: URL(string: "https://api.deepseek.com/chat/completions")!
             ),
             executionSnapshot: nil,
-            createdAt: epoch,
-            updatedAt: epoch,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
             // Never set by hand. `PersistenceStore` derives it, and having callers
             // compute it is exactly the mistake the derived-value design prevents.
             activeSlot: nil
