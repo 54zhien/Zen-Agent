@@ -143,6 +143,30 @@ struct Stage2GateTests {
         // provably lands while `stopping` is durable and the terminal transition has not
         // begun. Asking from the test body without the park would instead be a race
         // against cancellation settling.
+        //
+        // ── DIAGNOSTIC (throwaway branch `diag/i09-gateb-count`; never merged) ─────────
+        // The gate fails at the assertion below and the CI log does not say what the count
+        // actually is, so this run captures all three candidate explanations at once:
+        //   A  before the rejected send  — if this is already 2, that second send is innocent
+        //      and the extra row came from the first send or the cancellation path
+        //   B  after it                  — the original assertion point
+        //   C  after the run settles     — if C differs from B, the count is time-dependent
+        func diagSnapshot(_ label: String) throws -> String {
+            let rows = try components.store.messages(
+                inConversation: Stage2GateFixture.conversationID
+            )
+            let runNow = try components.store.run(id: runID)
+            let described = rows.map { row in
+                "id=\(row.id) role=\(row.role.rawValue) seq=\(row.sequence) "
+                    + "at=\(row.createdAt.timeIntervalSince1970)"
+            }
+            return "DIAG[\(label)] count=\(rows.count) rows=\(described) "
+                + "runState=\(String(describing: runNow?.state)) "
+                + "endReason=\(String(describing: runNow?.endReason)) "
+                + "slot=\(String(describing: runNow?.activeSlot))"
+        }
+        let diagA = try diagSnapshot("A-before-second-send")
+
         var secondSendFailure: Error?
         do {
             _ = try await runtime.send(Stage2GateFixture.command(text: "second send"))
@@ -155,6 +179,7 @@ struct Stage2GateTests {
             ),
             "stopping still owns the conversation's active slot"
         )
+        let diagB = try diagSnapshot("B-after-second-send")
         #expect(
             try components.store.messages(
                 inConversation: Stage2GateFixture.conversationID
@@ -166,6 +191,11 @@ struct Stage2GateTests {
         try await stopTask.value
         _ = try await sendTask.value
         await box.waitUntilCancelled()
+
+        // DIAGNOSTIC: recorded unconditionally so the numbers land in the CI log even if the
+        // assertion above happens to pass this time.
+        let diagC = try diagSnapshot("C-after-settle")
+        Issue.record("DIAGNOSTIC gate-B count: \(diagA) || \(diagB) || \(diagC)")
 
         let storedRun = try components.store.run(id: runID)
         let run = try #require(storedRun)
