@@ -430,3 +430,82 @@ rebase 到含 P6 的 main 后合入。合并条件按审查要求逐条满足：
 | 4.2 | 三个 PostScript 名是否与二进制一致 | FontAssetPresenceTests 2/3/5 + TypographyTokenTests 3 |
 | 4.3 | descriptor 上是否带得住 variation | TypographyTokenTests 4/5/6 |
 | 4.4 | `CTFontCopyVariation` 是否报告 400 | TypographyTokenTests 7 **（预测：可能红；红则上报不削弱）** |
+
+---
+
+## Stage 3 · S3-02 Turn-based Reading Layout + 静态 Timeline
+
+**将调用**：`/apple-design`（SwiftUI 阅读布局的垂直节奏、Dynamic Type 下"布局随文字缩放"、
+字重/字号作为一组建立层次——本项唯一的非契约决策点就在这里）。
+不调用：`/run`（本机无 iOS 工具链，跑不起 app）、`/refactor-advisor`+`/perf-profiler`（契约 §0 只许碰
+9 个文件且明令"不要重新设计"）、`/frontend-design`（Web 向）、`/domain-modeling`（域模型已由契约冻结，
+`Design/CONTEXT.md` 不在可碰清单里）。
+
+**基点** `7ab47e61` · 分支 `feat/s3-02-timeline` · 工作树 `C:/Users/Azusa/.zen/worktrees/s3-02`。
+执行 `tasks/stage3-20260922/36-s3-02-spec.md`（已过覆盖轮与编排者闸的执行契约）。
+合并前基线 **360 tests / 51 suites**。
+
+### 触碰的文件（契约 §0 允许的 9 个；`tasks/**` 只追加）
+
+- [ ] `App/Conversation/ConversationTimeline.swift` —— 新建：纯类型 + `build`/`itemize`（不 import UI/DB）
+- [ ] `App/Conversation/ConversationTimelineLoader.swift` —— 新建：读 store，组装纯输入
+- [ ] `App/Conversation/ConversationTimelineView.swift` —— 新建：SwiftUI 视图，**不挂载到任何地方**
+- [ ] `App/Persistence/PersistenceStore+TimelineReads.swift` —— 新建：`runs(inConversation:)` / `toolResults(forToolCallIDs:)`
+- [ ] `Tests/ZenAgentTests/ConversationTimelineProjectionTests.swift` —— 新建：契约 §6.1 的 13 条
+- [ ] `Tests/ZenAgentTests/ConversationTimelineLoaderTests.swift` —— 新建：契约 §6.2 的 5 条
+- [ ] `Tests/ZenAgentTests/ConversationTypographyDisciplineTests.swift` —— 新建：契约 §6.3 的 3 条静态关卡
+- [ ] `Tests/ZenAgentTests/PersistenceFixtures.swift` —— **只追加带默认值的参数**（`endReason` / `createdAt` / `updatedAt`）
+- [ ] `AGENTS.md` —— §8 Layout 补 `App/Conversation/` 一行
+
+**不碰**：`project.yml`（`sources: - path: App` 是全目录声明，新文件自动进 target）、`.github/workflows/ci.yml`、
+`Config/*.xcconfig`、`Resources/**`、`App/ZenAgentApp.swift`、任何既有测试的断言、依赖、色板。
+
+### 已核对的仓库事实（写码前逐条查过，避免照抄契约里的错名）
+
+- `PersistenceStore` 是 `struct: Sendable`，存储属性名 **`database`**（`ZenDatabase`，final class）✓
+- `AgentRunRecord` 有 `kind/state/endReason/triggerMessageID/responseMessageID/createdAt/activeSlot` ✓
+- `PersistenceStore.decodeTextPayload` / `ToolCallPartPayload` / `ToolResultPartPayload` 均在 app module 内可 `@testable` 访问 ✓
+- `Typography.font(for:dynamicTypeSize:)` 与 `.conversationPrompt/.conversationBody/.interfaceCaption/.codeInline/.codeBlock` 存在（S3-01 产物）✓
+- `activeSlot` 只在 `kind == .parent && state.isActive` 时非空 → 同会话多 parent run 只能靠**终态**共存 ✓
+- `Fixtures.run` 目前硬编码 `endReason: nil` / `createdAt: epoch` → 断序与失败用例需要追加默认值参数 ✓
+- `Fixtures.send` 不能设 `createdAt` → 断序用例里用 fixtures 记录 + 真 `SendCommit` 组装（不手搓 record）✓
+- 无 `Fixtures.toolResult`，但既有测试（`ToolRuntimeTests.swift:33`）就是在测试里直接构造 `ToolResultRecord` → 沿用该既有惯例，
+  不新增 fixture 函数 ✓
+
+### 本地静态校验（本机唯一验证手段）
+
+- [ ] CI hygiene 等价 grep：`App/Conversation/**` 不含 `import GRDB`；新文件都在允许目录内
+- [ ] 契约 §6.3 的三条静态断言在本地用等价 shell 复算一遍（找根/规范化/子串）
+- [ ] 注释里不出现被禁写的字体写法（规范化后是子串匹配，注释同样会命中）
+- [ ] **未编译**：本机无 Swift/Xcode，Swift 一行都没过编译器。CI 是唯一判据。
+
+### 执行结果（实现提交 `805e5e9`；验收见回执）
+
+- [x] 9 个文件全部落盘，`git status --short` 没有第 10 个文件；`tasks/**` 只追加（`git diff --numstat` = `48 0`，
+      随后本节再追加一次，仍无删除）
+- [x] 本地静态校验（本机唯一手段）：契约 §6.3 的等价复算通过——`App/Conversation/` 3 个源文件、
+      去空白后不含三种禁用写法、8 处字体全部走 `Typography.font(for:`
+- [x] CI hygiene 等价 grep：`App/Conversation/**` 不含 `import GRDB`；新文件全部在允许目录内
+- [x] 两份独立审查（编译风险 / 契约逐条）：无编译错误；§6.1 的 13 条、§6.2 的 5 条、§6.3 的 3 条逐条有对应用例、无空洞断言
+- [ ] **未编译**：本机无 Swift/Xcode，Swift 一行都没过编译器；行为正确性只能由 CI 回答
+
+### 契约与仓库的两处张力（按契约执行，在此记账，未自行改动）
+
+1. §2 的 `runs(inConversation:)` 用 `AgentRunRecord.filter(...).fetchAll(db)`；而 `activeParentRuns(inConversation:)`
+   （`App/Persistence/PersistenceStore.swift:406`）刻意逐行走 `Row` + `decodeRun`，其注释（同文件 `:349` 起）写明
+   目的是「the storage-engine's vocabulary never reaches the Runtime or the UI」。按契约字面落盘的代价是：
+   某行 `requestConfigSeed` 读不出时，时间线读会以 **GRDB 原始错误**抛出，而不是
+   `PersistenceError.unreadableRequestConfigSeed`。这属于「契约要求 X，仓库既有做法是 Y」，交规划者定夺。
+2. §6.2 要求「不要手搓 record」，但 §0 第 8 条只许给 `PersistenceFixtures.swift` **追加带默认值的参数**，
+   而 Fixtures 里没有 `toolResult` 构造器。两条不能同时满足：按 §0（更硬的边界）执行，在测试里直接构造
+   `ToolResultRecord`——与 `Tests/ZenAgentTests/ToolRuntimeTests.swift:33` 的既有惯例一致。
+
+### 契约未规定处的判断（偏离已列，理由已给）
+
+- 间距常量额外走 `@ScaledMetric`：契约只要求「具名常量 + 注明需真机校准」，这里让间距随 Dynamic Type 缩放。
+- 静态关卡比 §6.3 多一条：删掉 `.font(Typography.font(` 后不得再有 `.font(`——禁掉 `.font(.body)` 这类
+  绕过 token 的写法（§5「所有文本必须走 token」）。加上后 8 处调用全部通过。
+- §5「reasoning / 工具活动默认折叠」与同句「不做交互动作」冲突。取最小读法：单行截断、无展开手势，
+  不新增交互；若规划者要的是「可展开」，那是一处行为变更。
+- 工具 `state` 与运行 `state`/`endReason` 直接显示枚举 rawValue：不发明用户可见文案（文案表与 Retry 入口属于第 7 项）。
+- 用户 Capsule 的底色用契约 §5 给出的 `Color(.secondarySystemBackground)`（系统语义色），未自建色板。
