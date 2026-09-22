@@ -1080,23 +1080,52 @@ actor AgentRuntime {
         )
     }
 
+    /// Suspends the serial batch until a decision for `toolCallID` is recorded.
+    ///
+    /// The state check and the waiter registration share one synchronous block, and
+    /// the durable state is read again the moment the waiter exists. That order is the
+    /// whole contract: a decision recorded before the waiter was registered is seen by
+    /// the second read instead of being lost, and a decision recorded after it is
+    /// delivered by `approveToolCall`/`rejectToolCall`. Letting anything suspend
+    /// between the two — a state check on one side of an `await`, the registration on
+    /// the other — is what would let an approval land in the gap and leave the batch
+    /// waiting on a decision that already happened.
     private func waitForToolDecision(toolCallID: String) async {
-        let call: ToolCallRecord?
-        do {
-            call = try store.toolCall(id: toolCallID)
-        } catch {
-            return
-        }
-        guard let call,
-              call.state == .waitingForApproval ||
-                call.state == .waitingForSystemPermissionConsent
-        else {
-            return
-        }
-
         await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let call: ToolCallRecord?
+                do {
+                    call = try store.toolCall(id: toolCallID)
+                } catch {
+                    continuation.resume()
+                    return
+                }
+
+                guard let call,
+                      call.state == .waitingForApproval ||
+                        call.state == .waitingForSystemPermissionConsent
+                else {
+                    continuation.resume()
+                    return
+                }
+
                 toolDecisionWaiters[toolCallID] = continuation
+
+                let current: ToolCallRecord?
+                do {
+                    current = try store.toolCall(id: toolCallID)
+                } catch {
+                    toolDecisionWaiters.removeValue(forKey: toolCallID)?.resume()
+                    return
+                }
+
+                guard let current,
+                      current.state == .waitingForApproval ||
+                        current.state == .waitingForSystemPermissionConsent
+                else {
+                    toolDecisionWaiters.removeValue(forKey: toolCallID)?.resume()
+                    return
+                }
             }
         }, onCancel: {
             Task { await self.resumeToolDecisionWaiter(toolCallID: toolCallID) }
