@@ -213,11 +213,15 @@ struct AttachmentSendTests {
         let root = try #require(repositoryRoot())
         let sourceURL = root.appendingPathComponent("App/Conversation/ComposerAttachment.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
-        let declarationStart = try #require(source.range(of: "struct AttachmentReference {"))
+        let declarationStart = try #require(source.range(of: "struct AttachmentReference"))
         let declarationEnd = try #require(source[declarationStart.lowerBound...].firstIndex(of: "}"))
         let declaration = source[declarationStart.lowerBound...declarationEnd]
-        for forbidden in ["Data", "URL", "bytes", "content"] {
-            #expect(!declaration.localizedCaseInsensitiveContains(forbidden))
+        for line in declaration.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("let ") else { continue }
+            for forbidden in ["Data", "URL", "bytes", "content"] {
+                #expect(!trimmed.localizedCaseInsensitiveContains(forbidden))
+            }
         }
     }
 

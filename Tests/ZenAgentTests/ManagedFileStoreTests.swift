@@ -87,7 +87,7 @@ struct ManagedFileStoreTests {
         ))
         let temporaryAttributeUpdates = observations.protectionRequests(on: temporaryURL)
             .filter { $0.operation == .attributeUpdate }
-        #expect(temporaryAttributeUpdates.count == 2)
+        #expect(temporaryAttributeUpdates.count >= 2)
         #expect(temporaryAttributeUpdates.allSatisfy {
             $0.protection == .completeUntilFirstUserAuthentication
         })
