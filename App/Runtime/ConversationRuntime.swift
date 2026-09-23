@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 indirect enum ConversationProjectionError: Error, Equatable, Sendable {
     case malformedToolCallPart(String)
@@ -28,6 +29,12 @@ actor ConversationRuntime {
 
     private var operations: [String: Task<Void, Never>] = [:]
     private var completionErrors: [String: ConversationProjectionError] = [:]
+    private var projections: [String: RunProjection] = [:]
+    private var projectionSubscribers: [
+        String: [UUID: AsyncStream<RunProjection?>.Continuation]
+    ] = [:]
+
+    var activeOperationCount: Int { operations.count }
 
     init(
         store: PersistenceStore,
@@ -65,6 +72,17 @@ actor ConversationRuntime {
     /// after the snapshot is committed gives callers a durable id for Stop without
     /// making the provider request itself synchronous.
     func start(_ command: SendCommand) async throws -> String {
+        guard !command.submissionID.isEmpty else {
+            throw ConversationRuntimeError.emptySubmissionID
+        }
+        let submissionDigest = Self.submissionDigest(for: command)
+        if let existing = try store.run(submissionID: command.submissionID) {
+            guard existing.submissionDigest == submissionDigest else {
+                throw ConversationRuntimeError.submissionIDPayloadConflict(command.submissionID)
+            }
+            return existing.id
+        }
+
         guard command.maxProviderSteps > 0 else {
             throw ConversationRuntimeError.invalidMaxProviderSteps(command.maxProviderSteps)
         }
@@ -165,18 +183,22 @@ actor ConversationRuntime {
             executionSnapshot: nil,
             createdAt: now,
             updatedAt: now,
-            activeSlot: nil
+            activeSlot: nil,
+            submissionID: command.submissionID,
+            submissionDigest: submissionDigest
         )
 
         // 9. The only send commit. The store transaction makes steps 8-9 all-or-none.
-        try store.commitUserTurnAndCreateParentRun(
+        if let existingRunID = try store.commitUserTurnAndCreateParentRun(
             SendCommit(
                 conversation: conversation,
                 message: userMessage,
                 parts: [userPart],
                 run: run
             )
-        )
+        ) {
+            return existingRunID
+        }
 
         // 10. From this point on the Run is a real business object.
         await publish(.runAccepted(
@@ -220,7 +242,6 @@ actor ConversationRuntime {
                 endReason: .providerFailed
             )) ?? []
             await publishFailureEvents(failureEvents)
-            operations[runID] = Task<Void, Never> {}
             return runID
         }
 
@@ -250,7 +271,9 @@ actor ConversationRuntime {
             }
         )
         let task: Task<Void, Never> = Task { [weak self] in
-            await self?.consume(runID: runID, stream: stream)
+            guard let self else { return }
+            await self.consume(runID: runID, stream: stream)
+            await self.removeCompletedOperation(runID: runID)
         }
         operations[runID] = task
         return runID
@@ -272,7 +295,6 @@ actor ConversationRuntime {
             throw AgentRuntimeError.runNotFound(runID)
         }
         await task.value
-        operations.removeValue(forKey: runID)
         if let error = completionErrors.removeValue(forKey: runID) {
             throw error
         }
@@ -282,7 +304,60 @@ actor ConversationRuntime {
     /// terminal transition and active-slot release happen only after cancellation has
     /// flushed the open part.
     func stop(runID: String) async throws {
+        if let events = try await agentRuntime.cancelTasklessSuspendedRun(runID: runID) {
+            for event in events {
+                try await applyAndPublish(event)
+            }
+            return
+        }
         try await agentRuntime.stop(runID: runID)
+    }
+
+    func knownModels(for providerInstanceID: ProviderInstanceID) throws -> [ModelDescriptor] {
+        guard let instance = try store.providerInstance(id: providerInstanceID) else {
+            throw PersistenceError.providerInstanceNotFound(providerInstanceID)
+        }
+        guard instance.providerID == provider.id else {
+            throw ConversationRuntimeError.providerInstanceBelongsToAnotherProvider(
+                instanceID: instance.id,
+                expected: provider.id,
+                actual: instance.providerID
+            )
+        }
+        return provider.knownModels(for: instance).filter {
+            $0.providerInstanceID == providerInstanceID
+        }
+    }
+
+    func projection(conversationID: String) throws -> RunProjection? {
+        if let run = try store.activeParentRuns(inConversation: conversationID).first {
+            let projection = RunProjection(runID: run.id, state: run.state)
+            projections[conversationID] = projection
+            return projection
+        }
+        if let cached = projections[conversationID],
+           let persisted = try store.run(id: cached.runID) {
+            let projection = RunProjection(runID: persisted.id, state: persisted.state)
+            projections[conversationID] = projection
+            return projection
+        }
+        return projections[conversationID]
+    }
+
+    func projectionUpdates(conversationID: String) -> AsyncStream<RunProjection?> {
+        let subscriptionID = UUID()
+        let (stream, continuation) = AsyncStream<RunProjection?>.makeStream()
+        projectionSubscribers[conversationID, default: [:]][subscriptionID] = continuation
+        continuation.yield(try? projection(conversationID: conversationID))
+        continuation.onTermination = { [weak self] _ in
+            Task {
+                await self?.removeProjectionSubscriber(
+                    conversationID: conversationID,
+                    subscriptionID: subscriptionID
+                )
+            }
+        }
+        return stream
     }
 
     /// Resolves an approval gate without creating a replacement ToolCall.
@@ -544,6 +619,73 @@ actor ConversationRuntime {
     }
 
     private func publish(_ event: AgentEvent) async {
+        publishProjection(for: event)
         await onEvent(event)
+    }
+
+    private func publishProjection(for event: AgentEvent) {
+        let eventRunID = runID(from: event)
+        let conversationID: String
+        if case .runAccepted(_, let acceptedConversationID) = event {
+            conversationID = acceptedConversationID
+        } else if let run = try? store.run(id: eventRunID) {
+            conversationID = run.conversationID
+        } else {
+            return
+        }
+
+        var projection: RunProjection
+        if var current = projections[conversationID], current.runID == eventRunID {
+            current.apply(event)
+            projection = current
+        } else if let initial = RunProjection(event: event) {
+            projection = initial
+        } else if let run = try? store.run(id: eventRunID) {
+            projection = RunProjection(runID: eventRunID, state: run.state)
+        } else {
+            return
+        }
+
+        guard projections[conversationID] != projection else { return }
+        projections[conversationID] = projection
+        if let continuations = projectionSubscribers[conversationID]?.values {
+            for continuation in continuations {
+                continuation.yield(projection)
+            }
+        }
+    }
+
+    private func removeProjectionSubscriber(
+        conversationID: String,
+        subscriptionID: UUID
+    ) {
+        projectionSubscribers[conversationID]?.removeValue(forKey: subscriptionID)
+        if projectionSubscribers[conversationID]?.isEmpty == true {
+            projectionSubscribers.removeValue(forKey: conversationID)
+        }
+    }
+
+    private func removeCompletedOperation(runID: String) {
+        operations.removeValue(forKey: runID)
+    }
+
+    private static func submissionDigest(for command: SendCommand) -> String {
+        let components = [
+            command.conversationID,
+            command.text,
+            command.providerInstanceID.rawValue,
+            command.modelID.rawValue,
+            String(command.maxProviderSteps),
+        ]
+        var encoded = Data()
+        for component in components {
+            let bytes = Data(component.utf8)
+            var length = UInt64(bytes.count).bigEndian
+            withUnsafeBytes(of: &length) { encoded.append(contentsOf: $0) }
+            encoded.append(bytes)
+        }
+        return SHA256.hash(data: encoded)
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 }

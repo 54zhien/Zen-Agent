@@ -39,6 +39,8 @@ enum PersistenceError: Error, Equatable {
     /// The named Provider instance does not exist.
     case providerInstanceNotFound(ProviderInstanceID)
 
+    case submissionIDPayloadConflict(String)
+
     case unreadableProviderInstance(id: ProviderInstanceID, failure: ProviderInstanceReadFailure)
 
     /// A create was asked to make an instance whose id is already taken.
@@ -191,7 +193,8 @@ struct PersistenceStore: Sendable {
     /// invariant. The partial unique index is. Removing the index because "the store
     /// already checks" would put the whole guarantee back on application discipline,
     /// which is the thing the spike ruled out.
-    func commitUserTurnAndCreateParentRun(_ commit: SendCommit) throws {
+    @discardableResult
+    func commitUserTurnAndCreateParentRun(_ commit: SendCommit) throws -> String? {
         var claimed = commit.run
         // The active-slot rule is applied in exactly one place. Callers pass the run's
         // state and nothing else; forgetting to maintain a derived column is not a
@@ -204,7 +207,20 @@ struct PersistenceStore: Sendable {
         let run = claimed
 
         do {
-            try database.write { db in
+            return try database.write { db -> String? in
+                if let submissionID = run.submissionID,
+                   let row = try Row.fetchOne(
+                    db,
+                    sql: "SELECT * FROM agentRun WHERE submissionID = ?",
+                    arguments: [submissionID]
+                   ) {
+                    let existing = try Self.decodeRun(row)
+                    guard existing.submissionDigest == run.submissionDigest else {
+                        throw PersistenceError.submissionIDPayloadConflict(submissionID)
+                    }
+                    return existing.id
+                }
+
                 // A send must not change a conversation's lifecycle: the upsert below
                 // writes the whole snapshot row. A snapshot read before a deletion
                 // began would resurrect the conversation, and one read during the undo
@@ -248,21 +264,16 @@ struct PersistenceStore: Sendable {
                 }
 
                 try run.insert(db)
+                return nil
             }
         } catch let error as DatabaseError where error.resultCode == .SQLITE_CONSTRAINT {
-            // Anything reaching here is a *different* constraint. The occupied-slot
-            // case was already caught by the check above, inside the same transaction —
-            // and on a `DatabaseQueue` GRDB serialises writers, so no racing writer can
-            // slip in between the check and the insert.
-            //
-            // Deliberately not inspecting the error text to work out which index fired.
-            // Matching on a message string is exactly the "infer business meaning from
-            // an error string" habit the notes forbid, and it would be paying for that
-            // fragility to handle a path that is currently unreachable.
-            //
-            // When a `DatabasePool` arrives and concurrent writers become real, the
-            // index starts doing load-bearing work and this mapping will need revisiting
-            // — with a real discriminator, not a substring.
+            if let submissionID = run.submissionID,
+               let existing = try self.run(submissionID: submissionID) {
+                guard existing.submissionDigest == run.submissionDigest else {
+                    throw PersistenceError.submissionIDPayloadConflict(submissionID)
+                }
+                return existing.id
+            }
             throw PersistenceError.constraintViolation
         }
     }
@@ -348,6 +359,17 @@ struct PersistenceStore: Sendable {
         try database.read { db in
             guard let row = try Row.fetchOne(
                 db, sql: "SELECT * FROM agentRun WHERE id = ?", arguments: [id]
+            ) else { return nil }
+            return try Self.decodeRun(row)
+        }
+    }
+
+    func run(submissionID: String) throws -> AgentRunRecord? {
+        try database.read { db in
+            guard let row = try Row.fetchOne(
+                db,
+                sql: "SELECT * FROM agentRun WHERE submissionID = ?",
+                arguments: [submissionID]
             ) else { return nil }
             return try Self.decodeRun(row)
         }

@@ -310,6 +310,9 @@ struct AgentRunRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Id
     /// The conditional-uniqueness slot: the conversation id while this run is active,
     /// `nil` once terminal. Only parent runs occupy it — see the schema.
     var activeSlot: String?
+
+    var submissionID: String? = nil
+    var submissionDigest: String? = nil
 }
 
 /// One provider request within a run, and which attempt of it is current.

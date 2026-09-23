@@ -59,7 +59,8 @@ enum I05RuntimeTestFixtures {
             text: text,
             providerInstanceID: instanceID,
             modelID: modelID,
-            maxProviderSteps: maxProviderSteps
+            maxProviderSteps: maxProviderSteps,
+            submissionID: "i05-runtime-fixture-command"
         )
     }
 }
@@ -159,7 +160,8 @@ struct ConversationRuntimeTests {
             text: "question",
             providerInstanceID: fixture.instance.id,
             modelID: I05RuntimeTestFixtures.modelID,
-            maxProviderSteps: 4
+            maxProviderSteps: 4,
+            submissionID: "i05-missing-conversation-command"
         )
 
         do {
@@ -313,7 +315,8 @@ struct ConversationRuntimeTests {
             text: "question",
             providerInstanceID: ProviderInstanceID(rawValue: "missing-provider-instance"),
             modelID: I05RuntimeTestFixtures.modelID,
-            maxProviderSteps: 4
+            maxProviderSteps: 4,
+            submissionID: "i05-missing-instance-command"
         )
 
         do {
@@ -460,5 +463,65 @@ struct ConversationRuntimeTests {
         #expect(run?.state == .failed)
         #expect(run?.endReason == .providerFailed)
         #expect(run?.activeSlot == nil)
+    }
+
+    @Test("replayedSubmissionReturnsOriginalRunWithoutNewTurn")
+    func replayedSubmissionReturnsOriginalRunWithoutNewTurn() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let box = I05BlockingStreamBox()
+        let provider = I05BlockingProvider(box: box, instanceID: fixture.instance.id)
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials
+        )
+        var command = I05RuntimeTestFixtures.command()
+        command.submissionID = "s3-07-active-replay"
+
+        let originalRunID = try await runtime.start(command)
+        await box.waitUntilReady()
+        let replayedRunID = try await runtime.start(command)
+
+        #expect(replayedRunID == originalRunID)
+        #expect(try fixture.store.messages(
+            inConversation: I05RuntimeTestFixtures.conversationID
+        ).filter { $0.role == .user }.count == 1)
+        #expect(try fixture.store.runs(
+            inConversation: I05RuntimeTestFixtures.conversationID
+        ).count == 1)
+
+        try await runtime.stop(runID: originalRunID)
+        try await runtime.waitForCompletion(runID: originalRunID)
+    }
+
+    @Test("reusedSubmissionWithChangedPayloadIsRejected")
+    func reusedSubmissionWithChangedPayloadIsRejected() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let box = I05BlockingStreamBox()
+        let provider = I05BlockingProvider(box: box, instanceID: fixture.instance.id)
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials
+        )
+        var command = I05RuntimeTestFixtures.command()
+        command.submissionID = "s3-07-changed-payload"
+        let originalRunID = try await runtime.start(command)
+        await box.waitUntilReady()
+
+        var changed = command
+        changed.text = "different payload"
+        do {
+            _ = try await runtime.start(changed)
+            #expect(false, "reusing an id for different request data must be rejected")
+        } catch let error as ConversationRuntimeError {
+            #expect(error == .submissionIDPayloadConflict(command.submissionID))
+        }
+
+        #expect(try fixture.store.messages(
+            inConversation: I05RuntimeTestFixtures.conversationID
+        ).filter { $0.role == .user }.count == 1)
+        try await runtime.stop(runID: originalRunID)
+        try await runtime.waitForCompletion(runID: originalRunID)
     }
 }

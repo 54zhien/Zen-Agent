@@ -265,4 +265,64 @@ struct AgentRuntimeStopTests {
         #expect(run?.activeSlot == nil)
         #expect(box.cancellationCount > 0, "the provider stream must be cancelled")
     }
+
+    @Test("suspendedStopEndsCancelledAndReleasesActiveSlot")
+    func suspendedStopEndsCancelledAndReleasesActiveSlot() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let runID = "s3-07-taskless-suspended-run"
+        try fixture.store.commitUserTurnAndCreateParentRun(
+            Fixtures.send(
+                conversationID: I05RuntimeTestFixtures.conversationID,
+                messageID: "user-s3-07-taskless-stop",
+                runID: runID
+            )
+        )
+        try fixture.store.transitionRun(
+            id: runID,
+            expectedState: .preparing,
+            to: .suspended,
+            recoveryAction: .resume,
+            suspendReason: .backgrounded
+        )
+
+        let recorder = I05EventRecorder()
+        let provider = I05BlockingProvider(
+            box: I05BlockingStreamBox(),
+            instanceID: fixture.instance.id
+        )
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials,
+            onEvent: { event in await recorder.append(event) }
+        )
+
+        try await runtime.stop(runID: runID)
+
+        let run = try fixture.store.run(id: runID)
+        let events = await recorder.allEvents()
+        #expect(run?.state == .cancelled)
+        #expect(run?.endReason == .cancelledByUser)
+        #expect(run?.activeSlot == nil)
+        #expect(try fixture.store.activeParentRuns(
+            inConversation: I05RuntimeTestFixtures.conversationID
+        ).isEmpty)
+        #expect(events.contains {
+            if case .runStateChanged(let eventRunID, let state) = $0 {
+                return eventRunID == runID && state == .stopping
+            }
+            return false
+        })
+        #expect(events.contains {
+            if case .runStateChanged(let eventRunID, let state) = $0 {
+                return eventRunID == runID && state == .cancelled
+            }
+            return false
+        })
+        #expect(events.last == .runEnded(
+            runID: runID,
+            state: .cancelled,
+            endReason: .cancelledByUser
+        ))
+    }
 }

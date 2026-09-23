@@ -23,6 +23,7 @@ enum Migrations {
         registerV5(&migrator)
         registerV6(&migrator)
         registerV7(&migrator)
+        registerV8(&migrator)
         return migrator
     }
 
@@ -206,6 +207,18 @@ enum Migrations {
                     payload TEXT NOT NULL,
                     createdAt DATETIME NOT NULL
                 )
+                """)
+        }
+    }
+
+    static func registerV8(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v8_add_send_submission_identity") { db in
+            try db.execute(sql: "ALTER TABLE agentRun ADD COLUMN submissionID TEXT")
+            try db.execute(sql: "ALTER TABLE agentRun ADD COLUMN submissionDigest TEXT")
+            try db.execute(sql: """
+                CREATE UNIQUE INDEX agentRun_by_submission_id
+                ON agentRun (submissionID)
+                WHERE submissionID IS NOT NULL AND submissionID != ''
                 """)
         }
     }

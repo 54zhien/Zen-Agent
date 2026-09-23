@@ -13,10 +13,13 @@ struct SendCommand: Sendable, Equatable {
     var modelID: ModelID
 
     var maxProviderSteps: Int
+    var submissionID: String
 }
 
 enum ConversationRuntimeError: Error, Equatable, Sendable {
     case invalidMaxProviderSteps(Int)
+    case emptySubmissionID
+    case submissionIDPayloadConflict(String)
     case providerInstanceBelongsToAnotherProvider(
         instanceID: ProviderInstanceID,
         expected: ProviderID,
@@ -27,4 +30,3 @@ enum ConversationRuntimeError: Error, Equatable, Sendable {
     case missingCredential(ProviderInstanceID)
     case credentialUnavailable(CredentialStatus)
 }
-

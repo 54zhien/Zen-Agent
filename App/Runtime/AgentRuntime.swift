@@ -237,6 +237,37 @@ actor AgentRuntime {
         execution.task.cancel()
     }
 
+    /// Cancels a persisted suspended run after its in-memory execution has gone away.
+    /// Returns nil for all runs that still belong to the ordinary Stop path.
+    func cancelTasklessSuspendedRun(runID: String) throws -> [AgentEvent]? {
+        guard active[runID] == nil,
+              let run = try store.run(id: runID),
+              run.state == .suspended
+        else { return nil }
+
+        try store.transitionRun(
+            id: runID,
+            expectedState: .suspended,
+            to: .stopping
+        )
+
+        for call in try store.toolCalls(inRun: runID) where !call.state.isTerminal {
+            try store.settleToolCallForCancellation(id: call.id)
+        }
+
+        try store.transitionRun(
+            id: runID,
+            expectedState: .stopping,
+            to: .cancelled,
+            endReason: .cancelledByUser
+        )
+        return [
+            .runStateChanged(runID: runID, state: .stopping),
+            .runStateChanged(runID: runID, state: .cancelled),
+            .runEnded(runID: runID, state: .cancelled, endReason: .cancelledByUser),
+        ]
+    }
+
     /// Records an approval decision on the waiting ToolCall and wakes the suspended
     /// serial batch. The same ToolCall identity is resumed; no replacement call exists.
     func approveToolCall(toolCallID: String) throws {

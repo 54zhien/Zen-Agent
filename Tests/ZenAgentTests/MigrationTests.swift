@@ -78,6 +78,18 @@ struct MigrationTests {
         return migrator
     }
 
+    private func v7Migrator() -> DatabaseMigrator {
+        var migrator = DatabaseMigrator()
+        Migrations.registerV1(&migrator)
+        Migrations.registerV2(&migrator)
+        Migrations.registerV3(&migrator)
+        Migrations.registerV4(&migrator)
+        Migrations.registerV5(&migrator)
+        Migrations.registerV6(&migrator)
+        Migrations.registerV7(&migrator)
+        return migrator
+    }
+
     private func seedV1(at url: URL) throws {
         let store = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: v1Migrator()))
         try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
@@ -450,6 +462,97 @@ struct MigrationTests {
         #expect(run?.id == "r1")
         #expect(run?.requestConfigSeed.formatVersion == RequestConfigSeed.currentFormatVersion)
         #expect(try store.activeParentRuns(inConversation: "c1").count == 1)
+    }
+
+    @Test("v8SubmissionIndexUpgradesOldRunsAndRejectsDuplicateIDs")
+    func v8SubmissionIndexUpgradesOldRunsAndRejectsDuplicateIDs() throws {
+        let url = try Fixtures.scratchPath(name: "submission-identity-v8.sqlite")
+        defer { Fixtures.cleanUp(url) }
+
+        let before = PersistenceStore(
+            database: try ZenDatabase.open(at: url.path(), migrator: v7Migrator())
+        )
+        var oldCommit = Fixtures.send(
+            conversationID: "old-submission-conversation",
+            messageID: "old-submission-message",
+            runID: "old-submission-run",
+            runState: .completed
+        )
+        oldCommit.run.endReason = .completed
+        let seedData = try JSONEncoder().encode(oldCommit.run.requestConfigSeed)
+        let rawSeed = String(decoding: seedData, as: UTF8.self)
+        let legacyCommit = oldCommit
+        try before.database.write { db in
+            try legacyCommit.conversation.insert(db)
+            try legacyCommit.message.insert(db)
+            for part in legacyCommit.parts {
+                try part.insert(db)
+            }
+            try db.execute(
+                sql: """
+                    INSERT INTO agentRun (
+                        id, conversationID, kind, parentRunID, state, endReason,
+                        recoveryAction, suspendReason, triggerMessageID, responseMessageID,
+                        retryOfRunID, requestConfigSeed, executionSnapshot, createdAt,
+                        updatedAt, activeSlot
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    legacyCommit.run.id,
+                    legacyCommit.run.conversationID,
+                    legacyCommit.run.kind.rawValue,
+                    legacyCommit.run.parentRunID,
+                    legacyCommit.run.state.rawValue,
+                    legacyCommit.run.endReason?.rawValue,
+                    legacyCommit.run.recoveryAction?.rawValue,
+                    legacyCommit.run.suspendReason?.rawValue,
+                    legacyCommit.run.triggerMessageID,
+                    legacyCommit.run.responseMessageID,
+                    legacyCommit.run.retryOfRunID,
+                    rawSeed,
+                    legacyCommit.run.executionSnapshot,
+                    legacyCommit.run.createdAt,
+                    legacyCommit.run.updatedAt,
+                    legacyCommit.run.activeSlot,
+                ]
+            )
+        }
+
+        let after = PersistenceStore(
+            database: try ZenDatabase.open(at: url.path(), migrator: currentMigrator())
+        )
+        #expect(try after.run(id: "old-submission-run")?.submissionID == nil)
+        #expect(try after.run(id: "old-submission-run")?.submissionDigest == nil)
+        #expect(try after.database.read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
+                arguments: ["agentRun_by_submission_id"]
+            ) != nil
+        })
+
+        var first = Fixtures.send(
+            conversationID: "new-submission-conversation",
+            messageID: "new-submission-message",
+            runID: "new-submission-run"
+        )
+        first.run.submissionID = "same-submission"
+        first.run.submissionDigest = "digest-one"
+        try after.commitUserTurnAndCreateParentRun(first)
+
+        var duplicate = first.run
+        duplicate.id = "duplicate-submission-run"
+        duplicate.state = .completed
+        duplicate.endReason = .completed
+        duplicate.activeSlot = nil
+        let duplicateRun = duplicate
+        var duplicateRejected = false
+        do {
+            try after.database.write { db in try duplicateRun.insert(db) }
+        } catch {
+            duplicateRejected = true
+        }
+        #expect(duplicateRejected)
     }
 }
 

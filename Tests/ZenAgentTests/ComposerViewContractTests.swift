@@ -68,6 +68,29 @@ struct ComposerViewContractTests {
         #expect(!view.contains("RoundedRectangle"))
     }
 
+    @Test("menuDisablesUnavailableEntriesAndUsesModelCatalog")
+    func menuDisablesUnavailableEntriesAndUsesModelCatalog() {
+        guard let view = sourceFiles()?["App/Conversation/ConversationComposerView.swift"] else { return }
+
+        #expect(view.contains("Menu {"))
+        #expect(view.contains(".disabled(!canAddImage)"))
+        #expect(view.contains(".disabled(!canAddFile)"))
+        #expect(view.contains(".disabled(!canOpenPlugins)"))
+        #expect(view.contains("ForEach(modelsForSelectedInstance)"))
+        #expect(view.contains("controller.configuration.modelID = model.id"))
+        #expect(view.contains(".disabled(true)"))
+    }
+
+    @Test("viewRequiresBridgeAndDoesNotRenderVoice")
+    func viewRequiresBridgeAndDoesNotRenderVoice() {
+        guard let view = sourceFiles()?["App/Conversation/ConversationComposerView.swift"] else { return }
+
+        #expect(view.contains("bridge: ComposerRuntimeActionBridge"))
+        #expect(view.contains("maxProviderSteps: Int"))
+        #expect(!view.localizedCaseInsensitiveContains("voice"))
+        #expect(!view.contains("onVoice"))
+    }
+
     private func sourceFiles() -> [String: String]? {
         guard let root = repositoryRoot() else {
             Issue.record("could not locate repository root from the test source path")

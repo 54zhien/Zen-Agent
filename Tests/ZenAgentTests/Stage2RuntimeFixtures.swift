@@ -91,7 +91,8 @@ enum Stage2GateFixture {
             text: text,
             providerInstanceID: instanceID,
             modelID: modelID,
-            maxProviderSteps: maxProviderSteps
+            maxProviderSteps: maxProviderSteps,
+            submissionID: UUID().uuidString
         )
     }
 }
