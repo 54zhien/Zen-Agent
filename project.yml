@@ -9,7 +9,7 @@
 name: ZenAgent
 
 options:
-  bundleIdPrefix: com.zhien.zenagent
+  bundleIdPrefix: com.zhien.zen
   createIntermediateGroups: true
   # NOTE: deployment targets deliberately live in Config/Common.xcconfig, not here.
   # Build settings written into the project file override xcconfig values, so
@@ -56,7 +56,7 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: Zen Agent
+        CFBundleDisplayName: Zen
         UILaunchScreen: {}
         # Bare file names, with no `Fonts/` prefix: the resources above are copied
         # to the bundle root, so a subdirectory here would name nothing. This is
