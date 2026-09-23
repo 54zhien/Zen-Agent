@@ -21,15 +21,14 @@ struct ManagedFileStoreTests {
         let supportRoot = temporarySupportRoot()
         defer { try? FileManager.default.removeItem(at: supportRoot) }
         let observations = TemporaryProtectionObservations()
+        let recordingFileManager = ProtectionRecordingFileManager(observations: observations)
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
         let managedFiles = ManagedFileStore(
             applicationSupportRoot: supportRoot,
+            fileManager: recordingFileManager,
+            protectionRequirement: .bestEffort,
             temporaryFileObserver: { url, phase in
-                let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-                observations.append(
-                    phase: phase,
-                    protection: attributes?[.protectionKey] as? FileProtectionType
-                )
+                observations.appendTemporaryFile(url: url, phase: phase)
             }
         )
 
@@ -61,20 +60,48 @@ struct ManagedFileStoreTests {
             blob.deletingLastPathComponent(),
         ]
         for directory in protectedDirectories {
-            #expect(try protection(of: directory) == .completeUntilFirstUserAuthentication)
+            #expect(observations.containsProtectionRequest(
+                on: directory,
+                operation: .directoryCreation,
+                protection: .completeUntilFirstUserAuthentication
+            ))
+            #expect(observations.containsProtectionRequest(
+                on: directory,
+                operation: .attributeUpdate,
+                protection: .completeUntilFirstUserAuthentication
+            ))
         }
-        #expect(try protection(of: blob) == .completeUntilFirstUserAuthentication)
         // This checks the exclusion attribute only; it does not assert that a backup ran.
         let backupValues = try blob.resourceValues(forKeys: [.isExcludedFromBackupKey])
         #expect(backupValues.isExcludedFromBackup != true)
 
-        let temporarySamples = observations.all
+        let temporarySamples = observations.temporaryFiles
         #expect(temporarySamples.count == 2)
-        #expect(temporarySamples.allSatisfy {
-            $0.protection == .completeUntilFirstUserAuthentication
-        })
         #expect(temporarySamples.contains { $0.phase == .protectedBeforeWrite })
         #expect(temporarySamples.contains { $0.phase == .protectedAfterWrite })
+        let temporaryURL = try #require(temporarySamples.first?.url)
+        #expect(observations.containsProtectionRequest(
+            on: temporaryURL,
+            operation: .fileCreation,
+            protection: .completeUntilFirstUserAuthentication
+        ))
+        let temporaryAttributeUpdates = observations.protectionRequests(on: temporaryURL)
+            .filter { $0.operation == .attributeUpdate }
+        #expect(temporaryAttributeUpdates.count == 2)
+        #expect(temporaryAttributeUpdates.allSatisfy {
+            $0.protection == .completeUntilFirstUserAuthentication
+        })
+        #expect(observations.containsProtectionRequest(
+            on: blob,
+            operation: .attributeUpdate,
+            protection: .completeUntilFirstUserAuthentication
+        ))
+    }
+
+    @Test("productionStoreEnforcesFileProtection")
+    func productionStoreEnforcesFileProtection() throws {
+        let productionStore = try ManagedFileStore.applicationDefault()
+        #expect(productionStore.protectionRequirement == .enforced)
     }
 
     @Test("sameBytesShareOneBlobButKeepDistinctAssetIdentities")
@@ -82,7 +109,10 @@ struct ManagedFileStoreTests {
         let supportRoot = temporarySupportRoot()
         defer { try? FileManager.default.removeItem(at: supportRoot) }
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
-        let managedFiles = ManagedFileStore(applicationSupportRoot: supportRoot)
+        let managedFiles = ManagedFileStore(
+            applicationSupportRoot: supportRoot,
+            protectionRequirement: .bestEffort
+        )
         let bytes = Data("same bytes".utf8)
 
         let first = try managedFiles.ingest(data: bytes, displayName: "first.txt", in: store)
@@ -103,7 +133,10 @@ struct ManagedFileStoreTests {
         let supportRoot = temporarySupportRoot()
         defer { try? FileManager.default.removeItem(at: supportRoot) }
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
-        let managedFiles = ManagedFileStore(applicationSupportRoot: supportRoot)
+        let managedFiles = ManagedFileStore(
+            applicationSupportRoot: supportRoot,
+            protectionRequirement: .bestEffort
+        )
         let missingSource = supportRoot.appendingPathComponent("missing-source.bin")
 
         var failure: Error?
@@ -130,7 +163,10 @@ struct ManagedFileStoreTests {
         let supportRoot = temporarySupportRoot()
         defer { try? FileManager.default.removeItem(at: supportRoot) }
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
-        let managedFiles = ManagedFileStore(applicationSupportRoot: supportRoot)
+        let managedFiles = ManagedFileStore(
+            applicationSupportRoot: supportRoot,
+            protectionRequirement: .bestEffort
+        )
         let bytes = Data("immutable original".utf8)
         let first = try managedFiles.ingest(data: bytes, displayName: "original.txt", in: store)
         let blob = try managedFiles.blobURL(forFingerprint: first.fingerprint)
@@ -168,7 +204,10 @@ struct ManagedFileStoreTests {
         let supportRoot = temporarySupportRoot()
         defer { try? FileManager.default.removeItem(at: supportRoot) }
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
-        let managedFiles = ManagedFileStore(applicationSupportRoot: supportRoot)
+        let managedFiles = ManagedFileStore(
+            applicationSupportRoot: supportRoot,
+            protectionRequirement: .bestEffort
+        )
         let bytes = Data("display name is not a path".utf8)
         let names = ["../escape.txt", "/absolute/path.txt", "\0"]
         var paths: [URL] = []
@@ -180,9 +219,19 @@ struct ManagedFileStoreTests {
 
         #expect(paths.count == names.count)
         #expect(paths.allSatisfy { $0 == paths[0] })
-        #expect(paths[0].deletingLastPathComponent().lastPathComponent
-            == String(ManagedFileStore.fingerprint(of: bytes).dropFirst("sha256:".count)))
-        #expect(paths[0].path.hasPrefix(managedFiles.rootURL.path))
+        let rootComponents = managedFiles.rootURL.standardizedFileURL.pathComponents
+        let digest = String(ManagedFileStore.fingerprint(of: bytes).dropFirst("sha256:".count))
+        let expectedBlobComponents = ["blobs", "sha256", String(digest.prefix(2)), digest]
+        for path in paths {
+            let normalizedURL = path.standardizedFileURL
+            let components = normalizedURL.pathComponents
+            #expect(Array(components.prefix(rootComponents.count)) == rootComponents)
+            #expect(Array(components.dropFirst(rootComponents.count)) == expectedBlobComponents)
+            #expect(try Data(contentsOf: normalizedURL) == bytes)
+            #expect(normalizedURL.lastPathComponent == digest)
+        }
+        #expect(paths[0].lastPathComponent == digest)
+        #expect(paths[0].deletingLastPathComponent().lastPathComponent == String(digest.prefix(2)))
     }
 
     @Test("unreferencedBlobsAreRemovedButSharedBlobsAreNot")
@@ -190,7 +239,10 @@ struct ManagedFileStoreTests {
         let supportRoot = temporarySupportRoot()
         defer { try? FileManager.default.removeItem(at: supportRoot) }
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
-        let managedFiles = ManagedFileStore(applicationSupportRoot: supportRoot)
+        let managedFiles = ManagedFileStore(
+            applicationSupportRoot: supportRoot,
+            protectionRequirement: .bestEffort
+        )
         let sharedBytes = Data("shared".utf8)
         let first = try managedFiles.ingest(data: sharedBytes, displayName: "one.txt", in: store)
         _ = try managedFiles.ingest(data: sharedBytes, displayName: "two.txt", in: store)
@@ -219,7 +271,10 @@ struct ManagedFileStoreTests {
         let supportRoot = temporarySupportRoot()
         defer { try? FileManager.default.removeItem(at: supportRoot) }
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
-        let managedFiles = ManagedFileStore(applicationSupportRoot: supportRoot)
+        let managedFiles = ManagedFileStore(
+            applicationSupportRoot: supportRoot,
+            protectionRequirement: .bestEffort
+        )
         let missing = try managedFiles.ingest(
             data: Data("missing later".utf8),
             displayName: "missing.txt",
@@ -259,7 +314,10 @@ struct ManagedFileStoreTests {
         let supportRoot = temporarySupportRoot()
         defer { try? FileManager.default.removeItem(at: supportRoot) }
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
-        let managedFiles = ManagedFileStore(applicationSupportRoot: supportRoot)
+        let managedFiles = ManagedFileStore(
+            applicationSupportRoot: supportRoot,
+            protectionRequirement: .bestEffort
+        )
         let descriptor = try managedFiles.ingest(
             data: Data("shared across conversations".utf8),
             displayName: "shared.txt",
@@ -304,6 +362,7 @@ struct ManagedFileStoreTests {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
         let managedFiles = ManagedFileStore(
             applicationSupportRoot: supportRoot,
+            protectionRequirement: .bestEffort,
             makeIdentifier: { "fixed-identity" }
         )
         let originalBytes = Data("first accepted identity".utf8)
@@ -346,11 +405,6 @@ struct ManagedFileStoreTests {
             .appendingPathComponent("Application Support", isDirectory: true)
     }
 
-    private func protection(of url: URL) throws -> FileProtectionType? {
-        try FileManager.default.attributesOfItem(atPath: url.path)[.protectionKey]
-            as? FileProtectionType
-    }
-
     private func countRows(in store: PersistenceStore, table: String) throws -> Int {
         try store.database.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)") ?? 0
@@ -371,24 +425,115 @@ struct ManagedFileStoreTests {
     }
 }
 
-private struct TemporaryProtectionSample {
-    let phase: ManagedFileTemporaryFilePhase
+private enum ProtectionRequestOperation: Equatable {
+    case directoryCreation
+    case fileCreation
+    case attributeUpdate
+}
+
+private struct ProtectionRequestSample {
+    let url: URL
+    let operation: ProtectionRequestOperation
     let protection: FileProtectionType?
+}
+
+private struct TemporaryFileSample {
+    let url: URL
+    let phase: ManagedFileTemporaryFilePhase
 }
 
 private final class TemporaryProtectionObservations: @unchecked Sendable {
     private let lock = NSLock()
-    private var samples: [TemporaryProtectionSample] = []
+    private var protectionSamples: [ProtectionRequestSample] = []
+    private var temporaryFileSamples: [TemporaryFileSample] = []
 
-    func append(phase: ManagedFileTemporaryFilePhase, protection: FileProtectionType?) {
+    func appendProtectionRequest(
+        url: URL,
+        operation: ProtectionRequestOperation,
+        attributes: [FileAttributeKey: Any]?
+    ) {
         lock.lock()
-        samples.append(TemporaryProtectionSample(phase: phase, protection: protection))
+        protectionSamples.append(ProtectionRequestSample(
+            url: url.standardizedFileURL,
+            operation: operation,
+            protection: attributes?[.protectionKey] as? FileProtectionType
+        ))
         lock.unlock()
     }
 
-    var all: [TemporaryProtectionSample] {
+    func appendTemporaryFile(url: URL, phase: ManagedFileTemporaryFilePhase) {
+        lock.lock()
+        temporaryFileSamples.append(TemporaryFileSample(url: url.standardizedFileURL, phase: phase))
+        lock.unlock()
+    }
+
+    func containsProtectionRequest(
+        on url: URL,
+        operation: ProtectionRequestOperation,
+        protection: FileProtectionType
+    ) -> Bool {
+        protectionRequests(on: url).contains {
+            $0.operation == operation && $0.protection == protection
+        }
+    }
+
+    func protectionRequests(on url: URL) -> [ProtectionRequestSample] {
         lock.lock()
         defer { lock.unlock() }
-        return samples
+        return protectionSamples.filter { $0.url == url.standardizedFileURL }
+    }
+
+    var temporaryFiles: [TemporaryFileSample] {
+        lock.lock()
+        defer { lock.unlock() }
+        return temporaryFileSamples
+    }
+}
+
+private final class ProtectionRecordingFileManager: FileManager, @unchecked Sendable {
+    private let observations: TemporaryProtectionObservations
+
+    init(observations: TemporaryProtectionObservations) {
+        self.observations = observations
+        super.init()
+    }
+
+    override func createDirectory(
+        at url: URL,
+        withIntermediateDirectories: Bool,
+        attributes: [FileAttributeKey: Any]?
+    ) throws {
+        observations.appendProtectionRequest(
+            url: url,
+            operation: .directoryCreation,
+            attributes: attributes
+        )
+        try super.createDirectory(
+            at: url,
+            withIntermediateDirectories: withIntermediateDirectories,
+            attributes: attributes
+        )
+    }
+
+    override func createFile(
+        atPath path: String,
+        contents data: Data?,
+        attributes attr: [FileAttributeKey: Any]?
+    ) -> Bool {
+        observations.appendProtectionRequest(
+            url: URL(fileURLWithPath: path),
+            operation: .fileCreation,
+            attributes: attr
+        )
+        return super.createFile(atPath: path, contents: data, attributes: attr)
+    }
+
+    override func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
+        observations.appendProtectionRequest(
+            url: URL(fileURLWithPath: path),
+            operation: .attributeUpdate,
+            attributes: attributes
+        )
+        try super.setAttributes(attributes, ofItemAtPath: path)
     }
 }

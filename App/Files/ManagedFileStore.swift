@@ -20,6 +20,11 @@ enum ManagedFileStoreError: Error, Equatable, Sendable {
     case cleanupFailed(String)
 }
 
+enum ProtectionRequirement: Equatable, Sendable {
+    case enforced
+    case bestEffort
+}
+
 struct ManagedFileDescriptor: Equatable, Sendable {
     let assetID: String
     let versionID: String
@@ -49,6 +54,7 @@ final class ManagedFileStore: @unchecked Sendable {
 
     let applicationSupportRoot: URL
     let rootURL: URL
+    let protectionRequirement: ProtectionRequirement
 
     private let fileManager: FileManager
     private let makeIdentifier: @Sendable () -> String
@@ -57,6 +63,7 @@ final class ManagedFileStore: @unchecked Sendable {
     init(
         applicationSupportRoot: URL,
         fileManager: FileManager = .default,
+        protectionRequirement: ProtectionRequirement = .enforced,
         makeIdentifier: @escaping @Sendable () -> String = { UUID().uuidString },
         temporaryFileObserver: (@Sendable (URL, ManagedFileTemporaryFilePhase) -> Void)? = nil
     ) {
@@ -66,6 +73,7 @@ final class ManagedFileStore: @unchecked Sendable {
             .appendingPathComponent("FileAssets", isDirectory: true)
             .standardizedFileURL
         self.fileManager = fileManager
+        self.protectionRequirement = protectionRequirement
         self.makeIdentifier = makeIdentifier
         self.temporaryFileObserver = temporaryFileObserver
     }
@@ -450,6 +458,7 @@ final class ManagedFileStore: @unchecked Sendable {
 
     private func ensureProtection(on url: URL) throws {
         try setProtection(on: url)
+        guard protectionRequirement == .enforced else { return }
         let attributes = try fileManager.attributesOfItem(atPath: url.path)
         guard attributes[.protectionKey] as? FileProtectionType
                 == .completeUntilFirstUserAuthentication

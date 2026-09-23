@@ -12,7 +12,10 @@ struct AttachmentSendTests {
         let supportRoot = temporarySupportRoot()
         defer { try? FileManager.default.removeItem(at: supportRoot) }
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
-        let managedFiles = ManagedFileStore(applicationSupportRoot: supportRoot)
+        let managedFiles = ManagedFileStore(
+            applicationSupportRoot: supportRoot,
+            protectionRequirement: .bestEffort
+        )
         let descriptor = try managedFiles.ingest(
             data: Data("send with attachment".utf8),
             displayName: "scan.png",
@@ -207,10 +210,8 @@ struct AttachmentSendTests {
         #expect(Mirror(reflecting: sendAttachment).children.compactMap(\.label)
             == ["assetID", "versionID", "fingerprint", "kind", "displayName"])
 
-        let sourceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("App/Conversation/ComposerAttachment.swift")
+        let root = try #require(repositoryRoot())
+        let sourceURL = root.appendingPathComponent("App/Conversation/ComposerAttachment.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
         let declarationStart = try #require(source.range(of: "struct AttachmentReference {"))
         let declarationEnd = try #require(source[declarationStart.lowerBound...].firstIndex(of: "}"))
@@ -338,7 +339,10 @@ struct AttachmentSendTests {
         managedFiles: ManagedFileStore
     ) {
         let fixture = try I05RuntimeTestFixtures.makeFixture()
-        let managedFiles = ManagedFileStore(applicationSupportRoot: supportRoot)
+        let managedFiles = ManagedFileStore(
+            applicationSupportRoot: supportRoot,
+            protectionRequirement: .bestEffort
+        )
         let provider = FakeProvider(
             id: .deepSeek,
             instanceID: fixture.instance.id,
@@ -453,5 +457,29 @@ struct AttachmentSendTests {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("AttachmentSend-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
+    }
+
+    private func repositoryRoot() -> URL? {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+
+        for _ in 0..<8 {
+            var appIsDirectory: ObjCBool = false
+            let hasApp = FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent("App", isDirectory: true).path,
+                isDirectory: &appIsDirectory
+            ) && appIsDirectory.boolValue
+            var testsIsDirectory: ObjCBool = false
+            let hasTests = FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent("Tests", isDirectory: true).path,
+                isDirectory: &testsIsDirectory
+            ) && testsIsDirectory.boolValue
+            if hasApp && hasTests { return directory }
+
+            let parent = directory.deletingLastPathComponent()
+            guard parent != directory else { break }
+            directory = parent
+        }
+
+        return nil
     }
 }
