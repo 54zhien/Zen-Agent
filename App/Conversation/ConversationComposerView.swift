@@ -76,14 +76,6 @@ struct ConversationComposerView: View {
                     isVisible: shelfVisible
                 )
                 let dropFrame = QuoteShelfGeometry.dropFrame(layout: layout, shelfFrame: shelfFrame)
-                QuoteDropTargetView(
-                    existing: controller.draft.references,
-                    onAccept: { reference in _ = controller.addQuoteReference(reference) },
-                    onPhaseChanged: { phase in apply(controller.handle(.quoteDragPhaseChanged(phase))) }
-                )
-                .frame(width: dropFrame.width, height: dropFrame.height)
-                .position(x: dropFrame.midX, y: dropFrame.midY)
-
                 composerContent(layout: layout, shape: shape)
                 contextControls(layout: layout, shape: shape, state: actionState)
 
@@ -96,6 +88,14 @@ struct ConversationComposerView: View {
                     .frame(width: shelfFrame.width, height: shelfFrame.height)
                     .position(x: shelfFrame.midX, y: shelfFrame.midY)
                 }
+
+                QuoteDropTargetView(
+                    existing: controller.draft.references,
+                    onAccept: { reference in _ = controller.addQuoteReference(reference) },
+                    onPhaseChanged: { phase in apply(controller.handle(.quoteDragPhaseChanged(phase))) }
+                )
+                .frame(width: dropFrame.width, height: dropFrame.height)
+                .position(x: dropFrame.midX, y: dropFrame.midY)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .animation(keyboardAnimation, value: geometry.size.height)

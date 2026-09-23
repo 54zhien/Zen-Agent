@@ -52,6 +52,42 @@ struct QuoteDragTests {
         ) == nil)
     }
 
+    @Test("source selection rejects a range inside a surrogate pair")
+    func sourceSelectionRejectsRangeInsideSurrogatePair() {
+        let source = QuoteSourceText(
+            conversationID: "source-conversation",
+            messageID: "source-message",
+            partID: "source-part",
+            text: "a😀b",
+            isCompleted: true
+        )
+
+        #expect(InternalQuoteDrag.capture(
+            source: source,
+            selectedUTF16Range: NSRange(location: 2, length: 1)
+        ) == nil)
+    }
+
+    @Test("source selection accepts a whole surrogate pair")
+    func sourceSelectionAcceptsWholeSurrogatePair() {
+        let emoji = "😀"
+        let source = QuoteSourceText(
+            conversationID: "source-conversation",
+            messageID: "source-message",
+            partID: "source-part",
+            text: "a\(emoji)b",
+            isCompleted: true
+        )
+
+        let drag = InternalQuoteDrag.capture(
+            source: source,
+            selectedUTF16Range: NSRange(location: 1, length: 2)
+        )
+
+        #expect(drag != nil)
+        #expect(drag?.reference.snapshot == emoji)
+    }
+
     @Test("a valid quote drag opens Compact into Resting without focus")
     func compactValidDragOpensRestingWithoutFocus() {
         let controller = ComposerController(

@@ -50,14 +50,11 @@ struct InternalQuoteDrag: Sendable, Equatable {
               selectedUTF16Range.length > 0
         else { return nil }
 
-        let sourceText = source.text as NSString
-        let utf16Length = sourceText.length
-        guard selectedUTF16Range.location <= utf16Length,
-              selectedUTF16Range.length <= utf16Length - selectedUTF16Range.location
+        guard let stringRange = Range(selectedUTF16Range, in: source.text),
+              !stringRange.isEmpty
         else { return nil }
 
-        let snapshot = sourceText.substring(with: selectedUTF16Range)
-        guard !snapshot.isEmpty else { return nil }
+        let snapshot = String(source.text[stringRange])
 
         let reference = QuoteReference(
             id: UUID().uuidString,
