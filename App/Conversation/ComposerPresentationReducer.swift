@@ -23,6 +23,15 @@ enum ComposerPresentationEvent: Equatable, Sendable {
     case timelineCollapseProgressChanged
     case compactTapped
     case compositionEnded
+    case quoteDragPhaseChanged(ComposerQuoteDragPhase)
+    case selectionHandleDragChanged(Bool)
+    case quoteDropCommitted
+}
+
+enum ComposerQuoteDragPhase: Equatable, Sendable {
+    case idle
+    case active
+    case overDropZone
 }
 
 enum ComposerPendingExitIntent: Equatable, Sendable {
@@ -106,6 +115,18 @@ enum ComposerPresentationReducer {
                 ? .requestResign
                 : .none
             return transition(.resting, nil, focus)
+
+        case .quoteDragPhaseChanged(let phase):
+            if phase == .overDropZone, current == .compact {
+                return transition(.resting, pendingExit, .none)
+            }
+            return transition(current, pendingExit, .none)
+
+        case .selectionHandleDragChanged:
+            return transition(current, pendingExit, .none)
+
+        case .quoteDropCommitted:
+            return transition(.resting, nil, .none)
         }
     }
 

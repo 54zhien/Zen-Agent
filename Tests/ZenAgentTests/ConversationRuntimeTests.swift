@@ -524,4 +524,55 @@ struct ConversationRuntimeTests {
         try await runtime.stop(runID: originalRunID)
         try await runtime.waitForCompletion(runID: originalRunID)
     }
+
+    @Test("submissionIDConflictIncludesQuotePayload")
+    func submissionIDConflictIncludesQuotePayload() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let box = I05BlockingStreamBox()
+        let provider = I05BlockingProvider(box: box, instanceID: fixture.instance.id)
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials
+        )
+        var command = I05RuntimeTestFixtures.command(text: "same request")
+        command.submissionID = "s3-08-quote-payload"
+        command.references = [makeQuote(snapshot: "first")]
+        let originalRunID = try await runtime.start(command)
+        await box.waitUntilReady()
+
+        var changed = command
+        changed.references = [makeQuote(snapshot: "other")]
+        do {
+            _ = try await runtime.start(changed)
+            #expect(false, "reusing an id after changing the quote snapshot must be rejected")
+        } catch let error as ConversationRuntimeError {
+            #expect(error == .submissionIDPayloadConflict(command.submissionID))
+        }
+
+        #expect(try fixture.store.messages(
+            inConversation: I05RuntimeTestFixtures.conversationID
+        ).filter { $0.role == .user }.count == 1)
+        let triggerMessageID = try fixture.store.run(id: originalRunID)?.triggerMessageID
+        #expect(triggerMessageID != nil)
+        if let triggerMessageID {
+            #expect(try fixture.store.quoteReferences(forMessageID: triggerMessageID).map(\.snapshot) == ["first"])
+        }
+        try await runtime.stop(runID: originalRunID)
+        try await runtime.waitForCompletion(runID: originalRunID)
+    }
+
+    private func makeQuote(snapshot: String) -> QuoteReference {
+        QuoteReference(
+            id: "stable-quote-id",
+            source: QuoteSourceLocator(
+                sourceConversationID: "source-conversation",
+                sourceMessageID: "source-message",
+                sourcePartID: "source-part",
+                range: QuoteTextRange(utf16Start: 0, utf16Length: 5)
+            ),
+            snapshot: snapshot,
+            createdAt: Fixtures.epoch
+        )
+    }
 }

@@ -24,6 +24,7 @@ enum Migrations {
         registerV6(&migrator)
         registerV7(&migrator)
         registerV8(&migrator)
+        registerV9(&migrator)
         return migrator
     }
 
@@ -219,6 +220,34 @@ enum Migrations {
                 CREATE UNIQUE INDEX agentRun_by_submission_id
                 ON agentRun (submissionID)
                 WHERE submissionID IS NOT NULL AND submissionID != ''
+                """)
+        }
+    }
+
+    static func registerV9(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v9_add_message_quote_references") { db in
+            try db.execute(sql: """
+                CREATE TABLE messageQuoteReference (
+                  id TEXT PRIMARY KEY NOT NULL,
+                  messageID TEXT NOT NULL REFERENCES message(id) ON DELETE CASCADE,
+                  sequence INTEGER NOT NULL CHECK(sequence >= 0),
+                  sourceConversationID TEXT NOT NULL CHECK(length(sourceConversationID) > 0),
+                  sourceMessageID TEXT NOT NULL CHECK(length(sourceMessageID) > 0),
+                  sourcePartID TEXT NOT NULL CHECK(length(sourcePartID) > 0),
+                  sourceUTF16Start INTEGER NOT NULL CHECK(sourceUTF16Start >= 0),
+                  sourceUTF16Length INTEGER NOT NULL CHECK(sourceUTF16Length > 0),
+                  snapshot TEXT NOT NULL CHECK(length(snapshot) > 0),
+                  createdAt DATETIME NOT NULL
+                )
+                """)
+            try db.execute(sql: """
+                CREATE UNIQUE INDEX messageQuoteReference_by_message_sequence
+                  ON messageQuoteReference(messageID, sequence)
+                """)
+            try db.execute(sql: """
+                CREATE UNIQUE INDEX messageQuoteReference_by_source_range
+                  ON messageQuoteReference(messageID, sourceConversationID, sourceMessageID,
+                                           sourcePartID, sourceUTF16Start, sourceUTF16Length)
                 """)
         }
     }

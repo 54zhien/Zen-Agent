@@ -36,7 +36,7 @@ struct ComposerAttachmentTests {
         let draft = ComposerDraftState(
             text: "",
             selection: ComposerSelection(range: 0..<0),
-            quoteReference: nil,
+            references: [],
             attachments: attachments,
             presentationState: .resting
         )

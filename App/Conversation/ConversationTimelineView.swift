@@ -11,6 +11,9 @@ import SwiftUI
 /// nothing is drawn to say where a turn ends.
 struct ConversationTimelineView: View {
     let projection: ConversationTimelineProjection
+    var onQuoteReference: (QuoteReference) -> Void = { _ in }
+    var onQuoteDragPhaseChanged: (ComposerQuoteDragPhase) -> Void = { _ in }
+    var onSelectionHandleDragChanged: (Bool) -> Void = { _ in }
 
     @ScaledMetric(relativeTo: .body) private var betweenTurns = Metrics.betweenTurns
     @ScaledMetric(relativeTo: .body) private var contentInset = Metrics.contentInset
@@ -19,7 +22,12 @@ struct ConversationTimelineView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: betweenTurns) {
                 ForEach(projection.turns) { turn in
-                    ConversationTurnView(turn: turn)
+                    ConversationTurnView(
+                        turn: turn,
+                        onQuoteReference: onQuoteReference,
+                        onQuoteDragPhaseChanged: onQuoteDragPhaseChanged,
+                        onSelectionHandleDragChanged: onSelectionHandleDragChanged
+                    )
                 }
             }
             .padding(.horizontal, contentInset)
@@ -36,6 +44,9 @@ struct ConversationTimelineView: View {
 /// place where the reading order is defined.
 private struct ConversationTurnView: View {
     let turn: ConversationTurn
+    let onQuoteReference: (QuoteReference) -> Void
+    let onQuoteDragPhaseChanged: (ComposerQuoteDragPhase) -> Void
+    let onSelectionHandleDragChanged: (Bool) -> Void
 
     @ScaledMetric(relativeTo: .body) private var withinTurn = Metrics.withinTurn
 
@@ -44,7 +55,13 @@ private struct ConversationTurnView: View {
             // Items are not `Identifiable` — their identity is their position in this turn,
             // which is what the projection's order means.
             ForEach(Array(turn.items.enumerated()), id: \.offset) { entry in
-                TimelineItemView(item: entry.element)
+                TimelineItemView(
+                    item: entry.element,
+                    textSource: turn.textSourcesByItemIndex[entry.offset],
+                    onQuoteReference: onQuoteReference,
+                    onQuoteDragPhaseChanged: onQuoteDragPhaseChanged,
+                    onSelectionHandleDragChanged: onSelectionHandleDragChanged
+                )
             }
         }
     }
@@ -58,6 +75,10 @@ private struct ConversationTurnView: View {
 /// on a stale one.
 private struct TimelineItemView: View {
     let item: TimelineItem
+    let textSource: TimelineTextSource?
+    let onQuoteReference: (QuoteReference) -> Void
+    let onQuoteDragPhaseChanged: (ComposerQuoteDragPhase) -> Void
+    let onSelectionHandleDragChanged: (Bool) -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var inlineSpacing = Metrics.inlineSpacing
@@ -67,13 +88,22 @@ private struct TimelineItemView: View {
     var body: some View {
         switch item {
         case .userText(let text):
-            PromptCapsuleView(text: text)
+            PromptCapsuleView(
+                text: text,
+                source: textSource,
+                onQuoteReference: onQuoteReference,
+                onQuoteDragPhaseChanged: onQuoteDragPhaseChanged,
+                onSelectionHandleDragChanged: onSelectionHandleDragChanged
+            )
 
         case .assistantText(let text):
             // No bubble: the assistant's text is the reading body itself.
-            Text(text)
-                .font(Typography.font(for: .conversationBody, dynamicTypeSize: dynamicTypeSize))
-                .frame(maxWidth: .infinity, alignment: .leading)
+            selectableText(
+                text,
+                role: .conversationBody,
+                source: textSource,
+                maximumNumberOfLines: 0
+            )
 
         case .reasoning(let text):
             Text(text)
@@ -117,7 +147,47 @@ private struct TimelineItemView: View {
             }
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
+
+        case .quoteReferences(let references):
+            QuoteShelfView(entries: references.map(QuoteShelfEntry.init))
         }
+    }
+
+    @ViewBuilder
+    private func selectableText(
+        _ text: String,
+        role: TypographyRole,
+        source: TimelineTextSource?,
+        maximumNumberOfLines: Int
+    ) -> some View {
+        if let source {
+            let quoteSource = source.quoteSource(text: text)
+            QuoteSelectableText(
+                text: text,
+                source: quoteSource,
+                typographyRole: role,
+                dynamicTypeSize: dynamicTypeSize,
+                maximumNumberOfLines: maximumNumberOfLines,
+                onDragPhaseChanged: onQuoteDragPhaseChanged,
+                onSelectionHandleDragChanged: onSelectionHandleDragChanged
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityAction(named: Text("引用整段")) {
+                quoteEntireText(quoteSource)
+            }
+        } else {
+            Text(text)
+                .font(Typography.font(for: role, dynamicTypeSize: dynamicTypeSize))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func quoteEntireText(_ source: QuoteSourceText) {
+        let range = NSRange(location: 0, length: (source.text as NSString).length)
+        guard let drag = InternalQuoteDrag.capture(source: source, selectedUTF16Range: range) else {
+            return
+        }
+        onQuoteReference(drag.reference)
     }
 }
 
@@ -128,15 +198,17 @@ private struct TimelineItemView: View {
 /// message edit (Blueprint 3.1).
 private struct PromptCapsuleView: View {
     let text: String
+    let source: TimelineTextSource?
+    let onQuoteReference: (QuoteReference) -> Void
+    let onQuoteDragPhaseChanged: (ComposerQuoteDragPhase) -> Void
+    let onSelectionHandleDragChanged: (Bool) -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var isExpanded = false
     @ScaledMetric(relativeTo: .body) private var capsulePadding = Metrics.capsulePadding
 
     var body: some View {
-        Text(text)
-            .font(Typography.font(for: .conversationPrompt, dynamicTypeSize: dynamicTypeSize))
-            .lineLimit(isExpanded ? nil : Metrics.collapsedPromptLines)
+        promptText
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(capsulePadding)
             // The Blueprint asks for a semantic `userPromptSurface` token with its own light
@@ -147,7 +219,40 @@ private struct PromptCapsuleView: View {
                 in: RoundedRectangle(cornerRadius: Metrics.capsuleCornerRadius, style: .continuous)
             )
             .contentShape(RoundedRectangle(cornerRadius: Metrics.capsuleCornerRadius, style: .continuous))
-            .onTapGesture { isExpanded.toggle() }
+            .accessibilityAction(named: Text("引用整段")) {
+                quoteEntireText()
+            }
+    }
+
+    @ViewBuilder
+    private var promptText: some View {
+        if let source {
+            QuoteSelectableText(
+                text: text,
+                source: source.quoteSource(text: text),
+                typographyRole: .conversationPrompt,
+                dynamicTypeSize: dynamicTypeSize,
+                maximumNumberOfLines: isExpanded ? 0 : Metrics.collapsedPromptLines,
+                onSingleTap: { isExpanded.toggle() },
+                onDragPhaseChanged: onQuoteDragPhaseChanged,
+                onSelectionHandleDragChanged: onSelectionHandleDragChanged
+            )
+        } else {
+            Text(text)
+                .font(Typography.font(for: .conversationPrompt, dynamicTypeSize: dynamicTypeSize))
+                .lineLimit(isExpanded ? nil : Metrics.collapsedPromptLines)
+                .onTapGesture { isExpanded.toggle() }
+        }
+    }
+
+    private func quoteEntireText() {
+        guard let source,
+              let drag = InternalQuoteDrag.capture(
+                source: source.quoteSource(text: text),
+                selectedUTF16Range: NSRange(location: 0, length: (text as NSString).length)
+              )
+        else { return }
+        onQuoteReference(drag.reference)
     }
 }
 

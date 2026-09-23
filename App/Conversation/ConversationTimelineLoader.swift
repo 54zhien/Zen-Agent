@@ -20,6 +20,7 @@ enum ConversationTimelineLoader {
         var partsByMessageID: [String: [MessagePartRecord]] = [:]
         var toolCallsByID: [String: ToolCallRecord] = [:]
         var toolResultsByToolCallID: [String: ToolResultRecord] = [:]
+        var quoteReferencesByMessageID: [String: [QuoteReferencePresentation]] = [:]
 
         for run in parentRuns {
             let calls = try store.toolCalls(inRun: run.id)
@@ -32,6 +33,18 @@ enum ConversationTimelineLoader {
             where partsByMessageID[messageID] == nil {
                 partsByMessageID[messageID] = try store.parts(ofMessage: messageID)
             }
+
+            if let triggerMessageID = run.triggerMessageID,
+               quoteReferencesByMessageID[triggerMessageID] == nil {
+                quoteReferencesByMessageID[triggerMessageID] = try store
+                    .quoteReferences(forMessageID: triggerMessageID)
+                    .map { reference in
+                        QuoteReferencePresentation(
+                            reference: reference,
+                            sourceIsAvailable: try store.quoteSourceIsAvailable(reference)
+                        )
+                    }
+            }
         }
 
         let input = ConversationTimelineInput(
@@ -40,7 +53,8 @@ enum ConversationTimelineLoader {
             messagesByID: messagesByID,
             partsByMessageID: partsByMessageID,
             toolCallsByID: toolCallsByID,
-            toolResultsByToolCallID: toolResultsByToolCallID
+            toolResultsByToolCallID: toolResultsByToolCallID,
+            quoteReferencesByMessageID: quoteReferencesByMessageID
         )
         return ConversationTimelineProjection.build(from: input)
     }

@@ -165,4 +165,52 @@ struct ConversationTimelineLoaderTests {
             "an empty request must answer empty rather than read the whole table"
         )
     }
+
+    @Test("timeline reopens the saved quote snapshot after its source is deleted")
+    func timelineReopensQuoteAfterSourceDeletion() throws {
+        let store = try makeStore()
+        try store.database.write { db in
+            try Fixtures.conversation(id: "source-conversation").insert(db)
+            try Fixtures.message(id: "source-message", conversationID: "source-conversation").insert(db)
+            try MessagePartRecord(
+                id: "source-part",
+                messageID: "source-message",
+                sequence: 0,
+                kind: .text,
+                state: .completed,
+                payload: try PersistenceStore.encodeTextPayload(.init(text: "quoted snapshot"))
+            ).insert(db)
+        }
+
+        var commit = Fixtures.send(messageID: "target-message", runID: "target-run")
+        commit.quoteReferences = [
+            MessageQuoteReferenceRecord(
+                id: "target-quote",
+                messageID: "target-message",
+                sequence: 0,
+                sourceConversationID: "source-conversation",
+                sourceMessageID: "source-message",
+                sourcePartID: "source-part",
+                sourceUTF16Start: 0,
+                sourceUTF16Length: 15,
+                snapshot: "quoted snapshot",
+                createdAt: Fixtures.epoch
+            ),
+        ]
+        try store.commitUserTurnAndCreateParentRun(commit)
+        try store.database.write { db in
+            try db.execute(sql: "DELETE FROM conversation WHERE id = ?", arguments: ["source-conversation"])
+        }
+
+        let projection = try ConversationTimelineLoader.load(conversationID: "c1", from: store)
+        let items = projection.turns.first?.items ?? []
+        let quoteItems = items.compactMap { item -> [QuoteReferencePresentation]? in
+            if case .quoteReferences(let references) = item { return references }
+            return nil
+        }.flatMap { $0 }
+        #expect(quoteItems.count == 1)
+        #expect(quoteItems[0].reference.snapshot == "quoted snapshot")
+        #expect(!quoteItems[0].sourceIsAvailable)
+        #expect(projection.turns.first?.textSourcesByItemIndex[0]?.partID == "target-message-p0")
+    }
 }

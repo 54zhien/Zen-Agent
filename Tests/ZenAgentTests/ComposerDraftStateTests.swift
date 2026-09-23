@@ -7,7 +7,7 @@ import Testing
 struct ComposerDraftStateTests {
     @Test("draftKeepsSingleTextSource")
     func draftKeepsSingleTextSource() {
-        let quote = QuoteReference(sourceID: "message-1", snapshot: "quoted")
+        let quote = quoteReference("quote-1", sourcePartID: "part-1", snapshot: "quoted")
         let attachment = AttachmentReference(
             id: "attachment-1",
             displayName: "notes.pdf",
@@ -16,12 +16,12 @@ struct ComposerDraftStateTests {
         var draft = ComposerDraftState(
             text: "original",
             selection: ComposerSelection(range: 2..<4),
-            quoteReference: quote,
+            references: [quote],
             attachments: [attachment],
             presentationState: .editing
         )
         let originalSelection = draft.selection
-        let originalQuote = draft.quoteReference
+        let originalReferences = draft.references
         let originalAttachments = draft.attachments
         let originalPresentationState = draft.presentationState
 
@@ -29,7 +29,7 @@ struct ComposerDraftStateTests {
 
         #expect(draft.text == "revised")
         #expect(draft.selection == originalSelection)
-        #expect(draft.quoteReference == originalQuote)
+        #expect(draft.references == originalReferences)
         #expect(draft.attachments == originalAttachments)
         #expect(draft.presentationState == originalPresentationState)
     }
@@ -39,7 +39,7 @@ struct ComposerDraftStateTests {
         var draft = ComposerDraftState(
             text: "original",
             selection: ComposerSelection(range: 0..<0),
-            quoteReference: nil,
+            references: [],
             attachments: [],
             presentationState: .resting
         )
@@ -53,7 +53,8 @@ struct ComposerDraftStateTests {
 
     @Test("draftPreservesQuoteAndAttachmentsTogether")
     func draftPreservesQuoteAndAttachmentsTogether() {
-        let quote = QuoteReference(sourceID: "part-7", snapshot: "important passage")
+        let quote = quoteReference("quote-2", sourcePartID: "part-7", snapshot: "important passage")
+        let secondQuote = quoteReference("quote-3", sourcePartID: "part-8", snapshot: "another passage")
         let attachments = [
             AttachmentReference(id: "image-1", displayName: "diagram.png", kind: .image),
             AttachmentReference(id: "file-2", displayName: "brief.txt", kind: .file),
@@ -61,13 +62,27 @@ struct ComposerDraftStateTests {
         let draft = ComposerDraftState(
             text: "Explain these together",
             selection: ComposerSelection(range: 0..<0),
-            quoteReference: quote,
+            references: [quote, secondQuote],
             attachments: attachments,
             presentationState: .resting
         )
 
         #expect(draft.text == "Explain these together")
-        #expect(draft.quoteReference == quote)
+        #expect(draft.references == [quote, secondQuote])
         #expect(draft.attachments == attachments)
+    }
+
+    private func quoteReference(_ id: String, sourcePartID: String, snapshot: String) -> QuoteReference {
+        QuoteReference(
+            id: id,
+            source: QuoteSourceLocator(
+                sourceConversationID: "source-conversation",
+                sourceMessageID: "source-message",
+                sourcePartID: sourcePartID,
+                range: QuoteTextRange(utf16Start: 0, utf16Length: snapshot.utf16.count)
+            ),
+            snapshot: snapshot,
+            createdAt: Fixtures.epoch
+        )
     }
 }

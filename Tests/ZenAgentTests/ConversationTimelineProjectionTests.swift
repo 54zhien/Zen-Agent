@@ -129,6 +129,10 @@ struct ConversationTimelineProjectionTests {
             projection.turns.first?.id == "r1",
             "the turn's identity is the run's id — a turn is the run"
         )
+        #expect(projection.turns.first?.textSourcesByItemIndex[0]?.messageID == "m1")
+        #expect(projection.turns.first?.textSourcesByItemIndex[0]?.partID == "m1-p0")
+        #expect(projection.turns.first?.textSourcesByItemIndex[0]?.conversationID == "c1")
+        #expect(projection.turns.first?.textSourcesByItemIndex[0]?.isCompleted == true)
     }
 
     @Test("turns follow the runs' createdAt, not the order they were passed in")

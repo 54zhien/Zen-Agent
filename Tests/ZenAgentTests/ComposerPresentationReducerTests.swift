@@ -61,6 +61,11 @@ struct ComposerPresentationReducerTests {
             event: .timelineCollapseProgressChanged,
             progress: 0.64
         )
+        let quoteDropFromCompact = reduce(
+            current: .compact,
+            event: .quoteDragPhaseChanged(.overDropZone),
+            progress: 1
+        )
 
         #expect(ComposerPresentationReducer.compactExitThreshold < ComposerPresentationReducer.compactEnterThreshold)
         #expect(belowEnter.targetState == .resting)
@@ -68,6 +73,8 @@ struct ComposerPresentationReducerTests {
         #expect(middleFromCompact.targetState == .compact)
         #expect(exitsAtThreshold.targetState == .resting)
         #expect(middleFromResting.targetState == .resting)
+        #expect(quoteDropFromCompact.targetState == .resting)
+        #expect(quoteDropFromCompact.focusCommand == .none)
     }
 
     @Test("scrollNeverCompactsActiveEditing")

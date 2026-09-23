@@ -171,6 +171,20 @@ final class LiveConversationStore {
         }
         completedPart.state = partState
         state.activeParts[partID] = completedPart
+        if let location = itemLocationByPartID[partID],
+           location.turnIndex < state.timeline.turns.count,
+           partState == .completed {
+            var sources = state.timeline.turns[location.turnIndex].textSourcesByItemIndex
+            sources[location.itemIndex] = TimelineTextSource(
+                conversationID: state.timeline.conversationID,
+                messageID: completedPart.messageID,
+                partID: completedPart.partID,
+                isCompleted: true
+            )
+            let items = state.timeline.turns[location.turnIndex].items
+            replaceTurn(at: location.turnIndex, with: items, textSourcesByItemIndex: sources)
+            rebuiltRuns.insert(runID)
+        }
         // Keep the completed value readable until runEnded performs the run-wide cleanup.
     }
 
@@ -223,7 +237,16 @@ final class LiveConversationStore {
         var items = state.timeline.turns[turnIndex].items
         items.append(item)
         let itemIndex = items.count - 1
-        replaceTurn(at: turnIndex, with: items)
+        var sources = state.timeline.turns[turnIndex].textSourcesByItemIndex
+        if case .assistantText = item {
+            sources[itemIndex] = TimelineTextSource(
+                conversationID: state.timeline.conversationID,
+                messageID: part.messageID,
+                partID: part.partID,
+                isCompleted: part.state == .completed
+            )
+        }
+        replaceTurn(at: turnIndex, with: items, textSourcesByItemIndex: sources)
         itemLocationByPartID[part.partID] = LiveItemLocation(
             turnIndex: turnIndex,
             itemIndex: itemIndex
@@ -271,10 +294,19 @@ final class LiveConversationStore {
         coalescers[partID] = coalescer
     }
 
-    private func replaceTurn(at turnIndex: Int, with items: [TimelineItem]) {
+    private func replaceTurn(
+        at turnIndex: Int,
+        with items: [TimelineItem],
+        textSourcesByItemIndex: [Int: TimelineTextSource]? = nil
+    ) {
         var turns = state.timeline.turns
         let runID = turns[turnIndex].runID
-        turns[turnIndex] = ConversationTurn(runID: runID, items: items)
+        turns[turnIndex] = ConversationTurn(
+            runID: runID,
+            items: items,
+            textSourcesByItemIndex: textSourcesByItemIndex
+                ?? turns[turnIndex].textSourcesByItemIndex
+        )
         state.timeline = ConversationTimelineProjection(
             conversationID: state.timeline.conversationID,
             turns: turns

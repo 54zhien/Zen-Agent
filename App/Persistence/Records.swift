@@ -280,6 +280,21 @@ struct MessageAttachmentRecord: Codable, FetchableRecord, PersistableRecord, Sen
     var sequence: Int
 }
 
+struct MessageQuoteReferenceRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Equatable, Identifiable {
+    static let databaseTableName = "messageQuoteReference"
+
+    var id: String
+    var messageID: String
+    var sequence: Int
+    var sourceConversationID: String
+    var sourceMessageID: String
+    var sourcePartID: String
+    var sourceUTF16Start: Int
+    var sourceUTF16Length: Int
+    var snapshot: String
+    var createdAt: Date
+}
+
 struct AgentRunRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Identifiable {
     static let databaseTableName = "agentRun"
 

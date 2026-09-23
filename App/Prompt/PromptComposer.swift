@@ -20,6 +20,7 @@ struct PromptCompositionInput: Sendable, Equatable {
     var providerAdapterInstructions: String
     var history: [PromptHistoryMessage]
     var currentUserMessage: String
+    var currentUserQuotedSnapshots: [String] = []
     var tools: [ProviderToolDefinition] = []
 }
 
@@ -68,12 +69,25 @@ struct PromptComposer: Sendable {
             }
         )
 
-        messages.append(.user(input.currentUserMessage))
+        messages.append(.user(userContent(
+            text: input.currentUserMessage,
+            quotedSnapshots: input.currentUserQuotedSnapshots
+        )))
 
         return ProviderChatRequest(
             modelID: input.modelID,
             messages: messages,
             tools: input.tools
         )
+    }
+
+    func userContent(text: String, quotedSnapshots: [String]) -> String {
+        guard !quotedSnapshots.isEmpty else { return text }
+
+        let quotedContext = quotedSnapshots.enumerated().map { index, snapshot in
+            "Quoted passage \(index + 1):\n\(snapshot)"
+        }.joined(separator: "\n\n")
+        let parts = [text, "Quoted context:\n\(quotedContext)"].filter { !$0.isEmpty }
+        return parts.joined(separator: "\n\n")
     }
 }

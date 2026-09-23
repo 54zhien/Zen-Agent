@@ -36,6 +36,9 @@ struct ComposerViewContractTests {
         #expect(bridge.contains("@Binding var text: String"))
         #expect(sources["App/Conversation/ComposerTextProjection.swift"] != nil)
         #expect(view.contains("ComposerTextProjection.presentation(for: controller.draft)"))
+        #expect(view.contains("QuoteDropTargetView("))
+        #expect(view.contains("QuoteShelfGeometry.resolve("))
+        #expect(view.contains("quoteCommitReady: true"))
     }
 
     @Test("markedTextUpdatePolicyPreservesEditorBufferAndSelection")

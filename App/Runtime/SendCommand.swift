@@ -8,6 +8,7 @@ import Foundation
 struct SendCommand: Sendable, Equatable {
     var conversationID: String
     var text: String
+    var references: [QuoteReference] = []
 
     var providerInstanceID: ProviderInstanceID
     var modelID: ModelID

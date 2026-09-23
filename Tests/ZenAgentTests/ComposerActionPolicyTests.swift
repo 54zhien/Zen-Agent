@@ -127,7 +127,7 @@ struct ComposerActionPolicyTests {
     @Test("unsupportedReferencesBlockSendEvenWithText")
     func unsupportedReferencesBlockSendEvenWithText() {
         let capabilities: Set<ModelCapability> = [.text, .streaming]
-        let quoted = draft("hello", quote: QuoteReference(sourceID: "source", snapshot: "snapshot"))
+        let quoted = draft("hello", quote: makeQuote("snapshot"))
         #expect(!ComposerActionPolicy.isSendable(
             draft: quoted,
             capabilities: capabilities,
@@ -150,7 +150,7 @@ struct ComposerActionPolicyTests {
 
     @Test("quoteOrAttachmentOnlyNeedsCommitPath")
     func quoteOrAttachmentOnlyNeedsCommitPath() {
-        let quote = draft("", quote: QuoteReference(sourceID: "source", snapshot: "snapshot"))
+        let quote = draft("", quote: makeQuote("snapshot"))
         #expect(!ComposerActionPolicy.isSendable(
             draft: quote,
             capabilities: [],
@@ -160,7 +160,7 @@ struct ComposerActionPolicyTests {
         ))
         #expect(ComposerActionPolicy.isSendable(
             draft: quote,
-            capabilities: [],
+            capabilities: [.text, .streaming],
             quoteCommitReady: true,
             imageInputReady: false,
             fileInputReady: false
@@ -178,10 +178,39 @@ struct ComposerActionPolicyTests {
         ))
         #expect(ComposerActionPolicy.isSendable(
             draft: file,
-            capabilities: [],
+            capabilities: [.text, .streaming],
             quoteCommitReady: false,
             imageInputReady: false,
             fileInputReady: true
+        ))
+    }
+
+    @Test("quoteOnlyRequiresEffectiveTextAndStreaming")
+    func quoteOnlyRequiresEffectiveTextAndStreaming() {
+        let quote = draft("", quote: makeQuote("quoted passage"))
+        let unsupportedCapabilities: [Set<ModelCapability>] = [[], [.text], [.streaming]]
+        for capabilities in unsupportedCapabilities {
+            #expect(!ComposerActionPolicy.isSendable(
+                draft: quote,
+                capabilities: capabilities,
+                quoteCommitReady: true,
+                imageInputReady: false,
+                fileInputReady: false
+            ))
+        }
+        #expect(!ComposerActionPolicy.isSendable(
+            draft: quote,
+            capabilities: [.text, .streaming],
+            quoteCommitReady: false,
+            imageInputReady: false,
+            fileInputReady: false
+        ))
+        #expect(ComposerActionPolicy.isSendable(
+            draft: quote,
+            capabilities: [.text, .streaming],
+            quoteCommitReady: true,
+            imageInputReady: false,
+            fileInputReady: false
         ))
     }
 
@@ -215,9 +244,23 @@ struct ComposerActionPolicyTests {
         ComposerDraftState(
             text: text,
             selection: ComposerSelection(range: 0..<text.count),
-            quoteReference: quote,
+            references: quote.map { [$0] } ?? [],
             attachments: attachments,
             presentationState: .resting
+        )
+    }
+
+    private func makeQuote(_ snapshot: String) -> QuoteReference {
+        QuoteReference(
+            id: "policy-quote",
+            source: QuoteSourceLocator(
+                sourceConversationID: "source-conversation",
+                sourceMessageID: "source-message",
+                sourcePartID: "source-part",
+                range: QuoteTextRange(utf16Start: 0, utf16Length: snapshot.utf16.count)
+            ),
+            snapshot: snapshot,
+            createdAt: Fixtures.epoch
         )
     }
 }

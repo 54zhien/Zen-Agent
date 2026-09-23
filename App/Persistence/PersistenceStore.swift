@@ -152,6 +152,7 @@ struct SendCommit: Sendable {
     var message: MessageRecord
     var parts: [MessagePartRecord]
     var attachments: [MessageAttachmentRecord] = []
+    var quoteReferences: [MessageQuoteReferenceRecord] = []
     var run: AgentRunRecord
 }
 
@@ -263,6 +264,11 @@ struct PersistenceStore: Sendable {
                     try attachment.insert(db)
                 }
 
+                try Self.validateQuoteReferences(commit.quoteReferences, for: commit.message)
+                for quoteReference in commit.quoteReferences {
+                    try quoteReference.insert(db)
+                }
+
                 try run.insert(db)
                 return nil
             }
@@ -275,6 +281,28 @@ struct PersistenceStore: Sendable {
                 return existing.id
             }
             throw PersistenceError.constraintViolation
+        }
+    }
+
+    private static func validateQuoteReferences(
+        _ references: [MessageQuoteReferenceRecord],
+        for message: MessageRecord
+    ) throws {
+        for (sequence, reference) in references.enumerated() {
+            guard reference.messageID == message.id,
+                  reference.sequence == sequence,
+                  !reference.id.isEmpty,
+                  !reference.sourceConversationID.isEmpty,
+                  !reference.sourceMessageID.isEmpty,
+                  !reference.sourcePartID.isEmpty,
+                  reference.sourceUTF16Start >= 0,
+                  reference.sourceUTF16Length > 0,
+                  !reference.snapshot.isEmpty
+            else {
+                throw PersistenceError.invalidTransition(
+                    "quote references must target the committed user message in sequence order"
+                )
+            }
         }
     }
 

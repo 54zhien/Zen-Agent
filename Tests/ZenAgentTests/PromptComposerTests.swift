@@ -160,6 +160,8 @@ struct PromptComposerTests {
         #expect(initialUserContent.contains(snapshots[0]))
         #expect(initialInput.currentUserQuotedSnapshots == snapshots)
         #expect(initialRequest.messages.contains(.user(initialUserContent)))
+        #expect(initialRequest.messages.last == .user(initialUserContent))
+        #expect(!initialRequest.messages.contains(.system(initialUserContent)))
         #expect(continuedRequest.messages.contains(.user(initialUserContent)))
         #expect(continuedRequest.messages.last == .user(continuedUserContent))
     }

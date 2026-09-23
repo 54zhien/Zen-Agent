@@ -14,7 +14,6 @@ struct ComposerDisciplineTests {
             "structAttachmentReference",
         ],
         "App/Conversation/ComposerDraftState.swift": [
-            "structQuoteReference",
             "enumComposerPresentationState",
             "structComposerDraftState",
         ],
@@ -40,7 +39,7 @@ struct ComposerDisciplineTests {
         let expected: Set<String> = [
             "text",
             "selection",
-            "quoteReference",
+            "references",
             "attachments",
             "presentationState",
         ]
@@ -49,9 +48,14 @@ struct ComposerDisciplineTests {
 
         #expect(actual == expected, "stored properties were \(actual), expected exactly \(expected)")
         #expect(body.contains("text:String"), "text must have the String type")
+        #expect(body.contains("references:[QuoteReference]"), "references must be [QuoteReference]")
         #expect(
             members.first(where: { $0.name == "text" && $0.isStored })?.type == "String",
             "text must be a stored String, without a wrapper or optional"
+        )
+        #expect(
+            members.first(where: { $0.name == "references" && $0.isStored })?.type == "[QuoteReference]",
+            "references must be a stored [QuoteReference] value"
         )
     }
 

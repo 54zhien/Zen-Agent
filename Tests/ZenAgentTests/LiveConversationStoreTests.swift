@@ -85,6 +85,8 @@ struct LiveConversationStoreTests {
         ))
 
         #expect(harness.store.state.activeParts["part-1"]?.text == "final")
+        #expect(harness.store.state.timeline.turns[0].textSourcesByItemIndex[1]?.partID == "part-1")
+        #expect(harness.store.state.timeline.turns[0].textSourcesByItemIndex[1]?.isCompleted == true)
     }
 
     @Test("runEnded flushes and clears the run's active parts")
@@ -148,6 +150,8 @@ struct LiveConversationStoreTests {
 
         #expect(harness.store.state.timeline.turns[0].items.first == .assistantText("before"))
         #expect(harness.store.state.timeline.turns[0].items.last == .assistantText("after"))
+        #expect(harness.store.state.timeline.turns[0].textSourcesByItemIndex[3]?.partID == "part-after-tools")
+        #expect(harness.store.state.timeline.turns[0].textSourcesByItemIndex[3]?.isCompleted == false)
     }
 
     @Test("a toolCall part does not create a live timeline item")

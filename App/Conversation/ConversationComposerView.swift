@@ -12,6 +12,7 @@ struct ConversationComposerView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var isEditorFocused = false
     @State private var measuredTextHeight: CGFloat = 0
+    @State private var measuredQuoteShelfHeight: CGFloat = 44
     @State private var keyboardAnimation: Animation?
 
     init(
@@ -45,7 +46,7 @@ struct ConversationComposerView: View {
                 availableHeight: geometry.size.height,
                 measuredTextHeight: measuredTextHeight,
                 scaledLineHeight: lineHeight,
-                collapseProgress: controller.collapseProgress
+                collapseProgress: controller.effectiveCollapseProgress
             )
             let shape = ComposerShapeToken.shape(for: layout)
             let actionState = ComposerContextAction.resolve(
@@ -66,8 +67,35 @@ struct ConversationComposerView: View {
                     .contentShape(shape)
                     .position(x: layout.visualFrame.midX, y: layout.visualFrame.midY)
 
+                let shelfVisible = !controller.draft.references.isEmpty
+                    && controller.draft.presentationState != .compact
+                let shelfFrame = QuoteShelfGeometry.resolve(
+                    layout: layout,
+                    container: CGRect(origin: .zero, size: geometry.size),
+                    measuredHeight: measuredQuoteShelfHeight,
+                    isVisible: shelfVisible
+                )
+                let dropFrame = QuoteShelfGeometry.dropFrame(layout: layout, shelfFrame: shelfFrame)
+                QuoteDropTargetView(
+                    existing: controller.draft.references,
+                    onAccept: { reference in _ = controller.addQuoteReference(reference) },
+                    onPhaseChanged: { phase in apply(controller.handle(.quoteDragPhaseChanged(phase))) }
+                )
+                .frame(width: dropFrame.width, height: dropFrame.height)
+                .position(x: dropFrame.midX, y: dropFrame.midY)
+
                 composerContent(layout: layout, shape: shape)
                 contextControls(layout: layout, shape: shape, state: actionState)
+
+                if let shelfFrame {
+                    QuoteShelfView(
+                        entries: controller.draft.references.map(QuoteShelfEntry.init),
+                        onRemove: controller.removeQuoteReference(id:),
+                        onMeasuredHeight: { measuredQuoteShelfHeight = $0 }
+                    )
+                    .frame(width: shelfFrame.width, height: shelfFrame.height)
+                    .position(x: shelfFrame.midX, y: shelfFrame.midY)
+                }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .animation(keyboardAnimation, value: geometry.size.height)
@@ -128,7 +156,7 @@ struct ConversationComposerView: View {
         ComposerActionPolicy.isSendable(
             draft: controller.draft,
             capabilities: selectedCapabilities,
-            quoteCommitReady: false,
+            quoteCommitReady: true,
             imageInputReady: false,
             fileInputReady: false
         )
@@ -136,7 +164,7 @@ struct ConversationComposerView: View {
 
     private var hasDraft: Bool {
         !controller.draft.text.isEmpty
-            || controller.draft.quoteReference != nil
+            || !controller.draft.references.isEmpty
             || !controller.draft.attachments.isEmpty
     }
 

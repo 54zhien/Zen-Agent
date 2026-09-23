@@ -50,6 +50,8 @@ struct StreamingEventOrderingTests {
         ))
         #expect(store.state.activeParts["part-1"]?.state == .completed)
         #expect(store.state.activeParts["part-1"]?.text == "hello")
+        #expect(store.state.timeline.turns[0].textSourcesByItemIndex[1]?.partID == "part-1")
+        #expect(store.state.timeline.turns[0].textSourcesByItemIndex[1]?.isCompleted == true)
     }
 
     @Test("a delta before started is dropped and counted")

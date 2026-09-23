@@ -129,6 +129,43 @@ struct MigrationTests {
         })
     }
 
+    @Test("v1 → v9 preserves legacy Message and Run rows")
+    func v1ToV9PreservesLegacyMessageAndRunRows() throws {
+        let url = try Fixtures.scratchPath(name: "quote-reference-v1-to-v9.sqlite")
+        defer { Fixtures.cleanUp(url) }
+        try seedV1(at: url)
+
+        let upgraded = PersistenceStore(
+            database: try ZenDatabase.open(at: url.path(), migrator: currentMigrator())
+        )
+        #expect(try upgraded.messages(inConversation: "c1").map(\.id) == ["m1"])
+        #expect(try upgraded.run(id: "r1")?.triggerMessageID == "m1")
+        #expect(try upgraded.database.read { db in
+            try db.tableExists(MessageQuoteReferenceRecord.databaseTableName)
+        })
+    }
+
+    @Test("v5 → v9 preserves legacy Message and Run rows")
+    func v5ToV9PreservesLegacyMessageAndRunRows() throws {
+        let url = try Fixtures.scratchPath(name: "quote-reference-v5-to-v9.sqlite")
+        defer { Fixtures.cleanUp(url) }
+        let before = PersistenceStore(
+            database: try ZenDatabase.open(at: url.path(), migrator: v5Migrator())
+        )
+        try before.commitUserTurnAndCreateParentRun(
+            Fixtures.send(messageID: "legacy-v5-message", runID: "legacy-v5-run")
+        )
+
+        let upgraded = PersistenceStore(
+            database: try ZenDatabase.open(at: url.path(), migrator: currentMigrator())
+        )
+        #expect(try upgraded.messages(inConversation: "c1").map(\.id) == ["legacy-v5-message"])
+        #expect(try upgraded.run(id: "legacy-v5-run")?.triggerMessageID == "legacy-v5-message")
+        #expect(try upgraded.database.read { db in
+            try db.tableExists(MessageQuoteReferenceRecord.databaseTableName)
+        })
+    }
+
     private func seedV1(at url: URL) throws {
         let store = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: v1Migrator()))
         try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))

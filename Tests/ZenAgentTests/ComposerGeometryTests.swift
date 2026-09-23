@@ -33,6 +33,16 @@ struct ComposerGeometryTests {
         #expect(oneLine.previewLineLimit == 1)
         #expect(abs(oneLine.textFrame.midY - oneLine.outerFrame.midY) < 0.01)
         #expect(oneLine.outerHeight == longDraft.outerHeight)
+
+        let shelf = QuoteShelfGeometry.resolve(
+            layout: oneLine,
+            container: CGRect(x: 0, y: 0, width: 390, height: 800),
+            measuredHeight: 44,
+            isVisible: true
+        )
+        #expect(shelf?.maxY == oneLine.visualFrame.minY)
+        #expect(oneLine.leadingAccessoryReserve == ComposerGeometry.accessoryHitWidth)
+        #expect(oneLine.trailingAccessoryReserve == ComposerGeometry.accessoryHitWidth)
     }
 
     @Test("editingTextSpansAboveRailAndHeightCaps")

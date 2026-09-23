@@ -31,6 +31,29 @@ struct ConversationTimelineInput: Sendable {
     let partsByMessageID: [String: [MessagePartRecord]]
     let toolCallsByID: [String: ToolCallRecord]
     let toolResultsByToolCallID: [String: ToolResultRecord]
+    var quoteReferencesByMessageID: [String: [QuoteReferencePresentation]] = [:]
+}
+
+struct TimelineTextSource: Equatable, Sendable {
+    let conversationID: String
+    let messageID: String
+    let partID: String
+    let isCompleted: Bool
+
+    func quoteSource(text: String) -> QuoteSourceText {
+        QuoteSourceText(
+            conversationID: conversationID,
+            messageID: messageID,
+            partID: partID,
+            text: text,
+            isCompleted: isCompleted
+        )
+    }
+}
+
+struct QuoteReferencePresentation: Equatable, Sendable {
+    let reference: MessageQuoteReferenceRecord
+    let sourceIsAvailable: Bool
 }
 
 /// A tool call, reduced to what the reading layout shows.
@@ -66,12 +89,14 @@ enum TimelineItem: Equatable, Sendable {
     case toolCall(ToolCallPresentation)
     case toolResult(ToolResultPresentation)
     case runNotice(RunNoticePresentation)
+    case quoteReferences([QuoteReferencePresentation])
 }
 
 /// One Turn: one parent run and everything that run put on screen.
 struct ConversationTurn: Identifiable, Equatable, Sendable {
     let runID: String
     let items: [TimelineItem]
+    var textSourcesByItemIndex: [Int: TimelineTextSource] = [:]
 
     var id: String { runID }
 }
@@ -97,13 +122,24 @@ extension ConversationTimelineProjection {
 
         let turns = parentRuns.map { run -> ConversationTurn in
             var items: [TimelineItem] = []
+            var textSourcesByItemIndex: [Int: TimelineTextSource] = [:]
 
             if let triggerID = run.triggerMessageID {
-                items.append(contentsOf: itemize(messageID: triggerID, input: input))
+                let itemized = itemize(messageID: triggerID, input: input)
+                let offset = items.count
+                items.append(contentsOf: itemized.items)
+                for (index, source) in itemized.textSourcesByItemIndex {
+                    textSourcesByItemIndex[offset + index] = source
+                }
             }
 
             if let responseID = run.responseMessageID {
-                items.append(contentsOf: itemize(messageID: responseID, input: input))
+                let itemized = itemize(messageID: responseID, input: input)
+                let offset = items.count
+                items.append(contentsOf: itemized.items)
+                for (index, source) in itemized.textSourcesByItemIndex {
+                    textSourcesByItemIndex[offset + index] = source
+                }
             } else {
                 // No assistant message. Do NOT fabricate one: the run's own state is the
                 // content for this turn, anchored after the user message it belongs to.
@@ -114,7 +150,11 @@ extension ConversationTimelineProjection {
                 )))
             }
 
-            return ConversationTurn(runID: run.id, items: items)
+            return ConversationTurn(
+                runID: run.id,
+                items: items,
+                textSourcesByItemIndex: textSourcesByItemIndex
+            )
         }
 
         return ConversationTimelineProjection(conversationID: input.conversationID, turns: turns)
@@ -126,32 +166,55 @@ extension ConversationTimelineProjection {
     /// The parts are also the only source of *which* tool activity exists. The run's tool
     /// call rows are consulted to fill in what a part already says is there, never to add
     /// an item the message does not contain — otherwise every call would render twice.
-    private static func itemize(messageID: String, input: ConversationTimelineInput) -> [TimelineItem] {
-        guard let message = input.messagesByID[messageID] else { return [] }
-        let parts = input.partsByMessageID[messageID] ?? []
+    private struct ItemizedMessage {
+        var items: [TimelineItem]
+        var textSourcesByItemIndex: [Int: TimelineTextSource]
+    }
 
-        return parts.compactMap { part -> TimelineItem? in
+    private static func itemize(messageID: String, input: ConversationTimelineInput) -> ItemizedMessage {
+        guard let message = input.messagesByID[messageID],
+              message.conversationID == input.conversationID
+        else { return ItemizedMessage(items: [], textSourcesByItemIndex: [:]) }
+        let parts = input.partsByMessageID[messageID] ?? []
+        var items: [TimelineItem] = []
+        var textSourcesByItemIndex: [Int: TimelineTextSource] = [:]
+
+        for part in parts where part.messageID == messageID {
             switch part.kind {
             case .text:
                 let text = (try? PersistenceStore.decodeTextPayload(part.payload).text) ?? ""
-                return message.role == .user ? .userText(text) : .assistantText(text)
+                let item: TimelineItem = message.role == .user ? .userText(text) : .assistantText(text)
+                textSourcesByItemIndex[items.count] = TimelineTextSource(
+                    conversationID: message.conversationID,
+                    messageID: message.id,
+                    partID: part.id,
+                    isCompleted: part.state == .completed
+                )
+                items.append(item)
 
             case .reasoning:
                 let text = (try? PersistenceStore.decodeTextPayload(part.payload).text) ?? ""
-                return .reasoning(text)
+                items.append(.reasoning(text))
 
             case .toolCall:
                 guard let payload = try? JSONDecoder().decode(ToolCallPartPayload.self, from: Data(part.payload.utf8)),
                       let call = input.toolCallsByID[payload.toolCallID]
-                else { return nil }   // no invented activity from a payload we cannot read
-                return .toolCall(ToolCallPresentation(toolCallID: call.id, action: call.action, state: call.state))
+                else { continue }   // no invented activity from a payload we cannot read
+                items.append(.toolCall(ToolCallPresentation(toolCallID: call.id, action: call.action, state: call.state)))
 
             case .toolResult:
                 guard let payload = try? JSONDecoder().decode(ToolResultPartPayload.self, from: Data(part.payload.utf8)),
                       let result = input.toolResultsByToolCallID[payload.toolCallID]
-                else { return nil }
-                return .toolResult(ToolResultPresentation(toolCallID: result.toolCallID, payload: result.payload))
+                else { continue }
+                items.append(.toolResult(ToolResultPresentation(toolCallID: result.toolCallID, payload: result.payload)))
             }
         }
+
+        if message.role == .user,
+           let references = input.quoteReferencesByMessageID[messageID],
+           !references.isEmpty {
+            items.append(.quoteReferences(references))
+        }
+        return ItemizedMessage(items: items, textSourcesByItemIndex: textSourcesByItemIndex)
     }
 }

@@ -96,7 +96,76 @@ struct ComposerSendCoordinatorTests {
         #expect(coordinator.submission == .idle)
     }
 
-    private func makeCoordinator(text: String) -> (ComposerController, ComposerSendCoordinator) {
+    @Test("quoteOnlySendIsAcceptedAndClearsOnlyCapturedReferences")
+    func quoteOnlySendIsAcceptedAndClearsOnlyCapturedReferences() {
+        let captured = makeQuote(id: "captured", snapshot: "quoted passage")
+        let newlyAdded = makeQuote(id: "new", snapshot: "new passage")
+        let (controller, coordinator) = makeCoordinator(text: "", references: [captured])
+        let command = coordinator.beginSend(
+            capabilities: [.text, .streaming],
+            quoteCommitReady: true,
+            imageInputReady: false,
+            fileInputReady: false,
+            submissionID: "quote-only-accepted"
+        )
+        #expect(command?.references == [captured])
+        controller.draft.references.append(newlyAdded)
+
+        coordinator.acceptSend(
+            submissionID: "quote-only-accepted",
+            projection: RunProjection(runID: "quote-run", state: .preparing)
+        )
+
+        #expect(controller.draft.text.isEmpty)
+        #expect(controller.draft.references == [newlyAdded])
+    }
+
+    @Test("quoteSendFailureRetainsDraftReferences")
+    func quoteSendFailureRetainsDraftReferences() {
+        let captured = makeQuote(id: "captured", snapshot: "quoted passage")
+        let (controller, coordinator) = makeCoordinator(text: "", references: [captured])
+        #expect(coordinator.beginSend(
+            capabilities: [.text, .streaming],
+            quoteCommitReady: true,
+            imageInputReady: false,
+            fileInputReady: false,
+            submissionID: "quote-send-failure"
+        ) != nil)
+
+        coordinator.rejectSend(submissionID: "quote-send-failure")
+        #expect(coordinator.submission == .idle)
+        #expect(controller.draft.references == [captured])
+        #expect(controller.draft.text.isEmpty)
+    }
+
+    @Test("quoteEditDuringInFlightAcceptanceKeepsNewReferences")
+    func quoteEditDuringInFlightAcceptanceKeepsNewReferences() {
+        let captured = makeQuote(id: "captured", snapshot: "quoted passage")
+        let newlyAdded = makeQuote(id: "new", snapshot: "new passage")
+        let (controller, coordinator) = makeCoordinator(text: "original", references: [captured])
+        #expect(coordinator.beginSend(
+            capabilities: [.text, .streaming],
+            quoteCommitReady: true,
+            imageInputReady: false,
+            fileInputReady: false,
+            submissionID: "quote-edit-in-flight"
+        ) != nil)
+        controller.draft.text = "edited while sending"
+        controller.draft.references.append(newlyAdded)
+
+        coordinator.acceptSend(
+            submissionID: "quote-edit-in-flight",
+            projection: RunProjection(runID: "quote-edit-run", state: .preparing)
+        )
+
+        #expect(controller.draft.text == "edited while sending")
+        #expect(controller.draft.references == [newlyAdded])
+    }
+
+    private func makeCoordinator(
+        text: String,
+        references: [QuoteReference] = []
+    ) -> (ComposerController, ComposerSendCoordinator) {
         let providerInstanceID = ProviderInstanceID(rawValue: "composer-test-instance")
         let modelID = ModelID(rawValue: "composer-test-model")
         let descriptor = ModelDescriptor(
@@ -120,7 +189,7 @@ struct ComposerSendCoordinatorTests {
             draft: ComposerDraftState(
                 text: text,
                 selection: ComposerSelection(range: 0..<text.count),
-                quoteReference: nil,
+                references: references,
                 attachments: [],
                 presentationState: .resting
             ),
@@ -134,5 +203,19 @@ struct ComposerSendCoordinatorTests {
             maxProviderSteps: 4
         )
         return (controller, coordinator)
+    }
+
+    private func makeQuote(id: String, snapshot: String) -> QuoteReference {
+        QuoteReference(
+            id: id,
+            source: QuoteSourceLocator(
+                sourceConversationID: "source-conversation",
+                sourceMessageID: "source-message",
+                sourcePartID: "source-part-\(id)",
+                range: QuoteTextRange(utf16Start: 0, utf16Length: snapshot.utf16.count)
+            ),
+            snapshot: snapshot,
+            createdAt: Fixtures.epoch
+        )
     }
 }

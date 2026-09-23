@@ -194,6 +194,20 @@ actor ConversationRuntime {
                 conversation: conversation,
                 message: userMessage,
                 parts: [userPart],
+                quoteReferences: command.references.enumerated().map { sequence, reference in
+                    MessageQuoteReferenceRecord(
+                        id: reference.id,
+                        messageID: messageID,
+                        sequence: sequence,
+                        sourceConversationID: reference.source.sourceConversationID,
+                        sourceMessageID: reference.source.sourceMessageID,
+                        sourcePartID: reference.source.sourcePartID,
+                        sourceUTF16Start: reference.source.range.utf16Start,
+                        sourceUTF16Length: reference.source.range.utf16Length,
+                        snapshot: reference.snapshot,
+                        createdAt: reference.createdAt
+                    )
+                },
                 run: run
             )
         ) {
@@ -227,12 +241,15 @@ actor ConversationRuntime {
             },
             maxProviderSteps: command.maxProviderSteps
         )
+        let committedQuoteSnapshots: [String]
         do {
             try store.completeExecutionSnapshot(
                 runID: runID,
                 encodedSnapshot: try ExecutionSnapshotCodec.encode(snapshot),
                 at: now
             )
+            committedQuoteSnapshots = try store.quoteReferences(forMessageID: messageID)
+                .map(\.snapshot)
         } catch {
             // The commit already happened, so this is a failed Run rather than a
             // failed Send preparation. Never turn a durable user message into a
@@ -246,9 +263,13 @@ actor ConversationRuntime {
         }
 
         // 12. Only now may AgentRuntime advance the Run into provider execution.
+        let userContent = PromptComposer().userContent(
+            text: command.text,
+            quotedSnapshots: committedQuoteSnapshots
+        )
         let request = ProviderChatRequest(
             modelID: command.modelID,
-            messages: [.user(command.text)],
+            messages: [.user(userContent)],
             tools: toolRegistry.descriptors.map {
                 ProviderToolDefinition(
                     name: $0.id,
@@ -678,11 +699,27 @@ actor ConversationRuntime {
             String(command.maxProviderSteps),
         ]
         var encoded = Data()
-        for component in components {
+        func append(_ component: String, to encoded: inout Data) {
             let bytes = Data(component.utf8)
             var length = UInt64(bytes.count).bigEndian
             withUnsafeBytes(of: &length) { encoded.append(contentsOf: $0) }
             encoded.append(bytes)
+        }
+        for component in components {
+            append(component, to: &encoded)
+        }
+        if !command.references.isEmpty {
+            append("quote-references-v1", to: &encoded)
+            append(String(command.references.count), to: &encoded)
+            for reference in command.references {
+                append(reference.id, to: &encoded)
+                append(reference.source.sourceConversationID, to: &encoded)
+                append(reference.source.sourceMessageID, to: &encoded)
+                append(reference.source.sourcePartID, to: &encoded)
+                append(String(reference.source.range.utf16Start), to: &encoded)
+                append(String(reference.source.range.utf16Length), to: &encoded)
+                append(reference.snapshot, to: &encoded)
+            }
         }
         return SHA256.hash(data: encoded)
             .map { String(format: "%02x", $0) }

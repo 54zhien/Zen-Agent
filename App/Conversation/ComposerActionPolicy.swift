@@ -55,13 +55,18 @@ enum ComposerActionPolicy {
         fileInputReady: Bool
     ) -> Bool {
         let hasText = !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if hasText,
-           !(capabilities.contains(.text) && capabilities.contains(.streaming)) {
+        if !(capabilities.contains(.text) && capabilities.contains(.streaming)) {
             return false
         }
 
-        if let quote = draft.quoteReference,
-           quote.sourceID.isEmpty || quote.snapshot.isEmpty || !quoteCommitReady {
+        if draft.references.contains(where: { reference in
+            reference.source.sourceConversationID.isEmpty
+                || reference.source.sourceMessageID.isEmpty
+                || reference.source.sourcePartID.isEmpty
+                || reference.source.range.utf16Start < 0
+                || reference.source.range.utf16Length <= 0
+                || reference.snapshot.isEmpty
+        }) || (!draft.references.isEmpty && !quoteCommitReady) {
             return false
         }
 
@@ -75,6 +80,6 @@ enum ComposerActionPolicy {
             }
         }
 
-        return hasText || draft.quoteReference != nil || !draft.attachments.isEmpty
+        return hasText || !draft.references.isEmpty || !draft.attachments.isEmpty
     }
 }

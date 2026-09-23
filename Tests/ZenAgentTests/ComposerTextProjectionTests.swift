@@ -47,7 +47,17 @@ struct ComposerTextProjectionTests {
 
     @Test("transitionsPreserveSelectionQuoteAndAttachments")
     func transitionsPreserveSelectionQuoteAndAttachments() {
-        let quote = QuoteReference(sourceID: "part-7", snapshot: "quoted text")
+        let quote = QuoteReference(
+            id: "quote-7",
+            source: QuoteSourceLocator(
+                sourceConversationID: "source-conversation",
+                sourceMessageID: "source-message",
+                sourcePartID: "part-7",
+                range: QuoteTextRange(utf16Start: 0, utf16Length: "quoted text".utf16.count)
+            ),
+            snapshot: "quoted text",
+            createdAt: Fixtures.epoch
+        )
         let attachments = [
             AttachmentReference(id: "image-1", displayName: "diagram.png", kind: .image),
             AttachmentReference(id: "file-2", displayName: "notes.txt", kind: .file),
@@ -57,7 +67,7 @@ struct ComposerTextProjectionTests {
             draft: ComposerDraftState(
                 text: "keep this draft",
                 selection: selection,
-                quoteReference: quote,
+                references: [quote],
                 attachments: attachments,
                 presentationState: .resting
             )
@@ -77,7 +87,7 @@ struct ComposerTextProjectionTests {
         ComposerDraftState(
             text: text,
             selection: ComposerSelection(range: 0..<0),
-            quoteReference: nil,
+            references: [],
             attachments: [],
             presentationState: state
         )
@@ -100,7 +110,7 @@ struct ComposerTextProjectionTests {
         in controller: ComposerController
     ) {
         #expect(controller.draft.selection == selection)
-        #expect(controller.draft.quoteReference == quote)
+        #expect(controller.draft.references == [quote])
         #expect(controller.draft.attachments == attachments)
     }
 }

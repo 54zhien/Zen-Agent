@@ -106,7 +106,7 @@ struct AtomicSendCommitTests {
         }
 
         #expect(
-            failure as? PersistenceError == .conversationAlreadyHasActiveRun(conversationID: "c1"),
+            failure as? ZenAgent.PersistenceError == .conversationAlreadyHasActiveRun(conversationID: "c1"),
             "expected the occupied-conversation error, got \(String(describing: failure))"
         )
         #expect(

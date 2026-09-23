@@ -12,6 +12,7 @@ final class ComposerSendCoordinator {
     private(set) var submission: ComposerSubmissionState = .idle
 
     @ObservationIgnored private var pendingTextSnapshot: String?
+    @ObservationIgnored private var pendingReferencesSnapshot: [QuoteReference]?
     @ObservationIgnored private var latestProjection: RunProjection?
 
     init(
@@ -38,7 +39,6 @@ final class ComposerSendCoordinator {
         guard submission == .idle,
               !submissionID.isEmpty,
               maxProviderSteps > 0,
-              controller.draft.quoteReference == nil,
               controller.draft.attachments.isEmpty,
               ComposerActionPolicy.isSendable(
                 draft: controller.draft,
@@ -52,12 +52,14 @@ final class ComposerSendCoordinator {
         let command = SendCommand(
             conversationID: conversationID,
             text: controller.draft.text,
+            references: controller.draft.references,
             providerInstanceID: controller.configuration.providerInstanceID,
             modelID: controller.configuration.modelID,
             maxProviderSteps: maxProviderSteps,
             submissionID: submissionID
         )
         pendingTextSnapshot = command.text
+        pendingReferencesSnapshot = command.references
         submission = .awaitingAcceptance(submissionID: submissionID)
         return command
     }
@@ -65,21 +67,25 @@ final class ComposerSendCoordinator {
     func acceptSend(submissionID: String, projection: RunProjection) {
         guard submission == .awaitingAcceptance(submissionID: submissionID) else { return }
 
-        if let pendingTextSnapshot,
-           controller.draft.text == pendingTextSnapshot,
-           controller.draft.quoteReference == nil,
-           controller.draft.attachments.isEmpty {
+        if let pendingTextSnapshot, controller.draft.text == pendingTextSnapshot {
             controller.draft.text = ""
             controller.draft.selection = ComposerSelection(range: 0..<0)
         }
+        if let pendingReferencesSnapshot {
+            controller.draft.references.removeAll { current in
+                pendingReferencesSnapshot.contains(current)
+            }
+        }
 
         pendingTextSnapshot = nil
+        pendingReferencesSnapshot = nil
         submission = .acceptedAwaitingProjection(runID: projection.runID)
     }
 
     func rejectSend(submissionID: String) {
         guard submission == .awaitingAcceptance(submissionID: submissionID) else { return }
         pendingTextSnapshot = nil
+        pendingReferencesSnapshot = nil
         submission = .idle
     }
 
@@ -125,7 +131,7 @@ final class ComposerSendCoordinator {
 
         let command = beginSend(
             capabilities: selected.capabilities,
-            quoteCommitReady: false,
+            quoteCommitReady: true,
             imageInputReady: false,
             fileInputReady: false,
             submissionID: UUID().uuidString
@@ -140,7 +146,7 @@ final class ComposerSendCoordinator {
             return primaryAction(sendable: ComposerActionPolicy.isSendable(
                 draft: controller.draft,
                 capabilities: selected.capabilities,
-                quoteCommitReady: false,
+                quoteCommitReady: true,
                 imageInputReady: false,
                 fileInputReady: false
             ))
@@ -159,7 +165,7 @@ final class ComposerSendCoordinator {
             presentationState: controller.draft.presentationState,
             sendable: sendable,
             hasDraft: !controller.draft.text.isEmpty
-                || controller.draft.quoteReference != nil
+                || !controller.draft.references.isEmpty
                 || !controller.draft.attachments.isEmpty,
             plusAvailable: false,
             submission: submission
