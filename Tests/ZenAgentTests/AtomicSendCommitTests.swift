@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import GRDB
 
 @testable import ZenAgent
 
@@ -113,6 +114,79 @@ struct AtomicSendCommitTests {
             "a rejected send must not leave its message behind"
         )
         #expect(try store.run(id: "r2") == nil, "a rejected send must not leave its run behind")
+    }
+
+    @Test("quote records roll back with the message and run")
+    func sendCommitRollsBackQuotesWithMessageAndRun() throws {
+        let store = try makeStore()
+        let reference = QuoteReference(
+            id: "command-quote",
+            source: QuoteSourceLocator(
+                sourceConversationID: "source-conversation",
+                sourceMessageID: "source-message",
+                sourcePartID: "source-part",
+                range: QuoteTextRange(utf16Start: 0, utf16Length: 6)
+            ),
+            snapshot: "quoted text",
+            createdAt: Fixtures.epoch
+        )
+        let command = SendCommand(
+            conversationID: "c1",
+            text: "",
+            references: [reference],
+            providerInstanceID: ProviderInstanceID(rawValue: "pi1"),
+            modelID: ModelID(rawValue: "deepseek-chat"),
+            maxProviderSteps: 1,
+            submissionID: "quote-submission"
+        )
+        #expect(command.references == [reference])
+
+        var commit = Fixtures.send(messageID: "quoted-message", runID: "quoted-run")
+        commit.quoteReferences = [
+            MessageQuoteReferenceRecord(
+                id: "quote-1",
+                messageID: "quoted-message",
+                sequence: 0,
+                sourceConversationID: "source-conversation",
+                sourceMessageID: "source-message",
+                sourcePartID: "source-part",
+                sourceUTF16Start: 0,
+                sourceUTF16Length: 6,
+                snapshot: "quoted text",
+                createdAt: Fixtures.epoch
+            ),
+            MessageQuoteReferenceRecord(
+                id: "quote-2",
+                messageID: "quoted-message",
+                sequence: 0,
+                sourceConversationID: "source-conversation",
+                sourceMessageID: "source-message",
+                sourcePartID: "source-part",
+                sourceUTF16Start: 6,
+                sourceUTF16Length: 5,
+                snapshot: "second quote",
+                createdAt: Fixtures.epoch
+            ),
+        ]
+
+        var failure: Error?
+        do {
+            try store.commitUserTurnAndCreateParentRun(commit)
+        } catch {
+            failure = error
+        }
+
+        #expect(failure != nil, "duplicate quote sequence must reject the whole send")
+        #expect(try store.messages(inConversation: "c1").isEmpty)
+        #expect(try store.run(id: "quoted-run") == nil)
+        let quoteCount = try store.database.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM messageQuoteReference WHERE messageID = ?",
+                arguments: ["quoted-message"]
+            ) ?? 0
+        }
+        #expect(quoteCount == 0)
     }
 
     @Test("the request config seed is not rewritten by a later snapshot")

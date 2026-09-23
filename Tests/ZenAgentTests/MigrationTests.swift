@@ -90,6 +90,45 @@ struct MigrationTests {
         return migrator
     }
 
+    private func v8Migrator() -> DatabaseMigrator {
+        var migrator = v7Migrator()
+        Migrations.registerV8(&migrator)
+        return migrator
+    }
+
+    @Test("v8 → v9 adds quote references without rewriting legacy messages")
+    func v8ToV9AddsMessageQuoteReferenceWithoutRewritingLegacyMessages() throws {
+        let url = try Fixtures.scratchPath(name: "quote-reference-v9-migration.sqlite")
+        defer { Fixtures.cleanUp(url) }
+
+        let before = PersistenceStore(
+            database: try ZenDatabase.open(at: url.path(), migrator: v8Migrator())
+        )
+        try before.commitUserTurnAndCreateParentRun(
+            Fixtures.send(messageID: "legacy-message", runID: "legacy-run")
+        )
+        guard let legacyBefore = try before.messages(inConversation: "c1").first else {
+            Issue.record("the V8 fixture must contain its legacy message")
+            return
+        }
+        #expect(try before.database.read { db in
+            try db.tableExists(MessageQuoteReferenceRecord.databaseTableName)
+        } == false)
+
+        let after = PersistenceStore(
+            database: try ZenDatabase.open(at: url.path(), migrator: currentMigrator())
+        )
+        let legacyAfter = try after.messages(inConversation: "c1").first
+        #expect(legacyAfter?.id == legacyBefore.id)
+        #expect(legacyAfter?.conversationID == legacyBefore.conversationID)
+        #expect(legacyAfter?.role == legacyBefore.role)
+        #expect(legacyAfter?.sequence == legacyBefore.sequence)
+        #expect(legacyAfter?.createdAt == legacyBefore.createdAt)
+        #expect(try after.database.read { db in
+            try db.tableExists(MessageQuoteReferenceRecord.databaseTableName)
+        })
+    }
+
     private func seedV1(at url: URL) throws {
         let store = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: v1Migrator()))
         try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))

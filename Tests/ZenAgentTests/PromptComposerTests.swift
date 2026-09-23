@@ -122,6 +122,48 @@ struct PromptComposerTests {
         #expect(composer.compose(prepared) == composer.compose(prepared))
     }
 
+    @Test("quote snapshots stay in user context across the initial and continued request")
+    func quoteSnapshotAppearsAsUserContextInInitialAndContinuedRequest() {
+        let composer = PromptComposer()
+        let snapshots = ["A quoted passage"]
+        let initialText = "Explain this passage"
+        let followUpText = "Continue with the same context"
+        let initialUserContent = composer.userContent(
+            text: initialText,
+            quotedSnapshots: snapshots
+        )
+        let continuedUserContent = composer.userContent(
+            text: followUpText,
+            quotedSnapshots: snapshots
+        )
+        let initialInput = PromptCompositionInput(
+            modelID: modelID,
+            providerAdapterInstructions: "Adapter instructions",
+            history: [],
+            currentUserMessage: initialText,
+            currentUserQuotedSnapshots: snapshots
+        )
+        let continuedInput = PromptCompositionInput(
+            modelID: modelID,
+            providerAdapterInstructions: "Adapter instructions",
+            history: [
+                PromptHistoryMessage(role: .user, content: initialUserContent),
+                PromptHistoryMessage(role: .assistant, content: "A short answer"),
+            ],
+            currentUserMessage: followUpText,
+            currentUserQuotedSnapshots: snapshots
+        )
+
+        let initialRequest = composer.compose(initialInput)
+        let continuedRequest = composer.compose(continuedInput)
+
+        #expect(initialUserContent.contains(snapshots[0]))
+        #expect(initialInput.currentUserQuotedSnapshots == snapshots)
+        #expect(initialRequest.messages.contains(.user(initialUserContent)))
+        #expect(continuedRequest.messages.contains(.user(initialUserContent)))
+        #expect(continuedRequest.messages.last == .user(continuedUserContent))
+    }
+
     @Test("prompt composition types remain Sendable")
     func promptTypesAreSendable() {
         func requireSendable<T: Sendable>(_: T.Type) {}
