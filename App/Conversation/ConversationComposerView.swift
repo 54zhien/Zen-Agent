@@ -30,15 +30,17 @@ struct ConversationComposerView: View {
             let shape = ComposerShapeToken.shape(for: layout)
 
             ZStack(alignment: .topLeading) {
+                Color.clear
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+
                 shape.fill(.regularMaterial)
                     .frame(width: layout.visualFrame.width, height: layout.visualFrame.height)
+                    .contentShape(shape)
                     .position(x: layout.visualFrame.midX, y: layout.visualFrame.midY)
 
                 composerContent(layout: layout)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-            .containerShape(shape)
-            .contentShape(Rectangle())
             .animation(keyboardAnimation, value: geometry.size.height)
             .simultaneousGesture(
                 SpatialTapGesture().onEnded { tap in
@@ -81,7 +83,7 @@ struct ConversationComposerView: View {
             }
             .buttonStyle(.plain)
             .frame(width: layout.hitFrame.width, height: layout.hitFrame.height)
-            .contentShape(Rectangle())
+            .contentShape(shape)
             .position(x: layout.hitFrame.midX, y: layout.hitFrame.midY)
         }
     }

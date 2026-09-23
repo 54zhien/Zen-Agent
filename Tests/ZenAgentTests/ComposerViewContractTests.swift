@@ -61,7 +61,7 @@ struct ComposerViewContractTests {
         let shapeCalls = view.components(separatedBy: "ComposerShapeToken.shape(for:").count - 1
 
         #expect(shapeCalls == 1)
-        #expect(view.contains(".containerShape(shape)"))
+        #expect(view.contains(".contentShape(shape)"))
         #expect(geometry.contains("enum ComposerShapeToken"))
         #expect(geometry.contains("ConcentricRectangle(corners: .concentric(minimum:"))
         #expect(!view.contains("cornerRadius"))

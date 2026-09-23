@@ -202,6 +202,6 @@ enum ComposerShapeToken {
 
     static func shape(for layout: ComposerLayout) -> ConcentricRectangle {
         let minimum = min(minimumCurvature, max(0, layout.outerHeight / 2))
-        return ConcentricRectangle(corners: .concentric(minimum: minimum))
+        return ConcentricRectangle(corners: .concentric(minimum: .fixed(minimum)))
     }
 }
