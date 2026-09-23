@@ -83,7 +83,7 @@ struct ComposerGeometryTests {
     func geometryRespondsToWidthHeightAndScaledText() {
         let narrow = layout(state: .resting, containerWidth: 180)
         let standard = layout(state: .resting)
-        let scaled = layout(state: .resting, scaledLineHeight: 42, measuredTextHeight: 42)
+        let scaled = layout(state: .resting, measuredTextHeight: 42, scaledLineHeight: 42)
         let constrained = layout(
             state: .editing,
             availableHeight: 180,
