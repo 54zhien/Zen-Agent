@@ -38,7 +38,7 @@ struct ConversationComposerView: View {
                     .contentShape(shape)
                     .position(x: layout.visualFrame.midX, y: layout.visualFrame.midY)
 
-                composerContent(layout: layout)
+                composerContent(layout: layout, shape: shape)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .animation(keyboardAnimation, value: geometry.size.height)
@@ -52,7 +52,7 @@ struct ConversationComposerView: View {
     }
 
     @ViewBuilder
-    private func composerContent(layout: ComposerLayout) -> some View {
+    private func composerContent(layout: ComposerLayout, shape: ConcentricRectangle) -> some View {
         switch ComposerTextProjection.presentation(for: controller.draft) {
         case .editor:
             ComposerTextView(
