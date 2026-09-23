@@ -57,7 +57,7 @@ struct ComposerTextView: UIViewRepresentable {
         for role: TypographyRole,
         dynamicTypeSize: DynamicTypeSize
     ) -> CGFloat {
-        font(for: role, dynamicTypeSize: dynamicTypeSize).lineHeight
+        typographyFont(for: role, dynamicTypeSize: dynamicTypeSize).lineHeight
     }
 
     func makeCoordinator() -> Coordinator {
@@ -73,7 +73,7 @@ struct ComposerTextView: UIViewRepresentable {
         textView.adjustsFontForContentSizeCategory = true
         textView.keyboardDismissMode = .interactive
         textView.isScrollEnabled = textAreaIsScrollable
-        textView.font = Self.font(for: typographyRole, dynamicTypeSize: dynamicTypeSize)
+        textView.font = Self.typographyFont(for: typographyRole, dynamicTypeSize: dynamicTypeSize)
         textView.text = text
         textView.selectedRange = Self.nsRange(for: selection, in: text)
         context.coordinator.startObservingKeyboard(for: textView)
@@ -99,7 +99,7 @@ struct ComposerTextView: UIViewRepresentable {
             }
         }
 
-        textView.font = Self.font(for: typographyRole, dynamicTypeSize: dynamicTypeSize)
+        textView.font = Self.typographyFont(for: typographyRole, dynamicTypeSize: dynamicTypeSize)
         textView.isScrollEnabled = textAreaIsScrollable
         textView.keyboardDismissMode = .interactive
         context.coordinator.reportMeasuredTextHeight(from: textView)
@@ -117,7 +117,7 @@ struct ComposerTextView: UIViewRepresentable {
         coordinator.stopObservingKeyboard()
     }
 
-    private static func font(
+    private static func typographyFont(
         for role: TypographyRole,
         dynamicTypeSize: DynamicTypeSize
     ) -> UIFont {
