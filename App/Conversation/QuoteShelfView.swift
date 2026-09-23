@@ -64,7 +64,7 @@ struct QuoteShelfView: View {
                         if let lastID = entries.last?.id { onRemove(lastID) }
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.caption2.weight(.medium))
+                            .imageScale(.small)
                             .foregroundStyle(.tertiary)
                             .frame(width: 28, height: 28)
                             .contentShape(Rectangle())
