@@ -128,7 +128,7 @@ struct QuoteSelectableText: UIViewRepresentable {
         func textDraggableView(
             _ textDraggableView: any UIView & UITextDraggable,
             dragSessionDidEnd session: any UIDragSession,
-            withOperation operation: UIDropOperation
+            with operation: UIDropOperation
         ) {
             parent.onDragPhaseChanged(.idle)
         }
