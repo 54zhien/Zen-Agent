@@ -50,11 +50,22 @@ struct InternalQuoteDrag: Sendable, Equatable {
               selectedUTF16Range.length > 0
         else { return nil }
 
-        guard let stringRange = Range(selectedUTF16Range, in: source.text),
-              !stringRange.isEmpty
+        // A selection must land on character boundaries. A UTF-16 offset that falls inside a
+        // surrogate pair (or inside a grapheme cluster) is not a valid selection: the snapshot
+        // would not be the text the user selected.
+        var utf16Offset = 0
+        var boundaries: [Int: String.Index] = [0: source.text.startIndex]
+        for index in source.text.indices {
+            utf16Offset += String(source.text[index]).utf16.count
+            boundaries[utf16Offset] = source.text.index(after: index)
+        }
+
+        guard let start = boundaries[selectedUTF16Range.location],
+              let end = boundaries[selectedUTF16Range.location + selectedUTF16Range.length],
+              start < end
         else { return nil }
 
-        let snapshot = String(source.text[stringRange])
+        let snapshot = String(source.text[start..<end])
 
         let reference = QuoteReference(
             id: UUID().uuidString,
