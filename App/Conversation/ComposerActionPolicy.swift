@@ -71,7 +71,10 @@ enum ComposerActionPolicy {
         }
 
         for attachment in draft.attachments {
-            guard !attachment.id.isEmpty else { return false }
+            guard !attachment.id.isEmpty,
+                  !attachment.versionID.isEmpty,
+                  !attachment.fingerprint.isEmpty
+            else { return false }
             switch attachment.kind {
             case .image:
                 guard imageInputReady else { return false }

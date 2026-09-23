@@ -71,6 +71,12 @@ extension PersistenceStore {
         }
     }
 
+    func fileAssetVersionFingerprints() throws -> Set<String> {
+        try database.read { db in
+            Set(try String.fetchAll(db, sql: "SELECT contentFingerprint FROM fileAssetVersion"))
+        }
+    }
+
     func attachments(forMessage messageID: String) throws -> [MessageAttachmentRecord] {
         try database.read { db in
             try MessageAttachmentRecord

@@ -23,6 +23,7 @@ actor ConversationRuntime {
     private let store: PersistenceStore
     private let provider: any ModelProvider
     private let credentials: any CredentialStoring
+    private let managedFileStore: ManagedFileStore?
     private let agentRuntime: AgentRuntime
     private let toolRegistry: ToolRegistry
     private let onEvent: @Sendable (AgentEvent) async -> Void
@@ -30,6 +31,7 @@ actor ConversationRuntime {
     private var operations: [String: Task<Void, Never>] = [:]
     private var completionErrors: [String: ConversationProjectionError] = [:]
     private var projections: [String: RunProjection] = [:]
+    private var didRecoverManagedFiles = false
     private var projectionSubscribers: [
         String: [UUID: AsyncStream<RunProjection?>.Continuation]
     ] = [:]
@@ -42,11 +44,13 @@ actor ConversationRuntime {
         credentials: any CredentialStoring,
         onEvent: @escaping @Sendable (AgentEvent) async -> Void = { _ in },
         toolRegistry: ToolRegistry? = nil,
-        toolRuntime: ToolRuntime? = nil
+        toolRuntime: ToolRuntime? = nil,
+        managedFileStore: ManagedFileStore? = nil
     ) {
         self.store = store
         self.provider = provider
         self.credentials = credentials
+        self.managedFileStore = managedFileStore ?? (try? ManagedFileStore.applicationDefault())
         let resolvedRegistry = toolRegistry ?? ToolRegistry.empty
         self.toolRegistry = resolvedRegistry
         self.agentRuntime = AgentRuntime(
@@ -75,6 +79,15 @@ actor ConversationRuntime {
         guard !command.submissionID.isEmpty else {
             throw ConversationRuntimeError.emptySubmissionID
         }
+        if !didRecoverManagedFiles {
+            if let managedFileStore {
+                _ = try managedFileStore.removeUnreferencedBlobs(in: store)
+            } else if !command.attachments.isEmpty {
+                throw ConversationRuntimeError.managedFileStoreUnavailable
+            }
+            didRecoverManagedFiles = true
+        }
+        try validateManagedAttachments(command.attachments)
         let submissionDigest = Self.submissionDigest(for: command)
         if let existing = try store.run(submissionID: command.submissionID) {
             guard existing.submissionDigest == submissionDigest else {
@@ -189,11 +202,21 @@ actor ConversationRuntime {
         )
 
         // 9. The only send commit. The store transaction makes steps 8-9 all-or-none.
+        try validateManagedAttachments(command.attachments)
         if let existingRunID = try store.commitUserTurnAndCreateParentRun(
             SendCommit(
                 conversation: conversation,
                 message: userMessage,
                 parts: [userPart],
+                attachments: command.attachments.enumerated().map { sequence, attachment in
+                    MessageAttachmentRecord(
+                        id: "message-attachment-\(messageID)-\(sequence)",
+                        messageID: messageID,
+                        assetID: attachment.assetID,
+                        versionID: attachment.versionID,
+                        sequence: sequence
+                    )
+                },
                 quoteReferences: command.references.enumerated().map { sequence, reference in
                     MessageQuoteReferenceRecord(
                         id: reference.id,
@@ -298,6 +321,32 @@ actor ConversationRuntime {
         }
         operations[runID] = task
         return runID
+    }
+
+    func loadAttachmentContent(
+        _ attachment: SendAttachment,
+        forMessageID messageID: String
+    ) throws -> Data {
+        guard let managedFileStore else {
+            throw ConversationRuntimeError.managedFileStoreUnavailable
+        }
+        let committed = try store.attachments(forMessage: messageID).contains {
+            $0.assetID == attachment.assetID && $0.versionID == attachment.versionID
+        }
+        guard committed else {
+            throw ConversationRuntimeError.attachmentNotCommitted(attachment.assetID)
+        }
+        return try managedFileStore.loadVerifiedBlob(for: attachment, in: store)
+    }
+
+    private func validateManagedAttachments(_ attachments: [SendAttachment]) throws {
+        guard !attachments.isEmpty else { return }
+        guard let managedFileStore else {
+            throw ConversationRuntimeError.managedFileStoreUnavailable
+        }
+        for attachment in attachments {
+            _ = try managedFileStore.verifiedBlobURL(for: attachment, in: store)
+        }
     }
 
     /// Waits for the AgentRuntime stream to reach its durable outcome. Provider errors
@@ -720,6 +769,15 @@ actor ConversationRuntime {
                 append(String(reference.source.range.utf16Length), to: &encoded)
                 append(reference.snapshot, to: &encoded)
             }
+        }
+        append("send-attachments-v1", to: &encoded)
+        append(String(command.attachments.count), to: &encoded)
+        for attachment in command.attachments {
+            append(attachment.assetID, to: &encoded)
+            append(attachment.versionID, to: &encoded)
+            append(attachment.fingerprint, to: &encoded)
+            append(attachment.kind == .image ? "image" : "file", to: &encoded)
+            append(attachment.displayName, to: &encoded)
         }
         return SHA256.hash(data: encoded)
             .map { String(format: "%02x", $0) }

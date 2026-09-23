@@ -137,7 +137,13 @@ struct ComposerActionPolicyTests {
         ))
 
         let attached = draft("hello", attachments: [
-            AttachmentReference(id: "image-1", displayName: "image.png", kind: .image),
+            AttachmentReference(
+                id: "image-1",
+                versionID: "version-1",
+                fingerprint: "sha256:\(String(repeating: "a", count: 64))",
+                displayName: "image.png",
+                kind: .image
+            ),
         ])
         #expect(!ComposerActionPolicy.isSendable(
             draft: attached,
@@ -167,7 +173,13 @@ struct ComposerActionPolicyTests {
         ))
 
         let file = draft("", attachments: [
-            AttachmentReference(id: "file-1", displayName: "notes.txt", kind: .file),
+            AttachmentReference(
+                id: "file-1",
+                versionID: "version-1",
+                fingerprint: "sha256:\(String(repeating: "a", count: 64))",
+                displayName: "notes.txt",
+                kind: .file
+            ),
         ])
         #expect(!ComposerActionPolicy.isSendable(
             draft: file,
@@ -211,6 +223,85 @@ struct ComposerActionPolicyTests {
             quoteCommitReady: true,
             imageInputReady: false,
             fileInputReady: false
+        ))
+    }
+
+    @Test("attachmentEntriesStayClosedUnderThisPhaseRealState")
+    func attachmentEntriesStayClosedUnderThisPhaseRealState() {
+        let realPipeline = pipeline(
+            fileAssetIngestReady: true,
+            messageAttachmentCommitReady: true
+        )
+
+        #expect(realPipeline.fileAssetIngestReady)
+        #expect(realPipeline.messageAttachmentCommitReady)
+        #expect(!realPipeline.imagePickerReady)
+        #expect(!realPipeline.filePickerReady)
+        #expect(!realPipeline.nativeImageEncodingReady)
+        #expect(!realPipeline.nativeFileEncodingReady)
+        #expect(!realPipeline.authorizedLocalImageRouteReady)
+        #expect(!realPipeline.authorizedLocalFileRouteReady)
+        #expect(!ComposerActionPolicy.canAddImage(capabilities: [.vision], pipeline: realPipeline))
+        #expect(!ComposerActionPolicy.canAddFile(capabilities: [.files], pipeline: realPipeline))
+    }
+
+    @Test("attachmentEntriesOpenOnlyWhenEveryGateIsReady")
+    func attachmentEntriesOpenOnlyWhenEveryGateIsReady() {
+        let imagePipeline = pipeline(
+            imagePickerReady: true,
+            fileAssetIngestReady: true,
+            messageAttachmentCommitReady: true,
+            nativeImageEncodingReady: true
+        )
+        #expect(ComposerActionPolicy.canAddImage(
+            capabilities: [.vision],
+            pipeline: imagePipeline
+        ))
+        #expect(!ComposerActionPolicy.canAddImage(
+            capabilities: [.vision],
+            pipeline: pipeline(
+                imagePickerReady: true,
+                fileAssetIngestReady: true,
+                nativeImageEncodingReady: true
+            )
+        ))
+        #expect(ComposerActionPolicy.canAddImage(
+            capabilities: [],
+            pipeline: pipeline(
+                imagePickerReady: true,
+                fileAssetIngestReady: true,
+                messageAttachmentCommitReady: true,
+                authorizedLocalImageRouteReady: true
+            )
+        ))
+
+        let filePipeline = pipeline(
+            filePickerReady: true,
+            fileAssetIngestReady: true,
+            messageAttachmentCommitReady: true,
+            nativeFileEncodingReady: true
+        )
+        #expect(ComposerActionPolicy.canAddFile(
+            capabilities: [.files],
+            pipeline: filePipeline
+        ))
+        #expect(!ComposerActionPolicy.canAddFile(
+            capabilities: [.files],
+            pipeline: pipeline(
+                filePickerReady: false,
+                fileAssetIngestReady: true,
+                messageAttachmentCommitReady: true,
+                nativeFileEncodingReady: true
+            )
+        ))
+        #expect(ComposerActionPolicy.canAddFile(
+            capabilities: [],
+            pipeline: pipeline(
+                filePickerReady: true,
+                fileAssetIngestReady: true,
+                messageAttachmentCommitReady: true,
+                authorizedLocalFileRouteReady: true
+            )
         ))
     }
 

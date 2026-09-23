@@ -9,6 +9,8 @@ struct ComposerAttachmentTests {
     func attachmentReferenceStoresIdentityOnly() {
         let reference = AttachmentReference(
             id: "attachment-17",
+            versionID: "version-17",
+            fingerprint: "sha256:\(String(repeating: "a", count: 64))",
             displayName: "scan.png",
             kind: .image
         )
@@ -29,9 +31,21 @@ struct ComposerAttachmentTests {
     @Test("draftCanContainMultipleAttachmentReferences")
     func draftCanContainMultipleAttachmentReferences() {
         let attachments = [
-            AttachmentReference(id: "image-1", displayName: "one.png", kind: .image),
-            AttachmentReference(id: "file-2", displayName: "two.pdf", kind: .file),
-            AttachmentReference(id: "image-3", displayName: "three.jpg", kind: .image),
+            AttachmentReference(
+                id: "image-1", versionID: "version-1",
+                fingerprint: "sha256:\(String(repeating: "a", count: 64))",
+                displayName: "one.png", kind: .image
+            ),
+            AttachmentReference(
+                id: "file-2", versionID: "version-2",
+                fingerprint: "sha256:\(String(repeating: "b", count: 64))",
+                displayName: "two.pdf", kind: .file
+            ),
+            AttachmentReference(
+                id: "image-3", versionID: "version-3",
+                fingerprint: "sha256:\(String(repeating: "c", count: 64))",
+                displayName: "three.jpg", kind: .image
+            ),
         ]
         let draft = ComposerDraftState(
             text: "",

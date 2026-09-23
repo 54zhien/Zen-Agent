@@ -119,8 +119,8 @@ struct ConversationComposerView: View {
         ComposerAttachmentPipelineStatus(
             imagePickerReady: false,
             filePickerReady: false,
-            fileAssetIngestReady: false,
-            messageAttachmentCommitReady: false,
+            fileAssetIngestReady: true,
+            messageAttachmentCommitReady: true,
             nativeImageEncodingReady: false,
             nativeFileEncodingReady: false,
             authorizedLocalImageRouteReady: false,

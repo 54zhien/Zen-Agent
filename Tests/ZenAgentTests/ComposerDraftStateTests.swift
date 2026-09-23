@@ -10,6 +10,8 @@ struct ComposerDraftStateTests {
         let quote = quoteReference("quote-1", sourcePartID: "part-1", snapshot: "quoted")
         let attachment = AttachmentReference(
             id: "attachment-1",
+            versionID: "version-1",
+            fingerprint: "sha256:\(String(repeating: "a", count: 64))",
             displayName: "notes.pdf",
             kind: .file
         )
@@ -56,8 +58,16 @@ struct ComposerDraftStateTests {
         let quote = quoteReference("quote-2", sourcePartID: "part-7", snapshot: "important passage")
         let secondQuote = quoteReference("quote-3", sourcePartID: "part-8", snapshot: "another passage")
         let attachments = [
-            AttachmentReference(id: "image-1", displayName: "diagram.png", kind: .image),
-            AttachmentReference(id: "file-2", displayName: "brief.txt", kind: .file),
+            AttachmentReference(
+                id: "image-1", versionID: "version-1",
+                fingerprint: "sha256:\(String(repeating: "a", count: 64))",
+                displayName: "diagram.png", kind: .image
+            ),
+            AttachmentReference(
+                id: "file-2", versionID: "version-2",
+                fingerprint: "sha256:\(String(repeating: "b", count: 64))",
+                displayName: "brief.txt", kind: .file
+            ),
         ]
         let draft = ComposerDraftState(
             text: "Explain these together",

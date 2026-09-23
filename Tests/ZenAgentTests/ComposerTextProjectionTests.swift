@@ -59,8 +59,16 @@ struct ComposerTextProjectionTests {
             createdAt: Fixtures.epoch
         )
         let attachments = [
-            AttachmentReference(id: "image-1", displayName: "diagram.png", kind: .image),
-            AttachmentReference(id: "file-2", displayName: "notes.txt", kind: .file),
+            AttachmentReference(
+                id: "image-1", versionID: "version-1",
+                fingerprint: "sha256:\(String(repeating: "a", count: 64))",
+                displayName: "diagram.png", kind: .image
+            ),
+            AttachmentReference(
+                id: "file-2", versionID: "version-2",
+                fingerprint: "sha256:\(String(repeating: "b", count: 64))",
+                displayName: "notes.txt", kind: .file
+            ),
         ]
         let selection = ComposerSelection(range: 4..<9)
         let controller = makeController(

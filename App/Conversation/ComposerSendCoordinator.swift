@@ -13,6 +13,7 @@ final class ComposerSendCoordinator {
 
     @ObservationIgnored private var pendingTextSnapshot: String?
     @ObservationIgnored private var pendingReferencesSnapshot: [QuoteReference]?
+    @ObservationIgnored private var pendingAttachmentsSnapshot: [AttachmentReference]?
     @ObservationIgnored private var latestProjection: RunProjection?
 
     init(
@@ -39,7 +40,6 @@ final class ComposerSendCoordinator {
         guard submission == .idle,
               !submissionID.isEmpty,
               maxProviderSteps > 0,
-              controller.draft.attachments.isEmpty,
               ComposerActionPolicy.isSendable(
                 draft: controller.draft,
                 capabilities: capabilities,
@@ -53,6 +53,15 @@ final class ComposerSendCoordinator {
             conversationID: conversationID,
             text: controller.draft.text,
             references: controller.draft.references,
+            attachments: controller.draft.attachments.map { attachment in
+                SendAttachment(
+                    assetID: attachment.id,
+                    versionID: attachment.versionID,
+                    fingerprint: attachment.fingerprint,
+                    kind: attachment.kind,
+                    displayName: attachment.displayName
+                )
+            },
             providerInstanceID: controller.configuration.providerInstanceID,
             modelID: controller.configuration.modelID,
             maxProviderSteps: maxProviderSteps,
@@ -60,6 +69,7 @@ final class ComposerSendCoordinator {
         )
         pendingTextSnapshot = command.text
         pendingReferencesSnapshot = command.references
+        pendingAttachmentsSnapshot = controller.draft.attachments
         submission = .awaitingAcceptance(submissionID: submissionID)
         return command
     }
@@ -76,9 +86,18 @@ final class ComposerSendCoordinator {
                 pendingReferencesSnapshot.contains(current)
             }
         }
+        if let pendingAttachmentsSnapshot {
+            var unmatchedSnapshot = pendingAttachmentsSnapshot
+            controller.draft.attachments.removeAll { current in
+                guard let index = unmatchedSnapshot.firstIndex(of: current) else { return false }
+                unmatchedSnapshot.remove(at: index)
+                return true
+            }
+        }
 
         pendingTextSnapshot = nil
         pendingReferencesSnapshot = nil
+        pendingAttachmentsSnapshot = nil
         submission = .acceptedAwaitingProjection(runID: projection.runID)
     }
 
@@ -86,6 +105,7 @@ final class ComposerSendCoordinator {
         guard submission == .awaitingAcceptance(submissionID: submissionID) else { return }
         pendingTextSnapshot = nil
         pendingReferencesSnapshot = nil
+        pendingAttachmentsSnapshot = nil
         submission = .idle
     }
 

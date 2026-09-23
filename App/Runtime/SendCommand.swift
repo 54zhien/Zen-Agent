@@ -1,5 +1,13 @@
 import Foundation
 
+struct SendAttachment: Sendable, Equatable {
+    let assetID: String
+    let versionID: String
+    let fingerprint: String
+    let kind: AttachmentKind
+    let displayName: String
+}
+
 /// The complete input to a Parent Send.
 ///
 /// Conversation settings do not yet persist a model binding, so the concrete
@@ -9,6 +17,7 @@ struct SendCommand: Sendable, Equatable {
     var conversationID: String
     var text: String
     var references: [QuoteReference] = []
+    var attachments: [SendAttachment] = []
 
     var providerInstanceID: ProviderInstanceID
     var modelID: ModelID
@@ -21,6 +30,8 @@ enum ConversationRuntimeError: Error, Equatable, Sendable {
     case invalidMaxProviderSteps(Int)
     case emptySubmissionID
     case submissionIDPayloadConflict(String)
+    case managedFileStoreUnavailable
+    case attachmentNotCommitted(String)
     case providerInstanceBelongsToAnotherProvider(
         instanceID: ProviderInstanceID,
         expected: ProviderID,
