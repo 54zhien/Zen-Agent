@@ -494,8 +494,8 @@ final class ManagedFileStore: @unchecked Sendable {
         var currentURL = namespaceURL.deletingLastPathComponent()
         for component in targetComponents.dropFirst(namespaceComponents.count - 1) {
             currentURL = currentURL.appendingPathComponent(component)
-            let resources = try? currentURL.resourceValues(forKeys: [.isSymbolicLinkKey])
-            if resources?.isSymbolicLink == true {
+            let optionalResources = try? currentURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+            if optionalResources?.isSymbolicLink == true {
                 throw ManagedFileStoreError.invalidManagedPath
             }
             guard fileManager.fileExists(atPath: currentURL.path) else { continue }
