@@ -17,9 +17,19 @@ struct ComposerGeometryTests {
             measuredTextHeight: 2_000,
             scaledLineHeight: 22
         )
+        let hysteresisProgress = ComposerCollapseProgress(
+            value: (ComposerPresentationReducer.compactExitThreshold
+                + ComposerPresentationReducer.compactEnterThreshold) / 2
+        )!
+        let restingDuringHysteresis = layout(
+            state: .resting,
+            progress: hysteresisProgress
+        )
 
         #expect(oneLine.leadingAccessoryReserve >= ComposerGeometry.accessoryHitWidth)
         #expect(oneLine.trailingAccessoryReserve >= ComposerGeometry.accessoryHitWidth)
+        #expect(restingDuringHysteresis.leadingAccessoryReserve >= ComposerGeometry.accessoryHitWidth)
+        #expect(restingDuringHysteresis.trailingAccessoryReserve >= ComposerGeometry.accessoryHitWidth)
         #expect(oneLine.previewLineLimit == 1)
         #expect(abs(oneLine.textFrame.midY - oneLine.outerFrame.midY) < 0.01)
         #expect(oneLine.outerHeight == longDraft.outerHeight)
@@ -56,6 +66,13 @@ struct ComposerGeometryTests {
             state: .compact,
             progress: .fullyCollapsed
         )
+        let compactDuringHysteresis = layout(
+            state: .compact,
+            progress: ComposerCollapseProgress(
+                value: (ComposerPresentationReducer.compactExitThreshold
+                    + ComposerPresentationReducer.compactEnterThreshold) / 2
+            )!
+        )
 
         #expect(compact.outerWidth < resting.outerWidth)
         #expect(compact.outerHeight < resting.outerHeight)
@@ -64,6 +81,9 @@ struct ComposerGeometryTests {
         #expect(compact.leadingAccessoryReserve == 0)
         #expect(compact.trailingAccessoryReserve == 0)
         #expect(compact.controlRailReserve == 0)
+        #expect(compactDuringHysteresis.leadingAccessoryReserve == 0)
+        #expect(compactDuringHysteresis.trailingAccessoryReserve == 0)
+        #expect(compactDuringHysteresis.controlRailReserve == 0)
     }
 
     @Test("compactHitFrameRemainsReliable")
@@ -99,6 +119,8 @@ struct ComposerGeometryTests {
         var previousWidth = CGFloat.greatestFiniteMagnitude
         var previousHeight = CGFloat.greatestFiniteMagnitude
         var previousFontScale = CGFloat.greatestFiniteMagnitude
+        var previousRestingTextFrame: CGRect? = nil
+        var previousCompactTextFrame: CGRect? = nil
         for step in 0...10 {
             let progress = ComposerCollapseProgress(value: Double(step) / 10)!
             let restingTarget = layout(state: .resting, progress: progress)
@@ -109,11 +131,29 @@ struct ComposerGeometryTests {
             #expect(restingTarget.fontScale <= previousFontScale + 0.01)
             #expect(abs(restingTarget.outerWidth - compactTarget.outerWidth) < 0.01)
             #expect(abs(restingTarget.outerHeight - compactTarget.outerHeight) < 0.01)
-            #expect(abs(restingTarget.textFrame.width - compactTarget.textFrame.width) < 0.01)
+
+            if let previousRestingTextFrame {
+                #expect(restingTarget.textFrame.width <= previousRestingTextFrame.width + 0.01)
+                #expect(previousRestingTextFrame.width - restingTarget.textFrame.width < 10)
+                #expect(restingTarget.textFrame.minX >= previousRestingTextFrame.minX - 0.01)
+                #expect(restingTarget.textFrame.minX - previousRestingTextFrame.minX < 5)
+                #expect(abs(restingTarget.textFrame.minY - previousRestingTextFrame.minY) < 1)
+                #expect(abs(restingTarget.textFrame.height - previousRestingTextFrame.height) < 1)
+            }
+            if let previousCompactTextFrame {
+                #expect(compactTarget.textFrame.width <= previousCompactTextFrame.width + 0.01)
+                #expect(previousCompactTextFrame.width - compactTarget.textFrame.width < 10)
+                #expect(compactTarget.textFrame.minX >= previousCompactTextFrame.minX - 0.01)
+                #expect(compactTarget.textFrame.minX - previousCompactTextFrame.minX < 5)
+                #expect(abs(compactTarget.textFrame.minY - previousCompactTextFrame.minY) < 1)
+                #expect(abs(compactTarget.textFrame.height - previousCompactTextFrame.height) < 1)
+            }
 
             previousWidth = restingTarget.outerWidth
             previousHeight = restingTarget.outerHeight
             previousFontScale = restingTarget.fontScale
+            previousRestingTextFrame = restingTarget.textFrame
+            previousCompactTextFrame = compactTarget.textFrame
         }
 
         let beforeEnter = layout(
@@ -125,7 +165,8 @@ struct ComposerGeometryTests {
             progress: ComposerCollapseProgress(value: ComposerPresentationReducer.compactEnterThreshold)!
         )
         #expect(beforeEnter.outerFrame == afterEnter.outerFrame)
-        #expect(beforeEnter.textFrame == afterEnter.textFrame)
+        // Contract §4.3 makes reserves state-driven, so the two states have different text frames.
+        #expect(beforeEnter.textFrame.width < afterEnter.textFrame.width)
     }
 
     private func layout(

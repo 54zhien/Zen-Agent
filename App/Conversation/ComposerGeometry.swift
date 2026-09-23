@@ -64,7 +64,8 @@ enum ComposerGeometry {
             width: width,
             availableHeight: height,
             lineHeight: lineHeight,
-            progress: CGFloat(collapseProgress.value)
+            progress: CGFloat(collapseProgress.value),
+            reservesAccessories: state == .resting
         )
     }
 
@@ -72,7 +73,8 @@ enum ComposerGeometry {
         width: CGFloat,
         availableHeight: CGFloat,
         lineHeight: CGFloat,
-        progress: CGFloat
+        progress: CGFloat,
+        reservesAccessories: Bool
     ) -> ComposerLayout {
         let restingWidth = max(0, width - 2 * edgeInset)
         let compactWidth = restingWidth * compactWidthFraction
@@ -99,8 +101,8 @@ enum ComposerGeometry {
             interpolate(restingVerticalInset, compactInset, progress),
             max(0, (outerHeight - verticalLineHeight) / 2)
         )
-        let leadingReserve = accessoryHitWidth * (1 - progress)
-        let trailingReserve = accessoryHitWidth * (1 - progress)
+        let leadingReserve: CGFloat = reservesAccessories ? accessoryHitWidth : 0
+        let trailingReserve: CGFloat = reservesAccessories ? accessoryHitWidth : 0
         let textWidth = max(
             0,
             outerWidth - 2 * horizontalInset - leadingReserve - trailingReserve
