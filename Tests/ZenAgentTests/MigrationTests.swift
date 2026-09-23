@@ -539,6 +539,8 @@ struct MigrationTests {
         first.run.submissionID = "same-submission"
         first.run.submissionDigest = "digest-one"
         try after.commitUserTurnAndCreateParentRun(first)
+        #expect(try after.run(id: "new-submission-run")?.submissionID == "same-submission")
+        #expect(try after.run(id: "new-submission-run")?.submissionDigest == "digest-one")
 
         var duplicate = first.run
         duplicate.id = "duplicate-submission-run"

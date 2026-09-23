@@ -206,7 +206,7 @@ struct ConversationComposerView: View {
                 .disabled(true)
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .semibold))
+                    .imageScale(.large)
                     .frame(width: frame.width, height: frame.height)
             }
             .buttonStyle(.plain)
@@ -229,7 +229,7 @@ struct ConversationComposerView: View {
                     Task { _ = await coordinator.handlePrimaryAction() }
                 } label: {
                     Image(systemName: "arrow.up")
-                        .font(.system(size: 17, weight: .semibold))
+                        .imageScale(.large)
                         .frame(width: frame.width, height: frame.height)
                 }
                 .buttonStyle(.plain)
@@ -245,7 +245,7 @@ struct ConversationComposerView: View {
                     Task { _ = await coordinator.handlePrimaryAction() }
                 } label: {
                     Image(systemName: "stop.fill")
-                        .font(.system(size: 15, weight: .semibold))
+                        .imageScale(.medium)
                         .frame(width: frame.width, height: frame.height)
                 }
                 .buttonStyle(.plain)

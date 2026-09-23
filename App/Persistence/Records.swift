@@ -313,6 +313,50 @@ struct AgentRunRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Id
 
     var submissionID: String? = nil
     var submissionDigest: String? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case conversationID
+        case kind
+        case parentRunID
+        case state
+        case endReason
+        case recoveryAction
+        case suspendReason
+        case triggerMessageID
+        case responseMessageID
+        case retryOfRunID
+        case requestConfigSeed
+        case executionSnapshot
+        case createdAt
+        case updatedAt
+        case activeSlot
+        case submissionID
+        case submissionDigest
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(conversationID, forKey: .conversationID)
+        try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(parentRunID, forKey: .parentRunID)
+        try container.encode(state, forKey: .state)
+        try container.encodeIfPresent(endReason, forKey: .endReason)
+        try container.encodeIfPresent(recoveryAction, forKey: .recoveryAction)
+        try container.encodeIfPresent(suspendReason, forKey: .suspendReason)
+        try container.encodeIfPresent(triggerMessageID, forKey: .triggerMessageID)
+        try container.encodeIfPresent(responseMessageID, forKey: .responseMessageID)
+        try container.encodeIfPresent(retryOfRunID, forKey: .retryOfRunID)
+        try container.encode(requestConfigSeed, forKey: .requestConfigSeed)
+        try container.encodeIfPresent(executionSnapshot, forKey: .executionSnapshot)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encodeIfPresent(activeSlot, forKey: .activeSlot)
+
+        if let submissionID { try container.encode(submissionID, forKey: .submissionID) }
+        if let submissionDigest { try container.encode(submissionDigest, forKey: .submissionDigest) }
+    }
 }
 
 /// One provider request within a run, and which attempt of it is current.
