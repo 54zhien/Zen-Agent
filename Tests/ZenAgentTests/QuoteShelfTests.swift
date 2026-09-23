@@ -61,6 +61,22 @@ struct QuoteShelfTests {
         #expect(QuoteShelfGeometry.dropFrame(layout: layout, shelfFrame: nil) == layout.visualFrame)
     }
 
+    @Test("quoteDropRegionContainsOnlyDropFramePoints")
+    func quoteDropRegionContainsOnlyDropFramePoints() {
+        let dropFrame = CGRect(x: 30, y: 70, width: 220, height: 64)
+
+        #expect(QuoteDropRegion.contains(CGPoint(x: dropFrame.minX, y: dropFrame.minY), in: dropFrame))
+        #expect(QuoteDropRegion.contains(CGPoint(x: dropFrame.midX, y: dropFrame.midY), in: dropFrame))
+        #expect(!QuoteDropRegion.contains(
+            CGPoint(x: dropFrame.minX.nextDown, y: dropFrame.midY),
+            in: dropFrame
+        ))
+        #expect(!QuoteDropRegion.contains(
+            CGPoint(x: dropFrame.maxX, y: dropFrame.midY),
+            in: dropFrame
+        ))
+    }
+
     private func assertCorners(of frame: CGRect, areCoveredBy container: CGRect) {
         let corners = [
             CGPoint(x: frame.minX, y: frame.minY),

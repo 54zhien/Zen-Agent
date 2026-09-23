@@ -57,60 +57,61 @@ struct ConversationComposerView: View {
                 plusAvailable: plusAvailable,
                 submission: coordinator.submission
             )
+            let shelfVisible = !controller.draft.references.isEmpty
+                && controller.draft.presentationState != .compact
+            let shelfFrame = QuoteShelfGeometry.resolve(
+                layout: layout,
+                container: CGRect(origin: .zero, size: geometry.size),
+                measuredHeight: measuredQuoteShelfHeight,
+                isVisible: shelfVisible
+            )
+            let dropFrame = QuoteShelfGeometry.dropFrame(layout: layout, shelfFrame: shelfFrame)
 
-            ZStack(alignment: .topLeading) {
-                Color.clear
-                    .frame(width: geometry.size.width, height: geometry.size.height)
+            QuoteDropTargetView(
+                existing: controller.draft.references,
+                dropFrame: dropFrame,
+                dynamicTypeSize: dynamicTypeSize,
+                onAccept: { reference in _ = controller.addQuoteReference(reference) },
+                onPhaseChanged: { phase in apply(controller.handle(.quoteDragPhaseChanged(phase))) }
+            ) {
+                ZStack(alignment: .topLeading) {
+                    Color.clear
+                        .frame(width: geometry.size.width, height: geometry.size.height)
 
-                shape.fill(.regularMaterial)
-                    .frame(width: layout.visualFrame.width, height: layout.visualFrame.height)
-                    .contentShape(shape)
-                    .position(x: layout.visualFrame.midX, y: layout.visualFrame.midY)
+                    shape.fill(.regularMaterial)
+                        .frame(width: layout.visualFrame.width, height: layout.visualFrame.height)
+                        .contentShape(shape)
+                        .position(x: layout.visualFrame.midX, y: layout.visualFrame.midY)
 
-                let shelfVisible = !controller.draft.references.isEmpty
-                    && controller.draft.presentationState != .compact
-                let shelfFrame = QuoteShelfGeometry.resolve(
-                    layout: layout,
-                    container: CGRect(origin: .zero, size: geometry.size),
-                    measuredHeight: measuredQuoteShelfHeight,
-                    isVisible: shelfVisible
-                )
-                let dropFrame = QuoteShelfGeometry.dropFrame(layout: layout, shelfFrame: shelfFrame)
-                composerContent(layout: layout, shape: shape)
-                contextControls(layout: layout, shape: shape, state: actionState)
+                    composerContent(layout: layout, shape: shape)
+                    contextControls(layout: layout, shape: shape, state: actionState)
 
-                if let shelfFrame {
-                    QuoteShelfView(
-                        entries: controller.draft.references.map(QuoteShelfEntry.init),
-                        onRemove: controller.removeQuoteReference(id:),
-                        onMeasuredHeight: { measuredQuoteShelfHeight = $0 }
-                    )
-                    .frame(width: shelfFrame.width, height: shelfFrame.height)
-                    .position(x: shelfFrame.midX, y: shelfFrame.midY)
+                    if let shelfFrame {
+                        QuoteShelfView(
+                            entries: controller.draft.references.map(QuoteShelfEntry.init),
+                            onRemove: controller.removeQuoteReference(id:),
+                            onMeasuredHeight: { measuredQuoteShelfHeight = $0 }
+                        )
+                        .frame(width: shelfFrame.width, height: shelfFrame.height)
+                        .position(x: shelfFrame.midX, y: shelfFrame.midY)
+                    }
                 }
-
-                QuoteDropTargetView(
-                    existing: controller.draft.references,
-                    onAccept: { reference in _ = controller.addQuoteReference(reference) },
-                    onPhaseChanged: { phase in apply(controller.handle(.quoteDragPhaseChanged(phase))) }
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .animation(keyboardAnimation, value: geometry.size.height)
+                .simultaneousGesture(
+                    SpatialTapGesture().onEnded { tap in
+                        guard !layout.visualFrame.contains(tap.location) else { return }
+                        apply(controller.handle(.conversationBackgroundTapped))
+                    }
                 )
-                .frame(width: dropFrame.width, height: dropFrame.height)
-                .position(x: dropFrame.midX, y: dropFrame.midY)
+                .task(id: conversationID) {
+                    await observeRunProjection()
+                }
+                .task(id: controller.configuration.providerInstanceID) {
+                    await loadKnownModels()
+                }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-            .animation(keyboardAnimation, value: geometry.size.height)
-            .simultaneousGesture(
-                SpatialTapGesture().onEnded { tap in
-                    guard !layout.visualFrame.contains(tap.location) else { return }
-                    apply(controller.handle(.conversationBackgroundTapped))
-                }
-            )
-            .task(id: conversationID) {
-                await observeRunProjection()
-            }
-            .task(id: controller.configuration.providerInstanceID) {
-                await loadKnownModels()
-            }
         }
     }
 
