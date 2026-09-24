@@ -126,7 +126,7 @@ final class LiveConversationStore {
     }
 
     func refreshPendingToolApprovals(using runtime: ConversationRuntime) async throws {
-        let approvals = try runtime.pendingToolApprovals(in: state.timeline.conversationID)
+        let approvals = try await runtime.pendingToolApprovals(in: state.timeline.conversationID)
         reconcilePendingToolApprovals(approvals)
     }
 
