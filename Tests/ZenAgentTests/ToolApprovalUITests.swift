@@ -630,6 +630,11 @@ struct ToolApprovalUITests {
         ))
         let toolCallID = await eventRecorder.waitForApproval()
         #expect(try environment.store.toolCall(id: toolCallID)?.state == .waitingForApproval)
+        var runState = try environment.store.run(id: runID)?.state
+        for _ in 0..<100 where runState != .waitingForApproval {
+            try await Task.sleep(for: .milliseconds(10))
+            runState = try environment.store.run(id: runID)?.state
+        }
         #expect(try environment.store.run(id: runID)?.state == .waitingForApproval)
         return PendingApproval(
             conversationID: conversationID,
