@@ -62,7 +62,7 @@ final class ConversationPaneController {
 
     @discardableResult
     func consume(_ event: AgentEvent, in ownerConversationID: String) throws -> Set<String> {
-        guard ownerConversationID == conversationID else { return [] }
+        // MUTATION: ownership guard removed (unconditional consume)
 
         if case let .runAccepted(_, eventConversationID) = event {
             guard eventConversationID == ownerConversationID,
