@@ -95,6 +95,20 @@ struct ConversationComposerView: View {
                         .frame(width: shelfFrame.width, height: shelfFrame.height)
                         .position(x: shelfFrame.midX, y: shelfFrame.midY)
                     }
+
+                    if let sendErrorMessage = coordinator.sendErrorMessage {
+                        Text(sendErrorMessage)
+                            .font(Typography.font(
+                                for: .interfaceCaption,
+                                dynamicTypeSize: dynamicTypeSize
+                            ))
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.top, 4)
+                            .allowsHitTesting(false)
+                            .accessibilityIdentifier("composer-send-error")
+                    }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .animation(keyboardAnimation, value: geometry.size.height)
@@ -254,9 +268,7 @@ struct ConversationComposerView: View {
             case .none:
                 EmptyView()
             case .send(let enabled):
-                Button {
-                    Task { _ = await coordinator.handlePrimaryAction() }
-                } label: {
+                Button(action: sendDraft) {
                     Image(systemName: "arrow.up")
                         .imageScale(.large)
                         .frame(width: frame.width, height: frame.height)
@@ -331,6 +343,11 @@ struct ConversationComposerView: View {
             ? .compactTapped
             : .textAreaTapped
         apply(controller.handle(event))
+    }
+
+    private func sendDraft() {
+        let initiatedAt = Date()
+        Task { _ = await coordinator.handlePrimaryAction(at: initiatedAt) }
     }
 
     private func observeRunProjection() async {

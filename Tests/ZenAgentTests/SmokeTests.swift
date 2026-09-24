@@ -16,7 +16,7 @@ struct SmokeTests {
     func appModuleLinks() {
         // Referencing a type from the app module is what makes this a link test
         // rather than a test of the test bundle itself.
-        _ = StageZeroPlaceholderView.self
+        _ = AppShellModel.self
     }
 
     @Test("Test process runs")

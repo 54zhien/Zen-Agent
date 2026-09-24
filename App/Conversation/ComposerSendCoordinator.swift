@@ -1,6 +1,30 @@
 import Foundation
 import Observation
 
+enum ComposerSendFailure: Error, Sendable {
+    case keyMissing
+    case keychainUnavailable
+    case configurationUnavailable
+    case committed(runID: String)
+
+    var message: String {
+        switch self {
+        case .keyMissing:
+            return "Key 缺失"
+        case .keychainUnavailable:
+            return "Keychain 不可用"
+        case .configurationUnavailable:
+            return "当前模型配置不可用"
+        case .committed:
+            return "消息已保存，但运行未能完成。"
+        }
+    }
+}
+
+enum ComposerSendTiming {
+    @TaskLocal static var initiatedAt: Date?
+}
+
 @MainActor
 @Observable
 final class ComposerSendCoordinator {
@@ -10,6 +34,7 @@ final class ComposerSendCoordinator {
     private let maxProviderSteps: Int
 
     private(set) var submission: ComposerSubmissionState = .idle
+    private(set) var sendErrorMessage: String?
 
     @ObservationIgnored private var pendingTextSnapshot: String?
     @ObservationIgnored private var pendingReferencesSnapshot: [QuoteReference]?
@@ -118,7 +143,13 @@ final class ComposerSendCoordinator {
     }
 
     @discardableResult
-    func handlePrimaryAction() async -> ComposerPrimaryAction {
+    func handlePrimaryAction(at initiatedAt: Date = Date()) async -> ComposerPrimaryAction {
+        await ComposerSendTiming.$initiatedAt.withValue(initiatedAt) {
+            await performPrimaryAction()
+        }
+    }
+
+    private func performPrimaryAction() async -> ComposerPrimaryAction {
         if let projection = latestProjection, projection.isActive {
             guard projection.canStop else {
                 return .stop(runID: projection.runID, enabled: false)
@@ -135,19 +166,24 @@ final class ComposerSendCoordinator {
         }
 
         guard submission == .idle else { return .send(enabled: false) }
+        sendErrorMessage = nil
 
         let configuration = controller.configuration
         let models: [ModelDescriptor]
         do {
             models = try await bridge.models(configuration.providerInstanceID)
         } catch {
+            sendErrorMessage = Self.safeMessage(for: error)
             return .none
         }
         guard controller.configuration == configuration else { return .none }
         guard let selected = models.first(where: {
             $0.providerInstanceID == configuration.providerInstanceID
                 && $0.id == configuration.modelID
-        }) else { return .none }
+        }) else {
+            sendErrorMessage = ComposerSendFailure.configurationUnavailable.message
+            return .none
+        }
 
         let command = beginSend(
             capabilities: selected.capabilities,
@@ -162,7 +198,17 @@ final class ComposerSendCoordinator {
         do {
             runID = try await bridge.start(command)
         } catch {
+            if let failure = error as? ComposerSendFailure,
+               case .committed(let committedRunID) = failure {
+                let committedProjection = (try? await bridge.projection(conversationID))
+                    ?? RunProjection(runID: committedRunID, state: .failed)
+                acceptSend(submissionID: command.submissionID, projection: committedProjection)
+                updateRunProjection(committedProjection)
+                sendErrorMessage = failure.message
+                return primaryAction(sendable: false)
+            }
             rejectSend(submissionID: command.submissionID)
+            sendErrorMessage = Self.safeMessage(for: error)
             return primaryAction(sendable: ComposerActionPolicy.isSendable(
                 draft: controller.draft,
                 capabilities: selected.capabilities,
@@ -177,6 +223,10 @@ final class ComposerSendCoordinator {
         acceptSend(submissionID: command.submissionID, projection: acceptedProjection)
         updateRunProjection(acceptedProjection)
         return primaryAction(sendable: false)
+    }
+
+    private static func safeMessage(for error: Error) -> String {
+        (error as? ComposerSendFailure)?.message ?? "发送失败，请重试。"
     }
 
     private func primaryAction(sendable: Bool) -> ComposerPrimaryAction {
