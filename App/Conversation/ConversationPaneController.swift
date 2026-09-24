@@ -93,7 +93,7 @@ final class ConversationPaneController {
         if case .programmaticScrolled(let geometry) = event,
            let request = scrollRequest {
             guard geometry.isUsableForPane else { return currentReadingOutput() }
-            appliedGeometry = (request.sequence, geometry)
+            appliedGeometry = (request.sequence &+ 1, geometry)
             return currentReadingOutput()
         }
 
