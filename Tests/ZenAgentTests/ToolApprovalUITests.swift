@@ -74,7 +74,7 @@ struct ToolApprovalUITests {
         // Read each execution intent back from SQLite before asking Runtime to build a
         // display value. The comparison never uses the in-memory value returned by prepare.
         let persistedIntents = try rows.map { row -> ToolExecutionIntent in
-            let stored = try #require(environment.store.toolCall(id: row.callID))
+            let stored = try #require(try environment.store.toolCall(id: row.callID))
             return try decodeIntent(from: stored)
         }
         #expect(persistedIntents[0].normalizedArgumentsJSON != persistedIntents[1].normalizedArgumentsJSON)
@@ -120,13 +120,14 @@ struct ToolApprovalUITests {
             callID: "single-call-decision-call"
         )
         let runtime = makeProjectionRuntime(for: environment)
-        let approvals = try await runtime.pendingToolApprovals(in: call.conversationID)
+        let run = try #require(try environment.store.run(id: call.agentRunID))
+        let approvals = try await runtime.pendingToolApprovals(in: run.conversationID)
         let card = try #require(approvals.first)
         let sources = try #require(sourceFiles())
         let cardSource = try #require(sources["App/Conversation/ToolApprovalCardView.swift"])
 
-        #expect(ToolApprovalDecision.allCases == [.approveOnce, .rejectOnce])
-        #expect(card.availableDecisions == [.approveOnce, .rejectOnce])
+        #expect(ToolApprovalDecision.allCases == [ToolApprovalDecision.approveOnce, ToolApprovalDecision.rejectOnce])
+        #expect(card.availableDecisions == [ToolApprovalDecision.approveOnce, ToolApprovalDecision.rejectOnce])
         #expect(ToolApprovalDecision.approveOnce.title == "批准本次")
         #expect(ToolApprovalDecision.rejectOnce.title == "拒绝本次")
         #expect(cardSource.contains("ForEach(ToolApprovalDecision.allCases"))
@@ -300,27 +301,29 @@ struct ToolApprovalUITests {
             callID: "settled-approval-call"
         )
         let runtime = makeProjectionRuntime(for: environment)
-        let cancelledApprovals = try await runtime.pendingToolApprovals(in: cancelled.conversationID)
-        let settledApprovals = try await runtime.pendingToolApprovals(in: settled.conversationID)
+        let cancelledRun = try #require(try environment.store.run(id: cancelled.agentRunID))
+        let settledRun = try #require(try environment.store.run(id: settled.agentRunID))
+        let cancelledApprovals = try await runtime.pendingToolApprovals(in: cancelledRun.conversationID)
+        let settledApprovals = try await runtime.pendingToolApprovals(in: settledRun.conversationID)
         let cancelledCard = try #require(cancelledApprovals.first)
         let settledCard = try #require(settledApprovals.first)
-        let cancelledRequest: ToolApprovalRequest = cancelledCard.request(for: .approveOnce)
-        let settledRequest: ToolApprovalRequest = settledCard.request(for: .rejectOnce)
-        let cancelledStore = makeLiveStore(conversationID: cancelled.conversationID)
-        let settledStore = makeLiveStore(conversationID: settled.conversationID)
+        let cancelledRequest: ToolApprovalRequest = cancelledCard.request(for: ToolApprovalDecision.approveOnce)
+        let settledRequest: ToolApprovalRequest = settledCard.request(for: ToolApprovalDecision.rejectOnce)
+        let cancelledStore = makeLiveStore(conversationID: cancelledRun.conversationID)
+        let settledStore = makeLiveStore(conversationID: settledRun.conversationID)
         cancelledStore.reconcilePendingToolApprovals([cancelledCard])
         settledStore.reconcilePendingToolApprovals([settledCard])
 
-        try environment.store.settleToolCallForCancellation(id: cancelled.toolCallID)
+        try environment.store.settleToolCallForCancellation(id: cancelled.id)
         try environment.store.database.write { db in
             try db.execute(
                 sql: "UPDATE toolCall SET state = ? WHERE id = ?",
-                arguments: [ToolCallState.succeeded.rawValue, settled.toolCallID]
+                arguments: [ToolCallState.succeeded.rawValue, settled.id]
             )
         }
 
-        let cancelledRemaining = try await runtime.pendingToolApprovals(in: cancelled.conversationID)
-        let settledRemaining = try await runtime.pendingToolApprovals(in: settled.conversationID)
+        let cancelledRemaining = try await runtime.pendingToolApprovals(in: cancelledRun.conversationID)
+        let settledRemaining = try await runtime.pendingToolApprovals(in: settledRun.conversationID)
         cancelledStore.reconcilePendingToolApprovals(cancelledRemaining)
         settledStore.reconcilePendingToolApprovals(settledRemaining)
         #expect(cancelledRemaining.isEmpty)
@@ -342,8 +345,8 @@ struct ToolApprovalUITests {
         }
         #expect(cancelledFailure != nil)
         #expect(settledFailure != nil)
-        #expect(try environment.store.toolCall(id: cancelled.toolCallID)?.state == .notExecuted)
-        #expect(try environment.store.toolCall(id: settled.toolCallID)?.state == .succeeded)
+        #expect(try environment.store.toolCall(id: cancelled.id)?.state == .notExecuted)
+        #expect(try environment.store.toolCall(id: settled.id)?.state == .succeeded)
     }
 
     @Test("staleApprovalCannotResolveAnotherConversationCall")
@@ -401,21 +404,22 @@ struct ToolApprovalUITests {
             callState: .waitingForSystemPermissionConsent
         )
         let runtime = makeProjectionRuntime(for: environment)
-        let turn = ConversationTurn(runID: call.runID, items: [.userText("waiting for system consent")])
-        let liveStore = makeLiveStore(conversationID: call.conversationID, turns: [turn])
+        let run = try #require(try environment.store.run(id: call.agentRunID))
+        let turn = ConversationTurn(runID: run.id, items: [.userText("waiting for system consent")])
+        let liveStore = makeLiveStore(conversationID: run.conversationID, turns: [turn])
 
-        let rebuiltRuns = liveStore.consume(.approvalRequired(
-            runID: call.runID,
-            toolCallID: call.toolCallID
+        let rebuiltRuns = liveStore.consume(AgentEvent.approvalRequired(
+            runID: run.id,
+            toolCallID: call.id
         ))
-        let approvals = try await runtime.pendingToolApprovals(in: call.conversationID)
+        let approvals = try await runtime.pendingToolApprovals(in: run.conversationID)
         liveStore.reconcilePendingToolApprovals(approvals)
 
         #expect(rebuiltRuns.isEmpty)
         #expect(approvals.isEmpty)
         #expect(liveStore.state.pendingToolApprovals.isEmpty)
         #expect(liveStore.state.timeline.turns == [turn])
-        #expect(try environment.store.toolCall(id: call.toolCallID)?.state == .waitingForSystemPermissionConsent)
+        #expect(try environment.store.toolCall(id: call.id)?.state == .waitingForSystemPermissionConsent)
     }
 
     @Test("childCallDoesNotAcquireParentApprovalSubject")
