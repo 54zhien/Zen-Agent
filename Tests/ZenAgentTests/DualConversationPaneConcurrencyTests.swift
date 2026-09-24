@@ -615,7 +615,9 @@ private actor DualPaneEventLog {
     func errorsSnapshot() -> [String] { errors }
 }
 
-private actor DualPaneDeliveryCursor {
+/// Single-consumer cursor: only one expectation may be awaited at a time.
+private final class DualPaneDeliveryCursor: @unchecked Sendable {
+    private let lock = NSLock()
     private var iterator: AsyncStream<DualPaneDelivery>.Iterator
 
     init(stream: AsyncStream<DualPaneDelivery>) {
@@ -623,13 +625,26 @@ private actor DualPaneDeliveryCursor {
     }
 
     func wait(for expectation: DualPaneDeliveryExpectation) async -> DualPaneDelivery? {
-        var nextIterator = iterator
-        while let delivery = await nextIterator.next() {
-            iterator = nextIterator
+        while true {
+            var nextIterator = takeIterator()
+            let delivery = await nextIterator.next()
+            storeIterator(nextIterator)
+
+            guard let delivery else { return nil }
             if expectation.matches(delivery.event) { return delivery }
         }
-        iterator = nextIterator
-        return nil
+    }
+
+    private func takeIterator() -> AsyncStream<DualPaneDelivery>.Iterator {
+        lock.lock()
+        defer { lock.unlock() }
+        return iterator
+    }
+
+    private func storeIterator(_ iterator: AsyncStream<DualPaneDelivery>.Iterator) {
+        lock.lock()
+        self.iterator = iterator
+        lock.unlock()
     }
 }
 
