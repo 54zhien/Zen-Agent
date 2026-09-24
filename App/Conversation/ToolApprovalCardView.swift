@@ -9,7 +9,7 @@ struct ToolApprovalCardView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(approval.toolDisplayName)
                         .font(Typography.font(for: .interfaceTitle, dynamicTypeSize: dynamicTypeSize))
@@ -50,7 +50,7 @@ struct ToolApprovalCardView: View {
                     }
                 }
             }
-            .padding(24)
+            .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityElement(children: .contain)

@@ -1,10 +1,16 @@
 import SwiftUI
 
-/// The conversation reading surface: one Turn after another, read top to bottom.
+private struct ConversationTimelineTurnFramesKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
+/// The conversation reading surface inside a reusable Pane.
 ///
-/// Not mounted anywhere. The view's entry point needs the "first launch / zero
-/// conversations" decision, which the Blueprint has not settled, so this item builds the
-/// surface and deliberately leaves that choice to whoever wires it up.
+/// The app-root choice for the first-launch / zero-conversation state remains with its host.
 ///
 /// The turn boundary is carried by vertical rhythm rather than by a rule or a divider
 /// (Blueprint 3.1): the space between Turns is much larger than the space inside one, and
@@ -17,32 +23,59 @@ struct ConversationTimelineView: View {
     var onQuoteReference: (QuoteReference) -> Void = { _ in }
     var onQuoteDragPhaseChanged: (ComposerQuoteDragPhase) -> Void = { _ in }
     var onSelectionHandleDragChanged: (Bool) -> Void = { _ in }
+    var scrollBridge: ConversationPaneScrollBridge? = nil
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var betweenTurns = Metrics.betweenTurns
     @ScaledMetric(relativeTo: .body) private var contentInset = Metrics.contentInset
     @State private var selectedApproval: ToolApprovalProjection?
     @State private var resolvingApprovalID: String?
+    @State private var scrollPosition = ScrollPosition(idType: String.self)
+    @State private var latestScrollGeometry: ScrollGeometry?
+    @State private var turnFrames: [String: CGRect] = [:]
+    @State private var latestBottomReferenceTurn: (runID: String, turnTop: Double)?
+    @State private var activeScrollPhase: ScrollPhase = .idle
+    @State private var pendingAppliedScroll: ConversationPaneScrollRequest?
 
     var body: some View {
         VStack(spacing: 0) {
-            if !conversationApprovals.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
+                if !conversationApprovals.isEmpty {
                     Text("需要处理的工具调用")
                         .font(Typography.font(for: .interfaceTitle, dynamicTypeSize: dynamicTypeSize))
                     ForEach(conversationApprovals) { approval in
                         Button {
                             selectedApproval = approval
                         } label: {
-                            Label(approval.toolDisplayName, systemImage: "hand.raised.fill")
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            HStack(spacing: 8) {
+                                Image(systemName: "hand.raised.fill")
+                                    .imageScale(.small)
+                                Text(approval.toolDisplayName)
+                                    .font(Typography.font(
+                                        for: .interfaceBody,
+                                        dynamicTypeSize: dynamicTypeSize
+                                    ))
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.bordered)
                     }
                 }
-                .padding(.horizontal, contentInset)
-                .padding(.top, 12)
+
+                if let selectedApproval {
+                    ToolApprovalCardView(approval: selectedApproval,
+                                         isResolving: resolvingApprovalID == selectedApproval.toolCallID) { request in
+                        resolveToolApproval(request)
+                    }
+                    .frame(maxHeight: 280)
+                    .padding(.vertical, 8)
+                }
             }
+            .padding(
+                .horizontal,
+                conversationApprovals.isEmpty && selectedApproval == nil ? 0 : contentInset
+            )
+            .padding(.top, conversationApprovals.isEmpty && selectedApproval == nil ? 0 : 12)
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: betweenTurns) {
@@ -53,24 +86,80 @@ struct ConversationTimelineView: View {
                             onQuoteDragPhaseChanged: onQuoteDragPhaseChanged,
                             onSelectionHandleDragChanged: onSelectionHandleDragChanged
                         )
+                        .background {
+                            GeometryReader { geometry in
+                                Color.clear.preference(
+                                    key: ConversationTimelineTurnFramesKey.self,
+                                    value: [
+                                        turn.runID: geometry.frame(in: .named(scrollCoordinateSpace))
+                                    ]
+                                )
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, contentInset)
                 .padding(.vertical, betweenTurns)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-        }
-        .sheet(item: $selectedApproval) { approval in
-            ToolApprovalCardView(approval: approval,
-                                 isResolving: resolvingApprovalID == approval.toolCallID) { request in
-                resolveToolApproval(request)
+            .coordinateSpace(name: scrollCoordinateSpace)
+            .scrollPosition($scrollPosition, anchor: .top)
+            .onPreferenceChange(ConversationTimelineTurnFramesKey.self) { frames in
+                turnFrames = frames
+                if let latestScrollGeometry {
+                    latestBottomReferenceTurn = bottomVisibleTurn(
+                        in: frames,
+                        geometry: latestScrollGeometry
+                    )
+                    if scrollBridge?.isHeightChangeActive == true {
+                        scrollBridge?.continueHeightChange(
+                            geometry: latestScrollGeometry,
+                            turnTops: turnTops(in: frames, geometry: latestScrollGeometry)
+                        )
+                    }
+                    applyPendingScrollIfReady()
+                }
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
-        .onAppear {
-            if selectedApproval == nil {
-                selectedApproval = conversationApprovals.first
+            .onScrollGeometryChange(for: ScrollGeometry.self) { geometry in
+                paneGeometry(from: geometry)
+            } action: { _, geometry in
+                handleScrollGeometryChange(geometry)
+            }
+            .onScrollPhaseChange { _, phase, context in
+                activeScrollPhase = phase
+                switch phase {
+                case .tracking, .interacting:
+                    pendingAppliedScroll = nil
+                    scrollBridge?.userScrolled(
+                        geometry: paneGeometry(from: context.geometry),
+                        topVisibleTurn: topVisibleTurn(
+                            in: turnFrames,
+                            geometry: paneGeometry(from: context.geometry)
+                        )
+                    )
+                case .idle:
+                    scrollBridge?.endHeightChange()
+                    applyPendingScrollIfReady()
+                case .decelerating, .animating:
+                    break
+                @unknown default:
+                    break
+                }
+            }
+            .onChange(of: scrollBridge?.pane.scrollRequest) { _, request in
+                guard let request else {
+                    pendingAppliedScroll = nil
+                    return
+                }
+                applyScrollRequest(request)
+            }
+            .onAppear {
+                if selectedApproval == nil {
+                    selectedApproval = conversationApprovals.first
+                }
+                if let request = scrollBridge?.pane.scrollRequest {
+                    applyScrollRequest(request)
+                }
             }
         }
         .onChange(of: conversationApprovals) { _, refreshedApprovals in
@@ -85,6 +174,223 @@ struct ConversationTimelineView: View {
                 selectedApproval = refreshedApprovals.first
             }
         }
+    }
+
+    private var scrollCoordinateSpace: String {
+        "conversation-timeline-scroll-\(projection.conversationID)"
+    }
+
+    private func paneGeometry(from geometry: SwiftUI.ScrollGeometry) -> ScrollGeometry {
+        ScrollGeometry(
+            viewportHeight: Double(geometry.containerSize.height),
+            contentHeight: Double(
+                geometry.contentSize.height
+                    + geometry.contentInsets.top
+                    + geometry.contentInsets.bottom
+            ),
+            offset: Double(geometry.contentOffset.y + geometry.contentInsets.top)
+        )
+    }
+
+    private func handleScrollGeometryChange(_ geometry: ScrollGeometry) {
+        let previousGeometry = latestScrollGeometry
+        let previousBottomReferenceTurn = latestBottomReferenceTurn
+        latestScrollGeometry = geometry
+
+        guard let scrollBridge else { return }
+        if isUserDrivenScroll {
+            pendingAppliedScroll = nil
+            scrollBridge.userScrolled(
+                geometry: geometry,
+                topVisibleTurn: topVisibleTurn(in: turnFrames, geometry: geometry)
+            )
+            latestBottomReferenceTurn = bottomVisibleTurn(in: turnFrames, geometry: geometry)
+            return
+        }
+
+        if let previousGeometry,
+           previousGeometry.viewportHeight != geometry.viewportHeight {
+            if !scrollBridge.isHeightChangeActive {
+                scrollBridge.beginHeightChange(
+                    geometry: previousGeometry,
+                    bottomReferenceTurn: previousBottomReferenceTurn
+                )
+            }
+            scrollBridge.continueHeightChange(
+                geometry: geometry,
+                turnTops: turnTops(in: turnFrames, geometry: geometry)
+            )
+        } else if let previousGeometry,
+                  previousGeometry.contentHeight != geometry.contentHeight {
+            _ = scrollBridge.pane.updateReading(.geometryChanged(
+                geometry: geometry,
+                anchor: anchor(for: topVisibleTurn(in: turnFrames, geometry: geometry), geometry: geometry)
+            ))
+        }
+
+        latestBottomReferenceTurn = bottomVisibleTurn(in: turnFrames, geometry: geometry)
+        acknowledgeAppliedScrollIfReady(geometry)
+        applyPendingScrollIfReady()
+    }
+
+    private var isUserDrivenScroll: Bool {
+        activeScrollPhase == .tracking
+            || activeScrollPhase == .interacting
+            || activeScrollPhase == .decelerating
+    }
+
+    private func topVisibleTurn(
+        in frames: [String: CGRect],
+        geometry: ScrollGeometry
+    ) -> (runID: String, turnTop: Double)? {
+        guard geometry.isUsableForPane else { return nil }
+        let viewportHeight = CGFloat(geometry.viewportHeight)
+        let visibleFrames = frames.filter {
+            $0.value.minY < viewportHeight && $0.value.maxY > 0
+        }
+        guard let first = visibleFrames.min(by: { $0.value.minY < $1.value.minY }) else {
+            return nil
+        }
+        let turnTop = Double(first.value.minY) + geometry.offset
+        guard turnTop.isFinite else { return nil }
+        return (runID: first.key, turnTop: turnTop)
+    }
+
+    private func bottomVisibleTurn(
+        in frames: [String: CGRect],
+        geometry: ScrollGeometry
+    ) -> (runID: String, turnTop: Double)? {
+        guard geometry.isUsableForPane else { return nil }
+        let viewportHeight = CGFloat(geometry.viewportHeight)
+        let visibleFrames = frames.filter {
+            $0.value.minY < viewportHeight && $0.value.maxY > 0
+        }
+        guard let last = visibleFrames.max(by: { $0.value.minY < $1.value.minY }) else {
+            return nil
+        }
+        let turnTop = Double(last.value.minY) + geometry.offset
+        guard turnTop.isFinite else { return nil }
+        return (runID: last.key, turnTop: turnTop)
+    }
+
+    private func turnTops(
+        in frames: [String: CGRect],
+        geometry: ScrollGeometry
+    ) -> [String: Double] {
+        frames.reduce(into: [:]) { result, entry in
+            let turnTop = Double(entry.value.minY) + geometry.offset
+            if turnTop.isFinite {
+                result[entry.key] = turnTop
+            }
+        }
+    }
+
+    private func anchor(
+        for turn: (runID: String, turnTop: Double)?,
+        geometry: ScrollGeometry
+    ) -> TurnAnchor? {
+        guard let turn,
+              geometry.isUsableForPane,
+              let anchor = AnchorResolver.capture(
+                runID: turn.runID,
+                turnTop: turn.turnTop,
+                geometry: geometry
+              ),
+              anchor.relativeViewportOffset.isFinite
+        else { return nil }
+        return anchor
+    }
+
+    private func applyScrollRequest(_ request: ConversationPaneScrollRequest) {
+        guard let scrollBridge,
+              scrollBridge.pane.scrollRequest?.sequence == request.sequence,
+              !isUserDrivenScroll,
+              pendingAppliedScroll?.sequence != request.sequence,
+              let geometry = latestScrollGeometry
+        else { return }
+
+        var restoreTarget: Double?
+        if case let .restoreAnchor(turnAnchor) = request.action {
+            guard let turnTop = turnTops(in: turnFrames, geometry: geometry)[turnAnchor.runID],
+                  let target = AnchorResolver.restoreTarget(
+                    anchor: turnAnchor,
+                    turnTop: turnTop,
+                    geometry: geometry
+                  ),
+                  target.isFinite
+            else { return }
+            restoreTarget = clampedOffset(target, geometry: geometry)
+        }
+
+        pendingAppliedScroll = request
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            switch request.action {
+            case .none:
+                pendingAppliedScroll = nil
+            case .scrollToBottom:
+                scrollPosition.scrollTo(edge: .bottom)
+            case .restoreAnchor(_):
+                guard let restoreTarget else {
+                    pendingAppliedScroll = nil
+                    return
+                }
+                scrollPosition.scrollTo(y: CGFloat(restoreTarget))
+            case .maintainBottomEdge(let targetOffset):
+                guard targetOffset.isFinite else {
+                    pendingAppliedScroll = nil
+                    return
+                }
+                scrollPosition.scrollTo(y: CGFloat(targetOffset))
+            }
+        }
+        acknowledgeAppliedScrollIfReady(geometry)
+    }
+
+    private func applyPendingScrollIfReady() {
+        guard let request = scrollBridge?.pane.scrollRequest else { return }
+        applyScrollRequest(request)
+    }
+
+    private func acknowledgeAppliedScrollIfReady(_ geometry: ScrollGeometry) {
+        guard let request = pendingAppliedScroll,
+              let scrollBridge,
+              scrollBridge.pane.scrollRequest?.sequence == request.sequence,
+              reachedTarget(for: request.action, geometry: geometry)
+        else { return }
+
+        pendingAppliedScroll = nil
+        _ = scrollBridge.pane.updateReading(.programmaticScrolled(geometry: geometry))
+        scrollBridge.pane.markScrollApplied(sequence: request.sequence)
+    }
+
+    private func reachedTarget(for action: ScrollAction, geometry: ScrollGeometry) -> Bool {
+        guard geometry.isUsableForPane else { return false }
+        let targetOffset: Double
+        switch action {
+        case .none:
+            return false
+        case .scrollToBottom:
+            targetOffset = max(0, geometry.contentHeight - geometry.viewportHeight)
+        case .restoreAnchor(let turnAnchor):
+            guard let turnTop = turnTops(in: turnFrames, geometry: geometry)[turnAnchor.runID],
+                  let target = AnchorResolver.restoreTarget(
+                    anchor: turnAnchor,
+                    turnTop: turnTop,
+                    geometry: geometry
+                  )
+            else { return false }
+            targetOffset = clampedOffset(target, geometry: geometry)
+        case .maintainBottomEdge(let target):
+            targetOffset = target
+        }
+        return targetOffset.isFinite && abs(geometry.offset - targetOffset) <= 0.5
+    }
+
+    private func clampedOffset(_ target: Double, geometry: ScrollGeometry) -> Double {
+        let maximumOffset = max(0, geometry.contentHeight - geometry.viewportHeight)
+        return max(0, min(maximumOffset, target))
     }
 
     private var conversationApprovals: [ToolApprovalProjection] {
