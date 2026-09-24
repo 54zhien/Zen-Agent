@@ -177,7 +177,7 @@ final class ProviderSetupModel {
         } catch {
             state = Self.isIdentifierConflict(error) ? .identifierConflict : .incomplete
             errorMessage = Self.safeMessage(for: error)
-            canAbandonAndCreateNew = isIdentifierConflict(error)
+            canAbandonAndCreateNew = Self.isIdentifierConflict(error)
                 || (error as? ProviderSetupFailure) == .instanceChanged
             return false
         }
