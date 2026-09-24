@@ -87,7 +87,7 @@ struct ConversationPaneScrollBridgeTests {
             bottomReferenceTurn: (runID: "resize-run", turnTop: 250)
         )
 
-        let firstResize = ScrollGeometry(viewportHeight: 300, contentHeight: 1_000, offset: 300)
+        let firstResize = ScrollGeometry(viewportHeight: 300, contentHeight: 650, offset: 300)
         bridge.continueHeightChange(
             geometry: firstResize,
             turnTops: ["resize-run": 270]
@@ -100,18 +100,18 @@ struct ConversationPaneScrollBridgeTests {
             Issue.record("the first valid resize must maintain the captured bottom edge")
             return
         }
-        #expect(firstTarget == 420)
+        #expect(firstTarget == 350)
         #expect(firstTarget.isFinite)
-        #expect(firstTarget >= 0 && firstTarget <= 700)
+        #expect(firstTarget >= 0 && firstTarget <= 350)
 
         let afterFirstResize = applying(firstRequest.action, to: firstResize, turnTops: [:])
-        #expect(afterFirstResize.offset == 420)
+        #expect(afterFirstResize.offset == 350)
         _ = pane.updateReading(.programmaticScrolled(geometry: afterFirstResize))
         pane.markScrollApplied(sequence: firstRequest.sequence)
 
-        // This frame's measured Turn top would imply b = 440 from the current geometry.
-        // The bridge must keep the original captured b = 450, yielding 480 here.
-        let secondResize = ScrollGeometry(viewportHeight: 250, contentHeight: 1_200, offset: 420)
+        let secondResize = ScrollGeometry(viewportHeight: 250, contentHeight: 1_200, offset: 350)
+        // With offset 350, viewport 250, and Turn top 280, recapturing gives b = 320.
+        // Keeping the original b = 450 instead gives target 280 + 450 - 250 = 480.
         bridge.continueHeightChange(
             geometry: secondResize,
             turnTops: ["resize-run": 280]
@@ -164,26 +164,44 @@ struct ConversationPaneScrollBridgeTests {
         _ = pane.updateReading(.contentChanged(changedRunIDs: ["arrived-while-following"]))
         let queuedRequest = try #require(pane.scrollRequest)
         #expect(queuedRequest.action == .scrollToBottom)
-        var simulatedOffset = queuedGeometry.offset
-        #expect(simulatedOffset == 250)
+        let viewport = ScrollViewportFixture(geometry: queuedGeometry)
+        #expect(viewport.geometry.offset == 250)
         let obsoleteTarget = applying(queuedRequest.action, to: queuedGeometry, turnTops: [:])
         #expect(obsoleteTarget.offset == 700)
 
         let draggedGeometry = ScrollGeometry(viewportHeight: 300, contentHeight: 1_000, offset: 500)
         let dragAnchor = TurnAnchor(runID: "drag-run", relativeViewportOffset: -0.1)
-        bridge.userScrolled(
-            geometry: draggedGeometry,
+        viewport.measureUserDrag(
+            draggedGeometry,
+            through: bridge,
             topVisibleTurn: (runID: "drag-run", turnTop: 470)
         )
 
-        simulatedOffset = draggedGeometry.offset
         #expect(pane.scrollRequest == nil)
         #expect(pane.readingPosition.mode == .reading(anchor: dragAnchor, pendingTurns: []))
-        pane.markScrollApplied(sequence: queuedRequest.sequence)
+        #expect(!viewport.apply(queuedRequest, to: pane, turnTops: [:]))
+        viewport.deliverReceipt(for: queuedRequest, to: pane)
 
-        #expect(simulatedOffset == 500)
+        #expect(viewport.geometry.offset == 500)
         #expect(pane.scrollRequest == nil)
         #expect(pane.readingPosition.mode == .reading(anchor: dragAnchor, pendingTurns: []))
+
+        _ = pane.updateReading(.contentChanged(changedRunIDs: ["arrived-while-reading"]))
+        let replacementRequest = try #require(pane.scrollRequest)
+        #expect(replacementRequest.sequence > queuedRequest.sequence)
+        #expect(replacementRequest.action == .restoreAnchor(dragAnchor))
+
+        viewport.deliverReceipt(for: queuedRequest, to: pane)
+        #expect(pane.scrollRequest?.sequence == replacementRequest.sequence)
+        #expect(viewport.geometry.offset == 500)
+        #expect(pane.readingPosition.mode == .reading(
+            anchor: dragAnchor,
+            pendingTurns: ["arrived-while-reading"]
+        ))
+
+        #expect(viewport.apply(replacementRequest, to: pane, turnTops: ["drag-run": 470]))
+        #expect(viewport.geometry.offset == 500)
+        #expect(pane.scrollRequest == nil)
     }
 
     private func makePane(
@@ -208,30 +226,69 @@ struct ConversationPaneScrollBridgeTests {
         )
     }
 
-    private func applying(
-        _ action: ScrollAction,
-        to geometry: ScrollGeometry,
-        turnTops: [String: Double]
-    ) -> ScrollGeometry {
-        let offset: Double
-        switch action {
-        case .none:
-            offset = geometry.offset
-        case .scrollToBottom:
-            offset = max(0, geometry.contentHeight - geometry.viewportHeight)
-        case .restoreAnchor(let anchor):
-            if let turnTop = turnTops[anchor.runID] {
-                offset = turnTop - anchor.relativeViewportOffset * geometry.viewportHeight
-            } else {
-                offset = geometry.offset
-            }
-        case .maintainBottomEdge(let targetOffset):
-            offset = targetOffset
-        }
-        return ScrollGeometry(
-            viewportHeight: geometry.viewportHeight,
-            contentHeight: geometry.contentHeight,
-            offset: offset
-        )
+}
+
+@MainActor
+private final class ScrollViewportFixture {
+    private(set) var geometry: ScrollGeometry
+
+    init(geometry: ScrollGeometry) {
+        self.geometry = geometry
     }
+
+    func measureUserDrag(
+        _ measuredGeometry: ScrollGeometry,
+        through bridge: ConversationPaneScrollBridge,
+        topVisibleTurn: (runID: String, turnTop: Double)?
+    ) {
+        geometry = measuredGeometry
+        bridge.userScrolled(geometry: measuredGeometry, topVisibleTurn: topVisibleTurn)
+    }
+
+    @discardableResult
+    func apply(
+        _ request: ConversationPaneScrollRequest,
+        to pane: ConversationPaneController,
+        turnTops: [String: Double]
+    ) -> Bool {
+        guard pane.scrollRequest?.sequence == request.sequence else { return false }
+
+        let appliedGeometry = applying(request.action, to: geometry, turnTops: turnTops)
+        geometry = appliedGeometry
+        _ = pane.updateReading(.programmaticScrolled(geometry: appliedGeometry))
+        pane.markScrollApplied(sequence: request.sequence)
+        return true
+    }
+
+    func deliverReceipt(for request: ConversationPaneScrollRequest, to pane: ConversationPaneController) {
+        _ = pane.updateReading(.programmaticScrolled(geometry: geometry))
+        pane.markScrollApplied(sequence: request.sequence)
+    }
+}
+
+private func applying(
+    _ action: ScrollAction,
+    to geometry: ScrollGeometry,
+    turnTops: [String: Double]
+) -> ScrollGeometry {
+    let offset: Double
+    switch action {
+    case .none:
+        offset = geometry.offset
+    case .scrollToBottom:
+        offset = max(0, geometry.contentHeight - geometry.viewportHeight)
+    case .restoreAnchor(let anchor):
+        if let turnTop = turnTops[anchor.runID] {
+            offset = turnTop - anchor.relativeViewportOffset * geometry.viewportHeight
+        } else {
+            offset = geometry.offset
+        }
+    case .maintainBottomEdge(let targetOffset):
+        offset = targetOffset
+    }
+    return ScrollGeometry(
+        viewportHeight: geometry.viewportHeight,
+        contentHeight: geometry.contentHeight,
+        offset: offset
+    )
 }
