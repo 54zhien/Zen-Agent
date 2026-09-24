@@ -125,6 +125,11 @@ final class LiveConversationStore {
         needsPendingToolApprovalReconciliation = false
     }
 
+    func refreshPendingToolApprovals(using runtime: ConversationRuntime) async throws {
+        let approvals = try runtime.pendingToolApprovals(in: state.timeline.conversationID)
+        reconcilePendingToolApprovals(approvals)
+    }
+
     private func consumeStarted(
         runID: String,
         messageID: String,

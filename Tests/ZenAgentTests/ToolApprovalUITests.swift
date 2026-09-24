@@ -487,6 +487,39 @@ struct ToolApprovalUITests {
         #expect(try environment.store.toolCall(id: childCallID)?.state == .waitingForApproval)
     }
 
+    @Test("approvalSignalRefreshesStoredCardsOnEventAndColdLoad")
+    func approvalSignalRefreshesStoredCardsOnEventAndColdLoad() async throws {
+        let environment = try makeEnvironment()
+        let call = try makePersistedApproval(
+            in: environment,
+            conversationID: "approval-refresh-signal",
+            runID: "approval-refresh-signal-run",
+            callID: "approval-refresh-signal-call"
+        )
+        let run = try #require(try environment.store.run(id: call.agentRunID))
+        let runtime = makeProjectionRuntime(for: environment)
+        let event = AgentEvent.approvalRequired(runID: run.id, toolCallID: call.id)
+        let eventStore = makeLiveStore(conversationID: run.conversationID)
+
+        _ = eventStore.consume(event)
+        #expect(eventStore.needsPendingToolApprovalReconciliation)
+        try await eventStore.refreshPendingToolApprovals(using: runtime)
+        #expect(eventStore.state.pendingToolApprovals.map(\.toolCallID) == [call.id])
+        #expect(!eventStore.needsPendingToolApprovalReconciliation)
+
+        let coldLoadedStore = makeLiveStore(conversationID: run.conversationID)
+        #expect(!coldLoadedStore.needsPendingToolApprovalReconciliation)
+        try await coldLoadedStore.refreshPendingToolApprovals(using: runtime)
+        #expect(coldLoadedStore.state.pendingToolApprovals.map(\.toolCallID) == [call.id])
+
+        try environment.store.settleToolCallForCancellation(id: call.id)
+        _ = eventStore.consume(event)
+        #expect(eventStore.needsPendingToolApprovalReconciliation)
+        try await eventStore.refreshPendingToolApprovals(using: runtime)
+        #expect(eventStore.state.pendingToolApprovals.isEmpty)
+        #expect(!eventStore.needsPendingToolApprovalReconciliation)
+    }
+
     private struct Environment {
         var store: PersistenceStore
         var credentials: CredentialStore
