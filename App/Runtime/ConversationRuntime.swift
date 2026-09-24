@@ -27,6 +27,7 @@ actor ConversationRuntime {
     private let agentRuntime: AgentRuntime
     private let toolRegistry: ToolRegistry
     private let onEvent: @Sendable (AgentEvent) async -> Void
+    private let approvalRuntimeInstanceID = UUID().uuidString
 
     private var operations: [String: Task<Void, Never>] = [:]
     private var completionErrors: [String: ConversationProjectionError] = [:]
@@ -428,6 +429,67 @@ actor ConversationRuntime {
             }
         }
         return stream
+    }
+
+    /// Reads eligible Parent Run calls and projects only complete frozen disclosures.
+    /// A missing or unreadable disclosure hides the card without affecting dispatch.
+    func pendingToolApprovals(in conversationID: String) throws -> [ToolApprovalProjection] {
+        var approvals: [ToolApprovalProjection] = []
+        let runs = try store.runs(inConversation: conversationID)
+
+        for run in runs where run.kind == .parent && run.parentRunID == nil {
+            for call in try store.toolCalls(inRun: run.id) where call.state == .waitingForApproval {
+                guard let encodedIntent = call.executionIntent,
+                      let intent = try? JSONDecoder().decode(
+                        ToolExecutionIntent.self,
+                        from: Data(encodedIntent.utf8)
+                      ),
+                      let disclosure = intent.approvalDisclosure,
+                      disclosure.isComplete
+                else {
+                    continue
+                }
+
+                approvals.append(ToolApprovalProjection(
+                    toolCallID: call.id,
+                    conversationID: run.conversationID,
+                    runtimeInstanceID: approvalRuntimeInstanceID,
+                    disclosure: disclosure
+                ))
+            }
+        }
+
+        return approvals
+    }
+
+    /// Validates the originating Runtime and owning Parent Conversation before
+    /// forwarding the one-call decision to the existing AgentRuntime path.
+    func resolveToolApproval(_ request: ToolApprovalRequest) async throws {
+        guard request.runtimeInstanceID == approvalRuntimeInstanceID else {
+            throw ToolApprovalResolutionError.staleRuntimeInstance
+        }
+        guard let call = try store.toolCall(id: request.toolCallID) else {
+            throw ToolApprovalResolutionError.toolCallNotFound(request.toolCallID)
+        }
+        guard let run = try store.run(id: call.agentRunID) else {
+            throw ToolApprovalResolutionError.runNotFound(call.agentRunID)
+        }
+        guard run.conversationID == request.conversationID else {
+            throw ToolApprovalResolutionError.conversationMismatch
+        }
+        guard run.kind == .parent, run.parentRunID == nil else {
+            throw ToolApprovalResolutionError.notParentCall
+        }
+        guard call.state == .waitingForApproval else {
+            throw ToolApprovalResolutionError.callNotWaitingForApproval(request.toolCallID)
+        }
+
+        switch request.decision {
+        case .approveOnce:
+            try await approve(toolCallID: call.id)
+        case .rejectOnce:
+            _ = try await reject(toolCallID: call.id)
+        }
     }
 
     /// Resolves an approval gate without creating a replacement ToolCall.

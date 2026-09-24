@@ -18,6 +18,7 @@ struct LivePartState: Sendable, Equatable {
 struct LiveConversationState: Sendable, Equatable {
     var timeline: ConversationTimelineProjection
     var activeParts: [String: LivePartState]
+    var pendingToolApprovals: [ToolApprovalProjection] = []
 }
 
 /// Applies the event stream to one live projection without rebuilding unrelated Turns.
@@ -31,6 +32,7 @@ struct LiveConversationState: Sendable, Equatable {
 final class LiveConversationStore {
     private(set) var state: LiveConversationState
     private(set) var droppedUnlocatableDeltas: Int = 0
+    private(set) var needsPendingToolApprovalReconciliation = false
 
     private let coalescerTemplate: StreamingCoalescer
     private let now: @Sendable () -> ContinuousClock.Instant
@@ -96,15 +98,31 @@ final class LiveConversationStore {
 
         case .runEnded(let runID, _, _):
             consumeRunEnded(runID: runID, rebuiltRuns: &rebuiltRuns)
+            needsPendingToolApprovalReconciliation = true
 
-        case .runAccepted,
-             .runStateChanged,
+        case .runAccepted:
+            break
+
+        case .runStateChanged,
              .toolCallChanged,
              .approvalRequired:
-            break
+            // Runtime owns the record read and disclosure validation; the live store
+            // only tells its owner to refresh the separate approval projection.
+            needsPendingToolApprovalReconciliation = true
         }
 
         return rebuiltRuns
+    }
+
+    /// Replaces the out-of-timeline approval list with a Conversation-scoped,
+    /// stable-ID-deduplicated Runtime projection.
+    func reconcilePendingToolApprovals(_ approvals: [ToolApprovalProjection]) {
+        var seenToolCallIDs: Set<String> = []
+        state.pendingToolApprovals = approvals.filter { approval in
+            approval.conversationID == state.timeline.conversationID
+                && seenToolCallIDs.insert(approval.toolCallID).inserted
+        }
+        needsPendingToolApprovalReconciliation = false
     }
 
     private func consumeStarted(

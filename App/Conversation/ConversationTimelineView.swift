@@ -11,28 +11,112 @@ import SwiftUI
 /// nothing is drawn to say where a turn ends.
 struct ConversationTimelineView: View {
     let projection: ConversationTimelineProjection
+    let pendingToolApprovals: [ToolApprovalProjection]
+    let runtime: ConversationRuntime
+    var onPendingToolApprovalsChanged: @MainActor ([ToolApprovalProjection]) -> Void = { _ in }
     var onQuoteReference: (QuoteReference) -> Void = { _ in }
     var onQuoteDragPhaseChanged: (ComposerQuoteDragPhase) -> Void = { _ in }
     var onSelectionHandleDragChanged: (Bool) -> Void = { _ in }
 
     @ScaledMetric(relativeTo: .body) private var betweenTurns = Metrics.betweenTurns
     @ScaledMetric(relativeTo: .body) private var contentInset = Metrics.contentInset
+    @State private var selectedApproval: ToolApprovalProjection?
+    @State private var resolvingApprovalID: String?
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: betweenTurns) {
-                ForEach(projection.turns) { turn in
-                    ConversationTurnView(
-                        turn: turn,
-                        onQuoteReference: onQuoteReference,
-                        onQuoteDragPhaseChanged: onQuoteDragPhaseChanged,
-                        onSelectionHandleDragChanged: onSelectionHandleDragChanged
-                    )
+        VStack(spacing: 0) {
+            if !conversationApprovals.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("需要处理的工具调用")
+                        .font(.subheadline.weight(.semibold))
+                    ForEach(conversationApprovals) { approval in
+                        Button {
+                            selectedApproval = approval
+                        } label: {
+                            Label(approval.toolDisplayName, systemImage: "hand.raised.fill")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 }
+                .padding(.horizontal, contentInset)
+                .padding(.top, 12)
             }
-            .padding(.horizontal, contentInset)
-            .padding(.vertical, betweenTurns)
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: betweenTurns) {
+                    ForEach(projection.turns) { turn in
+                        ConversationTurnView(
+                            turn: turn,
+                            onQuoteReference: onQuoteReference,
+                            onQuoteDragPhaseChanged: onQuoteDragPhaseChanged,
+                            onSelectionHandleDragChanged: onSelectionHandleDragChanged
+                        )
+                    }
+                }
+                .padding(.horizontal, contentInset)
+                .padding(.vertical, betweenTurns)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .sheet(item: $selectedApproval) { approval in
+            ToolApprovalCardView(approval: approval,
+                                 isResolving: resolvingApprovalID == approval.toolCallID) { request in
+                resolveToolApproval(request)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .onAppear {
+            if selectedApproval == nil {
+                selectedApproval = conversationApprovals.first
+            }
+        }
+        .onChange(of: conversationApprovals) { _, refreshedApprovals in
+            if let selectedApproval,
+               let refreshed = refreshedApprovals.first(where: {
+                   $0.toolCallID == selectedApproval.toolCallID
+               }) {
+                self.selectedApproval = refreshed
+            } else if let selectedApproval {
+                self.selectedApproval = nil
+            } else {
+                selectedApproval = refreshedApprovals.first
+            }
+        }
+    }
+
+    private var conversationApprovals: [ToolApprovalProjection] {
+        pendingToolApprovals.filter { $0.conversationID == projection.conversationID }
+    }
+
+    private func resolveToolApproval(_ request: ToolApprovalRequest) {
+        guard request.conversationID == projection.conversationID,
+              resolvingApprovalID == nil
+        else { return }
+        resolvingApprovalID = request.toolCallID
+
+        Task { @MainActor in
+            defer { resolvingApprovalID = nil }
+
+            do {
+                try await runtime.resolveToolApproval(request)
+            } catch {
+                // The refreshed persisted state below determines whether the card stays open.
+            }
+
+            guard let refreshedApprovals = try? await runtime.pendingToolApprovals(
+                in: projection.conversationID
+            ) else { return }
+            onPendingToolApprovalsChanged(refreshedApprovals)
+
+            if let refreshed = refreshedApprovals.first(where: {
+                $0.toolCallID == request.toolCallID
+            }) {
+                selectedApproval = refreshed
+            } else if selectedApproval?.toolCallID == request.toolCallID {
+                selectedApproval = nil
+            }
         }
     }
 }

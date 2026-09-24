@@ -67,7 +67,7 @@ struct Stage2SideEffectTool: ToolExecutable {
             throw ToolExecutionError.invalidArguments
         }
 
-        return ToolExecutionIntent(
+        var intent = ToolExecutionIntent(
             formatVersion: ToolExecutionIntent.currentFormatVersion,
             toolID: descriptor.id,
             descriptorRevision: descriptor.revision,
@@ -75,6 +75,13 @@ struct Stage2SideEffectTool: ToolExecutable {
             targetIdentity: callID,
             destinationIdentity: nil
         )
+        intent.approvalDisclosure = ToolApprovalDisclosure(
+            toolDisplayName: descriptor.displayName,
+            action: "Perform one external write",
+            targetDescription: "Tool call \(callID)",
+            keyImpact: "Writes to an external system once"
+        )
+        return intent
     }
 
     func execute(

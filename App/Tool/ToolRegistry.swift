@@ -10,6 +10,19 @@ enum ToolApprovalRequirement: String, Codable, Sendable {
     case required
 }
 
+/// User-readable details frozen with a prepared tool call for later approval.
+struct ToolApprovalDisclosure: Codable, Sendable, Equatable {
+    let toolDisplayName: String
+    let action: String
+    let targetDescription: String
+    let keyImpact: String
+
+    var isComplete: Bool {
+        [toolDisplayName, action, targetDescription, keyImpact]
+            .allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+}
+
 struct ToolDescriptor: Sendable, Equatable {
     var id: String
     var displayName: String
@@ -29,6 +42,7 @@ struct ToolExecutionIntent: Codable, Sendable, Equatable {
     var normalizedArgumentsJSON: String
     var targetIdentity: String?
     var destinationIdentity: String?
+    var approvalDisclosure: ToolApprovalDisclosure? = nil
 }
 
 struct ToolExecutionResult: Sendable, Equatable {
