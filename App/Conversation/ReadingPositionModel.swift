@@ -31,6 +31,13 @@ struct TurnAnchor: Equatable, Sendable {
     let relativeViewportOffset: Double
 }
 
+/// 底边锚点：视口底边相对某个 Turn 顶部的距离（点）。
+/// 与 TurnAnchor（视口顶部比例）并存，语义不同 —— 它是「视口底边指向内容的哪一处」。
+struct BottomTurnAnchor: Equatable, Sendable {
+    let runID: String
+    let bottomEdgeFromTurnTop: Double
+}
+
 /// 阅读模式。**两态**，不是三态。
 ///
 /// 计数用 `Set<String>` 而不是整数：streaming 期间同一个 Turn 会反复变化，
@@ -45,6 +52,7 @@ enum ScrollAction: Equatable, Sendable {
     case none
     case scrollToBottom
     case restoreAnchor(TurnAnchor)
+    case maintainBottomEdge(targetOffset: Double)
 }
 
 /// anchor 的可解析性。
@@ -62,9 +70,11 @@ enum ReadingPositionEvent: Equatable, Sendable {
     case programmaticScrolled(geometry: ScrollGeometry)
     /// 内容变化，带本次实际重建的 runID 集合（第 3 项 `consume` 的返回值）。
     case contentChanged(changedRunIDs: Set<String>)
-    /// 布局变化（Dynamic Type、键盘、Pane 尺寸），内容没变。
+    /// 布局变化（Dynamic Type、键盘），内容没变。
     /// 只表示非用户手势导致的布局变化；用户拖动必须发 `userScrolled`。
     case geometryChanged(geometry: ScrollGeometry, anchor: TurnAnchor?)
+    /// 单 Pane 高度变化：anchor 是变化前捕获并在连续变化中原样沿用的底边锚点，turnTop 是变化后同一 Turn 的顶部位置。
+    case paneHeightChanged(geometry: ScrollGeometry, anchor: BottomTurnAnchor?, turnTop: Double?)
     /// 用户点了「有新内容」胶囊。
     case tappedNewContent
 }
