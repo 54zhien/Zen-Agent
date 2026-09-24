@@ -358,11 +358,10 @@ struct DualConversationPaneConcurrencyTests {
                 .map { "\($0.ownerConversationID): \($0.event)" }
                 .joined(separator: " | ")
             let routingErrors = await harness.eventLog.errorsSnapshot()
-            Issue.record(
-                "approval isolation scenario failed: \(String(reflecting: error))"
-                    + "\n--- delivered \(delivered.count) events ---\n\(summary)"
-                    + "\n--- routing errors ---\n\(routingErrors.joined(separator: " | "))"
-            )
+            let detail = "approval isolation scenario failed: \(String(reflecting: error))"
+                + "\n--- delivered \(delivered.count) events ---\n\(summary)"
+                + "\n--- routing errors ---\n\(routingErrors.joined(separator: " | "))"
+            Issue.record("\(detail)")
         }
 
         await harness.stopActiveRuns()
