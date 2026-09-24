@@ -225,10 +225,14 @@ struct DualConversationPaneConcurrencyTests {
                 text: Self.approvalPromptA
             )
             let startedA = try require(runA, "Run A id")
+            let durableApprovalID = try await harness.waitForPersistedToolCallID(
+                inRun: startedA,
+                providerCallID: Self.approvalToolCallID
+            )
             let approvalDelivery = try await harness.waitForDelivery(
                 .approvalRequired(
                     runID: startedA,
-                    toolCallID: Self.approvalToolCallID
+                    toolCallID: durableApprovalID
                 ),
                 label: "Run A approvalRequired consumption"
             )
@@ -239,9 +243,11 @@ struct DualConversationPaneConcurrencyTests {
             )
 
             let waitingRun = try harness.store.run(id: startedA)
-            let waitingCall = try harness.store.toolCall(id: Self.approvalToolCallID)
+            let waitingCall = try harness.store.toolCall(id: durableApprovalID)
             #expect(waitingRun?.state == .waitingForApproval)
             #expect(waitingCall?.state == .waitingForApproval)
+            #expect(waitingCall?.providerCallID == Self.approvalToolCallID)
+            #expect(waitingCall?.id != Self.approvalToolCallID)
             let projectionAWhileWaiting = try await harness.projection(
                 conversationID: Self.conversationA
             )
@@ -252,8 +258,8 @@ struct DualConversationPaneConcurrencyTests {
             let approvalsA = try await harness.pendingApprovals(
                 conversationID: Self.conversationA
             )
-            #expect(approvalsA.map(\.toolCallID) == [Self.approvalToolCallID])
-            #expect(harness.paneA.liveStore.state.pendingToolApprovals.map(\.toolCallID) == [Self.approvalToolCallID])
+            #expect(approvalsA.map(\.toolCallID) == [durableApprovalID])
+            #expect(harness.paneA.liveStore.state.pendingToolApprovals.map(\.toolCallID) == [durableApprovalID])
             #expect(harness.paneA.liveStore.state.pendingToolApprovals.allSatisfy {
                 $0.conversationID == Self.conversationA
             })
@@ -293,14 +299,14 @@ struct DualConversationPaneConcurrencyTests {
             )
             #expect(try harness.store.run(id: startedA)?.state == .waitingForApproval)
             #expect(projectionAStillWaiting?.state == .waitingForApproval)
-            #expect(harness.paneA.liveStore.state.pendingToolApprovals.map(\.toolCallID) == [Self.approvalToolCallID])
+            #expect(harness.paneA.liveStore.state.pendingToolApprovals.map(\.toolCallID) == [durableApprovalID])
 
             let snapshotBBeforeApproval = try await harness.snapshot(
                 pane: harness.paneB,
                 viewport: harness.viewportB
             )
             guard let approval = harness.paneA.liveStore.state.pendingToolApprovals.first(where: {
-                $0.toolCallID == Self.approvalToolCallID
+                $0.toolCallID == durableApprovalID
             }) else {
                 throw DualPaneHarnessError.missingValue("Pane A approval card")
             }
@@ -311,14 +317,14 @@ struct DualConversationPaneConcurrencyTests {
                 conversationID: Self.conversationA
             )
             #expect(!remainingApprovalsA.contains {
-                $0.toolCallID == Self.approvalToolCallID
+                $0.toolCallID == durableApprovalID
             })
             #expect(!harness.paneA.liveStore.state.pendingToolApprovals.contains {
-                $0.toolCallID == Self.approvalToolCallID
+                $0.toolCallID == durableApprovalID
             })
 
             try await harness.waitForCompletion(runID: startedA)
-            #expect(try harness.store.toolCall(id: Self.approvalToolCallID)?.state == .succeeded)
+            #expect(try harness.store.toolCall(id: durableApprovalID)?.state == .succeeded)
             let completedRunA = try harness.store.run(id: startedA)
             let projectionACompleted = try await harness.projection(
                 conversationID: Self.conversationA
@@ -929,6 +935,28 @@ private final class DualConversationPaneHarness {
             duration: Self.watchdogDuration,
             operation: { () async throws -> String in
                 try await runtime.start(command)
+            }
+        )
+    }
+
+    func waitForPersistedToolCallID(
+        inRun runID: String,
+        providerCallID: String
+    ) async throws -> String {
+        let store = self.store
+        return try await withWatchdog(
+            label: "未观察到该 ToolCall 落库",
+            duration: Self.watchdogDuration,
+            operation: { () async throws -> String in
+                while !Task.isCancelled {
+                    if let call = try store.toolCalls(inRun: runID).first(where: {
+                        $0.providerCallID == providerCallID
+                    }) {
+                        return call.id
+                    }
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+                throw CancellationError()
             }
         )
     }
