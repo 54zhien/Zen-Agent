@@ -119,8 +119,7 @@ final class LiveConversationStore {
     func reconcilePendingToolApprovals(_ approvals: [ToolApprovalProjection]) {
         var seenToolCallIDs: Set<String> = []
         state.pendingToolApprovals = approvals.filter { approval in
-            approval.conversationID == state.timeline.conversationID
-                && seenToolCallIDs.insert(approval.toolCallID).inserted
+            seenToolCallIDs.insert(approval.toolCallID).inserted
         }
         needsPendingToolApprovalReconciliation = false
     }
