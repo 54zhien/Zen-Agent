@@ -26,7 +26,7 @@ final class ConversationPaneScrollBridge {
         topVisibleTurn: (runID: String, turnTop: Double)?
     ) {
         endHeightChange()
-        let anchor = topVisibleTurn.flatMap { turn in
+        let anchor = topVisibleTurn.flatMap { turn -> TurnAnchor? in
             guard geometry.isUsableForPane,
                   turn.turnTop.isFinite,
                   let captured = AnchorResolver.capture(
@@ -69,7 +69,7 @@ final class ConversationPaneScrollBridge {
               geometry.isUsableForPane
         else { return }
 
-        let turnTop = bottomEdgeAnchor.flatMap { anchor in
+        let turnTop = bottomEdgeAnchor.flatMap { anchor -> Double? in
             guard let measuredTop = turnTops[anchor.runID],
                   measuredTop.isFinite
             else { return nil }
