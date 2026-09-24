@@ -623,9 +623,12 @@ private actor DualPaneDeliveryCursor {
     }
 
     func wait(for expectation: DualPaneDeliveryExpectation) async -> DualPaneDelivery? {
-        while let delivery = await iterator.next() {
+        var nextIterator = iterator
+        while let delivery = await nextIterator.next() {
+            iterator = nextIterator
             if expectation.matches(delivery.event) { return delivery }
         }
+        iterator = nextIterator
         return nil
     }
 }
