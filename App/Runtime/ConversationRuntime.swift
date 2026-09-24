@@ -76,7 +76,10 @@ actor ConversationRuntime {
     /// Performs the preparation/commit boundary and starts AgentRuntime. Returning
     /// after the snapshot is committed gives callers a durable id for Stop without
     /// making the provider request itself synchronous.
-    func start(_ command: SendCommand) async throws -> String {
+    func start(
+        _ command: SendCommand,
+        creatingConversationIfMissing pending: ConversationRecord? = nil
+    ) async throws -> String {
         guard !command.submissionID.isEmpty else {
             throw ConversationRuntimeError.emptySubmissionID
         }
@@ -101,9 +104,16 @@ actor ConversationRuntime {
             throw ConversationRuntimeError.invalidMaxProviderSteps(command.maxProviderSteps)
         }
 
-        // 1. Load visible Conversation.
-        guard let conversation = try store.conversation(id: command.conversationID) else {
-            throw PersistenceError.conversationNotFound(command.conversationID)
+        // 1. Load visible Conversation. A first send may carry its row to the existing
+        // transaction, but it may not name a different Conversation.
+        let conversation: ConversationRecord
+        if let persisted = try store.conversation(id: command.conversationID) {
+            conversation = persisted
+        } else {
+            guard let pending, pending.id == command.conversationID else {
+                throw PersistenceError.conversationNotFound(command.conversationID)
+            }
+            conversation = pending
         }
         guard conversation.lifecycle == .visible else {
             throw PersistenceError.invalidLifecycleTransition(
