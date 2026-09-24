@@ -26,12 +26,12 @@ struct ProviderSetupTests {
             #expect(try environment.credentials.metadata(for: reference)?.status == .active)
             #expect(environment.secretBackend.storedSecret(for: reference, generation: 1) == key)
 
-            let instance = try #require(environment.store.providerInstance(id: instanceID))
+            let instance = try #require(try environment.store.providerInstance(id: instanceID))
             let descriptor = try #require(environment.provider.knownModels(for: instance).first {
                 $0.id == setup.selectedModelID
             })
-            let metadata = try #require(environment.credentials.metadata(for: reference))
-            let resolved = try #require(environment.credentials.resolve(
+            let metadata = try #require(try environment.credentials.metadata(for: reference))
+            let resolved = try #require(try environment.credentials.resolve(
                 frozenReference: metadata.reference,
                 generation: metadata.bindingGeneration
             ))
@@ -160,7 +160,7 @@ struct ProviderSetupTests {
         setup.apiKey = key
 
         #expect(!setup.save())
-        let conflicted = try #require(environment.store.providerInstance(id: setup.instanceID))
+        let conflicted = try #require(try environment.store.providerInstance(id: setup.instanceID))
         #expect(setup.state == .incomplete)
         #expect(setup.errorMessage == ProviderSetupFailure.editConflict.message)
         #expect(!setup.didAttachCredential)
@@ -170,7 +170,7 @@ struct ProviderSetupTests {
         #expect(!makeShell(environment).canSend)
 
         #expect(setup.save())
-        let attached = try #require(environment.store.providerInstance(id: setup.instanceID))
+        let attached = try #require(try environment.store.providerInstance(id: setup.instanceID))
         #expect(attached.credentialReference == setup.credentialReference)
         #expect(attached.editRevision.rawValue == 2)
         #expect(setup.didAttachCredential)
@@ -230,12 +230,12 @@ struct ProviderSetupTests {
 
         #expect(!setup.save())
         #expect(setup.errorMessage == ProviderSetupFailure.editConflict.message)
-        let firstRevision = try #require(environment.store.providerInstance(id: setup.instanceID))
+        let firstRevision = try #require(try environment.store.providerInstance(id: setup.instanceID))
             .editRevision
         #expect(firstRevision.rawValue == 1)
 
         #expect(!setup.save())
-        let concurrentRevision = try #require(environment.store.providerInstance(id: setup.instanceID))
+        let concurrentRevision = try #require(try environment.store.providerInstance(id: setup.instanceID))
             .editRevision
         #expect(setup.state == .incomplete)
         #expect(setup.errorMessage == ProviderSetupFailure.editConflict.message)
@@ -311,11 +311,11 @@ struct ProviderSetupTests {
             configRevision: .initial,
             credentialReference: nil
         ))
-        let before = try #require(environment.store.providerInstance(id: instanceID))
+        let before = try #require(try environment.store.providerInstance(id: instanceID))
         setup.apiKey = key
 
         #expect(!setup.save())
-        let after = try #require(environment.store.providerInstance(id: instanceID))
+        let after = try #require(try environment.store.providerInstance(id: instanceID))
         #expect(setup.state == .identifierConflict)
         #expect(setup.statusLabel == "实例 ID 冲突")
         #expect(setup.errorMessage == ProviderSetupFailure.instanceConflict.message)
@@ -421,7 +421,7 @@ struct ProviderSetupTests {
     private func withFileEnvironment<Value>(
         _ body: @MainActor (ProviderSetupEnvironment, URL) throws -> Value
     ) throws -> Value {
-        let databaseURL = try PersistenceFixtures.scratchPath(name: "provider-setup.sqlite")
+        let databaseURL = try Fixtures.scratchPath(name: "provider-setup.sqlite")
         let suite = "ZenAgentTests.ProviderSetup.File.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         var database: ZenDatabase?
@@ -458,7 +458,7 @@ struct ProviderSetupTests {
         credentials = nil
         store = nil
         database = nil
-        PersistenceFixtures.cleanUp(databaseURL)
+        Fixtures.cleanUp(databaseURL)
         defaults.removePersistentDomain(forName: suite)
         guard let result else { throw ProviderSetupFailure.persistenceUnavailable }
         return try result.get()
