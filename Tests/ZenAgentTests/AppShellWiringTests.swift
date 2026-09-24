@@ -41,10 +41,10 @@ struct AppShellWiringTests {
     func defaultTargetRequiresKnownModelAndResolvedSecret() throws {
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
-        let instance = try #require(fixture.store.providerInstance(id: fixture.instanceID))
-        let metadata = try #require(fixture.credentials.metadata(for: fixture.reference))
+        let instance = try #require(try fixture.store.providerInstance(id: fixture.instanceID))
+        let metadata = try #require(try fixture.credentials.metadata(for: fixture.reference))
         let descriptors = fixture.provider.knownModels(for: instance)
-        let resolved = try #require(fixture.credentials.resolve(
+        let resolved = try #require(try fixture.credentials.resolve(
             frozenReference: metadata.reference,
             generation: metadata.bindingGeneration
         ))
@@ -132,7 +132,7 @@ struct AppShellWiringTests {
         }
         try await fixture.runtime.waitForCompletion(runID: runID)
 
-        let conversation = try #require(fixture.store.conversation(id: command.conversationID))
+        let conversation = try #require(try fixture.store.conversation(id: command.conversationID))
         let messages = try fixture.store.messages(inConversation: command.conversationID)
         let userMessage = try #require(messages.first)
         let parts = try fixture.store.parts(ofMessage: userMessage.id)
