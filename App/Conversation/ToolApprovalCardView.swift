@@ -5,14 +5,16 @@ struct ToolApprovalCardView: View {
     var isResolving = false
     let onDecision: (ToolApprovalRequest) -> Void
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(approval.toolDisplayName)
-                        .font(.title3.weight(.semibold))
+                        .font(Typography.font(for: .interfaceTitle, dynamicTypeSize: dynamicTypeSize))
                     Text(approval.action)
-                        .font(.headline)
+                        .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
                         .foregroundStyle(.secondary)
                 }
 
@@ -60,10 +62,10 @@ struct ToolApprovalCardView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
                 .foregroundStyle(.secondary)
             content()
-                .font(.body)
+                .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         }

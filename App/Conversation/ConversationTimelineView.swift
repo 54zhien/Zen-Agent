@@ -18,6 +18,7 @@ struct ConversationTimelineView: View {
     var onQuoteDragPhaseChanged: (ComposerQuoteDragPhase) -> Void = { _ in }
     var onSelectionHandleDragChanged: (Bool) -> Void = { _ in }
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var betweenTurns = Metrics.betweenTurns
     @ScaledMetric(relativeTo: .body) private var contentInset = Metrics.contentInset
     @State private var selectedApproval: ToolApprovalProjection?
@@ -28,7 +29,7 @@ struct ConversationTimelineView: View {
             if !conversationApprovals.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("需要处理的工具调用")
-                        .font(.subheadline.weight(.semibold))
+                        .font(Typography.font(for: .interfaceTitle, dynamicTypeSize: dynamicTypeSize))
                     ForEach(conversationApprovals) { approval in
                         Button {
                             selectedApproval = approval
