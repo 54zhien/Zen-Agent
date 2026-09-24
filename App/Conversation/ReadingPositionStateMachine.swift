@@ -51,7 +51,7 @@ enum AnchorResolver {
         let bottomEdge = turnTop + anchor.bottomEdgeFromTurnTop
         guard bottomEdge.isFinite else { return nil }
 
-        let targetOffset = bottomEdge - viewportHeight
+        let targetOffset = bottomEdge + viewportHeight // MUTATION
         guard targetOffset.isFinite else { return nil }
 
         return targetOffset
