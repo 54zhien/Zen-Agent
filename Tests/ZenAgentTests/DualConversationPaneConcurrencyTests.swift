@@ -270,6 +270,15 @@ struct DualConversationPaneConcurrencyTests {
             #expect(harness.paneB.liveStore.state.pendingToolApprovals.isEmpty)
             #expect(!harness.paneB.liveStore.needsPendingToolApprovalReconciliation)
 
+            // The Runtime query above already scopes its result to one conversation. Feed A's real
+            // projection directly to B here so this Store-level guard is independently mutation-tested.
+            harness.paneB.liveStore.reconcilePendingToolApprovals(approvalsA)
+            #expect(
+                harness.paneB.liveStore.state.pendingToolApprovals.isEmpty,
+                "a live store must reject approvals owned by another conversation"
+            )
+            harness.paneB.liveStore.reconcilePendingToolApprovals(pendingBWhileAWaits)
+
             runB = try await harness.startRun(
                 conversationID: Self.conversationB,
                 text: Self.completionPromptB
