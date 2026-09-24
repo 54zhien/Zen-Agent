@@ -112,6 +112,8 @@ struct AppShellWiringTests {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
         let pane = try #require(fixture.model.pane)
         let bridge = try #require(fixture.model.actionBridge)
+        pane.composer.draft.text = "first turn"
+        pane.composer.draft.selection = ComposerSelection(range: 0..<pane.composer.draft.text.count)
         let timestamp = Date(timeIntervalSince1970: 1_790_000_000)
         let command = try #require(ComposerSendCoordinator(
             conversationID: fixture.model.conversationID,
@@ -174,6 +176,7 @@ struct AppShellWiringTests {
             )
         }
         #expect(router.registerPane(paneA))
+        try paneB.reloadTimeline()
         #expect(router.registerPane(paneB))
 
         await router.handle(.runAccepted(runID: "route-run-A", conversationID: "route-conversation-A"))
