@@ -202,6 +202,97 @@ struct AppShellWiringTests {
         #expect(!items.contains(.assistantText("second answer")))
     }
 
+    @Test("cold launch restores a visible conversation within twenty minutes")
+    func coldLaunchRestoresRecentConversation() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let conversationID = fixture.model.conversationID
+        try await send("restore me", at: Date(), in: fixture)
+        fixture.model.enteredBackground(at: Date())
+
+        let reconstructed = makeReconstructedModel(from: fixture)
+
+        #expect(reconstructed.conversationID == conversationID)
+        #expect(reconstructed.pane?.liveStore.state.timeline.turns.count == 1)
+        #expect(ConversationResumeMarker.read(from: fixture.defaults) == nil)
+        #expect(try conversationCount(in: fixture.store) == 1)
+    }
+
+    @Test("expired cold launch enters a new blank page and keeps the old conversation reachable")
+    func expiredColdLaunchStartsNewConversation() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let oldID = fixture.model.conversationID
+        try await send("old conversation", at: Date(), in: fixture)
+        fixture.model.enteredBackground(at: Date().addingTimeInterval(-1_201))
+
+        let reconstructed = makeReconstructedModel(from: fixture)
+
+        #expect(reconstructed.conversationID != oldID)
+        #expect(reconstructed.pane?.liveStore.state.timeline.turns.isEmpty == true)
+        #expect(reconstructed.recentConversations.contains { $0.id == oldID })
+        #expect(try fixture.store.conversation(id: reconstructed.conversationID) == nil)
+        #expect(reconstructed.openConversation(id: oldID))
+        #expect(reconstructed.pane?.liveStore.state.timeline.turns.count == 1)
+    }
+
+    @Test("warm timeout keeps an unsent draft in process for reopening the old conversation")
+    func warmTimeoutRetainsDraft() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let oldID = fixture.model.conversationID
+        try await send("persisted question", at: Date(), in: fixture)
+        let oldPane = try #require(fixture.model.pane)
+        oldPane.composer.draft.text = "unsent follow-up"
+        oldPane.composer.draft.selection = ComposerSelection(range: 0..<16)
+        let backgroundedAt = Date(timeIntervalSince1970: 1_790_000_000)
+
+        fixture.model.enteredBackground(at: backgroundedAt)
+        fixture.model.becameActive(at: backgroundedAt.addingTimeInterval(1_201))
+
+        #expect(fixture.model.conversationID != oldID)
+        #expect(fixture.model.pane?.composer.draft.text == "")
+        #expect(fixture.model.recentConversations.contains { $0.id == oldID })
+        #expect(fixture.model.openConversation(id: oldID))
+        #expect(fixture.model.pane?.composer.draft.text == "unsent follow-up")
+        #expect(try conversationCount(in: fixture.store) == 1)
+    }
+
+    @Test("warm return inside the window keeps the current pane and draft")
+    func warmReturnKeepsCurrentPane() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try await send("persisted question", at: Date(), in: fixture)
+        let originalID = fixture.model.conversationID
+        let originalPane = try #require(fixture.model.pane)
+        originalPane.composer.draft.text = "continue"
+        let backgroundedAt = Date(timeIntervalSince1970: 1_790_000_000)
+
+        fixture.model.enteredBackground(at: backgroundedAt)
+        fixture.model.becameActive(at: backgroundedAt.addingTimeInterval(1_200))
+
+        #expect(fixture.model.conversationID == originalID)
+        #expect(fixture.model.pane === originalPane)
+        #expect(fixture.model.pane?.composer.draft.text == "continue")
+        #expect(ConversationResumeMarker.read(from: fixture.defaults) == nil)
+    }
+
+    @Test("cold launch will not restore a conversation hidden after backgrounding")
+    func hiddenConversationDoesNotRestore() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let oldID = fixture.model.conversationID
+        try await send("to be hidden", at: Date(), in: fixture)
+        fixture.model.enteredBackground(at: Date())
+        try fixture.store.beginDeletion(conversationID: oldID)
+
+        let reconstructed = makeReconstructedModel(from: fixture)
+
+        #expect(reconstructed.conversationID != oldID)
+        #expect(!reconstructed.recentConversations.contains { $0.id == oldID })
+        #expect(try conversationCount(in: fixture.store) == 1)
+    }
+
     @Test("recent entry excludes hidden conversations and refuses stale hidden selections")
     func recentEntryExcludesPendingAndFinalizedDeletion() throws {
         let fixture = try makeFixture(seed: .active)

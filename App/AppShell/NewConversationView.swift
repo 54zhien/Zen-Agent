@@ -4,6 +4,7 @@ import SwiftUI
 struct AppShellRootView: View {
     @State private var model = AppShellModel()
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -29,6 +30,18 @@ struct AppShellRootView: View {
         }
         .task {
             model.assembleIfNeeded()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background:
+                model.enteredBackground(at: Date())
+            case .active:
+                model.becameActive(at: Date())
+            case .inactive:
+                break
+            @unknown default:
+                break
+            }
         }
     }
 }

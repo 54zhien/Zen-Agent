@@ -38,6 +38,8 @@ final class AppShellModel {
     @ObservationIgnored private let userDefaults: UserDefaults
     @ObservationIgnored private var dependencies: AppAssembly.Dependencies?
     @ObservationIgnored private var startedAssembly = false
+    @ObservationIgnored private var backgroundedAtInProcess: Date?
+    @ObservationIgnored private var draftsByConversationID: [String: ComposerDraftState] = [:]
 
     var canSend: Bool {
         target != nil && pane != nil && actionBridge != nil
@@ -68,6 +70,7 @@ final class AppShellModel {
         prepareProviderSetup()
         loadDefaultTarget()
         refreshRecentConversations()
+        restoreAtLaunch(at: Date())
     }
 
     func assembleIfNeeded() {
@@ -94,6 +97,7 @@ final class AppShellModel {
             prepareProviderSetup()
             loadDefaultTarget()
             refreshRecentConversations()
+            restoreAtLaunch(at: Date())
         } catch let failure as AppAssemblyFailure {
             launchState = .failed(failure)
         } catch {
@@ -102,13 +106,55 @@ final class AppShellModel {
     }
 
     func newConversation() {
+        rememberCurrentDraft()
         router.unregisterPane(for: conversationID)
-        // Lifecycle draft retention can snapshot the outgoing Composer before this pane is replaced.
         pane = nil
         actionBridge = nil
         conversationID = UUID().uuidString
         installPaneIfReady()
         refreshRecentConversations()
+    }
+
+    func enteredBackground(at date: Date) {
+        backgroundedAtInProcess = date
+        guard isCurrentConversationVisible else {
+            ConversationResumeMarker.clear(from: userDefaults)
+            return
+        }
+        ConversationResumeMarker(
+            conversationID: conversationID,
+            backgroundedAt: date
+        ).write(to: userDefaults)
+    }
+
+    func becameActive(at date: Date) {
+        guard let backgroundedAtInProcess else { return }
+        self.backgroundedAtInProcess = nil
+        ConversationResumeMarker.clear(from: userDefaults)
+        let marker = ConversationResumeMarker(
+            conversationID: conversationID,
+            backgroundedAt: backgroundedAtInProcess
+        )
+        if !marker.isWithinRestoreWindow(at: date), isCurrentConversationVisible {
+            newConversation()
+        }
+    }
+
+    private func restoreAtLaunch(at date: Date) {
+        let marker = ConversationResumeMarker.read(from: userDefaults)
+        ConversationResumeMarker.clear(from: userDefaults)
+        guard let marker, marker.isWithinRestoreWindow(at: date) else { return }
+        _ = openConversation(id: marker.conversationID)
+    }
+
+    private var isCurrentConversationVisible: Bool {
+        guard let store = dependencies?.store else { return false }
+        return (try? store.conversationLifecycle(id: conversationID)) == .visible
+    }
+
+    private func rememberCurrentDraft() {
+        guard let pane, isCurrentConversationVisible else { return }
+        draftsByConversationID[conversationID] = pane.composer.draft
     }
 
     func refreshRecentConversations() {
@@ -159,12 +205,15 @@ final class AppShellModel {
             guard dependencies.router.registerPane(wiring.pane) else { return false }
 
             // Keep the outgoing pane intact until the replacement has loaded and registered.
-            // A warm-timeout draft cache can capture its Composer immediately before replacement.
+            rememberCurrentDraft()
             let outgoingConversationID = conversationID
             router.unregisterPane(for: outgoingConversationID)
             conversationID = id
             actionBridge = wiring.bridge
             pane = wiring.pane
+            if let savedDraft = draftsByConversationID[id] {
+                wiring.pane.composer.draft = savedDraft
+            }
             return true
         } catch {
             return false
