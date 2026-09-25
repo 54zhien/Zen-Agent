@@ -25,12 +25,18 @@ jobs:
           actual=$(git diff --name-only "$base" HEAD | sort)
           expected=$(printf '%s\n' \
             '.github/workflows/w1-device-ipa.yml' \
+            'App/Conversation/ComposerContextAction.swift' \
             'App/Conversation/ComposerGeometry.swift' \
+            'App/Conversation/ComposerTextView.swift' \
             'App/Conversation/ConversationComposerView.swift' \
+            'App/Conversation/ConversationTimelineView.swift' \
+            'App/Conversation/QuoteDragBridge.swift' \
             'App/Typography/FontRegistry.swift' \
             'App/Typography/Typography.swift' \
+            'Tests/ZenAgentTests/ComposerContextActionTests.swift' \
             'Tests/ZenAgentTests/ComposerGeometryTests.swift' \
-            'Tests/ZenAgentTests/ComposerSendCoordinatorTests.swift' | sort)
+            'Tests/ZenAgentTests/ComposerSendCoordinatorTests.swift' \
+            'Tests/ZenAgentTests/TypographyTokenTests.swift' | sort)
           test "$actual" = "$expected"
 
       - name: Toolchain versions
@@ -92,7 +98,7 @@ jobs:
               plistlib.dump(info, file)
           PY
 
-          name='ZenAgent-W1-composer-v3-device-test.ipa'
+          name='ZenAgent-W1-composer-v4-device-test.ipa'
           (cd "$stage" && /usr/bin/zip -qry "$output/$name" Payload)
           /usr/bin/unzip -tq "$output/$name"
           if /usr/bin/unzip -Z1 "$output/$name" | grep -i 'Anthropic'; then
@@ -113,7 +119,7 @@ jobs:
       - name: Upload unsigned IPA and provenance
         uses: actions/upload-artifact@v4
         with:
-          name: ZenAgent-W1-composer-v3-device-test
+          name: ZenAgent-W1-composer-v4-device-test
           path: ${{ runner.temp }}/ZenAgentDeviceOutput/
           retention-days: 7
           compression-level: 0

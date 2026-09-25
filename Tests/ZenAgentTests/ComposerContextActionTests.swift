@@ -90,17 +90,12 @@ struct ComposerContextActionTests {
             layout: editingLayout,
             state: .editing
         )
-        let editingInset = max(
-            0,
-            (editingLayout.outerFrame.width
-                - editingLayout.textFrame.width
-                - editingLayout.leadingAccessoryReserve
-                - editingLayout.trailingAccessoryReserve) / 2
-        )
+        let radius = ComposerShapeToken.minimumRadius(for: editingLayout)
         #expect(editingTrailing?.width == ComposerGeometry.accessoryHitWidth)
-        #expect(editingTrailing?.maxX == editingLayout.textFrame.maxX)
+        #expect(editingTrailing?.midX == editingLayout.outerFrame.maxX - radius)
         #expect(editingTrailing.map { !editingLayout.textFrame.intersects($0) } == true)
-        #expect(editingPlus?.minX == editingLayout.outerFrame.minX + editingInset)
+        #expect(editingPlus?.midX == editingLayout.outerFrame.minX + radius)
+        #expect(editingPlus?.midY == editingLayout.outerFrame.maxY - radius)
         #expect(editingPlus.map { !editingLayout.textFrame.intersects($0) } == true)
     }
 

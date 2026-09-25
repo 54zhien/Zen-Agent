@@ -153,12 +153,23 @@ struct ComposerTextView: UIViewRepresentable {
                 name: UIResponder.keyboardWillChangeFrameNotification,
                 object: nil
             )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(keyboardDidHide(_:)),
+                name: UIResponder.keyboardDidHideNotification,
+                object: nil
+            )
         }
 
         func stopObservingKeyboard() {
             NotificationCenter.default.removeObserver(
                 self,
                 name: UIResponder.keyboardWillChangeFrameNotification,
+                object: nil
+            )
+            NotificationCenter.default.removeObserver(
+                self,
+                name: UIResponder.keyboardDidHideNotification,
                 object: nil
             )
             observedTextView = nil
@@ -172,6 +183,10 @@ struct ComposerTextView: UIViewRepresentable {
         func textViewDidEndEditing(_ textView: UITextView) {
             if textView.markedTextRange == nil {
                 parent.isFocused = false
+                parent.onKeyboardTransition(ComposerKeyboardTransition(
+                    isVisible: false,
+                    animation: nil
+                ))
             }
             synchronizeEditorState(from: textView)
         }
@@ -206,6 +221,15 @@ struct ComposerTextView: UIViewRepresentable {
             Task { @MainActor [weak self] in
                 self?.parent.onMeasuredTextHeight(measured)
             }
+        }
+
+        @objc
+        private func keyboardDidHide(_ notification: Notification) {
+            guard observedTextView?.window != nil else { return }
+            parent.onKeyboardTransition(ComposerKeyboardTransition(
+                isVisible: false,
+                animation: nil
+            ))
         }
 
         @objc

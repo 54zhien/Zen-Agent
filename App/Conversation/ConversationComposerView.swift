@@ -70,9 +70,11 @@ struct ConversationComposerView: View {
             QuoteDropTargetView(
                 existing: controller.draft.references,
                 dropFrame: dropFrame,
+                visualFrame: layout.visualFrame,
                 dynamicTypeSize: dynamicTypeSize,
                 onAccept: { reference in _ = controller.addQuoteReference(reference) },
-                onPhaseChanged: { phase in apply(controller.handle(.quoteDragPhaseChanged(phase))) }
+                onPhaseChanged: { phase in apply(controller.handle(.quoteDragPhaseChanged(phase))) },
+                onBackgroundTap: { apply(controller.handle(.conversationBackgroundTapped)) }
             ) {
                 ZStack(alignment: .topLeading) {
                     Color.clear
@@ -113,12 +115,6 @@ struct ConversationComposerView: View {
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .animation(keyboardAnimation, value: geometry.size.height)
-                .simultaneousGesture(
-                    SpatialTapGesture().onEnded { tap in
-                        guard !layout.visualFrame.contains(tap.location) else { return }
-                        apply(controller.handle(.conversationBackgroundTapped))
-                    }
-                )
                 .task(id: conversationID) {
                     await observeRunProjection()
                 }
@@ -294,9 +290,9 @@ struct ConversationComposerView: View {
 
     private func controlLabel(_ symbol: String, frame: CGRect) -> some View {
         Image(systemName: symbol)
-            .imageScale(.medium)
+            .imageScale(.small)
             .foregroundStyle(.white)
-            .frame(width: 36, height: 36)
+            .frame(width: 28, height: 28)
             .background(.black, in: Circle())
             .frame(width: frame.width, height: frame.height)
             .contentShape(Rectangle())

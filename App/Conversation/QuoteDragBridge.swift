@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import QuartzCore
 
 enum QuoteDragBridge {
     static func acceptedReference(
@@ -42,8 +43,8 @@ struct QuoteSelectableText: UIViewRepresentable {
         textView.adjustsFontForContentSizeCategory = true
         textView.textContainer.maximumNumberOfLines = maximumNumberOfLines
         textView.textContainer.lineBreakMode = .byTruncatingTail
-        textView.text = text
-        updateTypography(textView)
+        context.coordinator.render(text, in: textView, role: typographyRole,
+                                   dynamicTypeSize: dynamicTypeSize)
 
         if onSingleTap != nil {
             let tap = UITapGestureRecognizer(
@@ -71,9 +72,13 @@ struct QuoteSelectableText: UIViewRepresentable {
     func updateUIView(_ textView: UITextView, context: Context) {
         context.coordinator.parent = self
         context.coordinator.textView = textView
-        if textView.text != text { textView.text = text }
         textView.textContainer.maximumNumberOfLines = maximumNumberOfLines
-        updateTypography(textView)
+        context.coordinator.render(text, in: textView, role: typographyRole,
+                                   dynamicTypeSize: dynamicTypeSize)
+    }
+
+    static func dismantleUIView(_ uiView: UITextView, coordinator: Coordinator) {
+        coordinator.stopRevealing()
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
@@ -81,21 +86,118 @@ struct QuoteSelectableText: UIViewRepresentable {
         return uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
     }
 
-    private func updateTypography(_ textView: UITextView) {
-        let traits = UITraitCollection(
-            preferredContentSizeCategory: Typography.contentSizeCategory(for: dynamicTypeSize)
-        )
-        textView.font = Typography.uiFont(for: typographyRole, compatibleWith: traits)
-        textView.textColor = .label
-    }
-
     @MainActor
     final class Coordinator: NSObject, UITextViewDelegate, UITextDragDelegate, UIGestureRecognizerDelegate {
         var parent: QuoteSelectableText
         weak var textView: UITextView?
+        private struct RevealEntry {
+            let range: NSRange
+            let start: CFTimeInterval
+        }
+        private var renderedText: String?
+        private var renderedFont: UIFont?
+        private var renderedTracking: CGFloat = 0
+        private var renderedLineSpacing: CGFloat = 0
+        private var reveals: [RevealEntry] = []
+        private var displayLink: CADisplayLink?
 
         init(parent: QuoteSelectableText) {
             self.parent = parent
+        }
+
+        func render(_ text: String, in textView: UITextView, role: TypographyRole,
+                    dynamicTypeSize: DynamicTypeSize) {
+            let traits = UITraitCollection(
+                preferredContentSizeCategory: Typography.contentSizeCategory(for: dynamicTypeSize)
+            )
+            let font = Typography.uiFont(for: role, compatibleWith: traits)
+            let spacing = Typography.readingSpacing(for: role)
+            let typographyChanged = renderedFont != font
+                || renderedTracking != spacing.tracking
+                || renderedLineSpacing != spacing.lineSpacing
+            guard renderedText != text || typographyChanged else { return }
+
+            let previous = renderedText
+            let appendOnly = !typographyChanged && previous.map(text.hasPrefix) == true
+            if !appendOnly {
+                reveals.removeAll()
+            }
+            let now = CACurrentMediaTime()
+            if appendOnly, role == .conversationBody, !UIAccessibility.isReduceMotionEnabled,
+               let previous, text != previous {
+                var offset = previous.utf16.count
+                let suffix = text.dropFirst(previous.count)
+                var lastStart = reveals.last?.start ?? now - 0.018
+                for character in suffix.prefix(64) {
+                    lastStart = min(max(now, lastStart + 0.018), now + 0.4)
+                    let length = String(character).utf16.count
+                    reveals.append(RevealEntry(
+                        range: NSRange(location: offset, length: length), start: lastStart
+                    ))
+                    offset += length
+                }
+            }
+
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineSpacing = spacing.lineSpacing
+            let styled = NSAttributedString(string: text, attributes: [
+                .font: font,
+                .foregroundColor: UIColor.label,
+                .kern: spacing.tracking,
+                .paragraphStyle: paragraph
+            ])
+            let selection = textView.selectedRange
+            textView.attributedText = styled
+            if selection.location <= text.utf16.count,
+               selection.location + selection.length <= text.utf16.count {
+                textView.selectedRange = selection
+            }
+            renderedText = text
+            renderedFont = font
+            renderedTracking = spacing.tracking
+            renderedLineSpacing = spacing.lineSpacing
+            updateReveal(at: now)
+            if !reveals.isEmpty && displayLink == nil {
+                let link = CADisplayLink(target: self, selector: #selector(revealFrame))
+                link.preferredFramesPerSecond = 30
+                link.add(to: .main, forMode: .common)
+                displayLink = link
+            }
+        }
+
+        func stopRevealing() {
+            displayLink?.invalidate()
+            displayLink = nil
+            reveals.removeAll()
+        }
+
+        @objc private func revealFrame() {
+            updateReveal(at: CACurrentMediaTime())
+        }
+
+        private func updateReveal(at now: CFTimeInterval) {
+            guard let textView else { stopRevealing(); return }
+            let storage = textView.textStorage
+            storage.beginEditing()
+            for entry in reveals where NSMaxRange(entry.range) <= storage.length {
+                let progress = min(1, max(0, (now - entry.start) / 0.2))
+                storage.addAttribute(
+                    .foregroundColor,
+                    value: UIColor.label.withAlphaComponent(CGFloat(progress)),
+                    range: entry.range
+                )
+                storage.addAttribute(
+                    .baselineOffset,
+                    value: CGFloat((progress - 1) * 2),
+                    range: entry.range
+                )
+            }
+            storage.endEditing()
+            reveals.removeAll { now >= $0.start + 0.2 }
+            if reveals.isEmpty {
+                displayLink?.invalidate()
+                displayLink = nil
+            }
         }
 
         func textDraggableView(
@@ -171,24 +273,30 @@ struct QuoteDropTargetView: UIViewRepresentable {
     private let content: AnyView
     let existing: [QuoteReference]
     let dropFrame: CGRect
+    let visualFrame: CGRect
     let dynamicTypeSize: DynamicTypeSize
     let onAccept: (QuoteReference) -> Void
     let onPhaseChanged: (ComposerQuoteDragPhase) -> Void
+    let onBackgroundTap: () -> Void
 
     init<Content: View>(
         existing: [QuoteReference],
         dropFrame: CGRect,
+        visualFrame: CGRect,
         dynamicTypeSize: DynamicTypeSize,
         onAccept: @escaping (QuoteReference) -> Void,
         onPhaseChanged: @escaping (ComposerQuoteDragPhase) -> Void,
+        onBackgroundTap: @escaping () -> Void,
         @ViewBuilder content: () -> Content
     ) {
         self.content = AnyView(content())
         self.existing = existing
         self.dropFrame = dropFrame
+        self.visualFrame = visualFrame
         self.dynamicTypeSize = dynamicTypeSize
         self.onAccept = onAccept
         self.onPhaseChanged = onPhaseChanged
+        self.onBackgroundTap = onBackgroundTap
     }
 
     func makeCoordinator() -> QuoteDropTargetCoordinator {
@@ -204,6 +312,9 @@ struct QuoteDropTargetView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> QuoteDropTargetHostUIView {
         let view = QuoteDropTargetHostUIView()
+        view.visualFrame = visualFrame
+        view.onBackgroundTap = onBackgroundTap
+        view.installBackgroundTap()
         view.installDropInteraction(delegate: context.coordinator)
         view.onDidMoveToWindow = { [weak coordinator = context.coordinator, weak view] in
             guard let view else { return }
@@ -214,6 +325,8 @@ struct QuoteDropTargetView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: QuoteDropTargetHostUIView, context: Context) {
+        uiView.visualFrame = visualFrame
+        uiView.onBackgroundTap = onBackgroundTap
         context.coordinator.update(
             content: content,
             existing: existing,
@@ -243,6 +356,8 @@ final class QuoteDropTargetHostUIView: UIView {
     private weak var hostedView: UIView?
     private var dropInteraction: UIDropInteraction?
     var onDidMoveToWindow: (() -> Void)?
+    var visualFrame: CGRect = .zero
+    var onBackgroundTap: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -269,6 +384,18 @@ final class QuoteDropTargetHostUIView: UIView {
         let interaction = UIDropInteraction(delegate: delegate)
         addInteraction(interaction)
         dropInteraction = interaction
+    }
+
+    func installBackgroundTap() {
+        let tap = UITapGestureRecognizer(target: self, action: #selector(backgroundTapped(_:)))
+        tap.cancelsTouchesInView = false
+        addGestureRecognizer(tap)
+    }
+
+    @objc private func backgroundTapped(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended,
+              !visualFrame.contains(recognizer.location(in: self)) else { return }
+        onBackgroundTap?()
     }
 
     func installHostedView(_ view: UIView) {

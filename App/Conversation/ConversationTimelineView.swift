@@ -474,6 +474,7 @@ private struct TimelineItemView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var inlineSpacing = Metrics.inlineSpacing
     @ScaledMetric(relativeTo: .body) private var secondaryInset = Metrics.secondaryInset
+    @ScaledMetric(relativeTo: .body) private var readingInset = Metrics.capsulePadding
 
     @ViewBuilder
     var body: some View {
@@ -495,6 +496,7 @@ private struct TimelineItemView: View {
                 source: textSource,
                 maximumNumberOfLines: 0
             )
+            .padding(.horizontal, readingInset)
 
         case .reasoning(let text):
             Text(text)
@@ -569,6 +571,8 @@ private struct TimelineItemView: View {
         } else {
             Text(text)
                 .font(Typography.font(for: role, dynamicTypeSize: dynamicTypeSize))
+                .tracking(Typography.readingSpacing(for: role).tracking)
+                .lineSpacing(Typography.readingSpacing(for: role).lineSpacing)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -631,6 +635,8 @@ private struct PromptCapsuleView: View {
         } else {
             Text(text)
                 .font(Typography.font(for: .conversationPrompt, dynamicTypeSize: dynamicTypeSize))
+                .tracking(Typography.readingSpacing(for: .conversationPrompt).tracking)
+                .lineSpacing(Typography.readingSpacing(for: .conversationPrompt).lineSpacing)
                 .lineLimit(isExpanded ? nil : Metrics.collapsedPromptLines)
                 .onTapGesture { isExpanded.toggle() }
         }

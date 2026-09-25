@@ -208,7 +208,9 @@ enum ComposerShapeToken {
     }
 
     static func minimumRadius(for layout: ComposerLayout) -> CGFloat {
-        let divisor: CGFloat = layout.controlRailReserve > 0 ? 4 : 2
-        return max(minimumCurvature, layout.outerHeight / divisor)
+        if layout.controlRailReserve > 0 {
+            return max(minimumCurvature, layout.controlRailReserve / 2)
+        }
+        return max(minimumCurvature, layout.outerHeight / 2)
     }
 }
