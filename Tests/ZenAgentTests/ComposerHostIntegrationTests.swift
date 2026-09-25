@@ -57,8 +57,10 @@ struct ComposerHostIntegrationTests {
             text: "hello", selection: ComposerSelection(range: 0..<0),
             state: state, collapseProgress: .expanded,
             font: .systemFont(ofSize: 16), showsPlus: false,
-            primary: .send(enabled: true), models: [], selectedModelID: "",
-            errorMessage: nil,
+            primary: .send(enabled: true), models: [],
+            selectedModelID: ModelID(rawValue: "test-model"),
+            errorMessage: nil, references: [],
+            onRemoveQuote: { _ in }, onAcceptQuote: { _ in }, onQuotePhase: { _ in },
             onText: { _, _, _ in }, onFocus: { _ in }, onSend: onSend,
             onStop: {}, onModel: { _ in }
         )

@@ -1,7 +1,8 @@
+import SwiftUI
 import UIKit
 
 @MainActor
-final class ComposerHostView: UIView, UITextViewDelegate {
+final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDelegate {
     struct Configuration {
         let text: String
         let selection: ComposerSelection
@@ -11,13 +12,17 @@ final class ComposerHostView: UIView, UITextViewDelegate {
         let showsPlus: Bool
         let primary: ComposerPrimaryAction
         let models: [ModelDescriptor]
-        let selectedModelID: String
+        let selectedModelID: ModelID
         let errorMessage: String?
+        let references: [QuoteReference]
+        let onRemoveQuote: (String) -> Void
+        let onAcceptQuote: (QuoteReference) -> Void
+        let onQuotePhase: (ComposerQuoteDragPhase) -> Void
         let onText: (String, ComposerSelection, Bool) -> Void
         let onFocus: (Bool) -> Void
         let onSend: () -> Void
         let onStop: () -> Void
-        let onModel: (String) -> Void
+        let onModel: (ModelID) -> Void
     }
 
     private let surface = UIView()
@@ -28,6 +33,9 @@ final class ComposerHostView: UIView, UITextViewDelegate {
     private let plus = UIButton(type: .system)
     private let primary = UIButton(type: .system)
     private let errorLabel = UILabel()
+    private var shelfController: UIHostingController<QuoteShelfView>?
+    private var shelfHeight: CGFloat = 44
+    private var quotePhase: ComposerQuoteDragPhase = .idle
     private let motion = ComposerMotionController()
     private var widthConstraint: NSLayoutConstraint!
     private var heightConstraint: NSLayoutConstraint!
@@ -37,6 +45,7 @@ final class ComposerHostView: UIView, UITextViewDelegate {
     private var textRevision = 0
     private var measuredRevision = -1
     private var measuredWidth: CGFloat = -1
+    private var measuredFont: UIFont?
     private var measuredHeight: CGFloat = 0
     private var lastHostWidth: CGFloat = -1
 
@@ -99,7 +108,8 @@ final class ComposerHostView: UIView, UITextViewDelegate {
         errorLabel.textColor = .systemRed
         errorLabel.accessibilityIdentifier = "composer-send-error"
         errorLabel.isUserInteractionEnabled = false
-        addSubview(errorLabel)
+        surface.addSubview(errorLabel)
+        addInteraction(UIDropInteraction(delegate: self))
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(surfaceTapped))
         tap.cancelsTouchesInView = false
@@ -118,6 +128,12 @@ final class ComposerHostView: UIView, UITextViewDelegate {
 
     deinit { NotificationCenter.default.removeObserver(self) }
 
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil, let shelfController else { return }
+        attachShelf(shelfController)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         guard bounds.width > 0, bounds.width != lastHostWidth else { return }
@@ -127,6 +143,12 @@ final class ComposerHostView: UIView, UITextViewDelegate {
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let displayed = surface.layer.presentation()?.frame ?? surface.frame
+        let shelfFrame = CGRect(x: displayed.minX, y: displayed.minY - shelfHeight,
+                                width: displayed.width, height: shelfHeight)
+        if !shelfViewIsHidden, shelfFrame.contains(point), let shelf = shelfController?.view {
+            let local = CGPoint(x: point.x - shelfFrame.minX, y: point.y - shelfFrame.minY)
+            return shelf.hitTest(local, with: event) ?? shelf
+        }
         guard displayed.contains(point) else { return nil }
         let local = CGPoint(x: point.x - displayed.minX, y: point.y - displayed.minY)
         for button in [plus, primary] where !button.isHidden && button.isEnabled {
@@ -143,6 +165,8 @@ final class ComposerHostView: UIView, UITextViewDelegate {
     }
 
     var surfaceFrame: CGRect { surface.frame }
+
+    private var shelfViewIsHidden: Bool { shelfController?.view.isHidden ?? true }
 
     func configure(_ next: Configuration) {
         let oldText = configuration?.text
@@ -163,6 +187,7 @@ final class ComposerHostView: UIView, UITextViewDelegate {
         }
         placeholder.isHidden = !next.text.isEmpty
         errorLabel.text = next.errorMessage
+        updateShelf(next)
         plus.isHidden = !next.showsPlus
         plus.menu = makeMenu(next)
         switch next.primary {
@@ -201,9 +226,11 @@ final class ComposerHostView: UIView, UITextViewDelegate {
         let width = bounds.width
         let available = max(0, min(bounds.height, keyboardLayoutGuide.layoutFrame.minY))
         let editWidth = max(1, width - 2 * ComposerGeometry.edgeInset - 24)
-        if measuredRevision != textRevision || abs(measuredWidth - editWidth) > 0.5 {
+        if measuredRevision != textRevision || abs(measuredWidth - editWidth) > 0.5
+            || measuredFont != configuration.font {
             measuredRevision = textRevision
             measuredWidth = editWidth
+            measuredFont = configuration.font
             let size = editor.sizeThatFits(CGSize(width: editWidth,
                                                   height: .greatestFiniteMagnitude))
             measuredHeight = max(configuration.font.lineHeight, size.height)
@@ -221,9 +248,11 @@ final class ComposerHostView: UIView, UITextViewDelegate {
             self.viewport.frame = targetViewport
             self.plus.frame = layout.plus.insetBy(dx: 8, dy: 8)
             self.primary.frame = layout.primary.insetBy(dx: 8, dy: 8)
-            self.errorLabel.frame = CGRect(x: max(0, (width - layout.size.width) / 2),
-                                           y: self.surface.frame.minY - 28,
+            self.errorLabel.frame = CGRect(x: 0, y: -28,
                                            width: layout.size.width, height: 22)
+            self.shelfController?.view.frame = CGRect(x: 0, y: -self.shelfHeight,
+                                                      width: layout.size.width,
+                                                      height: self.shelfHeight)
             self.layoutIfNeeded()
         }
         let editorWidth = max(editWidth, targetViewport.width)
@@ -231,7 +260,9 @@ final class ComposerHostView: UIView, UITextViewDelegate {
                               height: max(measuredHeight, targetViewport.height))
         placeholder.frame = CGRect(x: 0, y: 0, width: editorWidth,
                                    height: configuration.font.lineHeight + 2)
-        editor.isScrollEnabled = state == .editing && measuredHeight > targetViewport.height
+        if state == .editing {
+            editor.isScrollEnabled = measuredHeight > targetViewport.height
+        }
         glass.cornerConfiguration = .corners(radius: .containerConcentric(
             minimum: layout.minimumCurvature
         ))
@@ -251,12 +282,14 @@ final class ComposerHostView: UIView, UITextViewDelegate {
                     self.editor.textContainer.maximumNumberOfLines = state == .editing ? 0 : 1
                     self.editor.textContainer.lineBreakMode = state == .editing
                         ? .byWordWrapping : .byTruncatingTail
+                    if state != .editing { self.editor.isScrollEnabled = false }
                 }
             )
         } else {
             apply()
             if !motion.keepsEditingLayout {
                 editor.textContainer.maximumNumberOfLines = state == .editing ? 0 : 1
+                if state != .editing { editor.isScrollEnabled = false }
             }
         }
     }
@@ -278,6 +311,43 @@ final class ComposerHostView: UIView, UITextViewDelegate {
             disabled("插件", "puzzlepiece"), modelMenu,
             disabled("推理强度", "slider.horizontal.3")
         ])
+    }
+
+    private func updateShelf(_ configuration: Configuration) {
+        if shelfController == nil {
+            let controller = UIHostingController(rootView: QuoteShelfView(entries: []))
+            controller.view.backgroundColor = .clear
+            controller.safeAreaRegions = []
+            shelfController = controller
+            surface.addSubview(controller.view)
+            attachShelf(controller)
+        }
+        shelfController?.rootView = QuoteShelfView(
+            entries: configuration.references.map(QuoteShelfEntry.init),
+            onRemove: { [weak self] id in self?.configuration?.onRemoveQuote(id) },
+            onMeasuredHeight: { [weak self] height in
+                guard let self, height.isFinite, height > 0,
+                      abs(self.shelfHeight - height) > 0.5 else { return }
+                self.shelfHeight = height
+                self.shelfController?.view.frame.origin.y = -height
+                self.shelfController?.view.frame.size.height = height
+            }
+        )
+        shelfController?.view.isHidden = configuration.references.isEmpty
+            || configuration.state == .compact
+    }
+
+    private func attachShelf(_ controller: UIHostingController<QuoteShelfView>) {
+        guard controller.parent == nil else { return }
+        var responder: UIResponder? = self
+        while let current = responder {
+            if let parent = current as? UIViewController {
+                parent.addChild(controller)
+                controller.didMove(toParent: parent)
+                return
+            }
+            responder = current.next
+        }
     }
 
     @objc private func surfaceTapped(_ recognizer: UITapGestureRecognizer) {
@@ -320,5 +390,71 @@ final class ComposerHostView: UIView, UITextViewDelegate {
         configuration.onText(editor.text ?? "",
                              ComposerSelection(range: range.location..<(range.location + range.length)),
                              editor.markedTextRange != nil)
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction,
+                         canHandle session: any UIDropSession) -> Bool {
+        session.localDragSession != nil
+            && session.items.contains { $0.localObject is InternalQuoteDrag }
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction,
+                         sessionDidEnter session: any UIDropSession) {
+        updateQuotePhase(session)
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction,
+                         sessionDidUpdate session: any UIDropSession) -> UIDropProposal {
+        guard dropInteraction(interaction, canHandle: session) else {
+            return UIDropProposal(operation: .forbidden)
+        }
+        updateQuotePhase(session)
+        return UIDropProposal(operation: quotePhase == .overDropZone ? .copy : .forbidden)
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction,
+                         sessionDidExit session: any UIDropSession) {
+        setQuotePhase(.active)
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction,
+                         performDrop session: any UIDropSession) {
+        defer { setQuotePhase(.idle) }
+        guard let configuration,
+              dropFrame.contains(session.location(in: self)) else { return }
+        for item in session.items {
+            if let reference = QuoteDragBridge.acceptedReference(
+                localObject: item.localObject,
+                hasLocalDragSession: session.localDragSession != nil,
+                existing: configuration.references
+            ) {
+                configuration.onAcceptQuote(reference)
+                break
+            }
+        }
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction,
+                         sessionDidEnd session: any UIDropSession) {
+        setQuotePhase(.idle)
+    }
+
+    private var dropFrame: CGRect {
+        let displayed = surface.layer.presentation()?.frame ?? surface.frame
+        let shelf = shelfViewIsHidden ? .zero : CGRect(
+            x: displayed.minX, y: displayed.minY - shelfHeight,
+            width: displayed.width, height: shelfHeight
+        )
+        return shelf.isEmpty ? displayed : displayed.union(shelf)
+    }
+
+    private func updateQuotePhase(_ session: any UIDropSession) {
+        setQuotePhase(dropFrame.contains(session.location(in: self)) ? .overDropZone : .active)
+    }
+
+    private func setQuotePhase(_ phase: ComposerQuoteDragPhase) {
+        guard phase != quotePhase else { return }
+        quotePhase = phase
+        configuration?.onQuotePhase(phase)
     }
 }

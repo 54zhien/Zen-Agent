@@ -76,6 +76,10 @@ struct ConversationComposerView: View {
             models: modelsForSelectedInstance,
             selectedModelID: controller.configuration.modelID,
             errorMessage: coordinator.sendErrorMessage,
+            references: controller.draft.references,
+            onRemoveQuote: controller.removeQuoteReference(id:),
+            onAcceptQuote: { reference in _ = controller.addQuoteReference(reference) },
+            onQuotePhase: { phase in _ = controller.handle(.quoteDragPhaseChanged(phase)) },
             onText: { text, selection, composing in
                 if controller.draft.text != text { controller.draft.text = text }
                 if controller.draft.selection != selection { controller.draft.selection = selection }
