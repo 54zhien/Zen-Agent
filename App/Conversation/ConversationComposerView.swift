@@ -294,7 +294,7 @@ struct ConversationComposerView: View {
 
     private func controlLabel(_ symbol: String, frame: CGRect) -> some View {
         Image(systemName: symbol)
-            .font(.system(size: 16, weight: .semibold))
+            .imageScale(.medium)
             .foregroundStyle(.white)
             .frame(width: 36, height: 36)
             .background(.black, in: Circle())
