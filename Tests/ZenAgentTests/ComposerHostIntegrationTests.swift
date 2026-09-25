@@ -18,6 +18,7 @@ struct ComposerHostIntegrationTests {
         #expect(host.hitTest(CGPoint(x: host.surfaceFrame.midX,
                                      y: host.surfaceFrame.midY), with: nil) != nil)
         #expect(host.editor === editor)
+        #expect(abs(host.editor.bounds.width - host.previewViewportWidth) < 1)
         #expect(host.placeholder.superview === editor.superview)
         #expect(host.placeholder.superview?.constraints.contains {
             $0.firstAttribute == .firstBaseline && $0.secondAttribute == .firstBaseline
@@ -42,29 +43,68 @@ struct ComposerHostIntegrationTests {
         #expect(newCount == 1)
     }
 
-    private func installedHost() -> (UIWindow, ComposerHostView) {
+    @Test("text updates retarget an in-flight morph")
+    func textChangeDuringMorphRetargets() {
+        let (window, host) = installedHost()
+        _ = window
+        host.configure(configuration(state: .editing))
+        let firstGeneration = host.motionGeneration
+        host.configure(configuration(text: "正在组词", state: .editing))
+        #expect(host.motionGeneration > firstGeneration)
+    }
+
+    @Test("removing the final quote releases timeline clearance")
+    func removingFinalQuoteReleasesClearance() {
+        let (window, host) = installedHost(initialState: .editing)
+        _ = window
+        let quote = QuoteReference(
+            id: "quote", source: QuoteSourceLocator(
+                sourceConversationID: "conversation", sourceMessageID: "message",
+                sourcePartID: "part", range: QuoteTextRange(utf16Start: 0, utf16Length: 2)
+            ), snapshot: "引用", createdAt: Date()
+        )
+        host.configure(configuration(state: .editing, references: [quote]))
+        let withQuote = host.reportedClearance
+        host.configure(configuration(state: .editing))
+        #expect(host.reportedClearance < withQuote)
+    }
+
+    @Test("timeline dismissal excludes message content")
+    func timelineTapOnlyDismissesOnBlankSpace() {
+        let frames = ["turn": CGRect(x: 20, y: 100, width: 350, height: 120)]
+        #expect(!ConversationTimelineView.isBlankTap(CGPoint(x: 80, y: 140),
+                                                      turnFrames: frames))
+        #expect(ConversationTimelineView.isBlankTap(CGPoint(x: 80, y: 300),
+                                                    turnFrames: frames))
+    }
+
+    private func installedHost(
+        initialState: ComposerPresentationState = .resting
+    ) -> (UIWindow, ComposerHostView) {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let controller = UIViewController()
         window.rootViewController = controller
         window.makeKeyAndVisible()
         let host = ComposerHostView(frame: controller.view.bounds)
         controller.view.addSubview(host)
-        host.configure(configuration())
+        host.configure(configuration(state: initialState))
         host.layoutIfNeeded()
         return (window, host)
     }
 
     private func configuration(
+        text: String = "hello",
         state: ComposerPresentationState = .resting,
+        references: [QuoteReference] = [],
         onSend: @escaping () -> Void = {}
     ) -> ComposerHostView.Configuration {
         ComposerHostView.Configuration(
-            text: "hello", selection: ComposerSelection(range: 0..<0),
+            text: text, selection: ComposerSelection(range: 0..<0),
             state: state, collapseProgress: .expanded,
             font: .systemFont(ofSize: 16), showsPlus: false,
             primary: .send(enabled: true), models: [],
             selectedModelID: ModelID(rawValue: "test-model"),
-            errorMessage: nil, references: [],
+            errorMessage: nil, references: references,
             onRemoveQuote: { _ in }, onAcceptQuote: { _ in }, onQuotePhase: { _ in },
             onText: { _, _, _ in }, onFocus: { _ in }, onSend: onSend,
             onStop: {}, onModel: { _ in }, onHeightChanged: { _ in }

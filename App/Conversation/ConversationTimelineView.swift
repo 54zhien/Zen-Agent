@@ -23,6 +23,7 @@ struct ConversationTimelineView: View {
     var onQuoteReference: (QuoteReference) -> Void = { _ in }
     var onQuoteDragPhaseChanged: (ComposerQuoteDragPhase) -> Void = { _ in }
     var onSelectionHandleDragChanged: (Bool) -> Void = { _ in }
+    var onBlankBackgroundTap: () -> Void = {}
     var scrollBridge: ConversationPaneScrollBridge? = nil
     var bottomComposerClearance: CGFloat = 62
 
@@ -107,6 +108,10 @@ struct ConversationTimelineView: View {
                 Color.clear.frame(height: bottomComposerClearance)
             }
             .coordinateSpace(name: scrollCoordinateSpace)
+            .simultaneousGesture(SpatialTapGesture().onEnded { tap in
+                guard Self.isBlankTap(tap.location, turnFrames: turnFrames) else { return }
+                onBlankBackgroundTap()
+            })
             .scrollPosition($scrollPosition, anchor: .top)
             .onPreferenceChange(ConversationTimelineTurnFramesKey.self) { frames in
                 turnFrames = frames
@@ -182,6 +187,10 @@ struct ConversationTimelineView: View {
 
     private var scrollCoordinateSpace: String {
         "conversation-timeline-scroll-\(projection.conversationID)"
+    }
+
+    static func isBlankTap(_ location: CGPoint, turnFrames: [String: CGRect]) -> Bool {
+        turnFrames.values.allSatisfy { !$0.contains(location) }
     }
 
     private func paneGeometry(from geometry: SwiftUI.ScrollGeometry) -> ScrollGeometry {

@@ -42,16 +42,16 @@ struct ConversationPaneView: View {
                 onSelectionHandleDragChanged: { isDragging in
                     _ = pane.composer.handle(.selectionHandleDragChanged(isDragging))
                 },
+                onBlankBackgroundTap: {
+                    guard pane.composer.draft.presentationState == .editing,
+                          pane.composer.quoteDragPhase == .idle,
+                          !pane.composer.isSelectionHandleDragging else { return }
+                    _ = pane.composer.handle(.conversationBackgroundTapped)
+                },
                 scrollBridge: scrollBridge,
                 bottomComposerClearance: composerClearance
             )
             .accessibilityIdentifier("conversation-pane-approval-\(pane.conversationID)")
-            .simultaneousGesture(TapGesture().onEnded {
-                guard pane.composer.draft.presentationState == .editing,
-                      pane.composer.quoteDragPhase == .idle,
-                      !pane.composer.isSelectionHandleDragging else { return }
-                _ = pane.composer.handle(.conversationBackgroundTapped)
-            })
 
             ConversationComposerView(
                 conversationID: pane.conversationID,

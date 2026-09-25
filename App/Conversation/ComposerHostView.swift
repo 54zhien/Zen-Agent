@@ -198,12 +198,16 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     var surfaceFrame: CGRect { surface.frame }
+    var motionGeneration: Int { motion.generation }
+    var reportedClearance: CGFloat { lastReportedClearance }
+    var previewViewportWidth: CGFloat { viewport.bounds.width }
 
     private var shelfViewIsHidden: Bool { shelfController?.view.isHidden ?? true }
 
     func configure(_ next: Configuration) {
         let oldText = configuration?.text
         let oldFont = configuration?.font
+        let oldReferences = configuration?.references
         configuration = next
         editor.font = next.font
         placeholder.font = next.font
@@ -254,8 +258,17 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             } else {
                 motion.reset(to: next.state)
             }
-        } else if !motion.keepsEditingLayout || oldText != next.text || oldFont != next.font {
-            render(animated: false)
+        } else {
+            let geometryChanged = oldText != next.text || oldFont != next.font
+                || oldReferences != next.references
+            if motion.phase == .expanding || motion.phase == .collapsing {
+                if geometryChanged {
+                    // A new target must start at the visible presentation position.
+                    render(animated: true, generation: motion.begin(next.state))
+                }
+            } else if !motion.keepsEditingLayout || geometryChanged {
+                render(animated: false)
+            }
         }
     }
 
@@ -295,12 +308,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let targetViewport = layout.textViewport
         let clearance = layout.size.height + 12
             + ((configuration.references.isEmpty || state == .compact) ? 0 : shelfHeight)
-        if abs(clearance - lastReportedClearance) > 0.5 {
-            lastReportedClearance = clearance
-            Task { @MainActor [weak self] in
-                self?.configuration?.onHeightChanged(clearance)
-            }
-        }
+        reportClearance(clearance)
         let apply = {
             self.widthConstraint.constant = layout.size.width
             self.heightConstraint.constant = layout.size.height
@@ -365,6 +373,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         if state != .editing {
             editor.isScrollEnabled = false
             editor.contentOffset = .zero
+            editor.frame.size.width = max(1, viewport.bounds.width)
             editor.frame.size.height = max(1, viewport.bounds.height)
         }
         if let carrier {
@@ -383,6 +392,15 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let surfaceBottom = surface.convert(CGPoint(x: 0, y: surface.bounds.maxY),
                                             to: window).y
         geometryProbe.accessibilityValue = "root=\(rootBottom);guide=\(guideTop);surface=\(surfaceBottom)"
+    }
+
+    private func reportClearance(_ clearance: CGFloat) {
+        guard abs(clearance - lastReportedClearance) > 0.5 else { return }
+        lastReportedClearance = clearance
+        Task { @MainActor [weak self] in
+            guard let self, abs(self.lastReportedClearance - clearance) <= 0.5 else { return }
+            self.configuration?.onHeightChanged(clearance)
+        }
     }
 
     private func makeMenu(_ configuration: Configuration) -> UIMenu {
@@ -423,7 +441,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
                 self.shelfController?.view.frame.origin.y = -height
                 self.shelfController?.view.frame.size.height = height
                 if !self.shelfViewIsHidden {
-                    self.configuration?.onHeightChanged(self.surface.frame.height + 12 + height)
+                    self.reportClearance(self.surface.frame.height + 12 + height)
                 }
             }
         )
