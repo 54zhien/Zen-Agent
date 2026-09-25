@@ -6,6 +6,11 @@ struct AppExecutionTarget: Equatable, Sendable {
     let modelID: ModelID
 }
 
+struct RecentConversationSummary: Identifiable, Equatable, Sendable {
+    let id: String
+    let title: String
+}
+
 enum AppShellLaunchState: Equatable {
     case notStarted
     case loading
@@ -24,6 +29,7 @@ final class AppShellModel {
     private(set) var conversationID = UUID().uuidString
     private(set) var target: AppExecutionTarget?
     private(set) var targetMessage: String?
+    private(set) var recentConversations: [RecentConversationSummary] = []
     private(set) var pane: ConversationPaneController?
     private(set) var actionBridge: ComposerRuntimeActionBridge?
     private(set) var providerSetup: ProviderSetupModel?
@@ -32,6 +38,8 @@ final class AppShellModel {
     @ObservationIgnored private let userDefaults: UserDefaults
     @ObservationIgnored private var dependencies: AppAssembly.Dependencies?
     @ObservationIgnored private var startedAssembly = false
+    @ObservationIgnored private var backgroundedAtInProcess: Date?
+    @ObservationIgnored private var draftsByConversationID: [String: ComposerDraftState] = [:]
 
     var canSend: Bool {
         target != nil && pane != nil && actionBridge != nil
@@ -39,6 +47,10 @@ final class AppShellModel {
 
     var runtimeForPresentation: ConversationRuntime? {
         dependencies?.runtime
+    }
+
+    var persistedTurnCount: Int {
+        pane?.liveStore.state.timeline.turns.count ?? 0
     }
 
     init(userDefaults: UserDefaults = .standard) {
@@ -57,6 +69,8 @@ final class AppShellModel {
         self.startedAssembly = true
         prepareProviderSetup()
         loadDefaultTarget()
+        refreshRecentConversations()
+        restoreAtLaunch(at: Date())
     }
 
     func assembleIfNeeded() {
@@ -72,6 +86,7 @@ final class AppShellModel {
         actionBridge = nil
         target = nil
         targetMessage = nil
+        recentConversations = []
         providerSetup = nil
         router = RunEventRouter()
 
@@ -81,6 +96,8 @@ final class AppShellModel {
             launchState = .ready
             prepareProviderSetup()
             loadDefaultTarget()
+            refreshRecentConversations()
+            restoreAtLaunch(at: Date())
         } catch let failure as AppAssemblyFailure {
             launchState = .failed(failure)
         } catch {
@@ -89,33 +106,116 @@ final class AppShellModel {
     }
 
     func newConversation() {
+        rememberCurrentDraft()
         router.unregisterPane(for: conversationID)
         pane = nil
         actionBridge = nil
         conversationID = UUID().uuidString
         installPaneIfReady()
+        refreshRecentConversations()
+    }
+
+    func enteredBackground(at date: Date) {
+        backgroundedAtInProcess = date
+        guard isCurrentConversationVisible else {
+            ConversationResumeMarker.clear(from: userDefaults)
+            return
+        }
+        ConversationResumeMarker(
+            conversationID: conversationID,
+            backgroundedAt: date
+        ).write(to: userDefaults)
+    }
+
+    func becameActive(at date: Date) {
+        guard let backgroundedAtInProcess else { return }
+        self.backgroundedAtInProcess = nil
+        ConversationResumeMarker.clear(from: userDefaults)
+        let marker = ConversationResumeMarker(
+            conversationID: conversationID,
+            backgroundedAt: backgroundedAtInProcess
+        )
+        if !marker.isWithinRestoreWindow(at: date), isCurrentConversationVisible {
+            newConversation()
+        }
+    }
+
+    private func restoreAtLaunch(at date: Date) {
+        let marker = ConversationResumeMarker.read(from: userDefaults)
+        ConversationResumeMarker.clear(from: userDefaults)
+        guard let marker, marker.isWithinRestoreWindow(at: date) else { return }
+        _ = openConversation(id: marker.conversationID)
+    }
+
+    private var isCurrentConversationVisible: Bool {
+        guard let store = dependencies?.store else { return false }
+        return (try? store.conversationLifecycle(id: conversationID)) == .visible
+    }
+
+    private func rememberCurrentDraft() {
+        guard let pane, isCurrentConversationVisible else { return }
+        draftsByConversationID[conversationID] = pane.composer.draft
+    }
+
+    func refreshRecentConversations() {
+        guard let store = dependencies?.store else {
+            recentConversations = []
+            return
+        }
+
+        do {
+            let visible = try store.visibleConversations().sorted { left, right in
+                if left.userActiveAt != right.userActiveAt {
+                    return left.userActiveAt > right.userActiveAt
+                }
+                return left.id < right.id
+            }
+            recentConversations = visible.map { conversation in
+                RecentConversationSummary(
+                    id: conversation.id,
+                    title: recentTitle(for: conversation, in: store)
+                )
+            }
+        } catch {
+            recentConversations = []
+        }
     }
 
     @discardableResult
     func openConversation(id: String) -> Bool {
         guard let dependencies, let target else { return false }
+        guard let visibleIDs = try? dependencies.store.visibleConversations().map(\.id),
+              visibleIDs.contains(id) else { return false }
+
+        if id == conversationID, pane != nil {
+            return true
+        }
+
         do {
             let timeline = try ConversationTimelineLoader.load(
                 conversationID: id,
                 from: dependencies.store
             )
-            router.unregisterPane(for: conversationID)
-            pane = nil
-            actionBridge = nil
-            conversationID = id
-            try installPane(
+            let wiring = try makePane(
+                id: id,
                 initialTimeline: timeline,
                 dependencies: dependencies,
                 target: target
             )
+            guard dependencies.router.registerPane(wiring.pane) else { return false }
+
+            // Keep the outgoing pane intact until the replacement has loaded and registered.
+            rememberCurrentDraft()
+            let outgoingConversationID = conversationID
+            router.unregisterPane(for: outgoingConversationID)
+            conversationID = id
+            actionBridge = wiring.bridge
+            pane = wiring.pane
+            if let savedDraft = draftsByConversationID[id] {
+                wiring.pane.composer.draft = savedDraft
+            }
             return true
         } catch {
-            launchState = .failed(.wiring(summary: String(reflecting: type(of: error))))
             return false
         }
     }
@@ -207,15 +307,34 @@ final class AppShellModel {
         dependencies: AppAssembly.Dependencies,
         target: AppExecutionTarget
     ) throws {
-        let bridge = AppAssembly.wireConversation(
+        let wiring = try makePane(
             id: conversationID,
+            initialTimeline: initialTimeline,
+            dependencies: dependencies,
+            target: target
+        )
+        guard dependencies.router.registerPane(wiring.pane) else {
+            throw AppTargetFailure.configurationUnavailable
+        }
+        actionBridge = wiring.bridge
+        pane = wiring.pane
+    }
+
+    private func makePane(
+        id: String,
+        initialTimeline: ConversationTimelineProjection,
+        dependencies: AppAssembly.Dependencies,
+        target: AppExecutionTarget
+    ) throws -> (bridge: ComposerRuntimeActionBridge, pane: ConversationPaneController) {
+        let bridge = AppAssembly.wireConversation(
+            id: id,
             dependencies: dependencies,
             onTargetFailure: { [weak self] failure in
                 self?.targetBecameUnavailable(failure)
             }
         )
         let pane = try ConversationPaneController(
-            conversationID: conversationID,
+            conversationID: id,
             initialTimeline: initialTimeline,
             configuration: ConversationComposerConfiguration(
                 providerInstanceID: target.providerInstanceID,
@@ -226,10 +345,37 @@ final class AppShellModel {
                 try ConversationTimelineLoader.load(conversationID: id, from: dependencies.store)
             }
         )
-        guard dependencies.router.registerPane(pane) else {
-            throw AppTargetFailure.configurationUnavailable
+        return (bridge, pane)
+    }
+
+    private func recentTitle(
+        for conversation: ConversationRecord,
+        in store: PersistenceStore
+    ) -> String {
+        let storedTitle = Self.normalizedTitle(conversation.title)
+        if !storedTitle.isEmpty { return Self.displayTitle(storedTitle) }
+
+        guard let messages = try? store.messages(inConversation: conversation.id) else {
+            return "未命名会话"
         }
-        actionBridge = bridge
-        self.pane = pane
+        for message in messages where message.role == .user {
+            guard let parts = try? store.parts(ofMessage: message.id) else { continue }
+            for part in parts where part.kind == .text {
+                guard let text = try? store.text(ofPart: part.id),
+                      !Self.normalizedTitle(text).isEmpty else { continue }
+                return Self.displayTitle(Self.normalizedTitle(text))
+            }
+        }
+        return "未命名会话"
+    }
+
+    private static func normalizedTitle(_ title: String) -> String {
+        title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    private static func displayTitle(_ title: String) -> String {
+        let limit = 56
+        guard title.count > limit else { return title }
+        return String(title.prefix(limit - 1)) + "…"
     }
 }
