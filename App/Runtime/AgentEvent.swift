@@ -12,7 +12,8 @@ enum AgentEvent: Sendable, Equatable {
     case messagePartDelta(
         runID: String,
         partID: String,
-        delta: String
+        delta: String,
+        endUTF8Offset: Int
     )
     case messagePartCompleted(
         runID: String,

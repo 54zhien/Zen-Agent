@@ -657,7 +657,7 @@ actor ConversationRuntime {
             )
             try store.createPart(part)
 
-        case .messagePartDelta(_, let partID, let delta):
+        case .messagePartDelta(_, let partID, let delta, _):
             try store.appendText(toPart: partID, delta: delta)
 
         case .messagePartCompleted(_, let partID, let state):
@@ -796,7 +796,7 @@ actor ConversationRuntime {
         case .runAccepted(let runID, _),
              .runStateChanged(let runID, _),
              .messagePartStarted(let runID, _, _, _),
-             .messagePartDelta(let runID, _, _),
+             .messagePartDelta(let runID, _, _, _),
              .messagePartCompleted(let runID, _, _),
              .toolCallChanged(let runID, _, _),
              .approvalRequired(let runID, _),

@@ -450,7 +450,8 @@ actor AgentRuntime {
                                     .messagePartDelta(
                                         runID: runID,
                                         partID: outputState.partID,
-                                        delta: coalesced
+                                        delta: coalesced,
+                                        endUTF8Offset: outputState.text.utf8.count
                                     ),
                                     continuation: continuation,
                                     project: project
@@ -1242,7 +1243,8 @@ actor AgentRuntime {
             .messagePartDelta(
                 runID: runID,
                 partID: output.partID,
-                delta: delta
+                delta: delta,
+                endUTF8Offset: output.text.utf8.count
             ),
             continuation: continuation,
             project: project

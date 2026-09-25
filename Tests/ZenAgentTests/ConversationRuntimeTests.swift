@@ -83,7 +83,7 @@ actor I05EventRecorder {
             }
         }
 
-        if case .messagePartDelta(let runID, let partID, let delta) = event {
+        if case .messagePartDelta(let runID, let partID, let delta, _) = event {
             let waiters = deltaWaiters
             deltaWaiters.removeAll()
             for waiter in waiters {
@@ -110,7 +110,7 @@ actor I05EventRecorder {
         if let event = events.first(where: {
             if case .messagePartDelta = $0 { return true }
             return false
-        }), case .messagePartDelta(let runID, let partID, let delta) = event {
+        }), case .messagePartDelta(let runID, let partID, let delta, _) = event {
             return (runID, partID, delta)
         }
 

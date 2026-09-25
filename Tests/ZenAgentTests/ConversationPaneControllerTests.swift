@@ -219,7 +219,7 @@ struct ConversationPaneControllerTests {
             in: "conversation-A"
         )
         _ = try paneA.consume(
-            .messagePartDelta(runID: "run-A", partID: "part-A", delta: "A"),
+            .messagePartDelta(runID: "run-A", partID: "part-A", delta: "A", endUTF8Offset: 1),
             in: "conversation-A"
         )
 
@@ -233,7 +233,7 @@ struct ConversationPaneControllerTests {
             in: "conversation-B"
         )
         _ = try paneB.consume(
-            .messagePartDelta(runID: "run-B", partID: "part-B", delta: "B"),
+            .messagePartDelta(runID: "run-B", partID: "part-B", delta: "B", endUTF8Offset: 1),
             in: "conversation-B"
         )
 
