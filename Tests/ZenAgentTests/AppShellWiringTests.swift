@@ -349,7 +349,7 @@ struct AppShellWiringTests {
             partID: "route-part-A",
             kind: .text
         ))
-        await router.handle(.messagePartDelta(runID: "route-run-A", partID: "route-part-A", delta: "reply A"))
+        await router.handle(.messagePartDelta(runID: "route-run-A", partID: "route-part-A", delta: "reply A", endUTF8Offset: 7))
 
         #expect(paneA.liveStore.state.timeline.turns.map(\.runID) == ["route-run-A"])
         #expect(assistantTexts(in: paneA.liveStore.state.timeline) == ["reply A"])
@@ -367,7 +367,7 @@ struct AppShellWiringTests {
             partID: "buffered-part",
             kind: .text
         ))
-        await router.handle(.messagePartDelta(runID: "buffered-run", partID: "buffered-part", delta: "saved reply"))
+        await router.handle(.messagePartDelta(runID: "buffered-run", partID: "buffered-part", delta: "saved reply", endUTF8Offset: 11))
 
         let pane = try makePane(conversationID: "buffered-conversation") { id in
             persistedTimeline(
@@ -412,7 +412,7 @@ struct AppShellWiringTests {
             partID: "recover-part",
             kind: .text
         ))
-        await router.handle(.messagePartDelta(runID: "recover-run", partID: "recover-part", delta: "recovered reply"))
+        await router.handle(.messagePartDelta(runID: "recover-run", partID: "recover-part", delta: "recovered reply", endUTF8Offset: 15))
 
         #expect(router.recoveryMessage(for: "recover-conversation") != nil)
         #expect(loadCount == 1)
@@ -457,19 +457,19 @@ struct AppShellWiringTests {
             kind: .text
         ))
         persistedText = "hello"
-        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "hello"))
+        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "hello", endUTF8Offset: 5))
         router.unregisterPane(for: conversationID)
 
         let reopenedPane = try makeRecoveryPane()
         #expect(router.registerPane(reopenedPane))
         persistedText = "hello world"
-        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: " world"))
+        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: " world", endUTF8Offset: 11))
         #expect(router.retryTimelineLoad(for: conversationID))
         #expect(assistantTexts(in: reopenedPane.liveStore.state.timeline) == ["hello world"])
         #expect(reopenedPane.liveStore.state.activeParts[partID]?.text == "hello world")
 
         persistedText = "hello world!"
-        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "!"))
+        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "!", endUTF8Offset: 12))
         await router.handle(.messagePartCompleted(runID: runID, partID: partID, state: .completed))
         await router.handle(.runEnded(runID: runID, state: .completed, endReason: .completed))
 
@@ -499,7 +499,7 @@ struct AppShellWiringTests {
             partID: partID,
             kind: .text
         ))
-        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "live answer"))
+        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "live answer", endUTF8Offset: 11))
         router.unregisterPane(for: conversationID)
         await router.handle(.messagePartCompleted(runID: runID, partID: partID, state: .completed))
         await router.handle(.runEnded(runID: runID, state: .completed, endReason: .completed))
@@ -548,9 +548,9 @@ struct AppShellWiringTests {
             partID: "detached-part-A",
             kind: .text
         ))
-        await router.handle(.messagePartDelta(runID: "detached-run-A", partID: "detached-part-A", delta: "A"))
+        await router.handle(.messagePartDelta(runID: "detached-run-A", partID: "detached-part-A", delta: "A", endUTF8Offset: 1))
         router.unregisterPane(for: "detached-A")
-        await router.handle(.messagePartDelta(runID: "detached-run-A", partID: "detached-part-A", delta: " hidden"))
+        await router.handle(.messagePartDelta(runID: "detached-run-A", partID: "detached-part-A", delta: " hidden", endUTF8Offset: 8))
 
         #expect(assistantTexts(in: paneB.liveStore.state.timeline).isEmpty)
 

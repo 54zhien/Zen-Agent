@@ -161,6 +161,19 @@ final class RunEventRouter {
 
         do {
             _ = try registration.pane.consume(event, in: registration.pane.conversationID)
+            if registration.pane.liveStore.needsTimelineReload {
+                registration.state = .waitingForRecovery
+                if isDetached {
+                    detachedPanesByConversationID[conversationID] = registration
+                } else {
+                    panesByConversationID[conversationID] = registration
+                }
+                recoveryMessages[conversationID] = "无法加载会话内容，请重试。"
+                if !Self.isRunAccepted(event) {
+                    bufferedEvents[conversationID, default: []].append(event)
+                }
+                record("Part delta offset mismatch for \(runID) in \(conversationID)")
+            }
         } catch {
             registration.state = .waitingForRecovery
             if isDetached {
@@ -198,6 +211,15 @@ final class RunEventRouter {
             }
             do {
                 _ = try registration.pane.consume(event, in: registration.pane.conversationID)
+                if registration.pane.liveStore.needsTimelineReload {
+                    markRecovery(for: conversationID, runID: Self.runID(for: event))
+                    if !Self.isRunAccepted(event) {
+                        events.insert(event, at: 0)
+                    }
+                    events.append(contentsOf: bufferedEvents.removeValue(forKey: conversationID) ?? [])
+                    bufferedEvents[conversationID] = events
+                    return
+                }
             } catch {
                 markRecovery(for: conversationID, runID: Self.runID(for: event))
                 if !Self.isRunAccepted(event) {
@@ -218,9 +240,10 @@ final class RunEventRouter {
         case .messagePartStarted(let runID, _, let partID, let kind):
             guard kind == .text || kind == .reasoning else { return false }
             return hasPersistedPart(partID, in: runID, timeline: timeline)
-        case .messagePartDelta(let runID, let partID, _),
-             .messagePartCompleted(let runID, let partID, _):
-            return hasPersistedPart(partID, in: runID, timeline: timeline)
+        case .messagePartDelta:
+            return false
+        case .messagePartCompleted(let runID, let partID, _):
+            return hasCompletedPersistedPart(partID, in: runID, timeline: timeline)
         case .approvalRequired(_, let toolCallID):
             return pane.liveStore.state.pendingToolApprovals.contains {
                 $0.toolCallID == toolCallID
@@ -237,6 +260,15 @@ final class RunEventRouter {
     ) -> Bool {
         timeline.turns.first(where: { $0.runID == runID })?.textSourcesByItemIndex.values
             .contains(where: { $0.partID == partID }) ?? false
+    }
+
+    private func hasCompletedPersistedPart(
+        _ partID: String,
+        in runID: String,
+        timeline: ConversationTimelineProjection
+    ) -> Bool {
+        timeline.turns.first(where: { $0.runID == runID })?.textSourcesByItemIndex.values
+            .contains(where: { $0.partID == partID && $0.isCompleted }) ?? false
     }
 
     private func markRecovery(for conversationID: String, runID: String) {
@@ -277,7 +309,7 @@ final class RunEventRouter {
         case .runAccepted(let runID, _),
              .runStateChanged(let runID, _),
              .messagePartStarted(let runID, _, _, _),
-             .messagePartDelta(let runID, _, _),
+             .messagePartDelta(let runID, _, _, _),
              .messagePartCompleted(let runID, _, _),
              .toolCallChanged(let runID, _, _),
              .approvalRequired(let runID, _),

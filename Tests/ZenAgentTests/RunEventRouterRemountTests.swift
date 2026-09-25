@@ -61,19 +61,19 @@ struct RunEventRouterRemountTests {
             kind: .text
         ))
         durableText = "hello"
-        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "hello"))
+        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "hello", endUTF8Offset: 5))
         #expect(assistantText(in: firstPane) == "hello")
 
         router.unregisterPane(for: conversationID)
         durableText = "hello world"
-        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: " world"))
+        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: " world", endUTF8Offset: 11))
 
         let secondPane = try pane()
         #expect(router.registerPane(secondPane))
         #expect(assistantText(in: secondPane) == "hello world")
 
         durableText = "hello world!"
-        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "!"))
+        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "!", endUTF8Offset: 12))
         durablePartCompleted = true
         await router.handle(.messagePartCompleted(runID: runID, partID: partID, state: .completed))
         await router.handle(.runEnded(runID: runID, state: .completed, endReason: .completed))
@@ -136,14 +136,14 @@ struct RunEventRouterRemountTests {
             kind: .text
         ))
         durableText = "repeat"
-        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "repeat"))
+        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "repeat", endUTF8Offset: 6))
         router.unregisterPane(for: conversationID)
 
         // Projection has committed the next delta, but Router has not seen it yet.
         durableText = "repeatrepeat"
         let secondPane = try pane()
         #expect(router.registerPane(secondPane))
-        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "repeat"))
+        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "repeat", endUTF8Offset: 12))
 
         #expect(assistantText(in: secondPane) == "repeatrepeat")
         #expect(secondPane.liveStore.droppedUnlocatableDeltas == 0)
@@ -199,16 +199,16 @@ struct RunEventRouterRemountTests {
             kind: .text
         ))
         durableText = "one"
-        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "one"))
+        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "one", endUTF8Offset: 3))
 
         // Persistence commits this delta before its event reaches the router.
         durableText = "onetwo"
         #expect(router.retryTimelineLoad(for: conversationID))
-        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "two"))
+        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "two", endUTF8Offset: 6))
         #expect(assistantText(in: pane) == "onetwo")
 
         durableText = "onetwothree"
-        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "three"))
+        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "three", endUTF8Offset: 11))
         #expect(assistantText(in: pane) == "onetwothree")
         #expect(pane.liveStore.droppedUnlocatableDeltas == 0)
     }

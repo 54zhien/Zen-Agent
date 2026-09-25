@@ -61,7 +61,7 @@ extension RunProjection {
         case .messagePartStarted(let runID, _, _, _):
             eventRunID = runID
             nextState = nil
-        case .messagePartDelta(let runID, _, _):
+        case .messagePartDelta(let runID, _, _, _):
             eventRunID = runID
             nextState = nil
         case .messagePartCompleted(let runID, _, _):
