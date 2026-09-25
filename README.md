@@ -21,7 +21,7 @@ Blueprint  ──defines intent──▶  Zen-Agent
 ## Blueprint baseline
 
 ```
-Zen-Agent-Blueprint @ 6b12e460a5db3fabaaff8f39b4732bcb73fb6405
+Zen-Agent-Blueprint @ 596a84d4b58769e3e7b838be95edcb43f9e0ec82
 ```
 
 This is a snapshot of the design state this work started from, not a permanent
@@ -31,35 +31,16 @@ baseline is recorded in `Docs/ADR/`.
 
 ## Status
 
-**Stage 0 is complete; implementation beyond Stage 0 is in progress.**
+Stage 0 and Stage 1 are closed. Stage 2 runtime and tool boundaries are implemented;
+Stage 3 integration is in progress. This W1 branch wires a single-conversation App
+shell, persisted text history, and the Blueprint's provisional 20-minute return
+behavior. A green unit-test run does not replace on-device acceptance of the full
+send and restore flow.
 
-**Under the Blueprint's definitions, Stage 1 is in progress; it is not complete.**
-The repository also contains partial implementation belonging to later stages — Stage 2
-run-state, send-commit and tool-recovery concepts among them — and out-of-order
-implementation is not evidence that the stage it jumped ahead of is finished.
-
-The Stage 0 baseline remains in place: the persistence engine is GRDB
-(see `Docs/ADR/0001-persistence-engine.md`), the schema and numbered migrator exist,
-and the seven invariants behind that decision have regression coverage.
-
-At the implementation baseline immediately preceding this documentation sync
-(`5523ce0`), the repository also contains partial, tested implementation surfaces for:
-
-- Provider contracts and shared types, including a `FakeProvider` and DeepSeek
-  implementation under `App/Provider/`;
-- credential storage and a Keychain-backed secret backend under `App/Credential/`;
-- HTTP transport, SSE parsing, streaming timeout policy, and a URLSession-backed
-  transport under `App/HTTP/`; and
-- persistence support for provider instances, credential metadata, steps, streaming,
-  tool calls, and deletion.
-
-Their presence does not mean the enclosing Blueprint stage is complete or that an
-end-to-end product runtime exists.
-
-No implementation surface for AgentRuntime, ToolRuntime, Conversation UI / Composer,
-App Space / Split, Soul, Memory, Skills, MCP, or Subagent is present in the tracked
-`App/` sources at that baseline. Persistence records or recovery tests concerning
-steps and tool calls are not an AgentRuntime or ToolRuntime.
+`main` still presents the earlier placeholder App entry. W1 remains on
+`feat/w1-app-shell-wiring` until its integration gate is met; this branch adds the
+recent-conversation entry and return behavior on top of W1. App Space, Soul, Memory,
+Skills, MCP and Subagent remain later work.
 
 `App/Persistence/` remains a data layer. GRDB is confined to it, and the existing
 repository guard must continue to fail the build if that boundary is violated.
