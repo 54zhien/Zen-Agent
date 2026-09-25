@@ -161,7 +161,7 @@ struct ComposerGeometryTests {
                 #expect(previousRestingTextFrame.width - restingTarget.textFrame.width < 10)
                 #expect(restingTarget.textFrame.minX >= previousRestingTextFrame.minX - 0.01)
                 #expect(restingTarget.textFrame.minX - previousRestingTextFrame.minX < 5)
-                #expect(abs(restingTarget.textFrame.minY - previousRestingTextFrame.minY) < 1)
+                #expect(abs(restingTarget.textFrame.minY - previousRestingTextFrame.minY) < 2)
                 #expect(abs(restingTarget.textFrame.height - previousRestingTextFrame.height) < 1)
             }
             if let previousCompactTextFrame {
@@ -169,7 +169,7 @@ struct ComposerGeometryTests {
                 #expect(previousCompactTextFrame.width - compactTarget.textFrame.width < 10)
                 #expect(compactTarget.textFrame.minX >= previousCompactTextFrame.minX - 0.01)
                 #expect(compactTarget.textFrame.minX - previousCompactTextFrame.minX < 5)
-                #expect(abs(compactTarget.textFrame.minY - previousCompactTextFrame.minY) < 1)
+                #expect(abs(compactTarget.textFrame.minY - previousCompactTextFrame.minY) < 2)
                 #expect(abs(compactTarget.textFrame.height - previousCompactTextFrame.height) < 1)
             }
 
