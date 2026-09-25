@@ -84,7 +84,7 @@ struct RunEventRouterRemountTests {
     }
 
     private func assistantText(in pane: ConversationPaneController) -> String? {
-        pane.liveStore.state.timeline.turns.flatMap(\.items).compactMap { item in
+        pane.liveStore.state.timeline.turns.flatMap(\.items).compactMap { (item: TimelineItem) -> String? in
             guard case .assistantText(let text) = item else { return nil }
             return text
         }.last
