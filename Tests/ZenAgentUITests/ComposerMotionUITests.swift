@@ -16,6 +16,12 @@ final class ComposerMotionUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
         XCTAssertTrue(waitForKeyboardGap(probe, expected: 12))
         XCTAssertLessThanOrEqual(abs(metric("root", from: probe) - restingRoot), 1)
+        let prompt = app.staticTexts["这是一条用于验证消息点击不会收起输入框的较长测试消息，点按后应当展开完整内容，并继续保持键盘和输入框的焦点。"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 5))
+        let collapsedHeight = prompt.frame.height
+        prompt.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertGreaterThan(prompt.frame.height, collapsedHeight)
         let background = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.38))
         background.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 8))

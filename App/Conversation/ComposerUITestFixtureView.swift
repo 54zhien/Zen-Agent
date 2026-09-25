@@ -27,6 +27,13 @@ private final class ComposerUITestFixture {
         let modelID = ModelID(rawValue: "composer-ui-test-model")
         let database = try ZenDatabase.inMemory()
         let store = PersistenceStore(database: database)
+        let timeline = ConversationTimelineProjection(
+            conversationID: conversationID,
+            turns: [ConversationTurn(
+                runID: "composer-ui-test-existing-turn",
+                items: [.userText("这是一条用于验证消息点击不会收起输入框的较长测试消息，点按后应当展开完整内容，并继续保持键盘和输入框的焦点。")]
+            )]
+        )
         let credentials = CredentialStore(
             secrets: KeychainSecretBackend(), metadataRepository: store
         )
@@ -36,15 +43,13 @@ private final class ComposerUITestFixture {
         )
         pane = try ConversationPaneController(
             conversationID: conversationID,
-            initialTimeline: ConversationTimelineProjection(conversationID: conversationID, turns: []),
+            initialTimeline: timeline,
             configuration: ConversationComposerConfiguration(
                 providerInstanceID: instanceID, modelID: modelID
             ),
             coalescer: StreamingCoalescer(interval: .milliseconds(0)),
             tolerance: 12,
-            loadTimeline: { _ in
-                ConversationTimelineProjection(conversationID: conversationID, turns: [])
-            }
+            loadTimeline: { _ in timeline }
         )
         let runs = ComposerUITestRuns()
         bridge = ComposerRuntimeActionBridge(
