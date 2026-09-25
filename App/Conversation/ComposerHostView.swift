@@ -32,6 +32,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private let viewport = UIView()
     let editor = UITextView()
     let placeholder = UILabel()
+    private var placeholderHeightConstraint: NSLayoutConstraint!
     private let plus = UIButton(type: .system)
     private let primary = UIButton(type: .system)
     private let errorLabel = UILabel()
@@ -99,7 +100,15 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         placeholder.textColor = .secondaryLabel
         placeholder.isUserInteractionEnabled = false
         placeholder.isAccessibilityElement = false
+        placeholder.translatesAutoresizingMaskIntoConstraints = false
         viewport.addSubview(placeholder)
+        placeholderHeightConstraint = placeholder.heightAnchor.constraint(equalToConstant: 24)
+        NSLayoutConstraint.activate([
+            placeholder.leadingAnchor.constraint(equalTo: editor.leadingAnchor),
+            placeholder.firstBaselineAnchor.constraint(equalTo: editor.firstBaselineAnchor),
+            placeholder.widthAnchor.constraint(equalTo: editor.widthAnchor),
+            placeholderHeightConstraint
+        ])
 
         for (button, symbol) in [(plus, "plus"), (primary, "arrow.up")] {
             button.setImage(UIImage(systemName: symbol), for: .normal)
@@ -310,8 +319,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let editorWidth = max(editWidth, targetViewport.width)
         editor.frame = CGRect(x: 0, y: 0, width: editorWidth,
                               height: max(1, editingEndpoint.textViewport.height))
-        placeholder.frame = CGRect(x: 0, y: 0, width: editorWidth,
-                                   height: configuration.font.lineHeight + 2)
+        placeholderHeightConstraint.constant = configuration.font.lineHeight + 2
         if state == .editing {
             editor.isScrollEnabled = measuredHeight > editingEndpoint.textViewport.height
         }
@@ -368,7 +376,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     private func updateGeometryProbe() {
         guard geometryProbe.superview != nil, let window else { return }
-        geometryProbe.frame = surface.frame
+        geometryProbe.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
         let rootBottom = convert(CGPoint(x: 0, y: bounds.maxY), to: window).y
         let guideTop = convert(CGPoint(x: 0, y: keyboardLayoutGuide.layoutFrame.minY),
                                to: window).y

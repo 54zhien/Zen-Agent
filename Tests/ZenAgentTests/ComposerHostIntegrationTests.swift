@@ -19,7 +19,9 @@ struct ComposerHostIntegrationTests {
                                      y: host.surfaceFrame.midY), with: nil) != nil)
         #expect(host.editor === editor)
         #expect(host.placeholder.superview === editor.superview)
-        #expect(host.placeholder.frame.origin == editor.frame.origin)
+        #expect(host.placeholder.superview?.constraints.contains {
+            $0.firstAttribute == .firstBaseline && $0.secondAttribute == .firstBaseline
+        } == true)
         host.configure(configuration(state: .editing))
         host.configure(configuration(state: .resting))
         #expect(host.editor === editor)
