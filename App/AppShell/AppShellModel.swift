@@ -26,10 +26,12 @@ final class AppShellModel {
     private(set) var targetMessage: String?
     private(set) var pane: ConversationPaneController?
     private(set) var actionBridge: ComposerRuntimeActionBridge?
+    private(set) var composerSendCoordinator: ComposerSendCoordinator?
     private(set) var providerSetup: ProviderSetupModel?
     private(set) var router: RunEventRouter
 
     @ObservationIgnored private let userDefaults: UserDefaults
+    @ObservationIgnored private let confirmationReadInterceptor: AppAssembly.ConfirmationReadInterceptor
     @ObservationIgnored private var dependencies: AppAssembly.Dependencies?
     @ObservationIgnored private var startedAssembly = false
 
@@ -37,20 +39,39 @@ final class AppShellModel {
         target != nil && pane != nil && actionBridge != nil
     }
 
+    var canPresentCurrentPane: Bool {
+        guard pane != nil, actionBridge != nil, dependencies?.runtime != nil else { return false }
+        return canSend || composerSendCoordinator?.hasPendingConfirmation == true
+    }
+
+    var blocksConversationReplacement: Bool {
+        composerSendCoordinator?.blocksConversationReplacement == true
+    }
+
     var runtimeForPresentation: ConversationRuntime? {
         dependencies?.runtime
     }
 
-    init(userDefaults: UserDefaults = .standard) {
+    init(
+        userDefaults: UserDefaults = .standard,
+        confirmationReadInterceptor: @escaping AppAssembly.ConfirmationReadInterceptor = { _, _, read in
+            await read()
+        }
+    ) {
         self.userDefaults = userDefaults
+        self.confirmationReadInterceptor = confirmationReadInterceptor
         self.router = RunEventRouter()
     }
 
     init(
         dependencies: AppAssembly.Dependencies,
-        userDefaults: UserDefaults
+        userDefaults: UserDefaults,
+        confirmationReadInterceptor: @escaping AppAssembly.ConfirmationReadInterceptor = { _, _, read in
+            await read()
+        }
     ) {
         self.userDefaults = userDefaults
+        self.confirmationReadInterceptor = confirmationReadInterceptor
         self.dependencies = dependencies
         self.router = dependencies.router
         self.launchState = .ready
@@ -65,11 +86,13 @@ final class AppShellModel {
     }
 
     func assemble() {
+        guard !blocksConversationReplacement else { return }
         startedAssembly = true
         launchState = .loading
         dependencies = nil
         pane = nil
         actionBridge = nil
+        composerSendCoordinator = nil
         target = nil
         targetMessage = nil
         providerSetup = nil
@@ -89,15 +112,18 @@ final class AppShellModel {
     }
 
     func newConversation() {
+        guard !blocksConversationReplacement else { return }
         router.unregisterPane(for: conversationID)
         pane = nil
         actionBridge = nil
+        composerSendCoordinator = nil
         conversationID = UUID().uuidString
         installPaneIfReady()
     }
 
     @discardableResult
     func openConversation(id: String) -> Bool {
+        guard !blocksConversationReplacement else { return false }
         guard let dependencies, let target else { return false }
         do {
             let timeline = try ConversationTimelineLoader.load(
@@ -107,6 +133,7 @@ final class AppShellModel {
             router.unregisterPane(for: conversationID)
             pane = nil
             actionBridge = nil
+            composerSendCoordinator = nil
             conversationID = id
             try installPane(
                 initialTimeline: timeline,
@@ -117,6 +144,52 @@ final class AppShellModel {
         } catch {
             launchState = .failed(.wiring(summary: String(reflecting: type(of: error))))
             return false
+        }
+    }
+
+    @discardableResult
+    func retryExistingTarget() -> String {
+        guard let dependencies,
+              let instanceRawValue = userDefaults.string(forKey: Self.defaultInstanceIDKey),
+              let modelRawValue = userDefaults.string(forKey: Self.defaultModelIDKey),
+              !instanceRawValue.isEmpty,
+              !modelRawValue.isEmpty else {
+            target = nil
+            targetMessage = "尚未配置模型"
+            return "尚未配置模型"
+        }
+
+        let candidate = AppExecutionTarget(
+            providerInstanceID: ProviderInstanceID(rawValue: instanceRawValue),
+            modelID: ModelID(rawValue: modelRawValue)
+        )
+        do {
+            _ = try AppAssembly.validateTarget(
+                providerInstanceID: candidate.providerInstanceID,
+                modelID: candidate.modelID,
+                store: dependencies.store,
+                provider: dependencies.provider,
+                credentials: dependencies.credentials
+            )
+            target = candidate
+            targetMessage = nil
+            if let pane {
+                pane.composer.configuration = ConversationComposerConfiguration(
+                    providerInstanceID: candidate.providerInstanceID,
+                    modelID: candidate.modelID
+                )
+            } else {
+                installPaneIfReady()
+            }
+            return "配置已恢复"
+        } catch let failure as AppTargetFailure {
+            target = nil
+            targetMessage = failure.message
+            return failure.message
+        } catch {
+            target = nil
+            targetMessage = AppTargetFailure.configurationUnavailable.message
+            return AppTargetFailure.configurationUnavailable.message
         }
     }
 
@@ -210,6 +283,7 @@ final class AppShellModel {
         let bridge = AppAssembly.wireConversation(
             id: conversationID,
             dependencies: dependencies,
+            confirmationReadInterceptor: confirmationReadInterceptor,
             onTargetFailure: { [weak self] failure in
                 self?.targetBecameUnavailable(failure)
             }
@@ -229,7 +303,15 @@ final class AppShellModel {
         guard dependencies.router.registerPane(pane) else {
             throw AppTargetFailure.configurationUnavailable
         }
+        let coordinator = ComposerSendCoordinator(
+            conversationID: conversationID,
+            controller: pane.composer,
+            configuration: pane.composer.configuration,
+            bridge: bridge,
+            maxProviderSteps: Self.maxProviderSteps
+        )
         actionBridge = bridge
         self.pane = pane
+        composerSendCoordinator = coordinator
     }
 }

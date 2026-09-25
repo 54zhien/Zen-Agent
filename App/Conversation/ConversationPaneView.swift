@@ -5,6 +5,7 @@ struct ConversationPaneView: View {
     let pane: ConversationPaneController
     let runtime: ConversationRuntime
     let actionBridge: ComposerRuntimeActionBridge
+    let sendCoordinator: ComposerSendCoordinator?
     let maxProviderSteps: Int
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -14,11 +15,13 @@ struct ConversationPaneView: View {
         pane: ConversationPaneController,
         runtime: ConversationRuntime,
         actionBridge: ComposerRuntimeActionBridge,
+        sendCoordinator: ComposerSendCoordinator? = nil,
         maxProviderSteps: Int
     ) {
         self.pane = pane
         self.runtime = runtime
         self.actionBridge = actionBridge
+        self.sendCoordinator = sendCoordinator
         self.maxProviderSteps = maxProviderSteps
         self.scrollBridge = pane.scrollBridge
     }
@@ -40,6 +43,7 @@ struct ConversationPaneView: View {
                 conversationID: pane.conversationID,
                 controller: pane.composer,
                 bridge: actionBridge,
+                coordinator: sendCoordinator,
                 maxProviderSteps: maxProviderSteps
             )
             .accessibilityIdentifier("conversation-pane-composer-\(pane.conversationID)")

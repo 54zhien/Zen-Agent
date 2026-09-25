@@ -5,7 +5,7 @@ struct ConversationComposerView: View {
     let conversationID: String
     @Bindable var controller: ComposerController
     private let bridge: ComposerRuntimeActionBridge
-    @State private var coordinator: ComposerSendCoordinator
+    let coordinator: ComposerSendCoordinator
     @State private var runProjection: RunProjection?
     @State private var knownModels: [ModelDescriptor] = []
 
@@ -19,18 +19,19 @@ struct ConversationComposerView: View {
         conversationID: String,
         controller: ComposerController,
         bridge: ComposerRuntimeActionBridge,
+        coordinator: ComposerSendCoordinator? = nil,
         maxProviderSteps: Int
     ) {
         self.conversationID = conversationID
         self.controller = controller
         self.bridge = bridge
-        _coordinator = State(initialValue: ComposerSendCoordinator(
+        self.coordinator = coordinator ?? ComposerSendCoordinator(
             conversationID: conversationID,
             controller: controller,
             configuration: controller.configuration,
             bridge: bridge,
             maxProviderSteps: maxProviderSteps
-        ))
+        )
     }
 
     var body: some View {
@@ -50,7 +51,7 @@ struct ConversationComposerView: View {
             )
             let shape = ComposerShapeToken.shape(for: layout)
             let actionState = ComposerContextAction.resolve(
-                projection: runProjection,
+                projection: coordinator.blocksConversationReplacement ? nil : runProjection,
                 presentationState: controller.draft.presentationState,
                 sendable: isSendable,
                 hasDraft: hasDraft,
@@ -97,17 +98,28 @@ struct ConversationComposerView: View {
                     }
 
                     if let sendErrorMessage = coordinator.sendErrorMessage {
-                        Text(sendErrorMessage)
-                            .font(Typography.font(
-                                for: .interfaceCaption,
-                                dynamicTypeSize: dynamicTypeSize
-                            ))
-                            .foregroundStyle(.red)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 12)
-                            .padding(.top, 4)
-                            .allowsHitTesting(false)
-                            .accessibilityIdentifier("composer-send-error")
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(sendErrorMessage)
+                                .font(Typography.font(
+                                    for: .interfaceCaption,
+                                    dynamicTypeSize: dynamicTypeSize
+                                ))
+                                .foregroundStyle(.red)
+                                .accessibilityIdentifier("composer-send-error")
+                            if coordinator.hasPendingConfirmation {
+                                Button("重试确认") {
+                                    Task { await coordinator.retryPendingConfirmation() }
+                                }
+                                .font(Typography.font(
+                                    for: .interfaceCaption,
+                                    dynamicTypeSize: dynamicTypeSize
+                                ))
+                                .accessibilityIdentifier("composer-retry-confirmation")
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 4)
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)

@@ -42,14 +42,16 @@ struct NewConversationView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if model.canSend,
+                if model.canPresentCurrentPane,
                    let pane = model.pane,
                    let bridge = model.actionBridge,
+                   let coordinator = model.composerSendCoordinator,
                    let runtime = model.runtimeForPresentation {
                     ConversationPaneView(
                         pane: pane,
                         runtime: runtime,
                         actionBridge: bridge,
+                        sendCoordinator: coordinator,
                         maxProviderSteps: AppShellModel.maxProviderSteps
                     )
                 } else {
@@ -82,6 +84,12 @@ struct NewConversationView: View {
                             for: .interfaceBody,
                             dynamicTypeSize: dynamicTypeSize
                         ))
+                        .disabled(model.blocksConversationReplacement)
+                        .accessibilityHint(
+                            model.blocksConversationReplacement
+                                ? "发送状态待确认，确认后可切换会话"
+                                : ""
+                        )
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("配置模型") { isProviderSetupPresented = true }
@@ -114,7 +122,10 @@ struct NewConversationView: View {
             }
             .sheet(isPresented: $isProviderSetupPresented) {
                 if let providerSetup = model.providerSetup {
-                    ProviderSetupView(model: providerSetup)
+                    ProviderSetupView(
+                        model: providerSetup,
+                        retryExistingTarget: { model.retryExistingTarget() }
+                    )
                 } else {
                     ProgressView()
                 }

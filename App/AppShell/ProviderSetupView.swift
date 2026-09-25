@@ -14,6 +14,9 @@ enum ProviderSetupFailure: Error, Equatable {
     case keyMissing
     case keychainUnavailable
     case credentialFailed
+    case credentialReadFailed
+    case credentialStorageUnavailable
+    case credentialStorageFailed
     case authenticationRequired
     case bindingMoved
     case instanceConflict
@@ -31,6 +34,12 @@ enum ProviderSetupFailure: Error, Equatable {
             return "Keychain 不可用"
         case .credentialFailed:
             return "凭据存储异常"
+        case .credentialReadFailed:
+            return "凭据读取失败，请稍后重试"
+        case .credentialStorageUnavailable:
+            return "Keychain 暂不可用，请稍后重试"
+        case .credentialStorageFailed:
+            return "凭据存储失败"
         case .authenticationRequired:
             return "凭据需要重新配置"
         case .bindingMoved:
@@ -282,7 +291,7 @@ final class ProviderSetupModel {
         case .unavailable:
             return .keychainUnavailable
         case .failed:
-            return .credentialFailed
+            return .credentialReadFailed
         case .authenticationRequired:
             return .authenticationRequired
         case .bindingMoved:
@@ -306,6 +315,14 @@ final class ProviderSetupModel {
     private static func safeMessage(for error: Error) -> String {
         if let failure = error as? ProviderSetupFailure { return failure.message }
         if let failure = error as? AppTargetFailure { return failure.message }
+        if let failure = error as? SecretBackendError {
+            switch failure {
+            case .unavailable:
+                return ProviderSetupFailure.credentialStorageUnavailable.message
+            case .failed:
+                return ProviderSetupFailure.credentialStorageFailed.message
+            }
+        }
         if let persistence = error as? PersistenceError,
            case .providerInstanceEditConflict = persistence {
             return ProviderSetupFailure.editConflict.message
@@ -318,8 +335,18 @@ final class ProviderSetupModel {
 @MainActor
 struct ProviderSetupView: View {
     @Bindable var model: ProviderSetupModel
+    let retryExistingTarget: @MainActor () -> String
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.dismiss) private var dismiss
+    @State private var retryMessage: String?
+
+    init(
+        model: ProviderSetupModel,
+        retryExistingTarget: @escaping @MainActor () -> String = { "" }
+    ) {
+        self.model = model
+        self.retryExistingTarget = retryExistingTarget
+    }
 
     var body: some View {
         NavigationStack {
@@ -355,6 +382,20 @@ struct ProviderSetupView: View {
                         _ = model.save()
                     }
                     .disabled(model.isSaving || model.isComplete || model.models.isEmpty)
+                    if model.isComplete {
+                        Button("重新配置（新实例）") {
+                            model.startNewAttempt()
+                        }
+                    }
+                    Button("重试验证现有配置") {
+                        retryMessage = retryExistingTarget()
+                    }
+                    .disabled(model.isSaving)
+                    if let retryMessage, !retryMessage.isEmpty {
+                        Text(retryMessage)
+                            .foregroundStyle(retryMessage == "配置已恢复" ? .secondary : .red)
+                            .accessibilityIdentifier("provider-setup-target-retry")
+                    }
                     if model.canAbandonAndCreateNew {
                         Button("放弃本次并新建", role: .destructive) {
                             model.startNewAttempt()

@@ -18,7 +18,7 @@ enum AppTargetFailure: Error, Equatable, Sendable {
         case .keychainUnavailable:
             return "Keychain 不可用"
         case .credentialFailed:
-            return "凭据存储异常"
+            return "凭据读取失败，请稍后重试"
         case .authenticationRequired:
             return "请重新配置 API Key"
         case .bindingMoved:
@@ -51,6 +51,13 @@ enum AppAssemblyFailure: Error, Equatable {
 }
 
 struct AppAssembly {
+    typealias ConfirmationReadOperation = @Sendable () async -> ComposerSendConfirmationResult
+    typealias ConfirmationReadInterceptor = @Sendable (
+        SendCommand,
+        String?,
+        ConfirmationReadOperation
+    ) async -> ComposerSendConfirmationResult
+
     struct Dependencies {
         let store: PersistenceStore
         let credentials: any CredentialStoring
@@ -199,6 +206,9 @@ struct AppAssembly {
     static func wireConversation(
         id: String,
         dependencies: Dependencies,
+        confirmationReadInterceptor: @escaping ConfirmationReadInterceptor = { _, _, read in
+            await read()
+        },
         onTargetFailure: @escaping @MainActor @Sendable (AppTargetFailure) -> Void = { _ in }
     ) -> ComposerRuntimeActionBridge {
         let startContext = ConversationStartContext(
@@ -207,6 +217,7 @@ struct AppAssembly {
             provider: dependencies.provider,
             credentials: dependencies.credentials,
             runtime: dependencies.runtime,
+            confirmationReadInterceptor: confirmationReadInterceptor,
             onTargetFailure: onTargetFailure
         )
         let runtime = dependencies.runtime
@@ -236,6 +247,83 @@ struct AppAssembly {
         let code = (error as NSError).code
         return "\(String(reflecting: type(of: error))) (code \(code))"
     }
+
+    static func confirmSubmission(
+        _ command: SendCommand,
+        expectedRunID: String?,
+        in store: PersistenceStore
+    ) -> ComposerSendConfirmationResult {
+        do {
+            guard let run = try store.run(submissionID: command.submissionID) else {
+                return .noRun
+            }
+            guard let conversation = try store.conversation(id: command.conversationID),
+                  conversation.id == command.conversationID,
+                  run.kind == .parent,
+                  run.parentRunID == nil,
+                  run.submissionID == command.submissionID,
+                  run.conversationID == command.conversationID,
+                  expectedRunID == nil || expectedRunID == run.id,
+                  let triggerMessageID = run.triggerMessageID,
+                  let message = try store.messages(inConversation: command.conversationID)
+                    .first(where: { $0.id == triggerMessageID }),
+                  message.role == .user,
+                  message.conversationID == command.conversationID else {
+                return .inconclusive
+            }
+
+            let parts = try store.parts(ofMessage: message.id)
+            guard parts.count == 1,
+                  let textPart = parts.first,
+                  textPart.sequence == 0,
+                  textPart.kind == .text,
+                  textPart.state == .completed,
+                  try store.text(ofPart: textPart.id) == command.text else {
+                return .inconclusive
+            }
+
+            let references = try store.quoteReferences(forMessageID: message.id)
+            guard references.count == command.references.count else {
+                return .inconclusive
+            }
+            for (sequence, pair) in zip(command.references, references).enumerated() {
+                let (expected, saved) = pair
+                guard saved.sequence == sequence,
+                      saved.id == expected.id,
+                      saved.sourceConversationID == expected.source.sourceConversationID,
+                      saved.sourceMessageID == expected.source.sourceMessageID,
+                      saved.sourcePartID == expected.source.sourcePartID,
+                      saved.sourceUTF16Start == expected.source.range.utf16Start,
+                      saved.sourceUTF16Length == expected.source.range.utf16Length,
+                      saved.snapshot == expected.snapshot,
+                      saved.createdAt == expected.createdAt else {
+                    return .inconclusive
+                }
+            }
+
+            let attachments = try store.attachments(forMessage: message.id)
+            guard attachments.count == command.attachments.count else {
+                return .inconclusive
+            }
+            for (sequence, pair) in zip(command.attachments, attachments).enumerated() {
+                let (expected, saved) = pair
+                guard saved.sequence == sequence,
+                      saved.assetID == expected.assetID,
+                      saved.versionID == expected.versionID,
+                      let asset = try store.fileAsset(id: saved.assetID),
+                      asset.displayName == expected.displayName,
+                      let version = try store.fileAssetVersion(id: saved.versionID),
+                      version.assetID == expected.assetID,
+                      version.contentFingerprint == expected.fingerprint else {
+                    return .inconclusive
+                }
+            }
+
+            return .matchingRun(runID: run.id, state: run.state)
+        } catch {
+            return .inconclusive
+        }
+    }
 }
 
 actor ConversationStartContext {
@@ -244,6 +332,7 @@ actor ConversationStartContext {
     private let provider: any ModelProvider
     private let credentials: any CredentialStoring
     private let runtime: ConversationRuntime
+    private let confirmationReadInterceptor: AppAssembly.ConfirmationReadInterceptor
     private let onTargetFailure: @MainActor @Sendable (AppTargetFailure) -> Void
     private var pendingConversation: ConversationRecord?
     private var isPersisted = false
@@ -254,6 +343,7 @@ actor ConversationStartContext {
         provider: any ModelProvider,
         credentials: any CredentialStoring,
         runtime: ConversationRuntime,
+        confirmationReadInterceptor: @escaping AppAssembly.ConfirmationReadInterceptor,
         onTargetFailure: @escaping @MainActor @Sendable (AppTargetFailure) -> Void
     ) {
         self.conversationID = conversationID
@@ -261,6 +351,7 @@ actor ConversationStartContext {
         self.provider = provider
         self.credentials = credentials
         self.runtime = runtime
+        self.confirmationReadInterceptor = confirmationReadInterceptor
         self.onTargetFailure = onTargetFailure
     }
 
@@ -300,29 +391,64 @@ actor ConversationStartContext {
             }
         }
 
+        let returnedRunID: String?
+        let startFailure: Error?
         do {
-            let runID = try await runtime.start(
+            returnedRunID = try await runtime.start(
                 command,
                 creatingConversationIfMissing: isPersisted ? nil : pendingConversation
             )
-            if try store.conversation(id: conversationID) != nil {
-                isPersisted = true
-            }
-            return runID
+            startFailure = nil
         } catch {
-            do {
-                if try store.conversation(id: conversationID) != nil {
-                    isPersisted = true
-                    if let committedRun = try store.run(submissionID: command.submissionID) {
-                        throw ComposerSendFailure.committed(runID: committedRun.id)
+            returnedRunID = nil
+            startFailure = error
+        }
+
+        let startContext = self
+        let read: AppAssembly.ConfirmationReadOperation = {
+            await startContext.confirmSubmission(command, expectedRunID: returnedRunID)
+        }
+        let confirmation = await confirmationReadInterceptor(command, returnedRunID, read)
+        switch confirmation {
+        case .matchingRun(let runID, _):
+            return runID
+        case .noRun where startFailure != nil:
+            throw startFailure!
+        case .noRun, .inconclusive:
+            let readInterceptor = confirmationReadInterceptor
+            let startContext = self
+            let handle = ComposerSendConfirmationHandle(
+                command: command,
+                runtimeStartReturnedRunID: returnedRunID,
+                runtimeStartFailed: startFailure != nil,
+                startFailureMessage: startFailure.map(ComposerSendFailure.safeMessage(for:))
+                    ?? "发送失败，请重试。",
+                read: {
+                    await readInterceptor(command, returnedRunID) {
+                        await startContext.confirmSubmission(
+                            command,
+                            expectedRunID: returnedRunID
+                        )
                     }
                 }
-            } catch let committed as ComposerSendFailure {
-                throw committed
-            } catch {
-                throw ComposerSendFailure.configurationUnavailable
-            }
-            throw error
+            )
+            throw ComposerSendFailure.confirmationRequired(handle)
         }
+    }
+
+    private func confirmSubmission(
+        _ command: SendCommand,
+        expectedRunID: String?
+    ) -> ComposerSendConfirmationResult {
+        let result = AppAssembly.confirmSubmission(
+            command,
+            expectedRunID: expectedRunID,
+            in: store
+        )
+        if case .matchingRun = result {
+            isPersisted = true
+            pendingConversation = nil
+        }
+        return result
     }
 }

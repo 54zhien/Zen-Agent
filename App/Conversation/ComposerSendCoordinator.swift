@@ -1,11 +1,51 @@
 import Foundation
 import Observation
 
+enum ComposerSendConfirmationResult: Sendable, Equatable {
+    case matchingRun(runID: String, state: RunState)
+    case noRun
+    case inconclusive
+}
+
+final class ComposerSendConfirmationHandle: Sendable, Equatable {
+    let command: SendCommand
+    let runtimeStartReturnedRunID: String?
+    let runtimeStartFailed: Bool
+    let startFailureMessage: String
+    private let read: @Sendable () async -> ComposerSendConfirmationResult
+
+    init(
+        command: SendCommand,
+        runtimeStartReturnedRunID: String?,
+        runtimeStartFailed: Bool,
+        startFailureMessage: String,
+        read: @escaping @Sendable () async -> ComposerSendConfirmationResult
+    ) {
+        self.command = command
+        self.runtimeStartReturnedRunID = runtimeStartReturnedRunID
+        self.runtimeStartFailed = runtimeStartFailed
+        self.startFailureMessage = startFailureMessage
+        self.read = read
+    }
+
+    func confirm() async -> ComposerSendConfirmationResult {
+        await read()
+    }
+
+    static func == (
+        lhs: ComposerSendConfirmationHandle,
+        rhs: ComposerSendConfirmationHandle
+    ) -> Bool {
+        lhs === rhs
+    }
+}
+
 enum ComposerSendFailure: Error, Sendable {
     case keyMissing
     case keychainUnavailable
     case configurationUnavailable
     case committed(runID: String)
+    case confirmationRequired(ComposerSendConfirmationHandle)
 
     var message: String {
         switch self {
@@ -17,7 +57,13 @@ enum ComposerSendFailure: Error, Sendable {
             return "当前模型配置不可用"
         case .committed:
             return "消息已保存，但运行未能完成。"
+        case .confirmationRequired:
+            return "提交状态尚未确认，请重试确认。"
         }
+    }
+
+    static func safeMessage(for error: Error) -> String {
+        (error as? ComposerSendFailure)?.message ?? "发送失败，请重试。"
     }
 }
 
@@ -35,11 +81,21 @@ final class ComposerSendCoordinator {
 
     private(set) var submission: ComposerSubmissionState = .idle
     private(set) var sendErrorMessage: String?
+    private(set) var pendingCommand: SendCommand?
+    private(set) var confirmationHandle: ComposerSendConfirmationHandle?
 
     @ObservationIgnored private var pendingTextSnapshot: String?
     @ObservationIgnored private var pendingReferencesSnapshot: [QuoteReference]?
     @ObservationIgnored private var pendingAttachmentsSnapshot: [AttachmentReference]?
     @ObservationIgnored private var latestProjection: RunProjection?
+    @ObservationIgnored private var isConfirmingPendingSend = false
+
+    var hasPendingConfirmation: Bool { confirmationHandle != nil }
+
+    var blocksConversationReplacement: Bool {
+        if case .awaitingAcceptance = submission { return true }
+        return hasPendingConfirmation
+    }
 
     init(
         conversationID: String,
@@ -95,6 +151,8 @@ final class ComposerSendCoordinator {
         pendingTextSnapshot = command.text
         pendingReferencesSnapshot = command.references
         pendingAttachmentsSnapshot = controller.draft.attachments
+        pendingCommand = command
+        confirmationHandle = nil
         submission = .awaitingAcceptance(submissionID: submissionID)
         return command
     }
@@ -123,6 +181,8 @@ final class ComposerSendCoordinator {
         pendingTextSnapshot = nil
         pendingReferencesSnapshot = nil
         pendingAttachmentsSnapshot = nil
+        pendingCommand = nil
+        confirmationHandle = nil
         submission = .acceptedAwaitingProjection(runID: projection.runID)
     }
 
@@ -131,6 +191,8 @@ final class ComposerSendCoordinator {
         pendingTextSnapshot = nil
         pendingReferencesSnapshot = nil
         pendingAttachmentsSnapshot = nil
+        pendingCommand = nil
+        confirmationHandle = nil
         submission = .idle
     }
 
@@ -150,6 +212,10 @@ final class ComposerSendCoordinator {
     }
 
     private func performPrimaryAction() async -> ComposerPrimaryAction {
+        if case .awaitingAcceptance = submission {
+            return .send(enabled: false)
+        }
+
         if let projection = latestProjection, projection.isActive {
             guard projection.canStop else {
                 return .stop(runID: projection.runID, enabled: false)
@@ -199,6 +265,16 @@ final class ComposerSendCoordinator {
             runID = try await bridge.start(command)
         } catch {
             if let failure = error as? ComposerSendFailure,
+               case .confirmationRequired(let handle) = failure {
+                guard handle.command == command else {
+                    rejectSend(submissionID: command.submissionID)
+                    sendErrorMessage = ComposerSendFailure.configurationUnavailable.message
+                    return primaryAction(sendable: false)
+                }
+                _ = retainPendingConfirmation(handle)
+                return primaryAction(sendable: false)
+            }
+            if let failure = error as? ComposerSendFailure,
                case .committed(let committedRunID) = failure {
                 let committedProjection = (try? await bridge.projection(conversationID))
                     ?? RunProjection(runID: committedRunID, state: .failed)
@@ -225,12 +301,55 @@ final class ComposerSendCoordinator {
         return primaryAction(sendable: false)
     }
 
+    func retryPendingConfirmation() async {
+        guard let handle = confirmationHandle,
+              handle.command == pendingCommand,
+              case .awaitingAcceptance(let submissionID) = submission,
+              submissionID == handle.command.submissionID,
+              !isConfirmingPendingSend
+        else { return }
+
+        isConfirmingPendingSend = true
+        defer { isConfirmingPendingSend = false }
+
+        switch await handle.confirm() {
+        case .matchingRun(let runID, let state):
+            guard handle.runtimeStartReturnedRunID == nil
+                    || handle.runtimeStartReturnedRunID == runID else {
+                sendErrorMessage = ComposerSendFailure.confirmationRequired(handle).message
+                return
+            }
+            let projection = RunProjection(runID: runID, state: state)
+            acceptSend(submissionID: submissionID, projection: projection)
+            updateRunProjection(projection)
+            sendErrorMessage = nil
+        case .noRun where handle.runtimeStartFailed:
+            rejectSend(submissionID: submissionID)
+            sendErrorMessage = handle.startFailureMessage
+        case .noRun, .inconclusive:
+            sendErrorMessage = ComposerSendFailure.confirmationRequired(handle).message
+        }
+    }
+
+    @discardableResult
+    func retainPendingConfirmation(_ handle: ComposerSendConfirmationHandle) -> Bool {
+        guard handle.command == pendingCommand,
+              case .awaitingAcceptance(let submissionID) = submission,
+              submissionID == handle.command.submissionID else { return false }
+        confirmationHandle = handle
+        sendErrorMessage = ComposerSendFailure.confirmationRequired(handle).message
+        return true
+    }
+
     private static func safeMessage(for error: Error) -> String {
         (error as? ComposerSendFailure)?.message ?? "发送失败，请重试。"
     }
 
     private func primaryAction(sendable: Bool) -> ComposerPrimaryAction {
-        ComposerContextAction.resolve(
+        if case .awaitingAcceptance = submission {
+            return .send(enabled: false)
+        }
+        return ComposerContextAction.resolve(
             projection: latestProjection,
             presentationState: controller.draft.presentationState,
             sendable: sendable,
