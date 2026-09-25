@@ -76,8 +76,8 @@ struct ComposerTextView: UIViewRepresentable {
         textView.isEditable = isEditing
         textView.isSelectable = isEditing
         textView.isUserInteractionEnabled = isEditing
-        textView.textContainer.maximumNumberOfLines = isEditing ? 0 : 1
-        textView.textContainer.lineBreakMode = isEditing ? .byWordWrapping : .byTruncatingTail
+        textView.textContainer.maximumNumberOfLines = isEditing || isFocused ? 0 : 1
+        textView.textContainer.lineBreakMode = isEditing || isFocused ? .byWordWrapping : .byTruncatingTail
         textView.isScrollEnabled = textAreaIsScrollable
         textView.font = Self.typographyFont(for: typographyRole, dynamicTypeSize: dynamicTypeSize)
         textView.text = text
@@ -115,8 +115,8 @@ struct ComposerTextView: UIViewRepresentable {
         textView.isEditable = isEditing
         textView.isSelectable = isEditing
         textView.isUserInteractionEnabled = isEditing
-        textView.textContainer.maximumNumberOfLines = isEditing ? 0 : 1
-        textView.textContainer.lineBreakMode = isEditing ? .byWordWrapping : .byTruncatingTail
+        textView.textContainer.maximumNumberOfLines = isEditing || isFocused ? 0 : 1
+        textView.textContainer.lineBreakMode = isEditing || isFocused ? .byWordWrapping : .byTruncatingTail
         if isFocused, isEditing, !textView.isFirstResponder,
            textView.markedTextRange == nil {
             textView.becomeFirstResponder()

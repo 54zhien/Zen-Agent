@@ -35,6 +35,12 @@ struct ConversationPaneView: View {
                 scrollBridge: scrollBridge
             )
             .accessibilityIdentifier("conversation-pane-approval-\(pane.conversationID)")
+            .simultaneousGesture(TapGesture().onEnded {
+                guard pane.composer.draft.presentationState == .editing,
+                      pane.composer.quoteDragPhase == .idle,
+                      !pane.composer.isSelectionHandleDragging else { return }
+                _ = pane.composer.handle(.conversationBackgroundTapped)
+            })
 
             ConversationComposerView(
                 conversationID: pane.conversationID,
@@ -45,6 +51,7 @@ struct ConversationPaneView: View {
             .id(ObjectIdentifier(pane.composer))
             .accessibilityIdentifier("conversation-pane-composer-\(pane.conversationID)")
         }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .overlay(alignment: .bottom) {
             if pane.readingPosition.showsNewContentCapsule {
                 NewContentCapsuleView(

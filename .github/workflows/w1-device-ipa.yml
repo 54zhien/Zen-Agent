@@ -27,6 +27,10 @@ jobs:
             '.github/workflows/w1-device-ipa.yml' \
             'App/Conversation/ComposerContextAction.swift' \
             'App/Conversation/ComposerGeometry.swift' \
+            'App/Conversation/ComposerHostBridge.swift' \
+            'App/Conversation/ComposerHostView.swift' \
+            'App/Conversation/ComposerMorphGeometry.swift' \
+            'App/Conversation/ComposerMotionController.swift' \
             'App/Conversation/ComposerSendCoordinator.swift' \
             'App/Conversation/ComposerTextView.swift' \
             'App/Conversation/ConversationComposerView.swift' \
@@ -37,6 +41,10 @@ jobs:
             'App/Typography/Typography.swift' \
             'Tests/ZenAgentTests/ComposerContextActionTests.swift' \
             'Tests/ZenAgentTests/ComposerGeometryTests.swift' \
+            'Tests/ZenAgentTests/ComposerExitLayoutTests.swift' \
+            'Tests/ZenAgentTests/ComposerHostIntegrationTests.swift' \
+            'Tests/ZenAgentTests/ComposerMorphGeometryTests.swift' \
+            'Tests/ZenAgentTests/ComposerViewContractTests.swift' \
             'Tests/ZenAgentTests/ComposerSendCoordinatorTests.swift' \
             'Tests/ZenAgentTests/TypographyTokenTests.swift' | sort)
           test "$actual" = "$expected"
@@ -100,7 +108,7 @@ jobs:
               plistlib.dump(info, file)
           PY
 
-          name='ZenAgent-W1-composer-v9-device-test.ipa'
+          name='ZenAgent-W1-composer-v10-device-test.ipa'
           (cd "$stage" && /usr/bin/zip -qry "$output/$name" Payload)
           /usr/bin/unzip -tq "$output/$name"
           if /usr/bin/unzip -Z1 "$output/$name" | grep -i 'Anthropic'; then
@@ -121,7 +129,7 @@ jobs:
       - name: Upload unsigned IPA and provenance
         uses: actions/upload-artifact@v4
         with:
-          name: ZenAgent-W1-composer-v9-device-test
+          name: ZenAgent-W1-composer-v10-device-test
           path: ${{ runner.temp }}/ZenAgentDeviceOutput/
           retention-days: 7
           compression-level: 0

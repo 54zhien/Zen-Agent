@@ -12,6 +12,9 @@ struct ComposerViewContractTests {
         "App/Conversation/ConversationComposerView.swift",
         "App/Conversation/ComposerTextView.swift",
         "App/Conversation/ComposerGeometry.swift",
+        "App/Conversation/ComposerHostBridge.swift",
+        "App/Conversation/ComposerHostView.swift",
+        "App/Conversation/ComposerMorphGeometry.swift",
     ]
 
     @Test("composerViewHasNoIndependentDraftTextStorage")
@@ -19,6 +22,7 @@ struct ComposerViewContractTests {
         guard let sources = sourceFiles() else { return }
         let view = sources["App/Conversation/ConversationComposerView.swift"] ?? ""
         let bridge = sources["App/Conversation/ComposerTextView.swift"] ?? ""
+        let host = sources["App/Conversation/ComposerHostView.swift"] ?? ""
         let draftStorageCount = sources.values.reduce(0) {
             $0 + $1.components(separatedBy: "var draft:").count - 1
         }
@@ -35,9 +39,9 @@ struct ComposerViewContractTests {
         #expect(independentTextStorage.isEmpty)
         #expect(bridge.contains("@Binding var text: String"))
         #expect(sources["App/Conversation/ComposerTextProjection.swift"] != nil)
-        #expect(view.contains("ComposerTextProjection.presentation(for: controller.draft)"))
-        #expect(view.contains("QuoteDropTargetView("))
-        #expect(view.contains("QuoteShelfGeometry.resolve("))
+        #expect(view.contains("ComposerHostBridge(configuration: hostConfiguration"))
+        #expect(host.contains("let editor = UITextView()"))
+        #expect(!host.contains("var draft:"))
         #expect(view.contains("quoteCommitReady: true"))
     }
 
@@ -60,28 +64,27 @@ struct ComposerViewContractTests {
     func allStatesConsumeOneShapeToken() {
         guard let sources = sourceFiles() else { return }
         let geometry = sources["App/Conversation/ComposerGeometry.swift"] ?? ""
-        let view = sources["App/Conversation/ConversationComposerView.swift"] ?? ""
-        let shapeCalls = view.components(separatedBy: "ComposerShapeToken.shape(for:").count - 1
+        let morph = sources["App/Conversation/ComposerMorphGeometry.swift"] ?? ""
+        let host = sources["App/Conversation/ComposerHostView.swift"] ?? ""
 
-        #expect(shapeCalls == 1)
-        #expect(view.contains(".contentShape(shape)"))
+        #expect(morph.contains("ComposerShapeToken.minimumRadius(for: layout)"))
+        #expect(host.contains("cornerConfiguration = .corners(radius: .containerConcentric("))
         #expect(geometry.contains("enum ComposerShapeToken"))
         #expect(geometry.contains("ConcentricRectangle(corners: .concentric(minimum:"))
-        #expect(!view.contains("cornerRadius"))
-        #expect(!view.contains("RoundedRectangle"))
+        #expect(!host.contains("layer.cornerRadius"))
     }
 
     @Test("menuDisablesUnavailableEntriesAndUsesModelCatalog")
     func menuDisablesUnavailableEntriesAndUsesModelCatalog() {
-        guard let view = sourceFiles()?["App/Conversation/ConversationComposerView.swift"] else { return }
+        guard let sources = sourceFiles() else { return }
+        let view = sources["App/Conversation/ConversationComposerView.swift"] ?? ""
+        let host = sources["App/Conversation/ComposerHostView.swift"] ?? ""
 
-        #expect(view.contains("Menu {"))
-        #expect(view.contains(".disabled(!canAddImage)"))
-        #expect(view.contains(".disabled(!canAddFile)"))
-        #expect(view.contains(".disabled(!canOpenPlugins)"))
-        #expect(view.contains("ForEach(modelsForSelectedInstance)"))
-        #expect(view.contains("controller.configuration.modelID = model.id"))
-        #expect(view.contains(".disabled(true)"))
+        #expect(host.contains("disabled(\"添加图片\""))
+        #expect(host.contains("disabled(\"添加文件\""))
+        #expect(host.contains("disabled(\"插件\""))
+        #expect(host.contains("configuration.models.map"))
+        #expect(view.contains("controller.configuration.modelID = modelID"))
     }
 
     @Test("viewRequiresBridgeAndDoesNotRenderVoice")
