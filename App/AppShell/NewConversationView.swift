@@ -38,6 +38,7 @@ struct NewConversationView: View {
     let model: AppShellModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var isProviderSetupPresented = false
+    @State private var isRecentConversationsPresented = false
 
     var body: some View {
         NavigationStack {
@@ -84,12 +85,28 @@ struct NewConversationView: View {
                         ))
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("配置模型") { isProviderSetupPresented = true }
-                        .font(Typography.font(
-                            for: .interfaceBody,
-                            dynamicTypeSize: dynamicTypeSize
-                        ))
-                        .accessibilityIdentifier("new-conversation-configure")
+                    HStack(spacing: 16) {
+                        if model.canSend && !model.recentConversations.isEmpty {
+                            Button {
+                                isRecentConversationsPresented = true
+                            } label: {
+                                Image(systemName: "clock.arrow.circlepath")
+                            }
+                            .font(Typography.font(
+                                for: .interfaceBody,
+                                dynamicTypeSize: dynamicTypeSize
+                            ))
+                            .accessibilityLabel("最近会话")
+                            .accessibilityIdentifier("new-conversation-recent")
+                        }
+
+                        Button("配置模型") { isProviderSetupPresented = true }
+                            .font(Typography.font(
+                                for: .interfaceBody,
+                                dynamicTypeSize: dynamicTypeSize
+                            ))
+                            .accessibilityIdentifier("new-conversation-configure")
+                    }
                 }
             }
             .overlay(alignment: .top) {
@@ -117,6 +134,42 @@ struct NewConversationView: View {
                     ProviderSetupView(model: providerSetup)
                 } else {
                     ProgressView()
+                }
+            }
+            .onChange(of: model.persistedTurnCount) { previousCount, currentCount in
+                guard currentCount > previousCount else { return }
+                model.refreshRecentConversations()
+            }
+        }
+        .sheet(isPresented: $isRecentConversationsPresented) {
+            NavigationStack {
+                List(model.recentConversations) { conversation in
+                    Button {
+                        if model.openConversation(id: conversation.id) {
+                            isRecentConversationsPresented = false
+                        }
+                    } label: {
+                        Text(conversation.title)
+                            .font(Typography.font(
+                                for: .interfaceBody,
+                                dynamicTypeSize: dynamicTypeSize
+                            ))
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("recent-conversation-\(conversation.id)")
+                }
+                .listStyle(.plain)
+                .navigationTitle("最近会话")
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("完成") { isRecentConversationsPresented = false }
+                            .font(Typography.font(
+                                for: .interfaceBody,
+                                dynamicTypeSize: dynamicTypeSize
+                            ))
+                    }
                 }
             }
         }
