@@ -393,7 +393,7 @@ struct ProviderSetupView: View {
                     .disabled(model.isSaving)
                     if let retryMessage, !retryMessage.isEmpty {
                         Text(retryMessage)
-                            .foregroundStyle(retryMessage == "配置已恢复" ? .secondary : .red)
+                            .foregroundStyle(retryMessage == "配置已恢复" ? Color.secondary : Color.red)
                             .accessibilityIdentifier("provider-setup-target-retry")
                     }
                     if model.canAbandonAndCreateNew {
