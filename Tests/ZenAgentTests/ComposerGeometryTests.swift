@@ -47,6 +47,12 @@ struct ComposerGeometryTests {
 
     @Test("editingTextSpansAboveRailAndHeightCaps")
     func editingTextSpansAboveRailAndHeightCaps() {
+        let shortDraft = layout(
+            state: .editing,
+            availableHeight: 600,
+            measuredTextHeight: 22,
+            scaledLineHeight: 22
+        )
         let contentSized = layout(
             state: .editing,
             availableHeight: 600,
@@ -60,6 +66,9 @@ struct ComposerGeometryTests {
             scaledLineHeight: 22
         )
 
+        #expect(shortDraft.outerHeight >= 108)
+        #expect(shortDraft.textFrame.height >= 40)
+        #expect(ComposerShapeToken.minimumRadius(for: shortDraft) < shortDraft.outerHeight / 2)
         #expect(contentSized.controlRailReserve >= ComposerGeometry.controlRailMinHeight)
         #expect(abs(contentSized.textFrame.minY - contentSized.outerFrame.minY - ComposerGeometry.editorTopInset) < 0.01)
         #expect(abs(contentSized.textFrame.maxY - contentSized.outerFrame.maxY + contentSized.controlRailReserve) < 0.01)

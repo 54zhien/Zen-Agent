@@ -249,14 +249,11 @@ struct ConversationComposerView: View {
                 }
                 .disabled(true)
             } label: {
-                Image(systemName: "plus")
-                    .imageScale(.large)
-                    .frame(width: frame.width, height: frame.height)
+                controlLabel("plus", frame: frame)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("更多操作")
-            .frame(width: frame.width, height: frame.height)
-            .contentShape(shape)
+            .accessibilityIdentifier("conversation-composer-plus")
             .position(x: frame.midX, y: frame.midY)
             .animation(.easeInOut(duration: 0.18), value: state.showsPlus)
         }
@@ -270,15 +267,12 @@ struct ConversationComposerView: View {
                 EmptyView()
             case .send(let enabled):
                 Button(action: sendDraft) {
-                    Image(systemName: "arrow.up")
-                        .imageScale(.large)
-                        .frame(width: frame.width, height: frame.height)
+                    controlLabel("arrow.up", frame: frame)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("发送")
+                .accessibilityIdentifier("conversation-composer-send")
                 .disabled(!enabled)
-                .frame(width: frame.width, height: frame.height)
-                .contentShape(shape)
                 .position(x: frame.midX, y: frame.midY)
                 .animation(.easeInOut(duration: 0.18), value: state.primary)
                 .transition(.opacity.combined(with: .scale(scale: 0.86)))
@@ -286,20 +280,26 @@ struct ConversationComposerView: View {
                 Button {
                     Task { _ = await coordinator.handlePrimaryAction() }
                 } label: {
-                    Image(systemName: "stop.fill")
-                        .imageScale(.medium)
-                        .frame(width: frame.width, height: frame.height)
+                    controlLabel("stop.fill", frame: frame)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("停止")
                 .disabled(!enabled)
-                .frame(width: frame.width, height: frame.height)
-                .contentShape(shape)
                 .position(x: frame.midX, y: frame.midY)
                 .animation(.easeInOut(duration: 0.18), value: state.primary)
                 .transition(.opacity.combined(with: .scale(scale: 0.86)))
             }
         }
+    }
+
+    private func controlLabel(_ symbol: String, frame: CGRect) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 36, height: 36)
+            .background(.black, in: Circle())
+            .frame(width: frame.width, height: frame.height)
+            .contentShape(Rectangle())
     }
 
     @ViewBuilder
@@ -319,6 +319,22 @@ struct ConversationComposerView: View {
             )
             .frame(width: layout.textFrame.width, height: layout.textFrame.height)
             .position(x: layout.textFrame.midX, y: layout.textFrame.midY)
+
+            if controller.draft.text.isEmpty {
+                Text("尽管问…")
+                    .font(Typography.font(
+                        for: layout.typographyRole,
+                        dynamicTypeSize: dynamicTypeSize
+                    ))
+                    .foregroundStyle(.secondary)
+                    .frame(
+                        width: layout.textFrame.width,
+                        height: layout.textFrame.height,
+                        alignment: .topLeading
+                    )
+                    .position(x: layout.textFrame.midX, y: layout.textFrame.midY)
+                    .allowsHitTesting(false)
+            }
 
         case let .preview(text, lineLimit, truncation):
             Button(action: enterEditing) {

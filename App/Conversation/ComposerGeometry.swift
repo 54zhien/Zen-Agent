@@ -25,7 +25,7 @@ enum ComposerGeometry {
     static let accessoryHitWidth: CGFloat = 44
     static let editorTopInset: CGFloat = 14
     static let controlRailMinHeight: CGFloat = 52
-    static let editingMinHeight: CGFloat = 72
+    static let editingMinHeight: CGFloat = 108
     static let editingMaxHeightFraction: CGFloat = 0.46
     static let compactWidthFraction: CGFloat = 0.72
     static let compactMinHeight: CGFloat = 38
@@ -203,7 +203,12 @@ enum ComposerShapeToken {
     static let minimumCurvature: CGFloat = 18
 
     static func shape(for layout: ComposerLayout) -> ConcentricRectangle {
-        let minimum = max(minimumCurvature, layout.outerHeight / 2)
+        let minimum = minimumRadius(for: layout)
         return ConcentricRectangle(corners: .concentric(minimum: .fixed(minimum)))
+    }
+
+    static func minimumRadius(for layout: ComposerLayout) -> CGFloat {
+        let divisor: CGFloat = layout.controlRailReserve > 0 ? 4 : 2
+        return max(minimumCurvature, layout.outerHeight / divisor)
     }
 }
