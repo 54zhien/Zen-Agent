@@ -276,6 +276,7 @@ actor ConversationRuntime {
             maxProviderSteps: command.maxProviderSteps
         )
         let committedQuoteSnapshots: [String]
+        let committedPromptHistory: [PromptHistoryMessage]
         do {
             try store.completeExecutionSnapshot(
                 runID: runID,
@@ -284,6 +285,10 @@ actor ConversationRuntime {
             )
             committedQuoteSnapshots = try store.quoteReferences(forMessageID: messageID)
                 .map(\.snapshot)
+            committedPromptHistory = try promptHistory(
+                inConversation: command.conversationID,
+                excludingMessageID: messageID
+            )
         } catch {
             // The commit already happened, so this is a failed Run rather than a
             // failed Send preparation. Never turn a durable user message into a
@@ -297,13 +302,12 @@ actor ConversationRuntime {
         }
 
         // 12. Only now may AgentRuntime advance the Run into provider execution.
-        let userContent = PromptComposer().userContent(
-            text: command.text,
-            quotedSnapshots: committedQuoteSnapshots
-        )
-        let request = ProviderChatRequest(
+        let request = PromptComposer().compose(PromptCompositionInput(
             modelID: command.modelID,
-            messages: [.user(userContent)],
+            providerAdapterInstructions: snapshot.prompt.providerAdapterInstructions,
+            history: committedPromptHistory,
+            currentUserMessage: command.text,
+            currentUserQuotedSnapshots: committedQuoteSnapshots,
             tools: toolRegistry.descriptors.map {
                 ProviderToolDefinition(
                     name: $0.id,
@@ -311,7 +315,7 @@ actor ConversationRuntime {
                     parameters: $0.inputSchema
                 )
             }
-        )
+        ))
         let agent = agentRuntime
         let stream = await agent.advance(
             runID: runID,
@@ -348,6 +352,76 @@ actor ConversationRuntime {
             throw ConversationRuntimeError.attachmentNotCommitted(attachment.assetID)
         }
         return try managedFileStore.loadVerifiedBlob(for: attachment, in: store)
+    }
+
+    private func promptHistory(
+        inConversation conversationID: String,
+        excludingMessageID currentMessageID: String
+    ) throws -> [PromptHistoryMessage] {
+        let messages = try store.messages(inConversation: conversationID)
+        let parentRuns = try store.runs(inConversation: conversationID).filter {
+            $0.kind == .parent
+        }
+        let messagesByID = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
+        let composer = PromptComposer()
+        var historyByMessageID: [String: PromptHistoryMessage] = [:]
+
+        for run in parentRuns {
+            guard run.state == .completed,
+                  let triggerMessageID = run.triggerMessageID,
+                  let responseMessageID = run.responseMessageID,
+                  let triggerMessage = messagesByID[triggerMessageID],
+                  triggerMessage.role == .user,
+                  let responseMessage = messagesByID[responseMessageID],
+                  responseMessage.role == .assistant
+            else {
+                continue
+            }
+
+            let triggerParts = try store.parts(ofMessage: triggerMessageID)
+            let responseParts = try store.parts(ofMessage: responseMessageID)
+            let toolCalls = try store.toolCalls(inRun: run.id)
+            let isCompletedTextOnly = { (parts: [MessagePartRecord]) in
+                parts.allSatisfy { $0.kind == .text && $0.state == .completed }
+            }
+            guard toolCalls.isEmpty,
+                  isCompletedTextOnly(triggerParts),
+                  isCompletedTextOnly(responseParts),
+                  try store.attachments(forMessage: triggerMessageID).isEmpty
+            else {
+                continue
+            }
+
+            let triggerText = try triggerParts.map {
+                try PersistenceStore.decodeTextPayload($0.payload).text
+            }
+                .joined()
+            let responseText = try responseParts.map {
+                try PersistenceStore.decodeTextPayload($0.payload).text
+            }
+                .joined()
+            let quotedSnapshots = try store.quoteReferences(
+                forMessageID: triggerMessageID
+            ).map(\.snapshot)
+            let triggerContent = composer.userContent(
+                text: triggerText,
+                quotedSnapshots: quotedSnapshots
+            )
+            guard !triggerContent.isEmpty, !responseText.isEmpty else { continue }
+
+            historyByMessageID[triggerMessageID] = PromptHistoryMessage(
+                role: .user,
+                content: triggerContent
+            )
+            historyByMessageID[responseMessageID] = PromptHistoryMessage(
+                role: .assistant,
+                content: responseText
+            )
+        }
+        return messages.compactMap { message in
+            guard message.id != currentMessageID else { return nil }
+            return historyByMessageID[message.id]
+        }
     }
 
     private func validateManagedAttachments(_ attachments: [SendAttachment]) throws {

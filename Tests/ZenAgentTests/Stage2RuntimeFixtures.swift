@@ -203,8 +203,14 @@ final class Stage2StreamBox: @unchecked Sendable {
 enum Stage2ProviderScript: Sendable {
     /// Every event for this request, delivered immediately.
     case events([ProviderStreamEvent])
+    /// Yields a prefix, then fails the provider stream before a finish event.
+    case failure(prefix: [ProviderStreamEvent])
     /// Yields `prefix`, then keeps the stream open until the test decides otherwise.
     case holding(prefix: [ProviderStreamEvent], box: Stage2StreamBox)
+}
+
+private enum Stage2ScriptedProviderFailure: Error, Sendable {
+    case scripted
 }
 
 /// A provider that answers each request from a script and records what it was asked.
@@ -266,6 +272,13 @@ struct Stage2ScriptedProvider: ModelProvider {
                     continuation.yield(event)
                 }
                 continuation.finish()
+            }
+        case .failure(let prefix):
+            return AsyncThrowingStream { continuation in
+                for event in prefix {
+                    continuation.yield(event)
+                }
+                continuation.finish(throwing: Stage2ScriptedProviderFailure.scripted)
             }
         case .holding(let prefix, let box):
             return box.makeStream(prefix: prefix)
