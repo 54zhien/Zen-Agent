@@ -82,6 +82,16 @@ final class ConversationPaneController {
         try reloadTimelineAndReportNewRuns()
     }
 
+    func adoptLiveStore(_ store: LiveConversationStore) throws {
+        guard store.state.timeline.conversationID == conversationID else {
+            throw ConversationPaneError.mismatchedTimeline(
+                expected: conversationID,
+                actual: store.state.timeline.conversationID
+            )
+        }
+        liveStore = store
+    }
+
     @discardableResult
     func updateReading(_ event: ReadingPositionEvent) -> ReadingPositionOutput {
         if case .userScrolled(let geometry, _) = event {

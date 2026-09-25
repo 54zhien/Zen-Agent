@@ -125,6 +125,51 @@ final class LiveConversationStore {
         needsPendingToolApprovalReconciliation = false
     }
 
+    @discardableResult
+    func resumePersistedPart(
+        runID: String,
+        messageID: String,
+        partID: String,
+        kind: MessagePartKind
+    ) -> Bool {
+        if let activePart = state.activeParts[partID] {
+            return activePart.runID == runID
+        }
+        guard kind == .text || kind == .reasoning,
+              let turnIndex = turnIndexByRunID[runID],
+              state.timeline.turns.indices.contains(turnIndex),
+              let (itemIndex, source) = state.timeline.turns[turnIndex]
+                .textSourcesByItemIndex.first(where: { $0.value.partID == partID }),
+              source.conversationID == state.timeline.conversationID,
+              source.messageID == messageID,
+              !source.isCompleted,
+              state.timeline.turns[turnIndex].items.indices.contains(itemIndex)
+        else { return false }
+
+        let text: String
+        switch (kind, state.timeline.turns[turnIndex].items[itemIndex]) {
+        case (.text, .assistantText(let value)), (.reasoning, .reasoning(let value)):
+            text = value
+        default:
+            return false
+        }
+
+        let part = LivePartState(
+            runID: runID,
+            messageID: messageID,
+            partID: partID,
+            kind: kind,
+            text: text,
+            state: .streaming
+        )
+        register(part)
+        itemLocationByPartID[partID] = LiveItemLocation(
+            turnIndex: turnIndex,
+            itemIndex: itemIndex
+        )
+        return true
+    }
+
     func refreshPendingToolApprovals(using runtime: ConversationRuntime) async throws {
         let approvals = try await runtime.pendingToolApprovals(in: state.timeline.conversationID)
         reconcilePendingToolApprovals(approvals)

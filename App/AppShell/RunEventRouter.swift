@@ -16,7 +16,9 @@ final class RunEventRouter {
 
     @ObservationIgnored private var conversationByRunID: [String: String] = [:]
     @ObservationIgnored private var acceptedRunOrder: [String] = []
+    @ObservationIgnored private var activeRunIDsByConversationID: [String: Set<String>] = [:]
     @ObservationIgnored private var panesByConversationID: [String: PaneRegistration] = [:]
+    @ObservationIgnored private var detachedPanesByConversationID: [String: PaneRegistration] = [:]
     @ObservationIgnored private var bufferedEvents: [String: [AgentEvent]] = [:]
     private(set) var diagnostics: [String] = []
     private(set) var recoveryMessages: [String: String] = [:]
@@ -32,6 +34,7 @@ final class RunEventRouter {
             }
             conversationByRunID[runID] = conversationID
             acceptedRunOrder.append(runID)
+            activeRunIDsByConversationID[conversationID, default: []].insert(runID)
             route(event, runID: runID, to: conversationID)
             return
         }
@@ -42,6 +45,9 @@ final class RunEventRouter {
             return
         }
         route(event, runID: runID, to: conversationID)
+        if case .runEnded = event {
+            finishActiveRun(runID, in: conversationID)
+        }
     }
 
     @discardableResult
@@ -50,6 +56,26 @@ final class RunEventRouter {
         guard panesByConversationID[conversationID] == nil else {
             record("Rejected duplicate Pane registration for \(conversationID)")
             return false
+        }
+
+        if let detachedRegistration = detachedPanesByConversationID.removeValue(forKey: conversationID) {
+            do {
+                try pane.adoptLiveStore(detachedRegistration.pane.liveStore)
+            } catch {
+                detachedPanesByConversationID[conversationID] = detachedRegistration
+                record("Rejected detached LiveStore for mismatched Pane in \(conversationID)")
+                return false
+            }
+
+            panesByConversationID[conversationID] = PaneRegistration(
+                pane: pane,
+                state: detachedRegistration.state
+            )
+            if detachedRegistration.state == .ready {
+                recoveryMessages.removeValue(forKey: conversationID)
+                replayBufferedEvents(for: conversationID)
+            }
+            return true
         }
 
         var registration = PaneRegistration(pane: pane, state: .ready)
@@ -66,11 +92,20 @@ final class RunEventRouter {
             }
         }
         replayBufferedEvents(for: conversationID)
+        if panesByConversationID[conversationID]?.state == .ready {
+            recoveryMessages.removeValue(forKey: conversationID)
+        }
         return true
     }
 
     func unregisterPane(for conversationID: String) {
-        panesByConversationID.removeValue(forKey: conversationID)
+        let registration = panesByConversationID.removeValue(forKey: conversationID)
+        if let registration,
+           activeRunIDsByConversationID[conversationID]?.isEmpty == false {
+            detachedPanesByConversationID[conversationID] = registration
+            return
+        }
+
         recoveryMessages.removeValue(forKey: conversationID)
         let pending = bufferedEvents[conversationID] ?? []
         var acceptedEvents: [AgentEvent] = []
@@ -113,7 +148,9 @@ final class RunEventRouter {
     }
 
     private func route(_ event: AgentEvent, runID: String, to conversationID: String) {
-        guard var registration = panesByConversationID[conversationID] else {
+        let isDetached = panesByConversationID[conversationID] == nil
+        guard var registration = panesByConversationID[conversationID]
+                ?? detachedPanesByConversationID[conversationID] else {
             bufferedEvents[conversationID, default: []].append(event)
             return
         }
@@ -126,7 +163,11 @@ final class RunEventRouter {
             _ = try registration.pane.consume(event, in: registration.pane.conversationID)
         } catch {
             registration.state = .waitingForRecovery
-            panesByConversationID[conversationID] = registration
+            if isDetached {
+                detachedPanesByConversationID[conversationID] = registration
+            } else {
+                panesByConversationID[conversationID] = registration
+            }
             recoveryMessages[conversationID] = "无法加载会话内容，请重试。"
             if !Self.isRunAccepted(event) {
                 bufferedEvents[conversationID, default: []].append(event)
@@ -142,6 +183,16 @@ final class RunEventRouter {
 
         while !events.isEmpty {
             let event = events.removeFirst()
+            if case .messagePartStarted(let runID, let messageID, let partID, let kind) = event,
+               activeRunIDsByConversationID[conversationID]?.contains(runID) == true,
+               registration.pane.liveStore.resumePersistedPart(
+                   runID: runID,
+                   messageID: messageID,
+                   partID: partID,
+                   kind: kind
+               ) {
+                continue
+            }
             if isAlreadyReflected(event, in: registration.pane) {
                 continue
             }
@@ -194,6 +245,19 @@ final class RunEventRouter {
         panesByConversationID[conversationID] = registration
         recoveryMessages[conversationID] = "无法加载会话内容，请重试。"
         record("Timeline load failed for \(runID) in \(conversationID)")
+    }
+
+    private func finishActiveRun(_ runID: String, in conversationID: String) {
+        activeRunIDsByConversationID[conversationID]?.remove(runID)
+        acceptedRunOrder.removeAll { $0 == runID }
+        guard activeRunIDsByConversationID[conversationID]?.isEmpty != false else { return }
+
+        activeRunIDsByConversationID.removeValue(forKey: conversationID)
+        let releasedDetachedPane = detachedPanesByConversationID.removeValue(forKey: conversationID) != nil
+        if releasedDetachedPane, panesByConversationID[conversationID] == nil {
+            bufferedEvents.removeValue(forKey: conversationID)
+            recoveryMessages.removeValue(forKey: conversationID)
+        }
     }
 
     private func record(_ diagnostic: String) {
