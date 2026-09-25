@@ -1,0 +1,116 @@
+name: W1 unsigned device IPA
+
+on:
+  push:
+    branches: [codex/w1-device-ipa]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify W1 source baseline and packaging-only changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=0a7ddb16642cdbc8c7f76eceef352e13d807ca90
+          test "$(git merge-base HEAD "$base")" = "$base"
+          actual=$(git diff --name-only "$base" HEAD | sort)
+          expected=$(printf '%s\n' \
+            '.github/workflows/w1-device-ipa.yml' \
+            'App/Typography/FontRegistry.swift' \
+            'App/Typography/Typography.swift' | sort)
+          test "$actual" = "$expected"
+
+      - name: Toolchain versions
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build unsigned device app
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project ZenAgent.xcodeproj \
+            -scheme ZenAgent \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            -sdk iphoneos \
+            -derivedDataPath "$RUNNER_TEMP/ZenAgentDeviceDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='DEBUG ZEN_DEVICE_TEST'
+
+      - name: Strip unlicensed interface font and package IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/ZenAgentDeviceDerivedData/Build/Products/Debug-iphoneos/ZenAgent.app"
+          test -d "$app"
+          test -f "$app/Anthropic Sans.ttf"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")" = 'com.zhien.zen'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist")" = '26.0'
+          test "$(/usr/bin/lipo -archs "$app/ZenAgent")" = 'arm64'
+          if /usr/bin/codesign -dv "$app" >/dev/null 2>&1; then
+            echo 'App unexpectedly contains a code signature' >&2
+            exit 1
+          fi
+
+          stage="$RUNNER_TEMP/ZenAgentDeviceStage"
+          output="$RUNNER_TEMP/ZenAgentDeviceOutput"
+          mkdir -p "$stage/Payload" "$output/LICENSES"
+          /usr/bin/ditto "$app" "$stage/Payload/ZenAgent.app"
+          rm -- "$stage/Payload/ZenAgent.app/Anthropic Sans.ttf"
+          python3 - "$stage/Payload/ZenAgent.app/Info.plist" <<'PY'
+          import plistlib
+          import sys
+
+          path = sys.argv[1]
+          with open(path, 'rb') as file:
+              info = plistlib.load(file)
+          fonts = info['UIAppFonts']
+          assert fonts.count('Anthropic Sans.ttf') == 1
+          info['UIAppFonts'] = [font for font in fonts if font != 'Anthropic Sans.ttf']
+          with open(path, 'wb') as file:
+              plistlib.dump(info, file)
+          PY
+
+          name='ZenAgent-W1-0a7ddb1-unsigned-device-test.ipa'
+          (cd "$stage" && /usr/bin/zip -qry "$output/$name" Payload)
+          /usr/bin/unzip -tq "$output/$name"
+          if /usr/bin/unzip -Z1 "$output/$name" | grep -i 'Anthropic'; then
+            echo 'Unlicensed interface font remains in IPA' >&2
+            exit 1
+          fi
+          cp Resources/Fonts/LICENSE-SourceHanSerif.txt "$output/LICENSES/"
+          cp Resources/Fonts/LICENSE-JetBrainsMono.txt "$output/LICENSES/"
+          (cd "$output" && /usr/bin/shasum -a 256 "$name" > SHA256SUMS.txt)
+          {
+            echo 'W1 source: 0a7ddb16642cdbc8c7f76eceef352e13d807ca90'
+            echo "Packaging commit: $GITHUB_SHA"
+            echo 'Variant: unsigned Debug device build, System Sans interface font'
+            echo 'Bundle ID: com.zhien.zen'
+            echo 'Minimum iOS: 26.0'
+          } > "$output/BUILD-INFO.txt"
+
+      - name: Upload unsigned IPA and provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZenAgent-W1-0a7ddb1-unsigned-device-test
+          path: ${{ runner.temp }}/ZenAgentDeviceOutput/
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error

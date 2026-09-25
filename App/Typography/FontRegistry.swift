@@ -19,11 +19,18 @@ enum FontRegistry {
     }
 
     /// The manifest. Every file must be present in the bundle.
+    #if ZEN_DEVICE_TEST
+    static let bundledFontFileNames: [String] = [
+        "SourceHanSerifSC-VF.ttf",
+        "JetBrainsMono-Regular.ttf",
+    ]
+    #else
     static let bundledFontFileNames: [String] = [
         "Anthropic Sans.ttf",
         "SourceHanSerifSC-VF.ttf",
         "JetBrainsMono-Regular.ttf",
     ]
+    #endif
 
     /// Registers every bundled font. Throws on the first file that is missing from the
     /// bundle, or that CoreText refuses for a reason other than "already registered".

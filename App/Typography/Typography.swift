@@ -86,6 +86,15 @@ enum Typography {
         compatibleWith traits: UITraitCollection? = nil
     ) -> UIFont {
         let token = token(for: role)
+        #if ZEN_DEVICE_TEST
+        // Public CI artifacts cannot include the development-only interface font.
+        // Keep content/code typography intact while the device build uses System Sans.
+        if token.face == .interface {
+            let base = UIFont.systemFont(ofSize: token.pointSize)
+            return UIFontMetrics(forTextStyle: token.textStyle)
+                .scaledFont(for: base, compatibleWith: traits)
+        }
+        #endif
         let base = UIFont(descriptor: descriptor(for: token), size: token.pointSize)
         let scaled = UIFontMetrics(forTextStyle: token.textStyle)
             .scaledFont(for: base, compatibleWith: traits)
