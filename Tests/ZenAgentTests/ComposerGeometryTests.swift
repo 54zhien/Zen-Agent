@@ -43,6 +43,11 @@ struct ComposerGeometryTests {
         #expect(shelf?.maxY == oneLine.visualFrame.minY)
         #expect(oneLine.leadingAccessoryReserve == ComposerGeometry.accessoryHitWidth)
         #expect(oneLine.trailingAccessoryReserve == ComposerGeometry.accessoryHitWidth)
+        let editing = layout(state: .editing)
+        #expect(oneLine.outerWidth < editing.outerWidth)
+        #expect(oneLine.outerHeight < editing.outerHeight)
+        #expect(oneLine.bottomSpacing < editing.bottomSpacing)
+        #expect(oneLine.outerFrame.midX == editing.outerFrame.midX)
     }
 
     @Test("editingTextSpansAboveRailAndHeightCaps")

@@ -21,7 +21,8 @@ struct ComposerLayout {
 
 enum ComposerGeometry {
     static let edgeInset: CGFloat = 16
-    static let restingMinHeight: CGFloat = 56
+    static let restingEdgeInset: CGFloat = 30
+    static let restingMinHeight: CGFloat = 50
     static let accessoryHitWidth: CGFloat = 44
     static let editorTopInset: CGFloat = 14
     static let controlRailMinHeight: CGFloat = 52
@@ -35,7 +36,7 @@ enum ComposerGeometry {
     private static let restingHorizontalInset: CGFloat = 12
     private static let restingVerticalInset: CGFloat = 10
     private static let compactFontScale: CGFloat = 0.82
-    private static let restingBottomSpacing: CGFloat = 12
+    private static let restingBottomSpacing: CGFloat = 2
     private static let compactBottomSpacing: CGFloat = 22
     private static let editingBottomSpacing: CGFloat = 12
 
@@ -76,7 +77,7 @@ enum ComposerGeometry {
         progress: CGFloat,
         reservesAccessories: Bool
     ) -> ComposerLayout {
-        let restingWidth = max(0, width - 2 * edgeInset)
+        let restingWidth = max(0, width - 2 * restingEdgeInset)
         let compactWidth = restingWidth * compactWidthFraction
         let outerWidth = interpolate(restingWidth, compactWidth, progress)
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @MainActor
 struct ConversationComposerView: View {
@@ -14,6 +15,7 @@ struct ConversationComposerView: View {
     @State private var measuredTextHeight: CGFloat = 0
     @State private var measuredQuoteShelfHeight: CGFloat = 44
     @State private var keyboardAnimation: Animation?
+    @State private var visualState: ComposerPresentationState = .resting
 
     init(
         conversationID: String,
@@ -24,6 +26,8 @@ struct ConversationComposerView: View {
         self.conversationID = conversationID
         self.controller = controller
         self.bridge = bridge
+        _visualState = State(initialValue: controller.draft.presentationState == .editing
+            ? .resting : controller.draft.presentationState)
         _coordinator = State(initialValue: ComposerSendCoordinator(
             conversationID: conversationID,
             controller: controller,
@@ -41,7 +45,7 @@ struct ConversationComposerView: View {
             )
             // The host's safe-area layout follows the keyboard; do not subtract its frame again.
             let layout = ComposerGeometry.resolve(
-                state: controller.draft.presentationState,
+                state: visualState,
                 containerWidth: geometry.size.width,
                 availableHeight: geometry.size.height,
                 measuredTextHeight: measuredTextHeight,
@@ -106,15 +110,22 @@ struct ConversationComposerView: View {
                                 dynamicTypeSize: dynamicTypeSize
                             ))
                             .foregroundStyle(.red)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 12)
-                            .padding(.top, 4)
+                            .frame(width: layout.outerFrame.width, alignment: .leading)
+                            .position(
+                                x: layout.outerFrame.midX,
+                                y: max(12, layout.outerFrame.minY - 18)
+                            )
                             .allowsHitTesting(false)
                             .accessibilityIdentifier("composer-send-error")
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .animation(keyboardAnimation, value: geometry.size.height)
+                .animation(keyboardAnimation, value: visualState)
+                .onChange(of: controller.draft.presentationState) { _, newState in
+                    guard newState != .editing, visualState != .editing else { return }
+                    withAnimation(.smooth) { visualState = newState }
+                }
                 .task(id: conversationID) {
                     await observeRunProjection()
                 }
@@ -199,7 +210,7 @@ struct ConversationComposerView: View {
         if state.showsPlus,
            let frame = ComposerContextAction.leadingPlusFrame(
             layout: layout,
-            state: controller.draft.presentationState
+            state: visualState
            ) {
             Menu {
                 Button {} label: {
@@ -256,7 +267,7 @@ struct ConversationComposerView: View {
 
         if let frame = ComposerContextAction.trailingFrame(
             layout: layout,
-            state: controller.draft.presentationState
+            state: visualState
         ) {
             switch state.primary {
             case .none:
@@ -316,32 +327,14 @@ struct ConversationComposerView: View {
             .frame(width: layout.textFrame.width, height: layout.textFrame.height)
             .position(x: layout.textFrame.midX, y: layout.textFrame.midY)
 
-            if controller.draft.text.isEmpty {
-                Text("尽管问…")
-                    .font(Typography.font(
-                        for: layout.typographyRole,
-                        dynamicTypeSize: dynamicTypeSize
-                    ))
-                    .foregroundStyle(.secondary)
-                    .frame(
-                        width: layout.textFrame.width,
-                        height: layout.textFrame.height,
-                        alignment: .topLeading
-                    )
-                    .position(x: layout.textFrame.midX, y: layout.textFrame.midY)
-                    .allowsHitTesting(false)
-            }
-
         case let .preview(text, lineLimit, truncation):
             Button(action: enterEditing) {
-                Text(text.isEmpty && controller.draft.presentationState == .resting
-                    ? "输入消息"
-                    : text)
+                Text(text.isEmpty ? " " : text)
                     .font(Typography.font(
                         for: layout.typographyRole,
                         dynamicTypeSize: dynamicTypeSize
                     ))
-                    .foregroundStyle(text.isEmpty ? Color.secondary : Color.primary)
+                    .foregroundStyle(text.isEmpty ? Color.clear : Color.primary)
                     .lineLimit(lineLimit)
                     .truncationMode(truncation == .tail ? .tail : .middle)
                     .scaleEffect(layout.fontScale, anchor: .leading)
@@ -353,6 +346,33 @@ struct ConversationComposerView: View {
             .accessibilityLabel("输入消息")
             .accessibilityIdentifier("conversation-composer-input")
             .position(x: layout.hitFrame.midX, y: layout.hitFrame.midY)
+        }
+
+        if controller.draft.text.isEmpty {
+            let font = Typography.uiFont(
+                for: layout.typographyRole,
+                compatibleWith: UITraitCollection(
+                    preferredContentSizeCategory: Typography.contentSizeCategory(for: dynamicTypeSize)
+                )
+            )
+            let placeholderWidth = ("输入消息" as NSString).size(withAttributes: [.font: font]).width
+            Text("输入消息")
+                .font(Typography.font(
+                    for: layout.typographyRole,
+                    dynamicTypeSize: dynamicTypeSize
+                ))
+                .foregroundStyle(.secondary)
+                .fixedSize()
+                .scaleEffect(layout.fontScale)
+                .position(
+                    x: visualState == .editing
+                        ? layout.textFrame.minX + placeholderWidth / 2
+                        : layout.outerFrame.midX,
+                    y: visualState == .editing
+                        ? layout.textFrame.minY + font.lineHeight / 2
+                        : layout.outerFrame.midY
+                )
+                .allowsHitTesting(false)
         }
     }
 
@@ -395,17 +415,20 @@ struct ConversationComposerView: View {
     }
 
     private func handleKeyboardTransition(_ transition: ComposerKeyboardTransition) {
-        guard let animation = transition.animation else {
-            if !transition.isVisible {
+        if transition.isVisible, controller.draft.presentationState != .editing { return }
+        if let animation = transition.animation {
+            keyboardAnimation = animation.swiftUIAnimation
+            withAnimation(animation.swiftUIAnimation) {
+                visualState = transition.isVisible ? .editing : .resting
+                if !transition.isVisible {
+                    apply(controller.handle(.keyboardDismissed))
+                }
+            }
+        } else if !transition.isVisible {
+            withAnimation(keyboardAnimation) {
+                visualState = .resting
                 apply(controller.handle(.keyboardDismissed))
             }
-            return
-        }
-
-        keyboardAnimation = animation.swiftUIAnimation
-        guard !transition.isVisible else { return }
-        withAnimation(animation.swiftUIAnimation) {
-            apply(controller.handle(.keyboardDismissed))
         }
     }
 

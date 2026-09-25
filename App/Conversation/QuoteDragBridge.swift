@@ -352,7 +352,7 @@ struct QuoteDropTargetView: UIViewRepresentable {
 }
 
 @MainActor
-final class QuoteDropTargetHostUIView: UIView {
+final class QuoteDropTargetHostUIView: UIView, UIGestureRecognizerDelegate {
     private weak var hostedView: UIView?
     private var dropInteraction: UIDropInteraction?
     var onDidMoveToWindow: (() -> Void)?
@@ -388,8 +388,16 @@ final class QuoteDropTargetHostUIView: UIView {
 
     func installBackgroundTap() {
         let tap = UITapGestureRecognizer(target: self, action: #selector(backgroundTapped(_:)))
+        tap.delegate = self
         tap.cancelsTouchesInView = false
+        tap.delaysTouchesBegan = false
+        tap.delaysTouchesEnded = false
         addGestureRecognizer(tap)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldReceive touch: UITouch) -> Bool {
+        !visualFrame.contains(touch.location(in: self))
     }
 
     @objc private func backgroundTapped(_ recognizer: UITapGestureRecognizer) {
