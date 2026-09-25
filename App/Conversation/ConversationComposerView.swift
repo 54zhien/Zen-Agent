@@ -71,71 +71,80 @@ struct ConversationComposerView: View {
             )
             let dropFrame = QuoteShelfGeometry.dropFrame(layout: layout, shelfFrame: shelfFrame)
 
-            QuoteDropTargetView(
-                existing: controller.draft.references,
-                dropFrame: dropFrame,
-                visualFrame: layout.visualFrame,
-                dynamicTypeSize: dynamicTypeSize,
-                onAccept: { reference in _ = controller.addQuoteReference(reference) },
-                onPhaseChanged: { phase in apply(controller.handle(.quoteDragPhaseChanged(phase))) },
-                onBackgroundTap: { apply(controller.handle(.conversationBackgroundTapped)) }
-            ) {
-                ZStack(alignment: .topLeading) {
-                    Color.clear
-                        .frame(width: geometry.size.width, height: geometry.size.height)
+            ZStack(alignment: .topLeading) {
+                QuoteDropTargetView(
+                    existing: controller.draft.references,
+                    dropFrame: dropFrame,
+                    visualFrame: layout.visualFrame,
+                    dynamicTypeSize: dynamicTypeSize,
+                    onAccept: { reference in _ = controller.addQuoteReference(reference) },
+                    onPhaseChanged: { phase in apply(controller.handle(.quoteDragPhaseChanged(phase))) },
+                    onBackgroundTap: { apply(controller.handle(.conversationBackgroundTapped)) }
+                ) {
+                    ZStack(alignment: .topLeading) {
+                        Color.clear
+                            .frame(width: geometry.size.width, height: geometry.size.height)
 
-                    shape.fill(.clear)
-                        .frame(width: layout.visualFrame.width, height: layout.visualFrame.height)
-                        .glassEffect(.regular.interactive(), in: shape)
-                        .contentShape(shape)
-                        .position(x: layout.visualFrame.midX, y: layout.visualFrame.midY)
+                        shape.fill(.clear)
+                            .frame(width: layout.visualFrame.width, height: layout.visualFrame.height)
+                            .glassEffect(.regular.interactive(), in: shape)
+                            .contentShape(shape)
+                            .position(x: layout.visualFrame.midX, y: layout.visualFrame.midY)
 
-                    composerContent(layout: layout, shape: shape)
-                    contextControls(layout: layout, shape: shape, state: actionState)
-
-                    if let shelfFrame {
-                        QuoteShelfView(
-                            entries: controller.draft.references.map(QuoteShelfEntry.init),
-                            onRemove: controller.removeQuoteReference(id:),
-                            onMeasuredHeight: { measuredQuoteShelfHeight = $0 }
-                        )
-                        .frame(width: shelfFrame.width, height: shelfFrame.height)
-                        .position(x: shelfFrame.midX, y: shelfFrame.midY)
-                    }
-
-                    if let sendErrorMessage = coordinator.sendErrorMessage {
-                        Text(sendErrorMessage)
-                            .font(Typography.font(
-                                for: .interfaceCaption,
-                                dynamicTypeSize: dynamicTypeSize
-                            ))
-                            .foregroundStyle(.red)
-                            .frame(width: layout.outerFrame.width, alignment: .leading)
-                            .position(
-                                x: layout.outerFrame.midX,
-                                y: max(12, layout.outerFrame.minY - 18)
+                        composerContent(layout: layout, shape: shape)
+                        if let shelfFrame {
+                            QuoteShelfView(
+                                entries: controller.draft.references.map(QuoteShelfEntry.init),
+                                onRemove: controller.removeQuoteReference(id:),
+                                onMeasuredHeight: { measuredQuoteShelfHeight = $0 }
                             )
-                            .allowsHitTesting(false)
-                            .accessibilityIdentifier("composer-send-error")
+                            .frame(width: shelfFrame.width, height: shelfFrame.height)
+                            .position(x: shelfFrame.midX, y: shelfFrame.midY)
+                        }
+                    }
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .animation(keyboardAnimation, value: geometry.size.height)
+                    .animation(keyboardAnimation, value: visualState)
+                    .onChange(of: controller.draft.presentationState) { _, newState in
+                        guard newState != .editing else { return }
+                        withAnimation(keyboardAnimation ?? .smooth) { visualState = newState }
+                    }
+                    .task(id: conversationID) {
+                        await observeRunProjection()
+                    }
+                    .task(id: controller.configuration.providerInstanceID) {
+                        await loadKnownModels()
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
-                .animation(keyboardAnimation, value: geometry.size.height)
+                // Carry the keyboard transition through the UIViewRepresentable boundary.
                 .animation(keyboardAnimation, value: visualState)
-                .onChange(of: controller.draft.presentationState) { _, newState in
-                    guard newState != .editing, visualState != .editing else { return }
-                    withAnimation(.smooth) { visualState = newState }
-                }
-                .task(id: conversationID) {
-                    await observeRunProjection()
-                }
-                .task(id: controller.configuration.providerInstanceID) {
-                    await loadKnownModels()
+
+                contextControls(layout: layout, shape: shape, state: actionState)
+
+                if let sendErrorMessage = coordinator.sendErrorMessage {
+                    Text(sendErrorMessage)
+                        .font(Typography.font(
+                            for: .interfaceCaption,
+                            dynamicTypeSize: dynamicTypeSize
+                        ))
+                        .foregroundStyle(.red)
+                        .frame(width: layout.outerFrame.width, alignment: .leading)
+                        .position(
+                            x: layout.outerFrame.midX,
+                            y: max(12, layout.outerFrame.minY - 18)
+                        )
+                        .allowsHitTesting(false)
+                        .accessibilityIdentifier("composer-send-error")
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-            // Carry the keyboard transition through the UIViewRepresentable boundary.
-            .animation(keyboardAnimation, value: visualState)
+            .simultaneousGesture(
+                SpatialTapGesture().onEnded { tap in
+                    guard !layout.visualFrame.contains(tap.location) else { return }
+                    apply(controller.handle(.conversationBackgroundTapped))
+                }
+            )
         }
     }
 
@@ -357,24 +366,25 @@ struct ConversationComposerView: View {
                     preferredContentSizeCategory: Typography.contentSizeCategory(for: dynamicTypeSize)
                 )
             )
-            let placeholderWidth = ("输入消息" as NSString).size(withAttributes: [.font: font]).width
-            Text("输入消息")
-                .font(Typography.font(
-                    for: layout.typographyRole,
-                    dynamicTypeSize: dynamicTypeSize
-                ))
-                .foregroundStyle(.secondary)
-                .fixedSize()
-                .scaleEffect(layout.fontScale)
-                .position(
-                    x: visualState == .editing
-                        ? layout.textFrame.minX + placeholderWidth / 2
-                        : layout.outerFrame.midX,
-                    y: visualState == .editing
-                        ? layout.textFrame.minY + font.lineHeight / 2
-                        : layout.outerFrame.midY
-                )
-                .allowsHitTesting(false)
+            ZStack(alignment: .topLeading) {
+                Text("输入消息")
+                    .font(Typography.font(
+                        for: layout.typographyRole,
+                        dynamicTypeSize: dynamicTypeSize
+                    ))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+                    .scaleEffect(layout.fontScale, anchor: .leading)
+                    .offset(
+                        x: layout.textFrame.minX - layout.outerFrame.minX,
+                        y: visualState == .editing
+                            ? layout.textFrame.minY - layout.outerFrame.minY
+                            : (layout.outerHeight - font.lineHeight) / 2
+                    )
+            }
+            .frame(width: layout.outerWidth, height: layout.outerHeight, alignment: .topLeading)
+            .position(x: layout.outerFrame.midX, y: layout.outerFrame.midY)
+            .allowsHitTesting(false)
         }
     }
 
@@ -442,6 +452,9 @@ struct ConversationComposerView: View {
             isEditorFocused = true
         case .requestResign:
             isEditorFocused = false
+            withAnimation(keyboardAnimation ?? .smooth) {
+                visualState = .resting
+            }
         }
     }
 }

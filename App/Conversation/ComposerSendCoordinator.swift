@@ -176,7 +176,10 @@ final class ComposerSendCoordinator {
             sendErrorMessage = Self.safeMessage(for: error)
             return .none
         }
-        guard controller.configuration == configuration else { return .none }
+        guard controller.configuration == configuration else {
+            sendErrorMessage = "模型配置已变更，请重试。"
+            return .none
+        }
         guard let selected = models.first(where: {
             $0.providerInstanceID == configuration.providerInstanceID
                 && $0.id == configuration.modelID
@@ -192,7 +195,10 @@ final class ComposerSendCoordinator {
             fileInputReady: false,
             submissionID: UUID().uuidString
         )
-        guard let command else { return primaryAction(sendable: false) }
+        guard let command else {
+            sendErrorMessage = "当前内容暂时无法发送，请重试。"
+            return primaryAction(sendable: false)
+        }
 
         let runID: String
         do {
