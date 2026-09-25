@@ -14,6 +14,9 @@ struct ComposerHostIntegrationTests {
         host.configure(configuration(state: .resting))
         host.layoutIfNeeded()
         #expect(abs(host.keyboardGap - 12) < 1)
+        #expect(host.hitTest(CGPoint(x: host.bounds.midX, y: 200), with: nil) == nil)
+        #expect(host.hitTest(CGPoint(x: host.surfaceFrame.midX,
+                                     y: host.surfaceFrame.midY), with: nil) != nil)
         #expect(host.editor === editor)
         #expect(host.placeholder.superview === editor.superview)
         #expect(host.placeholder.frame.origin == editor.frame.origin)
@@ -62,7 +65,7 @@ struct ComposerHostIntegrationTests {
             errorMessage: nil, references: [],
             onRemoveQuote: { _ in }, onAcceptQuote: { _ in }, onQuotePhase: { _ in },
             onText: { _, _, _ in }, onFocus: { _ in }, onSend: onSend,
-            onStop: {}, onModel: { _ in }
+            onStop: {}, onModel: { _ in }, onHeightChanged: { _ in }
         )
     }
 

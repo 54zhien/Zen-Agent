@@ -93,6 +93,18 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
 
+  ZenAgentUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/ZenAgentUITests
+    dependencies:
+      - target: ZenAgent
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: ZenAgent
+
 
 schemes:
 
@@ -107,4 +119,5 @@ schemes:
       config: Debug
       targets:
         - ZenAgentTests
+        - ZenAgentUITests
 

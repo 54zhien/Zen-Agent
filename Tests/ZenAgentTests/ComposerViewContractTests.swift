@@ -37,7 +37,7 @@ struct ComposerViewContractTests {
 
         #expect(draftStorageCount == 1)
         #expect(independentTextStorage.isEmpty)
-        #expect(bridge.contains("@Binding var text: String"))
+        #expect(bridge.contains("markedTextPresent: Bool"))
         #expect(sources["App/Conversation/ComposerTextProjection.swift"] != nil)
         #expect(view.contains("ComposerHostBridge(configuration: hostConfiguration"))
         #expect(host.contains("let editor = UITextView()"))
@@ -47,7 +47,8 @@ struct ComposerViewContractTests {
 
     @Test("markedTextUpdatePolicyPreservesEditorBufferAndSelection")
     func markedTextUpdatePolicyPreservesEditorBufferAndSelection() {
-        guard let bridge = sourceFiles()?["App/Conversation/ComposerTextView.swift"] else { return }
+        guard let sources = sourceFiles() else { return }
+        let host = sources["App/Conversation/ComposerHostView.swift"] ?? ""
         let composing = ComposerTextViewUpdatePolicy.resolve(markedTextPresent: true)
         let committed = ComposerTextViewUpdatePolicy.resolve(markedTextPresent: false)
 
@@ -55,9 +56,9 @@ struct ComposerViewContractTests {
         #expect(!composing.writesSelection)
         #expect(committed.writesText)
         #expect(committed.writesSelection)
-        #expect(bridge.contains("ComposerTextViewUpdatePolicy.resolve("))
-        #expect(bridge.contains("if policy.writesText"))
-        #expect(bridge.contains("if policy.writesSelection"))
+        #expect(host.contains("ComposerTextViewUpdatePolicy.resolve("))
+        #expect(host.contains("if updatePolicy.writesText"))
+        #expect(host.contains("if updatePolicy.writesSelection"))
     }
 
     @Test("allStatesConsumeOneShapeToken")

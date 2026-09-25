@@ -25,6 +25,7 @@ jobs:
           actual=$(git diff --name-only "$base" HEAD | sort)
           expected=$(printf '%s\n' \
             '.github/workflows/w1-device-ipa.yml' \
+            '.github/workflows/ci.yml' \
             'App/Conversation/ComposerContextAction.swift' \
             'App/Conversation/ComposerGeometry.swift' \
             'App/Conversation/ComposerHostBridge.swift' \
@@ -46,7 +47,9 @@ jobs:
             'Tests/ZenAgentTests/ComposerMorphGeometryTests.swift' \
             'Tests/ZenAgentTests/ComposerViewContractTests.swift' \
             'Tests/ZenAgentTests/ComposerSendCoordinatorTests.swift' \
-            'Tests/ZenAgentTests/TypographyTokenTests.swift' | sort)
+            'Tests/ZenAgentTests/TypographyTokenTests.swift' \
+            'Tests/ZenAgentUITests/ComposerMotionUITests.swift' \
+            'project.yml' | sort)
           test "$actual" = "$expected"
 
       - name: Toolchain versions

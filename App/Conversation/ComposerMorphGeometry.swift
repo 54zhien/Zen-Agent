@@ -3,6 +3,7 @@ import UIKit
 /// All child coordinates are relative to the surface. The keyboard guide owns its window origin.
 struct ComposerMorphGeometry {
     let size: CGSize
+    let bottomSpacing: CGFloat
     let textViewport: CGRect
     let plus: CGRect
     let primary: CGRect
@@ -33,6 +34,7 @@ struct ComposerMorphGeometry {
         let text = local(layout.textFrame)
         return Self(
             size: layout.outerFrame.size,
+            bottomSpacing: layout.bottomSpacing,
             textViewport: text,
             plus: local(ComposerContextAction.leadingPlusFrame(layout: layout, state: state)),
             primary: local(ComposerContextAction.trailingFrame(layout: layout, state: state)),
@@ -55,6 +57,7 @@ struct ComposerMorphGeometry {
         return Self(
             size: CGSize(width: value(start.size.width, end.size.width),
                          height: value(start.size.height, end.size.height)),
+            bottomSpacing: value(start.bottomSpacing, end.bottomSpacing),
             textViewport: rect(start.textViewport, end.textViewport),
             plus: rect(start.plus, end.plus),
             primary: rect(start.primary, end.primary),

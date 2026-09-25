@@ -23,6 +23,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let onSend: () -> Void
         let onStop: () -> Void
         let onModel: (ModelID) -> Void
+        let onHeightChanged: (CGFloat) -> Void
     }
 
     private let surface = UIView()
@@ -39,6 +40,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private let motion = ComposerMotionController()
     private var widthConstraint: NSLayoutConstraint!
     private var heightConstraint: NSLayoutConstraint!
+    private var bottomConstraint: NSLayoutConstraint!
     private var configuration: Configuration?
     private var currentState: ComposerPresentationState = .resting
     private var keyboardTiming: (duration: TimeInterval, options: UIView.AnimationOptions)?
@@ -48,6 +50,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var measuredFont: UIFont?
     private var measuredHeight: CGFloat = 0
     private var lastHostWidth: CGFloat = -1
+    private var lastReportedClearance: CGFloat = -1
 
     override init(frame: CGRect) {
         let effect = UIGlassEffect(style: .regular)
@@ -62,9 +65,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         addSubview(surface)
         widthConstraint = surface.widthAnchor.constraint(equalToConstant: 0)
         heightConstraint = surface.heightAnchor.constraint(equalToConstant: 50)
+        bottomConstraint = surface.bottomAnchor.constraint(
+            equalTo: keyboardLayoutGuide.topAnchor, constant: -12
+        )
         NSLayoutConstraint.activate([
             surface.centerXAnchor.constraint(equalTo: centerXAnchor),
-            surface.bottomAnchor.constraint(equalTo: keyboardLayoutGuide.topAnchor, constant: -12),
+            bottomConstraint,
             widthConstraint, heightConstraint
         ])
 
@@ -174,11 +180,14 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         configuration = next
         editor.font = next.font
         placeholder.font = next.font
-        if editor.markedTextRange == nil, editor.text != next.text {
+        let updatePolicy = ComposerTextViewUpdatePolicy.resolve(
+            markedTextPresent: editor.markedTextRange != nil
+        )
+        if updatePolicy.writesText, editor.text != next.text {
             editor.text = next.text
         }
         if oldText != next.text { textRevision += 1 }
-        if editor.markedTextRange == nil, !editor.isFirstResponder {
+        if updatePolicy.writesSelection, !editor.isFirstResponder {
             let length = next.text.utf16.count
             let lower = min(length, max(0, next.selection.range.lowerBound))
             let upper = min(length, max(lower, next.selection.range.upperBound))
@@ -242,9 +251,18 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             collapseProgress: configuration.collapseProgress
         )
         let targetViewport = layout.textViewport
+        let clearance = layout.size.height + 12
+            + ((configuration.references.isEmpty || state == .compact) ? 0 : shelfHeight)
+        if abs(clearance - lastReportedClearance) > 0.5 {
+            lastReportedClearance = clearance
+            Task { @MainActor [weak self] in
+                self?.configuration?.onHeightChanged(clearance)
+            }
+        }
         let apply = {
             self.widthConstraint.constant = layout.size.width
             self.heightConstraint.constant = layout.size.height
+            self.bottomConstraint.constant = -layout.bottomSpacing
             self.viewport.frame = targetViewport
             self.plus.frame = layout.plus.insetBy(dx: 8, dy: 8)
             self.primary.frame = layout.primary.insetBy(dx: 8, dy: 8)
@@ -331,6 +349,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
                 self.shelfHeight = height
                 self.shelfController?.view.frame.origin.y = -height
                 self.shelfController?.view.frame.size.height = height
+                if !self.shelfViewIsHidden {
+                    self.configuration?.onHeightChanged(self.surface.frame.height + 12 + height)
+                }
             }
         )
         shelfController?.view.isHidden = configuration.references.isEmpty

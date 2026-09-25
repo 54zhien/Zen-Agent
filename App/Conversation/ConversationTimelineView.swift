@@ -24,6 +24,7 @@ struct ConversationTimelineView: View {
     var onQuoteDragPhaseChanged: (ComposerQuoteDragPhase) -> Void = { _ in }
     var onSelectionHandleDragChanged: (Bool) -> Void = { _ in }
     var scrollBridge: ConversationPaneScrollBridge? = nil
+    var bottomComposerClearance: CGFloat = 62
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var betweenTurns = Metrics.betweenTurns
@@ -101,6 +102,9 @@ struct ConversationTimelineView: View {
                 .padding(.horizontal, contentInset)
                 .padding(.vertical, betweenTurns)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: bottomComposerClearance)
             }
             .coordinateSpace(name: scrollCoordinateSpace)
             .scrollPosition($scrollPosition, anchor: .top)
