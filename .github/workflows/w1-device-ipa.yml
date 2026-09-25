@@ -25,6 +25,7 @@ jobs:
           actual=$(git diff --name-only "$base" HEAD | sort)
           expected=$(printf '%s\n' \
             '.github/workflows/w1-device-ipa.yml' \
+            'App/Conversation/ConversationComposerView.swift' \
             'App/Typography/FontRegistry.swift' \
             'App/Typography/Typography.swift' | sort)
           test "$actual" = "$expected"
@@ -88,7 +89,7 @@ jobs:
               plistlib.dump(info, file)
           PY
 
-          name='ZenAgent-W1-0a7ddb1-unsigned-device-test.ipa'
+          name='ZenAgent-W1-composer-device-test.ipa'
           (cd "$stage" && /usr/bin/zip -qry "$output/$name" Payload)
           /usr/bin/unzip -tq "$output/$name"
           if /usr/bin/unzip -Z1 "$output/$name" | grep -i 'Anthropic'; then
@@ -99,8 +100,8 @@ jobs:
           cp Resources/Fonts/LICENSE-JetBrainsMono.txt "$output/LICENSES/"
           (cd "$output" && /usr/bin/shasum -a 256 "$name" > SHA256SUMS.txt)
           {
-            echo 'W1 source: 0a7ddb16642cdbc8c7f76eceef352e13d807ca90'
-            echo "Packaging commit: $GITHUB_SHA"
+            echo 'W1 base: 0a7ddb16642cdbc8c7f76eceef352e13d807ca90'
+            echo "Device candidate commit: $GITHUB_SHA"
             echo 'Variant: unsigned Debug device build, System Sans interface font'
             echo 'Bundle ID: com.zhien.zen'
             echo 'Minimum iOS: 26.0'
@@ -109,7 +110,7 @@ jobs:
       - name: Upload unsigned IPA and provenance
         uses: actions/upload-artifact@v4
         with:
-          name: ZenAgent-W1-0a7ddb1-unsigned-device-test
+          name: ZenAgent-W1-composer-device-test
           path: ${{ runner.temp }}/ZenAgentDeviceOutput/
           retention-days: 7
           compression-level: 0

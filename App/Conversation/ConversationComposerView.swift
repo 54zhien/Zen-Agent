@@ -321,19 +321,24 @@ struct ConversationComposerView: View {
 
         case let .preview(text, lineLimit, truncation):
             Button(action: enterEditing) {
-                Text(text)
+                Text(text.isEmpty && controller.draft.presentationState == .resting
+                    ? "输入消息"
+                    : text)
                     .font(Typography.font(
                         for: layout.typographyRole,
                         dynamicTypeSize: dynamicTypeSize
                     ))
+                    .foregroundStyle(text.isEmpty ? Color.secondary : Color.primary)
                     .lineLimit(lineLimit)
                     .truncationMode(truncation == .tail ? .tail : .middle)
                     .scaleEffect(layout.fontScale, anchor: .leading)
                     .frame(width: layout.textFrame.width, height: layout.textFrame.height)
+                    .frame(width: layout.hitFrame.width, height: layout.hitFrame.height)
+                    .contentShape(shape)
             }
             .buttonStyle(.plain)
-            .frame(width: layout.hitFrame.width, height: layout.hitFrame.height)
-            .contentShape(shape)
+            .accessibilityLabel("输入消息")
+            .accessibilityIdentifier("conversation-composer-input")
             .position(x: layout.hitFrame.midX, y: layout.hitFrame.midY)
         }
     }
