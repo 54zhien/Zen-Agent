@@ -46,8 +46,11 @@ struct ComposerGeometryTests {
         let editing = layout(state: .editing)
         #expect(oneLine.outerWidth < editing.outerWidth)
         #expect(oneLine.outerHeight < editing.outerHeight)
-        #expect(oneLine.bottomSpacing < editing.bottomSpacing)
+        #expect(oneLine.bottomSpacing == editing.bottomSpacing)
         #expect(oneLine.outerFrame.midX == editing.outerFrame.midX)
+        #expect(oneLine.textFrame.minX > editing.textFrame.minX)
+        #expect(abs((oneLine.textFrame.minY - oneLine.outerFrame.minY)
+                    - (editing.textFrame.minY - editing.outerFrame.minY)) < 0.01)
     }
 
     @Test("editingTextSpansAboveRailAndHeightCaps")

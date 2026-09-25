@@ -92,6 +92,7 @@ struct ConversationComposerView: View {
                             .position(x: layout.visualFrame.midX, y: layout.visualFrame.midY)
 
                         composerContent(layout: layout, shape: shape)
+                        contextControls(layout: layout, shape: shape, state: actionState)
                         if let shelfFrame {
                             QuoteShelfView(
                                 entries: controller.draft.references.map(QuoteShelfEntry.init),
@@ -101,13 +102,26 @@ struct ConversationComposerView: View {
                             .frame(width: shelfFrame.width, height: shelfFrame.height)
                             .position(x: shelfFrame.midX, y: shelfFrame.midY)
                         }
+                        if let sendErrorMessage = coordinator.sendErrorMessage {
+                            Text(sendErrorMessage)
+                                .font(Typography.font(
+                                    for: .interfaceCaption,
+                                    dynamicTypeSize: dynamicTypeSize
+                                ))
+                                .foregroundStyle(.red)
+                                .frame(width: layout.outerFrame.width, alignment: .leading)
+                                .position(
+                                    x: layout.outerFrame.midX,
+                                    y: max(12, layout.outerFrame.minY - 18)
+                                )
+                                .allowsHitTesting(false)
+                                .accessibilityIdentifier("composer-send-error")
+                        }
                     }
                     .frame(width: geometry.size.width, height: geometry.size.height)
-                    .animation(keyboardAnimation, value: geometry.size.height)
-                    .animation(keyboardAnimation, value: visualState)
                     .onChange(of: controller.draft.presentationState) { _, newState in
-                        guard newState != .editing else { return }
-                        withAnimation(keyboardAnimation ?? .smooth) { visualState = newState }
+                        guard newState != .editing, visualState != .editing else { return }
+                        withAnimation(keyboardAnimation) { visualState = newState }
                     }
                     .task(id: conversationID) {
                         await observeRunProjection()
@@ -117,26 +131,6 @@ struct ConversationComposerView: View {
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
-                // Carry the keyboard transition through the UIViewRepresentable boundary.
-                .animation(keyboardAnimation, value: visualState)
-
-                contextControls(layout: layout, shape: shape, state: actionState)
-
-                if let sendErrorMessage = coordinator.sendErrorMessage {
-                    Text(sendErrorMessage)
-                        .font(Typography.font(
-                            for: .interfaceCaption,
-                            dynamicTypeSize: dynamicTypeSize
-                        ))
-                        .foregroundStyle(.red)
-                        .frame(width: layout.outerFrame.width, alignment: .leading)
-                        .position(
-                            x: layout.outerFrame.midX,
-                            y: max(12, layout.outerFrame.minY - 18)
-                        )
-                        .allowsHitTesting(false)
-                        .accessibilityIdentifier("composer-send-error")
-                }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .simultaneousGesture(
@@ -273,7 +267,6 @@ struct ConversationComposerView: View {
             .accessibilityLabel("更多操作")
             .accessibilityIdentifier("conversation-composer-plus")
             .position(x: frame.midX, y: frame.midY)
-            .animation(.easeInOut(duration: 0.18), value: state.showsPlus)
         }
 
         if let frame = ComposerContextAction.trailingFrame(
@@ -292,8 +285,6 @@ struct ConversationComposerView: View {
                 .accessibilityIdentifier("conversation-composer-send")
                 .disabled(!enabled)
                 .position(x: frame.midX, y: frame.midY)
-                .animation(.easeInOut(duration: 0.18), value: state.primary)
-                .transition(.opacity.combined(with: .scale(scale: 0.86)))
             case .stop(_, let enabled):
                 Button {
                     Task { _ = await coordinator.handlePrimaryAction() }
@@ -304,8 +295,6 @@ struct ConversationComposerView: View {
                 .accessibilityLabel("停止")
                 .disabled(!enabled)
                 .position(x: frame.midX, y: frame.midY)
-                .animation(.easeInOut(duration: 0.18), value: state.primary)
-                .transition(.opacity.combined(with: .scale(scale: 0.86)))
             }
         }
     }
@@ -322,34 +311,26 @@ struct ConversationComposerView: View {
 
     @ViewBuilder
     private func composerContent(layout: ComposerLayout, shape: ConcentricRectangle) -> some View {
-        switch ComposerTextProjection.presentation(for: controller.draft) {
-        case .editor:
-            ComposerTextView(
-                text: $controller.draft.text,
-                selection: $controller.draft.selection,
-                isFocused: $isEditorFocused,
-                typographyRole: layout.typographyRole,
-                dynamicTypeSize: dynamicTypeSize,
-                textAreaIsScrollable: layout.textAreaIsScrollable,
-                onCompositionChange: updateComposition(isComposing:),
-                onKeyboardTransition: handleKeyboardTransition(_:),
-                onMeasuredTextHeight: { measuredTextHeight = $0 }
-            )
-            .frame(width: layout.textFrame.width, height: layout.textFrame.height)
-            .position(x: layout.textFrame.midX, y: layout.textFrame.midY)
+        let isEditing = ComposerTextProjection.presentation(for: controller.draft) == .editor
+        ComposerTextView(
+            text: $controller.draft.text,
+            selection: $controller.draft.selection,
+            isFocused: $isEditorFocused,
+            isEditing: isEditing,
+            typographyRole: layout.typographyRole,
+            dynamicTypeSize: dynamicTypeSize,
+            textAreaIsScrollable: layout.textAreaIsScrollable,
+            onCompositionChange: updateComposition(isComposing:),
+            onKeyboardTransition: handleKeyboardTransition(_:),
+            onMeasuredTextHeight: { measuredTextHeight = $0 }
+        )
+        .frame(width: layout.textFrame.width, height: layout.textFrame.height)
+        .scaleEffect(layout.fontScale, anchor: .leading)
+        .position(x: layout.textFrame.midX, y: layout.textFrame.midY)
 
-        case let .preview(text, lineLimit, truncation):
+        if !isEditing {
             Button(action: enterEditing) {
-                Text(text.isEmpty ? " " : text)
-                    .font(Typography.font(
-                        for: layout.typographyRole,
-                        dynamicTypeSize: dynamicTypeSize
-                    ))
-                    .foregroundStyle(text.isEmpty ? Color.clear : Color.primary)
-                    .lineLimit(lineLimit)
-                    .truncationMode(truncation == .tail ? .tail : .middle)
-                    .scaleEffect(layout.fontScale, anchor: .leading)
-                    .frame(width: layout.textFrame.width, height: layout.textFrame.height)
+                Color.clear
                     .frame(width: layout.hitFrame.width, height: layout.hitFrame.height)
                     .contentShape(shape)
             }
@@ -360,31 +341,17 @@ struct ConversationComposerView: View {
         }
 
         if controller.draft.text.isEmpty {
-            let font = Typography.uiFont(
-                for: layout.typographyRole,
-                compatibleWith: UITraitCollection(
-                    preferredContentSizeCategory: Typography.contentSizeCategory(for: dynamicTypeSize)
-                )
-            )
-            ZStack(alignment: .topLeading) {
-                Text("输入消息")
-                    .font(Typography.font(
-                        for: layout.typographyRole,
-                        dynamicTypeSize: dynamicTypeSize
-                    ))
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-                    .scaleEffect(layout.fontScale, anchor: .leading)
-                    .offset(
-                        x: layout.textFrame.minX - layout.outerFrame.minX,
-                        y: visualState == .editing
-                            ? layout.textFrame.minY - layout.outerFrame.minY
-                            : (layout.outerHeight - font.lineHeight) / 2
-                    )
-            }
-            .frame(width: layout.outerWidth, height: layout.outerHeight, alignment: .topLeading)
-            .position(x: layout.outerFrame.midX, y: layout.outerFrame.midY)
-            .allowsHitTesting(false)
+            Text("输入消息")
+                .font(Typography.font(
+                    for: layout.typographyRole,
+                    dynamicTypeSize: dynamicTypeSize
+                ))
+                .foregroundStyle(.secondary)
+                .frame(width: layout.textFrame.width, height: layout.textFrame.height,
+                       alignment: .topLeading)
+                .scaleEffect(layout.fontScale, anchor: .leading)
+                .position(x: layout.textFrame.midX, y: layout.textFrame.midY)
+                .allowsHitTesting(false)
         }
     }
 
@@ -452,9 +419,6 @@ struct ConversationComposerView: View {
             isEditorFocused = true
         case .requestResign:
             isEditorFocused = false
-            withAnimation(keyboardAnimation ?? .smooth) {
-                visualState = .resting
-            }
         }
     }
 }

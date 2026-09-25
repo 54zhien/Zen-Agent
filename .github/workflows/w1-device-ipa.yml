@@ -30,6 +30,7 @@ jobs:
             'App/Conversation/ComposerSendCoordinator.swift' \
             'App/Conversation/ComposerTextView.swift' \
             'App/Conversation/ConversationComposerView.swift' \
+            'App/Conversation/ConversationPaneView.swift' \
             'App/Conversation/ConversationTimelineView.swift' \
             'App/Conversation/QuoteDragBridge.swift' \
             'App/Typography/FontRegistry.swift' \
@@ -99,7 +100,7 @@ jobs:
               plistlib.dump(info, file)
           PY
 
-          name='ZenAgent-W1-composer-v8-device-test.ipa'
+          name='ZenAgent-W1-composer-v9-device-test.ipa'
           (cd "$stage" && /usr/bin/zip -qry "$output/$name" Payload)
           /usr/bin/unzip -tq "$output/$name"
           if /usr/bin/unzip -Z1 "$output/$name" | grep -i 'Anthropic'; then
@@ -120,7 +121,7 @@ jobs:
       - name: Upload unsigned IPA and provenance
         uses: actions/upload-artifact@v4
         with:
-          name: ZenAgent-W1-composer-v8-device-test
+          name: ZenAgent-W1-composer-v9-device-test
           path: ${{ runner.temp }}/ZenAgentDeviceOutput/
           retention-days: 7
           compression-level: 0

@@ -16,9 +16,9 @@ struct ComposerKeyboardAnimation {
         case UIView.AnimationCurve.linear.rawValue:
             return .linear(duration: duration)
         case 7:
-            return .spring(duration: duration)
+            return .easeInOut(duration: duration)
         default:
-            return .smooth(duration: duration)
+            return .easeInOut(duration: duration)
         }
     }
 }
@@ -46,6 +46,7 @@ struct ComposerTextView: UIViewRepresentable {
     @Binding var selection: ComposerSelection
     @Binding var isFocused: Bool
 
+    let isEditing: Bool
     let typographyRole: TypographyRole
     let dynamicTypeSize: DynamicTypeSize
     let textAreaIsScrollable: Bool
@@ -72,6 +73,11 @@ struct ComposerTextView: UIViewRepresentable {
         textView.textContainer.lineFragmentPadding = 0
         textView.adjustsFontForContentSizeCategory = true
         textView.keyboardDismissMode = .interactive
+        textView.isEditable = isEditing
+        textView.isSelectable = isEditing
+        textView.isUserInteractionEnabled = isEditing
+        textView.textContainer.maximumNumberOfLines = isEditing ? 0 : 1
+        textView.textContainer.lineBreakMode = isEditing ? .byWordWrapping : .byTruncatingTail
         textView.isScrollEnabled = textAreaIsScrollable
         textView.font = Self.typographyFont(for: typographyRole, dynamicTypeSize: dynamicTypeSize)
         textView.text = text
@@ -102,15 +108,20 @@ struct ComposerTextView: UIViewRepresentable {
         textView.font = Self.typographyFont(for: typographyRole, dynamicTypeSize: dynamicTypeSize)
         textView.isScrollEnabled = textAreaIsScrollable
         textView.keyboardDismissMode = .interactive
-        context.coordinator.reportMeasuredTextHeight(from: textView)
 
-        if textView.markedTextRange == nil {
-            if isFocused, !textView.isFirstResponder {
-                textView.becomeFirstResponder()
-            } else if !isFocused, textView.isFirstResponder {
-                textView.resignFirstResponder()
-            }
+        if !isFocused, textView.isFirstResponder, textView.markedTextRange == nil {
+            textView.resignFirstResponder()
         }
+        textView.isEditable = isEditing
+        textView.isSelectable = isEditing
+        textView.isUserInteractionEnabled = isEditing
+        textView.textContainer.maximumNumberOfLines = isEditing ? 0 : 1
+        textView.textContainer.lineBreakMode = isEditing ? .byWordWrapping : .byTruncatingTail
+        if isFocused, isEditing, !textView.isFirstResponder,
+           textView.markedTextRange == nil {
+            textView.becomeFirstResponder()
+        }
+        context.coordinator.reportMeasuredTextHeight(from: textView)
     }
 
     static func dismantleUIView(_ uiView: UITextView, coordinator: Coordinator) {
@@ -139,6 +150,7 @@ struct ComposerTextView: UIViewRepresentable {
         var parent: ComposerTextView
         private var lastReportedTextHeight: CGFloat?
         private weak var observedTextView: UITextView?
+        private var keyboardVisible = false
 
         init(parent: ComposerTextView) {
             self.parent = parent
@@ -183,10 +195,12 @@ struct ComposerTextView: UIViewRepresentable {
         func textViewDidEndEditing(_ textView: UITextView) {
             if textView.markedTextRange == nil {
                 parent.isFocused = false
-                parent.onKeyboardTransition(ComposerKeyboardTransition(
-                    isVisible: false,
-                    animation: nil
-                ))
+                if !keyboardVisible {
+                    parent.onKeyboardTransition(ComposerKeyboardTransition(
+                        isVisible: false,
+                        animation: nil
+                    ))
+                }
             }
             synchronizeEditorState(from: textView)
         }
@@ -226,6 +240,7 @@ struct ComposerTextView: UIViewRepresentable {
         @objc
         private func keyboardDidHide(_ notification: Notification) {
             guard observedTextView?.window != nil else { return }
+            keyboardVisible = false
             parent.onKeyboardTransition(ComposerKeyboardTransition(
                 isVisible: false,
                 animation: nil
@@ -242,6 +257,7 @@ struct ComposerTextView: UIViewRepresentable {
 
             let frameInWindow = window.convert(endFrame, from: nil)
             let isVisible = frameInWindow.minY < window.bounds.maxY && frameInWindow.maxY > 0
+            keyboardVisible = isVisible
             let duration = (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue
             let curveValue = (userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.intValue
             let animation: ComposerKeyboardAnimation?

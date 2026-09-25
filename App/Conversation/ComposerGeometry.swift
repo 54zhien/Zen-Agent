@@ -36,7 +36,7 @@ enum ComposerGeometry {
     private static let restingHorizontalInset: CGFloat = 12
     private static let restingVerticalInset: CGFloat = 10
     private static let compactFontScale: CGFloat = 0.82
-    private static let restingBottomSpacing: CGFloat = 2
+    private static let restingBottomSpacing: CGFloat = 12
     private static let compactBottomSpacing: CGFloat = 22
     private static let editingBottomSpacing: CGFloat = 12
 

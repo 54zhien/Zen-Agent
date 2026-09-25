@@ -42,6 +42,7 @@ struct ConversationPaneView: View {
                 bridge: actionBridge,
                 maxProviderSteps: maxProviderSteps
             )
+            .id(ObjectIdentifier(pane.composer))
             .accessibilityIdentifier("conversation-pane-composer-\(pane.conversationID)")
         }
         .overlay(alignment: .bottom) {
