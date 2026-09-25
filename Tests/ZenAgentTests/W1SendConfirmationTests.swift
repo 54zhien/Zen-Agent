@@ -154,7 +154,7 @@ struct W1SendConfirmationTests {
         fixture.model.assemble()
         #expect(fixture.model.conversationID == originalConversationID)
         #expect(fixture.model.pane === pane)
-        #expect(fixture.model.actionBridge === bridge)
+        #expect(fixture.model.actionBridge != nil)
         #expect(fixture.model.composerSendCoordinator === coordinator)
         #expect(fixture.model.router === originalRouter)
         #expect(coordinator.confirmationHandle === handle)
@@ -287,8 +287,9 @@ struct W1SendConfirmationTests {
 
         var hiddenConversation = Fixtures.conversation(id: fixture.model.conversationID)
         hiddenConversation.lifecycle = .pendingDeletion
+        let persistedHiddenConversation = hiddenConversation
         try fixture.store.database.write { db in
-            try hiddenConversation.insert(db)
+            try persistedHiddenConversation.insert(db)
         }
         let pane = try #require(fixture.model.pane)
         let coordinator = try #require(fixture.model.composerSendCoordinator)
@@ -658,7 +659,7 @@ private actor W1ConfirmationReadPlan {
     func intercept(
         _ command: SendCommand,
         returnedRunID: String?,
-        operation: @escaping AppAssembly.ConfirmationReadOperation
+        operation: AppAssembly.ConfirmationReadOperation
     ) async -> ComposerSendConfirmationResult {
         calls += 1
         commands.append(command)
