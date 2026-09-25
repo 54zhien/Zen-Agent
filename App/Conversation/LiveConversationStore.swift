@@ -135,7 +135,7 @@ final class LiveConversationStore {
         if let activePart = state.activeParts[partID] {
             return activePart.runID == runID
         }
-        guard kind == .text || kind == .reasoning,
+        guard kind == .text,
               let turnIndex = turnIndexByRunID[runID],
               state.timeline.turns.indices.contains(turnIndex),
               let (itemIndex, source) = state.timeline.turns[turnIndex]
@@ -148,7 +148,7 @@ final class LiveConversationStore {
 
         let text: String
         switch (kind, state.timeline.turns[turnIndex].items[itemIndex]) {
-        case (.text, .assistantText(let value)), (.reasoning, .reasoning(let value)):
+        case (.text, .assistantText(let value)):
             text = value
         default:
             return false

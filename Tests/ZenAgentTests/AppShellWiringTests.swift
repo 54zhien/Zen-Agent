@@ -423,6 +423,151 @@ struct AppShellWiringTests {
         #expect(pane.liveStore.state.timeline.turns.map(\.runID) == ["recover-run"])
     }
 
+    @Test("detached recovery retry resumes a persisted streaming Part for later deltas")
+    func detachedRecoveryRetryResumesPersistedPart() async throws {
+        let router = RunEventRouter()
+        var loadCount = 0
+        var persistedText = ""
+        let conversationID = "detached-recovery-conversation"
+        let runID = "detached-recovery-run"
+        let messageID = "detached-recovery-message"
+        let partID = "detached-recovery-part"
+
+        func makeRecoveryPane() throws -> ConversationPaneController {
+            try makePane(conversationID: conversationID) { id -> ConversationTimelineProjection in
+                loadCount += 1
+                if loadCount == 1 { throw RouterLoadFailure.unavailable }
+                return self.persistedTimeline(
+                    conversationID: id,
+                    runID: runID,
+                    messageID: messageID,
+                    partID: partID,
+                    assistantText: persistedText
+                )
+            }
+        }
+
+        let firstPane = try makeRecoveryPane()
+        #expect(router.registerPane(firstPane))
+        await router.handle(.runAccepted(runID: runID, conversationID: conversationID))
+        await router.handle(.messagePartStarted(
+            runID: runID,
+            messageID: messageID,
+            partID: partID,
+            kind: .text
+        ))
+        persistedText = "hello"
+        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "hello"))
+        router.unregisterPane(for: conversationID)
+
+        let reopenedPane = try makeRecoveryPane()
+        #expect(router.registerPane(reopenedPane))
+        persistedText = "hello world"
+        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: " world"))
+        #expect(router.retryTimelineLoad(for: conversationID))
+        #expect(assistantTexts(in: reopenedPane.liveStore.state.timeline) == ["hello world"])
+        #expect(reopenedPane.liveStore.state.activeParts[partID]?.text == "hello world")
+
+        persistedText = "hello world!"
+        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "!"))
+        await router.handle(.messagePartCompleted(runID: runID, partID: partID, state: .completed))
+        await router.handle(.runEnded(runID: runID, state: .completed, endReason: .completed))
+
+        #expect(assistantTexts(in: reopenedPane.liveStore.state.timeline) == ["hello world!"])
+        #expect(reopenedPane.liveStore.droppedUnlocatableDeltas == 0)
+        #expect(reopenedPane.liveStore.state.activeParts.isEmpty)
+    }
+
+    @Test("a terminal hidden Run releases its Pane before the next persisted open")
+    func terminalHiddenRunReopensFromPersistedTimeline() async throws {
+        let router = RunEventRouter()
+        let conversationID = "terminal-remount-conversation"
+        let runID = "terminal-remount-run"
+        let messageID = "terminal-remount-message"
+        let partID = "terminal-remount-part"
+        let firstPane = try makePane(conversationID: conversationID) { id in
+            ConversationTimelineProjection(
+                conversationID: id,
+                turns: [ConversationTurn(runID: runID, items: [.userText("prompt")])]
+            )
+        }
+        #expect(router.registerPane(firstPane))
+        await router.handle(.runAccepted(runID: runID, conversationID: conversationID))
+        await router.handle(.messagePartStarted(
+            runID: runID,
+            messageID: messageID,
+            partID: partID,
+            kind: .text
+        ))
+        await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "live answer"))
+        router.unregisterPane(for: conversationID)
+        await router.handle(.messagePartCompleted(runID: runID, partID: partID, state: .completed))
+        await router.handle(.runEnded(runID: runID, state: .completed, endReason: .completed))
+
+        let persisted = ConversationTimelineProjection(
+            conversationID: conversationID,
+            turns: [ConversationTurn(
+                runID: runID,
+                items: [.userText("prompt"), .assistantText("persisted answer")],
+                textSourcesByItemIndex: [1: TimelineTextSource(
+                    conversationID: conversationID,
+                    messageID: messageID,
+                    partID: partID,
+                    isCompleted: true
+                )]
+            )]
+        )
+        let reopenedPane = try makePane(conversationID: conversationID) { _ in persisted }
+        try reopenedPane.reloadTimeline()
+        #expect(router.registerPane(reopenedPane))
+
+        #expect(assistantTexts(in: reopenedPane.liveStore.state.timeline) == ["persisted answer"])
+        #expect(reopenedPane.liveStore.state.timeline.turns[0].textSourcesByItemIndex[1]?.isCompleted == true)
+        #expect(reopenedPane.liveStore.state.activeParts.isEmpty)
+        #expect(router.recoveryMessage(for: conversationID) == nil)
+    }
+
+    @Test("detached Run events remain scoped to their owning Conversation")
+    func detachedRunEventsStayConversationScoped() async throws {
+        let router = RunEventRouter()
+        let paneA = try makePane(conversationID: "detached-A") { id in
+            ConversationTimelineProjection(
+                conversationID: id,
+                turns: [ConversationTurn(runID: "detached-run-A", items: [.userText("prompt")])]
+            )
+        }
+        let paneB = try makePane(conversationID: "detached-B") { id in
+            ConversationTimelineProjection(conversationID: id, turns: [])
+        }
+        #expect(router.registerPane(paneA))
+        #expect(router.registerPane(paneB))
+        await router.handle(.runAccepted(runID: "detached-run-A", conversationID: "detached-A"))
+        await router.handle(.messagePartStarted(
+            runID: "detached-run-A",
+            messageID: "detached-message-A",
+            partID: "detached-part-A",
+            kind: .text
+        ))
+        await router.handle(.messagePartDelta(runID: "detached-run-A", partID: "detached-part-A", delta: "A"))
+        router.unregisterPane(for: "detached-A")
+        await router.handle(.messagePartDelta(runID: "detached-run-A", partID: "detached-part-A", delta: " hidden"))
+
+        #expect(assistantTexts(in: paneB.liveStore.state.timeline).isEmpty)
+
+        let reopenedPaneA = try makePane(conversationID: "detached-A") { id in
+            self.persistedTimeline(
+                conversationID: id,
+                runID: "detached-run-A",
+                messageID: "detached-message-A",
+                partID: "detached-part-A",
+                assistantText: "A hidden"
+            )
+        }
+        #expect(router.registerPane(reopenedPaneA))
+        #expect(assistantTexts(in: reopenedPaneA.liveStore.state.timeline) == ["A hidden"])
+        #expect(assistantTexts(in: paneB.liveStore.state.timeline).isEmpty)
+    }
+
     @Test("unregisteredRunEventsAreDroppedWithoutPaneMutation")
     func unregisteredRunEventsAreDroppedWithoutPaneMutation() async throws {
         let router = RunEventRouter()
