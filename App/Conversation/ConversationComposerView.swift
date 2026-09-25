@@ -78,8 +78,9 @@ struct ConversationComposerView: View {
                     Color.clear
                         .frame(width: geometry.size.width, height: geometry.size.height)
 
-                    shape.fill(.regularMaterial)
+                    shape.fill(.clear)
                         .frame(width: layout.visualFrame.width, height: layout.visualFrame.height)
+                        .glassEffect(.regular.interactive(), in: shape)
                         .contentShape(shape)
                         .position(x: layout.visualFrame.midX, y: layout.visualFrame.midY)
 

@@ -25,6 +25,7 @@ jobs:
           actual=$(git diff --name-only "$base" HEAD | sort)
           expected=$(printf '%s\n' \
             '.github/workflows/w1-device-ipa.yml' \
+            'App/Conversation/ComposerGeometry.swift' \
             'App/Conversation/ConversationComposerView.swift' \
             'App/Typography/FontRegistry.swift' \
             'App/Typography/Typography.swift' | sort)
