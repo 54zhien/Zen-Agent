@@ -329,6 +329,7 @@ struct QuoteDropTargetView: UIViewRepresentable {
         uiView.onBackgroundTap = onBackgroundTap
         context.coordinator.update(
             content: content,
+            transaction: context.transaction,
             existing: existing,
             dropFrame: dropFrame,
             dynamicTypeSize: dynamicTypeSize,
@@ -451,13 +452,18 @@ final class QuoteDropTargetCoordinator: NSObject, UIDropInteractionDelegate {
 
     func update(
         content: AnyView,
+        transaction: Transaction,
         existing: [QuoteReference],
         dropFrame: CGRect,
         dynamicTypeSize: DynamicTypeSize,
         onAccept: @escaping (QuoteReference) -> Void,
         onPhaseChanged: @escaping (ComposerQuoteDragPhase) -> Void
     ) {
-        hostingController.rootView = Self.hostedContent(content, dynamicTypeSize: dynamicTypeSize)
+        // A new hosting root otherwise drops the animation transaction that
+        // moves the keyboard, Composer shell, controls and placeholder together.
+        withTransaction(transaction) {
+            hostingController.rootView = Self.hostedContent(content, dynamicTypeSize: dynamicTypeSize)
+        }
         self.existing = existing
         self.dropFrame = dropFrame
         self.onAccept = onAccept

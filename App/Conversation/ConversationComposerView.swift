@@ -134,6 +134,8 @@ struct ConversationComposerView: View {
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
+            // Carry the keyboard transition through the UIViewRepresentable boundary.
+            .animation(keyboardAnimation, value: visualState)
         }
     }
 
