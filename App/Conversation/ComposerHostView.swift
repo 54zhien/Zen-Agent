@@ -2,7 +2,8 @@ import SwiftUI
 import UIKit
 
 @MainActor
-final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDelegate {
+final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDelegate,
+                              UIGestureRecognizerDelegate {
     struct Configuration {
         let text: String
         let selection: ComposerSelection
@@ -34,6 +35,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private let plus = UIButton(type: .system)
     private let primary = UIButton(type: .system)
     private let errorLabel = UILabel()
+    private let geometryProbe = UIView()
     private var shelfController: UIHostingController<QuoteShelfView>?
     private var shelfHeight: CGFloat = 44
     private var quotePhase: ComposerQuoteDragPhase = .idle
@@ -51,6 +53,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var measuredHeight: CGFloat = 0
     private var lastHostWidth: CGFloat = -1
     private var lastReportedClearance: CGFloat = -1
+    private weak var textCarrier: UIView?
 
     override init(frame: CGRect) {
         let effect = UIGlassEffect(style: .regular)
@@ -90,10 +93,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         editor.isEditable = true
         editor.isSelectable = true
         editor.accessibilityIdentifier = "conversation-composer-input"
+        editor.accessibilityLabel = "输入消息"
         viewport.addSubview(editor)
         placeholder.text = "输入消息"
         placeholder.textColor = .secondaryLabel
         placeholder.isUserInteractionEnabled = false
+        placeholder.isAccessibilityElement = false
         viewport.addSubview(placeholder)
 
         for (button, symbol) in [(plus, "plus"), (primary, "arrow.up")] {
@@ -116,8 +121,15 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         errorLabel.isUserInteractionEnabled = false
         surface.addSubview(errorLabel)
         addInteraction(UIDropInteraction(delegate: self))
+        if ProcessInfo.processInfo.environment["ZEN_COMPOSER_GEOMETRY_TEST"] == "1" {
+            geometryProbe.isAccessibilityElement = true
+            geometryProbe.isUserInteractionEnabled = false
+            geometryProbe.accessibilityIdentifier = "composer-geometry-probe"
+            addSubview(geometryProbe)
+        }
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(surfaceTapped))
+        tap.delegate = self
         tap.cancelsTouchesInView = false
         surface.addGestureRecognizer(tap)
         NotificationCenter.default.addObserver(
@@ -136,12 +148,18 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        guard window != nil, let shelfController else { return }
-        attachShelf(shelfController)
+        guard let shelfController else { return }
+        if window != nil {
+            attachShelf(shelfController)
+        } else if shelfController.parent != nil {
+            shelfController.willMove(toParent: nil)
+            shelfController.removeFromParent()
+        }
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        updateGeometryProbe()
         guard bounds.width > 0, bounds.width != lastHostWidth else { return }
         lastHostWidth = bounds.width
         render(animated: false)
@@ -215,8 +233,18 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         }
         if currentState != next.state {
             currentState = next.state
-            let token = motion.begin(next.state)
-            render(animated: true, generation: token)
+            if next.state == .editing {
+                // The viewport still clips the resting first line; prepare multiline layout
+                // before it widens so the visible text keeps one local origin.
+                editor.textContainer.maximumNumberOfLines = 0
+                editor.textContainer.lineBreakMode = .byWordWrapping
+            }
+            if bounds.width > 0 {
+                let token = motion.begin(next.state)
+                render(animated: true, generation: token)
+            } else {
+                motion.reset(to: next.state)
+            }
         } else if !motion.keepsEditingLayout || oldText != next.text || oldFont != next.font {
             render(animated: false)
         }
@@ -240,13 +268,18 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             measuredRevision = textRevision
             measuredWidth = editWidth
             measuredFont = configuration.font
-            let size = editor.sizeThatFits(CGSize(width: editWidth,
-                                                  height: .greatestFiniteMagnitude))
-            measuredHeight = max(configuration.font.lineHeight, size.height)
+            measuredHeight = ComposerTextMeasurement.height(
+                text: configuration.text, width: editWidth, font: configuration.font
+            )
         }
         let state = configuration.state
         let layout = ComposerMorphGeometry.endpoint(
             state, containerWidth: width, availableHeight: available,
+            measuredTextHeight: measuredHeight, lineHeight: configuration.font.lineHeight,
+            collapseProgress: configuration.collapseProgress
+        )
+        let editingEndpoint = ComposerMorphGeometry.endpoint(
+            .editing, containerWidth: width, availableHeight: available,
             measuredTextHeight: measuredHeight, lineHeight: configuration.font.lineHeight,
             collapseProgress: configuration.collapseProgress
         )
@@ -272,20 +305,22 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
                                                       width: layout.size.width,
                                                       height: self.shelfHeight)
             self.layoutIfNeeded()
+            self.updateGeometryProbe()
         }
         let editorWidth = max(editWidth, targetViewport.width)
         editor.frame = CGRect(x: 0, y: 0, width: editorWidth,
-                              height: max(measuredHeight, targetViewport.height))
+                              height: max(1, editingEndpoint.textViewport.height))
         placeholder.frame = CGRect(x: 0, y: 0, width: editorWidth,
                                    height: configuration.font.lineHeight + 2)
         if state == .editing {
-            editor.isScrollEnabled = measuredHeight > targetViewport.height
+            editor.isScrollEnabled = measuredHeight > editingEndpoint.textViewport.height
         }
         glass.cornerConfiguration = .corners(radius: .containerConcentric(
             minimum: layout.minimumCurvature
         ))
         surface.cornerConfiguration = glass.cornerConfiguration
         if animated, let generation {
+            textCarrier?.removeFromSuperview()
             let timing = keyboardTiming
             keyboardTiming = nil
             let duration = UIAccessibility.isReduceMotionEnabled ? 0 : (timing?.duration ?? 0.25)
@@ -297,19 +332,49 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
                 animations: apply,
                 completion: { finished in
                     guard self.motion.settle(generation, target: state, finished: finished) else { return }
-                    self.editor.textContainer.maximumNumberOfLines = state == .editing ? 0 : 1
-                    self.editor.textContainer.lineBreakMode = state == .editing
-                        ? .byWordWrapping : .byTruncatingTail
-                    if state != .editing { self.editor.isScrollEnabled = false }
+                    self.finishTextLayout(state)
                 }
             )
         } else {
             apply()
             if !motion.keepsEditingLayout {
-                editor.textContainer.maximumNumberOfLines = state == .editing ? 0 : 1
-                if state != .editing { editor.isScrollEnabled = false }
+                finishTextLayout(state)
             }
         }
+    }
+
+    private func finishTextLayout(_ state: ComposerPresentationState) {
+        let needsLocalHandoff = state != .editing && editor.contentOffset.y > 1
+        let carrier = needsLocalHandoff ? viewport.snapshotView(afterScreenUpdates: false) : nil
+        if let carrier {
+            carrier.frame = viewport.bounds
+            viewport.addSubview(carrier)
+            textCarrier = carrier
+        }
+        editor.textContainer.maximumNumberOfLines = state == .editing ? 0 : 1
+        editor.textContainer.lineBreakMode = state == .editing
+            ? .byWordWrapping : .byTruncatingTail
+        if state != .editing {
+            editor.isScrollEnabled = false
+            editor.contentOffset = .zero
+            editor.frame.size.height = max(1, viewport.bounds.height)
+        }
+        if let carrier {
+            UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.12,
+                           animations: { carrier.alpha = 0 },
+                           completion: { [weak carrier] _ in carrier?.removeFromSuperview() })
+        }
+    }
+
+    private func updateGeometryProbe() {
+        guard geometryProbe.superview != nil, let window else { return }
+        geometryProbe.frame = surface.frame
+        let rootBottom = convert(CGPoint(x: 0, y: bounds.maxY), to: window).y
+        let guideTop = convert(CGPoint(x: 0, y: keyboardLayoutGuide.layoutFrame.minY),
+                               to: window).y
+        let surfaceBottom = surface.convert(CGPoint(x: 0, y: surface.bounds.maxY),
+                                            to: window).y
+        geometryProbe.accessibilityValue = "root=\(rootBottom);guide=\(guideTop);surface=\(surfaceBottom)"
     }
 
     private func makeMenu(_ configuration: Configuration) -> UIMenu {
@@ -376,6 +441,11 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
               recognizer.location(in: surface).y >= 0,
               configuration?.state != .editing else { return }
         configuration?.onFocus(true)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldReceive touch: UITouch) -> Bool {
+        touch.view === surface
     }
 
     @objc private func primaryTapped() {

@@ -30,6 +30,7 @@ jobs:
             'App/Conversation/ComposerGeometry.swift' \
             'App/Conversation/ComposerHostBridge.swift' \
             'App/Conversation/ComposerHostView.swift' \
+            'App/Conversation/ComposerUITestFixtureView.swift' \
             'App/Conversation/ComposerMorphGeometry.swift' \
             'App/Conversation/ComposerMotionController.swift' \
             'App/Conversation/ComposerSendCoordinator.swift' \
@@ -38,6 +39,7 @@ jobs:
             'App/Conversation/ConversationPaneView.swift' \
             'App/Conversation/ConversationTimelineView.swift' \
             'App/Conversation/QuoteDragBridge.swift' \
+            'App/ZenAgentApp.swift' \
             'App/Typography/FontRegistry.swift' \
             'App/Typography/Typography.swift' \
             'Tests/ZenAgentTests/ComposerContextActionTests.swift' \
@@ -45,6 +47,7 @@ jobs:
             'Tests/ZenAgentTests/ComposerExitLayoutTests.swift' \
             'Tests/ZenAgentTests/ComposerHostIntegrationTests.swift' \
             'Tests/ZenAgentTests/ComposerMorphGeometryTests.swift' \
+            'Tests/ZenAgentTests/ComposerTextMeasurementTests.swift' \
             'Tests/ZenAgentTests/ComposerViewContractTests.swift' \
             'Tests/ZenAgentTests/ComposerSendCoordinatorTests.swift' \
             'Tests/ZenAgentTests/TypographyTokenTests.swift' \

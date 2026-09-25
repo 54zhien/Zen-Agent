@@ -13,6 +13,12 @@ final class ComposerMotionController {
     private(set) var generation = 0
     private(set) var target: ComposerPresentationState = .resting
 
+    func reset(to state: ComposerPresentationState) {
+        generation += 1
+        target = state
+        phase = state == .editing ? .editing : .resting
+    }
+
     @discardableResult
     func begin(_ newTarget: ComposerPresentationState) -> Int {
         generation += 1

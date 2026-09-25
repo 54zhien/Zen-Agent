@@ -54,5 +54,7 @@ struct ComposerMotionControllerTests {
         #expect(controller.phase == .collapsing)
         #expect(controller.settle(second, target: .resting, finished: true))
         #expect(controller.phase == .resting)
+        controller.reset(to: .editing)
+        #expect(controller.phase == .editing)
     }
 }

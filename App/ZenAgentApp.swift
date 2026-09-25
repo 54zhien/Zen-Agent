@@ -16,7 +16,15 @@ struct ZenAgentApp: App {
 
     var body: some Scene {
         WindowGroup {
+#if DEBUG
+            if ProcessInfo.processInfo.environment["ZEN_COMPOSER_GEOMETRY_TEST"] == "1" {
+                ComposerUITestFixtureView()
+            } else {
+                AppShellRootView()
+            }
+#else
             AppShellRootView()
+#endif
         }
     }
 }
