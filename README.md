@@ -31,16 +31,17 @@ baseline is recorded in `Docs/ADR/`.
 
 ## Status
 
-Stage 0 and Stage 1 are closed. Stage 2 runtime and tool boundaries are implemented;
-Stage 3 integration is in progress. This W1 branch wires a single-conversation App
-shell, persisted text history, and the Blueprint's provisional 20-minute return
-behavior. A green unit-test run does not replace on-device acceptance of the full
-send and restore flow.
+Stage 0 and Stage 1 are closed. Stage 2 runtime and tool boundaries are implemented
+on the current development stack. Stage 3 W1 wires the real App shell and text
+send/history, but its device performance and accessibility gate remains open.
+The Stage 4 Prompt and Soul implementation Gate has passed on stacked draft
+branches; see `tasks/stage4-closure.md` for its scope, evidence and integration
+status. A green CI run does not replace on-device acceptance.
 
-`main` still presents the earlier placeholder App entry. W1 remains on
-`feat/w1-app-shell-wiring` until its integration gate is met; this branch adds the
-recent-conversation entry and return behavior on top of W1. App Space, Soul, Memory,
-Skills, MCP and Subagent remain later work.
+`main` at `4af88910` still presents the earlier placeholder App entry. The W1 and
+Stage 4 work in this checkout is not on `main`. Formal Settings navigation and
+the Soul settings page belong to the Stage 5 Settings IA dependency. App Space,
+Memory, Skills, MCP and Subagent remain later work.
 
 `App/Persistence/` remains a data layer. GRDB is confined to it, and the existing
 repository guard must continue to fail the build if that boundary is violated.

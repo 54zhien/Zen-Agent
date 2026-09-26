@@ -57,6 +57,77 @@ struct SoulPromptIntegrationTests {
         )
     }
 
+    @Test("an old Conversation keeps its bound Soul version after a database and runtime restart")
+    func boundVersionSurvivesDiskReopen() async throws {
+        let url = try Fixtures.scratchPath(name: "soul-prompt-restart.sqlite")
+        defer { Fixtures.cleanUp(url) }
+
+        try await bindConversationAndAdvanceSoul(at: url)
+        try await verifyBoundConversationAfterDiskReopen(at: url)
+    }
+
+    private func bindConversationAndAdvanceSoul(at url: URL) async throws {
+        let fixture = try SoulPromptRuntimeFixture.make(
+            database: try ZenDatabase.open(at: url.path)
+        )
+        try fixture.store.createSoul(
+            initialVersion: version("soul-v1", "SOUL VERSION ONE"),
+            at: Fixtures.epoch
+        )
+
+        let firstRun = try await fixture.firstSend(
+            "restart-conversation",
+            text: "first before restart"
+        )
+        try await assertPromptAndSnapshot(
+            fixture: fixture,
+            runID: firstRun,
+            requestIndex: 0,
+            versionID: "soul-v1",
+            instructions: "SOUL VERSION ONE"
+        )
+
+        try fixture.store.advanceSoul(
+            expectedCurrentVersionID: "soul-v1",
+            to: version("soul-v2", "SOUL VERSION TWO"),
+            at: Fixtures.epoch.addingTimeInterval(1)
+        )
+        #expect(
+            try fixture.store.boundSoulVersion(conversationID: "restart-conversation")?.id == "soul-v1"
+        )
+    }
+
+    private func verifyBoundConversationAfterDiskReopen(at url: URL) async throws {
+        let fixture = try SoulPromptRuntimeFixture.make(
+            database: try ZenDatabase.open(at: url.path)
+        )
+        #expect(
+            try fixture.store.boundSoulVersion(conversationID: "restart-conversation")?.id == "soul-v1"
+        )
+
+        let runID = try await fixture.send(
+            "restart-conversation",
+            text: "second turn after restart"
+        )
+        let requests = await fixture.ledger.requestsSnapshot()
+        #expect(requests.count == 1)
+
+        guard let request = requests.first,
+              let system = systemContent(in: request)
+        else {
+            Issue.record("the reopened runtime must send a recorded request with a system message")
+            return
+        }
+
+        let snapshot = try fixture.decodedSnapshot(for: runID)
+        let encodedSnapshot = try fixture.encodedSnapshot(for: runID)
+        #expect(system.contains("SOUL VERSION ONE"))
+        #expect(!system.contains("SOUL VERSION TWO"))
+        #expect(snapshot.prompt.soulVersionID == "soul-v1")
+        #expect(!String(describing: request.messages).contains(fixture.secret))
+        #expect(!encodedSnapshot.contains(fixture.secret))
+    }
+
     @Test("disable pauses injection while preserving bindings and disabled first sends stay unbound")
     func disableAndReenablePreserveBindingSemantics() async throws {
         let fixture = try SoulPromptRuntimeFixture.make()
@@ -287,9 +358,16 @@ private struct SoulPromptRuntimeFixture {
     let secret: String
 
     static func make(
-        toolRegistry: ToolRegistry = .empty
+        toolRegistry: ToolRegistry = .empty,
+        database: ZenDatabase? = nil
     ) throws -> SoulPromptRuntimeFixture {
-        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        let resolvedDatabase: ZenDatabase
+        if let database {
+            resolvedDatabase = database
+        } else {
+            resolvedDatabase = try ZenDatabase.inMemory()
+        }
+        let store = PersistenceStore(database: resolvedDatabase)
         let secret = "soul-integration-test-secret"
         let reference = CredentialReference(id: "soul-integration-credential")
         let credentials = CredentialStore(
@@ -299,14 +377,16 @@ private struct SoulPromptRuntimeFixture {
         try credentials.provision(SecretValue(secret), as: reference)
 
         let instanceID = ProviderInstanceID(rawValue: "soul-integration-provider")
-        try store.createProviderInstance(ProviderInstance(
-            id: instanceID,
-            providerID: .deepSeek,
-            displayName: "Soul integration provider",
-            baseURL: URL(string: "https://soul-integration.invalid"),
-            configRevision: .initial,
-            credentialReference: reference
-        ))
+        if try store.providerInstance(id: instanceID) == nil {
+            try store.createProviderInstance(ProviderInstance(
+                id: instanceID,
+                providerID: .deepSeek,
+                displayName: "Soul integration provider",
+                baseURL: URL(string: "https://soul-integration.invalid"),
+                configRevision: .initial,
+                credentialReference: reference
+            ))
+        }
 
         let ledger = Stage2ProviderLedger()
         let provider = Stage2ScriptedProvider(
