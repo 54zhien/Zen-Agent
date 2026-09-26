@@ -22,7 +22,7 @@ struct ComposerGeometryTests {
             let editingRadius = ComposerShapeToken.minimumRadius(for: editing)
             #expect(editing.outerHeight == 116)
             #expect(editing.outerFrame.minX + editingRadius == 42)
-            #expect(editing.outerFrame.maxY - editingRadius == 800 - 12 - 26)
+            #expect(abs(editing.outerFrame.maxY - editingRadius - (800 - 12 - 26)) < 0.01)
         }
     }
 
@@ -67,11 +67,12 @@ struct ComposerGeometryTests {
         let editing = layout(state: .editing)
         #expect(oneLine.outerWidth < editing.outerWidth)
         #expect(oneLine.outerHeight < editing.outerHeight)
-        #expect(oneLine.bottomSpacing == editing.bottomSpacing)
+        #expect(oneLine.bottomSpacing < editing.bottomSpacing)
         #expect(oneLine.outerFrame.midX == editing.outerFrame.midX)
         #expect(oneLine.textFrame.minX > editing.textFrame.minX)
         #expect(abs((oneLine.textFrame.minY - oneLine.outerFrame.minY)
-                    - (editing.textFrame.minY - editing.outerFrame.minY)) < 0.01)
+                    - (editing.textFrame.minY - editing.outerFrame.minY)
+                    - ComposerGeometry.restingGrowth / 2) < 0.01)
     }
 
     @Test("editingTextSpansAboveRailAndHeightCaps")

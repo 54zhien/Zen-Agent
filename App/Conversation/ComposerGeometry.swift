@@ -21,12 +21,15 @@ struct ComposerLayout {
 
 enum ComposerGeometry {
     static let edgeInset: CGFloat = 16
-    static let restingEdgeInset: CGFloat = 30
+    // Expand equally toward the screen edges and keyboard to keep the lower corner centers fixed.
+    static let restingGrowth: CGFloat = 6
+    private static let restingBaseEdgeInset: CGFloat = 30
+    static let restingEdgeInset: CGFloat = restingBaseEdgeInset - restingGrowth / 2
     static let restingMinHeight: CGFloat = 50
     static let accessoryHitWidth: CGFloat = 44
     static let editorTopInset: CGFloat = 14
     static let controlRailMinHeight: CGFloat = 52
-    static let editingMinHeight: CGFloat = 108
+    static let editingMinHeight: CGFloat = 116
     static let editingMaxHeightFraction: CGFloat = 0.46
     static let compactWidthFraction: CGFloat = 0.72
     static let compactMinHeight: CGFloat = 38
@@ -36,7 +39,7 @@ enum ComposerGeometry {
     private static let restingHorizontalInset: CGFloat = 12
     private static let restingVerticalInset: CGFloat = 10
     private static let compactFontScale: CGFloat = 0.82
-    private static let restingBottomSpacing: CGFloat = 12
+    private static let restingBottomSpacing: CGFloat = 12 - restingGrowth / 2
     private static let compactBottomSpacing: CGFloat = 22
     private static let editingBottomSpacing: CGFloat = 12
 
@@ -78,10 +81,11 @@ enum ComposerGeometry {
         reservesAccessories: Bool
     ) -> ComposerLayout {
         let restingWidth = max(0, width - 2 * restingEdgeInset)
-        let compactWidth = restingWidth * compactWidthFraction
+        let compactWidth = max(0, width - 2 * restingBaseEdgeInset) * compactWidthFraction
         let outerWidth = interpolate(restingWidth, compactWidth, progress)
 
         let restingHeight = max(restingMinHeight, lineHeight + 2 * restingVerticalInset)
+            + restingGrowth
         let compactTextHeight = lineHeight * compactFontScale
         let compactHeight = max(
             compactMinHeight,

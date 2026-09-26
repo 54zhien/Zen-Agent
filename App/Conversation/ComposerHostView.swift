@@ -103,6 +103,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
         for (button, symbol) in [(plus, "plus"), (primary, "arrow.up")] {
             button.setImage(UIImage(systemName: symbol), for: .normal)
+            button.setPreferredSymbolConfiguration(
+                UIImage.SymbolConfiguration(pointSize: 13, weight: .medium),
+                forImageIn: .normal
+            )
             button.tintColor = .white
             button.backgroundColor = .black
             button.cornerConfiguration = .capsule()
