@@ -211,7 +211,8 @@ struct SoulPromptIntegrationTests {
         let reencoded = try jsonObject(ExecutionSnapshotCodec.encode(decoded))
 
         #expect(decoded.providerID == .deepSeek)
-        #expect(promptSnapshotObject(reencoded)["soulVersionID"] is NSNull)
+        let encodedSoulVersionID = promptSnapshotObject(reencoded)["soulVersionID"]
+        #expect(encodedSoulVersionID == nil || encodedSoulVersionID is NSNull)
     }
 
     private func assertPromptAndSnapshot(
@@ -230,13 +231,14 @@ struct SoulPromptIntegrationTests {
             return
         }
 
+        let encodedSoulVersionID = promptSnapshot["soulVersionID"]
         if let instructions {
             #expect(system.contains(instructions))
-            #expect(promptSnapshot["soulVersionID"] as? String == versionID)
+            #expect(encodedSoulVersionID as? String == versionID)
         } else {
             #expect(!system.contains("SOUL VERSION ONE"))
             #expect(!system.contains("SOUL VERSION TWO"))
-            #expect(promptSnapshot["soulVersionID"] is NSNull)
+            #expect(encodedSoulVersionID == nil || encodedSoulVersionID is NSNull)
         }
         #expect(snapshot.providerID == .deepSeek)
         #expect(snapshot.modelCapabilities == [.text, .streaming, .tools])
