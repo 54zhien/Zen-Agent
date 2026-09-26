@@ -26,6 +26,7 @@ enum Migrations {
         registerV8(&migrator)
         registerV9(&migrator)
         registerV10(&migrator)
+        registerV11(&migrator)
         return migrator
     }
 
@@ -283,6 +284,30 @@ enum Migrations {
                 BEFORE DELETE ON soulVersion
                 BEGIN
                     SELECT RAISE(ABORT, 'Soul versions are immutable');
+                END
+                """)
+        }
+    }
+
+    static func registerV11(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v11_bind_conversation_soul_version") { db in
+            try db.execute(sql: "ALTER TABLE soul ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT 1")
+            try db.execute(sql: """
+                CREATE TABLE conversationSoulBinding (
+                    conversationID TEXT PRIMARY KEY NOT NULL
+                        REFERENCES conversation(id) ON DELETE CASCADE,
+                    soulVersionID TEXT NOT NULL
+                        REFERENCES soulVersion(id) ON DELETE RESTRICT,
+                    createdAt DATETIME NOT NULL
+                )
+                """)
+            // A Conversation's selected version is fixed at creation. Finalized
+            // deletion may remove the binding, but no edit may replace it.
+            try db.execute(sql: """
+                CREATE TRIGGER conversationSoulBinding_reject_update
+                BEFORE UPDATE ON conversationSoulBinding
+                BEGIN
+                    SELECT RAISE(ABORT, 'Conversation Soul binding is immutable');
                 END
                 """)
         }

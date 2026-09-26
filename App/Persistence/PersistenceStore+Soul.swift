@@ -12,7 +12,8 @@ extension PersistenceStore {
                 try SoulRecord(
                     id: SoulRecord.globalID,
                     currentVersionID: initialVersion.id,
-                    updatedAt: now
+                    updatedAt: now,
+                    enabled: true
                 ).insert(db)
             }
         } catch let error as DatabaseError where error.resultCode == .SQLITE_CONSTRAINT {
@@ -54,6 +55,35 @@ extension PersistenceStore {
                 return nil
             }
             return try SoulVersionRecord.fetchOne(db, key: soul.currentVersionID)
+        }
+    }
+
+    func soul() throws -> SoulRecord? {
+        try database.read { db in
+            try SoulRecord.fetchOne(db, key: SoulRecord.globalID)
+        }
+    }
+
+    func setSoulEnabled(_ enabled: Bool, at now: Date) throws {
+        try database.write { db in
+            guard try SoulRecord.fetchOne(db, key: SoulRecord.globalID) != nil else {
+                throw PersistenceError.soulNotFound
+            }
+            try db.execute(
+                sql: "UPDATE soul SET enabled = ?, updatedAt = ? WHERE id = ?",
+                arguments: [enabled, now, SoulRecord.globalID]
+            )
+        }
+    }
+
+    func boundSoulVersion(conversationID: String) throws -> SoulVersionRecord? {
+        try database.read { db in
+            guard let binding = try ConversationSoulBindingRecord.fetchOne(
+                db, key: conversationID
+            ) else {
+                return nil
+            }
+            return try SoulVersionRecord.fetchOne(db, key: binding.soulVersionID)
         }
     }
 

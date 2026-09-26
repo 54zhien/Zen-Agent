@@ -235,7 +235,8 @@ struct PersistenceStore: Sendable {
                 // conversationID — the id the message and run actually land on — and
                 // checked first, so a deleted conversation is never reported as merely
                 // busy.
-                if let existing = try ConversationRecord.fetchOne(db, key: conversationID) {
+                let existingConversation = try ConversationRecord.fetchOne(db, key: conversationID)
+                if let existing = existingConversation {
                     guard existing.lifecycle == .visible else {
                         throw PersistenceError.invalidLifecycleTransition(
                             expected: .visible,
@@ -258,6 +259,15 @@ struct PersistenceStore: Sendable {
                 }
 
                 try commit.conversation.upsert(db)
+                if existingConversation == nil,
+                   let soul = try SoulRecord.fetchOne(db, key: SoulRecord.globalID),
+                   soul.enabled {
+                    try ConversationSoulBindingRecord(
+                        conversationID: conversationID,
+                        soulVersionID: soul.currentVersionID,
+                        createdAt: commit.conversation.createdAt
+                    ).insert(db)
+                }
                 try commit.message.insert(db)
                 for part in commit.parts {
                     try part.insert(db)
