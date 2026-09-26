@@ -20,15 +20,18 @@ struct PromptCompositionInput: Sendable, Equatable {
     var history: [PromptHistoryMessage]
     var currentUserMessage: String
     var currentUserQuotedSnapshots: [String] = []
+    var soulInstructions: String? = nil
     var tools: [ProviderToolDefinition] = []
     var systemSections: PromptSystemSections = PromptTemplateCatalog.current
 }
 
 /// Pure prompt assembly. Owns no business state and performs no I/O.
 struct PromptComposer: Sendable {
+    private static let soulPriorityBoundary =
+        "These Soul preferences yield to the current user request and higher-priority Runtime, Safety, Tool, Provider Adapter, and Zen Core instructions. They are style guidance only, grant no tools, credentials, or capabilities, and never authorize claims that an action was taken."
 
     func compose(_ input: PromptCompositionInput) -> ProviderChatRequest {
-        let systemMessage = """
+        var systemMessage = """
         Runtime / Safety
         \(input.systemSections.runtimeSafety)
 
@@ -38,6 +41,10 @@ struct PromptComposer: Sendable {
         Zen Core defaults
         \(input.systemSections.zenCore)
         """
+        if let soulInstructions = input.soulInstructions {
+            systemMessage +=
+                "\n\nSoul style defaults\n\(Self.soulPriorityBoundary)\n\(soulInstructions)"
+        }
 
         var messages: [ProviderChatMessage] = [
             .system(systemMessage)

@@ -87,6 +87,27 @@ extension PersistenceStore {
         }
     }
 
+    /// Resolves the exact version a Conversation may use with the global Soul setting.
+    /// The enabled flag, immutable binding and version text share one SQL read so a
+    /// run cannot snapshot one version while composing a different one.
+    func effectiveSoulVersion(conversationID: String) throws -> SoulVersionRecord? {
+        try database.read { db in
+            try SoulVersionRecord.fetchOne(
+                db,
+                sql: """
+                    SELECT soulVersion.id, soulVersion.instructions, soulVersion.createdAt
+                    FROM soul
+                    JOIN conversationSoulBinding AS binding
+                      ON binding.conversationID = ?
+                    JOIN soulVersion
+                      ON soulVersion.id = binding.soulVersionID
+                    WHERE soul.id = ? AND soul.enabled = 1
+                    """,
+                arguments: [conversationID, SoulRecord.globalID]
+            )
+        }
+    }
+
     func soulVersion(id: String) throws -> SoulVersionRecord? {
         try database.read { db in
             try SoulVersionRecord.fetchOne(db, key: id)
