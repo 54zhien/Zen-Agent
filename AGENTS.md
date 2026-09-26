@@ -66,56 +66,20 @@ Follow the dependency order in the Blueprint's `Design/Zen Agent 开发规划.md
 jump ahead because a later feature is more interesting, and do not build scaffolding
 for a stage that has not started.
 
-**Stage 0 and Stage 1 are complete. Stage 2 has not started.**
+Stage status depends on the checkout. Before planning work, read `README.md`'s
+status, the relevant `tasks/` gate or closure record, the current branch and HEAD,
+and the Blueprint stage plan. Distinguish code on `main` from unmerged work and
+distinguish passing CI from on-device acceptance. Do not use an older closure
+record to infer that a later stage is either authorized or forbidden.
 
-The authoritative Stage 1 closure record is `tasks/stage1-closure.md`. Its
-implementation gate is `1b7394b4545861b0645962dcf8bf4954aaa9279b`; the closure
-evidence was recorded on main in `7eddf5fcdc854f5c2a66028a0676d8ddbc4476eb`.
+Stage 0 and Stage 1 are closed. The authoritative Stage 1 closure record is
+`tasks/stage1-closure.md`; its implementation gate is
+`1b7394b4545861b0645962dcf8bf4954aaa9279b`. Later stages have their own
+scope and evidence. `App/Persistence/` is a data layer: a persisted record alone
+does not prove that its owning runtime or UI path is wired.
 
-Stage 1 delivered these implementation boundaries:
-
-- Conversation / Message / Part persistence and repository support.
-- AgentRun / AgentStep / ToolCall persistence skeletons.
-- CredentialStore and the Keychain-backed credential boundary.
-- Provider / ProviderInstance / HTTP transport contracts, `FakeProvider`, and the
-  concrete DeepSeek adapter.
-- SSE parsing, provider-neutral streaming events, cancellation / timeout handling,
-  and streaming normalization.
-- `ModelDescriptor` capability metadata.
-- The minimal `PromptComposer` owned by Stage 1.
-- The logical FileAsset / FileAssetVersion / MessageAttachment identity boundary.
-
-Some persistence records intentionally anticipate later runtime work. Their presence
-does not mean the runtime stage that consumes them has started.
-
-Until a new explicit Stage 2 planning / review round is approved, the following
-remain outside the active implementation boundary:
-
-```
-full AgentRuntime state machine
-RunProjection and business-event flow
-Parent Run ↔ Assistant Response runtime mapping
-Stage 2 execution-snapshot semantics
-ToolRuntime
-Conversation UI / input Composer
-physical FileAsset ingest / copy / delete
-Soul
-Memory
-Skills
-MCP
-Subagent
-App Space / Split
-```
-
-The minimal Stage 1 `PromptComposer` must not be confused with the later
-Conversation UI / input Composer.
-
-`App/Persistence/` remains a **data layer, not proof that a runtime exists.**
-Likewise, a persisted run, step or tool call is not permission to implement
-AgentRuntime or ToolRuntime before the stage that owns those capabilities.
-
-Do not begin Stage 2 from the Stage 1 closure. Stage 2 starts only after a new
-explicit planning / review round establishes its scope, invariants and gate.
+The Stage 1 `PromptComposer` and the Conversation UI input Composer are different
+boundaries. Keep their responsibilities separate as later stages evolve.
 
 ## 3. XcodeGen is the project's source of truth
 
