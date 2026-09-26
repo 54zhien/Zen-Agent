@@ -28,7 +28,7 @@ struct PromptHistoryIntegrationTests {
             toolRegistry: .empty
         )
 
-        _ = try await runtime.send(Stage2GateFixture.command(text: "First question"))
+        let firstRunID = try await runtime.send(Stage2GateFixture.command(text: "First question"))
         try components.store.database.write { db in
             try Fixtures.message(
                 id: "prompt-history-unlinked-user",
@@ -49,6 +49,19 @@ struct PromptHistoryIntegrationTests {
         guard requests.count == 2 else { return }
 
         let firstSystem = systemContent(in: requests[0])
+        let frozenRun = try #require(components.store.run(id: firstRunID))
+        let encodedSnapshot = try #require(frozenRun.executionSnapshot)
+        let snapshot = try ExecutionSnapshotCodec.decode(encodedSnapshot)
+        let sections = try PromptTemplateCatalog.resolve(
+            runtimeSafetyRevision: snapshot.prompt.runtimeSafetyBaseline,
+            zenCoreRevision: snapshot.prompt.zenCore
+        )
+        #expect(snapshot.prompt.runtimeSafetyBaseline
+                == PromptTemplateCatalog.currentRuntimeSafetyRevision)
+        #expect(snapshot.prompt.zenCore == PromptTemplateCatalog.currentZenCoreRevision)
+        #expect(firstSystem.contains(sections.runtimeSafety))
+        #expect(firstSystem.contains(sections.zenCore))
+        #expect(firstSystem.contains(snapshot.prompt.providerAdapterInstructions))
         #expect(firstSystem.contains("Runtime / Safety"))
         #expect(firstSystem.contains("Provider Adapter"))
         #expect(firstSystem.contains("Zen Core defaults"))
