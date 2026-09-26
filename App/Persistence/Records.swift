@@ -234,6 +234,7 @@ struct SoulRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Identi
     var id: String
     var currentVersionID: String
     var updatedAt: Date
+    var enabled: Bool
 }
 
 struct SoulVersionRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Identifiable {
@@ -241,6 +242,14 @@ struct SoulVersionRecord: Codable, FetchableRecord, PersistableRecord, Sendable,
 
     var id: String
     var instructions: String
+    var createdAt: Date
+}
+
+struct ConversationSoulBindingRecord: Codable, FetchableRecord, PersistableRecord, Sendable {
+    static let databaseTableName = "conversationSoulBinding"
+
+    var conversationID: String
+    var soulVersionID: String
     var createdAt: Date
 }
 

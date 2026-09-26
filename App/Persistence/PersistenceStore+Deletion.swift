@@ -106,6 +106,10 @@ extension PersistenceStore {
                 DELETE FROM toolCall WHERE agentRunID IN (SELECT id FROM agentRun WHERE conversationID = ?)
                 """, arguments: [conversationID])
             try db.execute(sql: "DELETE FROM agentRun WHERE conversationID = ?", arguments: [conversationID])
+            try db.execute(
+                sql: "DELETE FROM conversationSoulBinding WHERE conversationID = ?",
+                arguments: [conversationID]
+            )
 
             try db.execute(
                 sql: "UPDATE conversation SET lifecycle = ?, updatedAt = ? WHERE id = ?",
