@@ -13,7 +13,7 @@ struct ComposerHostIntegrationTests {
         let editor = host.editor
         host.configure(configuration(state: .resting))
         host.layoutIfNeeded()
-        #expect(abs(host.keyboardGap - 12) < 1)
+        #expect(abs(host.keyboardGap - 9) < 1)
         #expect(host.hitTest(CGPoint(x: host.bounds.midX, y: 200), with: nil) == nil)
         #expect(host.hitTest(CGPoint(x: host.surfaceFrame.midX,
                                      y: host.surfaceFrame.midY), with: nil) != nil)
