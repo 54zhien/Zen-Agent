@@ -32,7 +32,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private let viewport = UIView()
     let editor = UITextView()
     let placeholder = UILabel()
-    private var placeholderHeightConstraint: NSLayoutConstraint!
     private let plus = UIButton(type: .system)
     private let primary = UIButton(type: .system)
     private let errorLabel = UILabel()
@@ -94,21 +93,13 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         editor.isEditable = true
         editor.isSelectable = true
         editor.accessibilityIdentifier = "conversation-composer-input"
-        editor.accessibilityLabel = "输入消息"
+        editor.accessibilityLabel = "说点什么吧"
         viewport.addSubview(editor)
-        placeholder.text = "输入消息"
+        placeholder.text = "说点什么吧"
         placeholder.textColor = .secondaryLabel
         placeholder.isUserInteractionEnabled = false
         placeholder.isAccessibilityElement = false
-        placeholder.translatesAutoresizingMaskIntoConstraints = false
         viewport.addSubview(placeholder)
-        placeholderHeightConstraint = placeholder.heightAnchor.constraint(equalToConstant: 24)
-        NSLayoutConstraint.activate([
-            placeholder.leadingAnchor.constraint(equalTo: editor.leadingAnchor),
-            placeholder.firstBaselineAnchor.constraint(equalTo: editor.firstBaselineAnchor),
-            placeholder.widthAnchor.constraint(equalTo: editor.widthAnchor),
-            placeholderHeightConstraint
-        ])
 
         for (button, symbol) in [(plus, "plus"), (primary, "arrow.up")] {
             button.setImage(UIImage(systemName: symbol), for: .normal)
@@ -327,7 +318,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let editorWidth = max(editWidth, targetViewport.width)
         editor.frame = CGRect(x: 0, y: 0, width: editorWidth,
                               height: max(1, editingEndpoint.textViewport.height))
-        placeholderHeightConstraint.constant = configuration.font.lineHeight + 2
+        positionPlaceholder()
         if state == .editing {
             editor.isScrollEnabled = measuredHeight > editingEndpoint.textViewport.height
         }
@@ -375,12 +366,28 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             editor.contentOffset = .zero
             editor.frame.size.width = max(1, viewport.bounds.width)
             editor.frame.size.height = max(1, viewport.bounds.height)
+            positionPlaceholder()
         }
         if let carrier {
             UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.12,
                            animations: { carrier.alpha = 0 },
                            completion: { [weak carrier] _ in carrier?.removeFromSuperview() })
         }
+    }
+
+    private func positionPlaceholder() {
+        guard let configuration, configuration.text.isEmpty else { return }
+        editor.layoutIfNeeded()
+        let caret = editor.caretRect(for: editor.beginningOfDocument)
+        let lineHeight = configuration.font.lineHeight
+        let caretMidY = caret.midY.isFinite && caret.height > 0 ? caret.midY : lineHeight / 2
+        let caretMaxX = caret.maxX.isFinite ? caret.maxX : 0
+        let x = caretMaxX + 3
+        let height = lineHeight + 2
+        placeholder.frame = CGRect(
+            x: x, y: caretMidY - height / 2,
+            width: max(0, editor.bounds.width - x), height: height
+        )
     }
 
     private func updateGeometryProbe() {

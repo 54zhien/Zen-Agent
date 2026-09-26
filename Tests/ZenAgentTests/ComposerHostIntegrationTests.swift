@@ -20,9 +20,6 @@ struct ComposerHostIntegrationTests {
         #expect(host.editor === editor)
         #expect(abs(host.editor.bounds.width - host.previewViewportWidth) < 1)
         #expect(host.placeholder.superview === editor.superview)
-        #expect(host.placeholder.superview?.constraints.contains {
-            $0.firstAttribute == .firstBaseline && $0.secondAttribute == .firstBaseline
-        } == true)
         host.configure(configuration(state: .editing))
         host.configure(configuration(state: .resting))
         #expect(host.editor === editor)
