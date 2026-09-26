@@ -5,6 +5,27 @@ import Testing
 
 @Suite("Composer geometry")
 struct ComposerGeometryTests {
+    @Test("larger composer preserves the resting and editing corner centers")
+    func enlargedEndpointsKeepCornerCenters() {
+        for lineHeight in [CGFloat(22), CGFloat(42)] {
+            let resting = layout(state: .resting, scaledLineHeight: lineHeight)
+            let oldHeight = max(CGFloat(50), lineHeight + 20)
+            let restingRadius = ComposerShapeToken.minimumRadius(for: resting)
+            #expect(resting.outerWidth == 336)
+            #expect(resting.outerHeight == oldHeight + 6)
+            #expect(abs(resting.outerFrame.minX + restingRadius
+                        - (30 + oldHeight / 2)) < 0.01)
+            #expect(abs(resting.outerFrame.maxY - restingRadius
+                        - (800 - 12 - oldHeight / 2)) < 0.01)
+
+            let editing = layout(state: .editing, scaledLineHeight: lineHeight)
+            let editingRadius = ComposerShapeToken.minimumRadius(for: editing)
+            #expect(editing.outerHeight == 116)
+            #expect(editing.outerFrame.minX + editingRadius == 42)
+            #expect(editing.outerFrame.maxY - editingRadius == 800 - 12 - 26)
+        }
+    }
+
     @Test("restingReservesAccessoriesAndCentersSingleLine")
     func restingReservesAccessoriesAndCentersSingleLine() {
         let oneLine = layout(
