@@ -359,9 +359,9 @@ struct DualConversationPaneConcurrencyTests {
             let requests = try await harness.requestsSnapshot()
             #expect(requests.count == 3)
             if requests.count == 3 {
-                #expect(requests[0].messages.first == .user(Self.approvalPromptA))
-                #expect(requests[1].messages.first == .user(Self.completionPromptB))
-                #expect(requests[2].messages.first == .user(Self.approvalPromptA))
+                #expect(requests[0].messages.dropFirst().first == .user(Self.approvalPromptA))
+                #expect(requests[1].messages.dropFirst().first == .user(Self.completionPromptB))
+                #expect(requests[2].messages.dropFirst().first == .user(Self.approvalPromptA))
                 #expect(containsToolResult(
                     callID: Self.approvalToolCallID,
                     in: requests[2].messages
