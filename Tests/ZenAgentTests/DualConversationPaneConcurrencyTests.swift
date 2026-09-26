@@ -607,7 +607,7 @@ private enum DualPaneDeliveryExpectation: Sendable {
         switch (self, event) {
         case let (.partStarted(expectedRunID), .messagePartStarted(runID, _, _, _)):
             return runID == expectedRunID
-        case let (.partDelta(expectedRunID, expectedText), .messagePartDelta(runID, _, delta)):
+        case let (.partDelta(expectedRunID, expectedText), .messagePartDelta(runID, _, delta, _)):
             return runID == expectedRunID && delta == expectedText
         case let (.approvalRequired(expectedRunID, expectedCallID), .approvalRequired(runID, callID)):
             return runID == expectedRunID && callID == expectedCallID
@@ -733,7 +733,7 @@ private actor DualConversationEventRouter {
             throw DualPaneHarnessError.unexpectedEvent("runAccepted requires its event conversationID")
         case .runStateChanged(let value, _),
              .messagePartStarted(let value, _, _, _),
-             .messagePartDelta(let value, _, _),
+             .messagePartDelta(let value, _, _, _),
              .messagePartCompleted(let value, _, _),
              .toolCallChanged(let value, _, _),
              .approvalRequired(let value, _),
