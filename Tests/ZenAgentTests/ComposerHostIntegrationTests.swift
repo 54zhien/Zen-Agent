@@ -28,6 +28,23 @@ struct ComposerHostIntegrationTests {
         #expect(host.editor === editor)
     }
 
+    @Test("empty composer placeholder sits beside the caret in the shared viewport")
+    func emptyPlaceholderFollowsCaret() {
+        let (window, host) = installedHost(initialState: .editing)
+        _ = window
+        host.configure(configuration(text: "", state: .editing))
+        host.layoutIfNeeded()
+        #expect(host.placeholder.superview != nil)
+        guard let viewport = host.placeholder.superview else { return }
+        let caret = host.editor.convert(
+            host.editor.caretRect(for: host.editor.beginningOfDocument), to: viewport
+        )
+        #expect(host.placeholder.text == "说点什么吧")
+        #expect(host.placeholder.frame.minX >= caret.maxX)
+        #expect(abs(host.placeholder.frame.midY - caret.midY) < 2)
+        #expect(host.placeholder.frame.intersects(viewport.bounds))
+    }
+
     @Test("primary action binds to latest callback exactly once")
     func primaryCallbackUsesLatestConfiguration() {
         let (window, host) = installedHost()
