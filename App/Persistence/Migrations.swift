@@ -269,11 +269,18 @@ enum Migrations {
                     updatedAt DATETIME NOT NULL
                 )
                 """)
-            // Versions are append-only. Explicit erasure can be designed separately;
-            // ordinary edits must never rewrite a version an old Conversation may pin.
+            // Versions are append-only. Explicit erasure needs its own future path;
+            // ordinary writes must not change a version an old Conversation may pin.
             try db.execute(sql: """
                 CREATE TRIGGER soulVersion_reject_update
                 BEFORE UPDATE ON soulVersion
+                BEGIN
+                    SELECT RAISE(ABORT, 'Soul versions are immutable');
+                END
+                """)
+            try db.execute(sql: """
+                CREATE TRIGGER soulVersion_reject_delete
+                BEFORE DELETE ON soulVersion
                 BEGIN
                     SELECT RAISE(ABORT, 'Soul versions are immutable');
                 END
