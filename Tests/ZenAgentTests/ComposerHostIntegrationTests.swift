@@ -21,9 +21,9 @@ struct ComposerHostIntegrationTests {
         #expect(abs(host.editor.bounds.width - host.previewViewportWidth) < 1)
         #expect(host.placeholder.superview === editor.superview)
         let restingOpacity = host.placeholder.alpha
-        #expect(restingOpacity < 1)
+        #expect(restingOpacity == 1)
         host.configure(configuration(state: .editing))
-        #expect(host.placeholder.alpha > restingOpacity)
+        #expect(host.placeholder.alpha < restingOpacity)
         host.configure(configuration(state: .resting))
         #expect(host.editor === editor)
     }
@@ -45,7 +45,7 @@ struct ComposerHostIntegrationTests {
         #expect(host.placeholder.frame.minX - caret.maxX <= 2)
         #expect(abs(host.placeholder.frame.midY - caret.midY) < 2)
         #expect(host.placeholder.frame.intersects(viewport.bounds))
-        #expect(host.placeholder.alpha == 1)
+        #expect(host.placeholder.alpha == 0.62)
     }
 
     @Test("primary action binds to latest callback exactly once")

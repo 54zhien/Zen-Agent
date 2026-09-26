@@ -310,7 +310,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             self.heightConstraint.constant = layout.size.height
             self.bottomConstraint.constant = -layout.bottomSpacing
             self.viewport.frame = targetViewport
-            self.placeholder.alpha = state == .editing ? 1 : 0.62
+            self.placeholder.alpha = state == .editing ? 0.62 : 1
             self.plus.frame = layout.plus.insetBy(dx: 8, dy: 8)
             self.primary.frame = layout.primary.insetBy(dx: 8, dy: 8)
             self.errorLabel.frame = CGRect(x: 0, y: -28,
