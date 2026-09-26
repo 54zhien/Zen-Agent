@@ -104,4 +104,48 @@ struct SoulPersistenceTests {
         }
         #expect(try store.soulVersion(id: "v1")?.instructions == "Original")
     }
+
+    @Test("a prior SoulVersion cannot be deleted by an ordinary database write")
+    func priorVersionRowsRejectDelete() throws {
+        let database = try ZenDatabase.inMemory()
+        let store = PersistenceStore(database: database)
+        try store.createSoul(initialVersion: version("v1", "Original"), at: Fixtures.epoch)
+        try store.advanceSoul(
+            expectedCurrentVersionID: "v1",
+            to: version("v2", "Current"),
+            at: Fixtures.epoch.addingTimeInterval(1)
+        )
+        #expect(throws: DatabaseError.self) {
+            try database.write { db in
+                try db.execute(sql: "DELETE FROM soulVersion WHERE id = ?", arguments: ["v1"])
+            }
+        }
+        #expect(try store.soulVersion(id: "v1")?.instructions == "Original")
+    }
+
+    @Test("a pointer update failure rolls back the already inserted version")
+    func pointerFailureRollsBackVersionInsert() throws {
+        let database = try ZenDatabase.inMemory()
+        let store = PersistenceStore(database: database)
+        try store.createSoul(initialVersion: version("v1", "Original"), at: Fixtures.epoch)
+        try database.write { db in
+            try db.execute(sql: """
+                CREATE TRIGGER soul_test_reject_pointer_update
+                BEFORE UPDATE ON soul
+                BEGIN
+                    SELECT RAISE(ABORT, 'injected pointer failure');
+                END
+                """)
+        }
+
+        #expect(throws: PersistenceError.constraintViolation) {
+            try store.advanceSoul(
+                expectedCurrentVersionID: "v1",
+                to: version("v2", "Must roll back"),
+                at: Fixtures.epoch.addingTimeInterval(1)
+            )
+        }
+        #expect(try store.currentSoulVersion()?.id == "v1")
+        #expect(try store.soulVersion(id: "v2") == nil)
+    }
 }
