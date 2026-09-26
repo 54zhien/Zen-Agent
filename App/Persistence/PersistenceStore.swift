@@ -36,6 +36,10 @@ enum PersistenceError: Error, Equatable {
     case fileAssetVersionNotFound(String)
     case fileAssetVersionMismatch(assetID: String, versionID: String)
 
+    case soulAlreadyExists
+    case soulNotFound
+    case soulEditConflict(expected: String, actual: String)
+
     /// The named Provider instance does not exist.
     case providerInstanceNotFound(ProviderInstanceID)
 
