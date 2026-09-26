@@ -5,7 +5,7 @@ import Testing
 
 @Suite("Soul prompt integration")
 struct SoulPromptIntegrationTests {
-    @Test("the first provider request uses the bound Soul version")
+    @Test("first-send binding supplies Soul to the actual provider request and frozen snapshot")
     func firstRequestUsesBoundSoulVersion() async throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
         let credential = CredentialReference(id: "soul-prompt-test-credential")
@@ -24,9 +24,6 @@ struct SoulPromptIntegrationTests {
             configRevision: .initial,
             credentialReference: credential
         ))
-        try store.database.write { db in
-            try Fixtures.conversation(id: "soul-prompt-test-conversation").insert(db)
-        }
         try store.createSoul(
             initialVersion: SoulVersionRecord(
                 id: "soul-v1",
@@ -46,13 +43,28 @@ struct SoulPromptIntegrationTests {
             provider: provider,
             credentials: credentials
         )
-        let runID = try await runtime.send(SendCommand(
+        let firstRunID = try await runtime.start(
+            SendCommand(
+                conversationID: "soul-prompt-test-conversation",
+                text: "first",
+                providerInstanceID: instanceID,
+                modelID: Stage2GateFixture.modelID,
+                maxProviderSteps: Stage2GateFixture.maxProviderSteps,
+                submissionID: "soul-prompt-test-first-send"
+            ),
+            creatingConversationIfMissing: Fixtures.conversation(
+                id: "soul-prompt-test-conversation"
+            )
+        )
+        try await runtime.waitForCompletion(runID: firstRunID)
+
+        _ = try await runtime.send(SendCommand(
             conversationID: "soul-prompt-test-conversation",
-            text: "hello",
+            text: "follow-up",
             providerInstanceID: instanceID,
             modelID: Stage2GateFixture.modelID,
             maxProviderSteps: Stage2GateFixture.maxProviderSteps,
-            submissionID: "soul-prompt-test-submission"
+            submissionID: "soul-prompt-test-follow-up"
         ))
 
         let requests = await ledger.requestsSnapshot()
@@ -65,11 +77,12 @@ struct SoulPromptIntegrationTests {
         }
         #expect(systemPrompt.contains("SOUL VERSION ONE"))
 
-        let run = try #require(try store.run(id: runID))
+        let run = try #require(try store.run(id: firstRunID))
         let encodedSnapshot = try #require(run.executionSnapshot)
         let object = try #require(
             try JSONSerialization.jsonObject(with: Data(encodedSnapshot.utf8)) as? [String: Any]
         )
-        #expect(object["soulVersionID"] as? String == "soul-v1")
+        let prompt = try #require(object["prompt"] as? [String: Any])
+        #expect(prompt["soulVersionID"] as? String == "soul-v1")
     }
 }
