@@ -13,14 +13,17 @@ struct ComposerHostIntegrationTests {
         let editor = host.editor
         host.configure(configuration(state: .resting))
         host.layoutIfNeeded()
-        #expect(abs(host.keyboardGap - 9) < 1)
+        #expect(abs(host.keyboardGap - 6) < 1)
         #expect(host.hitTest(CGPoint(x: host.bounds.midX, y: 200), with: nil) == nil)
         #expect(host.hitTest(CGPoint(x: host.surfaceFrame.midX,
                                      y: host.surfaceFrame.midY), with: nil) != nil)
         #expect(host.editor === editor)
         #expect(abs(host.editor.bounds.width - host.previewViewportWidth) < 1)
         #expect(host.placeholder.superview === editor.superview)
+        let restingOpacity = host.placeholder.alpha
+        #expect(restingOpacity < 1)
         host.configure(configuration(state: .editing))
+        #expect(host.placeholder.alpha > restingOpacity)
         host.configure(configuration(state: .resting))
         #expect(host.editor === editor)
     }
@@ -37,9 +40,12 @@ struct ComposerHostIntegrationTests {
             host.editor.caretRect(for: host.editor.beginningOfDocument), to: viewport
         )
         #expect(host.placeholder.text == "说点什么吧")
-        #expect(host.placeholder.frame.minX >= caret.maxX)
+        #expect(host.editor.tintColor == .black)
+        #expect(host.placeholder.frame.minX > caret.maxX)
+        #expect(host.placeholder.frame.minX - caret.maxX <= 2)
         #expect(abs(host.placeholder.frame.midY - caret.midY) < 2)
         #expect(host.placeholder.frame.intersects(viewport.bounds))
+        #expect(host.placeholder.alpha == 1)
     }
 
     @Test("primary action binds to latest callback exactly once")

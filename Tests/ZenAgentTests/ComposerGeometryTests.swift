@@ -11,8 +11,8 @@ struct ComposerGeometryTests {
             let resting = layout(state: .resting, scaledLineHeight: lineHeight)
             let oldHeight = max(CGFloat(50), lineHeight + 20)
             let restingRadius = ComposerShapeToken.minimumRadius(for: resting)
-            #expect(resting.outerWidth == 336)
-            #expect(resting.outerHeight == oldHeight + 6)
+            #expect(resting.outerWidth == 342)
+            #expect(resting.outerHeight == oldHeight + 12)
             #expect(abs(resting.outerFrame.minX + restingRadius
                         - (30 + oldHeight / 2)) < 0.01)
             #expect(abs(resting.outerFrame.maxY - restingRadius
@@ -20,7 +20,7 @@ struct ComposerGeometryTests {
 
             let editing = layout(state: .editing, scaledLineHeight: lineHeight)
             let editingRadius = ComposerShapeToken.minimumRadius(for: editing)
-            #expect(editing.outerHeight == 116)
+            #expect(editing.outerHeight == 124)
             #expect(editing.outerFrame.minX + editingRadius == 42)
             #expect(abs(editing.outerFrame.maxY - editingRadius - (800 - 12 - 26)) < 0.01)
         }

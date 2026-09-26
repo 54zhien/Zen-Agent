@@ -85,6 +85,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         surface.addSubview(viewport)
         editor.delegate = self
         editor.backgroundColor = .clear
+        editor.tintColor = .black
         editor.textContainerInset = .zero
         editor.textContainer.lineFragmentPadding = 0
         editor.adjustsFontForContentSizeCategory = true
@@ -309,6 +310,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             self.heightConstraint.constant = layout.size.height
             self.bottomConstraint.constant = -layout.bottomSpacing
             self.viewport.frame = targetViewport
+            self.placeholder.alpha = state == .editing ? 1 : 0.62
             self.plus.frame = layout.plus.insetBy(dx: 8, dy: 8)
             self.primary.frame = layout.primary.insetBy(dx: 8, dy: 8)
             self.errorLabel.frame = CGRect(x: 0, y: -28,
@@ -386,7 +388,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let lineHeight = configuration.font.lineHeight
         let caretMidY = caret.midY.isFinite && caret.height > 0 ? caret.midY : lineHeight / 2
         let caretMaxX = caret.maxX.isFinite ? caret.maxX : 0
-        let x = caretMaxX + 3
+        let x = caretMaxX + 1
         let height = lineHeight + 2
         placeholder.frame = CGRect(
             x: x, y: caretMidY - height / 2,

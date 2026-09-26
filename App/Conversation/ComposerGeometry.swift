@@ -22,14 +22,14 @@ struct ComposerLayout {
 enum ComposerGeometry {
     static let edgeInset: CGFloat = 16
     // Expand equally toward the screen edges and keyboard to keep the lower corner centers fixed.
-    static let restingGrowth: CGFloat = 6
+    static let restingGrowth: CGFloat = 12
     private static let restingBaseEdgeInset: CGFloat = 30
     static let restingEdgeInset: CGFloat = restingBaseEdgeInset - restingGrowth / 2
     static let restingMinHeight: CGFloat = 50
     static let accessoryHitWidth: CGFloat = 44
     static let editorTopInset: CGFloat = 14
     static let controlRailMinHeight: CGFloat = 52
-    static let editingMinHeight: CGFloat = 116
+    static let editingMinHeight: CGFloat = 124
     static let editingMaxHeightFraction: CGFloat = 0.46
     static let compactWidthFraction: CGFloat = 0.72
     static let compactMinHeight: CGFloat = 38

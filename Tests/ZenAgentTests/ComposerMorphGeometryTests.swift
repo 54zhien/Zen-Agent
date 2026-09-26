@@ -9,7 +9,7 @@ struct ComposerMorphGeometryTests {
     func localLayoutMatchesEndpointsAndInterpolatesTogether() {
         let rest = endpoint(.resting)
         let edit = endpoint(.editing)
-        #expect(rest.size.width == 336)
+        #expect(rest.size.width == 342)
         #expect(edit.size.width == 358)
         #expect(rest.size.height >= 50)
         #expect(edit.size.height >= 108)
