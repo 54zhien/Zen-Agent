@@ -37,7 +37,9 @@ struct SoulBindingTests {
         #expect(try store.run(id: "old-run") != nil)
         #expect(try store.run(id: "new-run") != nil)
 
-        #expect(throws: PersistenceError.self) {
+        #expect(throws: PersistenceError.conversationAlreadyHasActiveRun(
+            conversationID: "old"
+        )) {
             try store.commitUserTurnAndCreateParentRun(
                 Fixtures.send(conversationID: "old", messageID: "old-message", runID: "replayed-run")
             )
