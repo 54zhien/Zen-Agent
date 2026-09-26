@@ -45,7 +45,7 @@ struct ComposerHostIntegrationTests {
         #expect(host.placeholder.frame.minX - caret.maxX <= 2)
         #expect(abs(host.placeholder.frame.midY - caret.midY) < 2)
         #expect(host.placeholder.frame.intersects(viewport.bounds))
-        #expect(host.placeholder.alpha == 0.62)
+        #expect(abs(host.placeholder.alpha - 0.62) < 0.001)
     }
 
     @Test("primary action binds to latest callback exactly once")
