@@ -92,6 +92,7 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
 }
 
 struct PromptExecutionSnapshot: Codable, Sendable, Equatable {
+    /// Built-in template revision IDs. The adapter instructions are frozen text.
     var runtimeSafetyBaseline: String
     var zenCore: String
     var providerAdapterInstructions: String

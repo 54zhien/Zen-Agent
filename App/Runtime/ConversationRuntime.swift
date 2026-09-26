@@ -259,8 +259,8 @@ actor ConversationRuntime {
             providerID: provider.id,
             providerAdapterRevision: provider.adapterRevision,
             prompt: PromptExecutionSnapshot(
-                runtimeSafetyBaseline: "runtime-safety-v1",
-                zenCore: "zen-core-v1",
+                runtimeSafetyBaseline: PromptTemplateCatalog.currentRuntimeSafetyRevision,
+                zenCore: PromptTemplateCatalog.currentZenCoreRevision,
                 providerAdapterInstructions: provider.adapterPromptInstructions
             ),
             modelCapabilities: descriptor.capabilities,
@@ -277,11 +277,16 @@ actor ConversationRuntime {
         )
         let committedQuoteSnapshots: [String]
         let committedPromptHistory: [PromptHistoryMessage]
+        let promptSections: PromptSystemSections
         do {
             try store.completeExecutionSnapshot(
                 runID: runID,
                 encodedSnapshot: try ExecutionSnapshotCodec.encode(snapshot),
                 at: now
+            )
+            promptSections = try PromptTemplateCatalog.resolve(
+                runtimeSafetyRevision: snapshot.prompt.runtimeSafetyBaseline,
+                zenCoreRevision: snapshot.prompt.zenCore
             )
             committedQuoteSnapshots = try store.quoteReferences(forMessageID: messageID)
                 .map(\.snapshot)
@@ -314,7 +319,8 @@ actor ConversationRuntime {
                     description: $0.description,
                     parameters: $0.inputSchema
                 )
-            }
+            },
+            systemSections: promptSections
         ))
         let agent = agentRuntime
         let stream = await agent.advance(
