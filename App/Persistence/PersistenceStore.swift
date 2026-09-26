@@ -259,7 +259,10 @@ struct PersistenceStore: Sendable {
                 }
 
                 try commit.conversation.upsert(db)
+                // Migration tests also use this store against deliberate v1-v10
+                // schemas. Only a first Send on a migrated store has this table.
                 if existingConversation == nil,
+                   try db.tableExists(ConversationSoulBindingRecord.databaseTableName),
                    let soul = try SoulRecord.fetchOne(db, key: SoulRecord.globalID),
                    soul.enabled {
                     try ConversationSoulBindingRecord(
