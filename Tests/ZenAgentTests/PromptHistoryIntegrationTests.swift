@@ -19,7 +19,8 @@ struct PromptHistoryIntegrationTests {
             scripts: [
                 .events([.textDelta("First answer"), .finish(.stop)]),
                 .events([.textDelta("Second answer"), .finish(.stop)]),
-            ]
+            ],
+            adapterPromptInstructions: "Frozen adapter instructions"
         )
         let runtime = ConversationRuntime(
             store: components.store,

@@ -221,10 +221,10 @@ private enum Stage2ScriptedProviderFailure: Error, Sendable {
 struct Stage2ScriptedProvider: ModelProvider {
     let ledger: Stage2ProviderLedger
     let scripts: [Stage2ProviderScript]
+    var adapterPromptInstructions: String = ""
 
     var id: ProviderID { .deepSeek }
     var adapterRevision: String { "stage2-gate-scripted-provider.v1" }
-    var adapterPromptInstructions: String { "" }
 
     func knownModels(for instance: ProviderInstance) -> [ModelDescriptor] {
         [ModelDescriptor(
