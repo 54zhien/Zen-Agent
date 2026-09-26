@@ -96,6 +96,43 @@ struct PromptExecutionSnapshot: Codable, Sendable, Equatable {
     var runtimeSafetyBaseline: String
     var zenCore: String
     var providerAdapterInstructions: String
+    var soulVersionID: String?
+
+    init(
+        runtimeSafetyBaseline: String,
+        zenCore: String,
+        providerAdapterInstructions: String,
+        soulVersionID: String? = nil
+    ) {
+        self.runtimeSafetyBaseline = runtimeSafetyBaseline
+        self.zenCore = zenCore
+        self.providerAdapterInstructions = providerAdapterInstructions
+        self.soulVersionID = soulVersionID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case runtimeSafetyBaseline
+        case zenCore
+        case providerAdapterInstructions
+        case soulVersionID
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        runtimeSafetyBaseline = try container.decode(String.self, forKey: .runtimeSafetyBaseline)
+        zenCore = try container.decode(String.self, forKey: .zenCore)
+        providerAdapterInstructions = try container.decode(String.self, forKey: .providerAdapterInstructions)
+        // v1 snapshots written before Soul did not contain this optional identity.
+        soulVersionID = try container.decodeIfPresent(String.self, forKey: .soulVersionID)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(runtimeSafetyBaseline, forKey: .runtimeSafetyBaseline)
+        try container.encode(zenCore, forKey: .zenCore)
+        try container.encode(providerAdapterInstructions, forKey: .providerAdapterInstructions)
+        try container.encode(soulVersionID, forKey: .soulVersionID)
+    }
 }
 
 struct ToolExposureSnapshot: Codable, Sendable, Equatable {

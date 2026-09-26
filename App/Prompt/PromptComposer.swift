@@ -20,6 +20,7 @@ struct PromptCompositionInput: Sendable, Equatable {
     var history: [PromptHistoryMessage]
     var currentUserMessage: String
     var currentUserQuotedSnapshots: [String] = []
+    var soulInstructions: String? = nil
     var tools: [ProviderToolDefinition] = []
     var systemSections: PromptSystemSections = PromptTemplateCatalog.current
 }
@@ -28,7 +29,7 @@ struct PromptCompositionInput: Sendable, Equatable {
 struct PromptComposer: Sendable {
 
     func compose(_ input: PromptCompositionInput) -> ProviderChatRequest {
-        let systemMessage = """
+        var systemMessage = """
         Runtime / Safety
         \(input.systemSections.runtimeSafety)
 
@@ -38,6 +39,9 @@ struct PromptComposer: Sendable {
         Zen Core defaults
         \(input.systemSections.zenCore)
         """
+        if let soulInstructions = input.soulInstructions {
+            systemMessage += "\n\nSoul style defaults\n\(soulInstructions)"
+        }
 
         var messages: [ProviderChatMessage] = [
             .system(systemMessage)
