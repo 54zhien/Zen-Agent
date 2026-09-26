@@ -49,7 +49,7 @@ struct PromptHistoryIntegrationTests {
         guard requests.count == 2 else { return }
 
         let firstSystem = systemContent(in: requests[0])
-        let frozenRun = try #require(components.store.run(id: firstRunID))
+        let frozenRun = try #require(try components.store.run(id: firstRunID))
         let encodedSnapshot = try #require(frozenRun.executionSnapshot)
         let snapshot = try ExecutionSnapshotCodec.decode(encodedSnapshot)
         let sections = try PromptTemplateCatalog.resolve(
