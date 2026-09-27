@@ -275,7 +275,7 @@ final class ConversationReadingPositionUITests: XCTestCase {
             let dragEnd = scrollView.coordinate(
                 withNormalizedOffset: CGVector(dx: 0.5, dy: dragEndY)
             )
-            dragStart.press(forDuration: 0.1, thenDragTo: dragEnd)
+            dragStart.press(forDuration: 0.1, thenDragTo: dragEnd, withVelocity: .slow, thenHoldForDuration: 0.2)
 
             let updatedY = anchor.frame.minY
             observedPositions.append(updatedY)
