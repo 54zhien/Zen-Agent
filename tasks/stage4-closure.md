@@ -1,12 +1,13 @@
 # Stage 4 implementation gate
 
-> Status: **implementation Gate passed on a stacked development branch; not merged to `main`**.
+> Status: **implementation Gate passed at `1c2c79b`; integration tracked by PR #10**.
 > Blueprint baseline: `596a84d4b58769e3e7b838be95edcb43f9e0ec82`.
 > Stage 4 closure branch: `codex/stage4-closure`.
 > Gate test commit: `ae3546aac535113a6987509d5658f637c2e9f3f1`.
 
 This record separates the Stage 4 implementation Gate from integration into
-`main` and from on-device acceptance. The Blueprint's Stage 4 Gate is that an
+`main` and from on-device acceptance. Check PR #10 for the current merge state.
+The Blueprint's Stage 4 Gate is that an
 old Conversation keeps using its bound SoulVersion and that Secrets do not
 enter Prompt. The Stage 3 long-conversation, keyboard, Streaming, reading
 position, performance and accessibility acceptance remains open.
@@ -35,11 +36,11 @@ position, performance and accessibility acceptance remains open.
 - A test credential value is absent from both recorded Provider messages and
   the encoded execution snapshot. Soul instructions do not alter exposed Tool
   schemas, model capabilities or user Quote content.
-- PRs [#6](https://github.com/54zhien/Zen-Agent/pull/6),
+- At the Gate test commit, PRs [#6](https://github.com/54zhien/Zen-Agent/pull/6),
   [#7](https://github.com/54zhien/Zen-Agent/pull/7),
   [#8](https://github.com/54zhien/Zen-Agent/pull/8), and
-  [#9](https://github.com/54zhien/Zen-Agent/pull/9) are stacked drafts with
-  passing branch and PR checks. Their code has not entered `main`.
+  [#9](https://github.com/54zhien/Zen-Agent/pull/9) were stacked drafts with
+  passing branch and PR checks. PR #10 tracks their integration into `main`.
 
 ## Integration and device boundary
 

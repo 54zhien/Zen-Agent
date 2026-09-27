@@ -25,8 +25,10 @@ jobs:
           actual=$(git diff --name-only "$base" HEAD | sort)
           expected=$(printf '%s\n' \
             '.github/workflows/stage4-device-ipa.yml' \
+            '.github/workflows/w1-device-ipa.yml' \
             'AGENTS.md' \
             'README.md' \
+            'Tests/ZenAgentTests/DualConversationPaneConcurrencyTests.swift' \
             'Tests/ZenAgentTests/SoulPromptIntegrationTests.swift' \
             'tasks/stage4-closure.md' | sort)
           test "$actual" = "$expected" || {

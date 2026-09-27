@@ -34,14 +34,14 @@ baseline is recorded in `Docs/ADR/`.
 Stage 0 and Stage 1 are closed. Stage 2 runtime and tool boundaries are implemented
 on the current development stack. Stage 3 W1 wires the real App shell and text
 send/history, but its device performance and accessibility gate remains open.
-The Stage 4 Prompt and Soul implementation Gate has passed on stacked draft
-branches; see `tasks/stage4-closure.md` for its scope, evidence and integration
-status. A green CI run does not replace on-device acceptance.
+The Stage 4 Prompt and Soul implementation Gate evidence is recorded in
+`tasks/stage4-closure.md` and integration PR #10. A green CI run does not
+replace on-device acceptance.
 
-`main` at `4af88910` still presents the earlier placeholder App entry. The W1 and
-Stage 4 work in this checkout is not on `main`. Formal Settings navigation and
-the Soul settings page belong to the Stage 5 Settings IA dependency. App Space,
-Memory, Skills, MCP and Subagent remain later work.
+W1 entered `main` through PR #11. Check PR #10's merge status for Stage 4
+mainline availability. Formal Settings navigation and the Soul settings page
+belong to the Stage 5 Settings IA dependency. App Space, Memory, Skills, MCP
+and Subagent remain later work.
 
 `App/Persistence/` remains a data layer. GRDB is confined to it, and the existing
 repository guard must continue to fail the build if that boundary is violated.
