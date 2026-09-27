@@ -44,7 +44,7 @@ final class ComposerSendCoordinator {
     init(
         conversationID: String,
         controller: ComposerController,
-        configuration: ConversationComposerConfiguration,
+        configuration: ConversationComposerConfiguration?,
         bridge: ComposerRuntimeActionBridge,
         maxProviderSteps: Int
     ) {
@@ -62,7 +62,9 @@ final class ComposerSendCoordinator {
         fileInputReady: Bool,
         submissionID: String
     ) -> SendCommand? {
-        guard submission == .idle,
+        guard let configuration = controller.configuration,
+              controller.sendAvailability.isReady,
+              submission == .idle,
               !submissionID.isEmpty,
               maxProviderSteps > 0,
               ComposerActionPolicy.isSendable(
@@ -87,8 +89,8 @@ final class ComposerSendCoordinator {
                     displayName: attachment.displayName
                 )
             },
-            providerInstanceID: controller.configuration.providerInstanceID,
-            modelID: controller.configuration.modelID,
+            providerInstanceID: configuration.providerInstanceID,
+            modelID: configuration.modelID,
             maxProviderSteps: maxProviderSteps,
             submissionID: submissionID
         )
@@ -170,7 +172,12 @@ final class ComposerSendCoordinator {
         guard submission == .idle else { return .send(enabled: false) }
         sendErrorMessage = nil
 
-        let configuration = controller.configuration
+        guard let configuration = controller.configuration,
+              controller.sendAvailability.isReady else {
+            sendErrorMessage = controller.sendAvailability.message
+                ?? ComposerSendFailure.configurationUnavailable.message
+            return .none
+        }
         let models: [ModelDescriptor]
         do {
             models = try await bridge.models(configuration.providerInstanceID)
@@ -178,7 +185,8 @@ final class ComposerSendCoordinator {
             sendErrorMessage = Self.safeMessage(for: error)
             return .none
         }
-        guard controller.configuration == configuration else {
+        guard controller.configuration == configuration,
+              controller.sendAvailability.isReady else {
             sendErrorMessage = "模型配置已变更，请重试。"
             return .none
         }

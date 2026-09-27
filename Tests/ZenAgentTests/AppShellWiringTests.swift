@@ -51,6 +51,65 @@ struct AppShellWiringTests {
         #expect(try fixture.store.visibleConversations().count == 1)
     }
 
+    @Test("configuring after offline reading preserves the same Pane and full Draft")
+    func configuringAfterOfflineReadingPreservesDraft() async throws {
+        let fixture = try makeFixture(seed: .none, createInstance: false, setDefault: false)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let pane = try #require(fixture.model.pane)
+        let bridge = try #require(fixture.model.actionBridge)
+        let quote = QuoteReference(
+            id: "offline-quote",
+            source: QuoteSourceLocator(
+                sourceConversationID: "source-conversation",
+                sourceMessageID: "source-message",
+                sourcePartID: "source-part",
+                range: QuoteTextRange(utf16Start: 0, utf16Length: 6)
+            ),
+            snapshot: "quoted",
+            createdAt: Fixtures.epoch
+        )
+        let draft = ComposerDraftState(
+            text: "keep this draft",
+            selection: ComposerSelection(range: 5..<9),
+            references: [quote],
+            attachments: [AttachmentReference(
+                id: "offline-file",
+                versionID: "version-1",
+                fingerprint: "sha256:\(String(repeating: "a", count: 64))",
+                displayName: "notes.pdf",
+                kind: .file
+            )],
+            presentationState: .editing
+        )
+        pane.composer.draft = draft
+        let coordinator = ComposerSendCoordinator(
+            conversationID: fixture.model.conversationID,
+            controller: pane.composer,
+            configuration: nil,
+            bridge: bridge,
+            maxProviderSteps: AppShellModel.maxProviderSteps
+        )
+        #expect(coordinator.beginSend(
+            capabilities: [.text, .streaming],
+            quoteCommitReady: true,
+            imageInputReady: false,
+            fileInputReady: false,
+            submissionID: "offline-unsendable"
+        ) == nil)
+        _ = await coordinator.handlePrimaryAction()
+        #expect(coordinator.sendErrorMessage == "尚未配置模型")
+        #expect(try conversationCount(in: fixture.store) == 0)
+
+        let setup = try #require(fixture.model.providerSetup)
+        setup.apiKey = "sk-configured-after-reading"
+        #expect(setup.save())
+        #expect(fixture.model.canSend)
+        #expect(fixture.model.pane === pane)
+        #expect(pane.composer.draft == draft)
+        #expect(pane.composer.configuration != nil)
+        #expect(try conversationCount(in: fixture.store) == 0)
+    }
+
     @Test("cold launch settles an orphaned streaming run without replaying its provider request")
     func coldLaunchSettlesOrphanedStreamingRun() async throws {
         let url = FileManager.default.temporaryDirectory
@@ -131,8 +190,9 @@ struct AppShellWiringTests {
         let finalCount = try conversationCount(in: fixture.store)
 
         #expect(!fixture.model.canSend)
-        #expect(fixture.model.pane == nil)
-        #expect(fixture.model.actionBridge == nil)
+        #expect(fixture.model.pane != nil)
+        #expect(fixture.model.pane?.composer.configuration == nil)
+        #expect(fixture.model.actionBridge != nil)
         #expect(fixture.model.conversationID != originalConversationID)
         #expect(initialCount == 0)
         #expect(finalCount == 0)
@@ -167,7 +227,11 @@ struct AppShellWiringTests {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
 
         #expect(!fixture.model.canSend)
-        #expect(fixture.model.pane == nil)
+        #expect(fixture.model.pane != nil)
+        #expect(fixture.model.target == AppExecutionTarget(
+            providerInstanceID: fixture.instanceID,
+            modelID: fixture.modelID
+        ))
         #expect(fixture.model.targetMessage == "Key 缺失")
         #expect(try fixture.store.conversation(id: fixture.model.conversationID) == nil)
     }
@@ -178,7 +242,11 @@ struct AppShellWiringTests {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
 
         #expect(!fixture.model.canSend)
-        #expect(fixture.model.pane == nil)
+        #expect(fixture.model.pane != nil)
+        #expect(fixture.model.target == AppExecutionTarget(
+            providerInstanceID: fixture.instanceID,
+            modelID: fixture.modelID
+        ))
         #expect(fixture.model.targetMessage == "Keychain 不可用")
         #expect(fixture.model.targetMessage != "Key 缺失")
     }
@@ -318,6 +386,25 @@ struct AppShellWiringTests {
         #expect(reconstructed.pane?.liveStore.state.timeline.turns.count == 1)
         #expect(ConversationResumeMarker.read(from: fixture.defaults) == nil)
         #expect(try conversationCount(in: fixture.store) == 1)
+    }
+
+    @Test("a temporary Timeline read failure keeps the cold-launch marker")
+    func unreadableTimelineKeepsRestoreMarker() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let conversationID = fixture.model.conversationID
+        try await send("restore after read retry", at: Date(), in: fixture)
+        fixture.model.enteredBackground(at: Date())
+        let marker = try #require(ConversationResumeMarker.read(from: fixture.defaults))
+        try fixture.store.database.write { db in
+            try db.execute(sql: "ALTER TABLE messagePart RENAME TO messagePart_temporarily_unavailable")
+        }
+
+        let reconstructed = makeReconstructedModel(from: fixture)
+
+        #expect(reconstructed.conversationID != conversationID)
+        #expect(ConversationResumeMarker.read(from: fixture.defaults) == marker)
+        #expect(try fixture.store.conversationLifecycle(id: conversationID) == .visible)
     }
 
     @Test("expired cold launch enters a new blank page and keeps the old conversation reachable")

@@ -28,7 +28,8 @@ final class ConversationPaneController {
     init(
         conversationID: String,
         initialTimeline: ConversationTimelineProjection,
-        configuration: ConversationComposerConfiguration,
+        configuration: ConversationComposerConfiguration?,
+        sendAvailability: ComposerSendAvailability? = nil,
         coalescer: StreamingCoalescer,
         tolerance: Double = 12,
         loadTimeline: @escaping @MainActor (String) throws -> ConversationTimelineProjection
@@ -46,7 +47,10 @@ final class ConversationPaneController {
             coalescer: coalescer
         )
         self.readingPosition = ReadingPositionController(tolerance: tolerance)
-        self.composer = ComposerController(configuration: configuration)
+        self.composer = ComposerController(
+            configuration: configuration,
+            sendAvailability: sendAvailability
+        )
         self.coalescer = coalescer
         self.loadTimeline = loadTimeline
     }

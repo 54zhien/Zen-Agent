@@ -5,7 +5,8 @@ import Observation
 @Observable
 final class ComposerController {
     var draft: ComposerDraftState
-    var configuration: ConversationComposerConfiguration
+    var configuration: ConversationComposerConfiguration?
+    var sendAvailability: ComposerSendAvailability
     private(set) var collapseProgress = ComposerCollapseProgress.expanded
     private(set) var isComposing = false
     private(set) var pendingExitIntent: ComposerPendingExitIntent?
@@ -29,10 +30,12 @@ final class ComposerController {
             attachments: [],
             presentationState: .resting
         ),
-        configuration: ConversationComposerConfiguration
+        configuration: ConversationComposerConfiguration?,
+        sendAvailability: ComposerSendAvailability? = nil
     ) {
         self.draft = draft
         self.configuration = configuration
+        self.sendAvailability = sendAvailability ?? (configuration == nil ? .unconfigured : .ready)
     }
 
     @discardableResult

@@ -13,7 +13,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let showsPlus: Bool
         let primary: ComposerPrimaryAction
         let models: [ModelDescriptor]
-        let selectedModelID: ModelID
+        let selectedModelID: ModelID?
         let errorMessage: String?
         let references: [QuoteReference]
         let onRemoveQuote: (String) -> Void

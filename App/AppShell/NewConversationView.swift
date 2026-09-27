@@ -56,8 +56,7 @@ struct NewConversationView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if model.canSend,
-                   let pane = model.pane,
+                if let pane = model.pane,
                    let bridge = model.actionBridge,
                    let runtime = model.runtimeForPresentation {
                     ConversationPaneView(
@@ -99,7 +98,7 @@ struct NewConversationView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 16) {
-                        if model.canSend && !model.recentConversations.isEmpty {
+                        if !model.recentConversations.isEmpty {
                             Button {
                                 isRecentConversationsPresented = true
                             } label: {
