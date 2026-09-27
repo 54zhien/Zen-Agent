@@ -7,9 +7,12 @@ final class ConversationReadingPositionUITests: XCTestCase {
         app.launchEnvironment["ZEN_CONVERSATION_READING_UI_TEST"] = "1"
         app.launch()
 
-        let scrollView = app.scrollViews[
-            "conversation-timeline-scroll-conversation-reading-ui-test-conversation"
-        ]
+        logScrollableElements("initial", in: app)
+        let paneScrollViews = app.scrollViews.matching(
+            identifier: "conversation-pane-conversation-reading-ui-test-conversation"
+        )
+        XCTAssertEqual(paneScrollViews.count, 1, "Expected one scroll view inside the real Conversation Pane.")
+        let scrollView = paneScrollViews.firstMatch
         XCTAssertTrue(scrollView.waitForExistence(timeout: 15))
 
         let anchor = app.staticTexts["OLDER_READING_POSITION_ANCHOR_TURN_10"]
@@ -72,6 +75,7 @@ final class ConversationReadingPositionUITests: XCTestCase {
             keyboard: keyboard,
             readingMode: readingMode
         )
+        logScrollableElements("keyboard-shown", in: app)
         attachFocusedState(app)
         XCTAssertTrue(input.isHittable, "The Composer must remain usable while its keyboard is visible.")
         XCTAssertTrue(
@@ -183,6 +187,21 @@ final class ConversationReadingPositionUITests: XCTestCase {
         print(
             "READING_UI_GEOMETRY phase=\(phase) timeline=\(timeline.frame) "
                 + "anchor=\(anchorFrame) keyboard=\(keyboardFrame) mode=\(mode)"
+        )
+    }
+
+    @MainActor
+    private func logScrollableElements(_ phase: String, in app: XCUIApplication) {
+        let scrollViews = app.scrollViews.allElementsBoundByIndex.enumerated().map { index, element in
+            "#\(index) id=\(element.identifier) frame=\(element.frame)"
+        }
+        let textViews = app.textViews.allElementsBoundByIndex.enumerated().map { index, element in
+            "#\(index) id=\(element.identifier) frame=\(element.frame)"
+        }
+        print(
+            "READING_UI_ACCESSIBILITY phase=\(phase) "
+                + "scrollViews=[\(scrollViews.joined(separator: "; "))] "
+                + "textViews=[\(textViews.joined(separator: "; "))]"
         )
     }
 
