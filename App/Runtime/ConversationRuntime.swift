@@ -825,6 +825,24 @@ actor ConversationRuntime {
     /// flushed the open part.
     func stop(runID: String) async throws {
         if operations[runID] == nil {
+            if let run = try store.run(id: runID), run.state == .suspended {
+                // An explicit Stop wins over a deferred cold-start retry. This row
+                // has no current task owner, and all open children settle before its
+                // active slot is released.
+                try store.transitionRun(
+                    id: runID,
+                    expectedState: .suspended,
+                    to: .stopping
+                )
+                await publish(.runStateChanged(runID: runID, state: .stopping))
+                try await settleRecoveredRun(
+                    id: runID,
+                    expectedState: .stopping,
+                    terminalState: .cancelled,
+                    endReason: .cancelledByUser
+                )
+                return
+            }
             let report = try await reconcileColdStartRuns()
             if operations[runID] == nil,
                report.pendingRunIDs.contains(runID) || report.failedRunIDs.contains(runID) {
