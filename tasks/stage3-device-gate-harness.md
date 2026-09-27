@@ -78,5 +78,7 @@ fraction as the viewport changes. On `a39c4d04b128469febad255c691bfb7d2e40e1ec`,
 macOS CI run `36302624168` passed the full suite. In the controlled UI test,
 the older marker remained at about y=203–204 across keyboard presentation,
 and two blank-space taps dismissed the keyboard. Split bottom-edge regression
-tests also passed. This is simulator evidence; the device Gate above is still
-open.
+tests also passed. The concurrent branch run `36302621687` on the same SHA
+failed the keyboard position assertion: the marker moved from about y=210 to
+y=488. This exposes a transition-ordering race; the passing run alone does not
+close the simulator regression. The device Gate above is still open.
