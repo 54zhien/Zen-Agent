@@ -5,6 +5,27 @@ import Testing
 
 @Suite("Composer geometry")
 struct ComposerGeometryTests {
+    @Test("larger composer preserves the resting and editing corner centers")
+    func enlargedEndpointsKeepCornerCenters() {
+        for lineHeight in [CGFloat(22), CGFloat(42)] {
+            let resting = layout(state: .resting, scaledLineHeight: lineHeight)
+            let oldHeight = max(CGFloat(50), lineHeight + 20)
+            let restingRadius = ComposerShapeToken.minimumRadius(for: resting)
+            #expect(resting.outerWidth == 342)
+            #expect(resting.outerHeight == oldHeight + 12)
+            #expect(abs(resting.outerFrame.minX + restingRadius
+                        - (30 + oldHeight / 2)) < 0.01)
+            #expect(abs(resting.outerFrame.maxY - restingRadius
+                        - (800 - 12 - oldHeight / 2)) < 0.01)
+
+            let editing = layout(state: .editing, scaledLineHeight: lineHeight)
+            let editingRadius = ComposerShapeToken.minimumRadius(for: editing)
+            #expect(editing.outerHeight == 124)
+            #expect(editing.outerFrame.minX + editingRadius == 42)
+            #expect(abs(editing.outerFrame.maxY - editingRadius - (800 - 12 - 26)) < 0.01)
+        }
+    }
+
     @Test("restingReservesAccessoriesAndCentersSingleLine")
     func restingReservesAccessoriesAndCentersSingleLine() {
         let oneLine = layout(
@@ -43,10 +64,25 @@ struct ComposerGeometryTests {
         #expect(shelf?.maxY == oneLine.visualFrame.minY)
         #expect(oneLine.leadingAccessoryReserve == ComposerGeometry.accessoryHitWidth)
         #expect(oneLine.trailingAccessoryReserve == ComposerGeometry.accessoryHitWidth)
+        let editing = layout(state: .editing)
+        #expect(oneLine.outerWidth < editing.outerWidth)
+        #expect(oneLine.outerHeight < editing.outerHeight)
+        #expect(oneLine.bottomSpacing < editing.bottomSpacing)
+        #expect(oneLine.outerFrame.midX == editing.outerFrame.midX)
+        #expect(oneLine.textFrame.minX > editing.textFrame.minX)
+        #expect(abs((oneLine.textFrame.minY - oneLine.outerFrame.minY)
+                    - (editing.textFrame.minY - editing.outerFrame.minY)
+                    - ComposerGeometry.restingGrowth / 2) < 0.01)
     }
 
     @Test("editingTextSpansAboveRailAndHeightCaps")
     func editingTextSpansAboveRailAndHeightCaps() {
+        let shortDraft = layout(
+            state: .editing,
+            availableHeight: 600,
+            measuredTextHeight: 22,
+            scaledLineHeight: 22
+        )
         let contentSized = layout(
             state: .editing,
             availableHeight: 600,
@@ -60,6 +96,9 @@ struct ComposerGeometryTests {
             scaledLineHeight: 22
         )
 
+        #expect(shortDraft.outerHeight >= 108)
+        #expect(shortDraft.textFrame.height >= 40)
+        #expect(ComposerShapeToken.minimumRadius(for: shortDraft) < shortDraft.outerHeight / 2)
         #expect(contentSized.controlRailReserve >= ComposerGeometry.controlRailMinHeight)
         #expect(abs(contentSized.textFrame.minY - contentSized.outerFrame.minY - ComposerGeometry.editorTopInset) < 0.01)
         #expect(abs(contentSized.textFrame.maxY - contentSized.outerFrame.maxY + contentSized.controlRailReserve) < 0.01)
@@ -147,7 +186,7 @@ struct ComposerGeometryTests {
                 #expect(previousRestingTextFrame.width - restingTarget.textFrame.width < 10)
                 #expect(restingTarget.textFrame.minX >= previousRestingTextFrame.minX - 0.01)
                 #expect(restingTarget.textFrame.minX - previousRestingTextFrame.minX < 5)
-                #expect(abs(restingTarget.textFrame.minY - previousRestingTextFrame.minY) < 1)
+                #expect(abs(restingTarget.textFrame.minY - previousRestingTextFrame.minY) < 2)
                 #expect(abs(restingTarget.textFrame.height - previousRestingTextFrame.height) < 1)
             }
             if let previousCompactTextFrame {
@@ -155,7 +194,7 @@ struct ComposerGeometryTests {
                 #expect(previousCompactTextFrame.width - compactTarget.textFrame.width < 10)
                 #expect(compactTarget.textFrame.minX >= previousCompactTextFrame.minX - 0.01)
                 #expect(compactTarget.textFrame.minX - previousCompactTextFrame.minX < 5)
-                #expect(abs(compactTarget.textFrame.minY - previousCompactTextFrame.minY) < 1)
+                #expect(abs(compactTarget.textFrame.minY - previousCompactTextFrame.minY) < 2)
                 #expect(abs(compactTarget.textFrame.height - previousCompactTextFrame.height) < 1)
             }
 

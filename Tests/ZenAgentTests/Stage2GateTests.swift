@@ -57,7 +57,14 @@ struct Stage2GateTests {
 
         // Request #1: the user turn, and the calculator's schema as the only tool surface.
         #expect(requests[0].modelID == Stage2GateFixture.modelID)
-        #expect(requests[0].messages == [.user(Self.question)])
+        #expect(requests[0].messages.count == 2)
+        guard requests[0].messages.count == 2,
+              case .system = requests[0].messages[0]
+        else {
+            Issue.record("the initial provider request must begin with the system prompt")
+            return
+        }
+        #expect(requests[0].messages[1] == .user(Self.question))
         #expect(requests[0].tools.map(\.name) == [CalculatorTool.toolID])
         #expect(
             requests[0].tools.first?.parameters == CalculatorTool().descriptor.inputSchema,
@@ -66,10 +73,12 @@ struct Stage2GateTests {
 
         // Request #2: the continuation carries the *same* provider tool call and the
         // durable result, still addressed by the provider's own call id.
-        #expect(requests[1].messages.count == 3, "user, assistant tool call, tool result")
-        guard requests[1].messages.count == 3,
-              case .assistant(let assistantText, _, let toolCalls) = requests[1].messages[1],
-              case .toolResult(let toolCallID, let resultContent) = requests[1].messages[2]
+        #expect(requests[1].messages.count == 4, "system, user, assistant tool call, tool result")
+        guard requests[1].messages.count == 4,
+              case .system = requests[1].messages[0],
+              requests[1].messages[1] == .user(Self.question),
+              case .assistant(let assistantText, _, let toolCalls) = requests[1].messages[2],
+              case .toolResult(let toolCallID, let resultContent) = requests[1].messages[3]
         else {
             Issue.record("the second provider request must be a tool continuation")
             return
@@ -224,7 +233,14 @@ struct Stage2GateTests {
         let requests = await ledger.requestsSnapshot()
         #expect(requests.count == 2, "one request per run")
         guard requests.count == 2 else { return }
-        #expect(requests[1].messages == [.user("after cancellation")])
+        #expect(requests[1].messages.count == 2)
+        guard requests[1].messages.count == 2,
+              case .system = requests[1].messages[0]
+        else {
+            Issue.record("a new request must retain the composed system prompt")
+            return
+        }
+        #expect(requests[1].messages[1] == .user("after cancellation"))
     }
 
     // MARK: - Gate C

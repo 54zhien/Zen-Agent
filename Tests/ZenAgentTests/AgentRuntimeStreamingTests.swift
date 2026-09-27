@@ -187,10 +187,20 @@ struct AgentRuntimeStreamingTests {
         }
 
         let deltas = events.compactMap { event -> String? in
-            guard case .messagePartDelta(_, _, let delta) = event else { return nil }
+            guard case .messagePartDelta(_, _, let delta, _) = event else { return nil }
             return delta
         }
         #expect(deltas.joined() == "one two three")
+        let endOffsets = events.compactMap { event -> Int? in
+            guard case .messagePartDelta(_, _, _, let endUTF8Offset) = event else { return nil }
+            return endUTF8Offset
+        }
+        var cumulativeUTF8Count = 0
+        for (delta, endOffset) in zip(deltas, endOffsets) {
+            cumulativeUTF8Count += delta.utf8.count
+            #expect(endOffset == cumulativeUTF8Count)
+        }
+        #expect(cumulativeUTF8Count == "one two three".utf8.count)
         #expect(events.contains { event in
             if case .messagePartCompleted(_, _, .completed) = event { return true }
             return false

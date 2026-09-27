@@ -66,17 +66,26 @@ enum Typography {
         case .interfaceCaption:
             return TypographyToken(face: .interface, pointSize: 13, textStyle: .caption1, weight: nil)
         case .conversationPrompt:
-            return TypographyToken(face: .content, pointSize: 17, textStyle: .body, weight: 400)
+            return TypographyToken(face: .content, pointSize: 16, textStyle: .body, weight: 400)
         case .conversationBody:
-            return TypographyToken(face: .content, pointSize: 17, textStyle: .body, weight: 400)
+            return TypographyToken(face: .content, pointSize: 16, textStyle: .body, weight: 400)
         case .conversationHeading:
             return TypographyToken(face: .content, pointSize: 20, textStyle: .title3, weight: 600)
         case .conversationQuote:
-            return TypographyToken(face: .content, pointSize: 17, textStyle: .body, weight: 400)
+            return TypographyToken(face: .content, pointSize: 16, textStyle: .body, weight: 400)
         case .codeInline:
             return TypographyToken(face: .code, pointSize: 15, textStyle: .footnote, weight: nil)
         case .codeBlock:
             return TypographyToken(face: .code, pointSize: 15, textStyle: .body, weight: nil)
+        }
+    }
+
+    static func readingSpacing(for role: TypographyRole) -> (tracking: CGFloat, lineSpacing: CGFloat) {
+        switch role {
+        case .conversationPrompt, .conversationBody, .conversationQuote:
+            return (tracking: 0.5, lineSpacing: 3)
+        default:
+            return (tracking: 0, lineSpacing: 0)
         }
     }
 
@@ -86,6 +95,15 @@ enum Typography {
         compatibleWith traits: UITraitCollection? = nil
     ) -> UIFont {
         let token = token(for: role)
+        #if ZEN_DEVICE_TEST
+        // Public CI artifacts cannot include the development-only interface font.
+        // Keep content/code typography intact while the device build uses System Sans.
+        if token.face == .interface {
+            let base = UIFont.systemFont(ofSize: token.pointSize)
+            return UIFontMetrics(forTextStyle: token.textStyle)
+                .scaledFont(for: base, compatibleWith: traits)
+        }
+        #endif
         let base = UIFont(descriptor: descriptor(for: token), size: token.pointSize)
         let scaled = UIFontMetrics(forTextStyle: token.textStyle)
             .scaledFont(for: base, compatibleWith: traits)

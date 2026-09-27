@@ -32,6 +32,7 @@ struct LiveConversationState: Sendable, Equatable {
 final class LiveConversationStore {
     private(set) var state: LiveConversationState
     private(set) var droppedUnlocatableDeltas: Int = 0
+    private(set) var needsTimelineReload = false
     private(set) var needsPendingToolApprovalReconciliation = false
 
     private let coalescerTemplate: StreamingCoalescer
@@ -40,6 +41,7 @@ final class LiveConversationStore {
     private var turnIndexByRunID: [String: Int]
     private var itemLocationByPartID: [String: LiveItemLocation] = [:]
     private var partIDsByRunID: [String: Set<String>] = [:]
+    private var consumedUTF8OffsetByPartID: [String: Int] = [:]
 
     private struct LiveItemLocation {
         let turnIndex: Int
@@ -80,11 +82,12 @@ final class LiveConversationStore {
                 rebuiltRuns: &rebuiltRuns
             )
 
-        case .messagePartDelta(let runID, let partID, let delta):
+        case .messagePartDelta(let runID, let partID, let delta, let endUTF8Offset):
             consumeDelta(
                 runID: runID,
                 partID: partID,
                 delta: delta,
+                endUTF8Offset: endUTF8Offset,
                 rebuiltRuns: &rebuiltRuns
             )
 
@@ -125,6 +128,39 @@ final class LiveConversationStore {
         needsPendingToolApprovalReconciliation = false
     }
 
+    @discardableResult
+    func resumePersistedPart(
+        runID: String,
+        messageID: String,
+        partID: String,
+        kind: MessagePartKind
+    ) -> Bool {
+        if let activePart = state.activeParts[partID] {
+            return activePart.runID == runID
+        }
+        guard kind == .text,
+              let persisted = persistedTextPart(runID: runID, partID: partID),
+              persisted.source.messageID == messageID,
+              !persisted.source.isCompleted
+        else { return false }
+
+        let part = LivePartState(
+            runID: runID,
+            messageID: messageID,
+            partID: partID,
+            kind: kind,
+            text: persisted.text,
+            state: .streaming
+        )
+        register(part)
+        consumedUTF8OffsetByPartID[partID] = persisted.text.utf8.count
+        itemLocationByPartID[partID] = LiveItemLocation(
+            turnIndex: persisted.turnIndex,
+            itemIndex: persisted.itemIndex
+        )
+        return true
+    }
+
     func refreshPendingToolApprovals(using runtime: ConversationRuntime) async throws {
         let approvals = try await runtime.pendingToolApprovals(in: state.timeline.conversationID)
         reconcilePendingToolApprovals(approvals)
@@ -161,17 +197,40 @@ final class LiveConversationStore {
         runID: String,
         partID: String,
         delta: String,
+        endUTF8Offset: Int,
         rebuiltRuns: inout Set<String>
     ) {
-        guard let part = state.activeParts[partID], part.runID == runID else {
-            droppedUnlocatableDeltas += 1
+        let byteCount = delta.utf8.count
+        guard !delta.isEmpty else { return }
+        guard endUTF8Offset >= byteCount else {
+            needsTimelineReload = true
             return
         }
-        guard !delta.isEmpty else { return }
+        let startUTF8Offset = endUTF8Offset - byteCount
+
+        guard let part = state.activeParts[partID], part.runID == runID else {
+            if let persisted = persistedTextPart(runID: runID, partID: partID),
+               endUTF8Offset <= persisted.text.utf8.count {
+                return
+            }
+            droppedUnlocatableDeltas += 1
+            needsTimelineReload = true
+            return
+        }
+
+        let consumedOffset = consumedUTF8OffsetByPartID[partID] ?? part.text.utf8.count
+        if endUTF8Offset <= consumedOffset { return }
+        guard startUTF8Offset == consumedOffset else {
+            // A gap or partial overlap cannot be reconciled from display text: the
+            // coalescer may still hold bytes that are not visible in `part.text`.
+            needsTimelineReload = true
+            return
+        }
 
         var coalescer = coalescers[partID] ?? coalescerTemplate
         let readyText = coalescer.append(delta, at: now())
         coalescers[partID] = coalescer
+        consumedUTF8OffsetByPartID[partID] = endUTF8Offset
 
         guard let readyText else { return }
         apply(readyText, to: partID, rebuiltRuns: &rebuiltRuns)
@@ -223,6 +282,7 @@ final class LiveConversationStore {
             state.activeParts.removeValue(forKey: partID)
             coalescers.removeValue(forKey: partID)
             itemLocationByPartID.removeValue(forKey: partID)
+            consumedUTF8OffsetByPartID.removeValue(forKey: partID)
         }
         partIDsByRunID.removeValue(forKey: runID)
     }
@@ -235,7 +295,29 @@ final class LiveConversationStore {
 
         state.activeParts[part.partID] = part
         coalescers[part.partID] = coalescerTemplate
+        consumedUTF8OffsetByPartID[part.partID] = 0
         partIDsByRunID[part.runID, default: []].insert(part.partID)
+    }
+
+    private func persistedTextPart(
+        runID: String,
+        partID: String
+    ) -> (
+        turnIndex: Int,
+        itemIndex: Int,
+        source: TimelineTextSource,
+        text: String
+    )? {
+        guard let turnIndex = turnIndexByRunID[runID],
+              state.timeline.turns.indices.contains(turnIndex),
+              let (itemIndex, source) = state.timeline.turns[turnIndex]
+                .textSourcesByItemIndex.first(where: { $0.value.partID == partID }),
+              source.conversationID == state.timeline.conversationID,
+              state.timeline.turns[turnIndex].items.indices.contains(itemIndex),
+              case .assistantText(let text) = state.timeline.turns[turnIndex].items[itemIndex]
+        else { return nil }
+
+        return (turnIndex, itemIndex, source, text)
     }
 
     private func removePartID(_ partID: String, fromRunID runID: String) {

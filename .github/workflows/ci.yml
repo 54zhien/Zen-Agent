@@ -305,7 +305,7 @@ jobs:
         # what the runner actually has.
         run: xcrun simctl list devices available
 
-      - name: Run app unit tests
+      - name: Run app unit and UI tests
         run: |
           set -euo pipefail
           UDID=$(xcrun simctl list devices available \
@@ -332,7 +332,7 @@ jobs:
           set -e
 
           # This workflow makes exactly one xcodebuild test invocation, with one
-          # destination, one test target, and no retry or test-iteration options.
+          # destination and no retry or test-iteration options.
           # A normal invocation therefore has exactly one Swift Testing run start.
           # More than one proves that the test host was relaunched, independently
           # of the restart banner's wording. Keep the current banner only as a

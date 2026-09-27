@@ -46,13 +46,15 @@ struct LiveConversationStoreTests {
         _ = harness.store.consume(.messagePartDelta(
             runID: "run-2",
             partID: "part-2",
-            delta: "li"
+            delta: "li",
+            endUTF8Offset: 2
         ))
         harness.clock.instant = harness.clock.instant.advanced(by: .milliseconds(10))
         let rebuiltRuns = harness.store.consume(.messagePartDelta(
             runID: "run-2",
             partID: "part-2",
-            delta: "ve"
+            delta: "ve",
+            endUTF8Offset: 4
         ))
 
         #expect(rebuiltRuns == Set<String>(["run-2"]))
@@ -76,7 +78,8 @@ struct LiveConversationStoreTests {
         _ = harness.store.consume(.messagePartDelta(
             runID: "run-1",
             partID: "part-1",
-            delta: "final"
+            delta: "final",
+            endUTF8Offset: 5
         ))
         _ = harness.store.consume(.messagePartCompleted(
             runID: "run-1",
@@ -105,7 +108,8 @@ struct LiveConversationStoreTests {
         _ = harness.store.consume(.messagePartDelta(
             runID: "run-1",
             partID: "part-1",
-            delta: "tail"
+            delta: "tail",
+            endUTF8Offset: 4
         ))
         _ = harness.store.consume(.runEnded(
             runID: "run-1",
@@ -139,19 +143,73 @@ struct LiveConversationStoreTests {
         _ = harness.store.consume(.messagePartDelta(
             runID: "run-1",
             partID: "part-after-tools",
-            delta: "aft"
+            delta: "aft",
+            endUTF8Offset: 3
         ))
         harness.clock.instant = harness.clock.instant.advanced(by: .milliseconds(10))
         _ = harness.store.consume(.messagePartDelta(
             runID: "run-1",
             partID: "part-after-tools",
-            delta: "er"
+            delta: "er",
+            endUTF8Offset: 5
         ))
 
         #expect(harness.store.state.timeline.turns[0].items.first == .assistantText("before"))
         #expect(harness.store.state.timeline.turns[0].items.last == .assistantText("after"))
         #expect(harness.store.state.timeline.turns[0].textSourcesByItemIndex[3]?.partID == "part-after-tools")
         #expect(harness.store.state.timeline.turns[0].textSourcesByItemIndex[3]?.isCompleted == false)
+    }
+
+    @Test("UTF-8 offsets distinguish repeated text while the display coalescer is pending")
+    func repeatedUnicodeDeltasUseConsumedOffset() {
+        let harness = makeStore(
+            turns: [ConversationTurn(runID: "run-unicode", items: [.userText("prompt")])],
+            interval: .seconds(1)
+        )
+        _ = harness.store.consume(.messagePartStarted(
+            runID: "run-unicode",
+            messageID: "message-unicode",
+            partID: "part-unicode",
+            kind: .text
+        ))
+
+        _ = harness.store.consume(.messagePartDelta(
+            runID: "run-unicode", partID: "part-unicode", delta: "你", endUTF8Offset: 3
+        ))
+        _ = harness.store.consume(.messagePartDelta(
+            runID: "run-unicode", partID: "part-unicode", delta: "你", endUTF8Offset: 3
+        ))
+        _ = harness.store.consume(.messagePartDelta(
+            runID: "run-unicode", partID: "part-unicode", delta: "你", endUTF8Offset: 6
+        ))
+        _ = harness.store.consume(.messagePartCompleted(
+            runID: "run-unicode", partID: "part-unicode", state: .completed
+        ))
+
+        #expect(harness.store.state.timeline.turns[0].items.last == .assistantText("你你"))
+    }
+
+    @Test("a gap in a Part's delta offsets never appends unverified text")
+    func gapDoesNotAppendText() {
+        let harness = makeStore(
+            turns: [ConversationTurn(runID: "run-gap", items: [.userText("prompt")])],
+            interval: .milliseconds(0)
+        )
+        _ = harness.store.consume(.messagePartStarted(
+            runID: "run-gap", messageID: "message-gap", partID: "part-gap", kind: .text
+        ))
+        _ = harness.store.consume(.messagePartDelta(
+            runID: "run-gap", partID: "part-gap", delta: "A", endUTF8Offset: 1
+        ))
+        _ = harness.store.consume(.messagePartDelta(
+            runID: "run-gap", partID: "part-gap", delta: "C", endUTF8Offset: 3
+        ))
+        #expect(harness.store.needsTimelineReload)
+        _ = harness.store.consume(.messagePartCompleted(
+            runID: "run-gap", partID: "part-gap", state: .completed
+        ))
+
+        #expect(harness.store.state.timeline.turns[0].items.last == .assistantText("A"))
     }
 
     @Test("a toolCall part does not create a live timeline item")

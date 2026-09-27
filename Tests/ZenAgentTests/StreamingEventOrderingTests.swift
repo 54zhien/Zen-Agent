@@ -40,7 +40,8 @@ struct StreamingEventOrderingTests {
         _ = store.consume(.messagePartDelta(
             runID: "run-1",
             partID: "part-1",
-            delta: "hello"
+            delta: "hello",
+            endUTF8Offset: 5
         ))
 
         _ = store.consume(.messagePartCompleted(
@@ -62,7 +63,8 @@ struct StreamingEventOrderingTests {
         _ = store.consume(.messagePartDelta(
             runID: "run-1",
             partID: "part-not-started",
-            delta: "late"
+            delta: "late",
+            endUTF8Offset: 4
         ))
 
         #expect(store.droppedUnlocatableDeltas == 1)

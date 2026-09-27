@@ -42,7 +42,7 @@ struct RunProjectionTests {
         projection.apply(.runStateChanged(runID: "r1", state: .requestingModel))
         #expect(projection.state == .requestingModel)
 
-        projection.apply(.messagePartDelta(runID: "r1", partID: "p1", delta: "hello"))
+        projection.apply(.messagePartDelta(runID: "r1", partID: "p1", delta: "hello", endUTF8Offset: 5))
         #expect(projection.state == .requestingModel)
 
         projection.apply(.approvalRequired(runID: "r1", toolCallID: "t1"))

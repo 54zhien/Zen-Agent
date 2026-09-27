@@ -23,7 +23,9 @@ struct ConversationTimelineView: View {
     var onQuoteReference: (QuoteReference) -> Void = { _ in }
     var onQuoteDragPhaseChanged: (ComposerQuoteDragPhase) -> Void = { _ in }
     var onSelectionHandleDragChanged: (Bool) -> Void = { _ in }
+    var onBlankBackgroundTap: () -> Void = {}
     var scrollBridge: ConversationPaneScrollBridge? = nil
+    var bottomComposerClearance: CGFloat = 62
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var betweenTurns = Metrics.betweenTurns
@@ -102,7 +104,14 @@ struct ConversationTimelineView: View {
                 .padding(.vertical, betweenTurns)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: bottomComposerClearance)
+            }
             .coordinateSpace(name: scrollCoordinateSpace)
+            .simultaneousGesture(SpatialTapGesture().onEnded { tap in
+                guard Self.isBlankTap(tap.location, turnFrames: turnFrames) else { return }
+                onBlankBackgroundTap()
+            })
             .scrollPosition($scrollPosition, anchor: .top)
             .onPreferenceChange(ConversationTimelineTurnFramesKey.self) { frames in
                 turnFrames = frames
@@ -178,6 +187,10 @@ struct ConversationTimelineView: View {
 
     private var scrollCoordinateSpace: String {
         "conversation-timeline-scroll-\(projection.conversationID)"
+    }
+
+    static func isBlankTap(_ location: CGPoint, turnFrames: [String: CGRect]) -> Bool {
+        turnFrames.values.allSatisfy { !$0.contains(location) }
     }
 
     private func paneGeometry(from geometry: SwiftUI.ScrollGeometry) -> ScrollGeometry {
@@ -474,6 +487,7 @@ private struct TimelineItemView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var inlineSpacing = Metrics.inlineSpacing
     @ScaledMetric(relativeTo: .body) private var secondaryInset = Metrics.secondaryInset
+    @ScaledMetric(relativeTo: .body) private var readingInset = Metrics.capsulePadding
 
     @ViewBuilder
     var body: some View {
@@ -495,6 +509,7 @@ private struct TimelineItemView: View {
                 source: textSource,
                 maximumNumberOfLines: 0
             )
+            .padding(.horizontal, readingInset)
 
         case .reasoning(let text):
             Text(text)
@@ -569,6 +584,8 @@ private struct TimelineItemView: View {
         } else {
             Text(text)
                 .font(Typography.font(for: role, dynamicTypeSize: dynamicTypeSize))
+                .tracking(Typography.readingSpacing(for: role).tracking)
+                .lineSpacing(Typography.readingSpacing(for: role).lineSpacing)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -631,6 +648,8 @@ private struct PromptCapsuleView: View {
         } else {
             Text(text)
                 .font(Typography.font(for: .conversationPrompt, dynamicTypeSize: dynamicTypeSize))
+                .tracking(Typography.readingSpacing(for: .conversationPrompt).tracking)
+                .lineSpacing(Typography.readingSpacing(for: .conversationPrompt).lineSpacing)
                 .lineLimit(isExpanded ? nil : Metrics.collapsedPromptLines)
                 .onTapGesture { isExpanded.toggle() }
         }

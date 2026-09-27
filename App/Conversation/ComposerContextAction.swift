@@ -67,13 +67,13 @@ enum ComposerContextAction {
         state: ComposerPresentationState
     ) -> CGRect? {
         let size = ComposerGeometry.accessoryHitWidth
-        let inset = horizontalInset(in: layout)
+        let radius = ComposerShapeToken.minimumRadius(for: layout)
 
         switch state {
         case .resting:
             guard layout.trailingAccessoryReserve >= size else { return nil }
             return CGRect(
-                x: layout.outerFrame.maxX - inset - size,
+                x: layout.outerFrame.maxX - radius - size / 2,
                 y: layout.outerFrame.midY - size / 2,
                 width: size,
                 height: size
@@ -81,8 +81,8 @@ enum ComposerContextAction {
         case .editing:
             guard layout.controlRailReserve >= size else { return nil }
             return CGRect(
-                x: layout.textFrame.maxX - size,
-                y: layout.outerFrame.maxY - layout.controlRailReserve / 2 - size / 2,
+                x: layout.outerFrame.maxX - radius - size / 2,
+                y: layout.outerFrame.maxY - radius - size / 2,
                 width: size,
                 height: size
             )
@@ -96,13 +96,13 @@ enum ComposerContextAction {
         state: ComposerPresentationState
     ) -> CGRect? {
         let size = ComposerGeometry.accessoryHitWidth
-        let inset = horizontalInset(in: layout)
+        let radius = ComposerShapeToken.minimumRadius(for: layout)
 
         switch state {
         case .resting:
             guard layout.leadingAccessoryReserve >= size else { return nil }
             return CGRect(
-                x: layout.outerFrame.minX + inset,
+                x: layout.outerFrame.minX + radius - size / 2,
                 y: layout.outerFrame.midY - size / 2,
                 width: size,
                 height: size
@@ -110,8 +110,8 @@ enum ComposerContextAction {
         case .editing:
             guard layout.controlRailReserve >= size else { return nil }
             return CGRect(
-                x: layout.outerFrame.minX + inset,
-                y: layout.outerFrame.maxY - layout.controlRailReserve / 2 - size / 2,
+                x: layout.outerFrame.minX + radius - size / 2,
+                y: layout.outerFrame.maxY - radius - size / 2,
                 width: size,
                 height: size
             )
@@ -120,13 +120,4 @@ enum ComposerContextAction {
         }
     }
 
-    private static func horizontalInset(in layout: ComposerLayout) -> CGFloat {
-        max(
-            0,
-            (layout.outerFrame.width
-                - layout.textFrame.width
-                - layout.leadingAccessoryReserve
-                - layout.trailingAccessoryReserve) / 2
-        )
-    }
 }

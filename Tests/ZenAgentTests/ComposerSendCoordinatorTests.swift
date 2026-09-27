@@ -6,6 +6,51 @@ import Testing
 @Suite("Composer send coordinator")
 @MainActor
 struct ComposerSendCoordinatorTests {
+    @Test("a completed first send leaves the same composer ready for a second send")
+    func completedRunAllowsSecondSend() async {
+        let ledger = TwoSendLedger()
+        let instanceID = ProviderInstanceID(rawValue: "two-send-instance")
+        let modelID = ModelID(rawValue: "two-send-model")
+        let descriptor = ModelDescriptor(
+            id: modelID,
+            providerInstanceID: instanceID,
+            displayName: "Two Send Model",
+            capabilities: [.text, .streaming]
+        )
+        let controller = ComposerController(configuration: ConversationComposerConfiguration(
+            providerInstanceID: instanceID,
+            modelID: modelID
+        ))
+        let bridge = ComposerRuntimeActionBridge(
+            start: { command in await ledger.start(text: command.text) },
+            stop: { _ in },
+            models: { _ in [descriptor] },
+            projection: { _ in await ledger.projection() },
+            projectionUpdates: { _ in AsyncStream { $0.yield(nil) } }
+        )
+        let coordinator = ComposerSendCoordinator(
+            conversationID: "two-send-conversation",
+            controller: controller,
+            configuration: controller.configuration,
+            bridge: bridge,
+            maxProviderSteps: 4
+        )
+
+        controller.draft.text = "first"
+        _ = await coordinator.handlePrimaryAction()
+        #expect(controller.draft.text.isEmpty)
+        #expect(coordinator.submission == .idle)
+
+        let completed = await ledger.completeCurrentRun()
+        coordinator.updateRunProjection(completed)
+        controller.draft.text = "second"
+        _ = await coordinator.handlePrimaryAction()
+
+        #expect(await ledger.texts() == ["first", "second"])
+        #expect(controller.draft.text.isEmpty)
+        #expect(coordinator.submission == .idle)
+    }
+
     @Test("duplicateTapCreatesOnePendingCommand")
     func duplicateTapCreatesOnePendingCommand() {
         let (controller, coordinator) = makeCoordinator(text: "hello")
@@ -218,4 +263,26 @@ struct ComposerSendCoordinatorTests {
             createdAt: Fixtures.epoch
         )
     }
+}
+
+private actor TwoSendLedger {
+    private var sentTexts: [String] = []
+    private var currentProjection: RunProjection?
+
+    func start(text: String) -> String {
+        sentTexts.append(text)
+        let runID = "run-\(sentTexts.count)"
+        currentProjection = RunProjection(runID: runID, state: .preparing)
+        return runID
+    }
+
+    func projection() -> RunProjection? { currentProjection }
+
+    func completeCurrentRun() -> RunProjection {
+        let completed = RunProjection(runID: currentProjection!.runID, state: .completed)
+        currentProjection = completed
+        return completed
+    }
+
+    func texts() -> [String] { sentTexts }
 }

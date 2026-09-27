@@ -21,11 +21,15 @@ struct ComposerLayout {
 
 enum ComposerGeometry {
     static let edgeInset: CGFloat = 16
-    static let restingMinHeight: CGFloat = 56
+    // Expand equally toward the screen edges and keyboard to keep the lower corner centers fixed.
+    static let restingGrowth: CGFloat = 12
+    private static let restingBaseEdgeInset: CGFloat = 30
+    static let restingEdgeInset: CGFloat = restingBaseEdgeInset - restingGrowth / 2
+    static let restingMinHeight: CGFloat = 50
     static let accessoryHitWidth: CGFloat = 44
     static let editorTopInset: CGFloat = 14
     static let controlRailMinHeight: CGFloat = 52
-    static let editingMinHeight: CGFloat = 72
+    static let editingMinHeight: CGFloat = 124
     static let editingMaxHeightFraction: CGFloat = 0.46
     static let compactWidthFraction: CGFloat = 0.72
     static let compactMinHeight: CGFloat = 38
@@ -35,7 +39,7 @@ enum ComposerGeometry {
     private static let restingHorizontalInset: CGFloat = 12
     private static let restingVerticalInset: CGFloat = 10
     private static let compactFontScale: CGFloat = 0.82
-    private static let restingBottomSpacing: CGFloat = 12
+    private static let restingBottomSpacing: CGFloat = 12 - restingGrowth / 2
     private static let compactBottomSpacing: CGFloat = 22
     private static let editingBottomSpacing: CGFloat = 12
 
@@ -76,11 +80,12 @@ enum ComposerGeometry {
         progress: CGFloat,
         reservesAccessories: Bool
     ) -> ComposerLayout {
-        let restingWidth = max(0, width - 2 * edgeInset)
-        let compactWidth = restingWidth * compactWidthFraction
+        let restingWidth = max(0, width - 2 * restingEdgeInset)
+        let compactWidth = max(0, width - 2 * restingBaseEdgeInset) * compactWidthFraction
         let outerWidth = interpolate(restingWidth, compactWidth, progress)
 
         let restingHeight = max(restingMinHeight, lineHeight + 2 * restingVerticalInset)
+            + restingGrowth
         let compactTextHeight = lineHeight * compactFontScale
         let compactHeight = max(
             compactMinHeight,
@@ -203,7 +208,14 @@ enum ComposerShapeToken {
     static let minimumCurvature: CGFloat = 18
 
     static func shape(for layout: ComposerLayout) -> ConcentricRectangle {
-        let minimum = min(minimumCurvature, max(0, layout.outerHeight / 2))
+        let minimum = minimumRadius(for: layout)
         return ConcentricRectangle(corners: .concentric(minimum: .fixed(minimum)))
+    }
+
+    static func minimumRadius(for layout: ComposerLayout) -> CGFloat {
+        if layout.controlRailReserve > 0 {
+            return max(minimumCurvature, layout.controlRailReserve / 2)
+        }
+        return max(minimumCurvature, layout.outerHeight / 2)
     }
 }

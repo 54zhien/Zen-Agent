@@ -8,6 +8,7 @@ struct ConversationPaneView: View {
     let maxProviderSteps: Int
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var composerClearance: CGFloat = 62
     private let scrollBridge: ConversationPaneScrollBridge
 
     init(
@@ -32,7 +33,23 @@ struct ConversationPaneView: View {
                 onPendingToolApprovalsChanged: { approvals in
                     pane.liveStore.reconcilePendingToolApprovals(approvals)
                 },
-                scrollBridge: scrollBridge
+                onQuoteReference: { reference in
+                    _ = pane.composer.addQuoteReference(reference)
+                },
+                onQuoteDragPhaseChanged: { phase in
+                    _ = pane.composer.handle(.quoteDragPhaseChanged(phase))
+                },
+                onSelectionHandleDragChanged: { isDragging in
+                    _ = pane.composer.handle(.selectionHandleDragChanged(isDragging))
+                },
+                onBlankBackgroundTap: {
+                    guard pane.composer.draft.presentationState == .editing,
+                          pane.composer.quoteDragPhase == .idle,
+                          !pane.composer.isSelectionHandleDragging else { return }
+                    _ = pane.composer.handle(.conversationBackgroundTapped)
+                },
+                scrollBridge: scrollBridge,
+                bottomComposerClearance: composerClearance
             )
             .accessibilityIdentifier("conversation-pane-approval-\(pane.conversationID)")
 
@@ -40,8 +57,10 @@ struct ConversationPaneView: View {
                 conversationID: pane.conversationID,
                 controller: pane.composer,
                 bridge: actionBridge,
-                maxProviderSteps: maxProviderSteps
+                maxProviderSteps: maxProviderSteps,
+                onHeightChanged: { composerClearance = $0 }
             )
+            .id(ObjectIdentifier(pane.composer))
             .accessibilityIdentifier("conversation-pane-composer-\(pane.conversationID)")
         }
         .overlay(alignment: .bottom) {
