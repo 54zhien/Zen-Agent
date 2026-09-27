@@ -778,6 +778,14 @@ actor AgentRuntime {
                     break
                 }
 
+                guard try store.accepts(identity),
+                      let current = try store.run(id: runID),
+                      current.state == .requestingModel || current.state == .streaming
+                else {
+                    // EOF from a superseded attempt must not fail its newer owner.
+                    finishStream(runID: runID, continuation: continuation)
+                    return
+                }
                 guard providerFinished else {
                     try await finishFailure(
                         runID: runID,
