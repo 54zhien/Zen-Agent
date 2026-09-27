@@ -36,6 +36,10 @@ enum PersistenceError: Error, Equatable {
     case fileAssetVersionNotFound(String)
     case fileAssetVersionMismatch(assetID: String, versionID: String)
 
+    case soulAlreadyExists
+    case soulNotFound
+    case soulEditConflict(expected: String, actual: String)
+
     /// The named Provider instance does not exist.
     case providerInstanceNotFound(ProviderInstanceID)
 
@@ -231,7 +235,8 @@ struct PersistenceStore: Sendable {
                 // conversationID — the id the message and run actually land on — and
                 // checked first, so a deleted conversation is never reported as merely
                 // busy.
-                if let existing = try ConversationRecord.fetchOne(db, key: conversationID) {
+                let existingConversation = try ConversationRecord.fetchOne(db, key: conversationID)
+                if let existing = existingConversation {
                     guard existing.lifecycle == .visible else {
                         throw PersistenceError.invalidLifecycleTransition(
                             expected: .visible,
@@ -254,6 +259,18 @@ struct PersistenceStore: Sendable {
                 }
 
                 try commit.conversation.upsert(db)
+                // Migration tests also use this store against deliberate v1-v10
+                // schemas. Only a first Send on a migrated store has this table.
+                if existingConversation == nil,
+                   try db.tableExists(ConversationSoulBindingRecord.databaseTableName),
+                   let soul = try SoulRecord.fetchOne(db, key: SoulRecord.globalID),
+                   soul.enabled {
+                    try ConversationSoulBindingRecord(
+                        conversationID: conversationID,
+                        soulVersionID: soul.currentVersionID,
+                        createdAt: commit.conversation.createdAt
+                    ).insert(db)
+                }
                 try commit.message.insert(db)
                 for part in commit.parts {
                     try part.insert(db)

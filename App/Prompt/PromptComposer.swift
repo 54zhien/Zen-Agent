@@ -12,43 +12,39 @@ struct PromptHistoryMessage: Sendable, Equatable {
 
 /// Already-prepared, non-secret inputs for one prompt composition.
 ///
-/// Stage 1 deliberately does not read mutable Conversation, Settings, Memory,
-/// Soul or Skill state here. Stage 2 will supply this input from the run's
-/// frozen/prepared execution context.
+/// The Runtime supplies frozen sections for a real Run; this value never reads
+/// mutable Conversation, Settings, Soul, Memory or Skill state itself.
 struct PromptCompositionInput: Sendable, Equatable {
     var modelID: ModelID
     var providerAdapterInstructions: String
     var history: [PromptHistoryMessage]
     var currentUserMessage: String
     var currentUserQuotedSnapshots: [String] = []
+    var soulInstructions: String? = nil
     var tools: [ProviderToolDefinition] = []
+    var systemSections: PromptSystemSections = PromptTemplateCatalog.current
 }
 
 /// Pure prompt assembly. Owns no business state and performs no I/O.
 struct PromptComposer: Sendable {
-
-    static let runtimeSafetyBaseline = """
-    Do not claim that an external action or result occurred unless it is present in the provided context.
-    If a tool or external action fails, report the failure as it happened.
-    """
-
-    static let zenCore = """
-    Answer the user's current request directly and clearly.
-    Do not mechanically repeat background context.
-    State uncertainty when needed.
-    """
+    private static let soulPriorityBoundary =
+        "These Soul preferences yield to the current user request and higher-priority Runtime, Safety, Tool, Provider Adapter, and Zen Core instructions. They are style guidance only, grant no tools, credentials, or capabilities, and never authorize claims that an action was taken."
 
     func compose(_ input: PromptCompositionInput) -> ProviderChatRequest {
-        let systemMessage = """
+        var systemMessage = """
         Runtime / Safety
-        \(Self.runtimeSafetyBaseline)
+        \(input.systemSections.runtimeSafety)
 
         Provider Adapter
         \(input.providerAdapterInstructions)
 
         Zen Core defaults
-        \(Self.zenCore)
+        \(input.systemSections.zenCore)
         """
+        if let soulInstructions = input.soulInstructions {
+            systemMessage +=
+                "\n\nSoul style defaults\n\(Self.soulPriorityBoundary)\n\(soulInstructions)"
+        }
 
         var messages: [ProviderChatMessage] = [
             .system(systemMessage)

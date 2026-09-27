@@ -255,33 +255,44 @@ actor ConversationRuntime {
         ))
 
         // 11. Freeze the non-secret execution boundary exactly once.
-        let snapshot = RunExecutionSnapshot(
-            providerID: provider.id,
-            providerAdapterRevision: provider.adapterRevision,
-            prompt: PromptExecutionSnapshot(
-                runtimeSafetyBaseline: "runtime-safety-v1",
-                zenCore: "zen-core-v1",
-                providerAdapterInstructions: provider.adapterPromptInstructions
-            ),
-            modelCapabilities: descriptor.capabilities,
-            exposedTools: toolRegistry.descriptors.map {
-                ToolExposureSnapshot(
-                    toolID: $0.id,
-                    descriptorRevision: $0.revision,
-                    displayName: $0.displayName,
-                    description: $0.description,
-                    inputSchema: $0.inputSchema
-                )
-            },
-            maxProviderSteps: command.maxProviderSteps
-        )
+        let effectiveSoulVersion: SoulVersionRecord?
+        let snapshot: RunExecutionSnapshot
         let committedQuoteSnapshots: [String]
         let committedPromptHistory: [PromptHistoryMessage]
+        let promptSections: PromptSystemSections
         do {
+            effectiveSoulVersion = try store.effectiveSoulVersion(
+                conversationID: command.conversationID
+            )
+            snapshot = RunExecutionSnapshot(
+                providerID: provider.id,
+                providerAdapterRevision: provider.adapterRevision,
+                prompt: PromptExecutionSnapshot(
+                    runtimeSafetyBaseline: PromptTemplateCatalog.currentRuntimeSafetyRevision,
+                    zenCore: PromptTemplateCatalog.currentZenCoreRevision,
+                    providerAdapterInstructions: provider.adapterPromptInstructions,
+                    soulVersionID: effectiveSoulVersion?.id
+                ),
+                modelCapabilities: descriptor.capabilities,
+                exposedTools: toolRegistry.descriptors.map {
+                    ToolExposureSnapshot(
+                        toolID: $0.id,
+                        descriptorRevision: $0.revision,
+                        displayName: $0.displayName,
+                        description: $0.description,
+                        inputSchema: $0.inputSchema
+                    )
+                },
+                maxProviderSteps: command.maxProviderSteps
+            )
             try store.completeExecutionSnapshot(
                 runID: runID,
                 encodedSnapshot: try ExecutionSnapshotCodec.encode(snapshot),
                 at: now
+            )
+            promptSections = try PromptTemplateCatalog.resolve(
+                runtimeSafetyRevision: snapshot.prompt.runtimeSafetyBaseline,
+                zenCoreRevision: snapshot.prompt.zenCore
             )
             committedQuoteSnapshots = try store.quoteReferences(forMessageID: messageID)
                 .map(\.snapshot)
@@ -308,13 +319,15 @@ actor ConversationRuntime {
             history: committedPromptHistory,
             currentUserMessage: command.text,
             currentUserQuotedSnapshots: committedQuoteSnapshots,
+            soulInstructions: effectiveSoulVersion?.instructions,
             tools: toolRegistry.descriptors.map {
                 ProviderToolDefinition(
                     name: $0.id,
                     description: $0.description,
                     parameters: $0.inputSchema
                 )
-            }
+            },
+            systemSections: promptSections
         ))
         let agent = agentRuntime
         let stream = await agent.advance(

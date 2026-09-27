@@ -25,6 +25,8 @@ enum Migrations {
         registerV7(&migrator)
         registerV8(&migrator)
         registerV9(&migrator)
+        registerV10(&migrator)
+        registerV11(&migrator)
         return migrator
     }
 
@@ -248,6 +250,65 @@ enum Migrations {
                 CREATE UNIQUE INDEX messageQuoteReference_by_source_range
                   ON messageQuoteReference(messageID, sourceConversationID, sourceMessageID,
                                            sourcePartID, sourceUTF16Start, sourceUTF16Length)
+                """)
+        }
+    }
+
+    static func registerV10(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v10_add_soul_versions") { db in
+            try db.execute(sql: """
+                CREATE TABLE soulVersion (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    instructions TEXT NOT NULL,
+                    createdAt DATETIME NOT NULL
+                )
+                """)
+            try db.execute(sql: """
+                CREATE TABLE soul (
+                    id TEXT PRIMARY KEY NOT NULL CHECK(id = 'global'),
+                    currentVersionID TEXT NOT NULL REFERENCES soulVersion(id) ON DELETE RESTRICT,
+                    updatedAt DATETIME NOT NULL
+                )
+                """)
+            // Versions are append-only. Explicit erasure needs its own future path;
+            // ordinary writes must not change a version an old Conversation may pin.
+            try db.execute(sql: """
+                CREATE TRIGGER soulVersion_reject_update
+                BEFORE UPDATE ON soulVersion
+                BEGIN
+                    SELECT RAISE(ABORT, 'Soul versions are immutable');
+                END
+                """)
+            try db.execute(sql: """
+                CREATE TRIGGER soulVersion_reject_delete
+                BEFORE DELETE ON soulVersion
+                BEGIN
+                    SELECT RAISE(ABORT, 'Soul versions are immutable');
+                END
+                """)
+        }
+    }
+
+    static func registerV11(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v11_bind_conversation_soul_version") { db in
+            try db.execute(sql: "ALTER TABLE soul ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT 1")
+            try db.execute(sql: """
+                CREATE TABLE conversationSoulBinding (
+                    conversationID TEXT PRIMARY KEY NOT NULL
+                        REFERENCES conversation(id) ON DELETE CASCADE,
+                    soulVersionID TEXT NOT NULL
+                        REFERENCES soulVersion(id) ON DELETE RESTRICT,
+                    createdAt DATETIME NOT NULL
+                )
+                """)
+            // A Conversation's selected version is fixed at creation. Finalized
+            // deletion may remove the binding, but no edit may replace it.
+            try db.execute(sql: """
+                CREATE TRIGGER conversationSoulBinding_reject_update
+                BEFORE UPDATE ON conversationSoulBinding
+                BEGIN
+                    SELECT RAISE(ABORT, 'Conversation Soul binding is immutable');
+                END
                 """)
         }
     }

@@ -89,6 +89,47 @@ struct PromptComposerTests {
         #expect(!secondSystem.contains("Adapter A"))
     }
 
+    @Test("prepared Core and Safety sections, not ambient defaults, determine the request")
+    func preparedSectionsDetermineRequest() {
+        var prepared = input(providerAdapterInstructions: "Frozen adapter")
+        prepared.systemSections = PromptSystemSections(
+            runtimeSafety: "Frozen safety text",
+            zenCore: "Frozen core text"
+        )
+
+        let request = PromptComposer().compose(prepared)
+        guard case .system(let system) = request.messages[0] else {
+            Issue.record("expected a system message")
+            return
+        }
+        #expect(system.contains("Frozen safety text"))
+        #expect(system.contains("Frozen adapter"))
+        #expect(system.contains("Frozen core text"))
+        #expect(!system.contains("Answer the user's current request directly and clearly."))
+    }
+
+    @Test("unknown frozen prompt revisions cannot silently use current text")
+    func unknownRevisionIsRejected() throws {
+        let current = try PromptTemplateCatalog.resolve(
+            runtimeSafetyRevision: PromptTemplateCatalog.currentRuntimeSafetyRevision,
+            zenCoreRevision: PromptTemplateCatalog.currentZenCoreRevision
+        )
+        #expect(current.runtimeSafety.contains("Do not claim"))
+        #expect(current.zenCore.contains("Answer the user's current request"))
+        #expect(throws: PromptTemplateCatalog.ResolutionError.unsupportedRuntimeSafety("unknown")) {
+            try PromptTemplateCatalog.resolve(
+                runtimeSafetyRevision: "unknown",
+                zenCoreRevision: PromptTemplateCatalog.currentZenCoreRevision
+            )
+        }
+        #expect(throws: PromptTemplateCatalog.ResolutionError.unsupportedZenCore("unknown")) {
+            try PromptTemplateCatalog.resolve(
+                runtimeSafetyRevision: PromptTemplateCatalog.currentRuntimeSafetyRevision,
+                zenCoreRevision: "unknown"
+            )
+        }
+    }
+
     @Test("an empty history still leaves the current user after the system baseline")
     func emptyHistoryKeepsCurrentUserLast() {
         let request = PromptComposer().compose(

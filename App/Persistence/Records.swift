@@ -227,6 +227,32 @@ struct MessagePartRecord: Codable, FetchableRecord, PersistableRecord, Sendable,
     var payload: String
 }
 
+struct SoulRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Identifiable {
+    static let databaseTableName = "soul"
+    static let globalID = "global"
+
+    var id: String
+    var currentVersionID: String
+    var updatedAt: Date
+    var enabled: Bool
+}
+
+struct SoulVersionRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Identifiable {
+    static let databaseTableName = "soulVersion"
+
+    var id: String
+    var instructions: String
+    var createdAt: Date
+}
+
+struct ConversationSoulBindingRecord: Codable, FetchableRecord, PersistableRecord, Sendable {
+    static let databaseTableName = "conversationSoulBinding"
+
+    var conversationID: String
+    var soulVersionID: String
+    var createdAt: Date
+}
+
 /// The only identity a tool-call message part needs. Execution state belongs to the
 /// ToolCall row; duplicating it here would create a second truth that can drift during
 /// approval, cancellation or recovery.
