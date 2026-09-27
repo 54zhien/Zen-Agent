@@ -97,6 +97,13 @@ private final class ConversationPaneReadingUITestFixture {
         }
     }
 
+    func positionOlderTurnForKeyboard() {
+        pane.restoreAnchorForUITest(TurnAnchor(
+            runID: "conversation-reading-ui-test-run-10",
+            relativeViewportOffset: 0.2
+        ))
+    }
+
     private static func makeTimeline(conversationID: String) -> ConversationTimelineProjection {
         let turns = (0..<20).map { index in
             let assistantText = index == 10
@@ -117,6 +124,7 @@ private final class ConversationPaneReadingUITestFixture {
 @MainActor
 struct ConversationPaneReadingUITestFixtureView: View {
     @State private var fixture: ConversationPaneReadingUITestFixture
+    @State private var keyboardPositionRequestSequence: UInt64?
 
     init() {
         do {
@@ -143,8 +151,27 @@ struct ConversationPaneReadingUITestFixtureView: View {
                     .accessibilityIdentifier("conversation-reading-test-inject-delta")
                     .accessibilityValue(String(describing: fixture.pane.readingPosition.mode))
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        fixture.positionOlderTurnForKeyboard()
+                        keyboardPositionRequestSequence = fixture.pane.scrollRequest?.sequence
+                    } label: {
+                        Image(systemName: "scope")
+                    }
+                    .accessibilityLabel("Position older Turn for keyboard test")
+                    .accessibilityIdentifier("conversation-reading-test-position-older-turn")
+                    .accessibilityValue(keyboardPositionStatus)
+                }
             }
         }
+    }
+
+    private var keyboardPositionStatus: String {
+        guard let sequence = keyboardPositionRequestSequence else { return "not-requested" }
+        if fixture.pane.scrollRequest?.sequence == sequence {
+            return "restoring-\(sequence)"
+        }
+        return "settled-\(sequence)"
     }
 }
 #endif
