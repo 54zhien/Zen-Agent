@@ -47,7 +47,8 @@ struct AppShellWiringTests {
         }
 
         let reopenedStore = PersistenceStore(database: try ZenDatabase.open(at: url.path))
-        let provider = Stage2ScriptedProvider(ledger: Stage2ProviderLedger(), scripts: [])
+        let ledger = Stage2ProviderLedger()
+        let provider = Stage2ScriptedProvider(ledger: ledger, scripts: [.events([.finish(.stop)])])
         let credentials = CredentialStore(
             secrets: InMemorySecretBackend(),
             metadataRepository: InMemoryCredentialMetadataRepository()
@@ -71,18 +72,19 @@ struct AppShellWiringTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let shell = AppShellModel(dependencies: dependencies, userDefaults: defaults)
-        #expect(shell.launchState == .ready)
-
         for _ in 0..<100 {
-            if try reopenedStore.run(id: runID)?.state == .failed { break }
+            if try reopenedStore.run(id: runID)?.state == .failed,
+               shell.launchState == .ready { break }
             try await Task.sleep(for: .milliseconds(10))
         }
         let run = try #require(try reopenedStore.run(id: runID))
+        #expect(shell.launchState == .ready)
         #expect(run.state == .failed)
         #expect(run.endReason == .streamInterrupted)
         #expect(try reopenedStore.text(ofPart: partID) == "preserved partial")
         #expect(try reopenedStore.parts(ofMessage: "assistant-\(runID)").first?.state == .failed)
         #expect(try reopenedStore.activeParentRuns(inConversation: conversationID).isEmpty)
+        #expect(await ledger.requestsSnapshot().isEmpty)
     }
 
     @Test("zeroConfigurationDoesNotCreateConversationOrEnableSend")

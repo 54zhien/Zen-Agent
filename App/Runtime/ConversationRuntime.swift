@@ -12,6 +12,14 @@ indirect enum ConversationProjectionError: Error, Equatable, Sendable {
     )
 }
 
+struct ColdStartRecoveryReport: Sendable, Equatable {
+    var settledRunIDs: [String] = []
+    var pendingRunIDs: [String] = []
+    var failedRunIDs: [String] = []
+
+    var needsRetry: Bool { !pendingRunIDs.isEmpty || !failedRunIDs.isEmpty }
+}
+
 /// The Parent Send boundary.
 ///
 /// It owns the 12-step preparation/commit order and is the only business writer for
@@ -33,6 +41,7 @@ actor ConversationRuntime {
     private var completionErrors: [String: ConversationProjectionError] = [:]
     private var projections: [String: RunProjection] = [:]
     private var didRecoverManagedFiles = false
+    private var coldStartRecovery: Task<ColdStartRecoveryReport, Error>?
     private var projectionSubscribers: [
         String: [UUID: AsyncStream<RunProjection?>.Continuation]
     ] = [:]
@@ -349,6 +358,64 @@ actor ConversationRuntime {
         }
         operations[runID] = task
         return runID
+    }
+
+    /// Serializes startup reconciliation with every new Send in this Runtime.
+    /// A completed task is retained so foregrounding and a second Pane cannot
+    /// rescan a live task as if its process had died.
+    func reconcileColdStartRuns() async throws -> ColdStartRecoveryReport {
+        if let coldStartRecovery {
+            return try await coldStartRecovery.value
+        }
+        let task = Task { try await self.performColdStartRecovery() }
+        coldStartRecovery = task
+        do {
+            return try await task.value
+        } catch {
+            coldStartRecovery = nil
+            throw error
+        }
+    }
+
+    func retryColdStartRecovery() async throws -> ColdStartRecoveryReport {
+        coldStartRecovery = nil
+        return try await reconcileColdStartRuns()
+    }
+
+    private func performColdStartRecovery() async throws -> ColdStartRecoveryReport {
+        let runIDs = try store.activeParentRunIDs()
+        var report = ColdStartRecoveryReport()
+        for runID in runIDs {
+            if operations[runID] != nil { continue }
+            do {
+                guard let run = try store.run(id: runID), run.state.isActive else { continue }
+                let outcome: (RunState, EndReason)?
+                switch run.state {
+                case .requestingModel, .streaming:
+                    outcome = (.failed, .streamInterrupted)
+                case .stopping:
+                    outcome = (.cancelled, .cancelledByUser)
+                default:
+                    outcome = nil
+                }
+                guard let outcome else {
+                    report.pendingRunIDs.append(runID)
+                    continue
+                }
+                try store.settleTasklessRun(
+                    id: runID,
+                    expectedState: run.state,
+                    terminalState: outcome.0,
+                    endReason: outcome.1
+                )
+                report.settledRunIDs.append(runID)
+                await publish(.runStateChanged(runID: runID, state: outcome.0))
+                await publish(.runEnded(runID: runID, state: outcome.0, endReason: outcome.1))
+            } catch {
+                report.failedRunIDs.append(runID)
+            }
+        }
+        return report
     }
 
     func loadAttachmentContent(

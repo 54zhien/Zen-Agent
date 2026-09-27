@@ -33,6 +33,7 @@ final class AppShellModel {
     private(set) var pane: ConversationPaneController?
     private(set) var actionBridge: ComposerRuntimeActionBridge?
     private(set) var providerSetup: ProviderSetupModel?
+    private(set) var coldStartRecoveryMessage: String?
     private(set) var router: RunEventRouter
 
     @ObservationIgnored private let userDefaults: UserDefaults
@@ -70,7 +71,7 @@ final class AppShellModel {
         prepareProviderSetup()
         loadDefaultTarget()
         refreshRecentConversations()
-        restoreAtLaunch(at: Date())
+        beginColdStartRecoveryThenRestore(at: Date())
     }
 
     func assembleIfNeeded() {
@@ -97,7 +98,7 @@ final class AppShellModel {
             prepareProviderSetup()
             loadDefaultTarget()
             refreshRecentConversations()
-            restoreAtLaunch(at: Date())
+            beginColdStartRecoveryThenRestore(at: Date())
         } catch let failure as AppAssemblyFailure {
             launchState = .failed(failure)
         } catch {
@@ -145,6 +146,49 @@ final class AppShellModel {
         ConversationResumeMarker.clear(from: userDefaults)
         guard let marker, marker.isWithinRestoreWindow(at: date) else { return }
         _ = openConversation(id: marker.conversationID)
+    }
+
+    private func beginColdStartRecoveryThenRestore(at date: Date) {
+        guard let dependencies else { return }
+        do {
+            guard !((try dependencies.store.activeParentRunIDs()).isEmpty) else {
+                restoreAtLaunch(at: date)
+                return
+            }
+        } catch {
+            coldStartRecoveryMessage = "无法检查未完成的运行，请重试恢复。"
+            return
+        }
+
+        launchState = .loading
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let report = try await dependencies.runtime.reconcileColdStartRuns()
+                coldStartRecoveryMessage = report.needsRetry
+                    ? "部分运行尚未恢复，可阅读历史并重试恢复。"
+                    : nil
+            } catch {
+                coldStartRecoveryMessage = "无法恢复未完成的运行，请重试恢复。"
+            }
+            launchState = .ready
+            restoreAtLaunch(at: date)
+        }
+    }
+
+    func retryColdStartRecovery() {
+        guard let runtime = dependencies?.runtime else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let report = try await runtime.retryColdStartRecovery()
+                coldStartRecoveryMessage = report.needsRetry
+                    ? "部分运行尚未恢复，可阅读历史并重试恢复。"
+                    : nil
+            } catch {
+                coldStartRecoveryMessage = "无法恢复未完成的运行，请重试恢复。"
+            }
+        }
     }
 
     private var isCurrentConversationVisible: Bool {

@@ -2,7 +2,7 @@ import SwiftUI
 
 @MainActor
 struct AppShellRootView: View {
-    @State private var model = AppShellModel()
+    let model: AppShellModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
 
@@ -123,7 +123,15 @@ struct NewConversationView: View {
                 }
             }
             .overlay(alignment: .top) {
-                if let message = model.router.recoveryMessage(for: model.conversationID) {
+                if let message = model.coldStartRecoveryMessage {
+                    HStack(spacing: 12) {
+                        Text(message)
+                        Button("重试恢复") { model.retryColdStartRecovery() }
+                    }
+                    .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
+                    .padding()
+                    .background(.regularMaterial)
+                } else if let message = model.router.recoveryMessage(for: model.conversationID) {
                     HStack(spacing: 12) {
                         Text(message)
                             .font(Typography.font(
