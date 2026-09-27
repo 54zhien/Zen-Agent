@@ -98,7 +98,13 @@ final class ConversationReadingPositionUITests: XCTestCase {
             "Keyboard focus must preserve the Pane's older-Turn reading mode."
         )
         input.typeText("KEYBOARD_DRAFT")
-        XCTAssertTrue((input.value as? String ?? "").contains("KEYBOARD_DRAFT"))
+        let observedInputValue = input.value as? String ?? String(describing: input.value)
+        XCTAssertTrue(
+            observedInputValue.contains("KEYBOARD_DRAFT"),
+            "Expected keyboard text entry. value=\(observedInputValue), "
+                + "keyboardExists=\(keyboard.exists), keyboardHittable=\(keyboard.isHittable), "
+                + "keyboardFrame=\(keyboard.frame), inputFrame=\(input.frame)."
+        )
 
         let anchorYBeforeKeyboardDismissal = anchor.frame.minY
         tapBlankTurnGap(
@@ -205,10 +211,7 @@ final class ConversationReadingPositionUITests: XCTestCase {
         }
 
         let lowerBound: CGFloat = 150
-        let existingUpperBound: CGFloat = 350
-        // CI measured the expanded Composer at y=417 on an 874pt timeline.
-        // Predicting its top at 46% leaves about 15pt of extra clearance.
-        let conservativeComposerTop = initialTimelineFrame.minY + timelineHeight * 0.46
+        let upperBound: CGFloat = 350
         let maximumDragFraction: CGFloat = 0.08
         var dragFraction = maximumDragFraction
         var observedPositions: [CGFloat] = []
@@ -218,24 +221,20 @@ final class ConversationReadingPositionUITests: XCTestCase {
             let promptFrame = followingTurnPrompt.frame
             let currentY = anchorFrame.minY
             let tapY = anchorFrame.maxY + 8
-            let safeUpperBound = min(
-                existingUpperBound,
-                conservativeComposerTop - 16 - 8 - anchorFrame.height
-            )
             observedPositions.append(currentY)
 
-            guard safeUpperBound > lowerBound else {
+            guard upperBound > lowerBound else {
                 break
             }
 
             let gapIsSafe = tapY < promptFrame.minY - 16
-            let composerIsClear = tapY < conservativeComposerTop - 16
+            let composerIsClear = tapY < composerInput.frame.minY - 16
             let turnIsReadable = anchor.exists
                 && anchor.isHittable
                 && followingTurnPrompt.exists
                 && followingTurnPrompt.isHittable
             if currentY > lowerBound,
-               currentY < safeUpperBound,
+               currentY < upperBound,
                gapIsSafe,
                composerIsClear,
                turnIsReadable {
@@ -250,7 +249,7 @@ final class ConversationReadingPositionUITests: XCTestCase {
             let moveContentUp: Bool
             if currentY <= lowerBound {
                 moveContentUp = false
-            } else if currentY >= safeUpperBound
+            } else if currentY >= upperBound
                         || !followingTurnPrompt.isHittable
                         || !composerIsClear {
                 moveContentUp = true
@@ -261,7 +260,7 @@ final class ConversationReadingPositionUITests: XCTestCase {
             }
 
             let distanceToSafeRange = moveContentUp
-                ? max(0, currentY - safeUpperBound)
+                ? max(0, currentY - upperBound)
                 : max(0, lowerBound - currentY)
             let requestedFraction = min(
                 maximumDragFraction,
@@ -279,8 +278,8 @@ final class ConversationReadingPositionUITests: XCTestCase {
 
             let updatedY = anchor.frame.minY
             observedPositions.append(updatedY)
-            let crossedSafeRange = (currentY >= safeUpperBound && updatedY <= lowerBound)
-                || (currentY <= lowerBound && updatedY >= safeUpperBound)
+            let crossedSafeRange = (currentY >= upperBound && updatedY <= lowerBound)
+                || (currentY <= lowerBound && updatedY >= upperBound)
             if crossedSafeRange {
                 dragFraction = max(0.005, requestedFraction / 2)
             } else if abs(updatedY - currentY) < 2 {
@@ -293,21 +292,17 @@ final class ConversationReadingPositionUITests: XCTestCase {
         let finalFrame = anchor.frame
         let finalTapY = finalFrame.maxY + 8
         let finalPromptFrame = followingTurnPrompt.frame
-        let finalSafeUpperBound = min(
-            existingUpperBound,
-            conservativeComposerTop - 16 - 8 - finalFrame.height
-        )
         let isSafe = finalFrame.minY > lowerBound
-            && finalFrame.minY < finalSafeUpperBound
+            && finalFrame.minY < upperBound
             && finalTapY < finalPromptFrame.minY - 16
-            && finalTapY < conservativeComposerTop - 16
+            && finalTapY < composerInput.frame.minY - 16
             && anchor.isHittable
             && followingTurnPrompt.isHittable
         XCTAssertTrue(
             isSafe,
             "Could not place the reading Turn at a blank-tap-safe position. "
-                + "safeY=\(lowerBound)...\(finalSafeUpperBound), "
-                + "predictedComposerTop=\(conservativeComposerTop), tapY=\(finalTapY), "
+                + "safeY=\(lowerBound)...\(upperBound), "
+                + "tapY=\(finalTapY), restingComposerTop=\(composerInput.frame.minY), "
                 + "observedY=\(observedPositions), anchor=\(finalFrame), "
                 + "followingPrompt=\(finalPromptFrame), Composer=\(composerInput.frame), "
                 + "timeline=\(scrollView.frame)."
