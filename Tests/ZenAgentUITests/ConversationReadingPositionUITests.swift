@@ -197,32 +197,78 @@ final class ConversationReadingPositionUITests: XCTestCase {
         composerInput: XCUIElement,
         in scrollView: XCUIElement
     ) -> CGFloat {
-        let timelineHeight = scrollView.frame.height
+        let initialTimelineFrame = scrollView.frame
+        let timelineHeight = initialTimelineFrame.height
         guard timelineHeight > 0 else {
-            XCTFail("Cannot position the anchor in an empty timeline frame: \(scrollView.frame).")
+            XCTFail("Cannot position the anchor in an empty timeline frame: \(initialTimelineFrame).")
             return anchor.frame.minY
         }
 
-        let targetY = scrollView.frame.minY + timelineHeight * 0.31
-        let safeBand = (targetY - 15)...(targetY + 15)
+        let lowerBound: CGFloat = 150
+        let existingUpperBound: CGFloat = 350
+        // CI measured the expanded Composer at y=417 on an 874pt timeline.
+        // Predicting its top at 46% leaves about 15pt of extra clearance.
+        let conservativeComposerTop = initialTimelineFrame.minY + timelineHeight * 0.46
         let maximumDragFraction: CGFloat = 0.08
         var dragFraction = maximumDragFraction
         var observedPositions: [CGFloat] = []
 
         for _ in 0..<6 {
-            let currentY = anchor.frame.minY
+            let anchorFrame = anchor.frame
+            let promptFrame = followingTurnPrompt.frame
+            let currentY = anchorFrame.minY
+            let tapY = anchorFrame.maxY + 8
+            let safeUpperBound = min(
+                existingUpperBound,
+                conservativeComposerTop - 16 - 8 - anchorFrame.height
+            )
             observedPositions.append(currentY)
-            if safeBand.contains(currentY), anchor.isHittable, followingTurnPrompt.isHittable {
+
+            guard safeUpperBound > lowerBound else {
+                break
+            }
+
+            let gapIsSafe = tapY < promptFrame.minY - 16
+            let composerIsClear = tapY < conservativeComposerTop - 16
+            let turnIsReadable = anchor.exists
+                && anchor.isHittable
+                && followingTurnPrompt.exists
+                && followingTurnPrompt.isHittable
+            if currentY > lowerBound,
+               currentY < safeUpperBound,
+               gapIsSafe,
+               composerIsClear,
+               turnIsReadable {
                 return currentY
             }
 
-            let displacement = targetY - currentY
+            // Scrolling cannot change the distance between two fixture Turns.
+            if anchor.exists, followingTurnPrompt.exists, !gapIsSafe {
+                break
+            }
+
+            let moveContentUp: Bool
+            if currentY <= lowerBound {
+                moveContentUp = false
+            } else if currentY >= safeUpperBound
+                        || !followingTurnPrompt.isHittable
+                        || !composerIsClear {
+                moveContentUp = true
+            } else if !anchor.isHittable {
+                moveContentUp = false
+            } else {
+                break
+            }
+
+            let distanceToSafeRange = moveContentUp
+                ? max(0, currentY - safeUpperBound)
+                : max(0, lowerBound - currentY)
             let requestedFraction = min(
-                min(abs(displacement) / timelineHeight, dragFraction),
-                maximumDragFraction
+                maximumDragFraction,
+                min(dragFraction, max(0.01, distanceToSafeRange / timelineHeight))
             )
-            let dragStartY: CGFloat = displacement < 0 ? 0.62 : 0.54
-            let dragEndY = dragStartY + (displacement < 0 ? -requestedFraction : requestedFraction)
+            let dragStartY: CGFloat = moveContentUp ? 0.62 : 0.54
+            let dragEndY = dragStartY + (moveContentUp ? -requestedFraction : requestedFraction)
             let dragStart = scrollView.coordinate(
                 withNormalizedOffset: CGVector(dx: 0.5, dy: dragStartY)
             )
@@ -233,9 +279,10 @@ final class ConversationReadingPositionUITests: XCTestCase {
 
             let updatedY = anchor.frame.minY
             observedPositions.append(updatedY)
-            let crossedTarget = (currentY - targetY) * (updatedY - targetY) < 0
-            if crossedTarget {
-                dragFraction = requestedFraction / 2
+            let crossedSafeRange = (currentY >= safeUpperBound && updatedY <= lowerBound)
+                || (currentY <= lowerBound && updatedY >= safeUpperBound)
+            if crossedSafeRange {
+                dragFraction = max(0.005, requestedFraction / 2)
             } else if abs(updatedY - currentY) < 2 {
                 dragFraction = min(maximumDragFraction, requestedFraction * 1.5)
             } else {
@@ -243,15 +290,29 @@ final class ConversationReadingPositionUITests: XCTestCase {
             }
         }
 
-        let finalY = anchor.frame.minY
+        let finalFrame = anchor.frame
+        let finalTapY = finalFrame.maxY + 8
+        let finalPromptFrame = followingTurnPrompt.frame
+        let finalSafeUpperBound = min(
+            existingUpperBound,
+            conservativeComposerTop - 16 - 8 - finalFrame.height
+        )
+        let isSafe = finalFrame.minY > lowerBound
+            && finalFrame.minY < finalSafeUpperBound
+            && finalTapY < finalPromptFrame.minY - 16
+            && finalTapY < conservativeComposerTop - 16
+            && anchor.isHittable
+            && followingTurnPrompt.isHittable
         XCTAssertTrue(
-            safeBand.contains(finalY) && anchor.isHittable && followingTurnPrompt.isHittable,
-            "Could not position the reading Turn in the blank-tap-safe band. "
-                + "targetY=\(targetY), observedY=\(observedPositions), anchor=\(anchor.frame), "
-                + "followingPrompt=\(followingTurnPrompt.frame), Composer=\(composerInput.frame), "
+            isSafe,
+            "Could not place the reading Turn at a blank-tap-safe position. "
+                + "safeY=\(lowerBound)...\(finalSafeUpperBound), "
+                + "predictedComposerTop=\(conservativeComposerTop), tapY=\(finalTapY), "
+                + "observedY=\(observedPositions), anchor=\(finalFrame), "
+                + "followingPrompt=\(finalPromptFrame), Composer=\(composerInput.frame), "
                 + "timeline=\(scrollView.frame)."
         )
-        return finalY
+        return finalFrame.minY
     }
 
     @MainActor
