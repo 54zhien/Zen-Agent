@@ -14,6 +14,14 @@ struct AppColdStartRecoveryTests {
         let conversationID = "conversation-\(runID)"
         do {
             let first = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+            try first.createProviderInstance(ProviderInstance(
+                id: ProviderInstanceID(rawValue: "pi1"),
+                providerID: .deepSeek,
+                displayName: "DeepSeek",
+                baseURL: nil,
+                configRevision: ConfigRevision(rawValue: "config-r1"),
+                credentialReference: CredentialReference(id: "cred-1")
+            ))
             try first.commitUserTurnAndCreateParentRun(Fixtures.send(
                 conversationID: conversationID,
                 messageID: "user-\(runID)",

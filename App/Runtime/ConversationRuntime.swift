@@ -14,6 +14,7 @@ indirect enum ConversationProjectionError: Error, Equatable, Sendable {
 
 struct ColdStartRecoveryReport: Sendable, Equatable {
     var settledRunIDs: [String] = []
+    var continuedRunIDs: [String] = []
     var pendingRunIDs: [String] = []
     var failedRunIDs: [String] = []
 
@@ -391,6 +392,39 @@ actor ConversationRuntime {
                 guard let run = try store.run(id: runID), run.state.isActive else { continue }
                 let outcome: (RunState, EndReason)?
                 switch run.state {
+                case .preparing:
+                    do {
+                        try await continueFrozenPreparingRun(run)
+                        report.continuedRunIDs.append(runID)
+                    } catch CredentialError.unavailable(_, _) {
+                        report.pendingRunIDs.append(runID)
+                    } catch _ as CredentialError {
+                        try await settleRecoveredRun(
+                            id: runID,
+                            expectedState: .preparing,
+                            terminalState: .failed,
+                            endReason: .credentialExpired
+                        )
+                        report.settledRunIDs.append(runID)
+                    } catch RunRequestRebuildError.missingDependency {
+                        try await settleRecoveredRun(
+                            id: runID,
+                            expectedState: .preparing,
+                            terminalState: .failed,
+                            endReason: .dependencyUnavailable
+                        )
+                        report.settledRunIDs.append(runID)
+                    } catch RunRequestRebuildError.incompleteCommittedInput,
+                            RunRequestRebuildError.incompatibleSnapshot {
+                        try await settleRecoveredRun(
+                            id: runID,
+                            expectedState: .preparing,
+                            terminalState: .failed,
+                            endReason: .unrecoverable
+                        )
+                        report.settledRunIDs.append(runID)
+                    }
+                    continue
                 case .requestingModel, .streaming:
                     outcome = (.failed, .streamInterrupted)
                 case .stopping:
@@ -402,20 +436,85 @@ actor ConversationRuntime {
                     report.pendingRunIDs.append(runID)
                     continue
                 }
-                try store.settleTasklessRun(
+                try await settleRecoveredRun(
                     id: runID,
                     expectedState: run.state,
                     terminalState: outcome.0,
                     endReason: outcome.1
                 )
                 report.settledRunIDs.append(runID)
-                await publish(.runStateChanged(runID: runID, state: outcome.0))
-                await publish(.runEnded(runID: runID, state: outcome.0, endReason: outcome.1))
             } catch {
                 report.failedRunIDs.append(runID)
             }
         }
         return report
+    }
+
+    private func settleRecoveredRun(
+        id: String,
+        expectedState: RunState,
+        terminalState: RunState,
+        endReason: EndReason
+    ) async throws {
+        try store.settleTasklessRun(
+            id: id,
+            expectedState: expectedState,
+            terminalState: terminalState,
+            endReason: endReason
+        )
+        await publish(.runStateChanged(runID: id, state: terminalState))
+        await publish(.runEnded(runID: id, state: terminalState, endReason: endReason))
+    }
+
+    private func continueFrozenPreparingRun(_ run: AgentRunRecord) async throws {
+        guard let encoded = run.executionSnapshot else {
+            throw RunRequestRebuildError.incompatibleSnapshot
+        }
+        let snapshot: RunExecutionSnapshot
+        do {
+            snapshot = try ExecutionSnapshotCodec.decode(encoded)
+        } catch {
+            throw RunRequestRebuildError.incompatibleSnapshot
+        }
+        guard try store.steps(inRun: run.id).isEmpty,
+              let triggerID = run.triggerMessageID
+        else { throw RunRequestRebuildError.incompleteCommittedInput }
+
+        let request = try RunRequestRebuilder(
+            store: store,
+            provider: provider,
+            toolRegistry: toolRegistry
+        ).initialRequest(
+            for: run,
+            snapshot: snapshot,
+            history: try promptHistory(
+                inConversation: run.conversationID,
+                excludingMessageID: triggerID
+            )
+        )
+        guard try credentials.resolve(
+            frozenReference: run.requestConfigSeed.credentialBinding.reference,
+            generation: run.requestConfigSeed.credentialBinding.generation
+        ) != nil else {
+            throw RunRequestRebuildError.missingDependency
+        }
+
+        try await RunRecovery(store: store).recover(runID: run.id)
+        guard try store.run(id: run.id)?.state == .requestingModel else {
+            throw RunRequestRebuildError.incompatibleSnapshot
+        }
+        let stream = await agentRuntime.advance(
+            runID: run.id,
+            request: request,
+            snapshot: snapshot,
+            project: { event in try await self.applyAndPublish(event) }
+        )
+        let task: Task<Void, Never> = Task { [weak self] in
+            guard let self else { return }
+            await self.consume(runID: run.id, stream: stream)
+            await self.removeCompletedOperation(runID: run.id)
+        }
+        operations[run.id] = task
     }
 
     func loadAttachmentContent(
