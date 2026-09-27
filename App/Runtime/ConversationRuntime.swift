@@ -12,11 +12,33 @@ indirect enum ConversationProjectionError: Error, Equatable, Sendable {
     )
 }
 
+enum ColdStartRecoveryDisposition: Sendable, Equatable {
+    case settled
+    case continued
+    case pending
+    case failed
+}
+
+enum ColdStartRecoveryIssueCategory: Sendable, Equatable {
+    case credentialTemporarilyUnavailable
+    case systemPermissionConsent
+    case unresolvedCheckpoint
+    case persistenceOrReadFailure
+}
+
+struct ColdStartRecoveryEntry: Sendable, Equatable {
+    let runID: String
+    let conversationID: String?
+    let disposition: ColdStartRecoveryDisposition
+    let issueCategory: ColdStartRecoveryIssueCategory?
+}
+
 struct ColdStartRecoveryReport: Sendable, Equatable {
     var settledRunIDs: [String] = []
     var continuedRunIDs: [String] = []
     var pendingRunIDs: [String] = []
     var failedRunIDs: [String] = []
+    var entries: [ColdStartRecoveryEntry] = []
 
     var needsRetry: Bool { !pendingRunIDs.isEmpty || !failedRunIDs.isEmpty }
 }
@@ -387,6 +409,11 @@ actor ConversationRuntime {
     }
 
     func retryColdStartRecovery() async throws -> ColdStartRecoveryReport {
+        if let coldStartRecovery {
+            // A retry may race the launch scan. Finish that scan before replacing
+            // its barrier so the same persisted Run never gains two owners.
+            _ = try? await coldStartRecovery.value
+        }
         coldStartRecovery = nil
         return try await reconcileColdStartRuns()
     }
@@ -396,8 +423,33 @@ actor ConversationRuntime {
         var report = ColdStartRecoveryReport()
         for runID in runIDs {
             if operations[runID] != nil { continue }
+            var conversationID: String?
+            var issueCategory: ColdStartRecoveryIssueCategory?
+            defer {
+                let disposition: ColdStartRecoveryDisposition?
+                if report.settledRunIDs.contains(runID) {
+                    disposition = .settled
+                } else if report.continuedRunIDs.contains(runID) {
+                    disposition = .continued
+                } else if report.pendingRunIDs.contains(runID) {
+                    disposition = .pending
+                } else if report.failedRunIDs.contains(runID) {
+                    disposition = .failed
+                } else {
+                    disposition = nil
+                }
+                if let disposition {
+                    report.entries.append(ColdStartRecoveryEntry(
+                        runID: runID,
+                        conversationID: conversationID,
+                        disposition: disposition,
+                        issueCategory: issueCategory
+                    ))
+                }
+            }
             do {
                 guard let run = try store.run(id: runID), run.state.isActive else { continue }
+                conversationID = run.conversationID
                 await registerRecoveredRun(run.id, run.conversationID)
                 let outcome: (RunState, EndReason)?
                 switch run.state {
@@ -406,6 +458,7 @@ actor ConversationRuntime {
                         try await continueFrozenPreparingRun(run)
                         report.continuedRunIDs.append(runID)
                     } catch CredentialError.unavailable(_, _) {
+                        issueCategory = .credentialTemporarilyUnavailable
                         report.pendingRunIDs.append(runID)
                     } catch _ as CredentialError {
                         try await settleRecoveredRun(
@@ -452,12 +505,14 @@ actor ConversationRuntime {
                         if calls.contains(where: {
                             $0.state == .waitingForSystemPermissionConsent
                         }) {
+                            issueCategory = .systemPermissionConsent
                             report.pendingRunIDs.append(runID)
                             continue
                         }
                         try await continueRecoveredToolBatch(run)
                         report.continuedRunIDs.append(runID)
                     } catch CredentialError.unavailable(_, _) {
+                        issueCategory = .credentialTemporarilyUnavailable
                         report.pendingRunIDs.append(runID)
                     } catch _ as CredentialError {
                         try await settleRecoveredRun(
@@ -525,6 +580,7 @@ actor ConversationRuntime {
                     } else if latestCalls.contains(where: {
                         $0.state == .waitingForSystemPermissionConsent
                     }) {
+                        issueCategory = .systemPermissionConsent
                         report.pendingRunIDs.append(runID)
                         continue
                     } else {
@@ -536,6 +592,7 @@ actor ConversationRuntime {
                             }
                             report.continuedRunIDs.append(runID)
                         } catch CredentialError.unavailable(_, _) {
+                            issueCategory = .credentialTemporarilyUnavailable
                             report.pendingRunIDs.append(runID)
                         } catch _ as CredentialError {
                             try await settleRecoveredRun(
@@ -569,6 +626,7 @@ actor ConversationRuntime {
                     outcome = nil
                 }
                 guard let outcome else {
+                    issueCategory = .unresolvedCheckpoint
                     report.pendingRunIDs.append(runID)
                     continue
                 }
@@ -580,6 +638,12 @@ actor ConversationRuntime {
                 )
                 report.settledRunIDs.append(runID)
             } catch {
+                if conversationID == nil {
+                    // Reading the identity bypasses the potentially damaged seed.
+                    // If even that read fails, the run ID remains available for retry.
+                    conversationID = try? store.parentRunConversationID(id: runID)
+                }
+                issueCategory = .persistenceOrReadFailure
                 report.failedRunIDs.append(runID)
             }
         }
@@ -829,6 +893,7 @@ actor ConversationRuntime {
                 // An explicit Stop wins over a deferred cold-start retry. This row
                 // has no current task owner, and all open children settle before its
                 // active slot is released.
+                await registerRecoveredRun(run.id, run.conversationID)
                 try store.transitionRun(
                     id: runID,
                     expectedState: .suspended,

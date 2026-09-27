@@ -25,14 +25,15 @@ final class AgentRuntimeRecoveryTests: XCTestCase {
         }
     }
 
-    func testPreparingWithoutSnapshotRepreparesAndDoesNotRestart() async throws {
+    func testPreparingWithoutSnapshotFailsInsteadOfRepreparingFromMutableSettings() async throws {
         let store = try makeStore()
         let runID = try makeRun(in: store, state: .preparing)
 
         try await makeRecovery(store: store).recover(runID: runID)
 
         let run = try XCTUnwrap(try store.run(id: runID))
-        XCTAssertEqual(run.state, .preparing)
+        XCTAssertEqual(run.state, .failed)
+        XCTAssertEqual(run.endReason, .unrecoverable)
         XCTAssertNotEqual(run.recoveryAction, RecoveryAction.restart)
     }
 
@@ -144,6 +145,7 @@ final class AgentRuntimeRecoveryTests: XCTestCase {
     func testCredentialRefreshWithSameBindingGenerationCanContinue() async throws {
         let store = try makeStore()
         let runID = try makeRun(in: store, state: .preparing)
+        try store.completeExecutionSnapshot(runID: runID, encodedSnapshot: try validSnapshot())
         let credentials = makeCredentialStore()
         let now = Fixtures.epoch
         try credentials.store.provision(

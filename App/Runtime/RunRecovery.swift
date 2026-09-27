@@ -61,6 +61,14 @@ struct RunRecovery: Sendable {
 
         do {
             try validateCredentialBinding(for: recoveringRun)
+        } catch let credentialError as CredentialError {
+            if case .unavailable = credentialError {
+                // A locked Keychain is transient. Leave the durable recovery action
+                // for the process coordinator to retry or for the user to Stop.
+                throw credentialError
+            }
+            try await fail(runID: runID, reason: .credentialExpired)
+            return
         } catch {
             try await fail(runID: runID, reason: .credentialExpired)
             return
@@ -94,9 +102,11 @@ struct RunRecovery: Sendable {
         case .suspended, .recovering:
             try await recoverInferredCheckpoint(run: recoveringRun, snapshot: snapshot)
         case .stopping:
-            try store.finishRun(
+            try await transition(runID: runID, to: .stopping)
+            try store.settleTasklessRun(
                 id: runID,
-                state: .cancelled,
+                expectedState: .stopping,
+                terminalState: .cancelled,
                 endReason: .cancelledByUser
             )
             try await emit(.runStateChanged(runID: runID, state: .cancelled))
@@ -146,9 +156,9 @@ struct RunRecovery: Sendable {
         snapshot: RunExecutionSnapshot?
     ) async throws {
         guard snapshot != nil else {
-            // No provider request has been made and no execution context is frozen, so
-            // returning to preparing is the safe reprepare path. It is not a restart.
-            try await transition(runID: run.id, to: .preparing)
+            // A process restart has lost the unfrozen execution context. Repreparing
+            // would read mutable settings and silently give this Run a new identity.
+            try await fail(runID: run.id, reason: .unrecoverable)
             return
         }
 
@@ -268,7 +278,7 @@ struct RunRecovery: Sendable {
         }
 
         guard snapshot != nil else {
-            try await transition(runID: run.id, to: .preparing)
+            try await fail(runID: run.id, reason: .unrecoverable)
             return
         }
 
@@ -280,12 +290,6 @@ struct RunRecovery: Sendable {
     }
 
     private func finishInterruptedStream(run: AgentRunRecord) async throws {
-        if let responseMessageID = run.responseMessageID {
-            let parts = try store.parts(ofMessage: responseMessageID)
-            for part in parts where part.state == .streaming || part.state == .pending {
-                try store.finishPart(id: part.id, state: .failed)
-            }
-        }
         try await fail(runID: run.id, reason: .streamInterrupted)
     }
 
@@ -310,7 +314,15 @@ struct RunRecovery: Sendable {
     }
 
     private func fail(runID: String, reason: EndReason) async throws {
-        try store.finishRun(id: runID, state: .failed, endReason: reason)
+        guard let run = try store.run(id: runID) else {
+            throw RunRecoveryError.runNotFound(runID)
+        }
+        try store.settleTasklessRun(
+            id: runID,
+            expectedState: run.state,
+            terminalState: .failed,
+            endReason: reason
+        )
         try await emit(.runStateChanged(runID: runID, state: .failed))
         try await emit(.runEnded(runID: runID, state: .failed, endReason: reason))
     }

@@ -14,6 +14,12 @@ struct AppColdStartRecoveryTests {
         case globalSoul
     }
 
+    enum ApprovalRecoveryScenario: CaseIterable, Sendable {
+        case approveAfterReopen
+        case approveBeforeReopen
+        case rejectAfterReopen
+    }
+
     @Test("an old tool result cannot certify the newest provider step")
     func historicalToolBatchDoesNotResumeLatestStep() async throws {
         let url = FileManager.default.temporaryDirectory
@@ -352,6 +358,12 @@ struct AppColdStartRecoveryTests {
         let report = try await runtime.reconcileColdStartRuns()
         #expect(report.failedRunIDs == [damagedID])
         #expect(report.settledRunIDs == [healthyID])
+        #expect(report.entries.contains(ColdStartRecoveryEntry(
+            runID: damagedID,
+            conversationID: "conversation-\(damagedID)",
+            disposition: .failed,
+            issueCategory: .persistenceOrReadFailure
+        )))
         #expect(try reopened.run(id: healthyID)?.state == .failed)
         #expect(try reopened.activeParentRunIDs() == [damagedID])
         #expect((await ledger.requestsSnapshot()).isEmpty)
@@ -524,6 +536,12 @@ struct AppColdStartRecoveryTests {
 
         let report = try await runtime.reconcileColdStartRuns()
         #expect(report.pendingRunIDs == [runID])
+        #expect(report.entries == [ColdStartRecoveryEntry(
+            runID: runID,
+            conversationID: conversationID,
+            disposition: .pending,
+            issueCategory: .credentialTemporarilyUnavailable
+        )])
         #expect(try reopened.run(id: runID)?.state == .preparing)
         if retryAfterUnlock {
             backend.unreadableReferences.remove("cred-1")
@@ -541,8 +559,8 @@ struct AppColdStartRecoveryTests {
         #expect(try reopened.activeParentRuns(inConversation: conversationID).isEmpty)
     }
 
-    @Test("reopened approval and persisted approval both execute the original call once", arguments: [false, true])
-    func reopenedApprovalExecutesOriginalCallOnce(decisionBeforeReopen: Bool) async throws {
+    @Test("reopened approval preserves the original call and real decision", arguments: ApprovalRecoveryScenario.allCases)
+    func reopenedApprovalExecutesOriginalCallOnce(scenario: ApprovalRecoveryScenario) async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("zen-approval-reopen-\(UUID().uuidString).sqlite")
         let runID = "approval-\(UUID().uuidString)"
@@ -628,7 +646,7 @@ struct AppColdStartRecoveryTests {
                 createdAt: Fixtures.epoch,
                 updatedAt: Fixtures.epoch
             ))
-            if decisionBeforeReopen {
+            if scenario == .approveBeforeReopen {
                 try first.store.approveToolCall(id: callID)
             }
         }
@@ -654,28 +672,84 @@ struct AppColdStartRecoveryTests {
             toolRegistry: try ToolRegistry(tools: [Stage2SideEffectTool(ledger: ledger)])
         )
         _ = try await runtime.reconcileColdStartRuns()
-        if !decisionBeforeReopen {
+        if scenario != .approveBeforeReopen {
             let card = try #require(try await runtime.pendingToolApprovals(
                 in: Stage2GateFixture.conversationID
             ).first)
             #expect(card.toolCallID == callID)
             #expect((await ledger.snapshot()).isEmpty)
             #expect((await providerLedger.requestsSnapshot()).isEmpty)
-            try await runtime.resolveToolApproval(card.request(for: .approveOnce))
+            try await runtime.resolveToolApproval(card.request(
+                for: scenario == .rejectAfterReopen ? .rejectOnce : .approveOnce
+            ))
         }
         try await runtime.waitForCompletion(runID: runID)
 
-        #expect(try reopened.toolCall(id: callID)?.state == .succeeded)
+        #expect(try reopened.toolCall(id: callID)?.state == (
+            scenario == .rejectAfterReopen ? .rejected : .succeeded
+        ))
         #expect(try reopened.run(id: runID)?.state == .completed)
         let observations = await ledger.snapshot()
-        #expect(observations.count == 1)
-        #expect(observations.first?.idempotencyKey == callID)
+        #expect(observations.count == (scenario == .rejectAfterReopen ? 0 : 1))
+        if scenario != .rejectAfterReopen {
+            #expect(observations.first?.idempotencyKey == callID)
+        }
         let requests = await providerLedger.requestsSnapshot()
         #expect(requests.count == 1)
         #expect(requests.first?.messages.contains(.toolResult(
             toolCallID: providerCallID,
-            content: "succeeded"
+            content: scenario == .rejectAfterReopen
+                ? "Tool execution was rejected by the user."
+                : "succeeded"
         )) == true)
+    }
+
+    @Test("system permission consent remains a distinct stoppable recovery wait")
+    func systemPermissionWaitRemainsStoppable() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zen-permission-reopen-\(UUID().uuidString).sqlite")
+        let runID = "permission-\(UUID().uuidString)"
+        let callID = "call-\(runID)"
+        let conversationID = "conversation-\(runID)"
+        do {
+            let first = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+            try first.commitUserTurnAndCreateParentRun(Fixtures.send(
+                conversationID: conversationID,
+                messageID: "user-\(runID)",
+                runID: runID,
+                runState: .executingTools
+            ))
+            try first.createToolCall(Fixtures.toolCall(
+                id: callID,
+                runID: runID,
+                action: "permission-tool",
+                state: .waitingForSystemPermissionConsent
+            ))
+        }
+
+        let reopened = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+        let ledger = Stage2ProviderLedger()
+        let runtime = ConversationRuntime(
+            store: reopened,
+            provider: Stage2ScriptedProvider(ledger: ledger, scripts: [.events([])]),
+            credentials: CredentialStore(
+                secrets: InMemorySecretBackend(),
+                metadataRepository: InMemoryCredentialMetadataRepository()
+            )
+        )
+        let report = try await runtime.reconcileColdStartRuns()
+        #expect(report.entries == [ColdStartRecoveryEntry(
+            runID: runID,
+            conversationID: conversationID,
+            disposition: .pending,
+            issueCategory: .systemPermissionConsent
+        )])
+        #expect(try reopened.toolCall(id: callID)?.state == .waitingForSystemPermissionConsent)
+        #expect((await ledger.requestsSnapshot()).isEmpty)
+        try await runtime.stop(runID: runID)
+        #expect(try reopened.run(id: runID)?.state == .cancelled)
+        #expect(try reopened.toolCall(id: callID)?.state == .notExecuted)
+        #expect(try reopened.activeParentRuns(inConversation: conversationID).isEmpty)
     }
 
     @Test("a frozen preparing run ignores later mutable settings", arguments: MutableEnvironmentChange.allCases)

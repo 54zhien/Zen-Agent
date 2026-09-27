@@ -13,6 +13,18 @@ extension PersistenceStore {
         }
     }
 
+    /// A damaged encoded seed must not erase the owning conversation from a
+    /// controlled recovery diagnostic.
+    func parentRunConversationID(id: String) throws -> String? {
+        try database.read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT conversationID FROM agentRun WHERE id = ?",
+                arguments: [id]
+            )
+        }
+    }
+
     /// Closes a taskless run and every open child record before releasing its slot.
     /// The single transaction also keeps a second launch from observing a terminal
     /// Run with an open Part or an unsettled side effect.
