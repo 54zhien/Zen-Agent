@@ -258,7 +258,22 @@ struct PersistenceStore: Sendable {
                     throw PersistenceError.conversationAlreadyHasActiveRun(conversationID: conversationID)
                 }
 
-                try commit.conversation.upsert(db)
+                if existingConversation == nil {
+                    try commit.conversation.insert(db)
+                } else {
+                    // The caller's Conversation is a preflight snapshot. Only the
+                    // committed user action may advance activity; preserve metadata
+                    // that another action changed after that snapshot was read.
+                    try db.execute(
+                        sql: """
+                        UPDATE conversation
+                        SET userActiveAt = MAX(userActiveAt, ?),
+                            updatedAt = MAX(updatedAt, ?)
+                        WHERE id = ?
+                        """,
+                        arguments: [commit.message.createdAt, commit.message.createdAt, conversationID]
+                    )
+                }
                 // Migration tests also use this store against deliberate v1-v10
                 // schemas. Only a first Send on a migrated store has this table.
                 if existingConversation == nil,

@@ -113,7 +113,8 @@ actor ConversationRuntime {
     /// making the provider request itself synchronous.
     func start(
         _ command: SendCommand,
-        creatingConversationIfMissing pending: ConversationRecord? = nil
+        creatingConversationIfMissing pending: ConversationRecord? = nil,
+        initiatedAt: Date = Date()
     ) async throws -> String {
         guard !command.submissionID.isEmpty else {
             throw ConversationRuntimeError.emptySubmissionID
@@ -229,7 +230,7 @@ actor ConversationRuntime {
             conversationID: command.conversationID,
             role: .user,
             sequence: nextSequence,
-            createdAt: now
+            createdAt: initiatedAt
         )
         let run = AgentRunRecord(
             id: runID,

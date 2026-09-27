@@ -372,6 +372,39 @@ struct AppShellWiringTests {
         #expect(!items.contains(.assistantText("second answer")))
     }
 
+    @Test("repeat send uses the user's action time and survives shell reconstruction")
+    func repeatSendAdvancesRecentActivity() async throws {
+        let fixture = try makeFixture(
+            seed: .active,
+            scripts: [
+                .events([.textDelta("A answer"), .finish(.stop)]),
+                .events([.textDelta("B answer"), .finish(.stop)]),
+                .events([.textDelta("A follow-up"), .finish(.stop)])
+            ]
+        )
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let t1 = Date(timeIntervalSince1970: 1_790_000_100)
+        let t2 = t1.addingTimeInterval(60)
+        let t3 = t2.addingTimeInterval(60)
+        let firstID = fixture.model.conversationID
+        try await send("A first", at: t1, in: fixture)
+        fixture.model.newConversation()
+        let secondID = fixture.model.conversationID
+        try await send("B first", at: t2, in: fixture)
+
+        #expect(fixture.model.openConversation(id: firstID))
+        #expect(try fixture.store.conversation(id: firstID)?.userActiveAt == t1)
+        try await send("A again", at: t3, in: fixture)
+
+        let reopenedShell = makeReconstructedModel(from: fixture)
+        let first = try #require(try fixture.store.conversation(id: firstID))
+        #expect(reopenedShell.recentConversations.map(\.id) == [firstID, secondID])
+        #expect(first.createdAt == t1)
+        #expect(first.userActiveAt == t3)
+        #expect(first.updatedAt == t3)
+        #expect(try fixture.store.messages(inConversation: firstID).last?.createdAt == t3)
+    }
+
     @Test("cold launch restores a visible conversation within twenty minutes")
     func coldLaunchRestoresRecentConversation() async throws {
         let fixture = try makeFixture(seed: .active)

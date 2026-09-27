@@ -312,7 +312,8 @@ actor ConversationStartContext {
         do {
             let runID = try await runtime.start(
                 command,
-                creatingConversationIfMissing: isPersisted ? nil : pendingConversation
+                creatingConversationIfMissing: isPersisted ? nil : pendingConversation,
+                initiatedAt: initiatedAt
             )
             if try store.conversation(id: conversationID) != nil {
                 isPersisted = true
