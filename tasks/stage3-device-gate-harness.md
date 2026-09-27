@@ -68,3 +68,15 @@ height-change bridge applies the Split bottom-edge policy to Composer/keyboard
 changes too. The repair must preserve the visible reading anchor for Composer
 transitions while retaining bottom-edge anchoring for independent Pane resize.
 This finding is simulator evidence, not a completed device Gate.
+
+The first Composer-only repair preserved the anchor's fraction of viewport
+height. A later keyboard run showed why that was insufficient: with a reading
+anchor just above the viewport, the visible marker moved about 40 points even
+though the stored fraction was unchanged. The revised repair captures the
+anchor's screen-space offset once per Composer transition and rebases its
+fraction as the viewport changes. On `a39c4d04b128469febad255c691bfb7d2e40e1ec`,
+macOS CI run `36302624168` passed the full suite. In the controlled UI test,
+the older marker remained at about y=203–204 across keyboard presentation,
+and two blank-space taps dismissed the keyboard. Split bottom-edge regression
+tests also passed. This is simulator evidence; the device Gate above is still
+open.
