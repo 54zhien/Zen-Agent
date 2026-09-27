@@ -402,7 +402,8 @@ struct AppShellWiringTests {
         #expect(first.createdAt == t1)
         #expect(first.userActiveAt == t3)
         #expect(first.updatedAt == t3)
-        #expect(try fixture.store.messages(inConversation: firstID).last?.createdAt == t3)
+        #expect(try fixture.store.messages(inConversation: firstID)
+            .filter { $0.role == .user }.last?.createdAt == t3)
     }
 
     @Test("cold launch restores a visible conversation within twenty minutes")
