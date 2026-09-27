@@ -7,7 +7,6 @@ final class ConversationReadingPositionUITests: XCTestCase {
         app.launchEnvironment["ZEN_CONVERSATION_READING_UI_TEST"] = "1"
         app.launch()
 
-        logScrollableElements("initial", in: app)
         let paneScrollViews = app.scrollViews.matching(
             identifier: "conversation-pane-conversation-reading-ui-test-conversation"
         )
@@ -68,26 +67,10 @@ final class ConversationReadingPositionUITests: XCTestCase {
         let input = app.textViews["conversation-composer-input"]
         XCTAssertTrue(input.waitForExistence(timeout: 5))
         let readingMode = app.buttons["conversation-reading-test-inject-delta"]
-        logGeometry(
-            "before-keyboard",
-            timeline: scrollView,
-            anchor: anchor,
-            keyboard: app.keyboards.firstMatch,
-            readingMode: readingMode
-        )
         input.tap()
 
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 8))
-        logGeometry(
-            "keyboard-shown",
-            timeline: scrollView,
-            anchor: anchor,
-            keyboard: keyboard,
-            readingMode: readingMode
-        )
-        logScrollableElements("keyboard-shown", in: app)
-        attachFocusedState(app)
         XCTAssertTrue(input.isHittable, "The Composer must remain usable while its keyboard is visible.")
         XCTAssertTrue(
             waitForFrameY(anchor, toRemainAt: keyboardAnchorY, tolerance: 18),
@@ -106,7 +89,6 @@ final class ConversationReadingPositionUITests: XCTestCase {
             in: app,
             after: previousTurnResponse,
             before: currentTurnPrompt,
-            in: scrollView,
             composerInput: input,
             keyboard: keyboard
         )
@@ -129,7 +111,6 @@ final class ConversationReadingPositionUITests: XCTestCase {
             in: app,
             after: previousTurnResponse,
             before: currentTurnPrompt,
-            in: scrollView,
             composerInput: input,
             keyboard: keyboard
         )
@@ -177,7 +158,6 @@ final class ConversationReadingPositionUITests: XCTestCase {
         in app: XCUIApplication,
         after olderResponse: XCUIElement,
         before newerPrompt: XCUIElement,
-        in scrollView: XCUIElement,
         composerInput: XCUIElement,
         keyboard: XCUIElement? = nil
     ) {
@@ -202,57 +182,7 @@ final class ConversationReadingPositionUITests: XCTestCase {
         let normalizedY = (tapY - app.frame.minY) / app.frame.height
         XCTAssertGreaterThan(normalizedY, 0)
         XCTAssertLessThan(normalizedY, 1)
-        print(
-            "READING_UI_BLANK_TAP older=\(olderResponse.frame) newer=\(newerPrompt.frame) "
-                + "tapY=\(tapY) input=\(composerInput.frame) keyboard=\(keyboard?.frame ?? .zero) "
-                + "timeline=\(scrollView.frame)"
-        )
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: normalizedY)).tap()
-    }
-
-    @MainActor
-    private func logGeometry(
-        _ phase: String,
-        timeline: XCUIElement,
-        anchor: XCUIElement,
-        keyboard: XCUIElement,
-        readingMode: XCUIElement
-    ) {
-        let keyboardFrame = keyboard.exists ? String(describing: keyboard.frame) : "hidden"
-        let anchorFrame = anchor.exists ? String(describing: anchor.frame) : "missing"
-        let mode = readingMode.value as? String ?? "unavailable"
-        print(
-            "READING_UI_GEOMETRY phase=\(phase) timeline=\(timeline.frame) "
-                + "anchor=\(anchorFrame) keyboard=\(keyboardFrame) mode=\(mode)"
-        )
-    }
-
-    @MainActor
-    private func logScrollableElements(_ phase: String, in app: XCUIApplication) {
-        let scrollViews = app.scrollViews.allElementsBoundByIndex.enumerated().map { index, element in
-            "#\(index) id=\(element.identifier) frame=\(element.frame)"
-        }
-        let textViews = app.textViews.allElementsBoundByIndex.enumerated().map { index, element in
-            "#\(index) id=\(element.identifier) frame=\(element.frame)"
-        }
-        print(
-            "READING_UI_ACCESSIBILITY phase=\(phase) "
-                + "scrollViews=[\(scrollViews.joined(separator: "; "))] "
-                + "textViews=[\(textViews.joined(separator: "; "))]"
-        )
-    }
-
-    @MainActor
-    private func attachFocusedState(_ app: XCUIApplication) {
-        let hierarchy = XCTAttachment(string: app.debugDescription)
-        hierarchy.name = "Conversation reading accessibility hierarchy with keyboard"
-
-        let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "Conversation reading screen with keyboard"
-        XCTContext.runActivity(named: "Conversation reading geometry with keyboard") { activity in
-            activity.add(hierarchy)
-            activity.add(screenshot)
-        }
     }
 
     @MainActor
