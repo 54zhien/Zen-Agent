@@ -6,6 +6,110 @@ import Testing
 @Suite("App cold-start recovery")
 @MainActor
 struct AppColdStartRecoveryTests {
+    @Test("two orphaned streams settle independently and retry is idempotent")
+    func twoOrphanedStreamsSettleOnce() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zen-two-streams-\(UUID().uuidString).sqlite")
+        let runIDs = ["orphan-a-\(UUID().uuidString)", "orphan-b-\(UUID().uuidString)"]
+        do {
+            let first = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+            for runID in runIDs {
+                try first.commitUserTurnAndCreateParentRun(Fixtures.send(
+                    conversationID: "conversation-\(runID)",
+                    messageID: "user-\(runID)",
+                    runID: runID,
+                    runState: .streaming
+                ))
+                let response = try first.ensureAssistantResponse(
+                    forRunID: runID,
+                    messageID: "assistant-\(runID)"
+                )
+                try first.createPart(Fixtures.streamingPart(
+                    id: "part-\(runID)",
+                    messageID: response.id,
+                    text: "partial-\(runID)"
+                ))
+            }
+        }
+
+        let reopened = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+        let ledger = Stage2ProviderLedger()
+        let runtime = ConversationRuntime(
+            store: reopened,
+            provider: Stage2ScriptedProvider(ledger: ledger, scripts: [.events([])]),
+            credentials: CredentialStore(
+                secrets: InMemorySecretBackend(),
+                metadataRepository: InMemoryCredentialMetadataRepository()
+            )
+        )
+        let firstReport = try await runtime.reconcileColdStartRuns()
+        #expect(Set(firstReport.settledRunIDs) == Set(runIDs))
+        for runID in runIDs {
+            #expect(try reopened.run(id: runID)?.state == .failed)
+            #expect(try reopened.run(id: runID)?.endReason == .streamInterrupted)
+            #expect(try reopened.text(ofPart: "part-\(runID)") == "partial-\(runID)")
+            #expect(try reopened.parts(ofMessage: "assistant-\(runID)").first?.state == .failed)
+        }
+        let retryReport = try await runtime.retryColdStartRecovery()
+        #expect(retryReport.settledRunIDs.isEmpty)
+        #expect((await ledger.requestsSnapshot()).isEmpty)
+    }
+
+    @Test("cold launch marks a dispatched side effect indeterminate without replay")
+    func dispatchedSideEffectIsNotReplayed() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zen-dispatched-reopen-\(UUID().uuidString).sqlite")
+        let runID = "dispatched-\(UUID().uuidString)"
+        let callID = "call-\(UUID().uuidString)"
+        let ledger = SideEffectLedger()
+        let tool = Stage2SideEffectTool(ledger: ledger)
+        do {
+            let first = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+            try first.commitUserTurnAndCreateParentRun(Fixtures.send(
+                conversationID: "conversation-\(runID)",
+                messageID: "user-\(runID)",
+                runID: runID,
+                runState: .executingTools
+            ))
+            let intent = try tool.prepare(callID: callID, argumentsJSON: "{}")
+            try first.createToolCall(ToolCallRecord(
+                id: callID,
+                agentRunID: runID,
+                action: tool.descriptor.id,
+                state: .prepared,
+                executionIntent: String(decoding: try JSONEncoder().encode(intent), as: UTF8.self),
+                attempt: 1,
+                providerCallID: "provider-\(callID)",
+                batchID: "batch-\(runID)-0-1",
+                batchSequence: 0,
+                createdAt: Fixtures.epoch,
+                updatedAt: Fixtures.epoch
+            ))
+            try first.markToolCallDispatched(id: callID)
+            _ = try await tool.execute(intent, idempotencyKey: callID)
+        }
+
+        let reopened = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+        let providerLedger = Stage2ProviderLedger()
+        let runtime = ConversationRuntime(
+            store: reopened,
+            provider: Stage2ScriptedProvider(ledger: providerLedger, scripts: [.events([])]),
+            credentials: CredentialStore(
+                secrets: InMemorySecretBackend(),
+                metadataRepository: InMemoryCredentialMetadataRepository()
+            ),
+            toolRegistry: try ToolRegistry(tools: [Stage2SideEffectTool(ledger: ledger)])
+        )
+        let report = try await runtime.reconcileColdStartRuns()
+        #expect(report.settledRunIDs == [runID])
+        #expect(try reopened.run(id: runID)?.state == .failed)
+        #expect(try reopened.run(id: runID)?.endReason == .toolOutcomeUnknown)
+        #expect(try reopened.toolCall(id: callID)?.state == .indeterminate)
+        #expect(try reopened.toolResult(toolCallID: callID)?.payload == nil)
+        #expect((await ledger.snapshot()).count == 1)
+        #expect((await providerLedger.requestsSnapshot()).isEmpty)
+    }
+
     @Test("locked credential leaves a taskless run stoppable after disk reopen")
     func unavailableCredentialRunCanBeStopped() async throws {
         let url = FileManager.default.temporaryDirectory
@@ -60,7 +164,7 @@ struct AppColdStartRecoveryTests {
         let ledger = Stage2ProviderLedger()
         let runtime = ConversationRuntime(
             store: reopened,
-            provider: Stage2ScriptedProvider(ledger: ledger, scripts: []),
+            provider: Stage2ScriptedProvider(ledger: ledger, scripts: [.events([])]),
             credentials: credentials
         )
 
