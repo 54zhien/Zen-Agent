@@ -55,17 +55,19 @@ final class ConversationReadingPositionUITests: XCTestCase {
             in: scrollView
         ))
 
-        let dragStart = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62))
-        let dragEnd = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.54))
-        dragStart.press(forDuration: 0.1, thenDragTo: dragEnd)
+        let input = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 5))
+        let keyboardAnchorY = positionAnchorForKeyboard(
+            anchor,
+            followingTurnPrompt: nextTurnPrompt,
+            composerInput: input,
+            in: scrollView
+        )
         XCTAssertTrue(anchor.isHittable, "The older reading Turn must stay visible after positioning its blank gap.")
         XCTAssertTrue(nextTurnPrompt.isHittable, "The following Turn must be visible to locate the blank gap below the anchor.")
-        let keyboardAnchorY = anchor.frame.minY
         XCTAssertGreaterThan(keyboardAnchorY, 150)
         XCTAssertLessThan(keyboardAnchorY, 350, "Position the reading Turn above the expanded Composer.")
 
-        let input = app.textViews["conversation-composer-input"]
-        XCTAssertTrue(input.waitForExistence(timeout: 5))
         let readingMode = app.buttons["conversation-reading-test-inject-delta"]
         logGeometry(
             "before-keyboard",
@@ -186,6 +188,70 @@ final class ConversationReadingPositionUITests: XCTestCase {
             && previousTurnResponse.isHittable
             && currentTurnPrompt.exists
             && currentTurnPrompt.isHittable
+    }
+
+    @MainActor
+    private func positionAnchorForKeyboard(
+        _ anchor: XCUIElement,
+        followingTurnPrompt: XCUIElement,
+        composerInput: XCUIElement,
+        in scrollView: XCUIElement
+    ) -> CGFloat {
+        let timelineHeight = scrollView.frame.height
+        guard timelineHeight > 0 else {
+            XCTFail("Cannot position the anchor in an empty timeline frame: \(scrollView.frame).")
+            return anchor.frame.minY
+        }
+
+        let targetY = scrollView.frame.minY + timelineHeight * 0.31
+        let safeBand = (targetY - 15)...(targetY + 15)
+        let maximumDragFraction: CGFloat = 0.08
+        var dragFraction = maximumDragFraction
+        var observedPositions: [CGFloat] = []
+
+        for _ in 0..<6 {
+            let currentY = anchor.frame.minY
+            observedPositions.append(currentY)
+            if safeBand.contains(currentY), anchor.isHittable, followingTurnPrompt.isHittable {
+                return currentY
+            }
+
+            let displacement = targetY - currentY
+            let requestedFraction = min(
+                min(abs(displacement) / timelineHeight, dragFraction),
+                maximumDragFraction
+            )
+            let dragStartY: CGFloat = displacement < 0 ? 0.62 : 0.54
+            let dragEndY = dragStartY + (displacement < 0 ? -requestedFraction : requestedFraction)
+            let dragStart = scrollView.coordinate(
+                withNormalizedOffset: CGVector(dx: 0.5, dy: dragStartY)
+            )
+            let dragEnd = scrollView.coordinate(
+                withNormalizedOffset: CGVector(dx: 0.5, dy: dragEndY)
+            )
+            dragStart.press(forDuration: 0.1, thenDragTo: dragEnd)
+
+            let updatedY = anchor.frame.minY
+            observedPositions.append(updatedY)
+            let crossedTarget = (currentY - targetY) * (updatedY - targetY) < 0
+            if crossedTarget {
+                dragFraction = requestedFraction / 2
+            } else if abs(updatedY - currentY) < 2 {
+                dragFraction = min(maximumDragFraction, requestedFraction * 1.5)
+            } else {
+                dragFraction = requestedFraction
+            }
+        }
+
+        let finalY = anchor.frame.minY
+        XCTAssertTrue(
+            safeBand.contains(finalY) && anchor.isHittable && followingTurnPrompt.isHittable,
+            "Could not position the reading Turn in the blank-tap-safe band. "
+                + "targetY=\(targetY), observedY=\(observedPositions), anchor=\(anchor.frame), "
+                + "followingPrompt=\(followingTurnPrompt.frame), Composer=\(composerInput.frame), "
+                + "timeline=\(scrollView.frame)."
+        )
+        return finalY
     }
 
     @MainActor
