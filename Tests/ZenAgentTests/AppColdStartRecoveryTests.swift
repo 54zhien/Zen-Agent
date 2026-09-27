@@ -6,6 +6,74 @@ import Testing
 @Suite("App cold-start recovery")
 @MainActor
 struct AppColdStartRecoveryTests {
+    @Test("locked credential leaves a taskless run stoppable after disk reopen")
+    func unavailableCredentialRunCanBeStopped() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zen-locked-reopen-\(UUID().uuidString).sqlite")
+        let runID = "locked-\(UUID().uuidString)"
+        let conversationID = "conversation-\(runID)"
+        do {
+            let first = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+            try first.createProviderInstance(ProviderInstance(
+                id: ProviderInstanceID(rawValue: "pi1"),
+                providerID: .deepSeek,
+                displayName: "DeepSeek",
+                baseURL: nil,
+                configRevision: ConfigRevision(rawValue: "config-r1"),
+                credentialReference: CredentialReference(id: "cred-1")
+            ))
+            try first.commitUserTurnAndCreateParentRun(Fixtures.send(
+                conversationID: conversationID,
+                messageID: "user-\(runID)",
+                runID: runID,
+                runState: .preparing
+            ))
+            let snapshot = RunExecutionSnapshot(
+                providerID: .deepSeek,
+                providerAdapterRevision: "stage2-gate-scripted-provider.v1",
+                prompt: PromptExecutionSnapshot(
+                    runtimeSafetyBaseline: PromptTemplateCatalog.currentRuntimeSafetyRevision,
+                    zenCore: PromptTemplateCatalog.currentZenCoreRevision,
+                    providerAdapterInstructions: ""
+                ),
+                modelCapabilities: [.text, .streaming],
+                exposedTools: [],
+                maxProviderSteps: 4
+            )
+            try first.completeExecutionSnapshot(
+                runID: runID,
+                encodedSnapshot: try ExecutionSnapshotCodec.encode(snapshot)
+            )
+        }
+
+        let reopened = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+        let backend = InMemorySecretBackend()
+        let credentials = CredentialStore(
+            secrets: backend,
+            metadataRepository: InMemoryCredentialMetadataRepository()
+        )
+        try credentials.provision(
+            SecretValue("test-only-secret"),
+            as: CredentialReference(id: "cred-1")
+        )
+        backend.unreadableReferences.insert("cred-1")
+        let ledger = Stage2ProviderLedger()
+        let runtime = ConversationRuntime(
+            store: reopened,
+            provider: Stage2ScriptedProvider(ledger: ledger, scripts: []),
+            credentials: credentials
+        )
+
+        let report = try await runtime.reconcileColdStartRuns()
+        #expect(report.pendingRunIDs == [runID])
+        #expect(try reopened.run(id: runID)?.state == .preparing)
+        try await runtime.stop(runID: runID)
+        #expect(try reopened.run(id: runID)?.state == .cancelled)
+        #expect(try reopened.run(id: runID)?.endReason == .cancelledByUser)
+        #expect(try reopened.activeParentRuns(inConversation: conversationID).isEmpty)
+        #expect((await ledger.requestsSnapshot()).isEmpty)
+    }
+
     @Test("reopened approval waits for the real decision and executes its original call once")
     func reopenedApprovalExecutesOriginalCallOnce() async throws {
         let url = FileManager.default.temporaryDirectory
