@@ -190,11 +190,33 @@ final class ConversationReadingPositionUITests: XCTestCase {
     private func attachFocusedState(_ app: XCUIApplication) {
         let hierarchy = XCTAttachment(string: app.debugDescription)
         hierarchy.name = "Conversation reading accessibility hierarchy with keyboard"
-        XCTContext.current.add(hierarchy)
 
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Conversation reading screen with keyboard"
-        XCTContext.current.add(screenshot)
+        XCTContext.runActivity(named: "Conversation reading geometry with keyboard") { activity in
+            activity.add(hierarchy)
+            activity.add(screenshot)
+        }
+    }
+
+    @MainActor
+    private func waitForFrameY(
+        _ element: XCUIElement,
+        toRemainAt expectedY: CGFloat,
+        tolerance: CGFloat
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if element.exists,
+               element.isHittable,
+               abs(element.frame.minY - expectedY) <= tolerance {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return element.exists
+            && element.isHittable
+            && abs(element.frame.minY - expectedY) <= tolerance
     }
 
     private enum TimelineScrollDirection {
