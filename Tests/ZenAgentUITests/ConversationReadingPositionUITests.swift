@@ -17,6 +17,7 @@ final class ConversationReadingPositionUITests: XCTestCase {
         let anchor = app.staticTexts["OLDER_READING_POSITION_ANCHOR_TURN_10"]
         let previousTurnResponse = app.staticTexts["Assistant response for Turn 9"]
         let currentTurnPrompt = app.staticTexts["User prompt for Turn 10"]
+        let nextTurnPrompt = app.staticTexts["User prompt for Turn 11"]
         XCTAssertTrue(scrollUntilTurnIsReadable(
             anchor,
             previousTurnResponse: previousTurnResponse,
@@ -58,8 +59,7 @@ final class ConversationReadingPositionUITests: XCTestCase {
         let dragEnd = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.54))
         dragStart.press(forDuration: 0.1, thenDragTo: dragEnd)
         XCTAssertTrue(anchor.isHittable, "The older reading Turn must stay visible after positioning its blank gap.")
-        XCTAssertTrue(previousTurnResponse.isHittable)
-        XCTAssertTrue(currentTurnPrompt.isHittable)
+        XCTAssertTrue(nextTurnPrompt.isHittable, "The following Turn must be visible to locate the blank gap below the anchor.")
         let keyboardAnchorY = anchor.frame.minY
         XCTAssertGreaterThan(keyboardAnchorY, 150)
         XCTAssertLessThan(keyboardAnchorY, 350, "Position the reading Turn above the expanded Composer.")
@@ -101,8 +101,8 @@ final class ConversationReadingPositionUITests: XCTestCase {
         let anchorYBeforeKeyboardDismissal = anchor.frame.minY
         tapBlankTurnGap(
             in: app,
-            after: previousTurnResponse,
-            before: currentTurnPrompt,
+            after: anchor,
+            before: nextTurnPrompt,
             composerInput: input,
             keyboard: keyboard
         )
@@ -137,8 +137,8 @@ final class ConversationReadingPositionUITests: XCTestCase {
         let anchorYBeforeSecondDismissal = anchor.frame.minY
         tapBlankTurnGap(
             in: app,
-            after: previousTurnResponse,
-            before: currentTurnPrompt,
+            after: anchor,
+            before: nextTurnPrompt,
             composerInput: input,
             keyboard: keyboard
         )
