@@ -104,7 +104,6 @@ struct ConversationTimelineView: View {
                 .padding(.vertical, betweenTurns)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .accessibilityIdentifier("conversation-timeline-scroll-\(projection.conversationID)")
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear.frame(height: bottomComposerClearance)
             }

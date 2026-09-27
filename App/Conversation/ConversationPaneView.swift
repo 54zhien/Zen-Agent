@@ -58,7 +58,11 @@ struct ConversationPaneView: View {
                 controller: pane.composer,
                 bridge: actionBridge,
                 maxProviderSteps: maxProviderSteps,
-                onHeightChanged: { composerClearance = $0 }
+                onHeightChanged: { clearance in
+                    guard abs(composerClearance - clearance) > 0.5 else { return }
+                    scrollBridge.composerHeightWillChange()
+                    composerClearance = clearance
+                }
             )
             .id(ObjectIdentifier(pane.composer))
             .accessibilityIdentifier("conversation-pane-composer-\(pane.conversationID)")

@@ -79,8 +79,8 @@ final class ConversationReadingPositionUITests: XCTestCase {
         attachFocusedState(app)
         XCTAssertTrue(input.isHittable, "The Composer must remain usable while its keyboard is visible.")
         XCTAssertTrue(
-            anchor.isHittable,
-            "Showing the keyboard must keep the older reading Turn visible; timeline=\(scrollView.frame), anchor=\(anchor.frame)."
+            waitForFrameY(anchor, toRemainAt: initialAnchorY, tolerance: 18),
+            "Showing the keyboard must preserve the visible reading Turn position; timeline=\(scrollView.frame), anchor=\(anchor.frame)."
         )
         XCTAssertFalse(liveDelta.isHittable, "Keyboard focus must not silently move reading to the newest content.")
         XCTAssertTrue(
@@ -90,37 +90,39 @@ final class ConversationReadingPositionUITests: XCTestCase {
         input.typeText("KEYBOARD_DRAFT")
         XCTAssertTrue((input.value as? String ?? "").contains("KEYBOARD_DRAFT"))
 
-        XCTAssertTrue(scrollUntilTurnIsReadable(
-            anchor,
-            previousTurnResponse: previousTurnResponse,
-            currentTurnPrompt: currentTurnPrompt,
-            direction: .older,
-            in: scrollView
-        ), "Re-find the visible Turn gap after keyboard reflow before dismissing by blank tap.")
+        let anchorYBeforeKeyboardDismissal = anchor.frame.minY
         tapBlankTurnGap(
             after: previousTurnResponse,
             before: currentTurnPrompt,
-            in: scrollView
+            in: scrollView,
+            keyboard: keyboard
         )
         XCTAssertTrue(keyboard.waitForNonExistence(timeout: 8))
-        XCTAssertTrue(anchor.isHittable, "The older Turn must remain visible after the keyboard hides.")
+        XCTAssertTrue(
+            waitForFrameY(anchor, toRemainAt: anchorYBeforeKeyboardDismissal, tolerance: 18),
+            "Hiding the keyboard must preserve the visible reading Turn position."
+        )
         XCTAssertTrue(input.isHittable, "The Composer must remain available after the keyboard hides.")
 
+        let anchorYBeforeSecondPresentation = anchor.frame.minY
         input.tap()
         XCTAssertTrue(keyboard.waitForExistence(timeout: 8))
-        XCTAssertTrue(scrollUntilTurnIsReadable(
-            anchor,
-            previousTurnResponse: previousTurnResponse,
-            currentTurnPrompt: currentTurnPrompt,
-            direction: .older,
-            in: scrollView
-        ), "Re-find the blank gap on the second keyboard presentation.")
+        XCTAssertTrue(
+            waitForFrameY(anchor, toRemainAt: anchorYBeforeSecondPresentation, tolerance: 18),
+            "A second keyboard presentation must preserve the visible reading Turn position."
+        )
+        let anchorYBeforeSecondDismissal = anchor.frame.minY
         tapBlankTurnGap(
             after: previousTurnResponse,
             before: currentTurnPrompt,
-            in: scrollView
+            in: scrollView,
+            keyboard: keyboard
         )
         XCTAssertTrue(keyboard.waitForNonExistence(timeout: 8))
+        XCTAssertTrue(
+            waitForFrameY(anchor, toRemainAt: anchorYBeforeSecondDismissal, tolerance: 18),
+            "A second keyboard dismissal must preserve the visible reading Turn position."
+        )
     }
 
     @MainActor
@@ -159,15 +161,20 @@ final class ConversationReadingPositionUITests: XCTestCase {
     private func tapBlankTurnGap(
         after olderResponse: XCUIElement,
         before newerPrompt: XCUIElement,
-        in scrollView: XCUIElement
+        in scrollView: XCUIElement,
+        keyboard: XCUIElement? = nil
     ) {
         XCTAssertTrue(olderResponse.isHittable)
         XCTAssertTrue(newerPrompt.isHittable)
         let gapStart = olderResponse.frame.maxY
         let gapEnd = newerPrompt.frame.minY
         XCTAssertGreaterThan(gapEnd - gapStart, 8, "The fixture must leave a blank gap between Turns.")
+        let tapY = (gapStart + gapEnd) / 2
+        if let keyboard, keyboard.exists {
+            XCTAssertLessThan(tapY, keyboard.frame.minY, "The visible Turn gap must remain above the keyboard.")
+        }
 
-        let normalizedY = ((gapStart + gapEnd) / 2 - scrollView.frame.minY) / scrollView.frame.height
+        let normalizedY = (tapY - scrollView.frame.minY) / scrollView.frame.height
         XCTAssertGreaterThan(normalizedY, 0)
         XCTAssertLessThan(normalizedY, 1)
         scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: normalizedY)).tap()

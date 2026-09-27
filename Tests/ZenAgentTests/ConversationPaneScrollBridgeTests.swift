@@ -154,6 +154,53 @@ struct ConversationPaneScrollBridgeTests {
     }
 
     @Test
+    func composerHeightTransitionRestoresReadingAnchorAcrossGeometryTicks() throws {
+        let pane = try makePane(
+            conversationID: "composer-resize-owner",
+            turns: [ConversationTurn(runID: "composer-resize-run", items: [.userText("read here")])]
+        )
+        let bridge = ConversationPaneScrollBridge(pane: pane)
+        let initialGeometry = ScrollGeometry(viewportHeight: 400, contentHeight: 1_200, offset: 300)
+        let anchor = TurnAnchor(runID: "composer-resize-run", relativeViewportOffset: 0.42)
+        bridge.userScrolled(
+            geometry: initialGeometry,
+            topVisibleTurn: (runID: anchor.runID, turnTop: 468)
+        )
+        #expect(pane.readingPosition.mode == .reading(anchor: anchor, pendingTurns: []))
+
+        bridge.composerHeightWillChange()
+        bridge.beginHeightChange(
+            geometry: initialGeometry,
+            bottomReferenceTurn: (runID: "composer-resize-run", turnTop: 650)
+        )
+
+        let firstKeyboardGeometry = ScrollGeometry(viewportHeight: 300, contentHeight: 1_200, offset: 300)
+        bridge.continueHeightChange(
+            geometry: firstKeyboardGeometry,
+            turnTops: ["composer-resize-run": 650]
+        )
+        let firstRequest = try #require(pane.scrollRequest)
+        #expect(firstRequest.action == .restoreAnchor(anchor))
+        #expect(pane.readingPosition.mode == .reading(anchor: anchor, pendingTurns: []))
+
+        _ = pane.updateReading(.programmaticScrolled(geometry: ScrollGeometry(
+            viewportHeight: 300,
+            contentHeight: 1_200,
+            offset: 524
+        )))
+        pane.markScrollApplied(sequence: firstRequest.sequence)
+        let secondKeyboardGeometry = ScrollGeometry(viewportHeight: 250, contentHeight: 1_200, offset: 300)
+        bridge.continueHeightChange(
+            geometry: secondKeyboardGeometry,
+            turnTops: ["composer-resize-run": 650]
+        )
+        let secondRequest = try #require(pane.scrollRequest)
+        #expect(secondRequest.action == .restoreAnchor(anchor))
+        #expect(pane.readingPosition.mode == .reading(anchor: anchor, pendingTurns: []))
+        bridge.endHeightChange()
+    }
+
+    @Test
     func userDragSupersedesPendingProgrammaticScroll() throws {
         let pane = try makePane(
             conversationID: "drag-owner",

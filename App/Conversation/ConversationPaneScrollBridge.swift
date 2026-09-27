@@ -16,6 +16,7 @@ final class ConversationPaneScrollBridge {
     unowned let pane: ConversationPaneController
     private(set) var isHeightChangeActive = false
     private var bottomEdgeAnchor: BottomTurnAnchor?
+    private var composerHeightChangeActive = false
 
     init(pane: ConversationPaneController) {
         self.pane = pane
@@ -49,7 +50,7 @@ final class ConversationPaneScrollBridge {
               geometry.isUsableForPane
         else { return }
         isHeightChangeActive = true
-        bottomEdgeAnchor = bottomReferenceTurn.flatMap { turn in
+        bottomEdgeAnchor = composerHeightChangeActive ? nil : bottomReferenceTurn.flatMap { turn in
             guard geometry.isUsableForPane,
                   turn.turnTop.isFinite
             else { return nil }
@@ -69,6 +70,11 @@ final class ConversationPaneScrollBridge {
               geometry.isUsableForPane
         else { return }
 
+        if composerHeightChangeActive {
+            _ = pane.updateReading(.geometryChanged(geometry: geometry, anchor: nil))
+            return
+        }
+
         let turnTop = bottomEdgeAnchor.flatMap { anchor -> Double? in
             guard let measuredTop = turnTops[anchor.runID],
                   measuredTop.isFinite
@@ -82,8 +88,13 @@ final class ConversationPaneScrollBridge {
         ))
     }
 
+    func composerHeightWillChange() {
+        composerHeightChangeActive = true
+    }
+
     func endHeightChange() {
         isHeightChangeActive = false
         bottomEdgeAnchor = nil
+        composerHeightChangeActive = false
     }
 }
