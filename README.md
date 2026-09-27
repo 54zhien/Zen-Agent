@@ -32,16 +32,19 @@ baseline is recorded in `Docs/ADR/`.
 ## Status
 
 Stage 0 and Stage 1 are closed. Stage 2 runtime and tool boundaries are implemented
-on the current development stack. Stage 3 W1 wires the real App shell and text
-send/history, but its device performance and accessibility gate remains open.
-The Stage 4 Prompt and Soul implementation Gate evidence is recorded in
-`tasks/stage4-closure.md` and integration PR #10. A green CI run does not
-replace on-device acceptance.
+on `main`. Stage 3 W1 wires the real App shell and text send/history; PR #12 added
+the reading-position/keyboard regression fix and UI harness. The product owner
+reported the Stage 3 device Gate closed on 2026-09-27. The device evidence scope
+and any remaining measurement gaps are recorded in
+`tasks/stage3-device-acceptance.md`; CI alone does not provide device acceptance.
 
-W1 entered `main` through PR #11. Check PR #10's merge status for Stage 4
-mainline availability. Formal Settings navigation and the Soul settings page
-belong to the Stage 5 Settings IA dependency. App Space, Memory, Skills, MCP
-and Subagent remain later work.
+The Stage 4 Prompt and Soul implementation Gate passed and its stack entered
+`main` through PR #10. See `tasks/stage4-closure.md`. W1 entered `main` through
+PR #11, followed by PR #12. The integrated mainline at `9f80b15` passed CI
+run `36305533211` (repository hygiene, XcodeGen generation, build, unit and UI
+tests). Formal Settings navigation and the Soul settings page belong to the
+Stage 5 Settings IA dependency. App Space, Memory, Skills, MCP and Subagent
+remain later work.
 
 `App/Persistence/` remains a data layer. GRDB is confined to it, and the existing
 repository guard must continue to fail the build if that boundary is violated.

@@ -1,16 +1,18 @@
 # Stage 4 implementation gate
 
-> Status: **implementation Gate passed at `1c2c79b`; integration tracked by PR #10**.
+> Status: **implementation Gate passed at `1c2c79b`; integrated into `main` by PR #10**.
 > Blueprint baseline: `596a84d4b58769e3e7b838be95edcb43f9e0ec82`.
 > Stage 4 closure branch: `codex/stage4-closure`.
 > Gate test commit: `ae3546aac535113a6987509d5658f637c2e9f3f1`.
 
 This record separates the Stage 4 implementation Gate from integration into
-`main` and from on-device acceptance. Check PR #10 for the current merge state.
+`main` and from on-device acceptance. PR #10 merged at
+`4268a687332080e1942beb2747338fb9f8e8bb4b` on 2026-09-27.
 The Blueprint's Stage 4 Gate is that an
 old Conversation keeps using its bound SoulVersion and that Secrets do not
 enter Prompt. The Stage 3 long-conversation, keyboard, Streaming, reading
-position, performance and accessibility acceptance remains open.
+position, performance and accessibility acceptance is tracked separately in
+`tasks/stage3-device-acceptance.md`.
 
 ## Scope and evidence
 
@@ -40,7 +42,8 @@ position, performance and accessibility acceptance remains open.
   [#7](https://github.com/54zhien/Zen-Agent/pull/7),
   [#8](https://github.com/54zhien/Zen-Agent/pull/8), and
   [#9](https://github.com/54zhien/Zen-Agent/pull/9) were stacked drafts with
-  passing branch and PR checks. PR #10 tracks their integration into `main`.
+  passing branch and PR checks. PR #10 integrated their changes into `main`;
+  those earlier PRs remain closed rather than independently merged.
 
 ## Integration and device boundary
 
@@ -49,7 +52,11 @@ Adding a temporary Soul page here would contradict the Blueprint's Stage 4/5
 dependency. Stage 4 service, binding and request semantics can pass their
 implementation Gate while the user-facing Soul editor waits for Stage 5.
 
-The Stage 4 device candidate is an unsigned Debug IPA for the user's own
-signing flow. Its artifact SHA and package checks must be recorded after the
-closure branch's exact source commit builds; a simulator CI pass is not a
-substitute for the user's iPhone acceptance.
+The Stage 4 device candidate is the unsigned Debug
+`ZenAgent-Stage4-840a2e2-device-test.ipa` for the user's own signing flow.
+Its source is `840a2e2f7a0420a01af1c0d2450ea3f7afbaaebb`, its SHA-256 is
+`72a7224b3ad05342dbcff60ed4bb912beb2abe1dfd69e520aed2fc8faab3d678`,
+and its production inputs match the PR #10 merge at `4268a68`. PR #12 later
+changed the Conversation Pane reading-position behavior; this existing IPA does
+not contain that change. The exact device acceptance scope is recorded in
+`tasks/stage3-device-acceptance.md`.

@@ -1,20 +1,27 @@
 # Stage 3 device acceptance record
 
-> Status: open. This is a test protocol and evidence ledger, not a passed Gate.
+> Status: the product owner reported the Stage 3 device Gate closed on
+> 2026-09-27. The per-check device evidence below has not yet been supplied;
+> unverified rows must not be read as passed tests.
 > Blueprint: `Design/Zen Agent 开发规划.md` Stage 3 Gate and
 > `Design/Zen Agent Conversation UI 与 Composer.md` §§4–5, 11–12.
 
 ## Candidate and device
 
 - Device: iPhone 15 Pro Max, iOS 27.2.
-- Candidate: `ZenAgent-Stage4-840a2e2-device-test.ipa`, unsigned Debug for the
-  user's self-signing flow; SHA-256
+- Last locally supplied candidate: `ZenAgent-Stage4-840a2e2-device-test.ipa`,
+  unsigned Debug for the user's self-signing flow; SHA-256
   `72a7224b3ad05342dbcff60ed4bb912beb2abe1dfd69e520aed2fc8faab3d678`.
 - Candidate source: `840a2e2f7a0420a01af1c0d2450ea3f7afbaaebb`. Production
   `App/`, `Config/`, `Resources/` and `project.yml` inputs match integrated
   `main` at `4268a687332080e1942beb2747338fb9f8e8bb4b`.
 - Simulator CI on that `main` commit passed: run `36290789435`. This does not
   provide device performance or interaction evidence.
+- The owner has not identified the exact installed build used for the Gate
+  decision. PR #12's keyboard/reading-position repair merged later at
+  `9f80b15f835f255b2dffb39db1e4334b429c6936`; the last locally supplied
+  IPA above does not contain that repair. Main CI `36305533211` passed on the
+  merge commit, including its UI regression test, but is simulator evidence.
 - Record signing method and whether installation updated the prior app in
   place. Do not include API keys in screenshots or recordings.
 
@@ -36,11 +43,18 @@ or screenshot when it fails. A skipped row stays unverified.
 ## Gate decision
 
 The Stage 3 Gate requires stable long Conversation scrolling, keyboard behavior,
-Streaming and reading position before Stage 5 App Space begins. D1–D7 are
-device observations. They do not alone establish a 120 Hz or memory baseline;
-that needs measured device profiling (for example, Instruments on a Mac with
-the same source build). Record those results separately before claiming the
-performance and accessibility closure. Until then the Gate stays open.
+Streaming and reading position before Stage 5 App Space begins. On 2026-09-27
+the product owner explicitly reported that the Gate was closed. This records
+the owner's progression decision, not invented results for D1–D7. The exact
+installed build, observed checks, signing/update method, and any recordings
+remain to be added to this ledger. In particular, this record does not claim
+that PR #12 was exercised on device. D1–D7 remain unverified here until their
+observations are supplied.
+
+The Blueprint also calls for 60/120 Hz, memory, Dynamic Type, and VoiceOver
+device checks. No measured 120 Hz or memory baseline has been provided. Record
+profiling results separately before claiming measured performance or full
+accessibility verification; a CI pass cannot supply that evidence.
 
 Soul is not a D1–D7 device check. Its store/binding/prompt behavior is covered
 by Stage 4 tests, while the user-facing editor belongs to Stage 5

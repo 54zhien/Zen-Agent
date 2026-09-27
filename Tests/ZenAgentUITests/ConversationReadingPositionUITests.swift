@@ -55,18 +55,25 @@ final class ConversationReadingPositionUITests: XCTestCase {
             in: scrollView
         ))
 
-        let dragStart = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62))
-        let dragEnd = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.54))
-        dragStart.press(forDuration: 0.1, thenDragTo: dragEnd)
-        XCTAssertTrue(anchor.isHittable, "The older reading Turn must stay visible after positioning its blank gap.")
-        XCTAssertTrue(nextTurnPrompt.isHittable, "The following Turn must be visible to locate the blank gap below the anchor.")
-        let keyboardAnchorY = anchor.frame.minY
-        XCTAssertGreaterThan(keyboardAnchorY, 150)
-        XCTAssertLessThan(keyboardAnchorY, 350, "Position the reading Turn above the expanded Composer.")
-
         let input = app.textViews["conversation-composer-input"]
         XCTAssertTrue(input.waitForExistence(timeout: 5))
         let readingMode = app.buttons["conversation-reading-test-inject-delta"]
+        let positionOlderTurn = app.buttons["conversation-reading-test-position-older-turn"]
+        XCTAssertTrue(positionOlderTurn.waitForExistence(timeout: 5))
+        positionOlderTurn.tap()
+        let keyboardAnchorY = waitForKeyboardSafePosition(
+            anchor,
+            followingTurnPrompt: nextTurnPrompt,
+            composerInput: input,
+            readingMode: readingMode,
+            positionButton: positionOlderTurn,
+            in: scrollView
+        )
+        XCTAssertTrue(anchor.isHittable, "The older reading Turn must stay visible after positioning its blank gap.")
+        XCTAssertTrue(nextTurnPrompt.isHittable, "The following Turn must be visible to locate the blank gap below the anchor.")
+        XCTAssertGreaterThan(keyboardAnchorY, 150)
+        XCTAssertLessThan(keyboardAnchorY, 350, "Position the reading Turn above the expanded Composer.")
+
         logGeometry(
             "before-keyboard",
             timeline: scrollView,
@@ -96,7 +103,18 @@ final class ConversationReadingPositionUITests: XCTestCase {
             "Keyboard focus must preserve the Pane's older-Turn reading mode."
         )
         input.typeText("KEYBOARD_DRAFT")
-        XCTAssertTrue((input.value as? String ?? "").contains("KEYBOARD_DRAFT"))
+        let draftDeadline = Date().addingTimeInterval(5)
+        while Date() < draftDeadline,
+              !(input.value as? String ?? "").contains("KEYBOARD_DRAFT") {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        let observedInputValue = input.value as? String ?? String(describing: input.value)
+        XCTAssertTrue(
+            observedInputValue.contains("KEYBOARD_DRAFT"),
+            "Expected keyboard text entry. value=\(observedInputValue), "
+                + "keyboardExists=\(keyboard.exists), keyboardHittable=\(keyboard.isHittable), "
+                + "keyboardFrame=\(keyboard.frame), inputFrame=\(input.frame)."
+        )
 
         let anchorYBeforeKeyboardDismissal = anchor.frame.minY
         tapBlankTurnGap(
@@ -186,6 +204,64 @@ final class ConversationReadingPositionUITests: XCTestCase {
             && previousTurnResponse.isHittable
             && currentTurnPrompt.exists
             && currentTurnPrompt.isHittable
+    }
+
+    @MainActor
+    private func waitForKeyboardSafePosition(
+        _ anchor: XCUIElement,
+        followingTurnPrompt: XCUIElement,
+        composerInput: XCUIElement,
+        readingMode: XCUIElement,
+        positionButton: XCUIElement,
+        in scrollView: XCUIElement
+    ) -> CGFloat {
+        let deadline = Date().addingTimeInterval(8)
+        var observedPositions: [CGFloat] = []
+
+        func currentState() -> (safe: Bool, anchorFrame: CGRect, promptFrame: CGRect, composerFrame: CGRect) {
+            let anchorFrame = anchor.frame
+            let promptFrame = followingTurnPrompt.frame
+            let composerFrame = composerInput.frame
+            let tapY = anchorFrame.maxY + 8
+            let mode = readingMode.value as? String ?? ""
+            let safe = mode.contains("reading")
+                && anchor.exists
+                && anchor.isHittable
+                && followingTurnPrompt.exists
+                && followingTurnPrompt.isHittable
+                && anchorFrame.minY > 150
+                && anchorFrame.minY < 350
+                && tapY < promptFrame.minY - 16
+                && tapY < composerFrame.minY - 16
+            return (safe, anchorFrame, promptFrame, composerFrame)
+        }
+
+        while Date() < deadline {
+            let state = currentState()
+            if observedPositions.last.map({ abs($0 - state.anchorFrame.minY) > 1 }) ?? true {
+                observedPositions.append(state.anchorFrame.minY)
+                if observedPositions.count > 8 {
+                    observedPositions.removeFirst()
+                }
+            }
+            if state.safe {
+                return state.anchorFrame.minY
+            }
+            RunLoop.current.run(until: min(deadline, Date().addingTimeInterval(0.05)))
+        }
+
+        let finalState = currentState()
+        let mode = readingMode.value as? String ?? String(describing: readingMode.value)
+        let restoreState = positionButton.value as? String ?? String(describing: positionButton.value)
+        XCTAssertTrue(
+            finalState.safe,
+            "The DEBUG fixture restore did not reach a blank-tap-safe older Turn before the deadline. "
+                + "expectedAnchorY=150...350, observedY=\(observedPositions), "
+                + "anchor=\(finalState.anchorFrame), nextPrompt=\(finalState.promptFrame), "
+                + "Composer=\(finalState.composerFrame), timeline=\(scrollView.frame), "
+                + "mode=\(mode), restoreState=\(restoreState)."
+        )
+        return finalState.anchorFrame.minY
     }
 
     @MainActor
