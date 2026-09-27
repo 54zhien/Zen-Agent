@@ -194,6 +194,40 @@ actor AgentRuntime {
         return stream
     }
 
+    /// Reattaches the original ToolCall batch after process loss. A recovered
+    /// approval is owned by this task before a user can decide it.
+    func advanceRecoveredToolBatch(
+        runID: String,
+        batch: RecoveredToolBatch,
+        snapshot: RunExecutionSnapshot,
+        project: @escaping AgentEventProjection = { _ in }
+    ) -> AsyncThrowingStream<AgentEvent, Error> {
+        let box = ContinuationBox()
+        let stream = AsyncThrowingStream<AgentEvent, Error> { box.value = $0 }
+        guard let continuation = box.value else {
+            preconditionFailure("AsyncThrowingStream did not provide a continuation")
+        }
+        guard active[runID] == nil else {
+            continuation.finish(throwing: AgentRuntimeError.alreadyRunning(runID))
+            return stream
+        }
+        let task: Task<Void, Never> = Task { [weak self] in
+            await self?.executeRecoveredToolBatch(
+                runID: runID,
+                batch: batch,
+                snapshot: snapshot,
+                continuation: continuation,
+                project: project
+            )
+        }
+        active[runID] = ActiveExecution(
+            task: task,
+            continuation: continuation,
+            project: project
+        )
+        return stream
+    }
+
     /// Moves a live run into `stopping` before cancelling the provider task. The
     /// stopping row keeps the active slot occupied until the task records the terminal
     /// `.cancelled` transition.
@@ -307,6 +341,171 @@ actor AgentRuntime {
         ]
     }
 
+    private func executeRecoveredToolBatch(
+        runID: String,
+        batch: RecoveredToolBatch,
+        snapshot: RunExecutionSnapshot,
+        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
+        project: @escaping AgentEventProjection
+    ) async {
+        do {
+            guard let run = try store.run(id: runID),
+                  run.state == .waitingForApproval ||
+                    run.state == .executingTools ||
+                    run.state == .continuing
+            else { throw AgentRuntimeError.runIsNotActive(runID) }
+
+            var results: [ToolResultRecord] = []
+            for frozenCall in batch.calls {
+                if stopRequested.contains(runID) || Task.isCancelled {
+                    throw ControlError.stopRequested
+                }
+                guard var call = try store.toolCall(id: frozenCall.id),
+                      call.providerCallID == frozenCall.providerCallID,
+                      call.batchID == frozenCall.batchID,
+                      call.batchSequence == frozenCall.batchSequence
+                else { throw RunRequestRebuildError.incompleteCommittedInput }
+
+                if call.state == .waitingForApproval {
+                    await waitForToolDecision(toolCallID: call.id)
+                    if stopRequested.contains(runID) || Task.isCancelled {
+                        throw ControlError.stopRequested
+                    }
+                    guard let decided = try store.toolCall(id: call.id) else {
+                        throw RunRequestRebuildError.incompleteCommittedInput
+                    }
+                    call = decided
+                }
+
+                if call.state == .approved {
+                    if try store.run(id: runID)?.state == .waitingForApproval {
+                        try await transition(
+                            runID: runID,
+                            to: .executingTools,
+                            continuation: continuation,
+                            project: project
+                        )
+                    }
+                    do {
+                        _ = try await toolRuntime.executeApproved(toolCallID: call.id)
+                    } catch {
+                        if stopRequested.contains(runID) || Task.isCancelled {
+                            throw ControlError.stopRequested
+                        }
+                        // ToolRuntime records an executor failure and model-visible
+                        // result before throwing. Only that durable result can continue.
+                    }
+                    guard let updated = try store.toolCall(id: call.id) else {
+                        throw RunRequestRebuildError.incompleteCommittedInput
+                    }
+                    call = updated
+                }
+
+                if call.state == .dispatched {
+                    try store.markToolCallIndeterminate(id: call.id)
+                    throw ProviderRuntimeFailure.toolOutcomeUnknown
+                }
+                guard call.state == .succeeded || call.state == .failed ||
+                        call.state == .rejected,
+                      let result = try store.toolResult(toolCallID: call.id)
+                else { throw RunRequestRebuildError.incompleteCommittedInput }
+                results.append(result)
+                try await emit(
+                    .toolCallChanged(
+                        runID: runID,
+                        providerCallID: call.providerCallID ?? call.id,
+                        state: call.state
+                    ),
+                    continuation: continuation,
+                    project: project
+                )
+            }
+
+            guard results.count == batch.providerCalls.count else {
+                throw RunRequestRebuildError.incompleteCommittedInput
+            }
+            if try store.run(id: runID)?.state == .waitingForApproval {
+                try await transition(
+                    runID: runID,
+                    to: .executingTools,
+                    continuation: continuation,
+                    project: project
+                )
+            }
+            if try store.run(id: runID)?.state == .executingTools {
+                try await transition(
+                    runID: runID,
+                    to: .continuing,
+                    continuation: continuation,
+                    project: project
+                )
+            }
+            try await transition(
+                runID: runID,
+                to: .requestingModel,
+                continuation: continuation,
+                project: project
+            )
+
+            var messages = batch.requestBeforeBatch.messages
+            messages.append(.assistant(
+                content: batch.assistantContent,
+                reasoning: nil,
+                toolCalls: batch.providerCalls
+            ))
+            for (call, result) in zip(batch.providerCalls, results) {
+                messages.append(.toolResult(toolCallID: call.id, content: result.payload))
+            }
+            await execute(
+                runID: runID,
+                request: ProviderChatRequest(
+                    modelID: batch.requestBeforeBatch.modelID,
+                    messages: messages,
+                    tools: batch.requestBeforeBatch.tools
+                ),
+                snapshot: snapshot,
+                continuation: continuation,
+                project: project,
+                startingNewStep: true
+            )
+            return
+        } catch {
+            do {
+                if stopRequested.contains(runID) || Task.isCancelled {
+                    if let run = try store.run(id: runID), run.state.isActive {
+                        if run.state != .stopping {
+                            try store.transitionRun(
+                                id: runID,
+                                expectedState: run.state,
+                                to: .stopping
+                            )
+                        }
+                        try store.settleTasklessRun(
+                            id: runID,
+                            expectedState: .stopping,
+                            terminalState: .cancelled,
+                            endReason: .cancelledByUser
+                        )
+                        try await emit(
+                            .runEnded(runID: runID, state: .cancelled, endReason: .cancelledByUser),
+                            continuation: continuation,
+                            project: project
+                        )
+                    }
+                } else {
+                    let reason: EndReason = error is ProviderRuntimeFailure
+                        ? .toolOutcomeUnknown : .unrecoverable
+                    for event in try fail(runID: runID, endReason: reason) {
+                        try await emit(event, continuation: continuation, project: project)
+                    }
+                }
+                finishStream(runID: runID, continuation: continuation)
+            } catch {
+                finishStream(runID: runID, continuation: continuation, error: error)
+            }
+        }
+    }
+
     // MARK: - Execution
 
     private func execute(
@@ -314,7 +513,8 @@ actor AgentRuntime {
         request: ProviderChatRequest,
         snapshot: RunExecutionSnapshot,
         continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
-        project: @escaping AgentEventProjection
+        project: @escaping AgentEventProjection,
+        startingNewStep: Bool = false
     ) async {
         let messageID = "assistant-\(runID)"
         var outputState = OutputState(
@@ -374,7 +574,7 @@ actor AgentRuntime {
                     return $0.sequence < $1.sequence
                 }
                 let step: AgentStepRecord
-                if isFirstProviderRequest,
+                if isFirstProviderRequest, !startingNewStep,
                    (entryState == .requestingModel || entryState == .streaming),
                    let currentStep = latestStep {
                     step = AgentStepRecord(

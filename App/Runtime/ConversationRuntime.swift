@@ -425,6 +425,39 @@ actor ConversationRuntime {
                         report.settledRunIDs.append(runID)
                     }
                     continue
+                case .waitingForApproval:
+                    do {
+                        try await continueRecoveredToolBatch(run)
+                        report.continuedRunIDs.append(runID)
+                    } catch CredentialError.unavailable(_, _) {
+                        report.pendingRunIDs.append(runID)
+                    } catch _ as CredentialError {
+                        try await settleRecoveredRun(
+                            id: runID,
+                            expectedState: .waitingForApproval,
+                            terminalState: .failed,
+                            endReason: .credentialExpired
+                        )
+                        report.settledRunIDs.append(runID)
+                    } catch RunRequestRebuildError.missingDependency {
+                        try await settleRecoveredRun(
+                            id: runID,
+                            expectedState: .waitingForApproval,
+                            terminalState: .failed,
+                            endReason: .dependencyUnavailable
+                        )
+                        report.settledRunIDs.append(runID)
+                    } catch RunRequestRebuildError.incompleteCommittedInput,
+                            RunRequestRebuildError.incompatibleSnapshot {
+                        try await settleRecoveredRun(
+                            id: runID,
+                            expectedState: .waitingForApproval,
+                            terminalState: .failed,
+                            endReason: .unrecoverable
+                        )
+                        report.settledRunIDs.append(runID)
+                    }
+                    continue
                 case .requestingModel, .streaming:
                     outcome = (.failed, .streamInterrupted)
                 case .stopping:
@@ -506,6 +539,51 @@ actor ConversationRuntime {
         let stream = await agentRuntime.advance(
             runID: run.id,
             request: request,
+            snapshot: snapshot,
+            project: { event in try await self.applyAndPublish(event) }
+        )
+        let task: Task<Void, Never> = Task { [weak self] in
+            guard let self else { return }
+            await self.consume(runID: run.id, stream: stream)
+            await self.removeCompletedOperation(runID: run.id)
+        }
+        operations[run.id] = task
+    }
+
+    private func continueRecoveredToolBatch(_ run: AgentRunRecord) async throws {
+        guard let encoded = run.executionSnapshot,
+              let triggerID = run.triggerMessageID
+        else { throw RunRequestRebuildError.incompleteCommittedInput }
+        let snapshot: RunExecutionSnapshot
+        do {
+            snapshot = try ExecutionSnapshotCodec.decode(encoded)
+        } catch {
+            throw RunRequestRebuildError.incompatibleSnapshot
+        }
+        let batch = try RunRequestRebuilder(
+            store: store,
+            provider: provider,
+            toolRegistry: toolRegistry
+        ).latestToolBatch(
+            for: run,
+            snapshot: snapshot,
+            history: try promptHistory(
+                inConversation: run.conversationID,
+                excludingMessageID: triggerID
+            )
+        )
+        guard try credentials.resolve(
+            frozenReference: run.requestConfigSeed.credentialBinding.reference,
+            generation: run.requestConfigSeed.credentialBinding.generation
+        ) != nil else { throw RunRequestRebuildError.missingDependency }
+
+        try await RunRecovery(store: store).recover(runID: run.id)
+        guard try store.run(id: run.id)?.state == .waitingForApproval else {
+            throw RunRequestRebuildError.incompatibleSnapshot
+        }
+        let stream = await agentRuntime.advanceRecoveredToolBatch(
+            runID: run.id,
+            batch: batch,
             snapshot: snapshot,
             project: { event in try await self.applyAndPublish(event) }
         )

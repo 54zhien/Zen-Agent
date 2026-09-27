@@ -6,6 +6,13 @@ enum RunRequestRebuildError: Error, Sendable {
     case incompatibleSnapshot
 }
 
+struct RecoveredToolBatch: Sendable {
+    let requestBeforeBatch: ProviderChatRequest
+    let calls: [ToolCallRecord]
+    let providerCalls: [ProviderToolCall]
+    let assistantContent: String?
+}
+
 /// Rebuilds a request only from the original committed input and frozen execution
 /// identity. The caller supplies eligible prior history; mutable Draft and current
 /// Soul selection never enter this boundary.
@@ -86,5 +93,69 @@ struct RunRequestRebuilder {
             },
             systemSections: sections
         ))
+    }
+
+    func latestToolBatch(
+        for run: AgentRunRecord,
+        snapshot: RunExecutionSnapshot,
+        history: [PromptHistoryMessage]
+    ) throws -> RecoveredToolBatch {
+        let request = try initialRequest(for: run, snapshot: snapshot, history: history)
+        let steps = try store.steps(inRun: run.id)
+        // Older protocol rounds are not durably representable in this schema. Do not
+        // produce a continuation that silently drops one from the model transcript.
+        guard steps.count == 1,
+              let step = steps.first,
+              step.sequence == 0,
+              step.attempt == 1
+        else { throw RunRequestRebuildError.incompleteCommittedInput }
+
+        let calls = try store.toolCalls(inRun: run.id).sorted {
+            ($0.batchSequence ?? Int.max) < ($1.batchSequence ?? Int.max)
+        }
+        guard !calls.isEmpty else { throw RunRequestRebuildError.incompleteCommittedInput }
+        var providerCalls: [ProviderToolCall] = []
+        for (index, call) in calls.enumerated() {
+            guard call.batchID == "batch-\(run.id)-\(step.sequence)-\(step.attempt)",
+                  call.batchSequence == index,
+                  let providerCallID = call.providerCallID,
+                  let encodedIntent = call.executionIntent,
+                  let intent = try? JSONDecoder().decode(
+                    ToolExecutionIntent.self,
+                    from: Data(encodedIntent.utf8)
+                  ),
+                  intent.formatVersion == ToolExecutionIntent.currentFormatVersion,
+                  intent.toolID == call.action,
+                  snapshot.exposedTools.contains(where: {
+                    $0.toolID == intent.toolID &&
+                        $0.descriptorRevision == intent.descriptorRevision
+                  })
+            else { throw RunRequestRebuildError.incompleteCommittedInput }
+            providerCalls.append(ProviderToolCall(
+                id: providerCallID,
+                index: index,
+                name: call.action,
+                argumentsJSON: intent.normalizedArgumentsJSON
+            ))
+        }
+
+        var assistantContent: String?
+        if let responseID = run.responseMessageID {
+            let parts = try store.parts(ofMessage: responseID)
+            let textParts = parts.filter { $0.kind == .text }
+            guard textParts.allSatisfy({ $0.state == .completed }) else {
+                throw RunRequestRebuildError.incompleteCommittedInput
+            }
+            let text = try textParts.map {
+                try PersistenceStore.decodeTextPayload($0.payload).text
+            }.joined()
+            assistantContent = text.isEmpty ? nil : text
+        }
+        return RecoveredToolBatch(
+            requestBeforeBatch: request,
+            calls: calls,
+            providerCalls: providerCalls,
+            assistantContent: assistantContent
+        )
     }
 }
