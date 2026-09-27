@@ -81,4 +81,17 @@ and two blank-space taps dismissed the keyboard. Split bottom-edge regression
 tests also passed. The concurrent branch run `36302621687` on the same SHA
 failed the keyboard position assertion: the marker moved from about y=210 to
 y=488. This exposes a transition-ordering race; the passing run alone does not
-close the simulator regression. The device Gate above is still open.
+close the simulator regression. The device Gate was still open at that point.
+
+## Final simulator regression result
+
+The follow-up commit `12da54ca02a5b2cb90014a12eae0814de636ec0d` signals
+Composer transitions before viewport updates, including the keyboard's
+first-responder path. Push CI `36304904428` and PR CI `36304907010` both passed
+on that exact SHA, including the controlled reading-position UI test. The
+reading marker moved less than one point across keyboard show/hide in both runs;
+blank-space taps dismissed the keyboard twice. PR #12 merged this change into
+`main` at `9f80b15f835f255b2dffb39db1e4334b429c6936`; main CI
+`36305533211` passed with 626 Swift Testing cases in 99 suites and two UI tests.
+These results close the simulator regression described above. Device acceptance
+is recorded separately in `tasks/stage3-device-acceptance.md`.
