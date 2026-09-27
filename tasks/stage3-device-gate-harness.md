@@ -54,3 +54,17 @@ control. The fixture never changes production navigation or Composer geometry.
   failures. Preserve the original failure evidence.
 - [ ] Report what the UI test proves and what still requires the user's
   iPhone 15 Pro Max on iOS 27.2. Do not mark the Stage 3 device Gate passed.
+
+## CI finding during implementation
+
+At `669b0f570866a1c1c14fd728c11906bcfa4b7228`, the controlled Streaming
+delta preserved the older Turn and the new-content control reached the newest
+text. The keyboard pass exposed a separate reading-position failure. The actual
+Pane ScrollView remained full-screen in the XCTest accessibility tree; an
+unnamed 44-point ScrollView was a different element. When the keyboard appeared,
+the visible older Turn moved from approximately y=492 to y=129 on the simulator.
+The Pane remained in Reading mode, but the movement was obvious. The existing
+height-change bridge applies the Split bottom-edge policy to Composer/keyboard
+changes too. The repair must preserve the visible reading anchor for Composer
+transitions while retaining bottom-edge anchoring for independent Pane resize.
+This finding is simulator evidence, not a completed device Gate.
