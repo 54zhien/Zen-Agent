@@ -33,8 +33,7 @@ struct RunRequestRebuilder {
 
         guard let instance = try store.providerInstance(
             id: run.requestConfigSeed.providerInstanceID
-        ), instance.providerID == provider.id,
-            instance.credentialReference == run.requestConfigSeed.credentialBinding.reference
+        ), instance.providerID == provider.id
         else { throw RunRequestRebuildError.missingDependency }
 
         let currentTools = toolRegistry.descriptors.map {
@@ -46,7 +45,9 @@ struct RunRequestRebuilder {
                 inputSchema: $0.inputSchema
             )
         }
-        guard currentTools == snapshot.exposedTools else {
+        // The registry may gain tools after this Run was frozen. Only the original
+        // exposures are eligible for this request, and each must still match.
+        guard snapshot.exposedTools.allSatisfy({ currentTools.contains($0) }) else {
             throw RunRequestRebuildError.missingDependency
         }
 
