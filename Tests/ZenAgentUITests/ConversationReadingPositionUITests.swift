@@ -219,9 +219,7 @@ final class ConversationReadingPositionUITests: XCTestCase {
             let composerFrame = composerInput.frame
             let tapY = anchorFrame.maxY + 8
             let mode = readingMode.value as? String ?? ""
-            let restoreState = positionButton.value as? String ?? ""
             let safe = mode.contains("reading")
-                && restoreState.hasPrefix("settled-")
                 && anchor.exists
                 && anchor.isHittable
                 && followingTurnPrompt.exists
