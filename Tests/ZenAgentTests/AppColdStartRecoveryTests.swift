@@ -7,6 +7,123 @@ import Testing
 @Suite("App cold-start recovery")
 @MainActor
 struct AppColdStartRecoveryTests {
+    @Test("an old tool result cannot certify the newest provider step")
+    func historicalToolBatchDoesNotResumeLatestStep() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zen-stale-batch-reopen-\(UUID().uuidString).sqlite")
+        let runID = "stale-batch-\(UUID().uuidString)"
+        let callID = "call-\(UUID().uuidString)"
+        do {
+            let first = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+            try first.commitUserTurnAndCreateParentRun(Fixtures.send(
+                conversationID: "conversation-\(runID)",
+                messageID: "user-\(runID)",
+                runID: runID,
+                runState: .recovering
+            ))
+            try first.recordStep(Fixtures.step(
+                stepID: "step-\(runID)-0",
+                runID: runID,
+                sequence: 0
+            ))
+            try first.recordStep(Fixtures.step(
+                stepID: "step-\(runID)-1",
+                runID: runID,
+                sequence: 1
+            ))
+            try first.createRejectedToolCall(ToolCallRecord(
+                id: callID,
+                agentRunID: runID,
+                action: "old-tool",
+                state: .rejected,
+                executionIntent: nil,
+                attempt: 1,
+                providerCallID: "provider-\(callID)",
+                batchID: "batch-\(runID)-0-1",
+                batchSequence: 0,
+                createdAt: Fixtures.epoch,
+                updatedAt: Fixtures.epoch
+            ), result: ToolResultRecord(
+                toolCallID: callID,
+                payload: "old result",
+                createdAt: Fixtures.epoch
+            ))
+        }
+
+        let reopened = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+        let ledger = Stage2ProviderLedger()
+        let runtime = ConversationRuntime(
+            store: reopened,
+            provider: Stage2ScriptedProvider(ledger: ledger, scripts: [.events([])]),
+            credentials: CredentialStore(
+                secrets: InMemorySecretBackend(),
+                metadataRepository: InMemoryCredentialMetadataRepository()
+            )
+        )
+        let report = try await runtime.reconcileColdStartRuns()
+        #expect(report.settledRunIDs == [runID])
+        #expect(try reopened.run(id: runID)?.state == .failed)
+        #expect(try reopened.run(id: runID)?.endReason == .streamInterrupted)
+        #expect(try reopened.toolCall(id: callID)?.state == .rejected)
+        #expect((await ledger.requestsSnapshot()).isEmpty)
+    }
+
+    @Test("suspended stream and incomplete recovery do not replay a provider request")
+    func inferredCheckpointsFailClosed() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zen-inferred-reopen-\(UUID().uuidString).sqlite")
+        let suspendedID = "suspended-\(UUID().uuidString)"
+        let recoveringID = "recovering-\(UUID().uuidString)"
+        do {
+            let first = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+            try first.commitUserTurnAndCreateParentRun(Fixtures.send(
+                conversationID: "conversation-\(suspendedID)",
+                messageID: "user-\(suspendedID)",
+                runID: suspendedID,
+                runState: .suspended
+            ))
+            try first.recordStep(Fixtures.step(
+                stepID: "step-\(suspendedID)",
+                runID: suspendedID
+            ))
+            let response = try first.ensureAssistantResponse(
+                forRunID: suspendedID,
+                messageID: "assistant-\(suspendedID)"
+            )
+            try first.createPart(Fixtures.streamingPart(
+                id: "part-\(suspendedID)",
+                messageID: response.id,
+                text: "partial before suspension"
+            ))
+            try first.commitUserTurnAndCreateParentRun(Fixtures.send(
+                conversationID: "conversation-\(recoveringID)",
+                messageID: "user-\(recoveringID)",
+                runID: recoveringID,
+                runState: .recovering
+            ))
+        }
+
+        let reopened = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+        let ledger = Stage2ProviderLedger()
+        let runtime = ConversationRuntime(
+            store: reopened,
+            provider: Stage2ScriptedProvider(ledger: ledger, scripts: [.events([])]),
+            credentials: CredentialStore(
+                secrets: InMemorySecretBackend(),
+                metadataRepository: InMemoryCredentialMetadataRepository()
+            )
+        )
+        let report = try await runtime.reconcileColdStartRuns()
+        #expect(Set(report.settledRunIDs) == Set([suspendedID, recoveringID]))
+        #expect(try reopened.run(id: suspendedID)?.state == .failed)
+        #expect(try reopened.run(id: suspendedID)?.endReason == .streamInterrupted)
+        #expect(try reopened.text(ofPart: "part-\(suspendedID)") == "partial before suspension")
+        #expect(try reopened.parts(ofMessage: "assistant-\(suspendedID)").first?.state == .failed)
+        #expect(try reopened.run(id: recoveringID)?.state == .failed)
+        #expect(try reopened.run(id: recoveringID)?.endReason == .unrecoverable)
+        #expect((await ledger.requestsSnapshot()).isEmpty)
+    }
+
     @Test("requesting, stopping, and snapshotless preparing checkpoints settle safely")
     func nonReplayableCheckpointsSettle() async throws {
         let url = FileManager.default.temporaryDirectory
