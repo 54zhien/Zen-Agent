@@ -55,8 +55,8 @@ final class ConversationReadingPositionUITests: XCTestCase {
             in: scrollView
         ))
 
-        let dragStart = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.68))
-        let dragEnd = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.48))
+        let dragStart = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62))
+        let dragEnd = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.54))
         dragStart.press(forDuration: 0.1, thenDragTo: dragEnd)
         XCTAssertTrue(anchor.isHittable, "The older reading Turn must stay visible after positioning its blank gap.")
         XCTAssertTrue(previousTurnResponse.isHittable)
