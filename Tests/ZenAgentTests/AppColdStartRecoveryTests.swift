@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 
 @testable import ZenAgent
@@ -6,6 +7,48 @@ import Testing
 @Suite("App cold-start recovery")
 @MainActor
 struct AppColdStartRecoveryTests {
+    @Test("an unreadable run seed does not conceal another orphan")
+    func damagedSeedDoesNotConcealOtherRun() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zen-bad-seed-reopen-\(UUID().uuidString).sqlite")
+        let damagedID = "damaged-\(UUID().uuidString)"
+        let healthyID = "healthy-\(UUID().uuidString)"
+        do {
+            let first = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+            for runID in [damagedID, healthyID] {
+                try first.commitUserTurnAndCreateParentRun(Fixtures.send(
+                    conversationID: "conversation-\(runID)",
+                    messageID: "user-\(runID)",
+                    runID: runID,
+                    runState: .streaming
+                ))
+            }
+            try first.database.write { db in
+                try db.execute(
+                    sql: "UPDATE agentRun SET requestConfigSeed = ? WHERE id = ?",
+                    arguments: ["{damaged", damagedID]
+                )
+            }
+        }
+
+        let reopened = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+        let ledger = Stage2ProviderLedger()
+        let runtime = ConversationRuntime(
+            store: reopened,
+            provider: Stage2ScriptedProvider(ledger: ledger, scripts: [.events([])]),
+            credentials: CredentialStore(
+                secrets: InMemorySecretBackend(),
+                metadataRepository: InMemoryCredentialMetadataRepository()
+            )
+        )
+        let report = try await runtime.reconcileColdStartRuns()
+        #expect(report.failedRunIDs == [damagedID])
+        #expect(report.settledRunIDs == [healthyID])
+        #expect(try reopened.run(id: healthyID)?.state == .failed)
+        #expect(try reopened.activeParentRunIDs() == [damagedID])
+        #expect((await ledger.requestsSnapshot()).isEmpty)
+    }
+
     @Test("two orphaned streams settle independently and retry is idempotent")
     func twoOrphanedStreamsSettleOnce() async throws {
         let url = FileManager.default.temporaryDirectory

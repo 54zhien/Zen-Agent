@@ -471,6 +471,11 @@ actor ConversationRuntime {
                     outcome = (.failed, .streamInterrupted)
                 case .stopping:
                     outcome = (.cancelled, .cancelledByUser)
+                case .toolRequested, .executingTools, .continuing:
+                    let calls = try store.toolCalls(inRun: runID)
+                    outcome = calls.contains {
+                        $0.state == .dispatched || $0.state == .indeterminate
+                    } ? (.failed, .toolOutcomeUnknown) : nil
                 default:
                     outcome = nil
                 }
