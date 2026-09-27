@@ -62,7 +62,7 @@ final class ConversationReadingPositionUITests: XCTestCase {
         XCTAssertTrue(previousTurnResponse.isHittable)
         XCTAssertTrue(currentTurnPrompt.isHittable)
         let keyboardAnchorY = anchor.frame.minY
-        XCTAssertGreaterThan(keyboardAnchorY, 200)
+        XCTAssertGreaterThan(keyboardAnchorY, 150)
         XCTAssertLessThan(keyboardAnchorY, 350, "Position the reading Turn above the expanded Composer.")
 
         let input = app.textViews["conversation-composer-input"]

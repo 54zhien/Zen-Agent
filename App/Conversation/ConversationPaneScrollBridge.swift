@@ -17,6 +17,7 @@ final class ConversationPaneScrollBridge {
     private(set) var isHeightChangeActive = false
     private var bottomEdgeAnchor: BottomTurnAnchor?
     private var composerHeightChangeActive = false
+    private var composerReadingPixelOffset: (runID: String, points: Double)?
 
     init(pane: ConversationPaneController) {
         self.pane = pane
@@ -50,15 +51,21 @@ final class ConversationPaneScrollBridge {
               geometry.isUsableForPane
         else { return }
         isHeightChangeActive = true
-        bottomEdgeAnchor = composerHeightChangeActive ? nil : bottomReferenceTurn.flatMap { turn in
-            guard geometry.isUsableForPane,
-                  turn.turnTop.isFinite
-            else { return nil }
-            return AnchorResolver.captureBottomAnchor(
-                runID: turn.runID,
-                turnTop: turn.turnTop,
-                geometry: geometry
-            )
+        if composerHeightChangeActive {
+            composerReadingPixelOffset = readingPixelOffset(for: geometry)
+            bottomEdgeAnchor = nil
+        } else {
+            composerReadingPixelOffset = nil
+            bottomEdgeAnchor = bottomReferenceTurn.flatMap { turn in
+                guard geometry.isUsableForPane,
+                      turn.turnTop.isFinite
+                else { return nil }
+                return AnchorResolver.captureBottomAnchor(
+                    runID: turn.runID,
+                    turnTop: turn.turnTop,
+                    geometry: geometry
+                )
+            }
         }
     }
 
@@ -71,7 +78,14 @@ final class ConversationPaneScrollBridge {
         else { return }
 
         if composerHeightChangeActive {
-            _ = pane.updateReading(.geometryChanged(geometry: geometry, anchor: nil))
+            let anchor = composerReadingPixelOffset.flatMap { captured -> TurnAnchor? in
+                guard geometry.viewportHeight > 0,
+                      geometry.viewportHeight.isFinite else { return nil }
+                let relativeOffset = captured.points / geometry.viewportHeight
+                guard relativeOffset.isFinite else { return nil }
+                return TurnAnchor(runID: captured.runID, relativeViewportOffset: relativeOffset)
+            }
+            _ = pane.updateReading(.composerHeightChanged(geometry: geometry, anchor: anchor))
             return
         }
 
@@ -89,6 +103,7 @@ final class ConversationPaneScrollBridge {
     }
 
     func composerHeightWillChange() {
+        guard !composerHeightChangeActive else { return }
         composerHeightChangeActive = true
     }
 
@@ -96,5 +111,15 @@ final class ConversationPaneScrollBridge {
         isHeightChangeActive = false
         bottomEdgeAnchor = nil
         composerHeightChangeActive = false
+        composerReadingPixelOffset = nil
+    }
+
+    private func readingPixelOffset(for geometry: ScrollGeometry) -> (runID: String, points: Double)? {
+        guard geometry.isUsableForPane,
+              case let .reading(anchor, _) = pane.readingPosition.mode,
+              anchor.relativeViewportOffset.isFinite else { return nil }
+        let points = anchor.relativeViewportOffset * geometry.viewportHeight
+        guard points.isFinite else { return nil }
+        return (runID: anchor.runID, points: points)
     }
 }

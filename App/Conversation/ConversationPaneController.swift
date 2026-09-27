@@ -112,6 +112,11 @@ final class ConversationPaneController {
             return currentReadingOutput()
         }
 
+        if case .composerHeightChanged(let geometry, _) = event,
+           !geometry.isUsableForPane {
+            return currentReadingOutput()
+        }
+
         let output = readingPosition.apply(event)
         enqueue(output.action)
         return output
