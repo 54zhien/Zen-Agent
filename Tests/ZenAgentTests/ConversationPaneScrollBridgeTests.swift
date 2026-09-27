@@ -154,6 +154,147 @@ struct ConversationPaneScrollBridgeTests {
     }
 
     @Test
+    func keyboardSignalRestoresReadingAnchorAcrossGeometryTicks() throws {
+        let pane = try makePane(
+            conversationID: "composer-resize-owner",
+            turns: [ConversationTurn(runID: "composer-resize-run", items: [.userText("read here")])]
+        )
+        let bridge = ConversationPaneScrollBridge(pane: pane)
+        let initialGeometry = ScrollGeometry(viewportHeight: 400, contentHeight: 1_200, offset: 300)
+        let anchor = TurnAnchor(runID: "composer-resize-run", relativeViewportOffset: 0.42)
+        bridge.userScrolled(
+            geometry: initialGeometry,
+            topVisibleTurn: (runID: anchor.runID, turnTop: 468)
+        )
+        #expect(pane.readingPosition.mode == .reading(anchor: anchor, pendingTurns: []))
+
+        bridge.composerKeyboardWillChange()
+        bridge.beginHeightChange(
+            geometry: initialGeometry,
+            bottomReferenceTurn: (runID: "composer-resize-run", turnTop: 650)
+        )
+
+        let firstKeyboardGeometry = ScrollGeometry(viewportHeight: 300, contentHeight: 1_200, offset: 300)
+        bridge.continueHeightChange(
+            geometry: firstKeyboardGeometry,
+            turnTops: ["composer-resize-run": 650]
+        )
+        let firstRequest = try #require(pane.scrollRequest)
+        let firstAnchor = TurnAnchor(
+            runID: anchor.runID,
+            relativeViewportOffset: 168.0 / firstKeyboardGeometry.viewportHeight
+        )
+        #expect(firstRequest.action == .restoreAnchor(firstAnchor))
+        #expect(pane.readingPosition.mode == .reading(anchor: firstAnchor, pendingTurns: []))
+        #expect(abs(firstAnchor.relativeViewportOffset * firstKeyboardGeometry.viewportHeight - 168) < 0.000_001)
+
+        let firstAppliedGeometry = applying(
+            firstRequest.action,
+            to: firstKeyboardGeometry,
+            turnTops: ["composer-resize-run": 468]
+        )
+        #expect(firstAppliedGeometry.offset == 300)
+        _ = pane.updateReading(.programmaticScrolled(geometry: firstAppliedGeometry))
+        pane.markScrollApplied(sequence: firstRequest.sequence)
+        let secondKeyboardGeometry = ScrollGeometry(viewportHeight: 250, contentHeight: 1_200, offset: 300)
+        bridge.continueHeightChange(
+            geometry: secondKeyboardGeometry,
+            turnTops: ["composer-resize-run": 650]
+        )
+        let secondRequest = try #require(pane.scrollRequest)
+        let secondAnchor = TurnAnchor(
+            runID: anchor.runID,
+            relativeViewportOffset: 168.0 / secondKeyboardGeometry.viewportHeight
+        )
+        #expect(secondRequest.action == .restoreAnchor(secondAnchor))
+        #expect(pane.readingPosition.mode == .reading(anchor: secondAnchor, pendingTurns: []))
+        #expect(abs(secondAnchor.relativeViewportOffset * secondKeyboardGeometry.viewportHeight - 168) < 0.000_001)
+        bridge.endHeightChange()
+    }
+
+    @Test
+    func keyboardNotificationPromotesStartedViewportChangeBeforeClearanceReport() throws {
+        let pane = try makePane(
+            conversationID: "keyboard-order-owner",
+            turns: [ConversationTurn(runID: "keyboard-order-run", items: [.userText("read here")])]
+        )
+        let bridge = ConversationPaneScrollBridge(pane: pane)
+        let initialGeometry = ScrollGeometry(viewportHeight: 400, contentHeight: 1_200, offset: 300)
+        let originalAnchor = TurnAnchor(runID: "keyboard-order-run", relativeViewportOffset: 0.42)
+        bridge.userScrolled(
+            geometry: initialGeometry,
+            topVisibleTurn: (runID: originalAnchor.runID, turnTop: 468)
+        )
+
+        bridge.beginHeightChange(
+            geometry: initialGeometry,
+            bottomReferenceTurn: (runID: originalAnchor.runID, turnTop: 650)
+        )
+        bridge.composerKeyboardWillChange()
+
+        let keyboardGeometry = ScrollGeometry(viewportHeight: 300, contentHeight: 1_200, offset: 300)
+        bridge.continueHeightChange(
+            geometry: keyboardGeometry,
+            turnTops: [originalAnchor.runID: 650]
+        )
+
+        let request = try #require(pane.scrollRequest)
+        let expectedAnchor = TurnAnchor(
+            runID: originalAnchor.runID,
+            relativeViewportOffset: 168 / keyboardGeometry.viewportHeight
+        )
+        #expect(request.action == .restoreAnchor(expectedAnchor))
+        #expect(pane.readingPosition.mode == .reading(anchor: expectedAnchor, pendingTurns: []))
+        let firstAppliedGeometry = applying(
+            request.action,
+            to: keyboardGeometry,
+            turnTops: [originalAnchor.runID: 468]
+        )
+        _ = pane.updateReading(.programmaticScrolled(geometry: firstAppliedGeometry))
+        pane.markScrollApplied(sequence: request.sequence)
+
+        // Clearance is reported asynchronously; it must not replace the keyboard signal's capture.
+        bridge.composerHeightWillChange()
+        let laterKeyboardGeometry = ScrollGeometry(viewportHeight: 250, contentHeight: 1_200, offset: 300)
+        bridge.continueHeightChange(
+            geometry: laterKeyboardGeometry,
+            turnTops: [originalAnchor.runID: 650]
+        )
+        let laterRequest = try #require(pane.scrollRequest)
+        let laterAnchor = TurnAnchor(
+            runID: originalAnchor.runID,
+            relativeViewportOffset: 168 / laterKeyboardGeometry.viewportHeight
+        )
+        #expect(laterRequest.action == .restoreAnchor(laterAnchor))
+        #expect(pane.readingPosition.mode == .reading(anchor: laterAnchor, pendingTurns: []))
+        bridge.endHeightChange()
+    }
+
+    @Test
+    func composerGeometryChangeKeepsModeAndTurnOwnership() {
+        let readingAnchor = TurnAnchor(runID: "current-run", relativeViewportOffset: -0.2)
+        let mode = ReadingMode.reading(anchor: readingAnchor, pendingTurns: ["pending-run"])
+        let geometry = ScrollGeometry(viewportHeight: 300, contentHeight: 1_200, offset: 300)
+        let mismatchedAnchor = TurnAnchor(runID: "other-run", relativeViewportOffset: 0.4)
+        let machine = ReadingPositionStateMachine(tolerance: 12)
+
+        let output = machine.reduce(
+            mode,
+            .composerHeightChanged(geometry: geometry, anchor: mismatchedAnchor)
+        )
+
+        #expect(output.mode == mode)
+        #expect(output.action == .restoreAnchor(readingAnchor))
+
+        let following = machine.reduce(
+            .followingBottom,
+            .composerHeightChanged(geometry: geometry, anchor: nil)
+        )
+        #expect(following.mode == .followingBottom)
+        #expect(following.action == .scrollToBottom)
+    }
+
+    @Test
     func userDragSupersedesPendingProgrammaticScroll() throws {
         let pane = try makePane(
             conversationID: "drag-owner",

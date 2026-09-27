@@ -73,6 +73,8 @@ enum ReadingPositionEvent: Equatable, Sendable {
     /// 布局变化（Dynamic Type、键盘），内容没变。
     /// 只表示非用户手势导致的布局变化；用户拖动必须发 `userScrolled`。
     case geometryChanged(geometry: ScrollGeometry, anchor: TurnAnchor?)
+    /// Composer/keyboard geometry change with a reading anchor rebased to preserve its screen-space offset.
+    case composerHeightChanged(geometry: ScrollGeometry, anchor: TurnAnchor?)
     /// 单 Pane 高度变化：anchor 是变化前捕获并在连续变化中原样沿用的底边锚点，turnTop 是变化后同一 Turn 的顶部位置。
     case paneHeightChanged(geometry: ScrollGeometry, anchor: BottomTurnAnchor?, turnTop: Double?)
     /// 用户点了「有新内容」胶囊。

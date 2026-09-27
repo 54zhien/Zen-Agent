@@ -124,6 +124,30 @@ struct ReadingPositionStateMachine: Sendable {
                 transition = (.reading(anchor: anchor, pendingTurns: pendingTurns), .restoreAnchor(anchor))
             }
 
+        case let .composerHeightChanged(geometry, requestedAnchor):
+            guard geometry.viewportHeight > 0,
+                  geometry.viewportHeight.isFinite else {
+                return output(mode: mode, action: .none)
+            }
+
+            switch mode {
+            case .followingBottom:
+                transition = (.followingBottom, .scrollToBottom)
+            case let .reading(currentAnchor, pendingTurns):
+                let anchor: TurnAnchor
+                if let requestedAnchor,
+                   requestedAnchor.runID == currentAnchor.runID,
+                   requestedAnchor.relativeViewportOffset.isFinite {
+                    anchor = requestedAnchor
+                } else {
+                    anchor = currentAnchor
+                }
+                transition = (
+                    .reading(anchor: anchor, pendingTurns: pendingTurns),
+                    .restoreAnchor(anchor)
+                )
+            }
+
         case let .paneHeightChanged(geometry, anchor, turnTop):
             guard geometry.viewportHeight > 0,
                   geometry.viewportHeight.isFinite,
