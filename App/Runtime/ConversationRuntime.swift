@@ -958,13 +958,21 @@ actor ConversationRuntime {
 
     func projection(conversationID: String) throws -> RunProjection? {
         if let run = try store.activeParentRuns(inConversation: conversationID).first {
-            let projection = RunProjection(runID: run.id, state: run.state)
+            let projection = RunProjection(
+                runID: run.id,
+                state: run.state,
+                endReason: run.endReason
+            )
             projections[conversationID] = projection
             return projection
         }
         if let cached = projections[conversationID],
            let persisted = try store.run(id: cached.runID) {
-            let projection = RunProjection(runID: persisted.id, state: persisted.state)
+            let projection = RunProjection(
+                runID: persisted.id,
+                state: persisted.state,
+                endReason: persisted.endReason
+            )
             projections[conversationID] = projection
             return projection
         }
@@ -1329,7 +1337,11 @@ actor ConversationRuntime {
         } else if let initial = RunProjection(event: event) {
             projection = initial
         } else if let run = try? store.run(id: eventRunID) {
-            projection = RunProjection(runID: eventRunID, state: run.state)
+            projection = RunProjection(
+                runID: eventRunID,
+                state: run.state,
+                endReason: run.endReason
+            )
         } else {
             return
         }

@@ -188,6 +188,19 @@ struct DeepSeekStreamingTests {
         #expect(DeepSeekProvider.normalizedEvents(from: chunk) == [.finish(.unknown("future_reason"))])
     }
 
+    @Test(
+        "DeepSeek interruption strings map to the provider neutral finish",
+        arguments: ["insufficient_system_resource", "aborted"]
+    )
+    func interruptionFinishIsNeutralized(_ wireReason: String) throws {
+        let chunk = try DeepSeekProvider.decodeStreamChunk(
+            """
+            {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"\(wireReason)"}]}
+            """
+        )
+        #expect(DeepSeekProvider.normalizedEvents(from: chunk) == [.finish(.interrupted)])
+    }
+
     @Test("the final chunk carries a finish reason and its usage")
     func finalChunkCarriesFinishReasonAndUsage() async throws {
         let f = try makeFixture()

@@ -720,23 +720,25 @@ actor AgentRuntime {
                                 continuation: continuation,
                                 project: project
                             )
-                            if reason == .toolCalls || !pendingToolCalls.isEmpty {
-                                if pendingToolCalls.isEmpty {
-                                    try await finishFailure(
-                                        runID: runID,
-                                        output: &outputState,
-                                        error: ProviderRuntimeFailure.toolsNotAvailable,
-                                        continuation: continuation,
-                                        project: project
-                                    )
-                                    terminal = true
-                                } else {
-                                    providerFinished = true
-                                }
-                            } else {
+                            switch ProviderFinishPolicy.disposition(
+                                for: reason,
+                                toolCallCount: pendingToolCalls.count
+                            ) {
+                            case .complete:
                                 try await finishSuccess(
                                     runID: runID,
                                     output: &outputState,
+                                    continuation: continuation,
+                                    project: project
+                                )
+                                terminal = true
+                            case .toolBatch:
+                                providerFinished = true
+                            case .failed(let endReason):
+                                try await finishFailure(
+                                    runID: runID,
+                                    output: &outputState,
+                                    error: ProviderRuntimeFailure.semanticFinish(endReason),
                                     continuation: continuation,
                                     project: project
                                 )
@@ -776,6 +778,17 @@ actor AgentRuntime {
                     break
                 }
 
+                guard providerFinished else {
+                    try await finishFailure(
+                        runID: runID,
+                        output: &outputState,
+                        error: ProviderRuntimeFailure.semanticFinish(.providerFailed),
+                        continuation: continuation,
+                        project: project
+                    )
+                    break
+                }
+
                 if !pendingToolCalls.isEmpty {
                     let assistantContent = outputState.text.isEmpty ? nil : outputState.text
                     activeBatch = ActiveToolBatch(
@@ -811,21 +824,10 @@ actor AgentRuntime {
                     }
                 }
 
-                guard try store.accepts(identity),
-                      let current = try store.run(id: runID),
-                      current.state == .requestingModel || current.state == .streaming
-                else {
-                    finishStream(runID: runID, continuation: continuation)
-                    return
-                }
-
-                try await finishSuccess(
-                    runID: runID,
-                    output: &outputState,
-                    continuation: continuation,
-                    project: project
-                )
-                break
+                // A semantic tool finish always has at least one call. If the
+                // checkpoint vanished before dispatch, end without replay.
+                finishStream(runID: runID, continuation: continuation)
+                return
             }
         } catch ControlError.stopRequested {
             do {
@@ -1760,7 +1762,8 @@ actor AgentRuntime {
             case .stepLimit,
                  .toolsNotAvailable,
                  .toolOutcomeUnknown,
-                 .toolSettlementFailed:
+                 .toolSettlementFailed,
+                 .semanticFinish:
                 return .failed(failure.endReason)
             }
         }
@@ -1838,6 +1841,7 @@ private enum ProviderRuntimeFailure: Error {
     case toolsNotAvailable
     case toolOutcomeUnknown
     case toolSettlementFailed
+    case semanticFinish(EndReason)
 
     var endReason: EndReason {
         switch self {
@@ -1845,6 +1849,7 @@ private enum ProviderRuntimeFailure: Error {
         case .toolsNotAvailable: return .providerFailed
         case .toolOutcomeUnknown: return .toolOutcomeUnknown
         case .toolSettlementFailed: return .toolFailed
+        case .semanticFinish(let reason): return reason
         }
     }
 }

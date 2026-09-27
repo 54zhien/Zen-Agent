@@ -28,6 +28,62 @@ struct LiveConversationStoreTests {
         return (store, clock)
     }
 
+    @Test("failed partial text gains a notice in only its own live Turn")
+    func failedPartialAddsLiveNotice() {
+        let other = ConversationTurn(runID: "run-2", items: [.userText("other")])
+        let harness = makeStore(
+            turns: [
+                ConversationTurn(
+                    runID: "run-1",
+                    items: [
+                        .userText("question"),
+                        .runNotice(RunNoticePresentation(
+                            runID: "run-1",
+                            state: .streaming,
+                            endReason: nil
+                        )),
+                    ]
+                ),
+                other,
+            ],
+            interval: .seconds(1)
+        )
+        _ = harness.store.consume(.messagePartStarted(
+            runID: "run-1",
+            messageID: "answer-1",
+            partID: "part-1",
+            kind: .text
+        ))
+        _ = harness.store.consume(.messagePartDelta(
+            runID: "run-1",
+            partID: "part-1",
+            delta: "partial",
+            endUTF8Offset: 7
+        ))
+        _ = harness.store.consume(.messagePartCompleted(
+            runID: "run-1",
+            partID: "part-1",
+            state: .failed
+        ))
+        let rebuilt = harness.store.consume(.runEnded(
+            runID: "run-1",
+            state: .failed,
+            endReason: .outputLimit
+        ))
+
+        #expect(rebuilt == Set(["run-1"]))
+        #expect(harness.store.state.timeline.turns[0].items == [
+            .userText("question"),
+            .assistantText("partial"),
+            .runNotice(RunNoticePresentation(
+                runID: "run-1",
+                state: .failed,
+                endReason: .outputLimit
+            )),
+        ])
+        #expect(harness.store.state.timeline.turns[1] == other)
+    }
+
     @Test("a delta rebuilds only its target Turn")
     func deltaOnlyRebuildsTargetTurn() {
         let initialTurns = [

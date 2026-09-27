@@ -3,6 +3,7 @@ import Foundation
 struct RunProjection: Sendable, Equatable {
     var runID: String
     var state: RunState
+    var endReason: EndReason?
     var isActive: Bool
     var canStop: Bool
     var isWaitingForApproval: Bool
@@ -10,9 +11,10 @@ struct RunProjection: Sendable, Equatable {
 }
 
 extension RunProjection {
-    init(runID: String, state: RunState) {
+    init(runID: String, state: RunState, endReason: EndReason? = nil) {
         self.runID = runID
         self.state = state
+        self.endReason = endReason
         self.isActive = state.isActive
         self.canStop = state.isActive && state != .stopping
         self.isWaitingForApproval = state == .waitingForApproval
@@ -30,8 +32,8 @@ extension RunProjection {
             self.init(runID: runID, state: state)
         case .approvalRequired:
             return nil
-        case .runEnded(let runID, let state, _):
-            self.init(runID: runID, state: state)
+        case .runEnded(let runID, let state, let endReason):
+            self.init(runID: runID, state: state, endReason: endReason)
         case .messagePartStarted,
              .messagePartDelta,
              .messagePartCompleted,
@@ -44,36 +46,46 @@ extension RunProjection {
     mutating func apply(_ event: AgentEvent) {
         let eventRunID: String
         let nextState: RunState?
+        let eventEndReason: EndReason?
 
         switch event {
         case .runAccepted(let runID, _):
             eventRunID = runID
             nextState = .preparing
+            eventEndReason = nil
         case .runStateChanged(let runID, let state):
             eventRunID = runID
             nextState = state
+            eventEndReason = nil
         case .approvalRequired(let runID, _):
             eventRunID = runID
             nextState = nil
-        case .runEnded(let runID, let state, _):
+            eventEndReason = nil
+        case .runEnded(let runID, let state, let endReason):
             eventRunID = runID
             nextState = state
+            eventEndReason = endReason
         case .messagePartStarted(let runID, _, _, _):
             eventRunID = runID
             nextState = nil
+            eventEndReason = nil
         case .messagePartDelta(let runID, _, _, _):
             eventRunID = runID
             nextState = nil
+            eventEndReason = nil
         case .messagePartCompleted(let runID, _, _):
             eventRunID = runID
             nextState = nil
+            eventEndReason = nil
         case .toolCallChanged(let runID, _, _):
             eventRunID = runID
             nextState = nil
+            eventEndReason = nil
         }
 
         guard eventRunID == runID, let nextState else { return }
         state = nextState
+        if let eventEndReason { endReason = eventEndReason }
         isActive = nextState.isActive
         canStop = nextState.isActive && nextState != .stopping
         isWaitingForApproval = nextState == .waitingForApproval

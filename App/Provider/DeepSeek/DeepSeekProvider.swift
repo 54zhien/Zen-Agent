@@ -888,6 +888,7 @@ extension FinishReason {
         case "length": self = .length
         case "content_filter": self = .contentFilter
         case "tool_calls": self = .toolCalls
+        case "insufficient_system_resource", "aborted": self = .interrupted
         case .some(let other): self = .unknown(other)
         case .none: self = .unknown("absent")
         }
