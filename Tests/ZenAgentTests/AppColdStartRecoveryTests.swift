@@ -7,6 +7,13 @@ import Testing
 @Suite("App cold-start recovery")
 @MainActor
 struct AppColdStartRecoveryTests {
+    enum MutableEnvironmentChange: CaseIterable, Sendable {
+        case none
+        case selectedCredential
+        case additionalTool
+        case globalSoul
+    }
+
     @Test("an old tool result cannot certify the newest provider step")
     func historicalToolBatchDoesNotResumeLatestStep() async throws {
         let url = FileManager.default.temporaryDirectory
@@ -454,8 +461,8 @@ struct AppColdStartRecoveryTests {
         #expect((await providerLedger.requestsSnapshot()).isEmpty)
     }
 
-    @Test("locked credential leaves a taskless run stoppable after disk reopen")
-    func unavailableCredentialRunCanBeStopped() async throws {
+    @Test("locked credential leaves a taskless run stoppable or retryable", arguments: [false, true])
+    func unavailableCredentialRunCanBeStopped(retryAfterUnlock: Bool) async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("zen-locked-reopen-\(UUID().uuidString).sqlite")
         let runID = "locked-\(UUID().uuidString)"
@@ -508,18 +515,30 @@ struct AppColdStartRecoveryTests {
         let ledger = Stage2ProviderLedger()
         let runtime = ConversationRuntime(
             store: reopened,
-            provider: Stage2ScriptedProvider(ledger: ledger, scripts: [.events([])]),
+            provider: Stage2ScriptedProvider(
+                ledger: ledger,
+                scripts: [.events([.textDelta("resumed"), .finish(.stop)])]
+            ),
             credentials: credentials
         )
 
         let report = try await runtime.reconcileColdStartRuns()
         #expect(report.pendingRunIDs == [runID])
         #expect(try reopened.run(id: runID)?.state == .preparing)
-        try await runtime.stop(runID: runID)
-        #expect(try reopened.run(id: runID)?.state == .cancelled)
-        #expect(try reopened.run(id: runID)?.endReason == .cancelledByUser)
+        if retryAfterUnlock {
+            backend.unreadableReferences.remove("cred-1")
+            let retry = try await runtime.retryColdStartRecovery()
+            #expect(retry.continuedRunIDs == [runID])
+            try await runtime.waitForCompletion(runID: runID)
+            #expect(try reopened.run(id: runID)?.state == .completed)
+            #expect((await ledger.requestsSnapshot()).count == 1)
+        } else {
+            try await runtime.stop(runID: runID)
+            #expect(try reopened.run(id: runID)?.state == .cancelled)
+            #expect(try reopened.run(id: runID)?.endReason == .cancelledByUser)
+            #expect((await ledger.requestsSnapshot()).isEmpty)
+        }
         #expect(try reopened.activeParentRuns(inConversation: conversationID).isEmpty)
-        #expect((await ledger.requestsSnapshot()).isEmpty)
     }
 
     @Test("reopened approval and persisted approval both execute the original call once", arguments: [false, true])
@@ -659,8 +678,8 @@ struct AppColdStartRecoveryTests {
         )) == true)
     }
 
-    @Test("a frozen preparing run attaches one real continuation after disk reopen")
-    func frozenPreparingRunAttachesContinuation() async throws {
+    @Test("a frozen preparing run ignores later mutable settings", arguments: MutableEnvironmentChange.allCases)
+    func frozenPreparingRunAttachesContinuation(change: MutableEnvironmentChange) async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("zen-prepare-reopen-\(UUID().uuidString).sqlite")
         let runID = "prepare-\(UUID().uuidString)"
@@ -697,6 +716,26 @@ struct AppColdStartRecoveryTests {
                 runID: runID,
                 encodedSnapshot: try ExecutionSnapshotCodec.encode(snapshot)
             )
+            if change == .selectedCredential {
+                let instance = try #require(try first.providerInstance(
+                    id: ProviderInstanceID(rawValue: "pi1")
+                ))
+                _ = try first.attachCredential(
+                    CredentialReference(id: "cred-2"),
+                    toInstance: instance.id,
+                    expectedEditRevision: instance.editRevision
+                )
+            }
+            if change == .globalSoul {
+                try first.createSoul(
+                    initialVersion: SoulVersionRecord(
+                        id: "later-global-soul",
+                        instructions: "LATER MUTABLE SOUL",
+                        createdAt: Fixtures.epoch
+                    ),
+                    at: Fixtures.epoch
+                )
+            }
         }
 
         let reopened = PersistenceStore(database: try ZenDatabase.open(at: url.path))
@@ -714,12 +753,18 @@ struct AppColdStartRecoveryTests {
             scripts: [.events([.textDelta("resumed"), .finish(.stop)])]
         )
         let router = RunEventRouter()
+        let registry: ToolRegistry
+        if change == .additionalTool {
+            registry = try ToolRegistry(tools: [CurrentDateTool()])
+        } else {
+            registry = .empty
+        }
         let runtime = AppAssembly.makeRuntime(
             store: reopened,
             provider: provider,
             credentials: credentials,
             router: router,
-            toolRegistry: .empty
+            toolRegistry: registry
         )
         let dependencies = AppAssembly.Dependencies(
             store: reopened,
@@ -745,6 +790,14 @@ struct AppColdStartRecoveryTests {
         let requests = await ledger.requestsSnapshot()
         #expect(requests.count == 1)
         #expect(requests.first?.messages.contains(.user("hello")) == true)
+        #expect(requests.first?.tools.isEmpty == true)
+        let hasLaterSoul = requests.first?.messages.contains { message in
+            if case .system(let text) = message {
+                return text.contains("LATER MUTABLE SOUL")
+            }
+            return false
+        } ?? false
+        #expect(!hasLaterSoul)
         #expect(!router.diagnostics.contains { $0.contains("Dropped unregistered Run event") })
     }
 }
