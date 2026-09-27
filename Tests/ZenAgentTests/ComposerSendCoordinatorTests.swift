@@ -6,6 +6,37 @@ import Testing
 @Suite("Composer send coordinator")
 @MainActor
 struct ComposerSendCoordinatorTests {
+    @Test("a failed Stop stays visible and leaves the active Run projection intact")
+    func failedStopShowsControlledError() async {
+        let instanceID = ProviderInstanceID(rawValue: "stop-error-instance")
+        let modelID = ModelID(rawValue: "stop-error-model")
+        let configuration = ConversationComposerConfiguration(
+            providerInstanceID: instanceID,
+            modelID: modelID
+        )
+        let controller = ComposerController(configuration: configuration)
+        let bridge = ComposerRuntimeActionBridge(
+            start: { _ in "unused" },
+            stop: { runID in throw AgentRuntimeError.runIsNotActive(runID) },
+            models: { _ in [] },
+            projection: { _ in RunProjection(runID: "active-run", state: .streaming) },
+            projectionUpdates: { _ in AsyncStream { $0.yield(nil) } }
+        )
+        let coordinator = ComposerSendCoordinator(
+            conversationID: "stop-error-conversation",
+            controller: controller,
+            configuration: configuration,
+            bridge: bridge,
+            maxProviderSteps: 4
+        )
+        coordinator.updateRunProjection(RunProjection(runID: "active-run", state: .streaming))
+
+        let action = await coordinator.handlePrimaryAction()
+
+        #expect(coordinator.sendErrorMessage == "停止失败，请重试。")
+        #expect(action == .stop(runID: "active-run", enabled: true))
+    }
+
     @Test("a completed first send leaves the same composer ready for a second send")
     func completedRunAllowsSecondSend() async {
         let ledger = TwoSendLedger()
