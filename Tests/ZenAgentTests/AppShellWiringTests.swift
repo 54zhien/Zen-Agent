@@ -18,6 +18,73 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("cold launch settles an orphaned streaming run without replaying its provider request")
+    func coldLaunchSettlesOrphanedStreamingRun() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zen-cold-start-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let runID = "orphan-\(UUID().uuidString)"
+        let conversationID = "conversation-\(runID)"
+        let partID = "partial-\(runID)"
+
+        do {
+            let firstStore = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+            try firstStore.commitUserTurnAndCreateParentRun(Fixtures.send(
+                conversationID: conversationID,
+                messageID: "user-\(runID)",
+                runID: runID,
+                runState: .streaming
+            ))
+            let response = try firstStore.ensureAssistantResponse(
+                forRunID: runID,
+                messageID: "assistant-\(runID)"
+            )
+            try firstStore.createPart(Fixtures.streamingPart(
+                id: partID,
+                messageID: response.id,
+                text: "preserved partial"
+            ))
+        }
+
+        let reopenedStore = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+        let provider = Stage2ScriptedProvider(ledger: Stage2ProviderLedger(), scripts: [])
+        let credentials = CredentialStore(
+            secrets: InMemorySecretBackend(),
+            metadataRepository: InMemoryCredentialMetadataRepository()
+        )
+        let router = RunEventRouter()
+        let runtime = AppAssembly.makeRuntime(
+            store: reopenedStore,
+            provider: provider,
+            credentials: credentials,
+            router: router,
+            toolRegistry: .empty
+        )
+        let dependencies = AppAssembly.Dependencies(
+            store: reopenedStore,
+            credentials: credentials,
+            provider: provider,
+            runtime: runtime,
+            router: router
+        )
+        let suite = "ZenAgentTests.ColdStart.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let shell = AppShellModel(dependencies: dependencies, userDefaults: defaults)
+        #expect(shell.launchState == .ready)
+
+        for _ in 0..<100 {
+            if try reopenedStore.run(id: runID)?.state == .failed { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let run = try #require(try reopenedStore.run(id: runID))
+        #expect(run.state == .failed)
+        #expect(run.endReason == .streamInterrupted)
+        #expect(try reopenedStore.text(ofPart: partID) == "preserved partial")
+        #expect(try reopenedStore.parts(ofMessage: "assistant-\(runID)").first?.state == .failed)
+        #expect(try reopenedStore.activeParentRuns(inConversation: conversationID).isEmpty)
+    }
+
     @Test("zeroConfigurationDoesNotCreateConversationOrEnableSend")
     func zeroConfigurationDoesNotCreateConversationOrEnableSend() throws {
         let fixture = try makeFixture(seed: .none, createInstance: false, setDefault: false)
