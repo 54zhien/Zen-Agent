@@ -18,6 +18,7 @@ final class ConversationPaneScrollBridge {
     private var bottomEdgeAnchor: BottomTurnAnchor?
     private var composerHeightChangeActive = false
     private var composerReadingPixelOffset: (runID: String, points: Double)?
+    private var heightChangeStartReadingPixelOffset: (runID: String, points: Double)?
 
     init(pane: ConversationPaneController) {
         self.pane = pane
@@ -51,8 +52,9 @@ final class ConversationPaneScrollBridge {
               geometry.isUsableForPane
         else { return }
         isHeightChangeActive = true
+        heightChangeStartReadingPixelOffset = readingPixelOffset(for: geometry)
         if composerHeightChangeActive {
-            composerReadingPixelOffset = readingPixelOffset(for: geometry)
+            composerReadingPixelOffset = heightChangeStartReadingPixelOffset
             bottomEdgeAnchor = nil
         } else {
             composerReadingPixelOffset = nil
@@ -103,8 +105,18 @@ final class ConversationPaneScrollBridge {
     }
 
     func composerHeightWillChange() {
-        guard !composerHeightChangeActive else { return }
+        markComposerHeightChange()
+    }
+
+    func composerKeyboardWillChange() {
+        markComposerHeightChange()
+    }
+
+    private func markComposerHeightChange() {
         composerHeightChangeActive = true
+        guard isHeightChangeActive else { return }
+        composerReadingPixelOffset = heightChangeStartReadingPixelOffset
+        bottomEdgeAnchor = nil
     }
 
     func endHeightChange() {
@@ -112,6 +124,7 @@ final class ConversationPaneScrollBridge {
         bottomEdgeAnchor = nil
         composerHeightChangeActive = false
         composerReadingPixelOffset = nil
+        heightChangeStartReadingPixelOffset = nil
     }
 
     private func readingPixelOffset(for geometry: ScrollGeometry) -> (runID: String, points: Double)? {

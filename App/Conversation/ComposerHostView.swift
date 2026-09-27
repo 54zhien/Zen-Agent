@@ -21,6 +21,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let onQuotePhase: (ComposerQuoteDragPhase) -> Void
         let onText: (String, ComposerSelection, Bool) -> Void
         let onFocus: (Bool) -> Void
+        var onKeyboardWillChange: () -> Void = {}
         let onSend: () -> Void
         let onStop: () -> Void
         let onModel: (ModelID) -> Void
@@ -46,6 +47,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var configuration: Configuration?
     private var currentState: ComposerPresentationState = .resting
     private var keyboardTiming: (duration: TimeInterval, options: UIView.AnimationOptions)?
+    private var keyboardTransitionOwned = false
     private var textRevision = 0
     private var measuredRevision = -1
     private var measuredWidth: CGFloat = -1
@@ -496,7 +498,11 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     @objc private func keyboardWillChange(_ notification: Notification) {
-        guard window != nil, let info = notification.userInfo,
+        guard window != nil else { return }
+        if keyboardTransitionOwned || editor.isFirstResponder {
+            configuration?.onKeyboardWillChange()
+        }
+        guard let info = notification.userInfo,
               let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber,
               let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber else { return }
         keyboardTiming = (duration.doubleValue,
@@ -505,11 +511,15 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     @objc private func keyboardDidHide(_ notification: Notification) {
-        guard window != nil, currentState == .editing else { return }
-        configuration?.onFocus(false)
+        guard window != nil else { return }
+        if currentState == .editing { configuration?.onFocus(false) }
+        keyboardTransitionOwned = false
     }
 
-    func textViewDidBeginEditing(_ textView: UITextView) { configuration?.onFocus(true) }
+    func textViewDidBeginEditing(_ textView: UITextView) {
+        keyboardTransitionOwned = true
+        configuration?.onFocus(true)
+    }
     func textViewDidEndEditing(_ textView: UITextView) { configuration?.onFocus(false) }
     func textViewDidChange(_ textView: UITextView) { reportEditor() }
     func textViewDidChangeSelection(_ textView: UITextView) { reportEditor() }

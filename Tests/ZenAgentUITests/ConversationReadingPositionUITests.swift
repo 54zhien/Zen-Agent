@@ -67,10 +67,24 @@ final class ConversationReadingPositionUITests: XCTestCase {
         let input = app.textViews["conversation-composer-input"]
         XCTAssertTrue(input.waitForExistence(timeout: 5))
         let readingMode = app.buttons["conversation-reading-test-inject-delta"]
+        logGeometry(
+            "before-keyboard",
+            timeline: scrollView,
+            anchor: anchor,
+            keyboard: app.keyboards.firstMatch,
+            readingMode: readingMode
+        )
         input.tap()
 
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 8))
+        logGeometry(
+            "keyboard-shown",
+            timeline: scrollView,
+            anchor: anchor,
+            keyboard: keyboard,
+            readingMode: readingMode
+        )
         XCTAssertTrue(input.isHittable, "The Composer must remain usable while its keyboard is visible.")
         XCTAssertTrue(
             waitForFrameY(anchor, toRemainAt: keyboardAnchorY, tolerance: 18),
@@ -93,6 +107,13 @@ final class ConversationReadingPositionUITests: XCTestCase {
             keyboard: keyboard
         )
         XCTAssertTrue(keyboard.waitForNonExistence(timeout: 8))
+        logGeometry(
+            "keyboard-hidden",
+            timeline: scrollView,
+            anchor: anchor,
+            keyboard: keyboard,
+            readingMode: readingMode
+        )
         XCTAssertTrue(
             waitForFrameY(anchor, toRemainAt: anchorYBeforeKeyboardDismissal, tolerance: 18),
             "Hiding the keyboard must preserve the visible reading Turn position."
@@ -102,6 +123,13 @@ final class ConversationReadingPositionUITests: XCTestCase {
         let anchorYBeforeSecondPresentation = anchor.frame.minY
         input.tap()
         XCTAssertTrue(keyboard.waitForExistence(timeout: 8))
+        logGeometry(
+            "keyboard-shown-again",
+            timeline: scrollView,
+            anchor: anchor,
+            keyboard: keyboard,
+            readingMode: readingMode
+        )
         XCTAssertTrue(
             waitForFrameY(anchor, toRemainAt: anchorYBeforeSecondPresentation, tolerance: 18),
             "A second keyboard presentation must preserve the visible reading Turn position."
@@ -115,6 +143,13 @@ final class ConversationReadingPositionUITests: XCTestCase {
             keyboard: keyboard
         )
         XCTAssertTrue(keyboard.waitForNonExistence(timeout: 8))
+        logGeometry(
+            "keyboard-hidden-again",
+            timeline: scrollView,
+            anchor: anchor,
+            keyboard: keyboard,
+            readingMode: readingMode
+        )
         XCTAssertTrue(
             waitForFrameY(anchor, toRemainAt: anchorYBeforeSecondDismissal, tolerance: 18),
             "A second keyboard dismissal must preserve the visible reading Turn position."
@@ -182,7 +217,28 @@ final class ConversationReadingPositionUITests: XCTestCase {
         let normalizedY = (tapY - app.frame.minY) / app.frame.height
         XCTAssertGreaterThan(normalizedY, 0)
         XCTAssertLessThan(normalizedY, 1)
+        print(
+            "READING_UI_BLANK_TAP older=\(olderResponse.frame) newer=\(newerPrompt.frame) "
+                + "tapY=\(tapY) input=\(composerInput.frame) keyboard=\(keyboard?.frame ?? .zero)"
+        )
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: normalizedY)).tap()
+    }
+
+    @MainActor
+    private func logGeometry(
+        _ phase: String,
+        timeline: XCUIElement,
+        anchor: XCUIElement,
+        keyboard: XCUIElement,
+        readingMode: XCUIElement
+    ) {
+        let keyboardFrame = keyboard.exists ? String(describing: keyboard.frame) : "hidden"
+        let anchorFrame = anchor.exists ? String(describing: anchor.frame) : "missing"
+        let mode = readingMode.value as? String ?? "unavailable"
+        print(
+            "READING_UI_GEOMETRY phase=\(phase) timeline=\(timeline.frame) "
+                + "anchor=\(anchorFrame) keyboard=\(keyboardFrame) mode=\(mode)"
+        )
     }
 
     @MainActor

@@ -7,6 +7,7 @@ struct ConversationComposerView: View {
     @Bindable var controller: ComposerController
     private let bridge: ComposerRuntimeActionBridge
     private let onHeightChanged: (CGFloat) -> Void
+    private let onKeyboardWillChange: () -> Void
     @State private var coordinator: ComposerSendCoordinator
     @State private var runProjection: RunProjection?
     @State private var knownModels: [ModelDescriptor] = []
@@ -14,11 +15,13 @@ struct ConversationComposerView: View {
 
     init(conversationID: String, controller: ComposerController,
          bridge: ComposerRuntimeActionBridge, maxProviderSteps: Int,
-         onHeightChanged: @escaping (CGFloat) -> Void = { _ in }) {
+         onHeightChanged: @escaping (CGFloat) -> Void = { _ in },
+         onKeyboardWillChange: @escaping () -> Void = {}) {
         self.conversationID = conversationID
         self.controller = controller
         self.bridge = bridge
         self.onHeightChanged = onHeightChanged
+        self.onKeyboardWillChange = onKeyboardWillChange
         _coordinator = State(initialValue: ComposerSendCoordinator(
             conversationID: conversationID, controller: controller,
             configuration: controller.configuration, bridge: bridge,
@@ -91,6 +94,9 @@ struct ConversationComposerView: View {
                 }
             },
             onFocus: { focused in
+                if focused || controller.draft.presentationState == .editing {
+                    onKeyboardWillChange()
+                }
                 if focused {
                     let event: ComposerPresentationEvent = controller.draft.presentationState == .compact
                         ? .compactTapped : .textAreaTapped
@@ -99,6 +105,7 @@ struct ConversationComposerView: View {
                     apply(controller.handle(.keyboardDismissed))
                 }
             },
+            onKeyboardWillChange: onKeyboardWillChange,
             onSend: { sendDraft() },
             onStop: { Task { _ = await coordinator.handlePrimaryAction() } },
             onModel: { modelID in controller.configuration.modelID = modelID },

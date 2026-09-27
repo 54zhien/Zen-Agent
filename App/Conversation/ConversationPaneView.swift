@@ -62,6 +62,9 @@ struct ConversationPaneView: View {
                     guard abs(composerClearance - clearance) > 0.5 else { return }
                     scrollBridge.composerHeightWillChange()
                     composerClearance = clearance
+                },
+                onKeyboardWillChange: {
+                    scrollBridge.composerKeyboardWillChange()
                 }
             )
             .id(ObjectIdentifier(pane.composer))
