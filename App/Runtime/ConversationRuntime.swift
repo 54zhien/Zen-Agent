@@ -490,6 +490,81 @@ actor ConversationRuntime {
                     outcome = (.failed, .streamInterrupted)
                 case .stopping:
                     outcome = (.cancelled, .cancelledByUser)
+                case .suspended, .recovering:
+                    let steps = try store.steps(inRun: runID)
+                    let calls = try store.toolCalls(inRun: runID)
+                    let latestStep = steps.max {
+                        if $0.sequence == $1.sequence { return $0.attempt < $1.attempt }
+                        return $0.sequence < $1.sequence
+                    }
+                    let latestBatchID = latestStep.map {
+                        "batch-\(runID)-\($0.sequence)-\($0.attempt)"
+                    }
+                    let latestCalls = latestBatchID.map { batchID in
+                        calls.filter { $0.batchID == batchID }
+                    } ?? []
+                    let hasOpenPart: Bool
+                    if let responseID = run.responseMessageID {
+                        hasOpenPart = try store.parts(ofMessage: responseID).contains {
+                            $0.state == .pending || $0.state == .streaming
+                        }
+                    } else {
+                        hasOpenPart = false
+                    }
+                    if calls.contains(where: {
+                        $0.state == .dispatched || $0.state == .indeterminate
+                    }) {
+                        outcome = (.failed, .toolOutcomeUnknown)
+                    } else if hasOpenPart || (latestStep != nil && latestCalls.isEmpty) {
+                        // A Step is the durable request identity. An older tool batch
+                        // cannot prove that the newest provider POST was not sent.
+                        outcome = (.failed, .streamInterrupted)
+                    } else if (latestStep == nil && !calls.isEmpty) ||
+                                (run.state == .recovering && run.recoveryAction == nil) {
+                        outcome = (.failed, .unrecoverable)
+                    } else if latestCalls.contains(where: {
+                        $0.state == .waitingForSystemPermissionConsent
+                    }) {
+                        report.pendingRunIDs.append(runID)
+                        continue
+                    } else {
+                        do {
+                            if latestCalls.isEmpty {
+                                try await continueFrozenPreparingRun(run)
+                            } else {
+                                try await continueRecoveredToolBatch(run)
+                            }
+                            report.continuedRunIDs.append(runID)
+                        } catch CredentialError.unavailable(_, _) {
+                            report.pendingRunIDs.append(runID)
+                        } catch _ as CredentialError {
+                            try await settleRecoveredRun(
+                                id: runID,
+                                expectedState: run.state,
+                                terminalState: .failed,
+                                endReason: .credentialExpired
+                            )
+                            report.settledRunIDs.append(runID)
+                        } catch RunRequestRebuildError.missingDependency {
+                            try await settleRecoveredRun(
+                                id: runID,
+                                expectedState: run.state,
+                                terminalState: .failed,
+                                endReason: .dependencyUnavailable
+                            )
+                            report.settledRunIDs.append(runID)
+                        } catch RunRequestRebuildError.incompleteCommittedInput,
+                                RunRequestRebuildError.incompatibleSnapshot {
+                            try await settleRecoveredRun(
+                                id: runID,
+                                expectedState: run.state,
+                                terminalState: .failed,
+                                endReason: .unrecoverable
+                            )
+                            report.settledRunIDs.append(runID)
+                        }
+                        continue
+                    }
                 default:
                     outcome = nil
                 }

@@ -167,8 +167,8 @@ struct AppColdStartRecoveryTests {
         #expect((await ledger.requestsSnapshot()).isEmpty)
     }
 
-    @Test("a fully settled tool batch continues the same run after disk reopen")
-    func completedToolBatchContinuesOnce() async throws {
+    @Test("prepared or settled tool batch continues the same run after disk reopen", arguments: [false, true])
+    func completedToolBatchContinuesOnce(alreadySettled: Bool) async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("zen-tool-continuation-\(UUID().uuidString).sqlite")
         let runID = "continue-\(UUID().uuidString)"
@@ -253,23 +253,25 @@ struct AppColdStartRecoveryTests {
                 createdAt: Fixtures.epoch,
                 updatedAt: Fixtures.epoch
             ))
-            try first.store.markToolCallDispatched(id: callID)
-            let result = try await tool.execute(intent, idempotencyKey: callID)
-            try first.store.finishDispatchedToolCall(
-                id: callID,
-                expectedAttempt: 1,
-                state: .succeeded,
-                result: ToolResultRecord(
-                    toolCallID: callID,
-                    payload: result.content,
-                    createdAt: Fixtures.epoch
+            if alreadySettled {
+                try first.store.markToolCallDispatched(id: callID)
+                let result = try await tool.execute(intent, idempotencyKey: callID)
+                try first.store.finishDispatchedToolCall(
+                    id: callID,
+                    expectedAttempt: 1,
+                    state: .succeeded,
+                    result: ToolResultRecord(
+                        toolCallID: callID,
+                        payload: result.content,
+                        createdAt: Fixtures.epoch
+                    )
                 )
-            )
-            try first.store.transitionRun(
-                id: runID,
-                expectedState: .executingTools,
-                to: .continuing
-            )
+                try first.store.transitionRun(
+                    id: runID,
+                    expectedState: .executingTools,
+                    to: .continuing
+                )
+            }
         }
 
         let reopened = try Stage2GateFixture.reopen(url)
@@ -295,6 +297,7 @@ struct AppColdStartRecoveryTests {
         #expect(report.continuedRunIDs == [runID])
         try await runtime.waitForCompletion(runID: runID)
         #expect(try reopened.run(id: runID)?.state == .completed)
+        #expect(try reopened.toolCall(id: callID)?.state == .succeeded)
         #expect(try reopened.steps(inRun: runID).count == 2)
         #expect((await sideEffects.snapshot()).count == 1)
         let requests = await providerLedger.requestsSnapshot()
@@ -519,8 +522,8 @@ struct AppColdStartRecoveryTests {
         #expect((await ledger.requestsSnapshot()).isEmpty)
     }
 
-    @Test("reopened approval waits for the real decision and executes its original call once")
-    func reopenedApprovalExecutesOriginalCallOnce() async throws {
+    @Test("reopened approval and persisted approval both execute the original call once", arguments: [false, true])
+    func reopenedApprovalExecutesOriginalCallOnce(decisionBeforeReopen: Bool) async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("zen-approval-reopen-\(UUID().uuidString).sqlite")
         let runID = "approval-\(UUID().uuidString)"
@@ -606,6 +609,9 @@ struct AppColdStartRecoveryTests {
                 createdAt: Fixtures.epoch,
                 updatedAt: Fixtures.epoch
             ))
+            if decisionBeforeReopen {
+                try first.store.approveToolCall(id: callID)
+            }
         }
 
         let reopened = try Stage2GateFixture.reopen(url)
@@ -629,14 +635,15 @@ struct AppColdStartRecoveryTests {
             toolRegistry: try ToolRegistry(tools: [Stage2SideEffectTool(ledger: ledger)])
         )
         _ = try await runtime.reconcileColdStartRuns()
-        let card = try #require(try await runtime.pendingToolApprovals(
-            in: Stage2GateFixture.conversationID
-        ).first)
-        #expect(card.toolCallID == callID)
-        #expect((await ledger.snapshot()).isEmpty)
-        #expect((await providerLedger.requestsSnapshot()).isEmpty)
-
-        try await runtime.resolveToolApproval(card.request(for: .approveOnce))
+        if !decisionBeforeReopen {
+            let card = try #require(try await runtime.pendingToolApprovals(
+                in: Stage2GateFixture.conversationID
+            ).first)
+            #expect(card.toolCallID == callID)
+            #expect((await ledger.snapshot()).isEmpty)
+            #expect((await providerLedger.requestsSnapshot()).isEmpty)
+            try await runtime.resolveToolApproval(card.request(for: .approveOnce))
+        }
         try await runtime.waitForCompletion(runID: runID)
 
         #expect(try reopened.toolCall(id: callID)?.state == .succeeded)
