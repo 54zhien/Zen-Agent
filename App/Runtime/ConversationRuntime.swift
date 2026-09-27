@@ -36,6 +36,7 @@ actor ConversationRuntime {
     private let agentRuntime: AgentRuntime
     private let toolRegistry: ToolRegistry
     private let onEvent: @Sendable (AgentEvent) async -> Void
+    private let registerRecoveredRun: @Sendable (String, String) async -> Void
     private let approvalRuntimeInstanceID = UUID().uuidString
 
     private var operations: [String: Task<Void, Never>] = [:]
@@ -54,6 +55,7 @@ actor ConversationRuntime {
         provider: any ModelProvider,
         credentials: any CredentialStoring,
         onEvent: @escaping @Sendable (AgentEvent) async -> Void = { _ in },
+        registerRecoveredRun: @escaping @Sendable (String, String) async -> Void = { _, _ in },
         toolRegistry: ToolRegistry? = nil,
         toolRuntime: ToolRuntime? = nil,
         managedFileStore: ManagedFileStore? = nil
@@ -74,6 +76,7 @@ actor ConversationRuntime {
             )
         )
         self.onEvent = onEvent
+        self.registerRecoveredRun = registerRecoveredRun
     }
 
     /// Runs a Send to completion and returns the durable Parent Run id.
@@ -109,6 +112,11 @@ actor ConversationRuntime {
             }
             return existing.id
         }
+
+        // The first new Send in a process shares the same single-flight recovery
+        // barrier as app launch. A pending run keeps its database active slot until
+        // it is continued, stopped, or explicitly settled.
+        _ = try await reconcileColdStartRuns()
 
         guard command.maxProviderSteps > 0 else {
             throw ConversationRuntimeError.invalidMaxProviderSteps(command.maxProviderSteps)
@@ -390,6 +398,7 @@ actor ConversationRuntime {
             if operations[runID] != nil { continue }
             do {
                 guard let run = try store.run(id: runID), run.state.isActive else { continue }
+                await registerRecoveredRun(run.id, run.conversationID)
                 let outcome: (RunState, EndReason)?
                 switch run.state {
                 case .preparing:
@@ -716,11 +725,35 @@ actor ConversationRuntime {
     /// terminal transition and active-slot release happen only after cancellation has
     /// flushed the open part.
     func stop(runID: String) async throws {
-        if let events = try await agentRuntime.cancelTasklessSuspendedRun(runID: runID) {
-            for event in events {
-                try await applyAndPublish(event)
+        if operations[runID] == nil {
+            let report = try await reconcileColdStartRuns()
+            if operations[runID] == nil,
+               report.pendingRunIDs.contains(runID) || report.failedRunIDs.contains(runID) {
+                guard let run = try store.run(id: runID), run.state.isActive else {
+                    throw AgentRuntimeError.runIsNotActive(runID)
+                }
+                if run.state != .stopping {
+                    try store.transitionRun(
+                        id: runID,
+                        expectedState: run.state,
+                        to: .stopping
+                    )
+                    await publish(.runStateChanged(runID: runID, state: .stopping))
+                }
+                try await settleRecoveredRun(
+                    id: runID,
+                    expectedState: .stopping,
+                    terminalState: .cancelled,
+                    endReason: .cancelledByUser
+                )
+                return
             }
-            return
+            if let events = try await agentRuntime.cancelTasklessSuspendedRun(runID: runID) {
+                for event in events {
+                    try await applyAndPublish(event)
+                }
+                return
+            }
         }
         try await agentRuntime.stop(runID: runID)
     }

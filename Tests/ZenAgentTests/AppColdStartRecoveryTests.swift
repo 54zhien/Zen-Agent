@@ -293,5 +293,6 @@ struct AppColdStartRecoveryTests {
         let requests = await ledger.requestsSnapshot()
         #expect(requests.count == 1)
         #expect(requests.first?.messages.contains(.user("hello")) == true)
+        #expect(!router.diagnostics.contains { $0.contains("Dropped unregistered Run event") })
     }
 }

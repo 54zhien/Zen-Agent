@@ -117,6 +117,12 @@ struct AppAssembly {
             onEvent: { event in
                 await router.handle(event)
             },
+            registerRecoveredRun: { runID, conversationID in
+                await router.registerRecoveredRun(
+                    runID: runID,
+                    conversationID: conversationID
+                )
+            },
             toolRegistry: toolRegistry
         )
     }

@@ -23,6 +23,20 @@ final class RunEventRouter {
     private(set) var diagnostics: [String] = []
     private(set) var recoveryMessages: [String: String] = [:]
 
+    /// A cold-start Run already has a committed user turn. Register its route
+    /// without presenting it as another Send to the Pane.
+    func registerRecoveredRun(runID: String, conversationID: String) {
+        if let existing = conversationByRunID[runID] {
+            if existing != conversationID {
+                record("Run ownership conflict for \(runID)")
+            }
+            return
+        }
+        conversationByRunID[runID] = conversationID
+        acceptedRunOrder.append(runID)
+        activeRunIDsByConversationID[conversationID, default: []].insert(runID)
+    }
+
     func handle(_ event: AgentEvent) async {
         if case .runAccepted(let runID, let conversationID) = event {
             if let existingConversationID = conversationByRunID[runID] {
