@@ -103,6 +103,11 @@ final class ConversationReadingPositionUITests: XCTestCase {
             "Keyboard focus must preserve the Pane's older-Turn reading mode."
         )
         input.typeText("KEYBOARD_DRAFT")
+        let draftDeadline = Date().addingTimeInterval(5)
+        while Date() < draftDeadline,
+              !(input.value as? String ?? "").contains("KEYBOARD_DRAFT") {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
         let observedInputValue = input.value as? String ?? String(describing: input.value)
         XCTAssertTrue(
             observedInputValue.contains("KEYBOARD_DRAFT"),
