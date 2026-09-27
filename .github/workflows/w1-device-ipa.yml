@@ -50,6 +50,7 @@ jobs:
             'Tests/ZenAgentTests/ComposerTextMeasurementTests.swift' \
             'Tests/ZenAgentTests/ComposerViewContractTests.swift' \
             'Tests/ZenAgentTests/ComposerSendCoordinatorTests.swift' \
+            'Tests/ZenAgentTests/DualConversationPaneConcurrencyTests.swift' \
             'Tests/ZenAgentTests/TypographyTokenTests.swift' \
             'Tests/ZenAgentUITests/ComposerMotionUITests.swift' \
             'project.yml' | sort)
