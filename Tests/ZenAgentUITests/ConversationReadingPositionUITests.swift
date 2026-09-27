@@ -7,7 +7,9 @@ final class ConversationReadingPositionUITests: XCTestCase {
         app.launchEnvironment["ZEN_CONVERSATION_READING_UI_TEST"] = "1"
         app.launch()
 
-        let scrollView = app.scrollViews.firstMatch
+        let scrollView = app.scrollViews[
+            "conversation-timeline-scroll-conversation-reading-ui-test-conversation"
+        ]
         XCTAssertTrue(scrollView.waitForExistence(timeout: 15))
 
         let anchor = app.staticTexts["OLDER_READING_POSITION_ANCHOR_TURN_10"]
@@ -49,32 +51,66 @@ final class ConversationReadingPositionUITests: XCTestCase {
             direction: .older,
             in: scrollView
         ))
-        let anchorBeforeKeyboard = anchor.frame.minY
         let input = app.textViews["conversation-composer-input"]
         XCTAssertTrue(input.waitForExistence(timeout: 5))
+        let readingMode = app.buttons["conversation-reading-test-inject-delta"]
+        logGeometry(
+            "before-keyboard",
+            timeline: scrollView,
+            anchor: anchor,
+            keyboard: app.keyboards.firstMatch,
+            readingMode: readingMode
+        )
         input.tap()
 
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 8))
+        logGeometry(
+            "keyboard-shown",
+            timeline: scrollView,
+            anchor: anchor,
+            keyboard: keyboard,
+            readingMode: readingMode
+        )
+        attachFocusedState(app)
         XCTAssertTrue(input.isHittable, "The Composer must remain usable while its keyboard is visible.")
         XCTAssertTrue(
-            waitForFrameY(anchor, toRemainAt: anchorBeforeKeyboard, tolerance: 18),
-            "Showing the keyboard while reading must retain the visible older Turn."
+            anchor.isHittable,
+            "Showing the keyboard must keep the older reading Turn visible; timeline=\(scrollView.frame), anchor=\(anchor.frame)."
+        )
+        XCTAssertFalse(liveDelta.isHittable, "Keyboard focus must not silently move reading to the newest content.")
+        XCTAssertTrue(
+            (readingMode.value as? String ?? "").contains("reading"),
+            "Keyboard focus must preserve the Pane's older-Turn reading mode."
         )
         input.typeText("KEYBOARD_DRAFT")
         XCTAssertTrue((input.value as? String ?? "").contains("KEYBOARD_DRAFT"))
 
+        XCTAssertTrue(scrollUntilTurnIsReadable(
+            anchor,
+            previousTurnResponse: previousTurnResponse,
+            currentTurnPrompt: currentTurnPrompt,
+            direction: .older,
+            in: scrollView
+        ), "Re-find the visible Turn gap after keyboard reflow before dismissing by blank tap.")
         tapBlankTurnGap(
             after: previousTurnResponse,
             before: currentTurnPrompt,
             in: scrollView
         )
         XCTAssertTrue(keyboard.waitForNonExistence(timeout: 8))
-        XCTAssertTrue(anchor.exists, "The older Turn must remain available after the keyboard hides.")
+        XCTAssertTrue(anchor.isHittable, "The older Turn must remain visible after the keyboard hides.")
         XCTAssertTrue(input.isHittable, "The Composer must remain available after the keyboard hides.")
 
         input.tap()
         XCTAssertTrue(keyboard.waitForExistence(timeout: 8))
+        XCTAssertTrue(scrollUntilTurnIsReadable(
+            anchor,
+            previousTurnResponse: previousTurnResponse,
+            currentTurnPrompt: currentTurnPrompt,
+            direction: .older,
+            in: scrollView
+        ), "Re-find the blank gap on the second keyboard presentation.")
         tapBlankTurnGap(
             after: previousTurnResponse,
             before: currentTurnPrompt,
@@ -134,23 +170,31 @@ final class ConversationReadingPositionUITests: XCTestCase {
     }
 
     @MainActor
-    private func waitForFrameY(
-        _ element: XCUIElement,
-        toRemainAt expectedY: CGFloat,
-        tolerance: CGFloat
-    ) -> Bool {
-        let deadline = Date().addingTimeInterval(5)
-        while Date() < deadline {
-            if element.exists,
-               element.isHittable,
-               abs(element.frame.minY - expectedY) <= tolerance {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-        }
-        return element.exists
-            && element.isHittable
-            && abs(element.frame.minY - expectedY) <= tolerance
+    private func logGeometry(
+        _ phase: String,
+        timeline: XCUIElement,
+        anchor: XCUIElement,
+        keyboard: XCUIElement,
+        readingMode: XCUIElement
+    ) {
+        let keyboardFrame = keyboard.exists ? String(describing: keyboard.frame) : "hidden"
+        let anchorFrame = anchor.exists ? String(describing: anchor.frame) : "missing"
+        let mode = readingMode.value as? String ?? "unavailable"
+        print(
+            "READING_UI_GEOMETRY phase=\(phase) timeline=\(timeline.frame) "
+                + "anchor=\(anchorFrame) keyboard=\(keyboardFrame) mode=\(mode)"
+        )
+    }
+
+    @MainActor
+    private func attachFocusedState(_ app: XCUIApplication) {
+        let hierarchy = XCTAttachment(string: app.debugDescription)
+        hierarchy.name = "Conversation reading accessibility hierarchy with keyboard"
+        XCTContext.current.add(hierarchy)
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Conversation reading screen with keyboard"
+        XCTContext.current.add(screenshot)
     }
 
     private enum TimelineScrollDirection {

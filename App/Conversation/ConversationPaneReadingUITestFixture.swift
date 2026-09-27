@@ -141,6 +141,7 @@ struct ConversationPaneReadingUITestFixtureView: View {
                         fixture.injectAssistantDelta()
                     }
                     .accessibilityIdentifier("conversation-reading-test-inject-delta")
+                    .accessibilityValue(String(describing: fixture.pane.readingPosition.mode))
                 }
             }
         }
