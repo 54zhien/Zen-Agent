@@ -92,9 +92,11 @@ final class ConversationReadingPositionUITests: XCTestCase {
 
         let anchorYBeforeKeyboardDismissal = anchor.frame.minY
         tapBlankTurnGap(
+            in: app,
             after: previousTurnResponse,
             before: currentTurnPrompt,
             in: scrollView,
+            composerInput: input,
             keyboard: keyboard
         )
         XCTAssertTrue(keyboard.waitForNonExistence(timeout: 8))
@@ -113,9 +115,11 @@ final class ConversationReadingPositionUITests: XCTestCase {
         )
         let anchorYBeforeSecondDismissal = anchor.frame.minY
         tapBlankTurnGap(
+            in: app,
             after: previousTurnResponse,
             before: currentTurnPrompt,
             in: scrollView,
+            composerInput: input,
             keyboard: keyboard
         )
         XCTAssertTrue(keyboard.waitForNonExistence(timeout: 8))
@@ -159,9 +163,11 @@ final class ConversationReadingPositionUITests: XCTestCase {
 
     @MainActor
     private func tapBlankTurnGap(
+        in app: XCUIApplication,
         after olderResponse: XCUIElement,
         before newerPrompt: XCUIElement,
         in scrollView: XCUIElement,
+        composerInput: XCUIElement,
         keyboard: XCUIElement? = nil
     ) {
         XCTAssertTrue(olderResponse.isHittable)
@@ -169,15 +175,28 @@ final class ConversationReadingPositionUITests: XCTestCase {
         let gapStart = olderResponse.frame.maxY
         let gapEnd = newerPrompt.frame.minY
         XCTAssertGreaterThan(gapEnd - gapStart, 8, "The fixture must leave a blank gap between Turns.")
-        let tapY = (gapStart + gapEnd) / 2
+        // The prompt label sits inside its capsule's 12pt vertical padding. Tap the
+        // between-Turn whitespace after the previous response, before that capsule begins.
+        let tapY = gapStart + 8
+        XCTAssertLessThan(tapY, gapEnd - 16, "The tap must stay outside the next Turn's capsule padding.")
+        XCTAssertLessThan(
+            tapY,
+            composerInput.frame.minY - 16,
+            "The blank tap must stay above the Composer surface with room to spare."
+        )
         if let keyboard, keyboard.exists {
             XCTAssertLessThan(tapY, keyboard.frame.minY, "The visible Turn gap must remain above the keyboard.")
         }
 
-        let normalizedY = (tapY - scrollView.frame.minY) / scrollView.frame.height
+        let normalizedY = (tapY - app.frame.minY) / app.frame.height
         XCTAssertGreaterThan(normalizedY, 0)
         XCTAssertLessThan(normalizedY, 1)
-        scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: normalizedY)).tap()
+        print(
+            "READING_UI_BLANK_TAP older=\(olderResponse.frame) newer=\(newerPrompt.frame) "
+                + "tapY=\(tapY) input=\(composerInput.frame) keyboard=\(keyboard?.frame ?? .zero) "
+                + "timeline=\(scrollView.frame)"
+        )
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: normalizedY)).tap()
     }
 
     @MainActor
