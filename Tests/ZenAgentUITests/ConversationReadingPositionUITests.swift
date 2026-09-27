@@ -54,6 +54,17 @@ final class ConversationReadingPositionUITests: XCTestCase {
             direction: .older,
             in: scrollView
         ))
+
+        let dragStart = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.68))
+        let dragEnd = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.48))
+        dragStart.press(forDuration: 0.1, thenDragTo: dragEnd)
+        XCTAssertTrue(anchor.isHittable, "The older reading Turn must stay visible after positioning its blank gap.")
+        XCTAssertTrue(previousTurnResponse.isHittable)
+        XCTAssertTrue(currentTurnPrompt.isHittable)
+        let keyboardAnchorY = anchor.frame.minY
+        XCTAssertGreaterThan(keyboardAnchorY, 200)
+        XCTAssertLessThan(keyboardAnchorY, 350, "Position the reading Turn above the expanded Composer.")
+
         let input = app.textViews["conversation-composer-input"]
         XCTAssertTrue(input.waitForExistence(timeout: 5))
         let readingMode = app.buttons["conversation-reading-test-inject-delta"]
@@ -79,7 +90,7 @@ final class ConversationReadingPositionUITests: XCTestCase {
         attachFocusedState(app)
         XCTAssertTrue(input.isHittable, "The Composer must remain usable while its keyboard is visible.")
         XCTAssertTrue(
-            waitForFrameY(anchor, toRemainAt: initialAnchorY, tolerance: 18),
+            waitForFrameY(anchor, toRemainAt: keyboardAnchorY, tolerance: 18),
             "Showing the keyboard must preserve the visible reading Turn position; timeline=\(scrollView.frame), anchor=\(anchor.frame)."
         )
         XCTAssertFalse(liveDelta.isHittable, "Keyboard focus must not silently move reading to the newest content.")
