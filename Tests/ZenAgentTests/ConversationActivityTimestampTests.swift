@@ -27,7 +27,7 @@ struct ConversationActivityTimestampTests {
         try store.commitUserTurnAndCreateParentRun(firstB)
 
         var secondA = Fixtures.send(conversationID: "a", messageID: "a2", runID: "ar2", runState: .completed)
-        secondA.conversation = try #require(store.conversation(id: "a"))
+        secondA.conversation = try #require(try store.conversation(id: "a"))
         secondA.message.sequence = 1
         secondA.message.createdAt = t3
         try store.commitUserTurnAndCreateParentRun(secondA)
