@@ -4,7 +4,7 @@ import Testing
 
 @testable import ZenAgent
 
-private enum ShellCredentialSeed {
+private enum ShellCredentialSeed: Equatable, Sendable {
     case none
     case active
     case missingSecret
@@ -18,6 +18,39 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test(
+        "local history opens independently of send configuration",
+        arguments: [
+            ShellCredentialSeed.none,
+            .missingSecret,
+            .unreadableSecret,
+        ]
+    )
+    func historyOpensWithoutSendTarget(_ seed: ShellCredentialSeed) throws {
+        let unconfigured = seed == .none
+        let fixture = try makeFixture(
+            seed: seed,
+            createInstance: !unconfigured,
+            setDefault: !unconfigured
+        )
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let conversationID = "saved-\(UUID().uuidString)"
+        try fixture.store.commitUserTurnAndCreateParentRun(Fixtures.send(
+            conversationID: conversationID,
+            messageID: "user-\(conversationID)",
+            runID: "run-\(conversationID)",
+            runState: .completed
+        ))
+        fixture.model.refreshRecentConversations()
+
+        #expect(fixture.model.recentConversations.map(\.id).contains(conversationID))
+        #expect(fixture.model.openConversation(id: conversationID))
+        #expect(fixture.model.conversationID == conversationID)
+        #expect(fixture.model.pane?.liveStore.state.timeline.turns.count == 1)
+        #expect(!fixture.model.canSend)
+        #expect(try fixture.store.visibleConversations().count == 1)
+    }
+
     @Test("cold launch settles an orphaned streaming run without replaying its provider request")
     func coldLaunchSettlesOrphanedStreamingRun() async throws {
         let url = FileManager.default.temporaryDirectory
