@@ -26,7 +26,7 @@ struct AppColdStartRecoveryTests {
                 conversationID: Stage2GateFixture.conversationID,
                 messageID: "user-\(runID)",
                 runID: runID,
-                runState: .waitingForApproval
+                runState: .preparing
             )
             commit.conversation = try #require(try first.store.conversation(
                 id: Stage2GateFixture.conversationID
@@ -64,6 +64,21 @@ struct AppColdStartRecoveryTests {
                 encodedSnapshot: try ExecutionSnapshotCodec.encode(snapshot)
             )
             try first.store.recordStep(Fixtures.step(stepID: "step-\(runID)", runID: runID))
+            try first.store.transitionRun(
+                id: runID,
+                expectedState: .preparing,
+                to: .requestingModel
+            )
+            try first.store.transitionRun(
+                id: runID,
+                expectedState: .requestingModel,
+                to: .toolRequested
+            )
+            try first.store.transitionRun(
+                id: runID,
+                expectedState: .toolRequested,
+                to: .waitingForApproval
+            )
             let intent = try tool.prepare(callID: callID, argumentsJSON: "{}")
             try first.store.createToolCall(ToolCallRecord(
                 id: callID,
