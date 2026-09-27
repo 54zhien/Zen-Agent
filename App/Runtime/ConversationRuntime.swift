@@ -434,8 +434,27 @@ actor ConversationRuntime {
                         report.settledRunIDs.append(runID)
                     }
                     continue
-                case .waitingForApproval:
+                case .waitingForApproval, .toolRequested, .executingTools, .continuing:
                     do {
+                        let calls = try store.toolCalls(inRun: runID)
+                        if calls.contains(where: {
+                            $0.state == .dispatched || $0.state == .indeterminate
+                        }) {
+                            try await settleRecoveredRun(
+                                id: runID,
+                                expectedState: run.state,
+                                terminalState: .failed,
+                                endReason: .toolOutcomeUnknown
+                            )
+                            report.settledRunIDs.append(runID)
+                            continue
+                        }
+                        if calls.contains(where: {
+                            $0.state == .waitingForSystemPermissionConsent
+                        }) {
+                            report.pendingRunIDs.append(runID)
+                            continue
+                        }
                         try await continueRecoveredToolBatch(run)
                         report.continuedRunIDs.append(runID)
                     } catch CredentialError.unavailable(_, _) {
@@ -443,7 +462,7 @@ actor ConversationRuntime {
                     } catch _ as CredentialError {
                         try await settleRecoveredRun(
                             id: runID,
-                            expectedState: .waitingForApproval,
+                            expectedState: run.state,
                             terminalState: .failed,
                             endReason: .credentialExpired
                         )
@@ -451,7 +470,7 @@ actor ConversationRuntime {
                     } catch RunRequestRebuildError.missingDependency {
                         try await settleRecoveredRun(
                             id: runID,
-                            expectedState: .waitingForApproval,
+                            expectedState: run.state,
                             terminalState: .failed,
                             endReason: .dependencyUnavailable
                         )
@@ -460,7 +479,7 @@ actor ConversationRuntime {
                             RunRequestRebuildError.incompatibleSnapshot {
                         try await settleRecoveredRun(
                             id: runID,
-                            expectedState: .waitingForApproval,
+                            expectedState: run.state,
                             terminalState: .failed,
                             endReason: .unrecoverable
                         )
@@ -471,11 +490,6 @@ actor ConversationRuntime {
                     outcome = (.failed, .streamInterrupted)
                 case .stopping:
                     outcome = (.cancelled, .cancelledByUser)
-                case .toolRequested, .executingTools, .continuing:
-                    let calls = try store.toolCalls(inRun: runID)
-                    outcome = calls.contains {
-                        $0.state == .dispatched || $0.state == .indeterminate
-                    } ? (.failed, .toolOutcomeUnknown) : nil
                 default:
                     outcome = nil
                 }
@@ -592,7 +606,12 @@ actor ConversationRuntime {
         ) != nil else { throw RunRequestRebuildError.missingDependency }
 
         try await RunRecovery(store: store).recover(runID: run.id)
-        guard try store.run(id: run.id)?.state == .waitingForApproval else {
+        guard let recoveredState = try store.run(id: run.id)?.state,
+              recoveredState == .waitingForApproval ||
+                recoveredState == .executingTools ||
+                recoveredState == .continuing ||
+                recoveredState == .requestingModel
+        else {
             throw RunRequestRebuildError.incompatibleSnapshot
         }
         let stream = await agentRuntime.advanceRecoveredToolBatch(

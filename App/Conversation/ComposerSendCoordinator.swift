@@ -159,8 +159,10 @@ final class ComposerSendCoordinator {
                 if let updated = try await bridge.projection(conversationID) {
                     updateRunProjection(updated)
                 }
+                sendErrorMessage = nil
             } catch {
                 // The persisted projection remains the authority after a failed Stop.
+                sendErrorMessage = "停止失败，请重试。"
             }
             return primaryAction(sendable: false)
         }

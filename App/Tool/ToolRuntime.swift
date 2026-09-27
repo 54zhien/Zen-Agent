@@ -251,9 +251,11 @@ final class ToolRuntime: @unchecked Sendable {
         return try await executePrepared(toolCallID: toolCallID, at: now)
     }
 
-    private func executePrepared(
+    /// Reuses the original prepared call on cold-start recovery. Dispatch is still
+    /// marked durably before the executor is entered, as in the ordinary path.
+    func executePrepared(
         toolCallID: String,
-        at now: Date
+        at now: Date = Date()
     ) async throws -> ToolExecutionResult {
         let call = try requiredToolCall(id: toolCallID)
         guard call.state == .prepared else {

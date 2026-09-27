@@ -163,8 +163,22 @@ struct RunRecovery: Sendable {
     }
 
     private func recoverApproval(run: AgentRunRecord) async throws {
-        let calls = try store.toolCalls(inRun: run.id)
-            .filter { $0.state == .waitingForApproval }
+        let allCalls = try store.toolCalls(inRun: run.id)
+        let calls = allCalls.filter { $0.state == .waitingForApproval }
+        if calls.isEmpty, allCalls.contains(where: {
+            $0.state == .approved || $0.state == .prepared
+        }) {
+            // The decision can commit just before process loss. The durable call
+            // still owns dispatch; recovery does not invent another approval.
+            try await transition(runID: run.id, to: .executingTools)
+            return
+        }
+        if calls.isEmpty, !allCalls.isEmpty,
+           allCalls.allSatisfy({ $0.state.isTerminal }),
+           try allCalls.allSatisfy({ try store.toolResult(toolCallID: $0.id) != nil }) {
+            try await transition(runID: run.id, to: .continuing)
+            return
+        }
         guard !calls.isEmpty else {
             try await fail(runID: run.id, reason: .unrecoverable)
             return

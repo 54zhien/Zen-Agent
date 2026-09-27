@@ -352,7 +352,8 @@ actor AgentRuntime {
             guard let run = try store.run(id: runID),
                   run.state == .waitingForApproval ||
                     run.state == .executingTools ||
-                    run.state == .continuing
+                    run.state == .continuing ||
+                    run.state == .requestingModel
             else { throw AgentRuntimeError.runIsNotActive(runID) }
 
             var results: [ToolResultRecord] = []
@@ -377,7 +378,7 @@ actor AgentRuntime {
                     call = decided
                 }
 
-                if call.state == .approved {
+                if call.state == .approved || call.state == .prepared {
                     if try store.run(id: runID)?.state == .waitingForApproval {
                         try await transition(
                             runID: runID,
@@ -387,7 +388,11 @@ actor AgentRuntime {
                         )
                     }
                     do {
-                        _ = try await toolRuntime.executeApproved(toolCallID: call.id)
+                        if call.state == .approved {
+                            _ = try await toolRuntime.executeApproved(toolCallID: call.id)
+                        } else {
+                            _ = try await toolRuntime.executePrepared(toolCallID: call.id)
+                        }
                     } catch {
                         if stopRequested.contains(runID) || Task.isCancelled {
                             throw ControlError.stopRequested
