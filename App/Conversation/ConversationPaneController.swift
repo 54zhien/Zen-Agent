@@ -134,6 +134,13 @@ final class ConversationPaneController {
         _ = readingPosition.apply(.programmaticScrolled(geometry: appliedGeometry.geometry))
     }
 
+#if DEBUG
+    func restoreAnchorForUITest(_ anchor: TurnAnchor) {
+        readingPosition.setReadingAnchorForUITest(anchor)
+        enqueue(.restoreAnchor(anchor))
+    }
+#endif
+
     func refreshPendingApprovals(using runtime: ConversationRuntime) async throws {
         try await liveStore.refreshPendingToolApprovals(using: runtime)
     }

@@ -57,10 +57,16 @@ final class ConversationReadingPositionUITests: XCTestCase {
 
         let input = app.textViews["conversation-composer-input"]
         XCTAssertTrue(input.waitForExistence(timeout: 5))
-        let keyboardAnchorY = positionAnchorForKeyboard(
+        let readingMode = app.buttons["conversation-reading-test-inject-delta"]
+        let positionOlderTurn = app.buttons["conversation-reading-test-position-older-turn"]
+        XCTAssertTrue(positionOlderTurn.waitForExistence(timeout: 5))
+        positionOlderTurn.tap()
+        let keyboardAnchorY = waitForKeyboardSafePosition(
             anchor,
             followingTurnPrompt: nextTurnPrompt,
             composerInput: input,
+            readingMode: readingMode,
+            positionButton: positionOlderTurn,
             in: scrollView
         )
         XCTAssertTrue(anchor.isHittable, "The older reading Turn must stay visible after positioning its blank gap.")
@@ -68,7 +74,6 @@ final class ConversationReadingPositionUITests: XCTestCase {
         XCTAssertGreaterThan(keyboardAnchorY, 150)
         XCTAssertLessThan(keyboardAnchorY, 350, "Position the reading Turn above the expanded Composer.")
 
-        let readingMode = app.buttons["conversation-reading-test-inject-delta"]
         logGeometry(
             "before-keyboard",
             timeline: scrollView,
@@ -197,117 +202,63 @@ final class ConversationReadingPositionUITests: XCTestCase {
     }
 
     @MainActor
-    private func positionAnchorForKeyboard(
+    private func waitForKeyboardSafePosition(
         _ anchor: XCUIElement,
         followingTurnPrompt: XCUIElement,
         composerInput: XCUIElement,
+        readingMode: XCUIElement,
+        positionButton: XCUIElement,
         in scrollView: XCUIElement
     ) -> CGFloat {
-        let initialTimelineFrame = scrollView.frame
-        let timelineHeight = initialTimelineFrame.height
-        guard timelineHeight > 0 else {
-            XCTFail("Cannot position the anchor in an empty timeline frame: \(initialTimelineFrame).")
-            return anchor.frame.minY
-        }
-
-        let lowerBound: CGFloat = 150
-        let upperBound: CGFloat = 350
-        let maximumDragFraction: CGFloat = 0.08
-        var dragFraction = maximumDragFraction
+        let deadline = Date().addingTimeInterval(8)
         var observedPositions: [CGFloat] = []
 
-        for _ in 0..<6 {
+        func currentState() -> (safe: Bool, anchorFrame: CGRect, promptFrame: CGRect, composerFrame: CGRect) {
             let anchorFrame = anchor.frame
             let promptFrame = followingTurnPrompt.frame
-            let currentY = anchorFrame.minY
+            let composerFrame = composerInput.frame
             let tapY = anchorFrame.maxY + 8
-            observedPositions.append(currentY)
-
-            guard upperBound > lowerBound else {
-                break
-            }
-
-            let gapIsSafe = tapY < promptFrame.minY - 16
-            let composerIsClear = tapY < composerInput.frame.minY - 16
-            let turnIsReadable = anchor.exists
+            let mode = readingMode.value as? String ?? ""
+            let restoreState = positionButton.value as? String ?? ""
+            let safe = mode.contains("reading")
+                && restoreState.hasPrefix("settled-")
+                && anchor.exists
                 && anchor.isHittable
                 && followingTurnPrompt.exists
                 && followingTurnPrompt.isHittable
-            if currentY > lowerBound,
-               currentY < upperBound,
-               gapIsSafe,
-               composerIsClear,
-               turnIsReadable {
-                return currentY
-            }
-
-            // Scrolling cannot change the distance between two fixture Turns.
-            if anchor.exists, followingTurnPrompt.exists, !gapIsSafe {
-                break
-            }
-
-            let moveContentUp: Bool
-            if currentY <= lowerBound {
-                moveContentUp = false
-            } else if currentY >= upperBound
-                        || !followingTurnPrompt.isHittable
-                        || !composerIsClear {
-                moveContentUp = true
-            } else if !anchor.isHittable {
-                moveContentUp = false
-            } else {
-                break
-            }
-
-            let distanceToSafeRange = moveContentUp
-                ? max(0, currentY - upperBound)
-                : max(0, lowerBound - currentY)
-            let requestedFraction = min(
-                maximumDragFraction,
-                min(dragFraction, max(0.01, distanceToSafeRange / timelineHeight))
-            )
-            let dragStartY: CGFloat = moveContentUp ? 0.62 : 0.54
-            let dragEndY = dragStartY + (moveContentUp ? -requestedFraction : requestedFraction)
-            let dragStart = scrollView.coordinate(
-                withNormalizedOffset: CGVector(dx: 0.5, dy: dragStartY)
-            )
-            let dragEnd = scrollView.coordinate(
-                withNormalizedOffset: CGVector(dx: 0.5, dy: dragEndY)
-            )
-            dragStart.press(forDuration: 0.1, thenDragTo: dragEnd, withVelocity: .slow, thenHoldForDuration: 0.2)
-
-            let updatedY = anchor.frame.minY
-            observedPositions.append(updatedY)
-            let crossedSafeRange = (currentY >= upperBound && updatedY <= lowerBound)
-                || (currentY <= lowerBound && updatedY >= upperBound)
-            if crossedSafeRange {
-                dragFraction = max(0.005, requestedFraction / 2)
-            } else if abs(updatedY - currentY) < 2 {
-                dragFraction = min(maximumDragFraction, requestedFraction * 1.5)
-            } else {
-                dragFraction = requestedFraction
-            }
+                && anchorFrame.minY > 150
+                && anchorFrame.minY < 350
+                && tapY < promptFrame.minY - 16
+                && tapY < composerFrame.minY - 16
+            return (safe, anchorFrame, promptFrame, composerFrame)
         }
 
-        let finalFrame = anchor.frame
-        let finalTapY = finalFrame.maxY + 8
-        let finalPromptFrame = followingTurnPrompt.frame
-        let isSafe = finalFrame.minY > lowerBound
-            && finalFrame.minY < upperBound
-            && finalTapY < finalPromptFrame.minY - 16
-            && finalTapY < composerInput.frame.minY - 16
-            && anchor.isHittable
-            && followingTurnPrompt.isHittable
+        while Date() < deadline {
+            let state = currentState()
+            if observedPositions.last.map({ abs($0 - state.anchorFrame.minY) > 1 }) ?? true {
+                observedPositions.append(state.anchorFrame.minY)
+                if observedPositions.count > 8 {
+                    observedPositions.removeFirst()
+                }
+            }
+            if state.safe {
+                return state.anchorFrame.minY
+            }
+            RunLoop.current.run(until: min(deadline, Date().addingTimeInterval(0.05)))
+        }
+
+        let finalState = currentState()
+        let mode = readingMode.value as? String ?? String(describing: readingMode.value)
+        let restoreState = positionButton.value as? String ?? String(describing: positionButton.value)
         XCTAssertTrue(
-            isSafe,
-            "Could not place the reading Turn at a blank-tap-safe position. "
-                + "safeY=\(lowerBound)...\(upperBound), "
-                + "tapY=\(finalTapY), restingComposerTop=\(composerInput.frame.minY), "
-                + "observedY=\(observedPositions), anchor=\(finalFrame), "
-                + "followingPrompt=\(finalPromptFrame), Composer=\(composerInput.frame), "
-                + "timeline=\(scrollView.frame)."
+            finalState.safe,
+            "The DEBUG fixture restore did not reach a blank-tap-safe older Turn before the deadline. "
+                + "expectedAnchorY=150...350, observedY=\(observedPositions), "
+                + "anchor=\(finalState.anchorFrame), nextPrompt=\(finalState.promptFrame), "
+                + "Composer=\(finalState.composerFrame), timeline=\(scrollView.frame), "
+                + "mode=\(mode), restoreState=\(restoreState)."
         )
-        return finalFrame.minY
+        return finalState.anchorFrame.minY
     }
 
     @MainActor

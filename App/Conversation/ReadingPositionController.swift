@@ -34,4 +34,10 @@ final class ReadingPositionController {
     var newContentCount: Int {
         NewContentIndicator.count(mode: mode)
     }
+
+#if DEBUG
+    func setReadingAnchorForUITest(_ anchor: TurnAnchor) {
+        mode = .reading(anchor: anchor, pendingTurns: [])
+    }
+#endif
 }
