@@ -4,7 +4,7 @@ import Testing
 
 @testable import ZenAgent
 
-private enum ShellCredentialSeed: Equatable, Sendable {
+enum ShellCredentialSeed: Equatable, Sendable {
     case none
     case active
     case missingSecret
