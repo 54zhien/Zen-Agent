@@ -17,7 +17,9 @@ struct ZenAgentApp: App {
     var body: some Scene {
         WindowGroup {
 #if DEBUG
-            if ProcessInfo.processInfo.environment["ZEN_COMPOSER_GEOMETRY_TEST"] == "1" {
+            if ProcessInfo.processInfo.environment["ZEN_CONVERSATION_READING_UI_TEST"] == "1" {
+                ConversationPaneReadingUITestFixtureView()
+            } else if ProcessInfo.processInfo.environment["ZEN_COMPOSER_GEOMETRY_TEST"] == "1" {
                 ComposerUITestFixtureView()
             } else {
                 AppShellRootView()

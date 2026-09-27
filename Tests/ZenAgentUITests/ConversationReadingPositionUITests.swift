@@ -10,12 +10,16 @@ final class ConversationReadingPositionUITests: XCTestCase {
         let scrollView = app.scrollViews.firstMatch
         XCTAssertTrue(scrollView.waitForExistence(timeout: 15))
 
-        let anchor = app.staticTexts["OLDER_READING_POSITION_ANCHOR_TURN_12"]
-        XCTAssertTrue(
-            anchor.waitForExistence(timeout: 15),
-            "The launch route must display the real Conversation Pane's older Turn."
-        )
-        XCTAssertTrue(scrollUntilHittable(anchor, in: scrollView))
+        let anchor = app.staticTexts["OLDER_READING_POSITION_ANCHOR_TURN_10"]
+        let previousTurnResponse = app.staticTexts["Assistant response for Turn 9"]
+        let currentTurnPrompt = app.staticTexts["User prompt for Turn 10"]
+        XCTAssertTrue(scrollUntilTurnIsReadable(
+            anchor,
+            previousTurnResponse: previousTurnResponse,
+            currentTurnPrompt: currentTurnPrompt,
+            direction: .older,
+            in: scrollView
+        ), "The real Pane must let the test scroll to an older visible Turn.")
         let initialAnchorY = anchor.frame.minY
 
         let injectDelta = app.buttons["conversation-reading-test-inject-delta"]
@@ -38,7 +42,13 @@ final class ConversationReadingPositionUITests: XCTestCase {
         XCTAssertTrue(liveDelta.waitForExistence(timeout: 10))
         XCTAssertTrue(liveDelta.isHittable, "Tapping new content must reveal the newest assistant text.")
 
-        XCTAssertTrue(scrollUntilHittable(anchor, in: scrollView))
+        XCTAssertTrue(scrollUntilTurnIsReadable(
+            anchor,
+            previousTurnResponse: previousTurnResponse,
+            currentTurnPrompt: currentTurnPrompt,
+            direction: .older,
+            in: scrollView
+        ))
         let anchorBeforeKeyboard = anchor.frame.minY
         let input = app.textViews["conversation-composer-input"]
         XCTAssertTrue(input.waitForExistence(timeout: 5))
@@ -54,24 +64,73 @@ final class ConversationReadingPositionUITests: XCTestCase {
         input.typeText("KEYBOARD_DRAFT")
         XCTAssertTrue((input.value as? String ?? "").contains("KEYBOARD_DRAFT"))
 
-        keyboard.swipeDown()
+        tapBlankTurnGap(
+            after: previousTurnResponse,
+            before: currentTurnPrompt,
+            in: scrollView
+        )
         XCTAssertTrue(keyboard.waitForNonExistence(timeout: 8))
         XCTAssertTrue(anchor.exists, "The older Turn must remain available after the keyboard hides.")
         XCTAssertTrue(input.isHittable, "The Composer must remain available after the keyboard hides.")
 
         input.tap()
         XCTAssertTrue(keyboard.waitForExistence(timeout: 8))
-        keyboard.swipeDown()
+        tapBlankTurnGap(
+            after: previousTurnResponse,
+            before: currentTurnPrompt,
+            in: scrollView
+        )
         XCTAssertTrue(keyboard.waitForNonExistence(timeout: 8))
     }
 
     @MainActor
-    private func scrollUntilHittable(_ element: XCUIElement, in scrollView: XCUIElement) -> Bool {
+    private func scrollUntilTurnIsReadable(
+        _ anchor: XCUIElement,
+        previousTurnResponse: XCUIElement,
+        currentTurnPrompt: XCUIElement,
+        direction: TimelineScrollDirection,
+        in scrollView: XCUIElement
+    ) -> Bool {
         for _ in 0..<10 {
-            if element.exists && element.isHittable { return true }
-            scrollView.swipeUp()
+            if anchor.exists,
+               anchor.isHittable,
+               previousTurnResponse.exists,
+               previousTurnResponse.isHittable,
+               currentTurnPrompt.exists,
+               currentTurnPrompt.isHittable {
+                return true
+            }
+            switch direction {
+            case .older:
+                scrollView.swipeDown()
+            case .newer:
+                scrollView.swipeUp()
+            }
         }
-        return element.exists && element.isHittable
+        return anchor.exists
+            && anchor.isHittable
+            && previousTurnResponse.exists
+            && previousTurnResponse.isHittable
+            && currentTurnPrompt.exists
+            && currentTurnPrompt.isHittable
+    }
+
+    @MainActor
+    private func tapBlankTurnGap(
+        after olderResponse: XCUIElement,
+        before newerPrompt: XCUIElement,
+        in scrollView: XCUIElement
+    ) {
+        XCTAssertTrue(olderResponse.isHittable)
+        XCTAssertTrue(newerPrompt.isHittable)
+        let gapStart = olderResponse.frame.maxY
+        let gapEnd = newerPrompt.frame.minY
+        XCTAssertGreaterThan(gapEnd - gapStart, 8, "The fixture must leave a blank gap between Turns.")
+
+        let normalizedY = ((gapStart + gapEnd) / 2 - scrollView.frame.minY) / scrollView.frame.height
+        XCTAssertGreaterThan(normalizedY, 0)
+        XCTAssertLessThan(normalizedY, 1)
+        scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: normalizedY)).tap()
     }
 
     @MainActor
@@ -92,5 +151,10 @@ final class ConversationReadingPositionUITests: XCTestCase {
         return element.exists
             && element.isHittable
             && abs(element.frame.minY - expectedY) <= tolerance
+    }
+
+    private enum TimelineScrollDirection {
+        case older
+        case newer
     }
 }
