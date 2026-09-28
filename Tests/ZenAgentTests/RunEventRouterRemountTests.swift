@@ -73,6 +73,24 @@ struct RunEventRouterRemountTests {
         #expect(live.state.activeParts.isEmpty)
     }
 
+    @Test("terminal persisted Parts cannot be resurrected while their parent is active",
+          arguments: [MessagePartState.completed, .failed, .cancelled])
+    func terminalPersistedPartCannotResume(partState: MessagePartState) throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "terminal-user", runID: "terminal-run"))
+        _ = try store.ensureAssistantResponse(forRunID: "terminal-run", messageID: "terminal-response")
+        var part = Fixtures.textPart(id: "terminal-part", messageID: "terminal-response", text: "saved")
+        part.state = partState
+        try store.createPart(part)
+        let live = LiveConversationStore(
+            projection: try ConversationTimelineLoader.load(conversationID: "c1", from: store),
+            coalescer: StreamingCoalescer(interval: .milliseconds(0)))
+        #expect(!live.resumePersistedPart(runID: "terminal-run", messageID: part.messageID,
+            partID: part.id, kind: .text))
+        #expect(live.state.activeParts.isEmpty)
+        #expect(live.state.timeline.turns[0].items == [.userText("hello"), .assistantText("saved")])
+    }
+
     @Test("an active text Part keeps updating after its Conversation Pane is remounted")
     func activePartContinuesAfterRemount() async throws {
         let conversationID = "remount-conversation"

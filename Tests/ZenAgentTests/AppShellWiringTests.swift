@@ -18,6 +18,46 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("late send preflight failure updates its original session even when targets match")
+    func lateTargetFailureKeepsConversationOwner() async throws {
+        let fixture = try makeFixture(seed: .active, scripts: [.events([]), .events([])])
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try await send("persist A", at: Fixtures.epoch, in: fixture)
+        let firstID = fixture.model.conversationID
+        let firstPane = try #require(fixture.model.pane)
+        let firstBridge = try #require(fixture.model.actionBridge)
+        firstPane.composer.draft.text = "pending A follow-up"
+        let coordinator = ComposerSendCoordinator(conversationID: firstID, controller: firstPane.composer,
+            configuration: firstPane.composer.configuration, bridge: firstBridge,
+            maxProviderSteps: AppShellModel.maxProviderSteps)
+        let command = try #require(coordinator.beginSend(capabilities: [.text, .streaming],
+            quoteCommitReady: true, imageInputReady: false, fileInputReady: false,
+            submissionID: "late-owner-\(UUID().uuidString)"))
+
+        fixture.model.newConversation()
+        try await send("persist B", at: Fixtures.epoch.addingTimeInterval(1), in: fixture)
+        let secondPane = try #require(fixture.model.pane)
+        #expect(secondPane.composer.configuration == firstPane.composer.configuration)
+        #expect(secondPane.composer.sendAvailability.isReady)
+        // A prepared command's asynchronous preflight arrives after navigation.
+        // The real old bridge retains A's owner identity, not B's current display.
+        fixture.backend.unreadableReferences = [fixture.reference.id]
+        do {
+            _ = try await firstBridge.start(command)
+            Issue.record("old command should fail before creating another Run")
+        } catch let failure as ComposerSendFailure {
+            guard case .keychainUnavailable = failure else {
+                Issue.record("unexpected preflight failure: \(failure)")
+                return
+            }
+        }
+        #expect(firstPane.composer.sendAvailability == .unavailable("Keychain 不可用"))
+        #expect(secondPane.composer.sendAvailability.isReady)
+        #expect(fixture.model.canSend)
+        #expect(try fixture.store.runs(inConversation: firstID).count == 1)
+        #expect(firstPane.composer.draft.text == "pending A follow-up")
+    }
+
     @Test("warm A B A navigation retains each session's configuration draft and reading owner")
     func warmNavigationRetainsSessionOwners() async throws {
         let fixture = try makeFixture(seed: .active, scripts: [.events([]), .events([])])

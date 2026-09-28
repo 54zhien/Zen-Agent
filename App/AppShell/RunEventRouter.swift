@@ -4,52 +4,48 @@ import Observation
 @MainActor
 @Observable
 final class RunEventRouter {
-    private enum PaneLoadState: Equatable {
-        case ready
-        case waitingForRecovery
-    }
-
+    private enum PaneLoadState: Equatable { case ready, waitingForRecovery }
+    private enum ReconciliationError: Error { case pendingReload }
     private struct PaneRegistration {
         let pane: ConversationPaneController
         var state: PaneLoadState
     }
+    private struct PartIdentity {
+        let runID: String
+        let messageID: String
+        let partID: String
+        let kind: MessagePartKind
+    }
 
     @ObservationIgnored private var conversationByRunID: [String: String] = [:]
-    @ObservationIgnored private var acceptedRunOrder: [String] = []
     @ObservationIgnored private var activeRunIDsByConversationID: [String: Set<String>] = [:]
     @ObservationIgnored private var panesByConversationID: [String: PaneRegistration] = [:]
-    @ObservationIgnored private var detachedPanesByConversationID: [String: PaneRegistration] = [:]
-    @ObservationIgnored private var bufferedEvents: [String: [AgentEvent]] = [:]
+    @ObservationIgnored private var partsByRunID: [String: [String: PartIdentity]] = [:]
+    @ObservationIgnored private var needsReload: Set<String> = []
+    @ObservationIgnored private var hiddenChanges: [String: Set<String>] = [:]
+    @ObservationIgnored private var terminalCheckpoints: [String: AgentEvent] = [:]
     private(set) var diagnostics: [String] = []
     private(set) var recoveryMessages: [String: String] = [:]
 
-    /// A cold-start Run already has a committed user turn. Register its route
-    /// without presenting it as another Send to the Pane.
+    /// Runtime owns these Runs; registration only establishes their display route.
     func registerRecoveredRun(runID: String, conversationID: String) {
         if let existing = conversationByRunID[runID] {
-            if existing != conversationID {
-                record("Run ownership conflict for \(runID)")
-            }
+            if existing != conversationID { record("Run ownership conflict for \(runID)") }
             return
         }
         conversationByRunID[runID] = conversationID
-        acceptedRunOrder.append(runID)
         activeRunIDsByConversationID[conversationID, default: []].insert(runID)
     }
 
     func handle(_ event: AgentEvent) async {
         if case .runAccepted(let runID, let conversationID) = event {
-            if let existingConversationID = conversationByRunID[runID] {
-                guard existingConversationID == conversationID else {
-                    record("Run ownership conflict for \(runID)")
-                    return
-                }
+            if let existing = conversationByRunID[runID] {
+                if existing != conversationID { record("Run ownership conflict for \(runID)") }
                 return
             }
-            conversationByRunID[runID] = conversationID
-            acceptedRunOrder.append(runID)
-            activeRunIDsByConversationID[conversationID, default: []].insert(runID)
-            route(event, runID: runID, to: conversationID)
+            registerRecoveredRun(runID: runID, conversationID: conversationID)
+            terminalCheckpoints.removeValue(forKey: conversationID)
+            route(event, to: conversationID)
             return
         }
 
@@ -58,277 +54,168 @@ final class RunEventRouter {
             record("Dropped unregistered Run event for \(runID)")
             return
         }
-        route(event, runID: runID, to: conversationID)
+        switch event {
+        case .messagePartStarted(_, let messageID, let partID, let kind):
+            if kind == .text || kind == .reasoning {
+                partsByRunID[runID, default: [:]][partID] = PartIdentity(
+                    runID: runID, messageID: messageID, partID: partID, kind: kind)
+            }
+        case .messagePartCompleted(_, let partID, _):
+            partsByRunID[runID]?.removeValue(forKey: partID)
+        default: break
+        }
+        route(event, to: conversationID)
         if case .runEnded = event {
-            finishActiveRun(runID, in: conversationID)
+            // An End already delivered to the visible Pane is not unread work
+            // to replay on a later mount of the same session.
+            if panesByConversationID[conversationID]?.state != .ready {
+                terminalCheckpoints[conversationID] = event
+            }
+            conversationByRunID.removeValue(forKey: runID)
+            partsByRunID.removeValue(forKey: runID)
+            activeRunIDsByConversationID[conversationID]?.remove(runID)
+            if activeRunIDsByConversationID[conversationID]?.isEmpty == true {
+                activeRunIDsByConversationID.removeValue(forKey: conversationID)
+            }
         }
     }
 
     @discardableResult
     func registerPane(_ pane: ConversationPaneController) -> Bool {
-        let conversationID = pane.conversationID
-        guard panesByConversationID[conversationID] == nil else {
-            record("Rejected duplicate Pane registration for \(conversationID)")
+        let id = pane.conversationID
+        guard panesByConversationID[id] == nil else {
+            record("Rejected duplicate Pane registration for \(id)")
             return false
         }
-
-        if let detachedRegistration = detachedPanesByConversationID.removeValue(forKey: conversationID) {
-            do {
-                try pane.adoptLiveStore(detachedRegistration.pane.liveStore)
-            } catch {
-                detachedPanesByConversationID[conversationID] = detachedRegistration
-                record("Rejected detached LiveStore for mismatched Pane in \(conversationID)")
-                return false
-            }
-
-            panesByConversationID[conversationID] = PaneRegistration(
-                pane: pane,
-                state: detachedRegistration.state
-            )
-            if detachedRegistration.state == .ready {
-                recoveryMessages.removeValue(forKey: conversationID)
-                replayBufferedEvents(for: conversationID)
-            }
-            return true
-        }
-
-        var registration = PaneRegistration(pane: pane, state: .ready)
-        panesByConversationID[conversationID] = registration
-        if bufferedEvents[conversationID] != nil {
-            do {
-                try pane.reloadTimeline()
-            } catch {
-                registration.state = .waitingForRecovery
-                panesByConversationID[conversationID] = registration
-                recoveryMessages[conversationID] = "无法加载会话内容，请重试。"
-                record("Timeline load failed while registering Pane for \(conversationID)")
-                return true
-            }
-        }
-        replayBufferedEvents(for: conversationID)
-        if panesByConversationID[conversationID]?.state == .ready {
-            recoveryMessages.removeValue(forKey: conversationID)
+        let state: PaneLoadState = recoveryMessages[id] == nil ? .ready : .waitingForRecovery
+        panesByConversationID[id] = PaneRegistration(pane: pane, state: state)
+        guard state == .ready else { return true }
+        do {
+            if needsReload.contains(id) { try pane.reloadTimeline() }
+            try reconcile(pane)
+        } catch {
+            markRecovery(for: id, runID: nil)
         }
         return true
     }
 
     func unregisterPane(for conversationID: String) {
-        let registration = panesByConversationID.removeValue(forKey: conversationID)
-        if let registration,
-           activeRunIDsByConversationID[conversationID]?.isEmpty == false {
-            detachedPanesByConversationID[conversationID] = registration
-            return
-        }
-
-        recoveryMessages.removeValue(forKey: conversationID)
-        let pending = bufferedEvents[conversationID] ?? []
-        var acceptedEvents: [AgentEvent] = []
-        for runID in acceptedRunOrder where conversationByRunID[runID] == conversationID {
-            acceptedEvents.append(.runAccepted(runID: runID, conversationID: conversationID))
-        }
-        let laterEvents = pending.filter { event -> Bool in
-            if case .runAccepted = event { return false }
-            return true
-        }
-        let retainedEvents = acceptedEvents + laterEvents
-        if retainedEvents.isEmpty {
-            bufferedEvents.removeValue(forKey: conversationID)
-        } else {
-            bufferedEvents[conversationID] = retainedEvents
-        }
+        guard panesByConversationID.removeValue(forKey: conversationID) != nil else { return }
+        // Presentation detachment never owns Stop. Runtime has already persisted
+        // visible Part events before publication, so no hidden token queue is needed.
+        needsReload.insert(conversationID)
     }
 
-    func recoveryMessage(for conversationID: String) -> String? {
-        recoveryMessages[conversationID]
-    }
+    func recoveryMessage(for conversationID: String) -> String? { recoveryMessages[conversationID] }
 
     @discardableResult
     func retryTimelineLoad(for conversationID: String) -> Bool {
-        guard var registration = panesByConversationID[conversationID],
+        guard let registration = panesByConversationID[conversationID],
               registration.state == .waitingForRecovery else { return false }
-
         do {
             try registration.pane.reloadTimeline()
-            registration.state = .ready
-            panesByConversationID[conversationID] = registration
-            recoveryMessages.removeValue(forKey: conversationID)
-            replayBufferedEvents(for: conversationID)
-            guard let recovered = panesByConversationID[conversationID] else { return false }
-            return recovered.state == .ready
+            try reconcile(registration.pane)
+            return true
         } catch {
-            recoveryMessages[conversationID] = "无法加载会话内容，请重试。"
+            markRecovery(for: conversationID, runID: nil)
             return false
         }
     }
 
-    private func route(_ event: AgentEvent, runID: String, to conversationID: String) {
-        let isDetached = panesByConversationID[conversationID] == nil
-        guard var registration = panesByConversationID[conversationID]
-                ?? detachedPanesByConversationID[conversationID] else {
-            bufferedEvents[conversationID, default: []].append(event)
-            return
-        }
-        guard registration.state == .ready else {
-            bufferedEvents[conversationID, default: []].append(event)
-            return
-        }
-
-        do {
-            _ = try registration.pane.consume(event, in: registration.pane.conversationID)
-            if registration.pane.liveStore.needsTimelineReload {
-                registration.state = .waitingForRecovery
-                if isDetached {
-                    detachedPanesByConversationID[conversationID] = registration
-                } else {
-                    panesByConversationID[conversationID] = registration
-                }
-                recoveryMessages[conversationID] = "无法加载会话内容，请重试。"
-                if !Self.isRunAccepted(event) {
-                    bufferedEvents[conversationID, default: []].append(event)
-                }
-                record("Part delta offset mismatch for \(runID) in \(conversationID)")
-            }
-        } catch {
-            registration.state = .waitingForRecovery
-            if isDetached {
-                detachedPanesByConversationID[conversationID] = registration
-            } else {
-                panesByConversationID[conversationID] = registration
-            }
-            recoveryMessages[conversationID] = "无法加载会话内容，请重试。"
-            if !Self.isRunAccepted(event) {
-                bufferedEvents[conversationID, default: []].append(event)
-            }
-            record("Timeline load failed for \(runID) in \(conversationID)")
-        }
-    }
-
-    private func replayBufferedEvents(for conversationID: String) {
+    private func route(_ event: AgentEvent, to conversationID: String) {
         guard let registration = panesByConversationID[conversationID],
-              registration.state == .ready,
-              var events = bufferedEvents.removeValue(forKey: conversationID) else { return }
-
-        while !events.isEmpty {
-            let event = events.removeFirst()
+              registration.state == .ready else {
+            markHidden(event, in: conversationID)
+            return
+        }
+        let pane = registration.pane
+        do {
             if case .messagePartStarted(let runID, let messageID, let partID, let kind) = event,
-               activeRunIDsByConversationID[conversationID]?.contains(runID) == true,
-               registration.pane.liveStore.resumePersistedPart(
-                   runID: runID,
-                   messageID: messageID,
-                   partID: partID,
-                   kind: kind
-               ) {
-                continue
-            }
-            if isAlreadyReflected(event, in: registration.pane) {
-                continue
-            }
-            do {
-                _ = try registration.pane.consume(event, in: registration.pane.conversationID)
-                if registration.pane.liveStore.needsTimelineReload {
-                    markRecovery(for: conversationID, runID: Self.runID(for: event))
-                    if !Self.isRunAccepted(event) {
-                        events.insert(event, at: 0)
-                    }
-                    events.append(contentsOf: bufferedEvents.removeValue(forKey: conversationID) ?? [])
-                    bufferedEvents[conversationID] = events
-                    return
-                }
-            } catch {
-                markRecovery(for: conversationID, runID: Self.runID(for: event))
-                if !Self.isRunAccepted(event) {
-                    events.insert(event, at: 0)
-                }
-                events.append(contentsOf: bufferedEvents.removeValue(forKey: conversationID) ?? [])
-                bufferedEvents[conversationID] = events
+               pane.liveStore.resumePersistedPart(
+                   runID: runID, messageID: messageID, partID: partID, kind: kind) {
                 return
             }
-        }
-    }
-
-    private func isAlreadyReflected(_ event: AgentEvent, in pane: ConversationPaneController) -> Bool {
-        let timeline = pane.liveStore.state.timeline
-        switch event {
-        case .runAccepted(let runID, _):
-            return timeline.turns.contains { $0.runID == runID }
-        case .messagePartStarted(let runID, _, let partID, let kind):
-            guard kind == .text || kind == .reasoning else { return false }
-            return hasPersistedPart(partID, in: runID, timeline: timeline)
-        case .messagePartDelta:
-            return false
-        case .messagePartCompleted(let runID, let partID, _):
-            return hasCompletedPersistedPart(partID, in: runID, timeline: timeline)
-        case .approvalRequired(_, let toolCallID):
-            return pane.liveStore.state.pendingToolApprovals.contains {
-                $0.toolCallID == toolCallID
+            _ = try pane.consume(event, in: conversationID)
+            if pane.liveStore.needsTimelineReload {
+                markHidden(event, in: conversationID)
+                markRecovery(for: conversationID, runID: Self.runID(for: event))
+            } else if case .runAccepted = event {
+                resumeParts(in: pane)
             }
-        case .runStateChanged, .toolCallChanged, .runEnded:
-            return false
+        } catch {
+            markHidden(event, in: conversationID)
+            markRecovery(for: conversationID, runID: Self.runID(for: event))
         }
     }
 
-    private func hasPersistedPart(
-        _ partID: String,
-        in runID: String,
-        timeline: ConversationTimelineProjection
-    ) -> Bool {
-        timeline.turns.first(where: { $0.runID == runID })?.textSourcesByItemIndex.values
-            .contains(where: { $0.partID == partID }) ?? false
+    private func markHidden(_ event: AgentEvent, in conversationID: String) {
+        needsReload.insert(conversationID)
+        hiddenChanges[conversationID, default: []].insert(Self.runID(for: event))
     }
 
-    private func hasCompletedPersistedPart(
-        _ partID: String,
-        in runID: String,
-        timeline: ConversationTimelineProjection
-    ) -> Bool {
-        timeline.turns.first(where: { $0.runID == runID })?.textSourcesByItemIndex.values
-            .contains(where: { $0.partID == partID && $0.isCompleted }) ?? false
+    private func reconcile(_ pane: ConversationPaneController) throws {
+        let id = pane.conversationID
+        resumeParts(in: pane)
+        if let terminal = terminalCheckpoints[id] {
+            _ = try pane.consume(terminal, in: id)
+        }
+        guard !pane.liveStore.needsTimelineReload else {
+            throw ReconciliationError.pendingReload
+        }
+        pane.applyHiddenStoreChanges(hiddenChanges.removeValue(forKey: id) ?? [])
+        needsReload.remove(id)
+        terminalCheckpoints.removeValue(forKey: id)
+        recoveryMessages.removeValue(forKey: id)
+        panesByConversationID[id] = PaneRegistration(pane: pane, state: .ready)
     }
 
-    private func markRecovery(for conversationID: String, runID: String) {
-        guard var registration = panesByConversationID[conversationID] else { return }
-        registration.state = .waitingForRecovery
-        panesByConversationID[conversationID] = registration
+    private func resumeParts(in pane: ConversationPaneController) {
+        let active = activeRunIDsByConversationID[pane.conversationID] ?? []
+        for runID in active {
+            guard let parts = partsByRunID[runID] else { continue }
+            for part in parts.values {
+                _ = pane.liveStore.resumePersistedPart(runID: runID, messageID: part.messageID,
+                    partID: part.partID, kind: part.kind)
+            }
+        }
+        // A recovered or remounted Run may have persisted its Start before the
+        // router was attached. Stable persisted sources cover that acknowledgement gap.
+        for turn in pane.liveStore.state.timeline.turns where active.contains(turn.runID) {
+            for (index, source) in turn.textSourcesByItemIndex
+            where !source.isCompleted && turn.items.indices.contains(index) {
+                let kind: MessagePartKind
+                switch turn.items[index] {
+                case .assistantText: kind = .text
+                case .reasoning: kind = .reasoning
+                default: continue
+                }
+                _ = pane.liveStore.resumePersistedPart(runID: turn.runID, messageID: source.messageID,
+                    partID: source.partID, kind: kind)
+            }
+        }
+    }
+
+    private func markRecovery(for conversationID: String, runID: String?) {
+        if var registration = panesByConversationID[conversationID] {
+            registration.state = .waitingForRecovery
+            panesByConversationID[conversationID] = registration
+        }
+        needsReload.insert(conversationID)
         recoveryMessages[conversationID] = "无法加载会话内容，请重试。"
-        record("Timeline load failed for \(runID) in \(conversationID)")
-    }
-
-    private func finishActiveRun(_ runID: String, in conversationID: String) {
-        activeRunIDsByConversationID[conversationID]?.remove(runID)
-        acceptedRunOrder.removeAll { $0 == runID }
-        guard activeRunIDsByConversationID[conversationID]?.isEmpty != false else { return }
-
-        activeRunIDsByConversationID.removeValue(forKey: conversationID)
-        let releasedDetachedPane = detachedPanesByConversationID.removeValue(forKey: conversationID) != nil
-        if releasedDetachedPane, panesByConversationID[conversationID] == nil {
-            bufferedEvents.removeValue(forKey: conversationID)
-            recoveryMessages.removeValue(forKey: conversationID)
-        }
+        record("Timeline reconciliation failed for \(runID ?? conversationID)")
     }
 
     private func record(_ diagnostic: String) {
         diagnostics.append(diagnostic)
-        if diagnostics.count > 64 {
-            diagnostics.removeFirst(diagnostics.count - 64)
-        }
-    }
-
-    private static func isRunAccepted(_ event: AgentEvent) -> Bool {
-        if case .runAccepted = event { return true }
-        return false
+        if diagnostics.count > 64 { diagnostics.removeFirst(diagnostics.count - 64) }
     }
 
     private static func runID(for event: AgentEvent) -> String {
         switch event {
-        case .runAccepted(let runID, _),
-             .runStateChanged(let runID, _),
-             .messagePartStarted(let runID, _, _, _),
-             .messagePartDelta(let runID, _, _, _),
-             .messagePartCompleted(let runID, _, _),
-             .toolCallChanged(let runID, _, _),
-             .approvalRequired(let runID, _),
-             .runEnded(let runID, _, _):
-            return runID
+        case .runAccepted(let runID, _), .runStateChanged(let runID, _),
+             .messagePartStarted(let runID, _, _, _), .messagePartDelta(let runID, _, _, _),
+             .messagePartCompleted(let runID, _, _), .toolCallChanged(let runID, _, _),
+             .approvalRequired(let runID, _), .runEnded(let runID, _, _): return runID
         }
     }
 }

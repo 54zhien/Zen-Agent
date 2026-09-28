@@ -219,6 +219,9 @@ extension ConversationTimelineProjection {
 
             case .reasoning:
                 let text = (try? PersistenceStore.decodeTextPayload(part.payload).text) ?? ""
+                textSourcesByItemIndex[items.count] = TimelineTextSource(
+                    conversationID: message.conversationID, messageID: message.id,
+                    partID: part.id, isCompleted: part.state == .completed)
                 items.append(.reasoning(text))
 
             case .toolCall:

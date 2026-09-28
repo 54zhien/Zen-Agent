@@ -41,10 +41,11 @@ final class AppShellModel {
     @ObservationIgnored private var dependencies: AppAssembly.Dependencies?
     @ObservationIgnored private var startedAssembly = false
     @ObservationIgnored private var backgroundedAtInProcess: Date?
-    @ObservationIgnored private var draftsByConversationID: [String: ComposerDraftState] = [:]
+    @ObservationIgnored private var sessionsByConversationID: [String: ConversationSession] = [:]
 
     var canSend: Bool {
-        sendAvailability.isReady && target != nil && pane != nil && actionBridge != nil
+        pane?.composer.sendAvailability.isReady == true
+            && pane?.composer.configuration != nil && actionBridge != nil
     }
 
     var runtimeForPresentation: ConversationRuntime? {
@@ -109,7 +110,7 @@ final class AppShellModel {
     }
 
     func newConversation() {
-        rememberCurrentDraft()
+        rememberCurrentSession()
         router.unregisterPane(for: conversationID)
         pane = nil
         actionBridge = nil
@@ -212,9 +213,16 @@ final class AppShellModel {
         return (try? store.conversationLifecycle(id: conversationID)) == .visible
     }
 
-    private func rememberCurrentDraft() {
-        guard let pane, isCurrentConversationVisible else { return }
-        draftsByConversationID[conversationID] = pane.composer.draft
+    private func rememberCurrentSession() {
+        guard let pane, let store = dependencies?.store else { return }
+        do {
+            guard try store.conversationLifecycle(id: conversationID) == .visible else { return }
+        } catch {
+            // A failed read cannot prove this is a disposable uncommitted page.
+            sessionsByConversationID[conversationID] = pane.session
+            return
+        }
+        sessionsByConversationID[conversationID] = pane.session
     }
 
     func refreshRecentConversations() {
@@ -265,15 +273,14 @@ final class AppShellModel {
             guard dependencies.router.registerPane(wiring.pane) else { return false }
 
             // Keep the outgoing pane intact until the replacement has loaded and registered.
-            rememberCurrentDraft()
+            rememberCurrentSession()
             let outgoingConversationID = conversationID
             router.unregisterPane(for: outgoingConversationID)
             conversationID = id
             actionBridge = wiring.bridge
             pane = wiring.pane
-            if let savedDraft = draftsByConversationID[id] {
-                wiring.pane.composer.draft = savedDraft
-            }
+            sendAvailability = wiring.pane.composer.sendAvailability
+            targetMessage = sendAvailability.message
             return true
         } catch {
             return false
@@ -340,11 +347,20 @@ final class AppShellModel {
             installPaneIfReady()
             return
         }
-        pane.composer.configuration = ConversationComposerConfiguration(
-            providerInstanceID: savedTarget.providerInstanceID,
-            modelID: savedTarget.modelID
-        )
-        pane.composer.sendAvailability = .ready
+        guard let dependencies else { return }
+        do {
+            // The existing setup entry changes the global default. Only a page
+            // with no committed Conversation may adopt that choice directly.
+            if try dependencies.store.conversationLifecycle(id: conversationID) == nil {
+                pane.composer.configuration = ConversationComposerConfiguration(
+                    providerInstanceID: savedTarget.providerInstanceID, modelID: savedTarget.modelID)
+            }
+            pane.composer.sendAvailability = availability(for: pane.composer.configuration, in: dependencies)
+        } catch {
+            pane.composer.sendAvailability = .unavailable(AppTargetFailure.persistenceUnavailable.message)
+        }
+        sendAvailability = pane.composer.sendAvailability
+        targetMessage = sendAvailability.message
     }
 
     private func targetBecameUnavailable(
@@ -393,6 +409,8 @@ final class AppShellModel {
         }
         actionBridge = wiring.bridge
         pane = wiring.pane
+        sendAvailability = wiring.pane.composer.sendAvailability
+        targetMessage = sendAvailability.message
     }
 
     private func makePane(
@@ -401,6 +419,24 @@ final class AppShellModel {
         dependencies: AppAssembly.Dependencies,
         target: AppExecutionTarget?
     ) throws -> (bridge: ComposerRuntimeActionBridge, pane: ConversationPaneController) {
+        let savedSession = sessionsByConversationID[id]
+        var configuration: ConversationComposerConfiguration?
+        if let savedSession {
+            configuration = savedSession.composer.configuration
+        } else if try dependencies.store.conversationLifecycle(id: id) != nil {
+            // Compatibility for history created before durable Conversation binding.
+            // This is an initial choice, never a rewrite of an old frozen Run seed.
+            if let seed = try dependencies.store.runs(inConversation: id)
+                .last(where: { $0.kind == .parent })?.requestConfigSeed {
+                configuration = ConversationComposerConfiguration(
+                    providerInstanceID: seed.providerInstanceID, modelID: seed.modelID)
+            }
+        } else {
+            configuration = target.map {
+                ConversationComposerConfiguration(providerInstanceID: $0.providerInstanceID, modelID: $0.modelID)
+            }
+        }
+        let validatedAvailability = availability(for: configuration, in: dependencies)
         let bridge = AppAssembly.wireConversation(
             id: id,
             dependencies: dependencies,
@@ -411,19 +447,31 @@ final class AppShellModel {
         let pane = try ConversationPaneController(
             conversationID: id,
             initialTimeline: initialTimeline,
-            configuration: target.map {
-                ConversationComposerConfiguration(
-                    providerInstanceID: $0.providerInstanceID,
-                    modelID: $0.modelID
-                )
-            },
-            sendAvailability: sendAvailability,
+            configuration: configuration,
+            sendAvailability: validatedAvailability,
+            session: savedSession,
             coalescer: StreamingCoalescer(interval: .milliseconds(10)),
             loadTimeline: { id in
                 try ConversationTimelineLoader.load(conversationID: id, from: dependencies.store)
             }
         )
+        pane.composer.sendAvailability = validatedAvailability
         return (bridge, pane)
+    }
+
+    private func availability(for configuration: ConversationComposerConfiguration?,
+                              in dependencies: AppAssembly.Dependencies) -> ComposerSendAvailability {
+        guard let configuration else { return .unconfigured }
+        do {
+            _ = try AppAssembly.validateTarget(providerInstanceID: configuration.providerInstanceID,
+                modelID: configuration.modelID, store: dependencies.store,
+                provider: dependencies.provider, credentials: dependencies.credentials)
+            return .ready
+        } catch let failure as AppTargetFailure {
+            return .unavailable(failure.message)
+        } catch {
+            return .unavailable(AppTargetFailure.configurationUnavailable.message)
+        }
     }
 
     private func recentTitle(
