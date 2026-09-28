@@ -29,7 +29,9 @@ final class ComposerMotionUITests: XCTestCase {
         input.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
         input.typeText("你好")
-        XCTAssertTrue((input.value as? String)?.contains("你好") == true)
+        let observedAfterTyping = input.value as? String
+        XCTAssertTrue(observedAfterTyping?.contains("你好") == true,
+                      "Expected typed Chinese input; observed \(String(describing: observedAfterTyping))")
         let send = app.buttons["conversation-composer-send"]
         XCTAssertTrue(send.waitForExistence(timeout: 5))
         send.tap()

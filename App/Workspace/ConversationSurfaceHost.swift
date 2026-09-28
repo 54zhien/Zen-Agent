@@ -4,30 +4,57 @@ import UIKit
 @MainActor
 struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var request: SurfaceGeometry.Request = .full
+    var liftController: SurfaceLiftController?
     let content: Content
 
-    init(request: SurfaceGeometry.Request = .full, @ViewBuilder content: () -> Content) {
+    init(request: SurfaceGeometry.Request = .full, liftController: SurfaceLiftController? = nil,
+         @ViewBuilder content: () -> Content) {
         self.request = request
+        self.liftController = liftController
         self.content = content()
     }
 
     func makeUIViewController(context: Context) -> ConversationSurfaceViewController<Content> {
-        ConversationSurfaceViewController(content: content, request: request)
+        let controller = ConversationSurfaceViewController(content: content, request: request)
+        liftController?.bind(controller)
+        return controller
     }
 
     func updateUIViewController(_ controller: ConversationSurfaceViewController<Content>, context: Context) {
         // Content is installed once. Its own observed state drives updates; progress
         // must not replace the hosting root or invalidate the Timeline each frame.
-        _ = controller.apply(request)
+        if let liftController {
+            liftController.bind(controller)
+        } else {
+            controller.liftController?.unbind(controller)
+            _ = controller.apply(request)
+        }
+    }
+
+    static func dismantleUIViewController(_ controller: ConversationSurfaceViewController<Content>,
+                                         coordinator: Void) {
+        controller.liftController?.unbind(controller)
     }
 }
 
 @MainActor
 final class ConversationSurfaceViewController<Content: View>: UIViewController {
     let contentController: SurfaceHostingController<Content>
-    let surfaceView = UIView()
+    let surfaceView = SurfaceClipView()
     private(set) var presentation = SurfaceGeometry.Presentation.full
     private var request = SurfaceGeometry.Request.full
+    weak var liftController: SurfaceLiftController?
+    var onViewportChanged: (() -> Void)?
+    private var lastViewport: CGRect?
+    private var lastInsets: UIEdgeInsets?
+    private let cropMask = UIView()
+    private var animator: UIViewPropertyAnimator?
+#if DEBUG
+    // Tests pause the real animator so a busy simulator cannot skip settlement.
+    var liftAnimatorForTesting: UIViewPropertyAnimator? { animator }
+#endif
+    private var animationIdentity: UUID?
+    private var retainsAnimationMask = false
 
     init(content: Content, request: SurfaceGeometry.Request = .full) {
         contentController = SurfaceHostingController(rootView: content)
@@ -38,11 +65,19 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("Use init(content:)") }
 
+    override func loadView() {
+        let container = SurfaceHitView()
+        container.surfaceView = surfaceView
+        view = container
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
         surfaceView.layer.cornerCurve = .continuous
         surfaceView.clipsToBounds = true
+        cropMask.backgroundColor = .black
+        cropMask.layer.cornerCurve = .continuous
         view.addSubview(surfaceView)
         addChild(contentController)
         let contentView = contentController.view!
@@ -65,6 +100,10 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         if surfaceView.bounds != bounds { surfaceView.bounds = bounds }
         if surfaceView.center != center { surfaceView.center = center }
         contentController.preserveContainerSafeArea(view.safeAreaInsets)
+        let changed = lastViewport != nil && (lastViewport != view.bounds || lastInsets != view.safeAreaInsets)
+        lastViewport = view.bounds
+        lastInsets = view.safeAreaInsets
+        if changed { onViewportChanged?() }
         _ = apply(request)
     }
 
@@ -77,16 +116,167 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     func apply(_ candidate: SurfaceGeometry.Request) -> Bool {
         guard let resolved = SurfaceGeometry.resolve(size: view.bounds.size, safeArea: view.safeAreaInsets, request: candidate) else { return false }
         request = candidate
-        guard presentation != resolved else { return true }
+        guard presentation != resolved else { updateCrop(); return true }
         presentation = resolved
         surfaceView.transform = CGAffineTransform(a: resolved.scale, b: 0, c: 0, d: resolved.scale, tx: resolved.translation.width, ty: resolved.translation.height)
         surfaceView.layer.cornerRadius = resolved.cornerRadius
+        updateCrop()
         return true
+    }
+
+    private func updateCrop() {
+        let fraction = presentation.clipFraction
+        let cropped = fraction != CGSize(width: 1, height: 1)
+        guard cropped || retainsAnimationMask else {
+            surfaceView.mask = nil
+            surfaceView.visibleRect = nil
+            return
+        }
+        let width = surfaceView.bounds.width * fraction.width
+        let height = surfaceView.bounds.height * fraction.height
+        cropMask.frame = CGRect(x: (surfaceView.bounds.width - width) / 2,
+                                y: (surfaceView.bounds.height - height) / 2,
+                                width: width, height: height)
+        cropMask.layer.cornerRadius = presentation.cornerRadius
+        surfaceView.mask = cropMask
+        surfaceView.visibleRect = cropMask.frame
+    }
+
+    func setLiftInteraction(_ phase: SurfaceLiftState.Phase, returnAction: @escaping () -> Bool) {
+        let frozen = phase == .settling || phase == .card
+        contentController.view.isUserInteractionEnabled = !frozen
+        contentController.view.accessibilityElementsHidden = frozen
+        surfaceView.isAccessibilityElement = frozen
+        surfaceView.accessibilityIdentifier = phase == .card ? "workspace-current-card" : nil
+        surfaceView.accessibilityLabel = "当前会话"
+        surfaceView.accessibilityHint = "轻点返回会话"
+        surfaceView.accessibilityTraits = .button
+        surfaceView.onActivate = frozen ? returnAction : nil
+        surfaceView.accessibilityCustomActions = frozen
+            ? [UIAccessibilityCustomAction(name: "返回会话", target: surfaceView,
+                                           selector: #selector(SurfaceClipView.activateReturn))] : nil
+    }
+
+    var hasPresentedOverlay: Bool {
+        var controller: UIViewController? = contentController
+        while let current = controller {
+            if current.presentedViewController != nil { return true }
+            controller = current.parent
+        }
+        return false
+    }
+
+    func cancelLiftAnimation() {
+        animationIdentity = nil
+        animator?.stopAnimation(true)
+        animator = nil
+        retainsAnimationMask = false
+    }
+
+    func resetLiftPresentation() {
+        cancelLiftAnimation()
+        // A transient zero viewport cannot resolve pixels, but the next layout
+        // must still use Full instead of resurrecting the interrupted request.
+        request = .full
+        _ = apply(.full)
+    }
+
+    func captureLiftProgress(target: SurfaceGeometry.Pose) -> Double {
+        var progress = request.progress
+        if animator != nil, let layer = surfaceView.layer.presentation(), abs(target.scale - 1) > 0.000001 {
+            progress = (layer.transform.m11 - 1) / (target.scale - 1)
+        }
+        progress = min(1, max(0, progress))
+        cancelLiftAnimation()
+        UIView.performWithoutAnimation { _ = apply(.init(to: target, progress: progress)) }
+        return Double(progress)
+    }
+
+    func animateLift(target: SurfaceGeometry.Pose, from: Double, to: Double,
+                     animated: Bool, completion: @escaping (Bool) -> Void) {
+        cancelLiftAnimation()
+        _ = apply(.init(to: target, progress: CGFloat(from)))
+        guard animated, !UIAccessibility.isReduceMotionEnabled, abs(to - from) > 0.000001 else {
+            let applied = apply(.init(to: target, progress: CGFloat(to)))
+            completion(applied)
+            return
+        }
+        retainsAnimationMask = true
+        updateCrop()
+        let identity = UUID()
+        animationIdentity = identity
+        let animation = UIViewPropertyAnimator(duration: 0.28, curve: .easeInOut) { [weak self] in
+            _ = self?.apply(.init(to: target, progress: CGFloat(to)))
+        }
+        animation.isManualHitTestingEnabled = true
+        animator = animation
+        animation.addCompletion { [weak self] position in
+            guard let self, self.animationIdentity == identity else { return }
+            self.animationIdentity = nil
+            self.animator = nil
+            self.retainsAnimationMask = false
+            self.updateCrop()
+            completion(position == .end)
+        }
+        animation.startAnimation()
     }
 
     override var childForStatusBarStyle: UIViewController? { contentController }
     override var childForStatusBarHidden: UIViewController? { contentController }
     override var childForHomeIndicatorAutoHidden: UIViewController? { contentController }
+}
+
+@MainActor
+private final class SurfaceHitView: UIView {
+    weak var surfaceView: SurfaceClipView?
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let surfaceView, surfaceView.onActivate != nil else {
+            return super.hitTest(point, with: event)
+        }
+        guard isUserInteractionEnabled, !isHidden, alpha > 0.01,
+              !surfaceView.isHidden, surfaceView.alpha > 0.01,
+              self.point(inside: point, with: event) else { return nil }
+        // UIKit's model transform already points at the destination. Route new
+        // settlement touches through the still-visible transform and mask instead.
+        let local = surfaceView.visiblePoint(fromParent: point)
+        return surfaceView.point(inside: local, with: event) ? surfaceView : nil
+    }
+}
+
+@MainActor
+final class SurfaceClipView: UIView {
+    var visibleRect: CGRect?
+    var onActivate: (() -> Bool)?
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard super.point(inside: point, with: event) else { return false }
+        if onActivate != nil {
+            let visibleLayer = layer.presentation() ?? layer
+            let visibleMask = visibleLayer.mask ?? mask?.layer
+            let rect = visibleMask?.frame ?? visibleRect ?? bounds
+            return UIBezierPath(roundedRect: rect,
+                cornerRadius: visibleMask?.cornerRadius ?? visibleLayer.cornerRadius).contains(point)
+        }
+        guard let visibleRect else { return true }
+        return UIBezierPath(roundedRect: visibleRect, cornerRadius: mask?.layer.cornerRadius ?? 0).contains(point)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if let point = touches.first?.location(in: superview),
+           self.point(inside: visiblePoint(fromParent: point), with: event) {
+            _ = onActivate?()
+        }
+        super.touchesEnded(touches, with: event)
+    }
+
+    func visiblePoint(fromParent point: CGPoint) -> CGPoint {
+        let visibleLayer = layer.presentation() ?? layer
+        return visibleLayer.convert(point, from: visibleLayer.superlayer ?? superview?.layer)
+    }
+
+    override func accessibilityActivate() -> Bool { onActivate?() ?? false }
+    @objc func activateReturn() -> Bool { accessibilityActivate() }
 }
 
 @MainActor

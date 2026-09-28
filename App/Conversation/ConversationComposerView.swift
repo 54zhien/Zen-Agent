@@ -12,6 +12,7 @@ struct ConversationComposerView: View {
     @State private var runProjection: RunProjection?
     @State private var knownModels: [ModelDescriptor] = []
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.surfaceLiftController) private var lift
 
     init(conversationID: String, controller: ComposerController,
          bridge: ComposerRuntimeActionBridge, maxProviderSteps: Int,
@@ -115,7 +116,20 @@ struct ConversationComposerView: View {
                 configuration.modelID = modelID
                 controller.configuration = configuration
             },
-            onHeightChanged: onHeightChanged
+            onHeightChanged: onHeightChanged,
+            liftInteraction: lift.map { driver in
+                ComposerLiftInteraction.Configuration(driver: driver) { native in
+                    var input = native
+                    input.isEditing = input.isEditing || controller.draft.presentationState == .editing
+                    input.hasMarkedText = input.hasMarkedText || controller.isComposing
+                    input.selectionActive = input.selectionActive || controller.isSelectionHandleDragging
+                    input.quoteDragActive = input.quoteDragActive || controller.quoteDragPhase != .idle
+                    input.composerSettled = input.composerSettled && controller.canBeginSurfaceLift(
+                        keyboardVisible: input.keyboardVisible || input.keyboardTransitioning,
+                        stableBottomAnchor: input.composerSettled)
+                    return input
+                }
+            }
         )
     }
 

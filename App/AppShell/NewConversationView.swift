@@ -13,7 +13,7 @@ struct AppShellRootView: View {
                 ProgressView("正在打开会话数据")
                     .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
             case .ready:
-                ConversationSurfaceHost {
+                WorkspaceSurfaceView {
                     NewConversationView(model: model)
                 }
                 .ignoresSafeArea()
@@ -55,6 +55,7 @@ struct NewConversationView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var isProviderSetupPresented = false
     @State private var isRecentConversationsPresented = false
+    @Environment(\.surfaceLiftController) private var lift
 
     var body: some View {
         NavigationStack {
@@ -196,6 +197,10 @@ struct NewConversationView: View {
                 }
             }
         }
+        .onChange(of: isProviderSetupPresented || isRecentConversationsPresented) { _, presented in
+            lift?.setOverlayPresented(presented)
+        }
+        .onChange(of: model.conversationID) { _, _ in lift?.invalidate() }
     }
 
 }

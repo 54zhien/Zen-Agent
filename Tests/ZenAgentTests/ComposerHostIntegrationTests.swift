@@ -98,6 +98,67 @@ struct ComposerHostIntegrationTests {
                                                     turnFrames: frames))
     }
 
+    @Test("Lift reads native composition and keyboard transition separately")
+    func nativeLiftReadinessDoesNotInferSafetyFromZeroKeyboardHeight() {
+        let (window, host) = installedHost()
+        defer { host.editor.resignFirstResponder(); window.isHidden = true }
+        let editor = host.editor
+        host.configure(configuration(state: .editing))
+        #expect(host.nativeLiftInput.isEditing)
+        #expect(!host.nativeLiftInput.allowsLift)
+        host.configure(configuration(state: .resting))
+        editor.setMarkedText("候选文字", selectedRange: NSRange(location: 2, length: 0))
+        #expect(editor.markedTextRange != nil)
+        #expect(host.nativeLiftInput.hasMarkedText)
+        #expect(!host.nativeLiftInput.allowsLift)
+        #expect(host.editor === editor)
+        editor.unmarkText()
+        let info: [AnyHashable: Any] = [
+            UIResponder.keyboardFrameEndUserInfoKey: CGRect(x: 0, y: window.bounds.maxY,
+                width: window.bounds.width, height: 300),
+            UIResponder.keyboardAnimationDurationUserInfoKey: NSNumber(value: 0.2),
+            UIResponder.keyboardAnimationCurveUserInfoKey: NSNumber(value: 0),
+        ]
+        NotificationCenter.default.post(name: UIResponder.keyboardWillChangeFrameNotification,
+                                        object: window.screen, userInfo: info)
+        #expect(host.nativeLiftInput.keyboardTransitioning)
+        #expect(!host.nativeLiftInput.allowsLift)
+        NotificationCenter.default.post(name: UIResponder.keyboardDidChangeFrameNotification,
+                                        object: window.screen, userInfo: info)
+        #expect(!host.nativeLiftInput.keyboardTransitioning)
+    }
+
+    @Test("teardown releases the native Lift recognizer and editor")
+    func teardownReleasesNativeLiftTransport() async throws {
+        weak var weakHost: ComposerHostView?
+        weak var weakEditor: UITextView?
+        weak var weakGesture: UILongPressGestureRecognizer?
+        func liftGesture(in view: UIView) -> UILongPressGestureRecognizer? {
+            if let gesture = view.gestureRecognizers?.compactMap({ $0 as? UILongPressGestureRecognizer }).first {
+                return gesture
+            }
+            return view.subviews.lazy.compactMap { liftGesture(in: $0) }.first
+        }
+        autoreleasepool {
+            let host = ComposerHostView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+            var config = configuration()
+            config.liftInteraction = .init(driver: SurfaceLiftController(), eligibility: { $0 })
+            host.configure(config)
+            weakHost = host
+            weakEditor = host.editor
+            weakGesture = liftGesture(in: host)
+            #expect(weakGesture != nil)
+        }
+        // Let queued UIKit/hosting work finish; a retained transport must still
+        // fail the same weak-reference checks after this bounded drain.
+        for _ in 0..<10 where weakHost != nil || weakEditor != nil || weakGesture != nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(weakHost == nil)
+        #expect(weakEditor == nil)
+        #expect(weakGesture == nil)
+    }
+
     private func installedHost(
         initialState: ComposerPresentationState = .resting
     ) -> (UIWindow, ComposerHostView) {
