@@ -54,7 +54,14 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
     }
 
     func checkReadiness() {
-        if !input.allowsLift { configuration?.driver.invalidate(); origin = nil }
+        if !input.allowsLift {
+            let driver = configuration?.driver
+            let returning = driver?.state.phase == .settling
+                && driver?.state.pendingSettlement?.destination == .full
+            // A freshly remounted editor must finish layout before it can start
+            // another Lift. That readiness does not cancel an existing Return.
+            if !returning { driver?.invalidate(); origin = nil }
+        }
         editor?.accessibilityCustomActions = configuration != nil
             ? [UIAccessibilityCustomAction(name: "提起会话", target: self,
                                            selector: #selector(liftForAccessibility))] : nil

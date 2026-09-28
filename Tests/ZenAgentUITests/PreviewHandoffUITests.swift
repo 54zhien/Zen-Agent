@@ -53,6 +53,7 @@ final class PreviewHandoffUITests: XCTestCase {
         expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" }
         expect { (position.value as? String) == "settled" && anchor.isHittable }
         print("PREVIEW_READING_AFTER frame=\(anchor.frame) \(app.staticTexts["preview-reading-diagnostic"].label)")
+        XCTAssertEqual(anchor.frame.width, original.width, accuracy: 3)
         XCTAssertEqual(anchor.frame.minY, original.minY, accuracy: 3)
         XCTAssertEqual(anchor.frame.height, original.height, accuracy: 3)
     }

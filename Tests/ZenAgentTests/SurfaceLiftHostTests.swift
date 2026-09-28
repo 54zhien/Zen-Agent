@@ -6,6 +6,30 @@ import Testing
 @Suite("Lift host transport", .serialized)
 @MainActor
 struct SurfaceLiftHostTests {
+    @Test func interruptedReturnResetsTheActualNativeTransform() async throws {
+        let host = ConversationSurfaceViewController(content: Text("interrupted Return"))
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let pose = SurfaceGeometry.Pose(scale: 0.7, translation: CGSize(width: 0, height: -0.1), cornerRadius: 24)
+        host.animateLift(target: pose, from: 1, to: 0, animated: true) { _ in }
+        let animator = try #require(host.liftAnimatorForTesting)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0.4
+        CATransaction.flush()
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(host.presentation == .full)
+        host.resetLiftPresentation()
+        CATransaction.flush()
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(host.surfaceView.transform == .identity)
+        #expect(abs((host.surfaceView.layer.presentation()?.transform.m11 ?? 1) - 1) < 0.001)
+        #expect(host.surfaceView.mask == nil)
+    }
+
     @Test func settlingSurfaceActivationReversesAndReturnReentryIsIdempotent() async throws {
         let host = ConversationSurfaceViewController(content: Text("production activation"))
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)

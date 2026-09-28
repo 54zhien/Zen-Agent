@@ -28,6 +28,8 @@ struct ConversationTimelineView: View {
     var bottomComposerClearance: CGFloat = 62
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.surfaceLiftController) private var surfaceLift
+    @State private var readingGeometryWasSuspended = false
     @ScaledMetric(relativeTo: .body) private var betweenTurns = Metrics.betweenTurns
     @ScaledMetric(relativeTo: .body) private var contentInset = Metrics.contentInset
     @State private var selectedApproval: ToolApprovalProjection?
@@ -120,7 +122,7 @@ struct ConversationTimelineView: View {
                         in: frames,
                         geometry: latestScrollGeometry
                     )
-                    if scrollBridge?.isHeightChangeActive == true {
+                    if acceptsReadingGeometry, scrollBridge?.isHeightChangeActive == true {
                         scrollBridge?.continueHeightChange(
                             geometry: latestScrollGeometry,
                             turnTops: turnTops(in: frames, geometry: latestScrollGeometry)
@@ -136,6 +138,7 @@ struct ConversationTimelineView: View {
             }
             .onScrollPhaseChange { _, phase, context in
                 activeScrollPhase = phase
+                guard acceptsReadingGeometry else { return }
                 switch phase {
                 case .tracking, .interacting:
                     pendingAppliedScroll = nil
@@ -154,6 +157,13 @@ struct ConversationTimelineView: View {
                 @unknown default:
                     break
                 }
+            }
+            .onChange(of: surfaceLift?.state.phase) { _, phase in
+                guard phase == .full, let scrollBridge, let latestScrollGeometry else { return }
+                scrollBridge.endHeightChange()
+                pendingAppliedScroll = nil
+                _ = scrollBridge.pane.updateReading(.geometryChanged(geometry: latestScrollGeometry, anchor: nil))
+                applyPendingScrollIfReady()
             }
             .onChange(of: scrollBridge?.pane.scrollRequest) { _, request in
                 guard let request else {
@@ -217,6 +227,20 @@ struct ConversationTimelineView: View {
             print("PREVIEW_READING_GEOMETRY viewport=\(geometry.viewportHeight) offset=\(geometry.offset) turnFrame=\(String(describing: turnFrames[anchor.runID])) anchor=\(anchor.relativeViewportOffset) phase=\(String(describing: surfaceLiftPhaseForDiagnostic)) clearance=\(bottomComposerClearance)")
         }
 #endif
+        // Intermediate Lift/Return layout is presentation geometry. Keep the
+        // Session anchor until Full and ignore its transient predecessor viewport.
+        guard acceptsReadingGeometry else {
+            readingGeometryWasSuspended = true
+            return
+        }
+        if readingGeometryWasSuspended {
+            readingGeometryWasSuspended = false
+            scrollBridge.endHeightChange()
+            pendingAppliedScroll = nil
+            _ = scrollBridge.pane.updateReading(.geometryChanged(geometry: geometry, anchor: nil))
+            applyPendingScrollIfReady()
+            return
+        }
         if isUserDrivenScroll {
             pendingAppliedScroll = nil
             scrollBridge.userScrolled(
@@ -256,6 +280,10 @@ struct ConversationTimelineView: View {
     @Environment(\.surfaceLiftController) private var surfaceLiftForDiagnostic
     private var surfaceLiftPhaseForDiagnostic: SurfaceLiftState.Phase? { surfaceLiftForDiagnostic?.state.phase }
 #endif
+
+    private var acceptsReadingGeometry: Bool {
+        surfaceLift == nil || surfaceLift?.state.phase == .full
+    }
 
     private var isUserDrivenScroll: Bool {
         activeScrollPhase == .tracking
@@ -326,7 +354,7 @@ struct ConversationTimelineView: View {
     }
 
     private func applyScrollRequest(_ request: ConversationPaneScrollRequest) {
-        guard let scrollBridge,
+        guard acceptsReadingGeometry, let scrollBridge,
               scrollBridge.pane.scrollRequest?.sequence == request.sequence,
               !isUserDrivenScroll,
               pendingAppliedScroll?.sequence != request.sequence,

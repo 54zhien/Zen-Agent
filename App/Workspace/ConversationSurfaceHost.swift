@@ -113,10 +113,10 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     @discardableResult
-    func apply(_ candidate: SurfaceGeometry.Request) -> Bool {
+    func apply(_ candidate: SurfaceGeometry.Request, force: Bool = false) -> Bool {
         guard let resolved = SurfaceGeometry.resolve(size: view.bounds.size, safeArea: view.safeAreaInsets, request: candidate) else { return false }
         request = candidate
-        guard presentation != resolved else { updateCrop(); return true }
+        guard force || presentation != resolved else { updateCrop(); return true }
         presentation = resolved
         surfaceView.transform = CGAffineTransform(a: resolved.scale, b: 0, c: 0, d: resolved.scale, tx: resolved.translation.width, ty: resolved.translation.height)
         surfaceView.layer.cornerRadius = resolved.cornerRadius
@@ -178,7 +178,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         // A transient zero viewport cannot resolve pixels, but the next layout
         // must still use Full instead of resurrecting the interrupted request.
         request = .full
-        _ = apply(.full)
+        // The animator's cached endpoint can already be Full while stopping it
+        // leaves the native view at an intermediate transform. Apply real pixels.
+        UIView.performWithoutAnimation { _ = apply(.full, force: true) }
     }
 
     func captureLiftProgress(target: SurfaceGeometry.Pose) -> Double {
