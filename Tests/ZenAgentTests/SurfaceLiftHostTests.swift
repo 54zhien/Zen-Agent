@@ -112,4 +112,60 @@ struct SurfaceLiftHostTests {
         #expect(!driver.drag(upwardDistance: 180, eligibility: SurfaceLiftEligibility()))
         #expect(driver.end() == nil)
     }
+
+    @Test func lateGestureEventsDoNotOverwriteAnimatorEndpoint() async throws {
+        let host = ConversationSurfaceViewController(content: Text("late gesture"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        #expect(driver.arm(SurfaceLiftEligibility()))
+        #expect(driver.drag(upwardDistance: 120, eligibility: SurfaceLiftEligibility()))
+        #expect(driver.end() != nil)
+        #expect(driver.state.phase == .settling)
+        let endpoint = host.presentation
+        #expect(!driver.drag(upwardDistance: 96, eligibility: SurfaceLiftEligibility()))
+        #expect(driver.end() == nil)
+        #expect(host.presentation == endpoint)
+        try await Task.sleep(for: .milliseconds(450))
+        #expect(driver.state.phase == .card)
+        #expect(host.presentation == endpoint)
+        #expect(driver.returnToFull(animated: false))
+    }
+
+    @Test func nativeTextSourceRegistrationsStayIndependentAndDismantle() {
+        let driver = SurfaceLiftController()
+        func source(_ id: String) -> QuoteSourceText {
+            QuoteSourceText(conversationID: "selection", messageID: "message", partID: id,
+                            text: "selected source", isCompleted: true)
+        }
+        let a = QuoteSelectableText.Coordinator(parent: QuoteSelectableText(
+            text: "selected source", source: source("a"), typographyRole: .conversationBody,
+            dynamicTypeSize: .large))
+        let b = QuoteSelectableText.Coordinator(parent: QuoteSelectableText(
+            text: "selected source", source: source("b"), typographyRole: .conversationBody,
+            dynamicTypeSize: .large))
+        let textA = UITextView()
+        textA.isEditable = false
+        textA.text = "selected source"
+        textA.selectedRange = NSRange(location: 0, length: 3)
+        let textB = UITextView()
+        textB.isEditable = false
+        textB.text = "selected source"
+        textB.selectedRange = NSRange(location: 0, length: 0)
+        a.textView = textA
+        b.textView = textB
+        a.setLiftDriver(driver)
+        b.setLiftDriver(driver)
+        #expect(driver.hasSelection)
+        b.textViewDidChangeSelection(textB)
+        #expect(driver.hasSelection)
+        QuoteSelectableText.dismantleUIView(textB, coordinator: b)
+        #expect(driver.hasSelection)
+        QuoteSelectableText.dismantleUIView(textA, coordinator: a)
+        #expect(!driver.hasSelection)
+    }
 }

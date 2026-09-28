@@ -15,7 +15,8 @@ private actor SurfaceCommandProbe {
 @Suite("Stable Conversation Surface", .serialized)
 @MainActor
 struct ConversationSurfaceHostTests {
-    @Test func roundTripKeepsEditorOwnersDraftRunAndMessages() async throws {
+    @Test(arguments: [false, true])
+    func roundTripKeepsEditorOwnersDraftRunAndMessages(actualLift: Bool) async throws {
         let timeline = ConversationTimelineProjection(conversationID: "surface-conversation", turns: [
             ConversationTurn(runID: "surface-active-run", items: [.userText("committed prompt")])
         ])
@@ -66,6 +67,26 @@ struct ConversationSurfaceHostTests {
             #expect(textViews(in: host.view).count == editorCount)
         }
         #expect(host.presentation == .full)
+        if actualLift {
+            let driver = SurfaceLiftController()
+            driver.bind(host)
+            #expect(driver.arm(SurfaceLiftEligibility()))
+            #expect(driver.drag(upwardDistance: 180, eligibility: SurfaceLiftEligibility()))
+            #expect(driver.end(animated: false)?.destination == .card)
+            #expect(driver.state.phase == .card)
+            #expect(textViews(in: host.view).first === editor)
+            #expect(textViews(in: host.view).count == editorCount)
+            #expect(child.view.bounds == originalBounds)
+            #expect(pane.composer.draft == draft && pane.liveStore.state == state)
+            #expect(reading.mode == readingMode)
+            #expect(driver.returnToFull(animated: false))
+            #expect(host.contentController === child && pane.composer === composer)
+            #expect(pane.readingPosition === reading)
+            #expect(textViews(in: host.view).first === editor)
+            #expect(textViews(in: host.view).count == editorCount)
+            #expect(pane.composer.draft == draft && pane.liveStore.state == state)
+            #expect(reading.mode == readingMode)
+        }
         #expect(await probe.counts() == [0, 0])
         #expect(await probe.active.runID == "surface-active-run")
     }
