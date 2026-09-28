@@ -40,6 +40,8 @@ struct ConversationPreviewUITestFixture: View {
                         if deep, positionRequest == nil {
                             // Fixture bootstrap only: place an actual long timeline at
                             // its middle once. Return must use the production restoration.
+                            model.pane?.readingPosition.setReadingAnchorForUITest(
+                                TurnAnchor(runID: runID, relativeViewportOffset: 0.2))
                             model.pane?.previewReadingBootstrapForUITest = runID
                             Task { @MainActor in
                                 try? await Task.sleep(for: .milliseconds(150))

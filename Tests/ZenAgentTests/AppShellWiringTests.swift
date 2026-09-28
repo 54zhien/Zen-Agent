@@ -47,7 +47,8 @@ struct AppShellWiringTests {
             return view.subviews.lazy.compactMap { native(type, id: id, in: $0) }.first
         }
         for _ in 0..<100 {
-            if native(UIButton.self, id: "conversation-composer-send", in: host.view)?.isEnabled == true { break }
+            if native(UITextView.self, id: "conversation-composer-input", in: host.view)?.text == "pending native Send",
+               native(UIButton.self, id: "conversation-composer-send", in: host.view)?.isEnabled == true { break }
             try await Task.sleep(for: .milliseconds(10))
         }
         let send = try #require(native(UIButton.self, id: "conversation-composer-send", in: host.view))
@@ -57,7 +58,7 @@ struct AppShellWiringTests {
             if await gate.count == 1 { break }
             try await Task.sleep(for: .milliseconds(5))
         }
-        #expect(await gate.count == 1)
+        try #require(await gate.count == 1)
         weak var oldEditor = native(UITextView.self, id: "conversation-composer-input", in: host.view)
         #expect(fixture.model.enterPreview())
         host.rootView = AnyView(ConversationPreviewView(summary: fixture.model.previewContent.currentSummary))
@@ -122,7 +123,7 @@ struct AppShellWiringTests {
         }
         fixture.model.refreshPreview()
         try fixture.store.database.read { db in db.trace(nil) }
-        #expect(trace.selectCount <= 1)
+        #expect(trace.summaryQueryCount == 1)
         #expect(fixture.model.previewContent.summaries.count <= 4)
         #expect(Set(fixture.model.previewContent.summaries.map(\.id)).count == fixture.model.previewContent.summaries.count)
         #expect(fixture.model.previewContent.currentSummary?.id == id)
@@ -1851,11 +1852,16 @@ private struct ShellFixture {
 final class S504SQLTrace: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
+    private var summaryCount = 0
     var selectCount: Int { lock.withLock { count } }
+    var summaryQueryCount: Int { lock.withLock { summaryCount } }
     func record(_ sql: String) {
         let normalized = sql.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         if normalized.hasPrefix("SELECT") || normalized.hasPrefix("WITH") {
-            lock.withLock { count += 1 }
+            lock.withLock {
+                count += 1
+                if normalized.hasPrefix("WITH PAGE AS MATERIALIZED") { summaryCount += 1 }
+            }
         }
     }
 }
