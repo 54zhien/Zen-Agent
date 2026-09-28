@@ -22,6 +22,7 @@ struct ToolApprovalUITests {
             try ConversationPaneController(conversationID: id,
                 initialTimeline: try ConversationTimelineLoader.load(conversationID: id, from: environment.store),
                 configuration: nil,
+                coalescer: StreamingCoalescer(interval: .milliseconds(0)),
                 loadTimeline: { try ConversationTimelineLoader.load(conversationID: $0, from: environment.store) })
         }
         let first = try makePane()

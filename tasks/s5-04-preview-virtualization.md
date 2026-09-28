@@ -61,3 +61,8 @@ still derives from completed only. Supplemental tests exercise real Runtime with
 file-backed1000-chunk detached stream, active remount, postmount output and reopened
 database; detached completion/Stop; original-Runtime approval dedup and rejection.
 No Runtime/schema/dependency changes. Full GREEN pending; not device acceptance.
+
+Fix candidate b820521/CI36409143844 generated and built the App, but new approval
+test omitted the required Pane coalescer argument (test compilation failure).
+No behavioral outcome from that run is counted. Fixture argument repaired; the
+compiled694-test/7-issue RED above remains the production regression evidence.
