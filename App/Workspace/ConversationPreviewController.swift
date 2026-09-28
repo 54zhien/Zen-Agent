@@ -48,9 +48,12 @@ final class ConversationPreviewController {
     }
 
     func refresh(store: PersistenceStore) {
-        guard isPresented else { return }
+        guard isPresented, let session else { return }
         do {
-            summaries = try store.conversationSummaryWindow(ids: summaries.map(\.id))
+            // A new page may become durable while its editor is detached. Always
+            // acquire the current ID; retain only the existing bounded predecessors.
+            let predecessors = summaries.filter { $0.id != session.conversationID }.prefix(3).map(\.id)
+            summaries = try store.conversationSummaryWindow(ids: [session.conversationID] + predecessors)
         } catch {
             // Keep the last readable projection. Refresh must not erase a Return failure.
             errorMessage = "预览更新失败，轻点会话可重试打开。"

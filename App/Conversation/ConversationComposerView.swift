@@ -36,6 +36,14 @@ struct ConversationComposerView: View {
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .task(id: conversationID) { await observeRunProjection() }
             .task(id: controller.configuration?.providerInstanceID) { await loadKnownModels() }
+#if DEBUG
+            .onAppear { controller.nativeSendCoordinatorForUITest = coordinator }
+            .onDisappear {
+                if controller.nativeSendCoordinatorForUITest === coordinator {
+                    controller.nativeSendCoordinatorForUITest = nil
+                }
+            }
+#endif
     }
 
     private var selectedCapabilities: Set<ModelCapability> {

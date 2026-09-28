@@ -53,12 +53,15 @@ struct AppShellWiringTests {
         }
         let send = try #require(native(UIButton.self, id: "conversation-composer-send", in: host.view))
         #expect(send.isEnabled)
-        send.sendActions(for: .touchUpInside)
+        let firstCoordinator = try #require(pane.composer.nativeSendCoordinatorForUITest)
+        let firstAction = Task { await firstCoordinator.handlePrimaryAction() }
         for _ in 0..<100 {
             if await gate.count == 1 { break }
             try await Task.sleep(for: .milliseconds(5))
         }
-        try #require(await gate.count == 1)
+        let initialCount = await gate.count
+        print("PREVIEW_SEND_CONTROL count=\(initialCount) error=\(firstCoordinator.sendErrorMessage ?? "none") submission=\(firstCoordinator.submission)")
+        try #require(initialCount == 1)
         weak var oldEditor = native(UITextView.self, id: "conversation-composer-input", in: host.view)
         #expect(fixture.model.enterPreview())
         host.rootView = AnyView(ConversationPreviewView(summary: fixture.model.previewContent.currentSummary))
@@ -77,10 +80,13 @@ struct AppShellWiringTests {
         let remountedSend = try #require(native(UIButton.self, id: "conversation-composer-send", in: host.view))
         #expect(!remountedSend.isEnabled)
         // Even a stale native action must resolve through the same pending transaction.
-        remountedSend.sendActions(for: .touchUpInside)
+        let currentCoordinator = try #require(restored.composer.nativeSendCoordinatorForUITest)
+        #expect(currentCoordinator === firstCoordinator)
+        _ = await currentCoordinator.handlePrimaryAction()
         try await Task.sleep(for: .milliseconds(100))
         #expect(await gate.count == 1)
         await gate.release()
+        _ = await firstAction.value
         for _ in 0..<100 {
             if native(UILabel.self, id: "composer-send-error", in: host.view)?.text == "Keychain 不可用" { break }
             try await Task.sleep(for: .milliseconds(10))
