@@ -119,3 +119,16 @@ Ruling: preparation tickets are invalidated by delivered Run events; only a curr
 read may register, then the prepared Pane receives subsequent durable events. No
 second synchronous timeline reload at registration. Cost if wrong: dirty snapshot
 reconciliation needs a transactional read, not another Runtime writer/token queue.
+
+First source486ce68/CI36436119382 attempt1/job108974468409 generated/built
+and ran723 tests/111 suites with one fixture failure: direct runtime.send requires
+an existing Conversation and waits for completion, so it cannot start the held new
+page stream. All30 initial issues passed, including actual native editor release
+and UTF16 remount;20 XCTest and12UI passed, one run start/no restart.
+Repair the fixture using the production first-Send bridge. Supplementary regressions
+cover in-flight cancellation, current-ID open routing, scoped readiness and actual
+production Card accessibility Run status. The last three edges retain their current
+implementation until compiled behavior RED; not a missing-type failure.
+Ruling: a DEBUG-only data seed stays inside Persistence, while the UI fixture uses
+the actual Shell/Workspace/Lift path; no raw SQL reaches a View, no schema change.
+Cost if wrong: the test seed may need expansion, never a production preview database.

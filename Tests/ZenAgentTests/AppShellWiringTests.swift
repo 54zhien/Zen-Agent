@@ -20,6 +20,110 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("opening the current Preview installs exactly one registered Full owner", arguments: [false, true])
+    func openingCurrentPreview(prewarm: Bool) async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in try Fixtures.conversation(id: "current-preview").insert(db) }
+        #expect(fixture.model.openConversation(id: "current-preview"))
+        #expect(fixture.model.enterPreview())
+        if prewarm { #expect(await fixture.model.preparePreviewReturn()) }
+        #expect(fixture.model.openConversation(id: "current-preview"))
+        let full = try #require(fixture.model.pane)
+        #expect(!fixture.model.previewContent.isPresented)
+        #expect(!fixture.model.router.registerPane(full))
+    }
+
+    @Test("a new page's readiness does not inherit a corrupt predecessor's status")
+    func newPreviewReadinessIsScoped() throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "corrupt-predecessor").insert(db)
+            try Fixtures.message(id: "corrupt-preview-message", conversationID: "corrupt-predecessor").insert(db)
+            try Fixtures.textPart(id: "corrupt-preview-part", messageID: "corrupt-preview-message").insert(db)
+            try db.execute(sql: "UPDATE messagePart SET payload = ? WHERE id = ?", arguments: ["{bad", "corrupt-preview-part"])
+        }
+        #expect(fixture.model.enterPreview())
+        #expect(fixture.model.previewContent.summaries.first?.contentUnavailable == true)
+        #expect(fixture.model.previewContent.status == .ready)
+    }
+
+    @Test("the production Current Card accessibility container announces its Run status")
+    func previewCardAnnouncesRunStatus() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "card-status", title: "Failed conversation").insert(db)
+            try Fixtures.run(id: "card-status-run", conversationID: "card-status", state: .failed,
+                endReason: .providerInterrupted).insert(db)
+        }
+        #expect(fixture.model.openConversation(id: "card-status"))
+        let driver = SurfaceLiftController()
+        let host = UIHostingController(rootView: WorkspaceSurfaceView(model: fixture.model, liftController: driver) {
+            NewConversationView(model: fixture.model)
+        })
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        for _ in 0..<100 where !driver.canArm(SurfaceLiftEligibility()) { try await Task.sleep(for: .milliseconds(5)) }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(driver.arm(SurfaceLiftEligibility()))
+        #expect(driver.drag(upwardDistance: 180, eligibility: SurfaceLiftEligibility()))
+        #expect(driver.end(animated: false)?.destination == .card)
+        func card(in view: UIView) -> SurfaceClipView? {
+            if let card = view as? SurfaceClipView { return card }
+            return view.subviews.lazy.compactMap { card(in: $0) }.first
+        }
+        let current = try #require(card(in: host.view))
+        #expect(current.accessibilityLabel?.contains("Failed conversation") == true)
+        #expect(current.accessibilityLabel?.contains("运行失败") == true)
+    }
+
+    @Test("an invalidated in-flight read cannot replace navigation or a newer Return", arguments: [false, true])
+    func previewInFlightCancellation(navigate: Bool) async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "inflight-a").insert(db)
+            try Fixtures.conversation(id: "inflight-b").insert(db)
+        }
+        #expect(fixture.model.openConversation(id: "inflight-a"))
+        let session = try #require(fixture.model.pane?.session)
+        session.composer.draft.text = "pending load draft"
+        #expect(fixture.model.enterPreview())
+        let gate = PreviewReadGate()
+        defer {
+            gate.release()
+            try? fixture.store.database.read { db in db.trace(nil) }
+        }
+        try fixture.store.database.read { db in
+            db.trace { event in
+                if case .statement(let statement) = event,
+                   statement.sql.lowercased().contains("agentrun") { gate.blockOnce() }
+            }
+        }
+        let oldReturn = Task { await fixture.model.preparePreviewReturn() }
+        for _ in 0..<100 where !gate.hasBlocked { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(gate.hasBlocked)
+        fixture.model.cancelPreviewReturn()
+        let newerReturn: Task<Bool, Never>? = navigate ? nil : Task { await fixture.model.preparePreviewReturn() }
+        gate.release()
+        if navigate { #expect(fixture.model.openConversation(id: "inflight-b")) }
+        #expect(!(await oldReturn.value))
+        if let newerReturn {
+            #expect(await newerReturn.value)
+            #expect(fixture.model.commitPreviewReturn())
+            #expect(fixture.model.pane?.session === session)
+        } else {
+            #expect(fixture.model.conversationID == "inflight-b")
+            #expect(!fixture.model.commitPreviewReturn())
+        }
+        #expect(!fixture.model.previewContent.isPreparing)
+    }
+
     @Test("production handoff remains Preview before the late segment and cancellation discards prepared content")
     func liftPreviewLateHandoffAndCancellation() async throws {
         let fixture = try makeFixture(seed: .active)
@@ -118,7 +222,8 @@ struct AppShellWiringTests {
         let fixture = try makeFixture(seed: .active, scripts: [.holding(prefix: [.textDelta("before")], box: box)])
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
         let id = fixture.model.conversationID
-        let runID = try await fixture.runtime.send(SendCommand(conversationID: id, text: "streaming Preview",
+        let bridge = try #require(fixture.model.actionBridge)
+        let runID = try await bridge.start(SendCommand(conversationID: id, text: "streaming Preview",
             providerInstanceID: fixture.instanceID, modelID: fixture.modelID, maxProviderSteps: 4,
             submissionID: "preview-streaming"))
         await box.waitUntilReady()
@@ -134,6 +239,7 @@ struct AppShellWiringTests {
         #expect(fixture.model.enterPreview())
         #expect(oldPane == nil && fixture.model.router.hasActiveRun(for: id))
         #expect(await fixture.model.preparePreviewReturn())
+        #expect(box.cancellations == 0)
         box.yieldLate(.textDelta(" after"))
         box.yieldLate(.finish(.stop))
         try await fixture.runtime.waitForCompletion(runID: runID)
@@ -145,7 +251,7 @@ struct AppShellWiringTests {
         if case .reading(let restored, _) = pane.readingPosition.mode { #expect(restored == anchor) }
         else { #expect(false, "Preview Return lost its reading anchor") }
         #expect(!fixture.model.router.hasActiveRun(for: id))
-        #expect(box.cancellations == 1)
+        #expect(try fixture.store.run(id: runID)?.state == .completed)
     }
 
     @Test("stable Preview releases its Pane/live store and returns the same logical session")
@@ -1637,4 +1743,21 @@ final class S504SQLTrace: @unchecked Sendable {
             lock.withLock { count += 1 }
         }
     }
+}
+
+
+private final class PreviewReadGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let resume = DispatchSemaphore(value: 0)
+    private var blocked = false
+    var hasBlocked: Bool { lock.withLock { blocked } }
+    func blockOnce() {
+        let first = lock.withLock {
+            if blocked { return false }
+            blocked = true
+            return true
+        }
+        if first { _ = resume.wait(timeout: .now() + 10) }
+    }
+    func release() { resume.signal() }
 }

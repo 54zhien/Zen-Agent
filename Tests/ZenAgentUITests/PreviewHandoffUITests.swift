@@ -31,6 +31,31 @@ final class PreviewHandoffUITests: XCTestCase {
     }
 
     @MainActor
+    func testPersistedReadingAnchorRestoresAfterNativeContentRemount() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launch()
+        let position = app.buttons["preview-reading-position"]
+        XCTAssertTrue(position.waitForExistence(timeout: 15))
+        position.tap()
+        expect { (position.value as? String) == "settled" }
+        let anchor = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label == %@ OR value == %@", "PREVIEW_READING_ANCHOR_10", "PREVIEW_READING_ANCHOR_10")).firstMatch
+        XCTAssertTrue(anchor.exists && anchor.isHittable)
+        let original = anchor.frame
+        let editor = app.textViews["conversation-composer-input"]
+        let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
+        expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "card" }
+        XCTAssertEqual(app.textViews.count, 0)
+        app.descendants(matching: .any)["workspace-current-card"].tap()
+        expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" }
+        expect { (position.value as? String) == "settled" && anchor.isHittable }
+        XCTAssertEqual(anchor.frame.minY, original.minY, accuracy: 3)
+        XCTAssertEqual(anchor.frame.height, original.height, accuracy: 3)
+    }
+
+    @MainActor
     private func expect(_ condition: @escaping () -> Bool, file: StaticString = #filePath, line: UInt = #line) {
         let pending = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [pending], timeout: 10), .completed, file: file, line: line)

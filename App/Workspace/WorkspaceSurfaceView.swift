@@ -16,13 +16,15 @@ extension EnvironmentValues {
 struct WorkspaceSurfaceView<Content: View>: View {
     let content: Content
     private let model: AppShellModel?
-    @State private var lift = SurfaceLiftController()
+    @State private var lift: SurfaceLiftController
     @ScaledMetric(relativeTo: .body) private var minimumWidth = 220.0
     @ScaledMetric(relativeTo: .body) private var minimumHeight = 300.0
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    init(model: AppShellModel? = nil, @ViewBuilder content: () -> Content) {
+    init(model: AppShellModel? = nil, liftController: SurfaceLiftController = SurfaceLiftController(),
+         @ViewBuilder content: () -> Content) {
+        _lift = State(initialValue: liftController)
         self.model = model
         self.content = content()
     }

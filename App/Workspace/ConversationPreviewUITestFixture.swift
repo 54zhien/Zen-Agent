@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 struct ConversationPreviewUITestFixture: View {
     @State private var model: AppShellModel
+    @State private var positionRequest: UInt64?
 
     init() {
         do {
@@ -24,6 +25,20 @@ struct ConversationPreviewUITestFixture: View {
         }
     }
 
-    var body: some View { AppShellRootView(model: model) }
+    var body: some View {
+        AppShellRootView(model: model)
+            .overlay(alignment: .topLeading) {
+                if !model.previewContent.isPresented {
+                    Button("Position older Turn") {
+                        model.pane?.restoreAnchorForUITest(TurnAnchor(runID: "preview-reading-run-10", relativeViewportOffset: 0.2))
+                        positionRequest = model.pane?.scrollRequest?.sequence
+                    }
+                    .accessibilityIdentifier("preview-reading-position")
+                    .accessibilityValue(positionRequest == nil ? "not-requested"
+                        : (model.pane?.scrollRequest?.sequence == positionRequest ? "restoring" : "settled"))
+                    .padding(.top, 100)
+                }
+            }
+    }
 }
 #endif
