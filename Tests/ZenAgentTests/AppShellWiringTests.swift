@@ -18,6 +18,60 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("warm A B A navigation retains each session's configuration draft and reading owner")
+    func warmNavigationRetainsSessionOwners() async throws {
+        let fixture = try makeFixture(seed: .active, scripts: [.events([]), .events([])])
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try await send("first persisted question", at: Fixtures.epoch, in: fixture)
+        let firstID = fixture.model.conversationID
+        let firstPane = try #require(fixture.model.pane)
+        let firstComposer = firstPane.composer
+        let firstReading = firstPane.readingPosition
+        let committed = try #require(try fixture.store.runs(inConversation: firstID).first)
+        let frozenSeed = committed.requestConfigSeed
+        let chosen = ConversationComposerConfiguration(providerInstanceID: fixture.instanceID,
+            modelID: ModelID(rawValue: "warm-session-unavailable-model"))
+        firstComposer.configuration = chosen
+        let quote = QuoteReference(id: "warm-session-quote", source: QuoteSourceLocator(
+            sourceConversationID: firstID, sourceMessageID: "source-message", sourcePartID: "source-part",
+            range: QuoteTextRange(utf16Start: 0, utf16Length: 6)), snapshot: "quoted", createdAt: Fixtures.epoch)
+        let firstDraft = ComposerDraftState(text: "A follow-up", selection: ComposerSelection(range: 2..<6),
+            references: [quote], attachments: [AttachmentReference(id: "warm-file", versionID: "v1",
+                fingerprint: "sha256:\(String(repeating: "a", count: 64))", displayName: "notes.pdf", kind: .file)],
+            presentationState: .compact)
+        firstComposer.draft = firstDraft
+        let anchor = TurnAnchor(runID: committed.id, relativeViewportOffset: -0.25)
+        firstReading.setReadingAnchorForUITest(anchor)
+
+        fixture.model.newConversation()
+        try await send("second persisted question", at: Fixtures.epoch.addingTimeInterval(1), in: fixture)
+        let secondID = fixture.model.conversationID
+        let secondPane = try #require(fixture.model.pane)
+        let secondComposer = secondPane.composer
+        secondComposer.draft.text = "B follow-up"
+        let secondDraft = secondComposer.draft
+
+        #expect(fixture.model.openConversation(id: firstID))
+        let reopened = try #require(fixture.model.pane)
+        #expect(reopened.composer === firstComposer)
+        #expect(reopened.readingPosition === firstReading)
+        #expect(reopened.composer.draft == firstDraft)
+        #expect(reopened.composer.configuration == chosen)
+        #expect(reopened.readingPosition.mode == .reading(anchor: anchor, pendingTurns: []))
+        #expect(reopened.scrollRequest?.action == .restoreAnchor(anchor))
+        #expect(!reopened.composer.sendAvailability.isReady)
+
+        let setup = try #require(fixture.model.providerSetup)
+        setup.apiKey = "sk-warm-session-test"
+        #expect(setup.save())
+        #expect(reopened.composer.configuration == chosen)
+        #expect(try fixture.store.run(id: committed.id)?.requestConfigSeed == frozenSeed)
+        #expect(fixture.model.openConversation(id: secondID))
+        #expect(fixture.model.pane?.composer === secondComposer)
+        #expect(fixture.model.pane?.composer.draft == secondDraft)
+        #expect(try conversationCount(in: fixture.store) == 2)
+    }
+
     @Test(
         "local history opens independently of send configuration",
         arguments: [

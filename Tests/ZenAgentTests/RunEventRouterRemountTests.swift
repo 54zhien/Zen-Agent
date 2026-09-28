@@ -6,6 +6,37 @@ import Testing
 @Suite("Run event routing across Pane remount")
 @MainActor
 struct RunEventRouterRemountTests {
+    @Test("an invisible active Run does not retain its Full Pane or live store")
+    func invisibleActiveRunReleasesPane() async throws {
+        let router = RunEventRouter()
+        let conversationID = "released-active-conversation"
+        let runID = "released-active-run"
+        var pane: ConversationPaneController? = try ConversationPaneController(
+            conversationID: conversationID,
+            initialTimeline: ConversationTimelineProjection(conversationID: conversationID, turns: []),
+            configuration: nil,
+            coalescer: StreamingCoalescer(interval: .milliseconds(0)),
+            loadTimeline: { id in
+                ConversationTimelineProjection(conversationID: id,
+                    turns: [ConversationTurn(runID: runID, items: [.userText("question")])])
+            }
+        )
+        weak var releasedPane = pane
+        weak var releasedStore = pane?.liveStore
+        #expect(router.registerPane(try #require(pane)))
+        await router.handle(.runAccepted(runID: runID, conversationID: conversationID))
+        await router.handle(.messagePartStarted(runID: runID, messageID: "released-message",
+            partID: "released-part", kind: .text))
+        router.unregisterPane(for: conversationID)
+        pane = nil
+        #expect(releasedPane == nil)
+        #expect(releasedStore == nil)
+        // UI detachment is not a Run cancellation or an ownership loss.
+        await router.handle(.messagePartDelta(runID: runID, partID: "released-part",
+            delta: "still running", endUTF8Offset: 13))
+        #expect(!router.diagnostics.contains("Dropped unregistered Run event for \(runID)"))
+    }
+
     @Test("an active text Part keeps updating after its Conversation Pane is remounted")
     func activePartContinuesAfterRemount() async throws {
         let conversationID = "remount-conversation"
@@ -67,6 +98,10 @@ struct RunEventRouterRemountTests {
         router.unregisterPane(for: conversationID)
         durableText = "hello world"
         await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: " world", endUTF8Offset: 11))
+
+        // An outgoing display must stop consuming token events; the durable
+        // projection below is the source for its next mount.
+        #expect(assistantText(in: firstPane) == "hello")
 
         let secondPane = try pane()
         #expect(router.registerPane(secondPane))
