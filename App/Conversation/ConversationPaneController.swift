@@ -156,6 +156,7 @@ final class ConversationPaneController {
 
 #if DEBUG
     var previewReadingDiagnosticForUITest = ""
+    var previewReadingBootstrapForUITest: String?
 
     func restoreAnchorForUITest(_ anchor: TurnAnchor) {
         readingPosition.setReadingAnchorForUITest(anchor)

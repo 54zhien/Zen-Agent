@@ -20,6 +20,121 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("native Composer remount preserves a pre-acceptance Send and its late error")
+    func previewPendingSendSurvivesNativeRemount() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let original = try #require(fixture.model.actionBridge)
+        let gate = PreviewSubmissionGate()
+        defer { Task { await gate.release() } }
+        var bridge = original
+        bridge.start = { command in
+            let ordinal = await gate.enter(command)
+            throw ordinal == 1 ? ComposerSendFailure.keychainUnavailable : ComposerSendFailure.configurationUnavailable
+        }
+        let runtime = fixture.runtime
+        let pane = try #require(fixture.model.pane)
+        pane.composer.draft.text = "pending native Send"
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: AnyView(ConversationPaneView(pane: pane, runtime: runtime,
+            actionBridge: bridge, maxProviderSteps: AppShellModel.maxProviderSteps)))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        func native<T: UIView>(_ type: T.Type, id: String, in view: UIView) -> T? {
+            if let found = view as? T, found.accessibilityIdentifier == id { return found }
+            return view.subviews.lazy.compactMap { native(type, id: id, in: $0) }.first
+        }
+        for _ in 0..<100 {
+            if native(UIButton.self, id: "conversation-composer-send", in: host.view)?.isEnabled == true { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let send = try #require(native(UIButton.self, id: "conversation-composer-send", in: host.view))
+        #expect(send.isEnabled)
+        send.sendActions(for: .touchUpInside)
+        for _ in 0..<100 {
+            if await gate.count == 1 { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(await gate.count == 1)
+        weak var oldEditor = native(UITextView.self, id: "conversation-composer-input", in: host.view)
+        #expect(fixture.model.enterPreview())
+        host.rootView = AnyView(ConversationPreviewView(summary: fixture.model.previewContent.currentSummary))
+        for _ in 0..<100 where oldEditor != nil { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(oldEditor == nil)
+        #expect(await fixture.model.preparePreviewReturn())
+        #expect(fixture.model.commitPreviewReturn())
+        let restored = try #require(fixture.model.pane)
+        #expect(restored.session === pane.session)
+        host.rootView = AnyView(ConversationPaneView(pane: restored, runtime: runtime,
+            actionBridge: bridge, maxProviderSteps: AppShellModel.maxProviderSteps))
+        for _ in 0..<100 where native(UITextView.self, id: "conversation-composer-input", in: host.view) == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        let remountedSend = try #require(native(UIButton.self, id: "conversation-composer-send", in: host.view))
+        #expect(!remountedSend.isEnabled)
+        // Even a stale native action must resolve through the same pending transaction.
+        remountedSend.sendActions(for: .touchUpInside)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await gate.count == 1)
+        await gate.release()
+        for _ in 0..<100 {
+            if native(UILabel.self, id: "composer-send-error", in: host.view)?.text == "Keychain 不可用" { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(native(UILabel.self, id: "composer-send-error", in: host.view)?.text == "Keychain 不可用")
+        #expect(restored.composer.draft.text == "pending native Send")
+    }
+
+    @Test("a first durable commit while Card acquires current title and Run status in a bounded refresh")
+    func newPreviewRefreshAcquiresCommittedCurrent() async throws {
+        let box = Stage2StreamBox()
+        let fixture = try makeFixture(seed: .active, scripts: [.holding(prefix: [.textDelta("first reply")], box: box)])
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            for index in 0..<3 { try Fixtures.conversation(id: "new-card-predecessor-\(index)").insert(db) }
+        }
+        let id = fixture.model.conversationID
+        let bridge = try #require(fixture.model.actionBridge)
+        let gate = PreviewCommitGate()
+        defer { Task { await gate.release() } }
+        let start = Task {
+            await gate.hold()
+            return try await bridge.start(SendCommand(conversationID: id, text: "First Card commit",
+                providerInstanceID: fixture.instanceID, modelID: fixture.modelID, maxProviderSteps: 4,
+                submissionID: "new-card-first-commit"))
+        }
+        for _ in 0..<100 {
+            if await gate.hasEntered { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(await gate.hasEntered)
+        #expect(fixture.model.enterPreview())
+        #expect(fixture.model.previewContent.currentSummary == nil)
+        await gate.release()
+        let runID = try await start.value
+        await box.waitUntilReady()
+        let trace = S504SQLTrace()
+        try fixture.store.database.read { db in
+            db.trace { event in if case .statement(let statement) = event { trace.record(statement.sql) } }
+        }
+        fixture.model.refreshPreview()
+        try fixture.store.database.read { db in db.trace(nil) }
+        #expect(trace.selectCount <= 1)
+        #expect(fixture.model.previewContent.summaries.count <= 4)
+        #expect(Set(fixture.model.previewContent.summaries.map(\.id)).count == fixture.model.previewContent.summaries.count)
+        #expect(fixture.model.previewContent.currentSummary?.id == id)
+        #expect(fixture.model.previewContent.currentSummary?.title == "First Card commit")
+        #expect(fixture.model.previewContent.currentSummary?.runProjection?.runID == runID)
+        #expect(fixture.model.previewContent.accessibilityLabel.contains("生成中"))
+        box.yieldLate(.finish(.stop))
+        try await fixture.runtime.waitForCompletion(runID: runID)
+        fixture.model.refreshPreview()
+        #expect(fixture.model.previewContent.currentSummary?.runProjection?.state == .completed)
+    }
+
     @Test("opening the current Preview installs exactly one registered Full owner", arguments: [false, true])
     func openingCurrentPreview(prewarm: Bool) async throws {
         let fixture = try makeFixture(seed: .active)
@@ -1760,4 +1875,26 @@ private final class PreviewReadGate: @unchecked Sendable {
         if first { _ = resume.wait(timeout: .now() + 10) }
     }
     func release() { resume.signal() }
+}
+private actor PreviewSubmissionGate {
+    private(set) var count = 0
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var released = false
+    func enter(_ command: SendCommand) async -> Int {
+        count += 1
+        let ordinal = count
+        if ordinal == 1, !released { await withCheckedContinuation { continuation = $0 } }
+        return ordinal
+    }
+    func release() { released = true; continuation?.resume(); continuation = nil }
+}
+private actor PreviewCommitGate {
+    private(set) var hasEntered = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var released = false
+    func hold() async {
+        hasEntered = true
+        if !released { await withCheckedContinuation { continuation = $0 } }
+    }
+    func release() { released = true; continuation?.resume(); continuation = nil }
 }

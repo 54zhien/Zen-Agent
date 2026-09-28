@@ -35,8 +35,21 @@ struct ConversationPreviewUITestFixture: View {
             .overlay(alignment: .topLeading) {
                 if !model.previewContent.isPresented {
                     Button("Position older Turn") {
-                        model.pane?.restoreAnchorForUITest(TurnAnchor(runID: "preview-reading-run-10", relativeViewportOffset: 0.2))
-                        positionRequest = model.pane?.scrollRequest?.sequence
+                        let deep = ProcessInfo.processInfo.environment["ZEN_PREVIEW_DEEP_READING_UI_TEST"] == "1"
+                        let runID = "preview-reading-run-\(deep ? 120 : 10)"
+                        if deep, positionRequest == nil {
+                            // Fixture bootstrap only: place an actual long timeline at
+                            // its middle once. Return must use the production restoration.
+                            model.pane?.previewReadingBootstrapForUITest = runID
+                            Task { @MainActor in
+                                try? await Task.sleep(for: .milliseconds(150))
+                                model.pane?.restoreAnchorForUITest(TurnAnchor(runID: runID, relativeViewportOffset: 0.2))
+                                positionRequest = model.pane?.scrollRequest?.sequence
+                            }
+                        } else {
+                            model.pane?.restoreAnchorForUITest(TurnAnchor(runID: runID, relativeViewportOffset: 0.2))
+                            positionRequest = model.pane?.scrollRequest?.sequence
+                        }
                     }
                     .accessibilityIdentifier("preview-reading-position")
                     .accessibilityValue(positionRequest == nil ? "not-requested"

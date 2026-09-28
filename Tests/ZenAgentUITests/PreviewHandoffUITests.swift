@@ -32,15 +32,27 @@ final class PreviewHandoffUITests: XCTestCase {
 
     @MainActor
     func testPersistedReadingAnchorRestoresAfterNativeContentRemount() {
+        checkReadingRemount(deep: false)
+    }
+
+    @MainActor
+    func testDeepReadingAnchorRestoresAfterNativeContentRemount() {
+        checkReadingRemount(deep: true)
+    }
+
+    @MainActor
+    private func checkReadingRemount(deep: Bool) {
+        let target = deep ? 120 : 10
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        if deep { app.launchEnvironment["ZEN_PREVIEW_DEEP_READING_UI_TEST"] = "1" }
         app.launch()
         let position = app.buttons["preview-reading-position"]
         XCTAssertTrue(position.waitForExistence(timeout: 15))
         position.tap()
         expect { (position.value as? String) == "settled" }
         let anchor = app.descendants(matching: .any).matching(NSPredicate(
-            format: "label == %@ OR value == %@", "PREVIEW_READING_ANCHOR_10", "PREVIEW_READING_ANCHOR_10")).firstMatch
+            format: "label == %@ OR value == %@", "PREVIEW_READING_ANCHOR_\(target)", "PREVIEW_READING_ANCHOR_\(target)")).firstMatch
         XCTAssertTrue(anchor.exists && anchor.isHittable)
         let original = anchor.frame
         print("PREVIEW_READING_BEFORE frame=\(original) \(app.staticTexts["preview-reading-diagnostic"].label)")

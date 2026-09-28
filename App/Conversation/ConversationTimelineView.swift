@@ -42,6 +42,20 @@ struct ConversationTimelineView: View {
     @State private var pendingAppliedScroll: ConversationPaneScrollRequest?
 
     var body: some View {
+#if DEBUG
+        if ProcessInfo.processInfo.environment["ZEN_PREVIEW_DEEP_READING_UI_TEST"] == "1" {
+            ScrollViewReader { proxy in
+                timelineContent.onChange(of: scrollBridge?.pane.previewReadingBootstrapForUITest) { _, runID in
+                    if let runID { proxy.scrollTo(runID, anchor: .top) }
+                }
+            }
+        } else { timelineContent }
+#else
+        timelineContent
+#endif
+    }
+
+    private var timelineContent: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
                 if !conversationApprovals.isEmpty {

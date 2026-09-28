@@ -11,14 +11,17 @@ enum ConversationPreviewUITestSeed {
                 try ConversationRecord(id: "preview-ui-\(index)", title: "Workspace conversation \(index)",
                     createdAt: date, updatedAt: date, userActiveAt: date, pinned: false, lifecycle: .visible).insert(db)
             }
-            for index in 0..<20 {
+            let deep = ProcessInfo.processInfo.environment["ZEN_PREVIEW_DEEP_READING_UI_TEST"] == "1"
+            let target = deep ? 120 : 10
+            for index in 0..<(deep ? 240 : 20) {
                 let date = Date(timeIntervalSince1970: Double(index + 100))
                 let userID = "preview-reading-user-\(index)"
                 let assistantID = "preview-reading-assistant-\(index)"
                 for (id, role, sequence, text) in [
                     (userID, MessageRole.user, index * 2, "User prompt \(index)"),
                     (assistantID, MessageRole.assistant, index * 2 + 1,
-                        index == 10 ? "PREVIEW_READING_ANCHOR_10" : "Assistant response \(index)")
+                        index == target ? "PREVIEW_READING_ANCHOR_\(target)" :
+                            (deep ? Array(repeating: "Assistant response \(index)", count: 4).joined(separator: "\n") : "Assistant response \(index)"))
                 ] {
                     try MessageRecord(id: id, conversationID: "preview-ui-11", role: role,
                         sequence: sequence, createdAt: date).insert(db)
