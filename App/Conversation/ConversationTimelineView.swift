@@ -117,6 +117,12 @@ struct ConversationTimelineView: View {
             .scrollPosition($scrollPosition, anchor: .top)
             .onPreferenceChange(ConversationTimelineTurnFramesKey.self) { frames in
                 turnFrames = frames
+                // Lazy/native Turn measurements can change after scrollTo was
+                // issued. The same logical request then needs a corrected target;
+                // treating its sequence as already issued strands restoration.
+                if let pending = pendingAppliedScroll, case .restoreAnchor(_) = pending.action {
+                    pendingAppliedScroll = nil
+                }
                 if let latestScrollGeometry {
                     latestBottomReferenceTurn = bottomVisibleTurn(
                         in: frames,
@@ -285,6 +291,12 @@ struct ConversationTimelineView: View {
         surfaceLift == nil || surfaceLift?.state.phase == .full
     }
 
+    private var acceptsScrollRequests: Bool {
+        guard let surfaceLift else { return true }
+        return surfaceLift.state.phase == .full
+            || (surfaceLift.state.phase == .settling && surfaceLift.state.pendingSettlement?.destination == .full)
+    }
+
     private var isUserDrivenScroll: Bool {
         activeScrollPhase == .tracking
             || activeScrollPhase == .interacting
@@ -354,7 +366,7 @@ struct ConversationTimelineView: View {
     }
 
     private func applyScrollRequest(_ request: ConversationPaneScrollRequest) {
-        guard acceptsReadingGeometry, let scrollBridge,
+        guard acceptsScrollRequests, let scrollBridge,
               scrollBridge.pane.scrollRequest?.sequence == request.sequence,
               !isUserDrivenScroll,
               pendingAppliedScroll?.sequence != request.sequence,
