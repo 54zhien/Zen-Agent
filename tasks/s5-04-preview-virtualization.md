@@ -6,9 +6,9 @@ Blueprint baseline596a84d4b58769e3e7b838be95edcb43f9e0ec82 and supplied Stage5
 plan define intent; [implementation plan](../Docs/Plans/2026-09-28-s5-04-preview-virtualization.md)
 records ownership, failures, cancellation and file boundaries.
 
-Current state: test-first Router/session regressions added using existing APIs;
-production is unchanged, compiled behavior RED pending macOS CI. No S5-04
-capability or device acceptance is claimed. Gate A remains open.
+Current state: Task1 owner/Router source resolves its first compiled regressions;
+late-callback and terminal-Part fixes plus real Runtime remount probes await full
+GREEN. Tasks2/3 and whole-branch review remain. Gate A remains open.
 
 Initial regression contract: detached active Run releases its Full Pane and live
 store without losing route; hidden tokens do not repaint an outgoing display;
@@ -44,3 +44,20 @@ mount. Invisible/recovery End retains a small checkpoint until durable reload.
 Cost if wrong: unread/terminal projection reconciliation must be refined, not a
 hidden full Pane or token queue restored. Completed routes release identity;
 unregistered late old events use the existing bounded diagnostic path.
+
+First source8314babe7120d0d6ea579d355447b393ac2b0945/tree860f19ac,
+CI36407135420 attempt1/job108878518021: generation/App build succeeded;
+694 Swift Testing/108 suites executed with7 issues, confined to the two new edges.
+All previous16 failures passed: warm owners/config/reading, weak Pane/live-store,
+hidden repaint and actual text/reasoning offset recovery. Late A failure disabled
+B with matching target IDs (3 issues); failed/cancelled persisted Parts reopened
+as streaming (4 issues). Completed control passed.20 XCTest and11UI passed;
+one run start/no restart. This is compiled behavior RED, not a scaffolding failure.
+
+Minimal fixes capture the conversation owner in the old bridge callback and update
+only its matching session; keep actual Part state in the projection, resume only
+pending/streaming, and preserve terminal state on live completion. Quote eligibility
+still derives from completed only. Supplemental tests exercise real Runtime with a
+file-backed1000-chunk detached stream, active remount, postmount output and reopened
+database; detached completion/Stop; original-Runtime approval dedup and rejection.
+No Runtime/schema/dependency changes. Full GREEN pending; not device acceptance.

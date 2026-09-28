@@ -38,7 +38,19 @@ struct TimelineTextSource: Equatable, Sendable {
     let conversationID: String
     let messageID: String
     let partID: String
-    let isCompleted: Bool
+    let partState: MessagePartState
+    var isCompleted: Bool { partState == .completed }
+    var canResume: Bool { partState == .pending || partState == .streaming }
+
+    init(conversationID: String, messageID: String, partID: String,
+         isCompleted: Bool, partState: MessagePartState? = nil) {
+        self.conversationID = conversationID
+        self.messageID = messageID
+        self.partID = partID
+        // Older synthetic projections supplied completion only. Real loaded
+        // Parts retain all terminal states so failure/cancellation cannot reopen.
+        self.partState = partState ?? (isCompleted ? .completed : .streaming)
+    }
 
     func quoteSource(text: String) -> QuoteSourceText {
         QuoteSourceText(
@@ -213,7 +225,8 @@ extension ConversationTimelineProjection {
                     conversationID: message.conversationID,
                     messageID: message.id,
                     partID: part.id,
-                    isCompleted: part.state == .completed
+                    isCompleted: part.state == .completed,
+                    partState: part.state
                 )
                 items.append(item)
 
@@ -221,7 +234,7 @@ extension ConversationTimelineProjection {
                 let text = (try? PersistenceStore.decodeTextPayload(part.payload).text) ?? ""
                 textSourcesByItemIndex[items.count] = TimelineTextSource(
                     conversationID: message.conversationID, messageID: message.id,
-                    partID: part.id, isCompleted: part.state == .completed)
+                    partID: part.id, isCompleted: part.state == .completed, partState: part.state)
                 items.append(.reasoning(text))
 
             case .toolCall:

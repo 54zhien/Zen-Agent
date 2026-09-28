@@ -141,13 +141,14 @@ final class LiveConversationStore {
         kind: MessagePartKind
     ) -> Bool {
         if let activePart = state.activeParts[partID] {
-            return activePart.runID == runID
+            return activePart.runID == runID && activePart.messageID == messageID
+                && activePart.kind == kind && (activePart.state == .pending || activePart.state == .streaming)
         }
         guard kind == .text || kind == .reasoning,
               let persisted = persistedDisplayPart(runID: runID, partID: partID),
               persisted.kind == kind,
               persisted.source.messageID == messageID,
-              !persisted.source.isCompleted
+              persisted.source.canResume
         else { return false }
 
         let part = LivePartState(
@@ -260,14 +261,14 @@ final class LiveConversationStore {
         completedPart.state = partState
         state.activeParts[partID] = completedPart
         if let location = itemLocationByPartID[partID],
-           location.turnIndex < state.timeline.turns.count,
-           partState == .completed {
+           location.turnIndex < state.timeline.turns.count {
             var sources = state.timeline.turns[location.turnIndex].textSourcesByItemIndex
             sources[location.itemIndex] = TimelineTextSource(
                 conversationID: state.timeline.conversationID,
                 messageID: completedPart.messageID,
                 partID: completedPart.partID,
-                isCompleted: true
+                isCompleted: partState == .completed,
+                partState: partState
             )
             let items = state.timeline.turns[location.turnIndex].items
             replaceTurn(at: location.turnIndex, with: items, textSourcesByItemIndex: sources)
@@ -391,7 +392,8 @@ final class LiveConversationStore {
                 conversationID: state.timeline.conversationID,
                 messageID: part.messageID,
                 partID: part.partID,
-                isCompleted: part.state == .completed
+                isCompleted: part.state == .completed,
+                partState: part.state
             )
         }
         replaceTurn(at: turnIndex, with: items, textSourcesByItemIndex: sources)

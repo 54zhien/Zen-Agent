@@ -182,7 +182,7 @@ final class RunEventRouter {
         // router was attached. Stable persisted sources cover that acknowledgement gap.
         for turn in pane.liveStore.state.timeline.turns where active.contains(turn.runID) {
             for (index, source) in turn.textSourcesByItemIndex
-            where !source.isCompleted && turn.items.indices.contains(index) {
+            where source.canResume && turn.items.indices.contains(index) {
                 let kind: MessagePartKind
                 switch turn.items[index] {
                 case .assistantText: kind = .text

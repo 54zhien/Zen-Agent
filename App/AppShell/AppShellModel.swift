@@ -365,16 +365,21 @@ final class AppShellModel {
 
     private func targetBecameUnavailable(
         _ failure: AppTargetFailure,
-        for failedTarget: AppExecutionTarget
+        for failedTarget: AppExecutionTarget,
+        conversationID ownerID: String
     ) {
-        guard pane?.composer.configuration == ConversationComposerConfiguration(
+        let owner = conversationID == ownerID ? pane?.composer : sessionsByConversationID[ownerID]?.composer
+        guard let owner, owner.configuration == ConversationComposerConfiguration(
             providerInstanceID: failedTarget.providerInstanceID,
             modelID: failedTarget.modelID
         ) else { return }
-        target = failedTarget
-        targetMessage = failure.message
-        sendAvailability = .unavailable(failure.message)
-        pane?.composer.sendAvailability = sendAvailability
+        // A bridge outlives its display. Its asynchronous failure belongs to the
+        // captured session, even when the new display selected identical IDs.
+        owner.sendAvailability = .unavailable(failure.message)
+        if conversationID == ownerID {
+            targetMessage = failure.message
+            sendAvailability = owner.sendAvailability
+        }
     }
 
     private func installPaneIfReady() {
@@ -441,7 +446,7 @@ final class AppShellModel {
             id: id,
             dependencies: dependencies,
             onTargetFailure: { [weak self] failure, failedTarget in
-                self?.targetBecameUnavailable(failure, for: failedTarget)
+                self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
             }
         )
         let pane = try ConversationPaneController(
