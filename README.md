@@ -5,6 +5,9 @@ Native iOS multi-provider Agent client / runtime.
 **Product and architecture blueprint:**
 https://github.com/54zhien/Zen-Agent-Blueprint
 
+The Blueprint is private. Open it with an authorized GitHub account or connector;
+an unauthenticated 404 does not mean that the design repository is missing.
+
 The blueprint is the upstream design authority — product intent, architecture,
 business semantics, security boundaries and the stage plan. This repository holds
 the implementation. The relationship is one-directional: the blueprint defines
@@ -31,20 +34,28 @@ baseline is recorded in `Docs/ADR/`.
 
 ## Status
 
-Stage 0 and Stage 1 are closed. Stage 2 runtime and tool boundaries are implemented
-on `main`. Stage 3 W1 wires the real App shell and text send/history; PR #12 added
-the reading-position/keyboard regression fix and UI harness. The product owner
-reported the Stage 3 device Gate closed on 2026-09-27. The device evidence scope
-and any remaining measurement gaps are recorded in
-`tasks/stage3-device-acceptance.md`; CI alone does not provide device acceptance.
+As of 2026-09-28:
 
-The Stage 4 Prompt and Soul implementation Gate passed and its stack entered
-`main` through PR #10. See `tasks/stage4-closure.md`. W1 entered `main` through
-PR #11, followed by PR #12. The integrated mainline at `9f80b15` passed CI
-run `36305533211` (repository hygiene, XcodeGen generation, build, unit and UI
-tests). Formal Settings navigation and the Soul settings page belong to the
-Stage 5 Settings IA dependency. App Space, Memory, Skills, MCP and Subagent
-remain later work.
+- Stage 0 and Stage 1 are closed; Stage 2 Runtime and Tool boundaries are on `main`.
+- Stage 3 W1 wires the real App shell and text send/history. PR #12 added the
+  reading-position/keyboard repair and UI harness. The owner reported its device
+  Gate closed on 2026-09-27; D1–D7 observations and the exact installed build remain
+  unverified in [the device record](tasks/stage3-device-acceptance.md).
+- Stage 4 Prompt/Soul implementation passed its Gate and entered `main` through
+  PR #10. See [the closure record](tasks/stage4-closure.md).
+- [PR #14](https://github.com/54zhien/Zen-Agent/pull/14) is merged at `f775e63`:
+  cold-start Run recovery, Provider finish handling, offline history, and Send
+  activity timestamps. Its tested head is `8ee8516`; [PR CI](https://github.com/54zhien/Zen-Agent/actions/runs/36349052785)
+  and the build-settings guard passed. Device verification of these repairs is pending.
+- Stage 5 implementation has not started. Start with the Surface Container slice
+  in the Blueprint, then follow its dependency order. Formal Settings IA and
+  `Settings → Agent → Soul` belong to later Stage 5 slices; Memory, Skills, MCP and
+  Subagent remain later stages.
+
+The [Stage 5 entry record](tasks/stage5-entry.md) records the integrated baseline,
+CI evidence, remaining device checks, and design decisions needed by later slices.
+Use Git and CI for the current HEAD; evidence commits in these notes are historical
+checkpoints. CI does not establish device performance or accessibility acceptance.
 
 `App/Persistence/` remains a data layer. GRDB is confined to it, and the existing
 repository guard must continue to fail the build if that boundary is violated.
