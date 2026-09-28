@@ -36,14 +36,10 @@ struct ConversationSurfaceHostTests {
         })
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
         window.rootViewController = host
-        print("SURFACE_TEST: before window presentation")
         window.makeKeyAndVisible()
-        print("SURFACE_TEST: after window presentation")
         defer { window.isHidden = true; window.rootViewController = nil }
         host.view.layoutIfNeeded()
-        print("SURFACE_TEST: after initial layout")
         try await Task.sleep(for: .milliseconds(100))
-        print("SURFACE_TEST: after mounting yield")
         let editor = try #require(textViews(in: host.view).first)
         let editorCount = textViews(in: host.view).count
         let child = host.contentController
@@ -56,9 +52,7 @@ struct ConversationSurfaceHostTests {
         let readingMode = reading.mode
         for progress in [CGFloat(0), 0.5, 1, 0.5, 0] {
             #expect(host.apply(.init(to: .init(scale: 0.6, translation: CGSize(width: 0.1, height: -0.2), cornerRadius: 24), progress: progress)))
-            print("SURFACE_TEST: before round-trip layout \(progress)")
             host.view.layoutIfNeeded()
-            print("SURFACE_TEST: after round-trip layout \(progress)")
             #expect(host.contentController === child)
             #expect(child.view.bounds == originalBounds)
             #expect(pane.composer === composer)

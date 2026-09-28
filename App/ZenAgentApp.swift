@@ -18,10 +18,18 @@ struct ZenAgentApp: App {
     var body: some Scene {
         WindowGroup {
 #if DEBUG
-            if ProcessInfo.processInfo.environment["ZEN_CONVERSATION_READING_UI_TEST"] == "1" {
-                ConversationPaneReadingUITestFixtureView()
+            if ProcessInfo.processInfo.environment["ZEN_SURFACE_UI_TEST"] == "1" {
+                ConversationSurfaceUITestFixture()
+            } else if ProcessInfo.processInfo.environment["ZEN_CONVERSATION_READING_UI_TEST"] == "1" {
+                ConversationSurfaceHost {
+                    ConversationPaneReadingUITestFixtureView()
+                }
+                .ignoresSafeArea()
             } else if ProcessInfo.processInfo.environment["ZEN_COMPOSER_GEOMETRY_TEST"] == "1" {
-                ComposerUITestFixtureView()
+                ConversationSurfaceHost {
+                    ComposerUITestFixtureView()
+                }
+                .ignoresSafeArea()
             } else {
                 AppShellRootView(model: shellModel)
             }

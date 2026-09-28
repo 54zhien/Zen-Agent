@@ -13,7 +13,10 @@ struct AppShellRootView: View {
                 ProgressView("正在打开会话数据")
                     .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
             case .ready:
-                NewConversationView(model: model)
+                ConversationSurfaceHost {
+                    NewConversationView(model: model)
+                }
+                .ignoresSafeArea()
             case .failed(let failure):
                 VStack(spacing: 16) {
                     Text(failure.title)

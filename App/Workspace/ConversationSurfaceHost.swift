@@ -12,11 +12,12 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     }
 
     func makeUIViewController(context: Context) -> ConversationSurfaceViewController<Content> {
-        ConversationSurfaceViewController(content: content)
+        ConversationSurfaceViewController(content: content, request: request)
     }
 
     func updateUIViewController(_ controller: ConversationSurfaceViewController<Content>, context: Context) {
-        controller.contentController.rootView = content
+        // Content is installed once. Its own observed state drives updates; progress
+        // must not replace the hosting root or invalidate the Timeline each frame.
         _ = controller.apply(request)
     }
 }
@@ -28,8 +29,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private(set) var presentation = SurfaceGeometry.Presentation.full
     private var request = SurfaceGeometry.Request.full
 
-    init(content: Content) {
+    init(content: Content, request: SurfaceGeometry.Request = .full) {
         contentController = UIHostingController(rootView: content)
+        if request.isValid { self.request = request }
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -58,8 +60,10 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         // Bounds and center remain independent of the presentation transform.
-        surfaceView.bounds = CGRect(origin: .zero, size: view.bounds.size)
-        surfaceView.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+        let bounds = CGRect(origin: .zero, size: view.bounds.size)
+        let center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+        if surfaceView.bounds != bounds { surfaceView.bounds = bounds }
+        if surfaceView.center != center { surfaceView.center = center }
         _ = apply(request)
     }
 
@@ -67,6 +71,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     func apply(_ candidate: SurfaceGeometry.Request) -> Bool {
         guard let resolved = SurfaceGeometry.resolve(size: view.bounds.size, safeArea: view.safeAreaInsets, request: candidate) else { return false }
         request = candidate
+        guard presentation != resolved else { return true }
         presentation = resolved
         surfaceView.transform = CGAffineTransform(a: resolved.scale, b: 0, c: 0, d: resolved.scale, tx: resolved.translation.width, ty: resolved.translation.height)
         surfaceView.layer.cornerRadius = resolved.cornerRadius
