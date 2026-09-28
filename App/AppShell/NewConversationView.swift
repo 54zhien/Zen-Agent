@@ -13,7 +13,7 @@ struct AppShellRootView: View {
                 ProgressView("正在打开会话数据")
                     .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
             case .ready:
-                WorkspaceSurfaceView {
+                WorkspaceSurfaceView(model: model) {
                     NewConversationView(model: model)
                 }
                 .ignoresSafeArea()
@@ -58,6 +58,19 @@ struct NewConversationView: View {
     @Environment(\.surfaceLiftController) private var lift
 
     var body: some View {
+        Group {
+            if model.previewContent.isPresented {
+                ConversationPreviewView(
+                    summary: model.previewContent.summaries.first { $0.id == model.conversationID },
+                    status: model.previewContent.status)
+            } else {
+                fullContent
+            }
+        }
+        .onChange(of: model.conversationID) { _, _ in lift?.resetForConversationChange() }
+    }
+
+    private var fullContent: some View {
         NavigationStack {
             Group {
                 if let pane = model.pane,
@@ -126,7 +139,12 @@ struct NewConversationView: View {
                 }
             }
             .overlay(alignment: .top) {
-                if let message = model.coldStartRecoveryMessage {
+                if let message = model.previewContent.errorMessage {
+                    Text(message)
+                        .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
+                        .padding()
+                        .background(.regularMaterial)
+                } else if let message = model.coldStartRecoveryMessage {
                     HStack(spacing: 12) {
                         Text(message)
                         Button("重试恢复") { model.retryColdStartRecovery() }
@@ -218,7 +236,7 @@ struct NewConversationView: View {
         .onChange(of: isProviderSetupPresented || isRecentConversationsPresented) { _, presented in
             lift?.setOverlayPresented(presented)
         }
-        .onChange(of: model.conversationID) { _, _ in lift?.invalidate() }
+
     }
 
 }

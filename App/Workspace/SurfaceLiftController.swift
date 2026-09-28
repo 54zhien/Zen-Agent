@@ -20,6 +20,27 @@ final class SurfaceLiftController {
     @ObservationIgnored private var presentedOverlay: (() -> Bool)?
     @ObservationIgnored private var detach: (() -> Void)?
 
+    @ObservationIgnored private var enterPreview: (() -> Bool)?
+    @ObservationIgnored private var prepareFull: (() async -> Bool)?
+    @ObservationIgnored private var commitFull: (() -> Bool)?
+    @ObservationIgnored private var cancelPreparation: (() -> Void)?
+    @ObservationIgnored private var previewIsPresented: (() -> Bool)?
+    @ObservationIgnored private var cardLabel: (() -> String)?
+    @ObservationIgnored private var returnTask: Task<Void, Never>?
+    @ObservationIgnored private var returnOperation: UUID?
+    @ObservationIgnored private var returnNeedsHandoff = false
+
+    func configurePreview(enter: @escaping () -> Bool, prepare: @escaping () async -> Bool,
+                          commit: @escaping () -> Bool, cancel: @escaping () -> Void,
+                          isPresented: @escaping () -> Bool, label: @escaping () -> String) {
+        enterPreview = enter
+        prepareFull = prepare
+        commitFull = commit
+        cancelPreparation = cancel
+        previewIsPresented = isPresented
+        cardLabel = label
+    }
+
     var hasSelection: Bool { !selectedSources.isEmpty }
 
     func bind<Content: View>(_ host: ConversationSurfaceViewController<Content>) {
@@ -51,15 +72,36 @@ final class SurfaceLiftController {
         }
         interaction = { [weak self, weak host] phase in
             host?.setLiftInteraction(phase) { [weak self] in self?.returnToFull() ?? false }
+            host?.surfaceView.accessibilityLabel = self?.cardLabel?() ?? "当前会话"
         }
         presentedOverlay = { [weak host] in host?.hasPresentedOverlay ?? true }
         animate = { [weak self, weak host] settlement, animated in
             guard let self, let host, let target = self.target else { self?.invalidate(); return }
             let binding = self.hostID
+            let handoff = settlement.destination == .full && self.returnNeedsHandoff
+            let endpoint = settlement.destination == .card ? 1.0 : (handoff ? 0.35 : 0)
             host.animateLift(target: target, from: settlement.startProgress,
-                to: settlement.destination == .card ? 1 : 0, animated: animated) { [weak self] finished in
-                guard let self, self.hostID == binding, self.state.complete(settlement, finished: finished) else { return }
-                self.updatePresentation()
+                to: endpoint, animated: animated) { [weak self, weak host] finished in
+                guard let self, let host, self.hostID == binding,
+                      self.state.pendingSettlement == settlement else { return }
+                if handoff {
+                    guard finished, self.commitFull?() == true else { self.invalidate(); return }
+                    self.returnNeedsHandoff = false
+                    // Preview occupies the first segment. The same Surface hosts
+                    // live content only for the final segment, never a miniature editor.
+                    host.animateLift(target: target, from: endpoint, to: 0, animated: animated) { [weak self] finished in
+                        guard let self, self.hostID == binding,
+                              self.state.complete(settlement, finished: finished) else { return }
+                        self.updatePresentation()
+                    }
+                } else {
+                    guard self.state.complete(settlement, finished: finished) else { return }
+                    if self.state.phase == .card, self.enterPreview?() == false {
+                        _ = self.returnToFull(animated: animated)
+                        return
+                    }
+                    self.updatePresentation()
+                }
             }
         }
         updatePresentation()
@@ -114,21 +156,71 @@ final class SurfaceLiftController {
     @discardableResult
     func returnToFull(animated: Bool = true) -> Bool {
         guard state.phase == .card || state.phase == .settling || state.phase == .lifting else { return false }
+        if previewIsPresented?() == true, state.phase == .card, let prepareFull {
+            if returnOperation != nil { return true }
+            let operation = UUID()
+            let binding = hostID
+            returnOperation = operation
+            returnTask = Task { [weak self] in
+                let ready = await prepareFull()
+                guard let self, self.returnOperation == operation else { return }
+                self.returnTask = nil
+                self.returnOperation = nil
+                guard ready, !Task.isCancelled, self.hostID == binding, self.state.phase == .card else {
+                    self.cancelPreparation?()
+                    self.updatePresentation()
+                    return
+                }
+                self.returnNeedsHandoff = true
+                self.startReturn(animated: animated)
+            }
+            return true
+        }
         // Repeated Return input must not keep replacing a Full-bound settlement
         // and delay restoration of the retained editor indefinitely.
         if animated, state.phase == .settling, state.pendingSettlement?.destination == .full { return true }
-        guard let settlement = state.requestReturn(visibleProgress: capture?()) else { return false }
-        interaction?(state.phase)
-        animate?(settlement, animated)
+        startReturn(animated: animated)
         return true
     }
-    func invalidate() {
+
+    private func startReturn(animated: Bool) {
+        guard let settlement = state.requestReturn(visibleProgress: capture?()) else { return }
+        interaction?(state.phase)
+        animate?(settlement, animated)
+    }
+
+    private func cancelReturn() {
+        returnOperation = nil
+        returnTask?.cancel()
+        returnTask = nil
+        returnNeedsHandoff = false
+        cancelPreparation?()
+    }
+
+    func resetForConversationChange() {
+        cancelReturn()
         cancel?()
+        state.interrupt()
+        updatePresentation()
+        target = nil
+    }
+
+    func invalidate() {
+        cancelReturn()
+        cancel?()
+        if previewIsPresented?() == true {
+            state.restoreCard()
+            target = resolveTarget?(minimumCardSize)
+            updatePresentation()
+            return
+        }
         guard state.phase != .full || state.progress != 0 || target != nil else { return }
         state.interrupt()
         updatePresentation()
         target = nil
     }
+    func refreshCardAccessibility() { interaction?(state.phase) }
+
     private func updatePresentation() {
         _ = present?(CGFloat(state.progress))
         interaction?(state.phase)

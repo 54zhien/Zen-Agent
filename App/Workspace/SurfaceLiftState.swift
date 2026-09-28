@@ -81,6 +81,12 @@ struct SurfaceLiftState: Equatable, Sendable {
         return true
     }
 
+    mutating func restoreCard() {
+        phase = .card
+        progress = 1
+        pendingSettlement = nil
+    }
+
     mutating func interrupt() {
         phase = .full
         progress = 0

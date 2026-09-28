@@ -64,11 +64,86 @@ final class AppShellModel {
 
     let previewContent = ConversationPreviewController()
 
-    // Runnable capability scaffold; production handoff follows compiled behavior RED.
-    func enterPreview() -> Bool { true }
-    func preparePreviewReturn() async -> Bool { true }
-    func commitPreviewReturn() -> Bool { true }
-    func cancelPreviewReturn() {}
+    func enterPreview() -> Bool {
+        guard let pane, let store = dependencies?.store else { return previewContent.isPresented }
+        guard previewContent.present(session: pane.session, store: store) else { return false }
+        rememberCurrentSession()
+        // The current uncommitted page is also retained for Card/Return, without
+        // adding durable Draft storage or changing navigation to another page.
+        sessions.retain(pane.session, reconstruction: .unavailable)
+        router.unregisterPane(for: conversationID)
+        self.pane = nil
+        actionBridge = nil
+        return true
+    }
+
+    func preparePreviewReturn() async -> Bool {
+        guard previewContent.isPresented, let dependencies,
+              let session = previewContent.session else { return pane != nil }
+        if previewContent.prepared != nil { return true }
+        guard !previewContent.isPreparing else { return false }
+        let id = conversationID
+        let preparation = previewContent.beginPreparation()
+        let store = dependencies.store
+        // A busy Run may invalidate a read. Retry a finite number of times; failure
+        // leaves the Preview and its logical state intact for an explicit retry.
+        for _ in 0..<3 {
+            let ticket = router.beginPanePreparation(for: id)
+            do {
+                let timeline = try await Task.detached(priority: .userInitiated) {
+                    try Task.checkCancellation()
+                    return try ConversationTimelineLoader.load(conversationID: id, from: store)
+                }.value
+                guard !Task.isCancelled, conversationID == id,
+                      router === dependencies.router, previewContent.accepts(preparation) else {
+                    dependencies.router.cancelPanePreparation(for: id, ticket: ticket)
+                    return false
+                }
+                guard router.acceptsPanePreparation(for: id, ticket: ticket) else { continue }
+                let wiring = try ConversationPaneFactory(sessions: sessions).makePane(
+                    id: id, initialTimeline: timeline, dependencies: dependencies, target: target,
+                    onTargetFailure: { [weak self] failure, failedTarget in
+                        self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
+                    })
+                guard wiring.pane.session === session,
+                      router.registerPreparedPane(wiring.pane, ticket: ticket) else { continue }
+                // Receive durable Runtime events while still hidden behind Preview.
+                previewContent.ready(wiring, id: preparation)
+                return true
+            } catch {
+                dependencies.router.cancelPanePreparation(for: id, ticket: ticket)
+                previewContent.failed(preparation)
+                return false
+            }
+        }
+        router.cancelPanePreparation(for: id)
+        previewContent.failed(preparation)
+        return false
+    }
+
+    func commitPreviewReturn() -> Bool {
+        guard previewContent.isPresented, let prepared = previewContent.prepared,
+              prepared.pane.conversationID == conversationID else { return false }
+        pane = prepared.pane
+        actionBridge = prepared.bridge
+        commitSession(prepared.pane.session)
+        sendAvailability = prepared.pane.composer.sendAvailability
+        targetMessage = sendAvailability.message
+        previewContent.finish()
+        return true
+    }
+
+    func cancelPreviewReturn() {
+        if let prepared = previewContent.prepared {
+            router.unregisterPane(for: prepared.pane.conversationID)
+        }
+        router.cancelPanePreparation(for: conversationID)
+        previewContent.cancelPreparation()
+    }
+
+    func refreshPreview() {
+        if let store = dependencies?.store { previewContent.refresh(store: store) }
+    }
 
     private(set) var pane: ConversationPaneController?
     private(set) var actionBridge: ComposerRuntimeActionBridge?
@@ -123,6 +198,8 @@ final class AppShellModel {
     func assemble() {
         startedAssembly = true
         launchState = .loading
+        cancelPreviewReturn()
+        previewContent.finish()
         dependencies = nil
         sessions.removeAll()
         pane = nil
@@ -151,6 +228,8 @@ final class AppShellModel {
 
     func newConversation() {
         rememberCurrentSession()
+        cancelPreviewReturn()
+        previewContent.finish()
         router.unregisterPane(for: conversationID)
         pane = nil
         actionBridge = nil
@@ -254,7 +333,8 @@ final class AppShellModel {
     }
 
     private func rememberCurrentSession() {
-        guard let pane, let store = dependencies?.store else { return }
+        guard let session = pane?.session ?? previewContent.session,
+              let store = dependencies?.store else { return }
         do {
             guard let summary = try store.conversationSummaryWindow(ids: [conversationID]).first else {
                 sessions.remove(conversationID: conversationID)
@@ -270,11 +350,11 @@ final class AppShellModel {
             }
             let unavailable = summary.contentUnavailable
                 || (summary.runProjection != nil && configuration == nil)
-            sessions.retain(pane.session, reconstruction: unavailable
+            sessions.retain(session, reconstruction: unavailable
                 ? .unavailable : .history(configuration: configuration))
         } catch {
             // A read failure cannot prove that the current owner is reconstructible.
-            sessions.retain(pane.session, reconstruction: .unavailable)
+            sessions.retain(session, reconstruction: .unavailable)
         }
     }
 
@@ -327,6 +407,8 @@ final class AppShellModel {
 
             // Keep the outgoing pane intact until the replacement has loaded and registered.
             rememberCurrentSession()
+            cancelPreviewReturn()
+            previewContent.finish()
             let outgoingConversationID = conversationID
             router.unregisterPane(for: outgoingConversationID)
             conversationID = id
@@ -422,7 +504,9 @@ final class AppShellModel {
         for failedTarget: AppExecutionTarget,
         conversationID ownerID: String
     ) {
-        let owner = conversationID == ownerID ? pane?.composer : sessions.session(for: ownerID)?.composer
+        let owner = conversationID == ownerID
+            ? (pane?.composer ?? previewContent.session?.composer)
+            : sessions.session(for: ownerID)?.composer
         guard let owner, owner.configuration == ConversationComposerConfiguration(
             providerInstanceID: failedTarget.providerInstanceID,
             modelID: failedTarget.modelID

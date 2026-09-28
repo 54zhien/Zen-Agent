@@ -108,3 +108,14 @@ This does not create a new-page navigation recovery feature. Cost if wrong:
 Card ordering/new-page ownership must be refined before browse, not hidden editors retained.
 Task3 starts with runnable inert handoff APIs and production native-editor/weak-owner
 regressions; no missing-symbol compilation is counted as behavioral RED.
+
+Task3 behavior RED:4c8a57c5b92e5303f4c901e283329374accffbdd/tree7bc206cc;
+CI36432901342 attempt1/job108963450603 generated/built and ran719 Swift
+Testing/111 suites with30 issues, all new Preview/weak/native-release assertions.
+20 XCTest units and11UI passed; one run start/no host restart. Native UTF16
+selection controls passed. Production now replaces the inert handoff with bounded
+projections, explicit display detachment, off-main preparation and Router tickets.
+Ruling: preparation tickets are invalidated by delivered Run events; only a current
+read may register, then the prepared Pane receives subsequent durable events. No
+second synchronous timeline reload at registration. Cost if wrong: dirty snapshot
+reconciliation needs a transactional read, not another Runtime writer/token queue.

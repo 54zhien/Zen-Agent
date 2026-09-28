@@ -22,6 +22,7 @@ final class RunEventRouter {
     @ObservationIgnored private var panesByConversationID: [String: PaneRegistration] = [:]
     @ObservationIgnored private var partsByRunID: [String: [String: PartIdentity]] = [:]
     @ObservationIgnored private var needsReload: Set<String> = []
+    @ObservationIgnored private var preparationTickets: [String: UUID] = [:]
     @ObservationIgnored private var hiddenChanges: [String: Set<String>] = [:]
     @ObservationIgnored private var terminalCheckpoints: [String: AgentEvent] = [:]
     private(set) var diagnostics: [String] = []
@@ -33,6 +34,7 @@ final class RunEventRouter {
             if existing != conversationID { record("Run ownership conflict for \(runID)") }
             return
         }
+        invalidatePreparation(for: conversationID)
         conversationByRunID[runID] = conversationID
         activeRunIDsByConversationID[conversationID, default: []].insert(runID)
     }
@@ -54,6 +56,7 @@ final class RunEventRouter {
             record("Dropped unregistered Run event for \(runID)")
             return
         }
+        invalidatePreparation(for: conversationID)
         switch event {
         case .messagePartStarted(_, let messageID, let partID, let kind):
             if kind == .text || kind == .reasoning {
@@ -77,6 +80,42 @@ final class RunEventRouter {
             if activeRunIDsByConversationID[conversationID]?.isEmpty == true {
                 activeRunIDsByConversationID.removeValue(forKey: conversationID)
             }
+        }
+    }
+
+    func beginPanePreparation(for id: String) -> UUID {
+        let ticket = UUID()
+        preparationTickets[id] = ticket
+        return ticket
+    }
+
+    func acceptsPanePreparation(for id: String, ticket: UUID) -> Bool {
+        preparationTickets[id] == ticket
+    }
+
+    func cancelPanePreparation(for id: String, ticket: UUID? = nil) {
+        if ticket == nil || preparationTickets[id] == ticket { preparationTickets.removeValue(forKey: id) }
+    }
+
+    private func invalidatePreparation(for id: String) {
+        // Tickets exist only while a projection is being loaded, not for every
+        // Conversation ever seen. A delivered event invalidates that old read.
+        preparationTickets.removeValue(forKey: id)
+    }
+
+    func registerPreparedPane(_ pane: ConversationPaneController, ticket: UUID) -> Bool {
+        let id = pane.conversationID
+        guard acceptsPanePreparation(for: id, ticket: ticket), panesByConversationID[id] == nil else { return false }
+        preparationTickets.removeValue(forKey: id)
+        panesByConversationID[id] = PaneRegistration(pane: pane, state: .ready)
+        do {
+            // The just-loaded projection replaces the dirty read. No second
+            // synchronous full-history read is needed on the presentation actor.
+            try reconcile(pane)
+            return true
+        } catch {
+            panesByConversationID.removeValue(forKey: id)
+            return false
         }
     }
 

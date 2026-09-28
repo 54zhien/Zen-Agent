@@ -20,6 +20,134 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("production handoff remains Preview before the late segment and cancellation discards prepared content")
+    func liftPreviewLateHandoffAndCancellation() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let driver = SurfaceLiftController()
+        let host = ConversationSurfaceViewController(content:
+            NewConversationView(model: fixture.model).environment(\.surfaceLiftController, driver))
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        driver.bind(host)
+        driver.configurePreview(enter: { fixture.model.enterPreview() },
+            prepare: { await fixture.model.preparePreviewReturn() },
+            commit: { fixture.model.commitPreviewReturn() }, cancel: { fixture.model.cancelPreviewReturn() },
+            isPresented: { fixture.model.previewContent.isPresented }, label: { "Preview handoff" })
+        #expect(driver.arm(SurfaceLiftEligibility()))
+        #expect(driver.drag(upwardDistance: 180, eligibility: SurfaceLiftEligibility()))
+        #expect(driver.end(animated: false)?.destination == .card)
+        #expect(fixture.model.pane == nil)
+        #expect(driver.returnToFull())
+        for _ in 0..<100 where host.liftAnimatorForTesting == nil { try await Task.sleep(for: .milliseconds(5)) }
+        let animator = try #require(host.liftAnimatorForTesting)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0.2
+        #expect(driver.state.phase == .settling && fixture.model.pane == nil)
+        weak var prepared = fixture.model.previewContent.prepared?.pane
+        #expect(prepared != nil)
+        let settlement = driver.state.pendingSettlement
+        #expect(driver.returnToFull())
+        #expect(driver.state.pendingSettlement == settlement)
+        driver.invalidate()
+        #expect(driver.state.phase == .card && fixture.model.previewContent.isPresented)
+        #expect(prepared == nil && fixture.model.pane == nil)
+        #expect(driver.returnToFull(animated: false))
+        for _ in 0..<100 where driver.state.phase != .full { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(driver.state.phase == .full && fixture.model.pane != nil)
+        #expect(!fixture.model.previewContent.isPresented)
+    }
+
+    @Test("a prepared Preview Return releases its hidden Pane on cancellation and navigation")
+    func previewPreparationCancellationAndNavigation() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "preview-cancel-a").insert(db)
+            try Fixtures.conversation(id: "preview-cancel-b").insert(db)
+        }
+        #expect(fixture.model.openConversation(id: "preview-cancel-a"))
+        let session = try #require(fixture.model.pane?.session)
+        session.composer.draft.text = "cancel-safe draft"
+        #expect(fixture.model.enterPreview())
+        #expect(await fixture.model.preparePreviewReturn())
+        weak var prepared = fixture.model.previewContent.prepared?.pane
+        #expect(prepared != nil && fixture.model.pane == nil)
+        fixture.model.cancelPreviewReturn()
+        #expect(prepared == nil)
+        #expect(fixture.model.previewContent.isPresented)
+        #expect(await fixture.model.preparePreviewReturn())
+        prepared = fixture.model.previewContent.prepared?.pane
+        #expect(fixture.model.openConversation(id: "preview-cancel-b"))
+        #expect(prepared == nil && !fixture.model.commitPreviewReturn())
+        #expect(fixture.model.conversationID == "preview-cancel-b")
+        #expect(fixture.model.openConversation(id: "preview-cancel-a"))
+        #expect(fixture.model.pane?.session === session)
+        #expect(session.composer.draft.text == "cancel-safe draft")
+    }
+
+    @Test("a failed Preview Return retains content and logical state for a real read retry")
+    func previewReturnReadFailureAndRetry() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try await send("history before Preview", at: Fixtures.epoch, in: fixture)
+        let session = try #require(fixture.model.pane?.session)
+        session.composer.draft.text = "retry keeps draft"
+        #expect(fixture.model.enterPreview())
+        let before = fixture.model.previewContent.summaries
+        try fixture.store.database.write { db in try db.execute(sql: "ALTER TABLE message RENAME TO failed_preview_message") }
+        #expect(!(await fixture.model.preparePreviewReturn()))
+        #expect(fixture.model.previewContent.summaries == before)
+        #expect(fixture.model.previewContent.errorMessage != nil)
+        #expect(fixture.model.pane == nil)
+        #expect(session.composer.draft.text == "retry keeps draft")
+        try fixture.store.database.write { db in try db.execute(sql: "ALTER TABLE failed_preview_message RENAME TO message") }
+        #expect(await fixture.model.preparePreviewReturn())
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.pane?.session === session)
+        #expect(fixture.model.previewContent.errorMessage == nil)
+    }
+
+    @Test("actual Streaming continues through Preview preparation and completes on the remounted owner")
+    func previewStreamingHandoff() async throws {
+        let box = Stage2StreamBox()
+        let fixture = try makeFixture(seed: .active, scripts: [.holding(prefix: [.textDelta("before")], box: box)])
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let id = fixture.model.conversationID
+        let runID = try await fixture.runtime.send(SendCommand(conversationID: id, text: "streaming Preview",
+            providerInstanceID: fixture.instanceID, modelID: fixture.modelID, maxProviderSteps: 4,
+            submissionID: "preview-streaming"))
+        await box.waitUntilReady()
+        for _ in 0..<100 {
+            if try ConversationTimelineLoader.load(conversationID: id, from: fixture.store).turns
+                .flatMap(\.items).contains(.assistantText("before")) { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let session = try #require(fixture.model.pane?.session)
+        let anchor = TurnAnchor(runID: runID, relativeViewportOffset: 0.2)
+        session.readingPosition.setReadingAnchorForUITest(anchor)
+        weak var oldPane = fixture.model.pane
+        #expect(fixture.model.enterPreview())
+        #expect(oldPane == nil && fixture.model.router.hasActiveRun(for: id))
+        #expect(await fixture.model.preparePreviewReturn())
+        box.yieldLate(.textDelta(" after"))
+        box.yieldLate(.finish(.stop))
+        try await fixture.runtime.waitForCompletion(runID: runID)
+        #expect(fixture.model.pane == nil)
+        #expect(fixture.model.commitPreviewReturn())
+        let pane = try #require(fixture.model.pane)
+        #expect(pane.session === session)
+        #expect(pane.liveStore.state.timeline.turns.flatMap(\.items).contains(.assistantText("before after")))
+        if case .reading(let restored, _) = pane.readingPosition.mode { #expect(restored == anchor) }
+        else { #expect(false, "Preview Return lost its reading anchor") }
+        #expect(!fixture.model.router.hasActiveRun(for: id))
+        #expect(box.cancellations == 1)
+    }
+
     @Test("stable Preview releases its Pane/live store and returns the same logical session")
     func previewReleasesDisplayAndRestoresSession() async throws {
         let fixture = try makeFixture(seed: .active)
@@ -61,7 +189,13 @@ struct AppShellWiringTests {
             }
         }
         #expect(fixture.model.openConversation(id: "preview-bounded-0050"))
+        let trace = S504SQLTrace()
+        try fixture.store.database.read { db in
+            db.trace { event in if case .statement(let statement) = event { trace.record(statement.sql) } }
+        }
         #expect(fixture.model.enterPreview())
+        try fixture.store.database.read { db in db.trace(nil) }
+        #expect(trace.selectCount <= 4)
         #expect(fixture.model.previewContent.summaries.map(\.id) == (50...53).map {
             String(format: "preview-bounded-%04d", $0)
         })
