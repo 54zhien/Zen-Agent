@@ -72,3 +72,12 @@ Router replay remain S5-04; creation/Soul binding remains S5-06; cancellation an
 deletion remain S5-07. Reading anchors stay in process; this slice introduces no
 cross-process anchor or Draft persistence. The older Stage 5 entry's open-anchor
 wording is superseded by the plan's already-approved no-persistence decision.
+
+## Subsequent integration
+
+Owner continuation authorized integration: PR #16 merged at
+`d68195ed6b963f2380b1548ae47f6642852252c8`. Main CI36378968995 attempt1 passed actual
+662 Swift Testing/104 suites,20XCTest units,5UI tests. The tree equals the reviewed/tested
+`63a9826fe11ff9cf0d80d78ba416cf6eb4bd5e6d`; primary Desktop main was fast-forwarded clean.
+Device acceptance stays pending. The follow-on status above is the original S5-01 record;
+S5-02 now proceeds in its own record/PR after this main CI gate.

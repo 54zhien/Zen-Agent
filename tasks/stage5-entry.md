@@ -1,5 +1,8 @@
 # Stage 5 entry and Stage 0–4 closeout
 
+This is the historical pre-implementation entry baseline. Current slice evidence
+is in README and the individual Stage5 task records; the original observations below are retained.
+
 Recorded on 2026-09-28. Stage 5 feature implementation has not started.
 
 ## Integrated baseline
@@ -63,6 +66,15 @@ The owner reported the Stage 3 device Gate closed on 2026-09-27. That progressio
 decision remains recorded; D1–D7 observations, installed source/build, and signing
 method have not been supplied. The old `840a2e2` IPA predates both #12 and #14.
 It cannot validate their fixes.
+
+## Subsequent implementation evidence
+
+S5-01 entered main through PR #16 at `d68195ed6b963f2380b1548ae47f6642852252c8`;
+[main CI36378968995](https://github.com/54zhien/Zen-Agent/actions/runs/36378968995) attempt1 passed actual
+662 Swift Testing/104 suites,20XCTest units,5UI tests. Device acceptance remains pending.
+S5-02 static geometry is recorded separately, with no real catalog/navigation yet.
+The approved Desktop Stage5 plan retains reading anchors only in process; the older
+open-decision wording above does not reopen cross-process anchor persistence.
 
 Use [stage3-device-acceptance.md](stage3-device-acceptance.md) for those checks and
 the #14 force-quit recovery, unavailable-credential history and Composer follow-up.
