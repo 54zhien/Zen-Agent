@@ -44,6 +44,67 @@ struct AppShellWiringTests {
         #expect(fixture.model.pane?.composer.draft.text == "")
     }
 
+    @Test("warm sessions with changed configuration and reading anchors exceed the safe cache budget")
+    func warmCacheProtectsConfigurationAndReading() throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            for index in 0..<25 {
+                try Fixtures.conversation(id: "protected-budget-\(index)").insert(db)
+            }
+        }
+        #expect(fixture.model.openConversation(id: "protected-budget-0"))
+        weak var configurationOwner = fixture.model.pane?.session
+        let chosen = ConversationComposerConfiguration(providerInstanceID: fixture.instanceID,
+            modelID: fixture.modelID)
+        fixture.model.pane?.composer.configuration = chosen
+        #expect(fixture.model.openConversation(id: "protected-budget-1"))
+        weak var readingOwner = fixture.model.pane?.session
+        let anchor = TurnAnchor(runID: "reading-turn", relativeViewportOffset: -0.5)
+        _ = fixture.model.pane?.readingPosition.apply(.userScrolled(
+            geometry: ScrollGeometry(viewportHeight: 500, contentHeight: 1500, offset: 100),
+            anchor: anchor))
+        for index in 2..<25 {
+            #expect(fixture.model.openConversation(id: "protected-budget-\(index)"))
+            fixture.model.pane?.composer.draft.text = "draft \(index)"
+        }
+        #expect(configurationOwner != nil)
+        #expect(readingOwner != nil)
+        #expect(fixture.model.openConversation(id: "protected-budget-0"))
+        #expect(fixture.model.pane?.session === configurationOwner)
+        #expect(fixture.model.pane?.composer.configuration == chosen)
+        #expect(fixture.model.openConversation(id: "protected-budget-1"))
+        #expect(fixture.model.pane?.session === readingOwner)
+        #expect(fixture.model.pane?.readingPosition.mode == .reading(anchor: anchor, pendingTurns: []))
+        #expect(fixture.model.openConversation(id: "protected-budget-2"))
+        #expect(fixture.model.pane?.composer.draft.text == "draft 2")
+    }
+
+    @Test("warm cache protects active routes until terminal events and releases them under pressure")
+    func warmCacheProtectsActiveRoute() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            for index in 0..<25 {
+                try Fixtures.conversation(id: "active-budget-\(index)").insert(db)
+            }
+        }
+        #expect(fixture.model.openConversation(id: "active-budget-0"))
+        weak var owner = fixture.model.pane?.session
+        fixture.model.router.registerRecoveredRun(runID: "protected-active-run",
+            conversationID: "active-budget-0")
+        for index in 1..<13 {
+            #expect(fixture.model.openConversation(id: "active-budget-\(index)"))
+        }
+        #expect(owner != nil)
+        await fixture.model.router.handle(.runEnded(runID: "protected-active-run",
+            state: .completed, endReason: .completed))
+        for index in 13..<25 {
+            #expect(fixture.model.openConversation(id: "active-budget-\(index)"))
+        }
+        #expect(owner == nil)
+    }
+
     @Test("recent next-page failure preserves its cursor and retry loads that same page")
     func recentPaginationRetriesFailedPage() throws {
         let fixture = try makeFixture(seed: .active)
