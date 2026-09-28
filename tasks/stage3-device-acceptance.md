@@ -49,9 +49,9 @@ repairs before treating any of the following as verified:
 
 | ID | Check on the repaired build | Result |
 |---|---|---|
-| R1 | Force-quit during generation, relaunch and handle the original Conversation; partial output survives, the abandoned request is not replayed, and recovery/Stop has a visible outcome. | Unverified |
-| R2 | Make the selected credential unavailable, reopen saved history, and verify reading works while Send reports its unavailable target. | Unverified |
-| R3 | Repeat D2–D4 and consecutive Sends; verify Composer focus, keyboard motion and reading position. PR CI had one quick-focus event-synthesis failure before a same-SHA rerun passed. | Unverified |
+| D8 | Force-quit during generation, relaunch and handle the original Conversation; partial output survives, the abandoned request is not replayed, and recovery/Stop has a visible outcome. | Unverified |
+| D9 | Make the selected credential unavailable, reopen saved history, and verify reading works while Send reports its unavailable target. | Unverified |
+| D10 | Repeat D2–D4 and consecutive Sends; verify Composer focus, keyboard motion and reading position. PR CI had one quick-focus event-synthesis failure before a same-SHA rerun passed. | Unverified |
 
 Integration and entry evidence is recorded in [stage5-entry.md](stage5-entry.md).
 
