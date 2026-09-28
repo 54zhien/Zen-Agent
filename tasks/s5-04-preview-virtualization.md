@@ -6,12 +6,11 @@ Blueprint baseline596a84d4b58769e3e7b838be95edcb43f9e0ec82 and supplied Stage5
 plan define intent; [implementation plan](../Docs/Plans/2026-09-28-s5-04-preview-virtualization.md)
 records ownership, failures, cancellation and file boundaries.
 
-Current state: Task1 and Task2 have real GREEN evidence in PR19. The owner
-resumed work on 2026-09-28 for the [Stabilization Pass](../Docs/Plans/2026-09-28-s5-04-stabilization.md),
-protecting unsaved state and active Runs when the safe warm cache exceeds ten.
-Store/Factory/typed-readiness source and exact final CI evidence are maintained in PR19. Task3 has not started;
-production Preview/native editor handoff, whole S5-04 review and merge remain.
-Gate A remains open. Stabilization does not close S5-04 or authorize browse/snap.
+Current state: Task1/Task2/stabilization and Task3 are implemented in PR19.
+The one fresh final review found three Important; a single test-first fix pass
+has genuine RED for each. Final corrective full CI and exact-tree merge remain
+pending; see the Task3/final-review section and PR19. Physical Gate A remains open.
+S5-05 browse/snap has not started.
 
 Initial regression contract: detached active Run releases its Full Pane and live
 store without losing route; hidden tokens do not repaint an outgoing display;
@@ -173,3 +172,46 @@ This does not create a new-page navigation recovery feature. Cost if wrong:
 Card ordering/new-page ownership must be refined before browse, not hidden editors retained.
 Task3 starts with runnable inert handoff APIs and production native-editor/weak-owner
 regressions; no missing-symbol compilation is counted as behavioral RED.
+
+## Task3 and final whole-branch review
+
+Task3 candidate e22783b/tree8b27b0a66a4d31ca9cfb29a840bc9e967ab3969b
+passed CI36450865368/job109025033967: XcodeGen/build,728 Swift Testing/111
+suites in71.320s,20 XCTest and13 UI in331.669s. Reading frame,offset,anchor
+were exactly preserved and the request cleared; one actual start/no host restart.
+This was not the final merge candidate: one fresh read-only whole-branch review
+of aeaa05c..e22783b found three Important and no Critical or Minor.
+
+One test-first fix pass covers all three findings:
+- Missing deep Lazy target: dd085b6 CI36456211134/job109043139387 proves
+  Return failure after a valid240-Turn middle-anchor control.1fd4af8
+  CI36460120551/job109056361670 passes both deep and short Return with identical
+  native frames and pendingnil, but introduces failures in existing keyboard/Lift
+  tests. The next candidate removes global scroll-target registration; only missing
+  targets use a stable-ID proxy jump followed by content-relative correction.
+  Existing visible/keyboard requests keep their original numeric transport.
+- Pending Send:1fd4af8 reaches the actual mounted coordinator and its held start
+  (count1,awaitingAcceptance), then fails four remount assertions: enabled Send,
+  replaced coordinator,duplicate start and lost late error. Session now owns that
+  coordinator and protects a pending transaction even if its Draft becomes empty;
+  the editor remains releasable. Send/Stop tasks capture the logical coordinator.
+- First durable commit while Card:8be78b2 CI36454093408 proves five missing
+  current-summary/status assertions. Current-first bounded four-ID refresh passes
+  in1fd4af8. The named summary CTE budget excludes concurrent Runtime reads.
+
+1fd4af8 generated/built,730 Swift Testing/111 suites ran81.835s with only the
+four genuine pending-Send issues;20 XCTest passed;14 UI ran749.832s with six
+failures across existing keyboard/Lift cases. No test-host restart. Hygiene and
+Guard passed. Native fixture failures in8be78b2/dd085b6 are not Send ownership
+RED. No tolerance or wait was weakened. The final corrective tree must pass all
+730 Swift Testing,20 XCTest and14 UI tests before merge. Exact final head/tree,
+CI receipt and merge/main verification are maintained in PR19.
+
+Physical Gate A, comfort, Instruments and peak-memory acceptance remain open.
+Protected sessions may exceed ten; ten bounds reconstructible warm cache only.
+S5-05 browse/snap is not started; S5-06 New/Pin/Rename and S5-07 Delete/Undo
+remain later upstream slices. No schema/dependency/build-setting/Runtime policy
+change, Preview database, durable Composer, multiwindow or future producer seam.
+
+Deferred production minors: none reported. Preserve the dated historical evidence
+below; the current-state paragraph and this section supersede its pending wording.

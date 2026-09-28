@@ -2,7 +2,10 @@
 
 Baseline: branch codex/s5-04-preview-virtualization, 3d366b8720b069340c6c73b488b9cd045537b5b5.
 Upstream: Blueprint stage index, CONTEXT and App Space note fetched live on 2026-09-28.
-Task1/Task2 CI36415710769 passed at the baseline. Task3 has not started.
+Task1/Task2 CI36415710769 passed at the historical baseline. Stabilization
+passed at bc09cf4/CI36428572524 (716 Swift Testing,20 XCTest,11UI). Task3
+has since been implemented and reviewed; see the S5-04 task record and PR19
+for final corrective CI/integration. The unimplemented wording below is historical.
 
 ## Scope and rulings
 

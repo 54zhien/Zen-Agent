@@ -58,6 +58,7 @@ struct ConversationPaneView: View {
                 controller: pane.composer,
                 bridge: actionBridge,
                 maxProviderSteps: maxProviderSteps,
+                coordinator: pane.session.sendCoordinator(bridge: actionBridge, maxProviderSteps: maxProviderSteps),
                 onHeightChanged: { clearance in
                     guard abs(composerClearance - clearance) > 0.5 else { return }
                     scrollBridge.composerHeightWillChange()

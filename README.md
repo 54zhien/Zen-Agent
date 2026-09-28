@@ -56,13 +56,14 @@ As of 2026-09-28:
   [Main CI](https://github.com/54zhien/Zen-Agent/actions/runs/36401064255) passed
   generation/build,689 Swift Testing,20 XCTest unit and11 UI tests. See
   [the slice record](tasks/s5-03-lift-return.md); physical Gate A remains open.
-- S5-04 preview virtualization is in development on its branch; session/display
-  ownership and bounded real-history previews are not yet delivered on main.
-- S5-04 Task1/Task2 and ownership stabilization are on draft PR #19;
-  [the slice record](tasks/s5-04-preview-virtualization.md) separates their CI evidence.
-  Production lightweight Preview/native-editor handoff (Task3) is implemented on
-  the branch and completing real CI regressions and whole-branch review.
-  S5-04 is not merged or closed. Upstream S5-05 remains Card browse/snap.
+- S5-04 is implemented on [PR #19](https://github.com/54zhien/Zen-Agent/pull/19),
+  including Session/LRU ownership, bounded history previews and native-editor
+  Preview/Full handoff. One whole-branch review found three Important; a single
+  test-first fix pass has reproduced all three and is awaiting final full CI.
+  Integration is conditional on exact-tree GREEN and verified main CI; inspect
+  PR #19 for the final tested head/tree and merge status. See
+  [the slice record](tasks/s5-04-preview-virtualization.md). Physical Gate A and
+  device memory/comfort remain open. Upstream S5-05 remains Card browse/snap.
 - Formal Settings IA and
   `Settings → Agent → Soul` belong to later Stage 5 slices; Memory, Skills, MCP and
   Subagent remain later stages.

@@ -62,6 +62,11 @@ struct AppShellWiringTests {
         let initialCount = await gate.count
         print("PREVIEW_SEND_CONTROL count=\(initialCount) error=\(firstCoordinator.sendErrorMessage ?? "none") submission=\(firstCoordinator.submission)")
         try #require(initialCount == 1)
+        let pendingDraft = pane.composer.draft
+        pane.composer.draft = ComposerDraftState(text: "", selection: ComposerSelection(range: 0..<0),
+            references: [], attachments: [], presentationState: .resting)
+        #expect(!pane.session.canReconstruct(configuration: pane.composer.configuration))
+        pane.composer.draft = pendingDraft
         weak var oldEditor = native(UITextView.self, id: "conversation-composer-input", in: host.view)
         #expect(fixture.model.enterPreview())
         host.rootView = AnyView(ConversationPreviewView(summary: fixture.model.previewContent.currentSummary))

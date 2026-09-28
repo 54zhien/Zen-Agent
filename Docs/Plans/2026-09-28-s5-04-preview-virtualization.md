@@ -1,6 +1,9 @@
 # S5-04 — real previews and bounded display ownership
 
 Execute inline, serially, with test-first changes and one fresh whole-branch review.
+Current state: Task1/2/stabilization/Task3 implemented; final review completed,
+three Important have genuine RED. Single corrective pass/full CI/merge pending.
+Dated pause/unstarted entries below are historical; S5-05 has not started.
 Base: aeaa05cd7ce6c1e41329da629ed6bdfc54b6e7a5. S5-03 main CI36401064255
 passed generation/build,689 Swift Testing/108 suites,20 XCTest units and11UI tests;
 one test run start, no test-host restart. Physical Gate A remains open.
@@ -132,3 +135,46 @@ implementation until compiled behavior RED; not a missing-type failure.
 Ruling: a DEBUG-only data seed stays inside Persistence, while the UI fixture uses
 the actual Shell/Workspace/Lift path; no raw SQL reaches a View, no schema change.
 Cost if wrong: the test seed may need expansion, never a production preview database.
+
+## Task3 and final whole-branch review
+
+Task3 candidate e22783b/tree8b27b0a66a4d31ca9cfb29a840bc9e967ab3969b
+passed CI36450865368/job109025033967: XcodeGen/build,728 Swift Testing/111
+suites in71.320s,20 XCTest and13 UI in331.669s. Reading frame,offset,anchor
+were exactly preserved and the request cleared; one actual start/no host restart.
+This was not the final merge candidate: one fresh read-only whole-branch review
+of aeaa05c..e22783b found three Important and no Critical or Minor.
+
+One test-first fix pass covers all three findings:
+- Missing deep Lazy target: dd085b6 CI36456211134/job109043139387 proves
+  Return failure after a valid240-Turn middle-anchor control.1fd4af8
+  CI36460120551/job109056361670 passes both deep and short Return with identical
+  native frames and pendingnil, but introduces failures in existing keyboard/Lift
+  tests. The next candidate removes global scroll-target registration; only missing
+  targets use a stable-ID proxy jump followed by content-relative correction.
+  Existing visible/keyboard requests keep their original numeric transport.
+- Pending Send:1fd4af8 reaches the actual mounted coordinator and its held start
+  (count1,awaitingAcceptance), then fails four remount assertions: enabled Send,
+  replaced coordinator,duplicate start and lost late error. Session now owns that
+  coordinator and protects a pending transaction even if its Draft becomes empty;
+  the editor remains releasable. Send/Stop tasks capture the logical coordinator.
+- First durable commit while Card:8be78b2 CI36454093408 proves five missing
+  current-summary/status assertions. Current-first bounded four-ID refresh passes
+  in1fd4af8. The named summary CTE budget excludes concurrent Runtime reads.
+
+1fd4af8 generated/built,730 Swift Testing/111 suites ran81.835s with only the
+four genuine pending-Send issues;20 XCTest passed;14 UI ran749.832s with six
+failures across existing keyboard/Lift cases. No test-host restart. Hygiene and
+Guard passed. Native fixture failures in8be78b2/dd085b6 are not Send ownership
+RED. No tolerance or wait was weakened. The final corrective tree must pass all
+730 Swift Testing,20 XCTest and14 UI tests before merge. Exact final head/tree,
+CI receipt and merge/main verification are maintained in PR19.
+
+Physical Gate A, comfort, Instruments and peak-memory acceptance remain open.
+Protected sessions may exceed ten; ten bounds reconstructible warm cache only.
+S5-05 browse/snap is not started; S5-06 New/Pin/Rename and S5-07 Delete/Undo
+remain later upstream slices. No schema/dependency/build-setting/Runtime policy
+change, Preview database, durable Composer, multiwindow or future producer seam.
+
+Deferred production minors: none reported. Preserve the dated historical evidence
+below; the current-state paragraph and this section supersede its pending wording.
