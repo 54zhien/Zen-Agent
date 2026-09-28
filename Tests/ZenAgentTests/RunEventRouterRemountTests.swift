@@ -22,11 +22,13 @@ struct RunEventRouterRemountTests {
             }
         )
         weak var releasedPane = pane
-        weak var releasedStore = pane?.liveStore
         #expect(router.registerPane(try #require(pane)))
         await router.handle(.runAccepted(runID: runID, conversationID: conversationID))
         await router.handle(.messagePartStarted(runID: runID, messageID: "released-message",
             partID: "released-part", kind: .text))
+        // runAccepted replaces the initial store. Capture the actual live store,
+        // not the already-released pre-load value.
+        weak var releasedStore = pane?.liveStore
         router.unregisterPane(for: conversationID)
         pane = nil
         #expect(releasedPane == nil)
@@ -35,6 +37,40 @@ struct RunEventRouterRemountTests {
         await router.handle(.messagePartDelta(runID: runID, partID: "released-part",
             delta: "still running", endUTF8Offset: 13))
         #expect(!router.diagnostics.contains("Dropped unregistered Run event for \(runID)"))
+    }
+
+    @Test("unfinished persisted display Parts resume by stable identity and UTF8 offset",
+          arguments: [MessagePartKind.text, .reasoning])
+    func persistedDisplayPartResumes(kind: MessagePartKind) throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "resume-user", runID: "resume-run"))
+        _ = try store.ensureAssistantResponse(forRunID: "resume-run", messageID: "resume-response")
+        var part = Fixtures.textPart(id: "resume-part", messageID: "resume-response", text: "开头")
+        part.kind = kind
+        part.state = .streaming
+        try store.createPart(part)
+        let projection = try ConversationTimelineLoader.load(conversationID: "c1", from: store)
+        #expect(projection.turns[0].textSourcesByItemIndex[1]?.partID == part.id)
+        let live = LiveConversationStore(projection: projection,
+            coalescer: StreamingCoalescer(interval: .milliseconds(0)))
+        #expect(live.resumePersistedPart(runID: "resume-run", messageID: "resume-response",
+            partID: part.id, kind: kind))
+
+        // Runtime's acknowledged persistence boundary commits before publication.
+        try store.appendText(toPart: part.id, delta: "后续")
+        _ = live.consume(.messagePartDelta(runID: "resume-run", partID: part.id,
+            delta: "后续", endUTF8Offset: "开头后续".utf8.count))
+        #expect(live.state.timeline.turns[0].items == [
+            .userText("hello"), kind == .text ? .assistantText("开头后续") : .reasoning("开头后续")])
+        #expect(live.droppedUnlocatableDeltas == 0)
+        // An event already represented by the offset cannot duplicate either kind.
+        _ = live.consume(.messagePartDelta(runID: "resume-run", partID: part.id,
+            delta: "后续", endUTF8Offset: "开头后续".utf8.count))
+        #expect(live.state.activeParts[part.id]?.text == "开头后续")
+        try store.finishPart(id: part.id, state: .completed)
+        _ = live.consume(.messagePartCompleted(runID: "resume-run", partID: part.id, state: .completed))
+        _ = live.consume(.runEnded(runID: "resume-run", state: .completed, endReason: .completed))
+        #expect(live.state.activeParts.isEmpty)
     }
 
     @Test("an active text Part keeps updating after its Conversation Pane is remounted")

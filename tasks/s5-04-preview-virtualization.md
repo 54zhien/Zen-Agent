@@ -14,3 +14,12 @@ Initial regression contract: detached active Run releases its Full Pane and live
 store without losing route; hidden tokens do not repaint an outgoing display;
 real persisted A/B/A navigation retains Composer and reading owners, full Draft,
 chosen configuration and anchor restoration while old Run seeds stay frozen.
+
+First compiled behavior RED:8049f6977a97ff6a5f72155ab9c4b1b01fbc9587,
+CI36403024476 attempt1/job108865195675. Generation/App build succeeded;
+691 Swift Testing/108 suites failed10 issues confined to new warm-owner/configuration/
+reading assertions, detached Pane release and hidden repaint.20 XCTest units and11UI
+tests passed; one run start, no host restart. The initial weak-store reference pointed
+to the pre-runAccepted store that had already been replaced: its passing assertion
+is not live-store release evidence. Correct capture and real persisted text/reasoning
+resume regressions are added before any production change; supplemental RED pending.
