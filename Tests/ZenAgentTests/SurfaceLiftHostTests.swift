@@ -6,6 +6,68 @@ import Testing
 @Suite("Lift host transport", .serialized)
 @MainActor
 struct SurfaceLiftHostTests {
+    @Test func settlingSurfaceActivationReversesAndReturnReentryIsIdempotent() async throws {
+        let host = ConversationSurfaceViewController(content: Text("production activation"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let child = host.contentController
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        #expect(driver.arm(SurfaceLiftEligibility()))
+        #expect(driver.drag(upwardDistance: 120, eligibility: SurfaceLiftEligibility()))
+        let outgoing = try #require(driver.end())
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(driver.state.phase == .settling)
+        #expect(!child.view.isUserInteractionEnabled && child.view.accessibilityElementsHidden)
+        #expect(host.surfaceView.isAccessibilityElement)
+        #expect(host.surfaceView.accessibilityCustomActions?.count == 1)
+        #expect(host.surfaceView.accessibilityActivate())
+        let returning = driver.state.pendingSettlement
+        #expect(returning?.destination == .full)
+        #expect(returning?.identity != outgoing.identity)
+        #expect((returning?.startProgress ?? 0) >= outgoing.startProgress)
+        #expect((returning?.startProgress ?? 1) < 1)
+        #expect(host.surfaceView.activateReturn())
+        #expect(driver.state.pendingSettlement == returning)
+        try await Task.sleep(for: .milliseconds(450))
+        #expect(driver.state.phase == .full && host.presentation == .full)
+        #expect(host.contentController === child)
+        #expect(child.view.isUserInteractionEnabled && !child.view.accessibilityElementsHidden)
+        #expect(host.surfaceView.onActivate == nil)
+        #expect(driver.arm(SurfaceLiftEligibility()))
+        driver.invalidate()
+    }
+
+    @Test func settlingTouchHitUsesVisibleAnimationRatherThanModelEndpoint() async throws {
+        let host = ConversationSurfaceViewController(content: Text("visible touch"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        #expect(driver.arm(SurfaceLiftEligibility()))
+        #expect(driver.drag(upwardDistance: 120, eligibility: SurfaceLiftEligibility()))
+        #expect(driver.end() != nil)
+        try await Task.sleep(for: .milliseconds(40))
+        let visibleLayer = try #require(host.surfaceView.layer.presentation())
+        let visibleMask = try #require(visibleLayer.mask)
+        let visibleParent = try #require(visibleLayer.superlayer)
+        let visibleFrame = visibleLayer.convert(visibleMask.frame, to: visibleParent)
+        let modelFrame = host.surfaceView.convert(try #require(host.surfaceView.visibleRect), to: host.view)
+        // Pick pixels still visible above the final Card's model hit region.
+        #expect(visibleFrame.minY < modelFrame.minY - 2)
+        let point = CGPoint(x: visibleFrame.midX, y: (visibleFrame.minY + modelFrame.minY) / 2)
+        #expect(!modelFrame.contains(point))
+        #expect(host.view.hitTest(point, with: nil) === host.surfaceView)
+        #expect(host.view.hitTest(.zero, with: nil) !== host.surfaceView)
+        driver.invalidate()
+    }
+
     @Test func cropChangesVisibleBoundaryAndHitRegionWithoutRelayout() throws {
         let host = ConversationSurfaceViewController(content: Text("retained content"))
         host.loadViewIfNeeded()
