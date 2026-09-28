@@ -114,6 +114,9 @@ final class SurfaceLiftController {
     @discardableResult
     func returnToFull(animated: Bool = true) -> Bool {
         guard state.phase == .card || state.phase == .settling || state.phase == .lifting else { return false }
+        // Repeated Return input must not keep replacing a Full-bound settlement
+        // and delay restoration of the retained editor indefinitely.
+        if animated, state.phase == .settling, state.pendingSettlement?.destination == .full { return true }
         guard let settlement = state.requestReturn(visibleProgress: capture?()) else { return false }
         interaction?(state.phase)
         animate?(settlement, animated)

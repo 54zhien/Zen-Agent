@@ -1,6 +1,8 @@
 # S5-03 — continuous Surface Lift / Return
 
-Work in progress; contract: [implementation plan](../Docs/Plans/2026-09-28-s5-03-lift-return.md).
+Slice evidence; contract: [implementation plan](../Docs/Plans/2026-09-28-s5-03-lift-return.md).
+The final verification/review section below records the current gate. Earlier
+pending statements are historical checkpoints, not the current test result.
 Base `e679abf2faf556d08f217795570f9f49077c4c14`, Blueprint
 `596a84d4b58769e3e7b838be95edcb43f9e0ec82`.
 
@@ -29,9 +31,9 @@ readiness; pure state tests alone do not establish that wiring.
   App build passed; compiled behavioral RED675 Swift Testing/106 suites with55 issues,
   all in SurfaceLiftStateTests.20XCTest units and8UI tests passed; one Swift Testing
   run start, no test-host restart. No production input/host/Runtime path changed.
-- Latest head/implementation verification: [PR #18](https://github.com/54zhien/Zen-Agent/pull/18).
-  Task1 GREEN pending; Task2 actual Composer/Surface integration and real gesture/host
-  UI tests still pending. No integration or working Lift claim from pure tests.
+- At this initial checkpoint, Task1 GREEN and Task2 integration were still pending.
+  Subsequent exact-commit results below supersede that status; [PR #18](https://github.com/54zhien/Zen-Agent/pull/18)
+  contains the current candidate and integration state.
 
 Threshold12pt/180pt/0.5 is a calibration starting point, not a permanent product rule.
 Task2 uses uniform live-content scaling plus an outer crop to the Current card boundary;
@@ -68,7 +70,7 @@ notifications refuse unsafe gestures, mounted text-source selections aggregate,
 and Scene/viewport/conversation/overlay changes invalidate. No queued IME gesture.
 The DEBUG route uses the same driver with a real long-reading Pane.
 
-Full implementation CI and independent whole-branch review are pending. The UI
+At this checkpoint, full implementation CI and whole-branch review were pending. The UI
 query for Current uses any accessibility element with its identifier to accommodate
 its semantic button role; existence/tap/absence assertions remain required.
 
@@ -95,3 +97,53 @@ owned by the native interaction helper; the unused coordinator point argument is
 removed. Supplemental checks retain native editor selection and settled safe area,
 and verify configured transport/editor/recognizer teardown. Full GREEN and review
 are still required before integration.
+
+## Final verification and review
+
+Candidate `1d2f6ff8e8c0ea8ec7f03ce02a63f65ab4e70236`,
+[CI36393307077](https://github.com/54zhien/Zen-Agent/actions/runs/36393307077) attempt1:
+XcodeGen/App build,687 Swift Testing/108 suites,20XCTest units and11UI tests passed;
+Guard36393307098 passed. One Swift Testing run start, no host restart. Native
+transport teardown, editor selection/settled safe area and late-event regression
+passed. The old Chinese immediate-value condition passed; its cause remains
+unattributed and no input-sync repair is claimed.
+
+The fresh read-only whole-branch review found one Important issue: the controller
+can capture and retarget an interrupted animation, but production Surface activation
+was only available at Card. Settling froze the child without exposing an interruption
+entry. No Critical or Minor findings. Actual Surface accessibility/custom-action and
+root visible-animation hit-testing regressions are published as test-only `8caf1d5`,
+CI36395369110. That run built and failed four new test assertions, with all other
+687 Swift Testing tests,20XCTest units and11UI tests passing. It is not valid
+entry-path RED: the first timed sample had already reached Card and the second
+had no presentation layer. Do not attribute those harness precondition failures
+to the missing entry or claim the fix was verified.
+
+Controlled test-support candidate `0c965e65bdade6576d2637a8fd4694c5103562fd`,
+CI36397150474, uses a connected UIWindowScene and pauses/scrubs the actual native
+animator before yielding. A DEBUG read-only animator accessor supplies clock
+control; production activation/hit-testing are unchanged. Scene/layer/mask
+preconditions are required, not skipped or mocked. Target behavior RED and a
+complete post-fix GREEN remain required before merge.
+
+That controlled run executed all689 Swift Testing tests/108 suites and failed
+10 issues only in the two new regressions. Actual Scene, paused settling,
+presentation layer/mask and intermediate geometry preconditions passed. Nine
+failures expose missing production activation/Return consequences; one proves a
+visible point above the model endpoint did not hit the frozen Surface.
+20XCTest units and all11UI tests passed. This is the valid compiled behavior RED.
+
+The minimum fix exposes the existing Return for Card and settling, keeps the
+editor frozen, and routes root hit-testing and touch release through the visible
+presentation tree and animated mask. The animator explicitly uses manual
+hit-testing. Repeated animated Return preserves the existing Full destination;
+an explicit nonanimated Return retains its immediate-settlement behavior.
+The same new assertions remain unchanged. Full post-fix GREEN is pending.
+
+Reentry during a Return acknowledges its existing Full destination/token rather than
+restarting the animator. A fresh Lift remains subject to Full readiness. The editor
+stays frozen during settlement; interruption belongs to the outer Surface. Touch
+coordinates must follow the visible animated mask rather than the model endpoint.
+
+Physical-device Gate A and real hardware-keyboard/IME/VoiceOver/Switch Control/
+Reduce Motion usability remain unobserved. No device comfort or performance claim.

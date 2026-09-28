@@ -65,6 +65,12 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("Use init(content:)") }
 
+    override func loadView() {
+        let container = SurfaceHitView()
+        container.surfaceView = surfaceView
+        view = container
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
@@ -140,13 +146,13 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         let frozen = phase == .settling || phase == .card
         contentController.view.isUserInteractionEnabled = !frozen
         contentController.view.accessibilityElementsHidden = frozen
-        surfaceView.isAccessibilityElement = phase == .card
+        surfaceView.isAccessibilityElement = frozen
         surfaceView.accessibilityIdentifier = phase == .card ? "workspace-current-card" : nil
         surfaceView.accessibilityLabel = "当前会话"
         surfaceView.accessibilityHint = "轻点返回会话"
         surfaceView.accessibilityTraits = .button
-        surfaceView.onActivate = phase == .card ? returnAction : nil
-        surfaceView.accessibilityCustomActions = phase == .card
+        surfaceView.onActivate = frozen ? returnAction : nil
+        surfaceView.accessibilityCustomActions = frozen
             ? [UIAccessibilityCustomAction(name: "返回会话", target: surfaceView,
                                            selector: #selector(SurfaceClipView.activateReturn))] : nil
     }
@@ -202,6 +208,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         let animation = UIViewPropertyAnimator(duration: 0.28, curve: .easeInOut) { [weak self] in
             _ = self?.apply(.init(to: target, progress: CGFloat(to)))
         }
+        animation.isManualHitTestingEnabled = true
         animator = animation
         animation.addCompletion { [weak self] position in
             guard let self, self.animationIdentity == identity else { return }
@@ -220,21 +227,52 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 }
 
 @MainActor
+private final class SurfaceHitView: UIView {
+    weak var surfaceView: SurfaceClipView?
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let surfaceView, surfaceView.onActivate != nil else {
+            return super.hitTest(point, with: event)
+        }
+        guard isUserInteractionEnabled, !isHidden, alpha > 0.01,
+              !surfaceView.isHidden, surfaceView.alpha > 0.01,
+              self.point(inside: point, with: event) else { return nil }
+        // UIKit's model transform already points at the destination. Route new
+        // settlement touches through the still-visible transform and mask instead.
+        let local = surfaceView.visiblePoint(fromParent: point)
+        return surfaceView.point(inside: local, with: event) ? surfaceView : nil
+    }
+}
+
+@MainActor
 final class SurfaceClipView: UIView {
     var visibleRect: CGRect?
     var onActivate: (() -> Bool)?
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         guard super.point(inside: point, with: event) else { return false }
+        if onActivate != nil {
+            let visibleLayer = layer.presentation() ?? layer
+            let visibleMask = visibleLayer.mask ?? mask?.layer
+            let rect = visibleMask?.frame ?? visibleRect ?? bounds
+            return UIBezierPath(roundedRect: rect,
+                cornerRadius: visibleMask?.cornerRadius ?? visibleLayer.cornerRadius).contains(point)
+        }
         guard let visibleRect else { return true }
         return UIBezierPath(roundedRect: visibleRect, cornerRadius: mask?.layer.cornerRadius ?? 0).contains(point)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if let point = touches.first?.location(in: self), self.point(inside: point, with: event) {
+        if let point = touches.first?.location(in: superview),
+           self.point(inside: visiblePoint(fromParent: point), with: event) {
             _ = onActivate?()
         }
         super.touchesEnded(touches, with: event)
+    }
+
+    func visiblePoint(fromParent point: CGPoint) -> CGPoint {
+        let visibleLayer = layer.presentation() ?? layer
+        return visibleLayer.convert(point, from: visibleLayer.superlayer ?? superview?.layer)
     }
 
     override func accessibilityActivate() -> Bool { onActivate?() ?? false }
