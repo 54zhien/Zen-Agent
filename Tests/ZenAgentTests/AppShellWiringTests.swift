@@ -18,6 +18,32 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("safe warm sessions are bounded while drafts survive cache pressure")
+    func warmCacheReleasesOnlyReconstructibleSessions() throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            for index in 0..<15 {
+                try Fixtures.conversation(id: "warm-budget-\(index)").insert(db)
+            }
+        }
+        #expect(fixture.model.openConversation(id: "warm-budget-0"))
+        weak var evictable = fixture.model.pane?.session
+        #expect(fixture.model.openConversation(id: "warm-budget-1"))
+        weak var protected = fixture.model.pane?.session
+        fixture.model.pane?.composer.draft.text = "unsaved draft"
+        for index in 2..<15 {
+            #expect(fixture.model.openConversation(id: "warm-budget-\(index)"))
+        }
+        #expect(evictable == nil)
+        #expect(protected != nil)
+        #expect(fixture.model.openConversation(id: "warm-budget-1"))
+        #expect(fixture.model.pane?.session === protected)
+        #expect(fixture.model.pane?.composer.draft.text == "unsaved draft")
+        #expect(fixture.model.openConversation(id: "warm-budget-0"))
+        #expect(fixture.model.pane?.composer.draft.text == "")
+    }
+
     @Test("recent next-page failure preserves its cursor and retry loads that same page")
     func recentPaginationRetriesFailedPage() throws {
         let fixture = try makeFixture(seed: .active)
