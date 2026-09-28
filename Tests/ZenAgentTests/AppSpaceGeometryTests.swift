@@ -73,7 +73,8 @@ struct AppSpaceGeometryTests {
         let layout = try #require(AppSpaceGeometry.resolve(size: size, safeArea: insets,
             historyIDs: ids, current: .newConversation, minimumCardSize: minimum))
         for card in layout.cards {
-            #expect([card.frame.minX, card.frame.minY, card.frame.maxX, card.frame.maxY, card.cornerRadius].allSatisfy(\.isFinite))
+            let isFinite = [card.frame.minX, card.frame.minY, card.frame.maxX, card.frame.maxY, card.cornerRadius].allSatisfy { $0.isFinite }
+            #expect(isFinite)
             #expect(card.frame.width > 0 && card.frame.height > 0)
             #expect(card.cornerRadius >= 0 && card.cornerRadius <= min(card.frame.width, card.frame.height) / 2)
             #expect(layout.safeViewport.contains(card.frame))
