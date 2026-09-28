@@ -104,6 +104,21 @@ struct ConversationSummaryTests {
         #expect(try fixture.store.conversationSummaryWindow(ids: []).isEmpty)
     }
 
+    @Test("a newer Child Run cannot replace its Parent in the card summary")
+    func latestParentOwnsSummary() throws {
+        let fixture = try seed(historyCount: 1)
+        let id = Self.id(0)
+        try fixture.store.database.write { db in
+            try Fixtures.run(id: "newer-child", conversationID: id, kind: .child,
+                state: .failed, endReason: .providerFailed, parentRunID: "run-\(id)",
+                createdAt: Fixtures.epoch.addingTimeInterval(1)).insert(db)
+        }
+        let summary = try #require(try fixture.store.conversationSummaryPage().items.first)
+        #expect(summary.runProjection?.runID == "run-\(id)")
+        #expect(summary.runProjection?.state == .completed)
+        #expect(summary.runProjection?.endReason == .completed)
+    }
+
     @Test("page size is an engineering bound even for extreme caller inputs")
     func pageSizeIsClamped() throws {
         let fixture = try seed(historyCount: 100)

@@ -18,6 +18,47 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("recent next-page failure preserves its cursor and retry loads that same page")
+    func recentPaginationRetriesFailedPage() throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            for index in 0..<101 {
+                let id = String(format: "paged-recent-%04d", index)
+                try Fixtures.conversation(id: id, title: "Page \(index)").insert(db)
+            }
+        }
+        fixture.model.refreshRecentConversations()
+        #expect(fixture.model.recentConversations.count == 50)
+        #expect(fixture.model.recentHasMore)
+        let firstPage = fixture.model.recentConversations
+        try fixture.store.database.write { db in try db.execute(sql: "DROP TABLE messagePart") }
+        fixture.model.loadMoreRecentConversations()
+        #expect(fixture.model.recentConversations == firstPage)
+        #expect(fixture.model.recentLoadError != nil)
+        #expect(fixture.model.recentHasMore)
+        // Restore the actual empty fixture table, then retry the failed page.
+        try fixture.store.database.write { db in
+            try db.execute(sql: """
+                CREATE TABLE messagePart (
+                    id TEXT PRIMARY KEY, messageID TEXT NOT NULL REFERENCES message(id),
+                    sequence INTEGER NOT NULL, kind TEXT NOT NULL, state TEXT NOT NULL, payload TEXT NOT NULL
+                )
+                """)
+            try db.execute(sql: "CREATE INDEX messagePart_by_message ON messagePart(messageID, sequence)")
+        }
+        fixture.model.retryRecentConversations()
+        #expect(fixture.model.recentConversations.count == 100)
+        #expect(fixture.model.recentLoadError == nil)
+        #expect(fixture.model.recentHasMore)
+        fixture.model.loadMoreRecentConversations()
+        #expect(fixture.model.recentConversations.count == 101)
+        #expect(!fixture.model.recentHasMore)
+        #expect(Set(fixture.model.recentConversations.map(\.id)).count == 101)
+        #expect(fixture.model.recentConversations.first?.id == "paged-recent-0000")
+        #expect(fixture.model.recentConversations.last?.id == "paged-recent-0100")
+    }
+
     @Test("recent read failure preserves loaded rows and exposes retry instead of empty history")
     func recentFailurePreservesRows() throws {
         let fixture = try makeFixture(seed: .active)

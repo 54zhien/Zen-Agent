@@ -31,8 +31,13 @@ final class AppShellModel {
     private(set) var targetMessage: String?
     private(set) var sendAvailability: ComposerSendAvailability = .unconfigured
     private(set) var recentConversations: [RecentConversationSummary] = []
-    // Task2 RED capability field; error publication is exercised before wiring.
     private(set) var recentLoadError: String?
+    private var recentCursor: ConversationSummaryCursor?
+    var recentHasMore: Bool { recentCursor != nil }
+
+    // New UI capability scaffolds stay inert until their compiled behavior RED.
+    func loadMoreRecentConversations() {}
+    func retryRecentConversations() {}
     private(set) var pane: ConversationPaneController?
     private(set) var actionBridge: ComposerRuntimeActionBridge?
     private(set) var providerSetup: ProviderSetupModel?
@@ -228,26 +233,15 @@ final class AppShellModel {
     }
 
     func refreshRecentConversations() {
-        guard let store = dependencies?.store else {
-            recentConversations = []
-            return
-        }
-
+        guard let store = dependencies?.store else { return }
         do {
-            let visible = try store.visibleConversations().sorted { left, right in
-                if left.userActiveAt != right.userActiveAt {
-                    return left.userActiveAt > right.userActiveAt
-                }
-                return left.id < right.id
-            }
-            recentConversations = visible.map { conversation in
-                RecentConversationSummary(
-                    id: conversation.id,
-                    title: recentTitle(for: conversation, in: store)
-                )
-            }
+            let page = try store.conversationSummaryPage()
+            recentConversations = page.items.map { RecentConversationSummary(id: $0.id, title: $0.title) }
+            recentCursor = page.nextCursor
+            recentLoadError = nil
         } catch {
-            recentConversations = []
+            // Preserve the last readable page and its cursor so failure remains retryable.
+            recentLoadError = "会话列表读取失败，请重试。"
         }
     }
 
@@ -481,34 +475,4 @@ final class AppShellModel {
         }
     }
 
-    private func recentTitle(
-        for conversation: ConversationRecord,
-        in store: PersistenceStore
-    ) -> String {
-        let storedTitle = Self.normalizedTitle(conversation.title)
-        if !storedTitle.isEmpty { return Self.displayTitle(storedTitle) }
-
-        guard let messages = try? store.messages(inConversation: conversation.id) else {
-            return "未命名会话"
-        }
-        for message in messages where message.role == .user {
-            guard let parts = try? store.parts(ofMessage: message.id) else { continue }
-            for part in parts where part.kind == .text {
-                guard let text = try? store.text(ofPart: part.id),
-                      !Self.normalizedTitle(text).isEmpty else { continue }
-                return Self.displayTitle(Self.normalizedTitle(text))
-            }
-        }
-        return "未命名会话"
-    }
-
-    private static func normalizedTitle(_ title: String) -> String {
-        title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-    }
-
-    private static func displayTitle(_ title: String) -> String {
-        let limit = 56
-        guard title.count > limit else { return title }
-        return String(title.prefix(limit - 1)) + "…"
-    }
 }
