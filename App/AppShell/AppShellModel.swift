@@ -9,6 +9,7 @@ struct AppExecutionTarget: Equatable, Sendable {
 struct RecentConversationSummary: Identifiable, Equatable, Sendable {
     let id: String
     let title: String
+    var contentUnavailable = false
 }
 
 enum AppShellLaunchState: Equatable {
@@ -35,9 +36,31 @@ final class AppShellModel {
     private var recentCursor: ConversationSummaryCursor?
     var recentHasMore: Bool { recentCursor != nil }
 
-    // New UI capability scaffolds stay inert until their compiled behavior RED.
-    func loadMoreRecentConversations() {}
-    func retryRecentConversations() {}
+    private var recentFailureWasNextPage = false
+
+    func loadMoreRecentConversations() {
+        guard let store = dependencies?.store, let cursor = recentCursor else { return }
+        do {
+            let page = try store.conversationSummaryPage(after: cursor)
+            let existing = Set(recentConversations.map(\.id))
+            recentConversations.append(contentsOf: page.items.filter { !existing.contains($0.id) }
+                .map { RecentConversationSummary(id: $0.id, title: $0.title,
+                    contentUnavailable: $0.contentUnavailable) })
+            recentCursor = page.nextCursor
+            recentLoadError = nil
+            recentFailureWasNextPage = false
+        } catch {
+            recentFailureWasNextPage = true
+            recentLoadError = "会话列表读取失败，请重试。"
+        }
+    }
+
+    func retryRecentConversations() {
+        guard recentLoadError != nil else { return }
+        if recentFailureWasNextPage { loadMoreRecentConversations() }
+        else { refreshRecentConversations() }
+    }
+
     private(set) var pane: ConversationPaneController?
     private(set) var actionBridge: ComposerRuntimeActionBridge?
     private(set) var providerSetup: ProviderSetupModel?
@@ -236,11 +259,14 @@ final class AppShellModel {
         guard let store = dependencies?.store else { return }
         do {
             let page = try store.conversationSummaryPage()
-            recentConversations = page.items.map { RecentConversationSummary(id: $0.id, title: $0.title) }
+            recentConversations = page.items.map { RecentConversationSummary(id: $0.id, title: $0.title,
+                contentUnavailable: $0.contentUnavailable) }
             recentCursor = page.nextCursor
             recentLoadError = nil
+            recentFailureWasNextPage = false
         } catch {
             // Preserve the last readable page and its cursor so failure remains retryable.
+            recentFailureWasNextPage = false
             recentLoadError = "会话列表读取失败，请重试。"
         }
     }

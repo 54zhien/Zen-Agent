@@ -85,3 +85,35 @@ cover complete keyset order, pinned/time/id ties, max4 caller-ordered previews,
 extreme page limits, corrupt JSON/shape, provider/model provenance, text bounds and
 the Blueprint status mapping. Compilation alone is not RED. Replace the temporary
 scaffold only after actual behavioral failures; no capability/whole-branch claim yet.
+
+Task2 initial RED: c0036e6708b79c1800a63d9485bc0433821c646d,
+treef95259adc1c28901375b44dd01fb5eff54df19c9; CI36412015036 attempt1,
+job108894244467: generation/build and test execution succeeded,706 Swift
+Testing/110 suites failed43 issues.20 XCTest units and11UI passed; one run start,
+no restart. Failures are bounded page/window/cursor/text/provenance/disclosure,
+status mapping and Recent read retention/limit. Actual legacy Recent100/1000
+histories returned100/1000 with301/3001 SELECTs (72.714/533.851ms); these are CI
+fixture measurements, not device performance.
+
+First Task2 source e0acad46d46f487ae91fe123413f8a308f14e131,
+tree0cd601c5cba3abfc6a13cfed916f7d60c96b50a1: materialized bounded metadata
+before text joins; keyset pinned/activity/id; latest Parent provenance; max4
+caller-ordered window; guarded text JSON and bounded title/excerpt; explicit
+business status mapping; bounded first Recent page preserves read errors.
+CI36414414586 pending. New101-row pagination/retry and newer-Child exclusion
+regressions added. More/retry methods deliberately remain inert until their own
+compiled behavioral RED; this candidate is not delivered functionality.
+
+User requested a stop after the current part: finish Task2 and its real CI,
+then pause before Task3. S5-04 remains draft/unmerged until Task3 and its single
+whole-branch review are complete. No physical acceptance or IPA claim.
+
+Task2 first-source CI36414414586 attempt1/job108902042466:708 Swift Testing/
+110 suites failed6 issues, all in the deliberately inert More/retry regression.
+All initial43 issues passed, including Child exclusion.20 XCTest and11UI passed;
+one run start/no restart. Actual Recent100/1000:50 returned,1 SELECT each,
+2.285/2.342ms; rich summary100/1000:50 returned,1 SELECT,5.626/7.292ms.
+Times are CI fixtures, not device performance. This authorizes the minimal
+pagination/error retry source: retry the failed page using its retained cursor,
+append unique identities, publish exhaustion, expose More/retry in existing Recent.
+Corrupt summary content has an explicit row indicator. Full GREEN pending.

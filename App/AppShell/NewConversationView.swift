@@ -102,7 +102,7 @@ struct NewConversationView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 16) {
-                        if !model.recentConversations.isEmpty {
+                        if !model.recentConversations.isEmpty || model.recentLoadError != nil {
                             Button {
                                 isRecentConversationsPresented = true
                             } label: {
@@ -167,22 +167,40 @@ struct NewConversationView: View {
         }
         .sheet(isPresented: $isRecentConversationsPresented) {
             NavigationStack {
-                List(model.recentConversations) { conversation in
-                    Button {
-                        if model.openConversation(id: conversation.id) {
-                            isRecentConversationsPresented = false
-                        }
-                    } label: {
-                        Text(conversation.title)
-                            .font(Typography.font(
-                                for: .interfaceBody,
-                                dynamicTypeSize: dynamicTypeSize
-                            ))
-                            .lineLimit(2)
+                List {
+                    ForEach(model.recentConversations) { conversation in
+                        Button {
+                            if model.openConversation(id: conversation.id) {
+                                isRecentConversationsPresented = false
+                            }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(conversation.title)
+                                    .lineLimit(2)
+                                if conversation.contentUnavailable {
+                                    Text("部分内容暂不可用")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
                             .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("recent-conversation-\(conversation.id)")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("recent-conversation-\(conversation.id)")
+                    if let error = model.recentLoadError {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(error)
+                                .foregroundStyle(.secondary)
+                            Button("重试") { model.retryRecentConversations() }
+                                .accessibilityIdentifier("recent-conversations-retry")
+                        }
+                        .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
+                    } else if model.recentHasMore {
+                        Button("加载更多") { model.loadMoreRecentConversations() }
+                            .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
+                            .accessibilityIdentifier("recent-conversations-more")
+                    }
                 }
                 .listStyle(.plain)
                 .navigationTitle("最近会话")
