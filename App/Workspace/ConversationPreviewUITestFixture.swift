@@ -40,7 +40,7 @@ struct ConversationPreviewUITestFixture: View {
                     }
                     .accessibilityIdentifier("preview-reading-position")
                     .accessibilityValue(positionRequest == nil ? "not-requested"
-                        : (model.pane?.scrollRequest?.sequence == positionRequest ? "restoring" : "settled"))
+                        : (model.pane?.scrollRequest == nil ? "settled" : "restoring"))
                     .padding(.top, 100)
                 }
             }
