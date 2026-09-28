@@ -25,6 +25,7 @@ struct QuoteSelectableText: UIViewRepresentable {
     var onSingleTap: (() -> Void)? = nil
     var onDragPhaseChanged: (ComposerQuoteDragPhase) -> Void = { _ in }
     var onSelectionHandleDragChanged: (Bool) -> Void = { _ in }
+    @Environment(\.surfaceLiftController) private var lift
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -66,19 +67,29 @@ struct QuoteSelectableText: UIViewRepresentable {
         selectionPan.delaysTouchesEnded = false
         textView.addGestureRecognizer(selectionPan)
         context.coordinator.textView = textView
+        context.coordinator.setLiftDriver(lift)
         return textView
     }
 
     func updateUIView(_ textView: UITextView, context: Context) {
+        let previous = context.coordinator.parent.source
+        if previous.conversationID != source.conversationID || previous.messageID != source.messageID
+            || previous.partID != source.partID {
+            context.coordinator.clearLiftSelection()
+            textView.selectedRange = NSRange(location: 0, length: 0)
+        }
         context.coordinator.parent = self
+        context.coordinator.setLiftDriver(lift)
         context.coordinator.textView = textView
         textView.textContainer.maximumNumberOfLines = maximumNumberOfLines
         context.coordinator.render(text, in: textView, role: typographyRole,
                                    dynamicTypeSize: dynamicTypeSize)
+        context.coordinator.reportLiftSelection()
     }
 
     static func dismantleUIView(_ uiView: UITextView, coordinator: Coordinator) {
         coordinator.stopRevealing()
+        coordinator.clearLiftSelection()
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
@@ -100,9 +111,21 @@ struct QuoteSelectableText: UIViewRepresentable {
         private var renderedLineSpacing: CGFloat = 0
         private var reveals: [RevealEntry] = []
         private var displayLink: CADisplayLink?
+        private weak var liftDriver: SurfaceLiftController?
+        private let selectionID = UUID().uuidString
 
         init(parent: QuoteSelectableText) {
             self.parent = parent
+        }
+
+        func setLiftDriver(_ driver: SurfaceLiftController?) {
+            if liftDriver !== driver { clearLiftSelection(); liftDriver = driver }
+            reportLiftSelection()
+        }
+
+        func clearLiftSelection() { liftDriver?.setSelection(sourceID: selectionID, active: false) }
+        func reportLiftSelection() {
+            liftDriver?.setSelection(sourceID: selectionID, active: (textView?.selectedRange.length ?? 0) > 0)
         }
 
         func render(_ text: String, in textView: UITextView, role: TypographyRole,
@@ -236,6 +259,7 @@ struct QuoteSelectableText: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            reportLiftSelection()
             if textView.selectedRange.length == 0 {
                 parent.onSelectionHandleDragChanged(false)
             }

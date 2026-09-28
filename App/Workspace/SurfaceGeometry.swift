@@ -12,6 +12,9 @@ enum SurfaceGeometry {
         var isValid: Bool {
             scale.isFinite && scale > 0 && translation.width.isFinite
                 && translation.height.isFinite && cornerRadius.isFinite && cornerRadius >= 0
+                && clipFraction.width.isFinite && clipFraction.height.isFinite
+                && clipFraction.width > 0 && clipFraction.width <= 1
+                && clipFraction.height > 0 && clipFraction.height <= 1
         }
     }
 
@@ -54,7 +57,9 @@ enum SurfaceGeometry {
         let result = Presentation(scale: interpolate(from.scale, to.scale),
             translation: CGSize(width: interpolate(from.translation.width, to.translation.width),
                                 height: interpolate(from.translation.height, to.translation.height)),
-            cornerRadius: interpolate(from.cornerRadius, to.cornerRadius))
+            cornerRadius: interpolate(from.cornerRadius, to.cornerRadius),
+            clipFraction: CGSize(width: interpolate(from.clipFraction.width, to.clipFraction.width),
+                                 height: interpolate(from.clipFraction.height, to.clipFraction.height)))
         guard result.scale.isFinite, result.scale > 0,
               result.translation.width.isFinite, result.translation.height.isFinite,
               result.cornerRadius.isFinite else { return nil }
@@ -67,6 +72,7 @@ enum SurfaceGeometry {
         guard translation.width.isFinite, translation.height.isFinite,
               (size.width * pose.scale).isFinite, (size.height * pose.scale).isFinite
         else { return nil }
-        return Presentation(scale: pose.scale, translation: translation, cornerRadius: pose.cornerRadius)
+        return Presentation(scale: pose.scale, translation: translation, cornerRadius: pose.cornerRadius,
+                            clipFraction: pose.clipFraction)
     }
 }

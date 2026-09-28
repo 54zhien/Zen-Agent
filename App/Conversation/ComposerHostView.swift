@@ -26,6 +26,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let onStop: () -> Void
         let onModel: (ModelID) -> Void
         let onHeightChanged: (CGFloat) -> Void
+        var liftInteraction: ComposerLiftInteraction.Configuration? = nil
     }
 
     private let surface = UIView()
@@ -56,6 +57,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var lastHostWidth: CGFloat = -1
     private var lastReportedClearance: CGFloat = -1
     private weak var textCarrier: UIView?
+    private var liftInteraction: ComposerLiftInteraction!
 
     override init(frame: CGRect) {
         let effect = UIGlassEffect(style: .regular)
@@ -138,6 +140,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let tap = UITapGestureRecognizer(target: self, action: #selector(surfaceTapped))
         tap.delegate = self
         tap.cancelsTouchesInView = false
+        liftInteraction = ComposerLiftInteraction(surface: surface, editor: editor) { [weak self] in
+            self?.nativeLiftInput ?? SurfaceLiftEligibility(composerSettled: false)
+        }
+        tap.require(toFail: liftInteraction.recognizer)
         surface.addGestureRecognizer(tap)
         NotificationCenter.default.addObserver(
             self, selector: #selector(keyboardWillChange(_:)),
@@ -167,6 +173,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     override func layoutSubviews() {
         super.layoutSubviews()
         updateGeometryProbe()
+        liftInteraction.checkReadiness()
         guard bounds.width > 0, bounds.width != lastHostWidth else { return }
         lastHostWidth = bounds.width
         render(animated: false)
@@ -186,7 +193,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             if (button.layer.presentation()?.frame ?? button.frame).contains(local) { return button }
         }
         if (viewport.layer.presentation()?.frame ?? viewport.frame).contains(local) {
-            return editor
+            return liftInteraction.isInstalled && currentState != .editing ? surface : editor
         }
         return surface
     }
@@ -195,8 +202,19 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         keyboardLayoutGuide.layoutFrame.minY - surface.frame.maxY
     }
 
-    // Compilable RED readiness: ignores native editing/composition/keyboard state.
-    var nativeLiftInput: SurfaceLiftEligibility { SurfaceLiftEligibility() }
+    var nativeLiftInput: SurfaceLiftEligibility {
+        let displayed = surface.layer.presentation()?.frame ?? surface.frame
+        let settled = motion.phase == .resting && window != nil && surface.bounds.width > 0
+            && surface.bounds.height > 0 && abs(displayed.minY - surface.frame.minY) <= 0.5
+            && abs(displayed.width - surface.frame.width) <= 0.5
+            && abs(keyboardGap + bottomConstraint.constant) <= 0.5
+        return SurfaceLiftEligibility(isEditing: currentState == .editing || editor.isFirstResponder,
+            hasMarkedText: editor.markedTextRange != nil,
+            keyboardVisible: liftInteraction.keyboardVisible
+                || bounds.maxY - keyboardLayoutGuide.layoutFrame.minY > safeAreaInsets.bottom + 1,
+            keyboardTransitioning: liftInteraction.keyboardTransitioning,
+            composerSettled: settled, selectionActive: false, quoteDragActive: quotePhase != .idle)
+    }
 
     var surfaceFrame: CGRect { surface.frame }
     var motionGeneration: Int { motion.generation }
@@ -210,6 +228,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let oldFont = configuration?.font
         let oldReferences = configuration?.references
         configuration = next
+        liftInteraction.configure(next.liftInteraction)
         editor.font = next.font
         placeholder.font = next.font
         let updatePolicy = ComposerTextViewUpdatePolicy.resolve(
@@ -271,6 +290,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
                 render(animated: false)
             }
         }
+        liftInteraction.checkReadiness()
     }
 
     func requestFocus(_ focused: Bool) {
@@ -351,6 +371,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
                 completion: { finished in
                     guard self.motion.settle(generation, target: state, finished: finished) else { return }
                     self.finishTextLayout(state)
+                    self.liftInteraction.checkReadiness()
                 }
             )
         } else {
@@ -520,6 +541,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     func textViewDidBeginEditing(_ textView: UITextView) {
+        liftInteraction.checkReadiness()
         keyboardTransitionOwned = true
         configuration?.onFocus(true)
     }
@@ -528,6 +550,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     func textViewDidChangeSelection(_ textView: UITextView) { reportEditor() }
 
     private func reportEditor() {
+        liftInteraction.checkReadiness()
         guard let configuration else { return }
         let range = editor.selectedRange
         configuration.onText(editor.text ?? "",
@@ -598,6 +621,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private func setQuotePhase(_ phase: ComposerQuoteDragPhase) {
         guard phase != quotePhase else { return }
         quotePhase = phase
+        liftInteraction.checkReadiness()
         configuration?.onQuotePhase(phase)
     }
 }

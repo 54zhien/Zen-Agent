@@ -11,7 +11,7 @@ final class SurfaceLiftUITests: XCTestCase {
         XCTAssertTrue(waitForPhase("full", app: app))
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         XCTAssertTrue((editor.value as? String)?.contains("Lift 草稿") == true)
-        XCTAssertFalse(app.otherElements["workspace-current-card"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["workspace-current-card"].exists)
     }
 
     @MainActor
@@ -37,7 +37,7 @@ final class SurfaceLiftUITests: XCTestCase {
         start.press(forDuration: 0.7, thenDragTo: end)
         guard waitForPhase("card", app: app) else { return }
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
-        let current = app.otherElements["workspace-current-card"]
+        let current = app.descendants(matching: .any)["workspace-current-card"]
         XCTAssertTrue(current.exists)
         current.tap()
         guard waitForPhase("full", app: app) else { return }
@@ -61,7 +61,7 @@ final class SurfaceLiftUITests: XCTestCase {
         editor.press(forDuration: 0.7)
         XCTAssertTrue(waitForPhase("full", app: app))
         XCTAssertTrue((editor.value as? String)?.contains("正在编辑 你好") == true)
-        XCTAssertFalse(app.otherElements["workspace-current-card"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["workspace-current-card"].exists)
     }
 
     @MainActor

@@ -18,7 +18,9 @@ struct ZenAgentApp: App {
     var body: some Scene {
         WindowGroup {
 #if DEBUG
-            if ProcessInfo.processInfo.environment["ZEN_APP_SPACE_GEOMETRY_UI_TEST"] == "1" {
+            if ProcessInfo.processInfo.environment["ZEN_SURFACE_LIFT_UI_TEST"] == "1" {
+                SurfaceLiftUITestFixture()
+            } else if ProcessInfo.processInfo.environment["ZEN_APP_SPACE_GEOMETRY_UI_TEST"] == "1" {
                 if ProcessInfo.processInfo.environment["ZEN_APP_SPACE_GEOMETRY_AX"] == "1" {
                     AppSpaceStaticGeometryFixture().environment(\.dynamicTypeSize, .accessibility3)
                 } else {

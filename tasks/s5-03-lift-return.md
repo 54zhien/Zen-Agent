@@ -49,3 +49,25 @@ Pure state only; production Lift is not complete. Task2 RED adds normalized crop
 interface defaults, deliberately Full-only target geometry and unbound presentation
 transport, real host/selection/overlay assertions and three real-gesture UI acceptance
 tests before routing exists. Compiler errors and missing-type failures do not count.
+
+## Task2 compiled RED and candidate implementation
+
+Candidate `7089f0f0f61fae3d29ae35aa52d9211218cd060c`,
+[CI36388152797](https://github.com/54zhien/Zen-Agent/actions/runs/36388152797) attempt1:
+XcodeGen/App build passed;684 Swift Testing/108 suites failed with41 issues:
+6 native-readiness,20 geometry,15 host assertions.20XCTest units passed;
+11UI tests had3 failures at the absent new fixture guard; existing8UI passed.
+One Swift Testing run start, no test-host restart. Real markedTextRange creation
+passed, proving the native candidate-range test ran. Superseded runs are not RED.
+
+The candidate implementation binds the same hosting child to uniform cover/crop
+geometry, an interruptible UIKit animator and the real Composer recognizer. Current
+suppresses live editing interaction/accessibility descendants while retaining the
+editor; Full restores them. Actual native input and screen-filtered keyboard
+notifications refuse unsafe gestures, mounted text-source selections aggregate,
+and Scene/viewport/conversation/overlay changes invalidate. No queued IME gesture.
+The DEBUG route uses the same driver with a real long-reading Pane.
+
+Full implementation CI and independent whole-branch review are pending. The UI
+query for Current uses any accessibility element with its identifier to accommodate
+its semantic button role; existence/tap/absence assertions remain required.
