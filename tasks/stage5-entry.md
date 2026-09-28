@@ -19,6 +19,9 @@ Recorded on 2026-09-28. Stage 5 feature implementation has not started.
 
 ## Verification evidence
 
+- [Integrated main CI](https://github.com/54zhien/Zen-Agent/actions/runs/36366210465)
+  passed hygiene, XcodeGen, App build, unit and UI tests on the #14 merge `f775e63`.
+
 - [Repair head push CI](https://github.com/54zhien/Zen-Agent/actions/runs/36348399515):
   hygiene, XcodeGen, App build, 654 Swift Testing cases in 102 suites, 20 XCTest unit
   tests, and 2 UI tests passed on `8ee8516`.

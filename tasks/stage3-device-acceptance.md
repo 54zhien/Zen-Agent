@@ -40,9 +40,7 @@ or screenshot when it fails. A skipped row stays unverified.
 | D6 | Move the app to background and return before 20 minutes; then repeat after more than 20 minutes from background entry. Open the old Conversation from Recent. | Before the window, the prior Conversation returns; after it, the new Conversation page appears and the old one remains reachable through Recent. | Unverified |
 | D7 | With iOS larger text and VoiceOver, inspect a multi-Turn Conversation, Composer, Send/Stop, and the new-content control. | Text remains readable, controls have useful labels and focus order, and required actions remain reachable. Note any clipping or inaccessible control. | Unverified |
 
-## Gate decision
-
-### Repair follow-up (2026-09-28)
+## Repair follow-up (2026-09-28)
 
 PR #14 is merged at `f775e63610840bc022730f8dfb5e987ad8e498d5` (tested head
 `8ee8516`). The old candidate above contains neither #12 nor #14. No replacement
@@ -56,6 +54,8 @@ repairs before treating any of the following as verified:
 | R3 | Repeat D2–D4 and consecutive Sends; verify Composer focus, keyboard motion and reading position. PR CI had one quick-focus event-synthesis failure before a same-SHA rerun passed. | Unverified |
 
 Integration and entry evidence is recorded in [stage5-entry.md](stage5-entry.md).
+
+## Gate decision
 
 The Stage 3 Gate requires stable long Conversation scrolling, keyboard behavior,
 Streaming and reading position before Stage 5 App Space begins. On 2026-09-27
