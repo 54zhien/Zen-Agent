@@ -42,6 +42,21 @@ or screenshot when it fails. A skipped row stays unverified.
 
 ## Gate decision
 
+### Repair follow-up (2026-09-28)
+
+PR #14 is merged at `f775e63610840bc022730f8dfb5e987ad8e498d5` (tested head
+`8ee8516`). The old candidate above contains neither #12 nor #14. No replacement
+IPA was generated in this closeout. Record the installed build containing the
+repairs before treating any of the following as verified:
+
+| ID | Check on the repaired build | Result |
+|---|---|---|
+| R1 | Force-quit during generation, relaunch and handle the original Conversation; partial output survives, the abandoned request is not replayed, and recovery/Stop has a visible outcome. | Unverified |
+| R2 | Make the selected credential unavailable, reopen saved history, and verify reading works while Send reports its unavailable target. | Unverified |
+| R3 | Repeat D2–D4 and consecutive Sends; verify Composer focus, keyboard motion and reading position. PR CI had one quick-focus event-synthesis failure before a same-SHA rerun passed. | Unverified |
+
+Integration and entry evidence is recorded in [stage5-entry.md](stage5-entry.md).
+
 The Stage 3 Gate requires stable long Conversation scrolling, keyboard behavior,
 Streaming and reading position before Stage 5 App Space begins. On 2026-09-27
 the product owner explicitly reported that the Gate was closed. This records
