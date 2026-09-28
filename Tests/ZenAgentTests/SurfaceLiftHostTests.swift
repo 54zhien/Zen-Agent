@@ -8,7 +8,9 @@ import Testing
 struct SurfaceLiftHostTests {
     @Test func settlingSurfaceActivationReversesAndReturnReentryIsIdempotent() async throws {
         let host = ConversationSurfaceViewController(content: Text("production activation"))
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
@@ -19,6 +21,10 @@ struct SurfaceLiftHostTests {
         #expect(driver.arm(SurfaceLiftEligibility()))
         #expect(driver.drag(upwardDistance: 120, eligibility: SurfaceLiftEligibility()))
         let outgoing = try #require(driver.end())
+        let animator = try #require(host.liftAnimatorForTesting)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0.25
+        CATransaction.flush()
         try await Task.sleep(for: .milliseconds(40))
         #expect(driver.state.phase == .settling)
         #expect(!child.view.isUserInteractionEnabled && child.view.accessibilityElementsHidden)
@@ -43,7 +49,9 @@ struct SurfaceLiftHostTests {
 
     @Test func settlingTouchHitUsesVisibleAnimationRatherThanModelEndpoint() async throws {
         let host = ConversationSurfaceViewController(content: Text("visible touch"))
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
@@ -53,7 +61,12 @@ struct SurfaceLiftHostTests {
         #expect(driver.arm(SurfaceLiftEligibility()))
         #expect(driver.drag(upwardDistance: 120, eligibility: SurfaceLiftEligibility()))
         #expect(driver.end() != nil)
+        let animator = try #require(host.liftAnimatorForTesting)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0.25
+        CATransaction.flush()
         try await Task.sleep(for: .milliseconds(40))
+        #expect(driver.state.phase == .settling)
         let visibleLayer = try #require(host.surfaceView.layer.presentation())
         let visibleMask = try #require(visibleLayer.mask)
         let visibleParent = try #require(visibleLayer.superlayer)

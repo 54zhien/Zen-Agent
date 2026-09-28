@@ -49,6 +49,10 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private var lastInsets: UIEdgeInsets?
     private let cropMask = UIView()
     private var animator: UIViewPropertyAnimator?
+#if DEBUG
+    // Tests pause the real animator so a busy simulator cannot skip settlement.
+    var liftAnimatorForTesting: UIViewPropertyAnimator? { animator }
+#endif
     private var animationIdentity: UUID?
     private var retainsAnimationMask = false
 
