@@ -47,3 +47,24 @@ Task1/Task2 CI36415710769 passed at the baseline. Task3 has not started.
   remain preserved on the local branch; execution checkout follows the remote RED.
 - CLI authentication unavailable. Use authorized GitHub connector for publication;
   git read-only OpenSSL fetch works. Never log credentials.
+
+- Authoritative behavior RED: 3e969343454d29a2e8a7a048c519b70f37f67841,
+  CI36425228738 attempt1/job108937855204. Generation/App build passed;
+  711 Swift Testing/110 suites ran with exactly two issues: weak safe-session
+  release and release after terminal routing. Unsaved Draft/configuration/reading
+  controls passed.20 XCTest units and11UI tests passed; no test-host restart.
+  Initial f1153a3 run was superseded/cancelled and is not counted as RED.
+- Ruling: do not compare against initial configuration; re-read the latest Parent
+  configuration via the existing bounded summary window on successful departure.
+  Read failure/corrupt summary protects the owner. Cost if wrong: retained owners
+  can exceed ten until a later successful navigation proves reconstruction safe.
+- Task1 source: concrete Store plus safe LRU, no tombstone dictionary for evicted
+  entries. Factory preparation peeks; successful Shell commit sets active order.
+  Wall-clock timestamp ties use committed sequence order. Eviction is checked
+  on successful navigation; terminal routing alone does not trigger a cache sweep.
+- Supplemental direct-store tests cover tied-clock LRU, all transient Draft/input
+  branches, uncertain reconstruction and changed durable configuration. They use
+  newly introduced APIs and are supplemental, not independently claimed RED.
+- Typed readiness is published in Recent presentation; data-layer corruption
+  evidence and existing Run Card status stay separate. Restoring/migration/failed
+  vocabulary does not manufacture a migration or a new Preview UI flow.

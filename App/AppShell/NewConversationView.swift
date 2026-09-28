@@ -177,7 +177,7 @@ struct NewConversationView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(conversation.title)
                                     .lineLimit(2)
-                                if conversation.contentUnavailable {
+                                if conversation.previewStatus == .contentUnavailable {
                                     Text("部分内容暂不可用")
                                         .foregroundStyle(.secondary)
                                 }

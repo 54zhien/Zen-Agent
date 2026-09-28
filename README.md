@@ -58,6 +58,10 @@ As of 2026-09-28:
   [the slice record](tasks/s5-03-lift-return.md); physical Gate A remains open.
 - S5-04 preview virtualization is in development on its branch; session/display
   ownership and bounded real-history previews are not yet delivered on main.
+- S5-04 Task1/Task2 and ownership stabilization are on draft PR #19;
+  [the slice record](tasks/s5-04-preview-virtualization.md) separates their CI evidence.
+  Production lightweight Preview/native-editor handoff (Task3) remains unimplemented;
+  S5-04 is not merged or closed. Upstream S5-05 remains Card browse/snap.
 - Formal Settings IA and
   `Settings → Agent → Soul` belong to later Stage 5 slices; Memory, Skills, MCP and
   Subagent remain later stages.

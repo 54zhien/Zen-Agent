@@ -106,6 +106,10 @@ final class RunEventRouter {
         needsReload.insert(conversationID)
     }
 
+    func hasActiveRun(for conversationID: String) -> Bool {
+        !(activeRunIDsByConversationID[conversationID]?.isEmpty ?? true)
+    }
+
     func recoveryMessage(for conversationID: String) -> String? { recoveryMessages[conversationID] }
 
     @discardableResult

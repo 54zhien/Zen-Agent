@@ -105,6 +105,23 @@ struct AppShellWiringTests {
         #expect(owner == nil)
     }
 
+    @Test("Recent presentation publishes typed corruption readiness")
+    func recentContentReadinessIsTyped() throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "typed-readiness").insert(db)
+            try Fixtures.message(id: "typed-message", conversationID: "typed-readiness").insert(db)
+            try Fixtures.textPart(id: "typed-part", messageID: "typed-message", text: "content").insert(db)
+            try db.execute(sql: "UPDATE messagePart SET payload = ? WHERE id = ?",
+                arguments: ["{broken", "typed-part"])
+        }
+        fixture.model.refreshRecentConversations()
+        let summary = try #require(fixture.model.recentConversations.first { $0.id == "typed-readiness" })
+        #expect(summary.previewStatus == .contentUnavailable)
+        #expect(summary.contentUnavailable)
+    }
+
     @Test("recent next-page failure preserves its cursor and retry loads that same page")
     func recentPaginationRetriesFailedPage() throws {
         let fixture = try makeFixture(seed: .active)

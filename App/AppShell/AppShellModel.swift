@@ -9,7 +9,8 @@ struct AppExecutionTarget: Equatable, Sendable {
 struct RecentConversationSummary: Identifiable, Equatable, Sendable {
     let id: String
     let title: String
-    var contentUnavailable = false
+    var previewStatus: ConversationPreviewStatus = .ready
+    var contentUnavailable: Bool { previewStatus == .contentUnavailable }
 }
 
 enum AppShellLaunchState: Equatable {
@@ -45,7 +46,7 @@ final class AppShellModel {
             let existing = Set(recentConversations.map(\.id))
             recentConversations.append(contentsOf: page.items.filter { !existing.contains($0.id) }
                 .map { RecentConversationSummary(id: $0.id, title: $0.title,
-                    contentUnavailable: $0.contentUnavailable) })
+                    previewStatus: $0.contentUnavailable ? .contentUnavailable : .ready) })
             recentCursor = page.nextCursor
             recentLoadError = nil
             recentFailureWasNextPage = false
@@ -71,7 +72,7 @@ final class AppShellModel {
     @ObservationIgnored private var dependencies: AppAssembly.Dependencies?
     @ObservationIgnored private var startedAssembly = false
     @ObservationIgnored private var backgroundedAtInProcess: Date?
-    @ObservationIgnored private var sessionsByConversationID: [String: ConversationSession] = [:]
+    @ObservationIgnored private let sessions = ConversationSessionStore()
 
     var canSend: Bool {
         pane?.composer.sendAvailability.isReady == true
@@ -115,6 +116,7 @@ final class AppShellModel {
         startedAssembly = true
         launchState = .loading
         dependencies = nil
+        sessions.removeAll()
         pane = nil
         actionBridge = nil
         target = nil
@@ -246,13 +248,31 @@ final class AppShellModel {
     private func rememberCurrentSession() {
         guard let pane, let store = dependencies?.store else { return }
         do {
-            guard try store.conversationLifecycle(id: conversationID) == .visible else { return }
+            guard let summary = try store.conversationSummaryWindow(ids: [conversationID]).first else {
+                sessions.remove(conversationID: conversationID)
+                return
+            }
+            // Re-read the latest persisted Parent choice. An initial choice can
+            // become stale after another Send, even if the user switches back to it.
+            let configuration: ConversationComposerConfiguration?
+            if let instanceID = summary.providerInstanceID, let modelID = summary.modelID {
+                configuration = ConversationComposerConfiguration(providerInstanceID: instanceID, modelID: modelID)
+            } else {
+                configuration = nil
+            }
+            let unavailable = summary.contentUnavailable
+                || (summary.runProjection != nil && configuration == nil)
+            sessions.retain(pane.session, reconstruction: unavailable
+                ? .unavailable : .history(configuration: configuration))
         } catch {
-            // A failed read cannot prove this is a disposable uncommitted page.
-            sessionsByConversationID[conversationID] = pane.session
-            return
+            // A read failure cannot prove that the current owner is reconstructible.
+            sessions.retain(pane.session, reconstruction: .unavailable)
         }
-        sessionsByConversationID[conversationID] = pane.session
+    }
+
+    private func commitSession(_ session: ConversationSession) {
+        sessions.activate(session)
+        sessions.evictIfNeeded(isRuntimeProtected: router.hasActiveRun(for:))
     }
 
     func refreshRecentConversations() {
@@ -260,7 +280,7 @@ final class AppShellModel {
         do {
             let page = try store.conversationSummaryPage()
             recentConversations = page.items.map { RecentConversationSummary(id: $0.id, title: $0.title,
-                contentUnavailable: $0.contentUnavailable) }
+                previewStatus: $0.contentUnavailable ? .contentUnavailable : .ready) }
             recentCursor = page.nextCursor
             recentLoadError = nil
             recentFailureWasNextPage = false
@@ -286,11 +306,14 @@ final class AppShellModel {
                 conversationID: id,
                 from: dependencies.store
             )
-            let wiring = try makePane(
+            let wiring = try ConversationPaneFactory(sessions: sessions).makePane(
                 id: id,
                 initialTimeline: timeline,
                 dependencies: dependencies,
-                target: target
+                target: target,
+                onTargetFailure: { [weak self] failure, failedTarget in
+                    self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
+                }
             )
             guard dependencies.router.registerPane(wiring.pane) else { return false }
 
@@ -301,6 +324,7 @@ final class AppShellModel {
             conversationID = id
             actionBridge = wiring.bridge
             pane = wiring.pane
+            commitSession(wiring.pane.session)
             sendAvailability = wiring.pane.composer.sendAvailability
             targetMessage = sendAvailability.message
             return true
@@ -377,7 +401,7 @@ final class AppShellModel {
                 pane.composer.configuration = ConversationComposerConfiguration(
                     providerInstanceID: savedTarget.providerInstanceID, modelID: savedTarget.modelID)
             }
-            pane.composer.sendAvailability = availability(for: pane.composer.configuration, in: dependencies)
+            pane.composer.sendAvailability = ConversationPaneFactory.availability(for: pane.composer.configuration, in: dependencies)
         } catch {
             pane.composer.sendAvailability = .unavailable(AppTargetFailure.persistenceUnavailable.message)
         }
@@ -390,7 +414,7 @@ final class AppShellModel {
         for failedTarget: AppExecutionTarget,
         conversationID ownerID: String
     ) {
-        let owner = conversationID == ownerID ? pane?.composer : sessionsByConversationID[ownerID]?.composer
+        let owner = conversationID == ownerID ? pane?.composer : sessions.session(for: ownerID)?.composer
         guard let owner, owner.configuration == ConversationComposerConfiguration(
             providerInstanceID: failedTarget.providerInstanceID,
             modelID: failedTarget.modelID
@@ -425,80 +449,25 @@ final class AppShellModel {
         dependencies: AppAssembly.Dependencies,
         target: AppExecutionTarget?
     ) throws {
-        let wiring = try makePane(
-            id: conversationID,
+        let ownerID = conversationID
+        let wiring = try ConversationPaneFactory(sessions: sessions).makePane(
+            id: ownerID,
             initialTimeline: initialTimeline,
             dependencies: dependencies,
-            target: target
+            target: target,
+            onTargetFailure: { [weak self] failure, failedTarget in
+                self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: ownerID)
+            }
         )
         guard dependencies.router.registerPane(wiring.pane) else {
             throw AppTargetFailure.configurationUnavailable
         }
         actionBridge = wiring.bridge
         pane = wiring.pane
+        commitSession(wiring.pane.session)
         sendAvailability = wiring.pane.composer.sendAvailability
         targetMessage = sendAvailability.message
     }
 
-    private func makePane(
-        id: String,
-        initialTimeline: ConversationTimelineProjection,
-        dependencies: AppAssembly.Dependencies,
-        target: AppExecutionTarget?
-    ) throws -> (bridge: ComposerRuntimeActionBridge, pane: ConversationPaneController) {
-        let savedSession = sessionsByConversationID[id]
-        var configuration: ConversationComposerConfiguration?
-        if let savedSession {
-            configuration = savedSession.composer.configuration
-        } else if try dependencies.store.conversationLifecycle(id: id) != nil {
-            // Compatibility for history created before durable Conversation binding.
-            // This is an initial choice, never a rewrite of an old frozen Run seed.
-            if let seed = try dependencies.store.runs(inConversation: id)
-                .last(where: { $0.kind == .parent })?.requestConfigSeed {
-                configuration = ConversationComposerConfiguration(
-                    providerInstanceID: seed.providerInstanceID, modelID: seed.modelID)
-            }
-        } else {
-            configuration = target.map {
-                ConversationComposerConfiguration(providerInstanceID: $0.providerInstanceID, modelID: $0.modelID)
-            }
-        }
-        let validatedAvailability = availability(for: configuration, in: dependencies)
-        let bridge = AppAssembly.wireConversation(
-            id: id,
-            dependencies: dependencies,
-            onTargetFailure: { [weak self] failure, failedTarget in
-                self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
-            }
-        )
-        let pane = try ConversationPaneController(
-            conversationID: id,
-            initialTimeline: initialTimeline,
-            configuration: configuration,
-            sendAvailability: validatedAvailability,
-            session: savedSession,
-            coalescer: StreamingCoalescer(interval: .milliseconds(10)),
-            loadTimeline: { id in
-                try ConversationTimelineLoader.load(conversationID: id, from: dependencies.store)
-            }
-        )
-        pane.composer.sendAvailability = validatedAvailability
-        return (bridge, pane)
-    }
-
-    private func availability(for configuration: ConversationComposerConfiguration?,
-                              in dependencies: AppAssembly.Dependencies) -> ComposerSendAvailability {
-        guard let configuration else { return .unconfigured }
-        do {
-            _ = try AppAssembly.validateTarget(providerInstanceID: configuration.providerInstanceID,
-                modelID: configuration.modelID, store: dependencies.store,
-                provider: dependencies.provider, credentials: dependencies.credentials)
-            return .ready
-        } catch let failure as AppTargetFailure {
-            return .unavailable(failure.message)
-        } catch {
-            return .unavailable(AppTargetFailure.configurationUnavailable.message)
-        }
-    }
 
 }

@@ -17,3 +17,12 @@ enum ConversationCardStatus: String, Equatable, Sendable {
         }
     }
 }
+
+/// Content readiness is separate from the Run's business status on its Card.
+enum ConversationPreviewStatus: Equatable, Sendable {
+    case ready
+    case contentUnavailable
+    case restoring
+    case migrationRequired
+    case failed(String)
+}
