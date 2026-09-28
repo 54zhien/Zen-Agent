@@ -2,6 +2,54 @@ import XCTest
 
 final class ConversationSurfaceUITests: XCTestCase {
     @MainActor
+    func testTransformedReadingRetainsOlderTurnThroughLiveDeltaAndReturn() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_SURFACE_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_SURFACE_READING_UI_TEST"] = "1"
+        app.launch()
+        let position = app.buttons["conversation-reading-test-position-older-turn"]
+        XCTAssertTrue(position.waitForExistence(timeout: 15))
+        position.tap()
+        let anchor = app.staticTexts["OLDER_READING_POSITION_ANCHOR_TURN_10"]
+        XCTAssertTrue(anchor.waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForPredicate("value BEGINSWITH 'settled-'", on: position))
+        let timeline = app.scrollViews["conversation-pane-conversation-reading-ui-test-conversation"]
+        let mode = app.buttons["conversation-reading-test-inject-delta"]
+        XCTAssertTrue(waitForPredicate("value CONTAINS 'reading'", on: mode))
+        let input = app.textViews["conversation-composer-input"]
+        let originalTimeline = timeline.frame
+        let originalAnchor = anchor.frame
+        let originalInput = input.value as? String
+        let step = app.buttons["surface-test-step"]
+        for progress in ["0.5", "1.0", "0.5", "0.0"] {
+            step.tap()
+            XCTAssertTrue(waitForValue(progress, on: step))
+            XCTAssertTrue(anchor.isHittable)
+            // Undo the known affine transform using the real scroll viewport.
+            // This detects inner reflow/scroll changes even when the host bounds stay fixed.
+            let scale = timeline.frame.width / originalTimeline.width
+            let logicalY = (anchor.frame.minY - timeline.frame.minY) / scale
+            XCTAssertEqual(logicalY, originalAnchor.minY - originalTimeline.minY, accuracy: 3)
+            XCTAssertEqual(anchor.frame.height / scale, originalAnchor.height, accuracy: 3)
+            XCTAssertTrue((mode.value as? String ?? "").contains("reading"))
+            XCTAssertEqual(input.value as? String, originalInput)
+            if progress == "1.0" {
+                let beforeDelta = anchor.frame.minY
+                mode.tap()
+                let newContent = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "有新内容")).firstMatch
+                XCTAssertTrue(newContent.waitForExistence(timeout: 8))
+                XCTAssertEqual(anchor.frame.minY, beforeDelta, accuracy: 3)
+            }
+        }
+        XCTAssertEqual(anchor.frame.minY, originalAnchor.minY, accuracy: 3)
+        let newContent = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "有新内容")).firstMatch
+        newContent.tap()
+        let delta = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "CONTROLLED_LIVE_ASSISTANT_DELTA")).firstMatch
+        XCTAssertTrue(delta.waitForExistence(timeout: 8))
+        XCTAssertTrue(delta.isHittable)
+    }
+
+    @MainActor
     func testProgressRoundTripPreservesDraftAndMovesNavigationWithComposer() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_SURFACE_UI_TEST"] = "1"
@@ -64,5 +112,10 @@ final class ConversationSurfaceUITests: XCTestCase {
     private func waitForValue(_ expected: String, on element: XCUIElement) -> Bool {
         let predicate = NSPredicate(format: "value == %@", expected)
         return XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: element)], timeout: 5) == .completed
+    }
+
+    @MainActor
+    private func waitForPredicate(_ format: String, on element: XCUIElement) -> Bool {
+        XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: format), object: element)], timeout: 8) == .completed
     }
 }

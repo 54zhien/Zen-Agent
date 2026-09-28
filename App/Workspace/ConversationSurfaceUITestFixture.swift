@@ -3,6 +3,7 @@ import SwiftUI
 
 @MainActor
 struct ConversationSurfaceUITestFixture: View {
+    private let reading = ProcessInfo.processInfo.environment["ZEN_SURFACE_READING_UI_TEST"] == "1"
     @State private var step = 0
     private let progress: [CGFloat] = [0, 0.5, 1, 0.5]
 
@@ -11,7 +12,11 @@ struct ConversationSurfaceUITestFixture: View {
             to: .init(scale: 0.6, translation: CGSize(width: 0.1, height: -0.1), cornerRadius: 24),
             progress: progress[step]
         )) {
-            ComposerUITestFixtureView()
+            if reading {
+                ConversationPaneReadingUITestFixtureView()
+            } else {
+                ComposerUITestFixtureView()
+            }
         }
         .ignoresSafeArea()
         .overlay(alignment: .topLeading) {
