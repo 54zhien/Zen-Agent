@@ -18,7 +18,13 @@ struct ZenAgentApp: App {
     var body: some Scene {
         WindowGroup {
 #if DEBUG
-            if ProcessInfo.processInfo.environment["ZEN_SURFACE_UI_TEST"] == "1" {
+            if ProcessInfo.processInfo.environment["ZEN_APP_SPACE_GEOMETRY_UI_TEST"] == "1" {
+                if ProcessInfo.processInfo.environment["ZEN_APP_SPACE_GEOMETRY_AX"] == "1" {
+                    AppSpaceStaticGeometryFixture().environment(\.dynamicTypeSize, .accessibility3)
+                } else {
+                    AppSpaceStaticGeometryFixture()
+                }
+            } else if ProcessInfo.processInfo.environment["ZEN_SURFACE_UI_TEST"] == "1" {
                 ConversationSurfaceUITestFixture()
             } else if ProcessInfo.processInfo.environment["ZEN_CONVERSATION_READING_UI_TEST"] == "1" {
                 ConversationSurfaceHost {

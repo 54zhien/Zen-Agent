@@ -47,8 +47,12 @@ As of 2026-09-28:
   cold-start Run recovery, Provider finish handling, offline history, and Send
   activity timestamps. Its tested head is `8ee8516`; [PR CI](https://github.com/54zhien/Zen-Agent/actions/runs/36349052785)
   and the build-settings guard passed. Device verification of these repairs is pending.
-- Stage 5 implementation has not started. Start with the Surface Container slice
-  in the Blueprint, then follow its dependency order. Formal Settings IA and
+- Stage 5 S5-01 is integrated on main through PR #16 at
+  d68195ed6b963f2380b1548ae47f6642852252c8. [Main CI](https://github.com/54zhien/Zen-Agent/actions/runs/36378968995)
+  passed; physical-device acceptance remains open in [the slice record](tasks/s5-01-surface-container.md).
+- S5-02 adds static App Space geometry and DEBUG samples; see
+  [the slice record](tasks/s5-02-static-geometry.md). Production navigation follows later slices.
+- Formal Settings IA and
   `Settings → Agent → Soul` belong to later Stage 5 slices; Memory, Skills, MCP and
   Subagent remain later stages.
 
