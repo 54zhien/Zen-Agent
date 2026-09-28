@@ -147,3 +147,27 @@ coordinates must follow the visible animated mask rather than the model endpoint
 
 Physical-device Gate A and real hardware-keyboard/IME/VoiceOver/Switch Control/
 Reduce Motion usability remain unobserved. No device comfort or performance claim.
+
+## Recorded implementation rulings and review limits
+
+These are decisions in execution order, with costs if wrong. The initial
+question-pending ruling is historical and superseded by the explicit refusal
+ruling. The presentation-only owner ruling would cost a transport/ownership
+refactor if wrong. Repeated Return refers to animated user activation; explicit
+nonanimated Return keeps its immediate-settlement contract. Device evidence,
+later slices and the unattributed historical Chinese assertion remain open.
+- Ruling: pure state Task1 independent of pending IME entry policy; both policies forbid motion while marked text exists. Keep question pending, no real entry/queue policy until answer. Cost if wrong: entry orchestration adjustment, pure safety invariant unchanged.
+- Ruling: single presentation value state with UUID settlement token; no Runtime/Composer data ownership. Real bridge needed Task2, core alone is not delivered Lift.
+- Ruling: IME preference question was optional, not additional permission; after sufficient reply opportunity adopt reversible current-gesture refusal from explicit upstream Editing/marked-text exclusion. No auto replay/queue, preserve input and require fresh gesture. User continuation authorizes reversible implementation; time is not approval. Cost if wrong: entry orchestration change to requested queue policy. Supersedes previous waiting wording; preference question remains available.
+- Ruling: Current Return item uses semantic button accessibility and custom action; UI query changed from otherElements to descendants(any) for the same identifier/existence/tap assertions, so a genuine UIKit button role neither false-fails the Return query nor false-passes absence checks. This is harness role independence, not weaker behavior. Current compiled RED still fails absent actual fixture before role-dependent checks. Cost if wrong: accessibility role/query revision.
+- Ruling: coordinate origin stays solely in native helper; remove unused presenter arm(at:) argument rather than implying a second coordinate owner. Cost if wrong: restore explicit coordinate input if future targeting truly needs it. Additional native lifecycle/selection/settledsafearea coverage nowpartofGREEN candidate. No Chinese text-sync repair claim, observation remains intermittent/unattributed.
+- Ruling: repeated Return activation during returning settlement acknowledges the existing Full destination without replacing token/animator; fresh Lift requires Full readiness — avoids repeated taps starving completion while preserving editor freeze — cost if wrong: new explicit reverse/gesture contract during Return.
+- Ruling: physical-device Gate A,60/120Hz comfort/frame pacing/memory/performance — no measured acceptance; retain Gate A and explicit new-build evidence before later group — cost if wrong: unmeasured interaction regressions/device calibration rework.
+- Ruling: real hardware-keyboard/IME window/VoiceOver/Switch Control/Reduce Motion usability — reviewed guarded code and simulator tests support implementation only; device acceptance pending — cost if wrong: inaccessible/uncomfortable input requiring native-device correction.
+- Ruling: final light-mode/ink/highlights/visual calibration — prototype background/crop ships this slice, later formal visual scope remains open — cost if wrong: visual redesign/calibration without changing business owners.
+- Ruling: catalog summaries/preview virtualization/session-switch retention/Router replay — not advertised as S5-03 delivered; S5-04 serial dependency owns real history/navigation — cost if wrong: premature navigation loses configuration/reading or over-retains full controllers.
+- Ruling: browse/snap/creation/Soul binding/delete/Undo/Split/Sidebar/Search/Files/Settings — excluded from S5-03 and assigned ordered later slices — cost if wrong: incomplete Stage5 user journey, stage remains open.
+- Ruling: cross-process Draft/reading restoration — only warm same-host return guaranteed, no new Draft/anchor schema — cost if wrong: terminated-process edits/position unavailable until separately specified.
+- Ruling: alternative queued IME navigation — refuse current gesture/preserve candidate input, require fresh gesture; no replay — cost if wrong: entry-policy orchestration revision, no current input discard.
+- Ruling: root cause historical immediateChinese-value failure — preserve intermittent unattributed observation and diagnostic, no repair claim — cost if wrong: underlying flaky input/test timing remains to investigate on evidence.
+- Ruling: reviewer did not independently rerun macOS CI — independent static read-only review relies on exactHEAD realCI logs, Windows lacks Swift; full post-fix CI and main CI still required — cost if wrong: CI provenance/host-only blind spot, no device claim.
