@@ -171,3 +171,21 @@ later slices and the unattributed historical Chinese assertion remain open.
 - Ruling: alternative queued IME navigation — refuse current gesture/preserve candidate input, require fresh gesture; no replay — cost if wrong: entry-policy orchestration revision, no current input discard.
 - Ruling: root cause historical immediateChinese-value failure — preserve intermittent unattributed observation and diagnostic, no repair claim — cost if wrong: underlying flaky input/test timing remains to investigate on evidence.
 - Ruling: reviewer did not independently rerun macOS CI — independent static read-only review relies on exactHEAD realCI logs, Windows lacks Swift; full post-fix CI and main CI still required — cost if wrong: CI provenance/host-only blind spot, no device claim.
+
+## Integrated evidence — 2026-09-28
+
+Final tested branch f39e3846a4c4a40dbfe18a31ba5a915dce8b44ac, tree
+e5f912971b1d1cb266f9c3c741002d0cd6443da6. CI36399035803 attempt1
+passed generation/App build,689 Swift Testing/108 suites,20 XCTest units and11UI
+tests; build-setting Guard36399035762 passed. The controlled settlement-entry RED
+0c965e6/36397150474 became GREEN on the same assertions. One fresh whole-branch
+review and one test-first fix pass completed; no deferred Minors.
+
+PR18 merged as aeaa05cd7ce6c1e41329da629ed6bdfc54b6e7a5 with identical tested tree.
+Main CI36401064255 attempt1, build/test job108858847051, passed generation/build
+and the actual same689 Swift Testing/108 suites,20 XCTest units,11UI tests.
+Actual logs show one Swift Testing run start and no test-host restart. Both local
+checkouts were fast-forwarded cleanly to this merge. Earlier pending statements
+above describe publish-time history and are superseded by this gate evidence.
+Physical-device Gate A, native IME/hardware input/accessibility usability and
+performance remain unverified; no new Stage5 IPA or device acceptance claimed.

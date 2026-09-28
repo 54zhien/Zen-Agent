@@ -3,6 +3,7 @@ import Observation
 
 enum ConversationPaneError: Error, Equatable {
     case mismatchedTimeline(expected: String, actual: String)
+    case mismatchedSession(expected: String, actual: String)
 }
 
 struct ConversationPaneScrollRequest: Equatable, Sendable {
@@ -14,6 +15,7 @@ struct ConversationPaneScrollRequest: Equatable, Sendable {
 @MainActor
 final class ConversationPaneController {
     let conversationID: String
+    let session: ConversationSession
     private(set) var liveStore: LiveConversationStore
     let readingPosition: ReadingPositionController
     let composer: ComposerController
@@ -30,6 +32,7 @@ final class ConversationPaneController {
         initialTimeline: ConversationTimelineProjection,
         configuration: ConversationComposerConfiguration?,
         sendAvailability: ComposerSendAvailability? = nil,
+        session: ConversationSession? = nil,
         coalescer: StreamingCoalescer,
         tolerance: Double = 12,
         loadTimeline: @escaping @MainActor (String) throws -> ConversationTimelineProjection
@@ -41,18 +44,27 @@ final class ConversationPaneController {
             )
         }
 
+        if let session, session.conversationID != conversationID {
+            throw ConversationPaneError.mismatchedSession(expected: conversationID, actual: session.conversationID)
+        }
+        let owner = session ?? ConversationSession(conversationID: conversationID,
+            configuration: configuration, sendAvailability: sendAvailability, tolerance: tolerance)
         self.conversationID = conversationID
+        self.session = owner
         self.liveStore = LiveConversationStore(
             projection: initialTimeline,
             coalescer: coalescer
         )
-        self.readingPosition = ReadingPositionController(tolerance: tolerance)
-        self.composer = ComposerController(
-            configuration: configuration,
-            sendAvailability: sendAvailability
-        )
+        self.readingPosition = owner.readingPosition
+        self.composer = owner.composer
         self.coalescer = coalescer
         self.loadTimeline = loadTimeline
+        if session != nil {
+            switch readingPosition.mode {
+            case .followingBottom: enqueue(.scrollToBottom)
+            case .reading(let anchor, _): enqueue(.restoreAnchor(anchor))
+            }
+        }
     }
 
     var scrollBridge: ConversationPaneScrollBridge {
@@ -84,6 +96,10 @@ final class ConversationPaneController {
     @discardableResult
     func reloadTimeline() throws -> Set<String> {
         try reloadTimelineAndReportNewRuns()
+    }
+
+    func applyHiddenStoreChanges(_ changedRunIDs: Set<String>) {
+        enqueue(readingPosition.applyStoreChanges(changedRunIDs).action)
     }
 
     func adoptLiveStore(_ store: LiveConversationStore) throws {
@@ -139,6 +155,9 @@ final class ConversationPaneController {
     }
 
 #if DEBUG
+    var previewReadingDiagnosticForUITest = ""
+    var previewReadingBootstrapForUITest: String?
+
     func restoreAnchorForUITest(_ anchor: TurnAnchor) {
         readingPosition.setReadingAnchorForUITest(anchor)
         enqueue(.restoreAnchor(anchor))

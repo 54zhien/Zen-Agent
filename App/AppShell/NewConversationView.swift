@@ -13,7 +13,7 @@ struct AppShellRootView: View {
                 ProgressView("正在打开会话数据")
                     .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
             case .ready:
-                WorkspaceSurfaceView {
+                WorkspaceSurfaceView(model: model) {
                     NewConversationView(model: model)
                 }
                 .ignoresSafeArea()
@@ -58,6 +58,24 @@ struct NewConversationView: View {
     @Environment(\.surfaceLiftController) private var lift
 
     var body: some View {
+        Group {
+            if model.previewContent.isPresented {
+                ConversationPreviewView(
+                    summary: model.previewContent.summaries.first { $0.id == model.conversationID },
+                    status: model.previewContent.status)
+            } else {
+                fullContent
+            }
+        }
+        .onChange(of: model.conversationID) { _, _ in lift?.resetForConversationChange() }
+        .onChange(of: model.previewContent.isPresented) { _, presented in
+            // Directly opening the current Card has no identity change. Normal
+            // animated Return is already settling and must finish its late segment.
+            if !presented, lift?.state.phase == .card { lift?.resetForConversationChange() }
+        }
+    }
+
+    private var fullContent: some View {
         NavigationStack {
             Group {
                 if let pane = model.pane,
@@ -102,7 +120,7 @@ struct NewConversationView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 16) {
-                        if !model.recentConversations.isEmpty {
+                        if !model.recentConversations.isEmpty || model.recentLoadError != nil {
                             Button {
                                 isRecentConversationsPresented = true
                             } label: {
@@ -126,7 +144,12 @@ struct NewConversationView: View {
                 }
             }
             .overlay(alignment: .top) {
-                if let message = model.coldStartRecoveryMessage {
+                if let message = model.previewContent.errorMessage {
+                    Text(message)
+                        .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
+                        .padding()
+                        .background(.regularMaterial)
+                } else if let message = model.coldStartRecoveryMessage {
                     HStack(spacing: 12) {
                         Text(message)
                         Button("重试恢复") { model.retryColdStartRecovery() }
@@ -167,22 +190,40 @@ struct NewConversationView: View {
         }
         .sheet(isPresented: $isRecentConversationsPresented) {
             NavigationStack {
-                List(model.recentConversations) { conversation in
-                    Button {
-                        if model.openConversation(id: conversation.id) {
-                            isRecentConversationsPresented = false
-                        }
-                    } label: {
-                        Text(conversation.title)
-                            .font(Typography.font(
-                                for: .interfaceBody,
-                                dynamicTypeSize: dynamicTypeSize
-                            ))
-                            .lineLimit(2)
+                List {
+                    ForEach(model.recentConversations) { conversation in
+                        Button {
+                            if model.openConversation(id: conversation.id) {
+                                isRecentConversationsPresented = false
+                            }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(conversation.title)
+                                    .lineLimit(2)
+                                if conversation.previewStatus == .contentUnavailable {
+                                    Text("部分内容暂不可用")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
                             .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("recent-conversation-\(conversation.id)")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("recent-conversation-\(conversation.id)")
+                    if let error = model.recentLoadError {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(error)
+                                .foregroundStyle(.secondary)
+                            Button("重试") { model.retryRecentConversations() }
+                                .accessibilityIdentifier("recent-conversations-retry")
+                        }
+                        .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
+                    } else if model.recentHasMore {
+                        Button("加载更多") { model.loadMoreRecentConversations() }
+                            .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
+                            .accessibilityIdentifier("recent-conversations-more")
+                    }
                 }
                 .listStyle(.plain)
                 .navigationTitle("最近会话")
@@ -200,7 +241,7 @@ struct NewConversationView: View {
         .onChange(of: isProviderSetupPresented || isRecentConversationsPresented) { _, presented in
             lift?.setOverlayPresented(presented)
         }
-        .onChange(of: model.conversationID) { _, _ in lift?.invalidate() }
+
     }
 
 }

@@ -141,12 +141,14 @@ final class LiveConversationStore {
         kind: MessagePartKind
     ) -> Bool {
         if let activePart = state.activeParts[partID] {
-            return activePart.runID == runID
+            return activePart.runID == runID && activePart.messageID == messageID
+                && activePart.kind == kind && (activePart.state == .pending || activePart.state == .streaming)
         }
-        guard kind == .text,
-              let persisted = persistedTextPart(runID: runID, partID: partID),
+        guard kind == .text || kind == .reasoning,
+              let persisted = persistedDisplayPart(runID: runID, partID: partID),
+              persisted.kind == kind,
               persisted.source.messageID == messageID,
-              !persisted.source.isCompleted
+              persisted.source.canResume
         else { return false }
 
         let part = LivePartState(
@@ -214,7 +216,7 @@ final class LiveConversationStore {
         let startUTF8Offset = endUTF8Offset - byteCount
 
         guard let part = state.activeParts[partID], part.runID == runID else {
-            if let persisted = persistedTextPart(runID: runID, partID: partID),
+            if let persisted = persistedDisplayPart(runID: runID, partID: partID),
                endUTF8Offset <= persisted.text.utf8.count {
                 return
             }
@@ -259,14 +261,14 @@ final class LiveConversationStore {
         completedPart.state = partState
         state.activeParts[partID] = completedPart
         if let location = itemLocationByPartID[partID],
-           location.turnIndex < state.timeline.turns.count,
-           partState == .completed {
+           location.turnIndex < state.timeline.turns.count {
             var sources = state.timeline.turns[location.turnIndex].textSourcesByItemIndex
             sources[location.itemIndex] = TimelineTextSource(
                 conversationID: state.timeline.conversationID,
                 messageID: completedPart.messageID,
                 partID: completedPart.partID,
-                isCompleted: true
+                isCompleted: partState == .completed,
+                partState: partState
             )
             let items = state.timeline.turns[location.turnIndex].items
             replaceTurn(at: location.turnIndex, with: items, textSourcesByItemIndex: sources)
@@ -332,25 +334,29 @@ final class LiveConversationStore {
         partIDsByRunID[part.runID, default: []].insert(part.partID)
     }
 
-    private func persistedTextPart(
+    private func persistedDisplayPart(
         runID: String,
         partID: String
     ) -> (
         turnIndex: Int,
         itemIndex: Int,
         source: TimelineTextSource,
-        text: String
+        text: String,
+        kind: MessagePartKind
     )? {
         guard let turnIndex = turnIndexByRunID[runID],
               state.timeline.turns.indices.contains(turnIndex),
               let (itemIndex, source) = state.timeline.turns[turnIndex]
                 .textSourcesByItemIndex.first(where: { $0.value.partID == partID }),
               source.conversationID == state.timeline.conversationID,
-              state.timeline.turns[turnIndex].items.indices.contains(itemIndex),
-              case .assistantText(let text) = state.timeline.turns[turnIndex].items[itemIndex]
+              state.timeline.turns[turnIndex].items.indices.contains(itemIndex)
         else { return nil }
 
-        return (turnIndex, itemIndex, source, text)
+        switch state.timeline.turns[turnIndex].items[itemIndex] {
+        case .assistantText(let text): return (turnIndex, itemIndex, source, text, .text)
+        case .reasoning(let text): return (turnIndex, itemIndex, source, text, .reasoning)
+        default: return nil
+        }
     }
 
     private func removePartID(_ partID: String, fromRunID runID: String) {
@@ -381,12 +387,13 @@ final class LiveConversationStore {
         items.append(item)
         let itemIndex = items.count - 1
         var sources = state.timeline.turns[turnIndex].textSourcesByItemIndex
-        if case .assistantText = item {
+        if part.kind == .text || part.kind == .reasoning {
             sources[itemIndex] = TimelineTextSource(
                 conversationID: state.timeline.conversationID,
                 messageID: part.messageID,
                 partID: part.partID,
-                isCompleted: part.state == .completed
+                isCompleted: part.state == .completed,
+                partState: part.state
             )
         }
         replaceTurn(at: turnIndex, with: items, textSourcesByItemIndex: sources)

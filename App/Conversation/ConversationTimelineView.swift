@@ -1,10 +1,18 @@
 import SwiftUI
 
-private struct ConversationTimelineTurnFramesKey: PreferenceKey {
-    static let defaultValue: [String: CGRect] = [:]
+private struct ConversationTimelineTurnMeasurements: Equatable, Sendable {
+    var viewportFrames: [String: CGRect] = [:]
+    var contentTops: [String: Double] = [:]
+}
 
-    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+private struct ConversationTimelineTurnFramesKey: PreferenceKey {
+    static let defaultValue = ConversationTimelineTurnMeasurements()
+
+    static func reduce(value: inout ConversationTimelineTurnMeasurements,
+                       nextValue: () -> ConversationTimelineTurnMeasurements) {
+        let next = nextValue()
+        value.viewportFrames.merge(next.viewportFrames, uniquingKeysWith: { _, latest in latest })
+        value.contentTops.merge(next.contentTops, uniquingKeysWith: { _, latest in latest })
     }
 }
 
@@ -28,6 +36,8 @@ struct ConversationTimelineView: View {
     var bottomComposerClearance: CGFloat = 62
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.surfaceLiftController) private var surfaceLift
+    @State private var readingGeometryWasSuspended = false
     @ScaledMetric(relativeTo: .body) private var betweenTurns = Metrics.betweenTurns
     @ScaledMetric(relativeTo: .body) private var contentInset = Metrics.contentInset
     @State private var selectedApproval: ToolApprovalProjection?
@@ -35,11 +45,31 @@ struct ConversationTimelineView: View {
     @State private var scrollPosition = ScrollPosition(idType: String.self)
     @State private var latestScrollGeometry: ScrollGeometry?
     @State private var turnFrames: [String: CGRect] = [:]
+    @State private var turnContentTops: [String: Double] = [:]
+    @State private var materializingSequence: UInt64?
+    @State private var materializationRequest: ConversationPaneScrollRequest?
     @State private var latestBottomReferenceTurn: (runID: String, turnTop: Double)?
     @State private var activeScrollPhase: ScrollPhase = .idle
     @State private var pendingAppliedScroll: ConversationPaneScrollRequest?
 
     var body: some View {
+        ScrollViewReader { proxy in
+            timelineContent
+                .onChange(of: materializationRequest) { _, request in
+                    guard let request, case .restoreAnchor(let anchor) = request.action else { return }
+                    var transaction = Transaction()
+                    transaction.animation = nil
+                    withTransaction(transaction) { proxy.scrollTo(anchor.runID, anchor: .top) }
+                }
+#if DEBUG
+                .onChange(of: scrollBridge?.pane.previewReadingBootstrapForUITest) { _, runID in
+                    if let runID { proxy.scrollTo(runID, anchor: .top) }
+                }
+#endif
+        }
+    }
+
+    private var timelineContent: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
                 if !conversationApprovals.isEmpty {
@@ -92,17 +122,20 @@ struct ConversationTimelineView: View {
                             GeometryReader { geometry in
                                 Color.clear.preference(
                                     key: ConversationTimelineTurnFramesKey.self,
-                                    value: [
-                                        turn.runID: geometry.frame(in: .named(scrollCoordinateSpace))
-                                    ]
+                                    value: ConversationTimelineTurnMeasurements(
+                                        viewportFrames: [turn.runID: geometry.frame(in: .named(scrollCoordinateSpace))],
+                                        contentTops: [turn.runID: Double(geometry.frame(in: .named(contentCoordinateSpace)).minY)]
+                                    )
                                 )
                             }
                         }
+                        .id(turn.runID)
                     }
                 }
                 .padding(.horizontal, contentInset)
                 .padding(.vertical, betweenTurns)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .coordinateSpace(name: contentCoordinateSpace)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear.frame(height: bottomComposerClearance)
@@ -113,14 +146,22 @@ struct ConversationTimelineView: View {
                 onBlankBackgroundTap()
             })
             .scrollPosition($scrollPosition, anchor: .top)
-            .onPreferenceChange(ConversationTimelineTurnFramesKey.self) { frames in
+            .onPreferenceChange(ConversationTimelineTurnFramesKey.self) { measurement in
+                let frames = measurement.viewportFrames
                 turnFrames = frames
+                turnContentTops = measurement.contentTops
+                // Lazy/native Turn measurements can change after scrollTo was
+                // issued. The same logical request then needs a corrected target;
+                // treating its sequence as already issued strands restoration.
+                if let pending = pendingAppliedScroll, case .restoreAnchor(_) = pending.action {
+                    pendingAppliedScroll = nil
+                }
                 if let latestScrollGeometry {
                     latestBottomReferenceTurn = bottomVisibleTurn(
                         in: frames,
                         geometry: latestScrollGeometry
                     )
-                    if scrollBridge?.isHeightChangeActive == true {
+                    if acceptsReadingGeometry, scrollBridge?.isHeightChangeActive == true {
                         scrollBridge?.continueHeightChange(
                             geometry: latestScrollGeometry,
                             turnTops: turnTops(in: frames, geometry: latestScrollGeometry)
@@ -136,6 +177,7 @@ struct ConversationTimelineView: View {
             }
             .onScrollPhaseChange { _, phase, context in
                 activeScrollPhase = phase
+                guard acceptsReadingGeometry else { return }
                 switch phase {
                 case .tracking, .interacting:
                     pendingAppliedScroll = nil
@@ -155,9 +197,18 @@ struct ConversationTimelineView: View {
                     break
                 }
             }
+            .onChange(of: surfaceLift?.state.phase) { _, phase in
+                guard phase == .full, let scrollBridge, let latestScrollGeometry else { return }
+                scrollBridge.endHeightChange()
+                pendingAppliedScroll = nil
+                _ = scrollBridge.pane.updateReading(.geometryChanged(geometry: latestScrollGeometry, anchor: nil))
+                applyPendingScrollIfReady()
+            }
             .onChange(of: scrollBridge?.pane.scrollRequest) { _, request in
                 guard let request else {
                     pendingAppliedScroll = nil
+                    materializingSequence = nil
+                    materializationRequest = nil
                     return
                 }
                 applyScrollRequest(request)
@@ -189,6 +240,10 @@ struct ConversationTimelineView: View {
         "conversation-timeline-scroll-\(projection.conversationID)"
     }
 
+    private var contentCoordinateSpace: String {
+        "conversation-timeline-content-\(projection.conversationID)"
+    }
+
     static func isBlankTap(_ location: CGPoint, turnFrames: [String: CGRect]) -> Bool {
         turnFrames.values.allSatisfy { !$0.contains(location) }
     }
@@ -211,6 +266,26 @@ struct ConversationTimelineView: View {
         latestScrollGeometry = geometry
 
         guard let scrollBridge else { return }
+#if DEBUG
+        if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1",
+           case .reading(let anchor, _) = scrollBridge.pane.readingPosition.mode {
+            print("PREVIEW_READING_GEOMETRY viewport=\(geometry.viewportHeight) offset=\(geometry.offset) turnFrame=\(String(describing: turnFrames[anchor.runID])) anchor=\(anchor.relativeViewportOffset) phase=\(String(describing: surfaceLiftPhaseForDiagnostic)) clearance=\(bottomComposerClearance)")
+        }
+#endif
+        // Intermediate Lift/Return layout is presentation geometry. Keep the
+        // Session anchor until Full and ignore its transient predecessor viewport.
+        guard acceptsReadingGeometry else {
+            readingGeometryWasSuspended = true
+            return
+        }
+        if readingGeometryWasSuspended {
+            readingGeometryWasSuspended = false
+            scrollBridge.endHeightChange()
+            pendingAppliedScroll = nil
+            _ = scrollBridge.pane.updateReading(.geometryChanged(geometry: geometry, anchor: nil))
+            applyPendingScrollIfReady()
+            return
+        }
         if isUserDrivenScroll {
             pendingAppliedScroll = nil
             scrollBridge.userScrolled(
@@ -244,6 +319,21 @@ struct ConversationTimelineView: View {
         latestBottomReferenceTurn = bottomVisibleTurn(in: turnFrames, geometry: geometry)
         acknowledgeAppliedScrollIfReady(geometry)
         applyPendingScrollIfReady()
+    }
+
+#if DEBUG
+    @Environment(\.surfaceLiftController) private var surfaceLiftForDiagnostic
+    private var surfaceLiftPhaseForDiagnostic: SurfaceLiftState.Phase? { surfaceLiftForDiagnostic?.state.phase }
+#endif
+
+    private var acceptsReadingGeometry: Bool {
+        surfaceLift == nil || surfaceLift?.state.phase == .full
+    }
+
+    private var acceptsScrollRequests: Bool {
+        guard let surfaceLift else { return true }
+        return surfaceLift.state.phase == .full
+            || (surfaceLift.state.phase == .settling && surfaceLift.state.pendingSettlement?.destination == .full)
     }
 
     private var isUserDrivenScroll: Bool {
@@ -315,7 +405,7 @@ struct ConversationTimelineView: View {
     }
 
     private func applyScrollRequest(_ request: ConversationPaneScrollRequest) {
-        guard let scrollBridge,
+        guard acceptsScrollRequests, let scrollBridge,
               scrollBridge.pane.scrollRequest?.sequence == request.sequence,
               !isUserDrivenScroll,
               pendingAppliedScroll?.sequence != request.sequence,
@@ -324,8 +414,18 @@ struct ConversationTimelineView: View {
 
         var restoreTarget: Double?
         if case let .restoreAnchor(turnAnchor) = request.action {
-            guard let turnTop = turnTops(in: turnFrames, geometry: geometry)[turnAnchor.runID],
-                  let target = AnchorResolver.restoreTarget(
+            guard let turnTop = restorationTurnTop(turnAnchor.runID, sequence: request.sequence, geometry: geometry) else {
+                // Lazy children have no measured frame until they enter layout.
+                // Materialize by stable Turn identity before precise offset repair.
+                guard materializingSequence != request.sequence,
+                      projection.turns.contains(where: { $0.runID == turnAnchor.runID }) else { return }
+                materializingSequence = request.sequence
+                materializationRequest = request
+                return
+            }
+            // Content coordinates do not depend on scroll offset. Pairing a new
+            // viewport frame with an older geometry callback creates a false target.
+            guard let target = AnchorResolver.restoreTarget(
                     anchor: turnAnchor,
                     turnTop: turnTop,
                     geometry: geometry
@@ -370,24 +470,38 @@ struct ConversationTimelineView: View {
         guard let request = pendingAppliedScroll,
               let scrollBridge,
               scrollBridge.pane.scrollRequest?.sequence == request.sequence,
-              reachedTarget(for: request.action, geometry: geometry)
+              reachedTarget(for: request, geometry: geometry)
         else { return }
 
         pendingAppliedScroll = nil
         _ = scrollBridge.pane.updateReading(.programmaticScrolled(geometry: geometry))
         scrollBridge.pane.markScrollApplied(sequence: request.sequence)
+#if DEBUG
+        if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1",
+           case .reading(let anchor, _) = scrollBridge.pane.readingPosition.mode {
+            scrollBridge.pane.previewReadingDiagnosticForUITest = "viewport=\(geometry.viewportHeight) offset=\(geometry.offset) turnFrame=\(String(describing: turnFrames[anchor.runID])) anchor=\(anchor.relativeViewportOffset) clearance=\(bottomComposerClearance)"
+            print("PREVIEW_READING_ACK sequence=\(request.sequence) viewport=\(geometry.viewportHeight) offset=\(geometry.offset) turnFrame=\(String(describing: turnFrames[anchor.runID])) anchor=\(anchor.relativeViewportOffset) clearance=\(bottomComposerClearance)")
+        }
+#endif
     }
 
-    private func reachedTarget(for action: ScrollAction, geometry: ScrollGeometry) -> Bool {
+    private func restorationTurnTop(_ runID: String, sequence: UInt64, geometry: ScrollGeometry) -> Double? {
+        // Missing lazy targets need a content-relative measurement after the ID jump.
+        // Existing visible/keyboard restoration keeps its established transport.
+        if materializingSequence == sequence { return turnContentTops[runID] }
+        return turnTops(in: turnFrames, geometry: geometry)[runID]
+    }
+
+    private func reachedTarget(for request: ConversationPaneScrollRequest, geometry: ScrollGeometry) -> Bool {
         guard geometry.isUsableForPane else { return false }
         let targetOffset: Double
-        switch action {
+        switch request.action {
         case .none:
             return false
         case .scrollToBottom:
             targetOffset = max(0, geometry.contentHeight - geometry.viewportHeight)
         case .restoreAnchor(let turnAnchor):
-            guard let turnTop = turnTops(in: turnFrames, geometry: geometry)[turnAnchor.runID],
+            guard let turnTop = restorationTurnTop(turnAnchor.runID, sequence: request.sequence, geometry: geometry),
                   let target = AnchorResolver.restoreTarget(
                     anchor: turnAnchor,
                     turnTop: turnTop,

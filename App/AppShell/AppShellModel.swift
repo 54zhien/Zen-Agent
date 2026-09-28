@@ -9,6 +9,8 @@ struct AppExecutionTarget: Equatable, Sendable {
 struct RecentConversationSummary: Identifiable, Equatable, Sendable {
     let id: String
     let title: String
+    var previewStatus: ConversationPreviewStatus = .ready
+    var contentUnavailable: Bool { previewStatus == .contentUnavailable }
 }
 
 enum AppShellLaunchState: Equatable {
@@ -31,6 +33,118 @@ final class AppShellModel {
     private(set) var targetMessage: String?
     private(set) var sendAvailability: ComposerSendAvailability = .unconfigured
     private(set) var recentConversations: [RecentConversationSummary] = []
+    private(set) var recentLoadError: String?
+    private var recentCursor: ConversationSummaryCursor?
+    var recentHasMore: Bool { recentCursor != nil }
+
+    private var recentFailureWasNextPage = false
+
+    func loadMoreRecentConversations() {
+        guard let store = dependencies?.store, let cursor = recentCursor else { return }
+        do {
+            let page = try store.conversationSummaryPage(after: cursor)
+            let existing = Set(recentConversations.map(\.id))
+            recentConversations.append(contentsOf: page.items.filter { !existing.contains($0.id) }
+                .map { RecentConversationSummary(id: $0.id, title: $0.title,
+                    previewStatus: $0.contentUnavailable ? .contentUnavailable : .ready) })
+            recentCursor = page.nextCursor
+            recentLoadError = nil
+            recentFailureWasNextPage = false
+        } catch {
+            recentFailureWasNextPage = true
+            recentLoadError = "会话列表读取失败，请重试。"
+        }
+    }
+
+    func retryRecentConversations() {
+        guard recentLoadError != nil else { return }
+        if recentFailureWasNextPage { loadMoreRecentConversations() }
+        else { refreshRecentConversations() }
+    }
+
+    let previewContent = ConversationPreviewController()
+
+    func enterPreview() -> Bool {
+        guard let pane, let store = dependencies?.store else { return previewContent.isPresented }
+        guard previewContent.present(session: pane.session, store: store) else { return false }
+        rememberCurrentSession()
+        // The current uncommitted page is also retained for Card/Return, without
+        // adding durable Draft storage or changing navigation to another page.
+        sessions.retain(pane.session, reconstruction: .unavailable)
+        router.unregisterPane(for: conversationID)
+        self.pane = nil
+        actionBridge = nil
+        return true
+    }
+
+    func preparePreviewReturn() async -> Bool {
+        guard previewContent.isPresented, let dependencies,
+              let session = previewContent.session else { return pane != nil }
+        if previewContent.prepared != nil { return true }
+        guard !previewContent.isPreparing else { return false }
+        let id = conversationID
+        let preparation = previewContent.beginPreparation()
+        let store = dependencies.store
+        // A busy Run may invalidate a read. Retry a finite number of times; failure
+        // leaves the Preview and its logical state intact for an explicit retry.
+        for _ in 0..<3 {
+            let ticket = router.beginPanePreparation(for: id)
+            do {
+                let timeline = try await Task.detached(priority: .userInitiated) {
+                    try Task.checkCancellation()
+                    return try ConversationTimelineLoader.load(conversationID: id, from: store)
+                }.value
+                guard !Task.isCancelled, conversationID == id,
+                      router === dependencies.router, previewContent.accepts(preparation) else {
+                    dependencies.router.cancelPanePreparation(for: id, ticket: ticket)
+                    return false
+                }
+                guard router.acceptsPanePreparation(for: id, ticket: ticket) else { continue }
+                let wiring = try ConversationPaneFactory(sessions: sessions).makePane(
+                    id: id, initialTimeline: timeline, dependencies: dependencies, target: target,
+                    onTargetFailure: { [weak self] failure, failedTarget in
+                        self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
+                    })
+                guard wiring.pane.session === session,
+                      router.registerPreparedPane(wiring.pane, ticket: ticket) else { continue }
+                // Receive durable Runtime events while still hidden behind Preview.
+                previewContent.ready(wiring, id: preparation)
+                return true
+            } catch {
+                dependencies.router.cancelPanePreparation(for: id, ticket: ticket)
+                previewContent.failed(preparation)
+                return false
+            }
+        }
+        router.cancelPanePreparation(for: id)
+        previewContent.failed(preparation)
+        return false
+    }
+
+    func commitPreviewReturn() -> Bool {
+        guard previewContent.isPresented, let prepared = previewContent.prepared,
+              prepared.pane.conversationID == conversationID else { return false }
+        pane = prepared.pane
+        actionBridge = prepared.bridge
+        commitSession(prepared.pane.session)
+        sendAvailability = prepared.pane.composer.sendAvailability
+        targetMessage = sendAvailability.message
+        previewContent.finish()
+        return true
+    }
+
+    func cancelPreviewReturn() {
+        if let prepared = previewContent.prepared {
+            router.unregisterPane(for: prepared.pane.conversationID)
+        }
+        router.cancelPanePreparation(for: conversationID)
+        previewContent.cancelPreparation()
+    }
+
+    func refreshPreview() {
+        if let store = dependencies?.store { previewContent.refresh(store: store) }
+    }
+
     private(set) var pane: ConversationPaneController?
     private(set) var actionBridge: ComposerRuntimeActionBridge?
     private(set) var providerSetup: ProviderSetupModel?
@@ -41,10 +155,11 @@ final class AppShellModel {
     @ObservationIgnored private var dependencies: AppAssembly.Dependencies?
     @ObservationIgnored private var startedAssembly = false
     @ObservationIgnored private var backgroundedAtInProcess: Date?
-    @ObservationIgnored private var draftsByConversationID: [String: ComposerDraftState] = [:]
+    @ObservationIgnored private let sessions = ConversationSessionStore()
 
     var canSend: Bool {
-        sendAvailability.isReady && target != nil && pane != nil && actionBridge != nil
+        pane?.composer.sendAvailability.isReady == true
+            && pane?.composer.configuration != nil && actionBridge != nil
     }
 
     var runtimeForPresentation: ConversationRuntime? {
@@ -83,7 +198,10 @@ final class AppShellModel {
     func assemble() {
         startedAssembly = true
         launchState = .loading
+        cancelPreviewReturn()
+        previewContent.finish()
         dependencies = nil
+        sessions.removeAll()
         pane = nil
         actionBridge = nil
         target = nil
@@ -109,7 +227,9 @@ final class AppShellModel {
     }
 
     func newConversation() {
-        rememberCurrentDraft()
+        rememberCurrentSession()
+        cancelPreviewReturn()
+        previewContent.finish()
         router.unregisterPane(for: conversationID)
         pane = nil
         actionBridge = nil
@@ -212,32 +332,50 @@ final class AppShellModel {
         return (try? store.conversationLifecycle(id: conversationID)) == .visible
     }
 
-    private func rememberCurrentDraft() {
-        guard let pane, isCurrentConversationVisible else { return }
-        draftsByConversationID[conversationID] = pane.composer.draft
+    private func rememberCurrentSession() {
+        guard let session = pane?.session ?? previewContent.session,
+              let store = dependencies?.store else { return }
+        do {
+            guard let summary = try store.conversationSummaryWindow(ids: [conversationID]).first else {
+                sessions.remove(conversationID: conversationID)
+                return
+            }
+            // Re-read the latest persisted Parent choice. An initial choice can
+            // become stale after another Send, even if the user switches back to it.
+            let configuration: ConversationComposerConfiguration?
+            if let instanceID = summary.providerInstanceID, let modelID = summary.modelID {
+                configuration = ConversationComposerConfiguration(providerInstanceID: instanceID, modelID: modelID)
+            } else {
+                configuration = nil
+            }
+            let unavailable = summary.contentUnavailable
+                || (summary.runProjection != nil && configuration == nil)
+            sessions.retain(session, reconstruction: unavailable
+                ? .unavailable : .history(configuration: configuration))
+        } catch {
+            // A read failure cannot prove that the current owner is reconstructible.
+            sessions.retain(session, reconstruction: .unavailable)
+        }
+    }
+
+    private func commitSession(_ session: ConversationSession) {
+        sessions.activate(session)
+        sessions.evictIfNeeded(isRuntimeProtected: router.hasActiveRun(for:))
     }
 
     func refreshRecentConversations() {
-        guard let store = dependencies?.store else {
-            recentConversations = []
-            return
-        }
-
+        guard let store = dependencies?.store else { return }
         do {
-            let visible = try store.visibleConversations().sorted { left, right in
-                if left.userActiveAt != right.userActiveAt {
-                    return left.userActiveAt > right.userActiveAt
-                }
-                return left.id < right.id
-            }
-            recentConversations = visible.map { conversation in
-                RecentConversationSummary(
-                    id: conversation.id,
-                    title: recentTitle(for: conversation, in: store)
-                )
-            }
+            let page = try store.conversationSummaryPage()
+            recentConversations = page.items.map { RecentConversationSummary(id: $0.id, title: $0.title,
+                previewStatus: $0.contentUnavailable ? .contentUnavailable : .ready) }
+            recentCursor = page.nextCursor
+            recentLoadError = nil
+            recentFailureWasNextPage = false
         } catch {
-            recentConversations = []
+            // Preserve the last readable page and its cursor so failure remains retryable.
+            recentFailureWasNextPage = false
+            recentLoadError = "会话列表读取失败，请重试。"
         }
     }
 
@@ -247,8 +385,9 @@ final class AppShellModel {
         guard let visibleIDs = try? dependencies.store.visibleConversations().map(\.id),
               visibleIDs.contains(id) else { return false }
 
-        if id == conversationID, pane != nil {
-            return true
+        if id == conversationID {
+            if pane != nil { return true }
+            if previewContent.prepared != nil { return commitPreviewReturn() }
         }
 
         do {
@@ -256,24 +395,29 @@ final class AppShellModel {
                 conversationID: id,
                 from: dependencies.store
             )
-            let wiring = try makePane(
+            let wiring = try ConversationPaneFactory(sessions: sessions).makePane(
                 id: id,
                 initialTimeline: timeline,
                 dependencies: dependencies,
-                target: target
+                target: target,
+                onTargetFailure: { [weak self] failure, failedTarget in
+                    self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
+                }
             )
             guard dependencies.router.registerPane(wiring.pane) else { return false }
 
             // Keep the outgoing pane intact until the replacement has loaded and registered.
-            rememberCurrentDraft()
+            rememberCurrentSession()
+            cancelPreviewReturn()
+            previewContent.finish()
             let outgoingConversationID = conversationID
-            router.unregisterPane(for: outgoingConversationID)
+            if outgoingConversationID != id { router.unregisterPane(for: outgoingConversationID) }
             conversationID = id
             actionBridge = wiring.bridge
             pane = wiring.pane
-            if let savedDraft = draftsByConversationID[id] {
-                wiring.pane.composer.draft = savedDraft
-            }
+            commitSession(wiring.pane.session)
+            sendAvailability = wiring.pane.composer.sendAvailability
+            targetMessage = sendAvailability.message
             return true
         } catch {
             return false
@@ -340,25 +484,41 @@ final class AppShellModel {
             installPaneIfReady()
             return
         }
-        pane.composer.configuration = ConversationComposerConfiguration(
-            providerInstanceID: savedTarget.providerInstanceID,
-            modelID: savedTarget.modelID
-        )
-        pane.composer.sendAvailability = .ready
+        guard let dependencies else { return }
+        do {
+            // The existing setup entry changes the global default. Only a page
+            // with no committed Conversation may adopt that choice directly.
+            if try dependencies.store.conversationLifecycle(id: conversationID) == nil {
+                pane.composer.configuration = ConversationComposerConfiguration(
+                    providerInstanceID: savedTarget.providerInstanceID, modelID: savedTarget.modelID)
+            }
+            pane.composer.sendAvailability = ConversationPaneFactory.availability(for: pane.composer.configuration, in: dependencies)
+        } catch {
+            pane.composer.sendAvailability = .unavailable(AppTargetFailure.persistenceUnavailable.message)
+        }
+        sendAvailability = pane.composer.sendAvailability
+        targetMessage = sendAvailability.message
     }
 
     private func targetBecameUnavailable(
         _ failure: AppTargetFailure,
-        for failedTarget: AppExecutionTarget
+        for failedTarget: AppExecutionTarget,
+        conversationID ownerID: String
     ) {
-        guard pane?.composer.configuration == ConversationComposerConfiguration(
+        let owner = conversationID == ownerID
+            ? (pane?.composer ?? previewContent.session?.composer)
+            : sessions.session(for: ownerID)?.composer
+        guard let owner, owner.configuration == ConversationComposerConfiguration(
             providerInstanceID: failedTarget.providerInstanceID,
             modelID: failedTarget.modelID
         ) else { return }
-        target = failedTarget
-        targetMessage = failure.message
-        sendAvailability = .unavailable(failure.message)
-        pane?.composer.sendAvailability = sendAvailability
+        // A bridge outlives its display. Its asynchronous failure belongs to the
+        // captured session, even when the new display selected identical IDs.
+        owner.sendAvailability = .unavailable(failure.message)
+        if conversationID == ownerID {
+            targetMessage = failure.message
+            sendAvailability = owner.sendAvailability
+        }
     }
 
     private func installPaneIfReady() {
@@ -382,78 +542,25 @@ final class AppShellModel {
         dependencies: AppAssembly.Dependencies,
         target: AppExecutionTarget?
     ) throws {
-        let wiring = try makePane(
-            id: conversationID,
+        let ownerID = conversationID
+        let wiring = try ConversationPaneFactory(sessions: sessions).makePane(
+            id: ownerID,
             initialTimeline: initialTimeline,
             dependencies: dependencies,
-            target: target
+            target: target,
+            onTargetFailure: { [weak self] failure, failedTarget in
+                self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: ownerID)
+            }
         )
         guard dependencies.router.registerPane(wiring.pane) else {
             throw AppTargetFailure.configurationUnavailable
         }
         actionBridge = wiring.bridge
         pane = wiring.pane
+        commitSession(wiring.pane.session)
+        sendAvailability = wiring.pane.composer.sendAvailability
+        targetMessage = sendAvailability.message
     }
 
-    private func makePane(
-        id: String,
-        initialTimeline: ConversationTimelineProjection,
-        dependencies: AppAssembly.Dependencies,
-        target: AppExecutionTarget?
-    ) throws -> (bridge: ComposerRuntimeActionBridge, pane: ConversationPaneController) {
-        let bridge = AppAssembly.wireConversation(
-            id: id,
-            dependencies: dependencies,
-            onTargetFailure: { [weak self] failure, failedTarget in
-                self?.targetBecameUnavailable(failure, for: failedTarget)
-            }
-        )
-        let pane = try ConversationPaneController(
-            conversationID: id,
-            initialTimeline: initialTimeline,
-            configuration: target.map {
-                ConversationComposerConfiguration(
-                    providerInstanceID: $0.providerInstanceID,
-                    modelID: $0.modelID
-                )
-            },
-            sendAvailability: sendAvailability,
-            coalescer: StreamingCoalescer(interval: .milliseconds(10)),
-            loadTimeline: { id in
-                try ConversationTimelineLoader.load(conversationID: id, from: dependencies.store)
-            }
-        )
-        return (bridge, pane)
-    }
 
-    private func recentTitle(
-        for conversation: ConversationRecord,
-        in store: PersistenceStore
-    ) -> String {
-        let storedTitle = Self.normalizedTitle(conversation.title)
-        if !storedTitle.isEmpty { return Self.displayTitle(storedTitle) }
-
-        guard let messages = try? store.messages(inConversation: conversation.id) else {
-            return "未命名会话"
-        }
-        for message in messages where message.role == .user {
-            guard let parts = try? store.parts(ofMessage: message.id) else { continue }
-            for part in parts where part.kind == .text {
-                guard let text = try? store.text(ofPart: part.id),
-                      !Self.normalizedTitle(text).isEmpty else { continue }
-                return Self.displayTitle(Self.normalizedTitle(text))
-            }
-        }
-        return "未命名会话"
-    }
-
-    private static func normalizedTitle(_ title: String) -> String {
-        title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-    }
-
-    private static func displayTitle(_ title: String) -> String {
-        let limit = 56
-        guard title.count > limit else { return title }
-        return String(title.prefix(limit - 1)) + "…"
-    }
 }

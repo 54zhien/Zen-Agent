@@ -11,6 +11,40 @@ struct ToolApprovalUITests {
     private static let toolID = "stage2_side_effect"
     private static let continuationText = "model continued after the tool decision"
 
+    @Test("detached approval remounts once from Runtime and settles through its original owner",
+          .timeLimit(.minutes(1)))
+    func detachedApprovalRemountsOnce() async throws {
+        let id = "approval-remount-owner"
+        let environment = try makeEnvironment(conversationIDs: [id])
+        let router = RunEventRouter()
+        let pending = try await startPendingApproval(in: environment, conversationID: id, router: router)
+        func makePane() throws -> ConversationPaneController {
+            try ConversationPaneController(conversationID: id,
+                initialTimeline: try ConversationTimelineLoader.load(conversationID: id, from: environment.store),
+                configuration: nil,
+                coalescer: StreamingCoalescer(interval: .milliseconds(0)),
+                loadTimeline: { try ConversationTimelineLoader.load(conversationID: $0, from: environment.store) })
+        }
+        let first = try makePane()
+        #expect(router.registerPane(first))
+        try await first.refreshPendingApprovals(using: pending.runtime)
+        #expect(first.liveStore.state.pendingToolApprovals.map(\.toolCallID) == [pending.toolCallID])
+        router.unregisterPane(for: id)
+        let second = try makePane()
+        #expect(router.registerPane(second))
+        try await second.refreshPendingApprovals(using: pending.runtime)
+        try await second.refreshPendingApprovals(using: pending.runtime)
+        #expect(second.liveStore.state.pendingToolApprovals.map(\.toolCallID) == [pending.toolCallID])
+        let card = try #require(second.liveStore.state.pendingToolApprovals.first)
+        #expect(card.conversationID == id)
+        try await pending.runtime.resolveToolApproval(card.request(for: .rejectOnce))
+        try await pending.runtime.waitForCompletion(runID: pending.runID)
+        try await second.refreshPendingApprovals(using: pending.runtime)
+        #expect(second.liveStore.state.pendingToolApprovals.isEmpty)
+        #expect(try environment.store.run(id: pending.runID)?.state == .completed)
+        #expect(router.diagnostics.isEmpty)
+    }
+
     @Test("waitingForApprovalShowsCardInOwningConversation")
     func waitingForApprovalShowsCardInOwningConversation() async throws {
         let environment = try makeEnvironment(conversationIDs: ["approval-owner-a", "approval-owner-b"])
@@ -621,7 +655,8 @@ struct ToolApprovalUITests {
 
     private func startPendingApproval(
         in environment: Environment,
-        conversationID: String
+        conversationID: String,
+        router: RunEventRouter? = nil
     ) async throws -> PendingApproval {
         let providerLedger = I07ProviderLedger()
         let eventRecorder = Stage2GateEventRecorder()
@@ -650,7 +685,10 @@ struct ToolApprovalUITests {
             store: environment.store,
             provider: provider,
             credentials: environment.credentials,
-            onEvent: { event in await eventRecorder.append(event) },
+            onEvent: { event in
+                if let router { await router.handle(event) }
+                await eventRecorder.append(event)
+            },
             toolRegistry: environment.toolRegistry
         )
         let runID = try await runtime.start(SendCommand(

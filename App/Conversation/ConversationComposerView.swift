@@ -16,6 +16,7 @@ struct ConversationComposerView: View {
 
     init(conversationID: String, controller: ComposerController,
          bridge: ComposerRuntimeActionBridge, maxProviderSteps: Int,
+         coordinator: ComposerSendCoordinator? = nil,
          onHeightChanged: @escaping (CGFloat) -> Void = { _ in },
          onKeyboardWillChange: @escaping () -> Void = {}) {
         self.conversationID = conversationID
@@ -23,7 +24,7 @@ struct ConversationComposerView: View {
         self.bridge = bridge
         self.onHeightChanged = onHeightChanged
         self.onKeyboardWillChange = onKeyboardWillChange
-        _coordinator = State(initialValue: ComposerSendCoordinator(
+        _coordinator = State(initialValue: coordinator ?? ComposerSendCoordinator(
             conversationID: conversationID, controller: controller,
             configuration: controller.configuration, bridge: bridge,
             maxProviderSteps: maxProviderSteps
@@ -36,6 +37,14 @@ struct ConversationComposerView: View {
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .task(id: conversationID) { await observeRunProjection() }
             .task(id: controller.configuration?.providerInstanceID) { await loadKnownModels() }
+#if DEBUG
+            .onAppear { controller.nativeSendCoordinatorForUITest = coordinator }
+            .onDisappear {
+                if controller.nativeSendCoordinatorForUITest === coordinator {
+                    controller.nativeSendCoordinatorForUITest = nil
+                }
+            }
+#endif
     }
 
     private var selectedCapabilities: Set<ModelCapability> {
@@ -110,7 +119,7 @@ struct ConversationComposerView: View {
             },
             onKeyboardWillChange: onKeyboardWillChange,
             onSend: { sendDraft() },
-            onStop: { Task { _ = await coordinator.handlePrimaryAction() } },
+            onStop: { Task { [coordinator] in _ = await coordinator.handlePrimaryAction() } },
             onModel: { modelID in
                 guard var configuration = controller.configuration else { return }
                 configuration.modelID = modelID
@@ -135,7 +144,7 @@ struct ConversationComposerView: View {
 
     private func sendDraft() {
         let initiatedAt = Date()
-        Task { _ = await coordinator.handlePrimaryAction(at: initiatedAt) }
+        Task { [coordinator] in _ = await coordinator.handlePrimaryAction(at: initiatedAt) }
     }
 
     private func apply(_ transition: ComposerTransition) {

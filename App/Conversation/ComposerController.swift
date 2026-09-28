@@ -13,6 +13,11 @@ final class ComposerController {
     private(set) var quoteDragPhase = ComposerQuoteDragPhase.idle
     private(set) var isSelectionHandleDragging = false
 
+#if DEBUG
+    // Observation only: does not retain a coordinator or change transaction ownership.
+    @ObservationIgnored weak var nativeSendCoordinatorForUITest: ComposerSendCoordinator?
+#endif
+
     private var temporaryQuoteDropExpansion = false
     private var committedQuoteDropExpansion = false
 

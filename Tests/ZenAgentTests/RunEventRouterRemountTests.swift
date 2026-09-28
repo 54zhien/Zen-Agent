@@ -6,6 +6,205 @@ import Testing
 @Suite("Run event routing across Pane remount")
 @MainActor
 struct RunEventRouterRemountTests {
+    @Test("a real Run settling while detached remounts its durable terminal outcome",
+          .timeLimit(.minutes(1)), arguments: [false, true])
+    func runtimeSettlesWhileDetached(cancel: Bool) async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let box = I05AttemptStreamBox()
+        let recorder = I05EventRecorder()
+        let router = RunEventRouter()
+        let runtime = ConversationRuntime(store: fixture.store,
+            provider: I05AttemptProvider(box: box, instanceID: fixture.instance.id), credentials: fixture.credentials,
+            onEvent: { event in
+                await router.handle(event)
+                await recorder.append(event)
+            }, toolRegistry: .empty)
+        let id = I05RuntimeTestFixtures.conversationID
+        func makePane() throws -> ConversationPaneController {
+            try ConversationPaneController(conversationID: id,
+                initialTimeline: try ConversationTimelineLoader.load(conversationID: id, from: fixture.store),
+                configuration: nil, coalescer: StreamingCoalescer(interval: .milliseconds(0)),
+                loadTimeline: { try ConversationTimelineLoader.load(conversationID: $0, from: fixture.store) })
+        }
+        let first = try makePane()
+        #expect(router.registerPane(first))
+        let runID = try await runtime.start(I05RuntimeTestFixtures.command())
+        await box.waitUntilReady()
+        let text = String(repeating: "partial", count: 200)
+        box.yield(.textDelta(text))
+        _ = await recorder.waitForFirstDelta()
+        router.unregisterPane(for: id)
+        if cancel {
+            try await runtime.stop(runID: runID)
+        } else {
+            box.yield(.finish(.stop))
+            box.finish()
+        }
+        try await runtime.waitForCompletion(runID: runID)
+        let second = try makePane()
+        #expect(router.registerPane(second))
+        #expect(assistantText(in: second) == text)
+        #expect(second.liveStore.state.activeParts.isEmpty)
+        #expect(second.liveStore.droppedUnlocatableDeltas == 0)
+        #expect(try fixture.store.run(id: runID)?.state == (cancel ? .cancelled : .completed))
+        let notices = second.liveStore.state.timeline.turns[0].items.compactMap { item -> RunNoticePresentation? in
+            guard case .runNotice(let notice) = item else { return nil }
+            return notice
+        }
+        #expect(notices == (cancel ? [RunNoticePresentation(runID: runID, state: .cancelled,
+            endReason: .cancelledByUser)] : []))
+        #expect(router.diagnostics.isEmpty)
+    }
+
+    @Test("real Runtime persists a thousand detached deltas and resumes the active display",
+          .timeLimit(.minutes(1)))
+    func runtimeDetachedLongStream() async throws {
+        let url = try Fixtures.scratchPath(name: "s504-detached-stream.sqlite")
+        defer { Fixtures.cleanUp(url) }
+        try await assertRuntimeDetachedLongStream(at: url)
+    }
+
+    private func assertRuntimeDetachedLongStream(at url: URL) async throws {
+        let components = try Stage2GateFixture.makeDiskComponents(at: url)
+        let box = Stage2StreamBox()
+        let recorder = I05EventRecorder()
+        let deltas = S504DeltaBarrier()
+        let router = RunEventRouter()
+        // Large fixture chunks cross today's private persistence batching policy;
+        // their size is not a product or UI latency contract.
+        let chunk = String(repeating: "中", count: 400)
+        let prefix = "start" + chunk
+        let runtime = ConversationRuntime(store: components.store,
+            provider: Stage2ScriptedProvider(ledger: Stage2ProviderLedger(),
+                scripts: [.holding(prefix: [.textDelta(prefix)], box: box)]),
+            credentials: components.credentials, onEvent: { event in
+                await router.handle(event)
+                await recorder.append(event)
+                await deltas.observe(event)
+            }, toolRegistry: .empty)
+        let id = Stage2GateFixture.conversationID
+        func makePane() throws -> ConversationPaneController {
+            try ConversationPaneController(conversationID: id,
+                initialTimeline: try ConversationTimelineLoader.load(conversationID: id, from: components.store),
+                configuration: nil, coalescer: StreamingCoalescer(interval: .milliseconds(0)),
+                loadTimeline: { try ConversationTimelineLoader.load(conversationID: $0, from: components.store) })
+        }
+        var pane: ConversationPaneController? = try makePane()
+        #expect(router.registerPane(try #require(pane)))
+        let runID = try await runtime.start(Stage2GateFixture.command(text: "background stream"))
+        _ = await recorder.waitForFirstDelta()
+        weak var oldPane = pane
+        weak var oldStore = pane?.liveStore
+        router.unregisterPane(for: id)
+        pane = nil
+        #expect(oldPane == nil)
+        #expect(oldStore == nil)
+        for _ in 0..<1_000 { box.yieldLate(.textDelta(chunk)) }
+        let saved = prefix + String(repeating: chunk, count: 1_000)
+        await deltas.wait(for: saved.utf8.count)
+        let remounted = try makePane()
+        #expect(router.registerPane(remounted))
+        #expect(assistantText(in: remounted) == saved)
+        #expect(remounted.liveStore.state.activeParts.count == 1)
+        #expect(await runtime.activeOperationCount == 1)
+        box.yieldLate(.textDelta("+live"))
+        box.yieldLate(.finish(.stop))
+        try await runtime.waitForCompletion(runID: runID)
+        #expect(assistantText(in: remounted) == saved + "+live")
+        #expect(remounted.liveStore.state.activeParts.isEmpty)
+        #expect(remounted.liveStore.droppedUnlocatableDeltas == 0)
+        #expect(try components.store.run(id: runID)?.state == .completed)
+        let reopened = try Stage2GateFixture.reopen(url)
+        let final = try ConversationTimelineLoader.load(conversationID: id, from: reopened)
+        #expect(final.turns[0].items.contains(.assistantText(saved + "+live")))
+        #expect(router.diagnostics.isEmpty)
+    }
+
+    @Test("an invisible active Run does not retain its Full Pane or live store")
+    func invisibleActiveRunReleasesPane() async throws {
+        let router = RunEventRouter()
+        let conversationID = "released-active-conversation"
+        let runID = "released-active-run"
+        var pane: ConversationPaneController? = try ConversationPaneController(
+            conversationID: conversationID,
+            initialTimeline: ConversationTimelineProjection(conversationID: conversationID, turns: []),
+            configuration: nil,
+            coalescer: StreamingCoalescer(interval: .milliseconds(0)),
+            loadTimeline: { id in
+                ConversationTimelineProjection(conversationID: id,
+                    turns: [ConversationTurn(runID: runID, items: [.userText("question")])])
+            }
+        )
+        weak var releasedPane = pane
+        #expect(router.registerPane(try #require(pane)))
+        await router.handle(.runAccepted(runID: runID, conversationID: conversationID))
+        await router.handle(.messagePartStarted(runID: runID, messageID: "released-message",
+            partID: "released-part", kind: .text))
+        // runAccepted replaces the initial store. Capture the actual live store,
+        // not the already-released pre-load value.
+        weak var releasedStore = pane?.liveStore
+        router.unregisterPane(for: conversationID)
+        pane = nil
+        #expect(releasedPane == nil)
+        #expect(releasedStore == nil)
+        // UI detachment is not a Run cancellation or an ownership loss.
+        await router.handle(.messagePartDelta(runID: runID, partID: "released-part",
+            delta: "still running", endUTF8Offset: 13))
+        #expect(!router.diagnostics.contains("Dropped unregistered Run event for \(runID)"))
+    }
+
+    @Test("unfinished persisted display Parts resume by stable identity and UTF8 offset",
+          arguments: [MessagePartKind.text, .reasoning])
+    func persistedDisplayPartResumes(kind: MessagePartKind) throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "resume-user", runID: "resume-run"))
+        _ = try store.ensureAssistantResponse(forRunID: "resume-run", messageID: "resume-response")
+        var part = Fixtures.textPart(id: "resume-part", messageID: "resume-response", text: "开头")
+        part.kind = kind
+        part.state = .streaming
+        try store.createPart(part)
+        let projection = try ConversationTimelineLoader.load(conversationID: "c1", from: store)
+        #expect(projection.turns[0].textSourcesByItemIndex[1]?.partID == part.id)
+        let live = LiveConversationStore(projection: projection,
+            coalescer: StreamingCoalescer(interval: .milliseconds(0)))
+        #expect(live.resumePersistedPart(runID: "resume-run", messageID: "resume-response",
+            partID: part.id, kind: kind))
+
+        // Runtime's acknowledged persistence boundary commits before publication.
+        try store.appendText(toPart: part.id, delta: "后续")
+        _ = live.consume(.messagePartDelta(runID: "resume-run", partID: part.id,
+            delta: "后续", endUTF8Offset: "开头后续".utf8.count))
+        #expect(live.state.timeline.turns[0].items == [
+            .userText("hello"), kind == .text ? .assistantText("开头后续") : .reasoning("开头后续")])
+        #expect(live.droppedUnlocatableDeltas == 0)
+        // An event already represented by the offset cannot duplicate either kind.
+        _ = live.consume(.messagePartDelta(runID: "resume-run", partID: part.id,
+            delta: "后续", endUTF8Offset: "开头后续".utf8.count))
+        #expect(live.state.activeParts[part.id]?.text == "开头后续")
+        try store.finishPart(id: part.id, state: .completed)
+        _ = live.consume(.messagePartCompleted(runID: "resume-run", partID: part.id, state: .completed))
+        _ = live.consume(.runEnded(runID: "resume-run", state: .completed, endReason: .completed))
+        #expect(live.state.activeParts.isEmpty)
+    }
+
+    @Test("terminal persisted Parts cannot be resurrected while their parent is active",
+          arguments: [MessagePartState.completed, .failed, .cancelled])
+    func terminalPersistedPartCannotResume(partState: MessagePartState) throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "terminal-user", runID: "terminal-run"))
+        _ = try store.ensureAssistantResponse(forRunID: "terminal-run", messageID: "terminal-response")
+        var part = Fixtures.textPart(id: "terminal-part", messageID: "terminal-response", text: "saved")
+        part.state = partState
+        try store.createPart(part)
+        let live = LiveConversationStore(
+            projection: try ConversationTimelineLoader.load(conversationID: "c1", from: store),
+            coalescer: StreamingCoalescer(interval: .milliseconds(0)))
+        #expect(!live.resumePersistedPart(runID: "terminal-run", messageID: part.messageID,
+            partID: part.id, kind: .text))
+        #expect(live.state.activeParts.isEmpty)
+        #expect(live.state.timeline.turns[0].items == [.userText("hello"), .assistantText("saved")])
+    }
+
     @Test("an active text Part keeps updating after its Conversation Pane is remounted")
     func activePartContinuesAfterRemount() async throws {
         let conversationID = "remount-conversation"
@@ -67,6 +266,10 @@ struct RunEventRouterRemountTests {
         router.unregisterPane(for: conversationID)
         durableText = "hello world"
         await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: " world", endUTF8Offset: 11))
+
+        // An outgoing display must stop consuming token events; the durable
+        // projection below is the source for its next mount.
+        #expect(assistantText(in: firstPane) == "hello")
 
         let secondPane = try pane()
         #expect(router.registerPane(secondPane))
@@ -222,5 +425,23 @@ struct RunEventRouterRemountTests {
             guard case .assistantText(let text) = item else { return nil }
             return text
         }.last
+    }
+}
+
+private actor S504DeltaBarrier {
+    private var byteCount = 0
+    private var waiters: [(Int, CheckedContinuation<Void, Never>)] = []
+
+    func observe(_ event: AgentEvent) {
+        guard case .messagePartDelta(_, _, let text, _) = event else { return }
+        byteCount += text.utf8.count
+        let ready = waiters.filter { $0.0 <= byteCount }
+        waiters.removeAll { $0.0 <= byteCount }
+        for (_, waiter) in ready { waiter.resume() }
+    }
+
+    func wait(for target: Int) async {
+        guard byteCount < target else { return }
+        await withCheckedContinuation { waiters.append((target, $0)) }
     }
 }

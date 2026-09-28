@@ -52,6 +52,18 @@ As of 2026-09-28:
   passed; physical-device acceptance remains open in [the slice record](tasks/s5-01-surface-container.md).
 - S5-02 adds static App Space geometry and DEBUG samples; see
   [the slice record](tasks/s5-02-static-geometry.md). Production navigation follows later slices.
+- S5-03 Lift/Return is integrated through PR #18 at `aeaa05c`.
+  [Main CI](https://github.com/54zhien/Zen-Agent/actions/runs/36401064255) passed
+  generation/build,689 Swift Testing,20 XCTest unit and11 UI tests. See
+  [the slice record](tasks/s5-03-lift-return.md); physical Gate A remains open.
+- S5-04 is implemented on [PR #19](https://github.com/54zhien/Zen-Agent/pull/19),
+  including Session/LRU ownership, bounded history previews and native-editor
+  Preview/Full handoff. One whole-branch review found three Important; a single
+  test-first fix pass has reproduced all three and added corrective source.
+  Integration requires exact-tree GREEN and verified main CI; inspect
+  PR #19 for the final tested head/tree and merge status. See
+  [the slice record](tasks/s5-04-preview-virtualization.md). Physical Gate A and
+  device memory/comfort remain open. Upstream S5-05 remains Card browse/snap.
 - Formal Settings IA and
   `Settings → Agent → Soul` belong to later Stage 5 slices; Memory, Skills, MCP and
   Subagent remain later stages.
