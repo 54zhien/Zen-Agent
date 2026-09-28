@@ -73,4 +73,43 @@ struct SurfaceLiftHostTests {
         #expect(driver.state.phase == .full && host.presentation == .full)
         #expect(!driver.canArm(SurfaceLiftEligibility()))
     }
+
+    @Test func interruptedAnimatorCannotReapplyCardAfterReturn() async throws {
+        let host = ConversationSurfaceViewController(content: Text("interruptible"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let child = host.contentController
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        #expect(driver.arm(SurfaceLiftEligibility()))
+        #expect(driver.drag(upwardDistance: 120, eligibility: SurfaceLiftEligibility()))
+        #expect(driver.end() != nil)
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(driver.returnToFull(animated: false))
+        #expect(driver.state.phase == .full && host.presentation == .full)
+        try await Task.sleep(for: .milliseconds(450))
+        #expect(driver.state.phase == .full && host.presentation == .full)
+        #expect(host.contentController === child)
+        #expect(child.view.isUserInteractionEnabled && !child.view.accessibilityElementsHidden)
+    }
+
+    @Test func viewportChangeCancelsBoundLiftAndRequiresFreshGesture() {
+        let host = ConversationSurfaceViewController(content: Text("resize"))
+        host.loadViewIfNeeded()
+        host.view.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        host.view.layoutIfNeeded()
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        #expect(driver.arm(SurfaceLiftEligibility()))
+        #expect(driver.drag(upwardDistance: 96, eligibility: SurfaceLiftEligibility()))
+        host.view.frame = CGRect(x: 0, y: 0, width: 800, height: 400)
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+        #expect(driver.state.phase == .full && host.presentation == .full)
+        #expect(!driver.drag(upwardDistance: 180, eligibility: SurfaceLiftEligibility()))
+        #expect(driver.end() == nil)
+    }
 }

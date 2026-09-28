@@ -29,6 +29,9 @@ final class SurfaceLiftUITests: XCTestCase {
         let editor = app.textViews["conversation-composer-input"]
         let saved = editor.value as? String
         let reading = app.buttons["conversation-reading-test-inject-delta"].value as? String
+        let anchor = app.staticTexts["OLDER_READING_POSITION_ANCHOR_TURN_10"]
+        XCTAssertTrue(anchor.exists && anchor.isHittable)
+        let originalAnchor = anchor.frame
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let end = start.withOffset(CGVector(dx: 0, dy: -220))
         start.press(forDuration: 0.7, thenDragTo: end)
@@ -41,6 +44,9 @@ final class SurfaceLiftUITests: XCTestCase {
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         XCTAssertEqual(editor.value as? String, saved)
         XCTAssertEqual(app.buttons["conversation-reading-test-inject-delta"].value as? String, reading)
+        XCTAssertTrue(anchor.isHittable)
+        XCTAssertEqual(anchor.frame.minY, originalAnchor.minY, accuracy: 3)
+        XCTAssertEqual(anchor.frame.height, originalAnchor.height, accuracy: 3)
     }
 
     @MainActor
