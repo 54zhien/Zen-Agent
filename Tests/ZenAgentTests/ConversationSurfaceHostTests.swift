@@ -44,6 +44,7 @@ struct ConversationSurfaceHostTests {
         let editorCount = textViews(in: host.view).count
         let child = host.contentController
         let originalBounds = child.view.bounds
+        let originalInsets = child.view.safeAreaInsets
         let composer = pane.composer
         let reading = pane.readingPosition
         _ = pane.updateReading(.userScrolled(geometry: ScrollGeometry(viewportHeight: 300, contentHeight: 1000, offset: 400), anchor: TurnAnchor(runID: "surface-active-run", relativeViewportOffset: -0.2)))
@@ -55,6 +56,7 @@ struct ConversationSurfaceHostTests {
             host.view.layoutIfNeeded()
             #expect(host.contentController === child)
             #expect(child.view.bounds == originalBounds)
+            #expect(child.view.safeAreaInsets == originalInsets)
             #expect(pane.composer === composer)
             #expect(pane.readingPosition === reading)
             #expect(pane.composer.draft == draft)

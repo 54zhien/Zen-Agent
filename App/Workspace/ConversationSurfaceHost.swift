@@ -24,13 +24,13 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
 
 @MainActor
 final class ConversationSurfaceViewController<Content: View>: UIViewController {
-    let contentController: UIHostingController<Content>
+    let contentController: SurfaceHostingController<Content>
     let surfaceView = UIView()
     private(set) var presentation = SurfaceGeometry.Presentation.full
     private var request = SurfaceGeometry.Request.full
 
     init(content: Content, request: SurfaceGeometry.Request = .full) {
-        contentController = UIHostingController(rootView: content)
+        contentController = SurfaceHostingController(rootView: content)
         if request.isValid { self.request = request }
         super.init(nibName: nil, bundle: nil)
     }
@@ -64,7 +64,13 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         let center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
         if surfaceView.bounds != bounds { surfaceView.bounds = bounds }
         if surfaceView.center != center { surfaceView.center = center }
+        contentController.preserveContainerSafeArea(view.safeAreaInsets)
         _ = apply(request)
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        contentController.preserveContainerSafeArea(view.safeAreaInsets)
     }
 
     @discardableResult
@@ -81,4 +87,38 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     override var childForStatusBarStyle: UIViewController? { contentController }
     override var childForStatusBarHidden: UIViewController? { contentController }
     override var childForHomeIndicatorAutoHidden: UIViewController? { contentController }
+}
+
+@MainActor
+final class SurfaceHostingController<Content: View>: UIHostingController<Content> {
+    private var containerInsets: UIEdgeInsets?
+    private var isAdjustingInsets = false
+
+    func preserveContainerSafeArea(_ insets: UIEdgeInsets) {
+        containerInsets = insets
+        reconcileInsets()
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        reconcileInsets()
+    }
+
+    private func reconcileInsets() {
+        guard let target = containerInsets, !isAdjustingInsets else { return }
+        let current = view.safeAreaInsets
+        let added = additionalSafeAreaInsets
+        // UIKit recalculates inherited insets from the transformed child's placement.
+        // Keep the untransformed container's layout safe area; keyboard handling remains
+        // the hosting controller's native SwiftUI path, independent of this correction.
+        let corrected = UIEdgeInsets(top: added.top + target.top - current.top,
+                                     left: added.left + target.left - current.left,
+                                     bottom: added.bottom + target.bottom - current.bottom,
+                                     right: added.right + target.right - current.right)
+        guard abs(corrected.top - added.top) > 0.01 || abs(corrected.left - added.left) > 0.01
+            || abs(corrected.bottom - added.bottom) > 0.01 || abs(corrected.right - added.right) > 0.01 else { return }
+        isAdjustingInsets = true
+        additionalSafeAreaInsets = corrected
+        isAdjustingInsets = false
+    }
 }
