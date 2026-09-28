@@ -90,7 +90,7 @@ final class SurfaceLiftController {
     func canArm(_ input: SurfaceLiftEligibility) -> Bool {
         state.phase == .full && guarded(input).allowsLift && resolveTarget?(minimumCardSize) != nil
     }
-    func arm(_ input: SurfaceLiftEligibility, at point: CGPoint = .zero) -> Bool {
+    func arm(_ input: SurfaceLiftEligibility) -> Bool {
         guard canArm(input), let pose = resolveTarget?(minimumCardSize) else { return false }
         target = pose
         let armed = state.arm(guarded(input))
@@ -98,12 +98,14 @@ final class SurfaceLiftController {
         return armed
     }
     func drag(upwardDistance: Double, eligibility: SurfaceLiftEligibility) -> Bool {
+        guard state.phase == .armed || state.phase == .lifting else { return false }
         let dragged = state.drag(upwardDistance: upwardDistance, eligibility: guarded(eligibility))
         updatePresentation()
         return dragged
     }
     @discardableResult
     func end(cancelled: Bool = false, animated: Bool = true) -> SurfaceLiftState.Settlement? {
+        guard state.phase == .armed || state.phase == .lifting else { return nil }
         let settlement = state.end(cancelled: cancelled)
         interaction?(state.phase)
         if let settlement { animate?(settlement, animated) } else { updatePresentation() }
@@ -111,6 +113,7 @@ final class SurfaceLiftController {
     }
     @discardableResult
     func returnToFull(animated: Bool = true) -> Bool {
+        guard state.phase == .card || state.phase == .settling || state.phase == .lifting else { return false }
         guard let settlement = state.requestReturn(visibleProgress: capture?()) else { return false }
         interaction?(state.phase)
         animate?(settlement, animated)

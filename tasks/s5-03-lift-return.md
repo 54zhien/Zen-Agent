@@ -71,3 +71,27 @@ The DEBUG route uses the same driver with a real long-reading Pane.
 Full implementation CI and independent whole-branch review are pending. The UI
 query for Current uses any accessibility element with its identifier to accommodate
 its semantic button role; existence/tap/absence assertions remain required.
+
+## Integration regression and late-event fix
+
+`d2cb4ff`, [CI36390325055](https://github.com/54zhien/Zen-Agent/actions/runs/36390325055)
+attempt1 built the App and passed684 Swift Testing/108 suites and20XCTest units.
+The three new Lift UI tests passed, including actual drag/Return and older-message
+rendered position; one old immediate Chinese-value assertion failed, so the full
+CI was not green. Its same condition had failed before native Lift was introduced
+in S5-02. Preserve that observation without attributing or claiming to repair it.
+
+Test-only `ca558f289e4a0e033e3a9d7ab25fd69cd14d2d4c`,
+[CI36391582005](https://github.com/54zhien/Zen-Agent/actions/runs/36391582005) attempt1:
+686 Swift Testing/108 suites failed one actual-host assertion: ignored late
+drag/end events overwrote the animator model endpoint with settlement start progress.
+20XCTest units and all11UI tests passed, including the same Chinese condition with
+an observed-value diagnostic. One test-run start; no restart. Native source
+registration/dismantle and the actual-driver retained-owner variant passed.
+
+The fix ignores drag/end outside armed/lifting before any presentation write.
+Return captures pixels only in phases that can return. Gesture coordinates remain
+owned by the native interaction helper; the unused coordinator point argument is
+removed. Supplemental checks retain native editor selection and settled safe area,
+and verify configured transport/editor/recognizer teardown. Full GREEN and review
+are still required before integration.

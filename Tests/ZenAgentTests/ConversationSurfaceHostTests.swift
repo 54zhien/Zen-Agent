@@ -42,6 +42,7 @@ struct ConversationSurfaceHostTests {
         host.view.layoutIfNeeded()
         try await Task.sleep(for: .milliseconds(100))
         let editor = try #require(textViews(in: host.view).first)
+        let editorSelection = editor.selectedRange
         let editorCount = textViews(in: host.view).count
         let child = host.contentController
         let originalBounds = child.view.bounds
@@ -74,16 +75,22 @@ struct ConversationSurfaceHostTests {
             #expect(driver.drag(upwardDistance: 180, eligibility: SurfaceLiftEligibility()))
             #expect(driver.end(animated: false)?.destination == .card)
             #expect(driver.state.phase == .card)
+            try await settleLayout(host)
             #expect(textViews(in: host.view).first === editor)
             #expect(textViews(in: host.view).count == editorCount)
             #expect(child.view.bounds == originalBounds)
+            #expect(child.view.safeAreaInsets == originalInsets)
+            #expect(editor.selectedRange == editorSelection)
             #expect(pane.composer.draft == draft && pane.liveStore.state == state)
             #expect(reading.mode == readingMode)
             #expect(driver.returnToFull(animated: false))
+            try await settleLayout(host)
             #expect(host.contentController === child && pane.composer === composer)
             #expect(pane.readingPosition === reading)
             #expect(textViews(in: host.view).first === editor)
             #expect(textViews(in: host.view).count == editorCount)
+            #expect(child.view.safeAreaInsets == originalInsets)
+            #expect(editor.selectedRange == editorSelection)
             #expect(pane.composer.draft == draft && pane.liveStore.state == state)
             #expect(reading.mode == readingMode)
         }

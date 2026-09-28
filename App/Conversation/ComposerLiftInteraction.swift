@@ -73,7 +73,7 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
         let point = gesture.location(in: window)
         switch gesture.state {
         case .began:
-            origin = configuration.driver.arm(input, at: point) ? point : nil
+            origin = configuration.driver.arm(input) ? point : nil
         case .changed:
             guard let origin else { return }
             if !configuration.driver.drag(upwardDistance: Double(origin.y - point.y), eligibility: input) {
