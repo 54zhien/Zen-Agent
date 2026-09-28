@@ -83,3 +83,11 @@ New creation, Pin/Rename/Delete/Undo/Split/Sidebar/Search/Files/Settings paths.
 Review focus: actual production input paths, release counts and weak references,
 session/Run ownership under interleaving, remount offset/part correctness, disclosure
 and bounded history queries, honest failure handling, accessibility and cancellation.
+
+## Requested pause boundary
+
+The user requested stopping after the current part during Task2. Finish Task2
+bounded summary/status/Recent pagination and obtain real complete CI, then pause
+before Task3. Keep this S5-04 branch draft and unmerged; the single fresh whole-
+branch review remains after Task3. Current evidence is recorded in the task gate
+and draft PR19. Do not start S5-05 or treat CI as physical Gate A acceptance.

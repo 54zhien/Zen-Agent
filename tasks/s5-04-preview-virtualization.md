@@ -6,9 +6,11 @@ Blueprint baseline596a84d4b58769e3e7b838be95edcb43f9e0ec82 and supplied Stage5
 plan define intent; [implementation plan](../Docs/Plans/2026-09-28-s5-04-preview-virtualization.md)
 records ownership, failures, cancellation and file boundaries.
 
-Current state: Task1 owner/Router source resolves its first compiled regressions;
-late-callback and terminal-Part fixes plus real Runtime remount probes await full
-GREEN. Tasks2/3 and whole-branch review remain. Gate A remains open.
+Current state: Task1 is closed with real GREEN evidence below. Task2 source
+implements bounded summaries/status and Recent pagination/error retry; its latest
+CI result is maintained in [draft PR19](https://github.com/54zhien/Zen-Agent/pull/19).
+Task3 has not started; whole-branch review and merge remain. At the user's request,
+work pauses after the Task2 gate. Gate A remains open.
 
 Initial regression contract: detached active Run releases its Full Pane and live
 store without losing route; hidden tokens do not repaint an outgoing display;
@@ -117,3 +119,10 @@ Times are CI fixtures, not device performance. This authorizes the minimal
 pagination/error retry source: retry the failed page using its retained cursor,
 append unique identities, publish exhaustion, expose More/retry in existing Recent.
 Corrupt summary content has an explicit row indicator. Full GREEN pending.
+
+Task2 pagination fix: bb044d72e6c83c064ddea83cfe69fc19485477f7,
+tree4ef4e9d387a74543825a889dc4efb3a9fa87a84f. Capability scaffolds are removed;
+More/retry are real store reads, and unavailable-content rows have an indicator.
+The final documentation checkpoint preserves this production source and records
+the pause boundary. See PR19 for its actual final CI outcome; no Task3, whole-
+branch completion, mainline merge or physical acceptance is implied here.
