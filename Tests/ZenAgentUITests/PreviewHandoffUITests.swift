@@ -43,6 +43,7 @@ final class PreviewHandoffUITests: XCTestCase {
             format: "label == %@ OR value == %@", "PREVIEW_READING_ANCHOR_10", "PREVIEW_READING_ANCHOR_10")).firstMatch
         XCTAssertTrue(anchor.exists && anchor.isHittable)
         let original = anchor.frame
+        print("PREVIEW_READING_BEFORE frame=\(original) \(app.staticTexts["preview-reading-diagnostic"].label)")
         let editor = app.textViews["conversation-composer-input"]
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
@@ -51,6 +52,7 @@ final class PreviewHandoffUITests: XCTestCase {
         app.descendants(matching: .any)["workspace-current-card"].tap()
         expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" }
         expect { (position.value as? String) == "settled" && anchor.isHittable }
+        print("PREVIEW_READING_AFTER frame=\(anchor.frame) \(app.staticTexts["preview-reading-diagnostic"].label)")
         XCTAssertEqual(anchor.frame.minY, original.minY, accuracy: 3)
         XCTAssertEqual(anchor.frame.height, original.height, accuracy: 3)
     }

@@ -27,6 +27,11 @@ struct ConversationPreviewUITestFixture: View {
 
     var body: some View {
         AppShellRootView(model: model)
+            .overlay(alignment: .bottomLeading) {
+                Text(model.pane?.previewReadingDiagnosticForUITest ?? "Preview")
+                    .font(.system(size: 1)).frame(width: 1, height: 1)
+                    .accessibilityIdentifier("preview-reading-diagnostic")
+            }
             .overlay(alignment: .topLeading) {
                 if !model.previewContent.isPresented {
                     Button("Position older Turn") {

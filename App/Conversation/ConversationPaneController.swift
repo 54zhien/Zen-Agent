@@ -155,6 +155,8 @@ final class ConversationPaneController {
     }
 
 #if DEBUG
+    var previewReadingDiagnosticForUITest = ""
+
     func restoreAnchorForUITest(_ anchor: TurnAnchor) {
         readingPosition.setReadingAnchorForUITest(anchor)
         enqueue(.restoreAnchor(anchor))

@@ -390,6 +390,7 @@ struct ConversationTimelineView: View {
 #if DEBUG
         if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1",
            case .reading(let anchor, _) = scrollBridge.pane.readingPosition.mode {
+            scrollBridge.pane.previewReadingDiagnosticForUITest = "viewport=\(geometry.viewportHeight) offset=\(geometry.offset) turnFrame=\(String(describing: turnFrames[anchor.runID])) anchor=\(anchor.relativeViewportOffset) clearance=\(bottomComposerClearance)"
             print("PREVIEW_READING_ACK sequence=\(request.sequence) viewport=\(geometry.viewportHeight) offset=\(geometry.offset) turnFrame=\(String(describing: turnFrames[anchor.runID])) anchor=\(anchor.relativeViewportOffset) clearance=\(bottomComposerClearance)")
         }
 #endif
