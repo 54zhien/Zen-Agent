@@ -35,7 +35,7 @@ struct SurfaceGeometryTests {
             .init(scale: 1, translation: CGSize(width: CGFloat.infinity, height: 0), cornerRadius: 0),
             .init(scale: 1, translation: .zero, cornerRadius: -1),
             .init(scale: 1, translation: .zero, cornerRadius: .infinity),
-            .init(scale: 1, translation: CGSize(width: .greatestFiniteMagnitude, height: 0), cornerRadius: 0)
+            .init(scale: 1, translation: CGSize(width: CGFloat.greatestFiniteMagnitude, height: 0), cornerRadius: 0)
         ] {
             #expect(SurfaceGeometry.resolve(size: size, safeArea: insets, request: .init(to: badPose, progress: 1)) == nil)
             #expect(SurfaceGeometry.resolve(size: size, safeArea: insets, request: .init(from: badPose, to: target, progress: 0)) == nil)
