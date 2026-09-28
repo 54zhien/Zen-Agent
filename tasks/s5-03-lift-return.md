@@ -1,0 +1,41 @@
+# S5-03 — continuous Surface Lift / Return
+
+Work in progress; contract: [implementation plan](../Docs/Plans/2026-09-28-s5-03-lift-return.md).
+Base `e679abf2faf556d08f217795570f9f49077c4c14`, Blueprint
+`596a84d4b58769e3e7b838be95edcb43f9e0ec82`.
+
+## State boundary
+
+Value-only presentation state distinguishes Full, armed, lifting, settling and Card.
+Long press alone never commits Card. Finite drag progress can reverse; unsafe input
+invalidates the current gesture. Settlement identity rejects late callbacks. Return
+can start from a captured visible position. This does not own a Pane, Draft or Run.
+
+The current-gesture IME policy refuses Lift and preserves input; it never queues or
+automatically replays navigation after composition. This reversible implementation
+ruling follows the upstream exclusion of Editing/marked text. The optional owner
+preference question remains available. Keyboard transition is independently unsafe,
+including a hardware keyboard with no onscreen height. UIKit must supply actual
+readiness; pure state tests alone do not establish that wiring.
+
+## Evidence
+
+- S5-02 main CI36383328968 attempt1 passed668 Swift Testing/105 suites,20XCTest units,
+  8UI tests. Its merged tree equals tested `48fdc62`; primary Desktop main synchronized.
+- Initial S5-03 candidate `efbda712d5ce79ddadeed9ef87b780a91e662b51`, run36384225700,
+  cancelled when replaced by test-only macro compatibility correction. Not RED evidence.
+- Corrected candidate `95ff22f4c9624b5e95cec8b7f2b80b24b2a7c8f5`,
+  [CI36384393779](https://github.com/54zhien/Zen-Agent/actions/runs/36384393779) attempt1:
+  App build passed; compiled behavioral RED675 Swift Testing/106 suites with55 issues,
+  all in SurfaceLiftStateTests.20XCTest units and8UI tests passed; one Swift Testing
+  run start, no test-host restart. No production input/host/Runtime path changed.
+- Latest head/implementation verification: [PR #18](https://github.com/54zhien/Zen-Agent/pull/18).
+  Task1 GREEN pending; Task2 actual Composer/Surface integration and real gesture/host
+  UI tests still pending. No integration or working Lift claim from pure tests.
+
+Threshold12pt/180pt/0.5 is a calibration starting point, not a permanent product rule.
+Task2 uses uniform live-content scaling plus an outer crop to the Current card boundary;
+it must prove continuous endpoints and stable internal layout before real handoff.
+Catalog/real summary previews remain S5-04; browse/Split/creation/decoration remain later.
+No physical-device interaction/IME/readability/VoiceOver/performance evidence yet;
+Stage5/Gate A remain open. No dependency, schema, signing or build-setting change.
