@@ -11,7 +11,8 @@ Task1/Task2 CI36415710769 passed at the baseline. Task3 has not started.
 - Owner confirmed protection of unsaved state and active Runs on 2026-09-28.
   Keep at most ten safely reconstructible warm sessions. Protected sessions may
   exceed this budget. Never stop a Run or discard a Draft to satisfy the budget.
-- Protect Draft text/selection/references/attachments/presentation, composing or
+- For retained persisted Conversation sessions, protect Draft text/selection/
+  references/attachments/presentation, composing or
   dragging input, non-bottom reading mode and changed configuration. Cold history
   configuration still uses the existing persisted parent seed. No new persistence.
 - Extract Pane construction/configuration/bridge assembly to a concrete factory;
@@ -68,3 +69,34 @@ Task1/Task2 CI36415710769 passed at the baseline. Task3 has not started.
 - Typed readiness is published in Recent presentation; data-layer corruption
   evidence and existing Run Card status stay separate. Restoring/migration/failed
   vocabulary does not manufacture a migration or a new Preview UI flow.
+
+## Independent stabilization review
+
+One fresh read-only review of3d366b8..97e8869 found no Critical/Important issue.
+Minor wording about Draft protection is clarified above. The reviewer did not
+execute Swift/macOS CI; final full CI remains mandatory. This review covers
+stabilization, not the premature whole-S5-04 gate before Task3.
+
+Rulings for the review's declined scopes:
+- Retained persisted Conversation sessions are protected under eviction pressure.
+  An uncommitted new page has no durable row and no existing return path; its
+  baseline navigation behavior stays unchanged. A cache of unreachable pages is
+  not recovery. Cost if wrong: leaving an unsent new page still discards its Draft;
+  separately specify the New lifecycle before S5-06 implementation.
+- newConversation detach-before-install atomicity remains baseline behavior,
+  excluded from this pass. Cost if wrong: a new-page install failure loses the
+  outgoing display; review that failure contract when implementing New.
+- S5-04 Task3 preview/native-editor handoff, actual native selection remount and
+  zero stable-Card editors remain unimplemented. Cost if wrong: merging now would
+  advertise virtualization while still retaining the old Full editor prototype.
+- Physical comfort/memory/Gate A remain unobserved. Protected owners may exceed
+  ten; eviction is opportunistic on successful navigation, not a strict total
+  memory cap. Cost if wrong: device profiling may require a separately designed
+  durable Draft/reading snapshot policy.
+- Restoring/migration/failed enum vocabulary does not implement UI workflows.
+  Cost if wrong: claiming those paths would misrepresent recovery functionality.
+
+Candidate97e8869 generated/built successfully in CI36427796710 before the final
+review/scope documentation checkpoint. Do not use a superseded run as full GREEN.
+The exact final checkpoint and its complete CI receipt are maintained in PR19;
+no merge/S5-04 closure is authorized by this stabilization-only evidence.

@@ -9,7 +9,7 @@ records ownership, failures, cancellation and file boundaries.
 Current state: Task1 and Task2 have real GREEN evidence in PR19. The owner
 resumed work on 2026-09-28 for the [Stabilization Pass](../Docs/Plans/2026-09-28-s5-04-stabilization.md),
 protecting unsaved state and active Runs when the safe warm cache exceeds ten.
-Store/Factory/typed-readiness source is pending complete CI. Task3 has not started;
+Store/Factory/typed-readiness source and exact final CI evidence are maintained in PR19. Task3 has not started;
 production Preview/native editor handoff, whole S5-04 review and merge remain.
 Gate A remains open. Stabilization does not close S5-04 or authorize browse/snap.
 
@@ -152,3 +152,11 @@ Unknown/corrupt reconstruction keeps the session; successful navigation triggers
 eviction without touching Runtime. Preview content readiness is separate from
 existing Run Card status. Supplementary new-API tests cover input branches and
 reconstruction; full GREEN and stabilization review remain pending.
+
+One independent read-only stabilization review at97e8869 found no Critical or
+Important findings. Minor scope wording is clarified in the Stabilization plan:
+protection applies to retained persisted Conversation sessions; uncommitted new
+pages retain their baseline lifecycle and no reachable Draft recovery is claimed.
+The review's declined scopes and costs are recorded there. This is not the final
+whole-S5-04 review; Task3 and physical Gate A remain. Exact final full CI evidence
+is maintained in PR19, including tested HEAD/tree and unmerged/draft status.
