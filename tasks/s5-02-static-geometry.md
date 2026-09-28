@@ -52,3 +52,11 @@ No physical-device geometry/readability/Dynamic Type/VoiceOver/rotation/performa
 measurement is claimed. Static layout containment does not settle formal App Space
 landscape behavior. Gate A/Stage5 remain open; real catalog/virtualization is S5-04,
 browse/snap S5-05, explicit creation S5-06. Lift/Return begins in S5-03 after integration.
+
+## Subsequent main CI
+
+PR #17 merged at `e679abf2faf556d08f217795570f9f49077c4c14` after independent whole-branch
+review found no Critical/Important/Minor issues. [Main CI36383328968](https://github.com/54zhien/Zen-Agent/actions/runs/36383328968)
+attempt1 passed actual668 Swift Testing/105 suites,20XCTest units,8UI tests. Its tree
+matches tested `48fdc62f4b3bee5693044350ed82f9711d26e44a`. Primary Desktop main synchronized
+clean. Physical-device acceptance remains open. S5-03 proceeds separately.
