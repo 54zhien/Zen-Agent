@@ -121,7 +121,7 @@ struct ConversationSurfaceHostTests {
         #expect(host.surfaceView.transform == .identity)
     }
 
-    @Test func containerSafeAreaChangesWhileScaledConverge() {
+    @Test func containerSafeAreaChangesWhileScaledConverge() async throws {
         let host = ConversationSurfaceViewController(content: Text("safe area"))
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
         window.rootViewController = host
@@ -129,12 +129,13 @@ struct ConversationSurfaceHostTests {
         defer { window.isHidden = true; window.rootViewController = nil }
         host.view.layoutIfNeeded()
         for insets in [UIEdgeInsets(top: 21, left: 9, bottom: 13, right: 7), .zero] {
+            #expect(host.apply(.init(to: .init(scale: 0.6, translation: CGSize(width: 0.1, height: -0.2), cornerRadius: 24), progress: 1)))
+            try await settleLayout(host)
             host.additionalSafeAreaInsets = insets
-            host.view.setNeedsLayout()
-            host.view.layoutIfNeeded()
+            try await settleLayout(host)
             for progress in [CGFloat(0.5), 1, 0.5, 0] {
                 #expect(host.apply(.init(to: .init(scale: 0.6, translation: CGSize(width: 0.1, height: -0.2), cornerRadius: 24), progress: progress)))
-                host.view.layoutIfNeeded()
+                try await settleLayout(host)
                 #expect(host.contentController.view.safeAreaInsets == host.view.safeAreaInsets)
                 let settled = host.contentController.additionalSafeAreaInsets
                 for _ in 0..<3 {
@@ -144,6 +145,17 @@ struct ConversationSurfaceHostTests {
                     #expect(host.contentController.view.safeAreaInsets == host.view.safeAreaInsets)
                 }
             }
+        }
+    }
+
+    private func settleLayout(_ host: UIViewController) async throws {
+        // UIKit propagates changed ancestor insets through subsequent layout passes.
+        // The convergence contract is checked after that propagation, then challenged
+        // with extra layouts whose compensation values must remain unchanged.
+        for _ in 0..<3 {
+            host.view.setNeedsLayout()
+            host.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(20))
         }
     }
 
