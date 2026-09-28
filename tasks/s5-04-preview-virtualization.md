@@ -160,3 +160,16 @@ pages retain their baseline lifecycle and no reachable Draft recovery is claimed
 The review's declined scopes and costs are recorded there. This is not the final
 whole-S5-04 review; Task3 and physical Gate A remain. Exact final full CI evidence
 is maintained in PR19, including tested HEAD/tree and unmerged/draft status.
+
+
+## Task3 authorized continuation
+
+The owner said continue after the corrected route: resume Task3, final whole-branch
+review and merge only after exact-tree GREEN. Base bc09cf4 is preserved by
+codex/s5-04-before-task3. No S5-05 or new persistence/Runtime functionality.
+Ruling: use bounded current summary plus its next three keyset predecessors;
+new uncommitted page uses an empty preview and retains its session for Return.
+This does not create a new-page navigation recovery feature. Cost if wrong:
+Card ordering/new-page ownership must be refined before browse, not hidden editors retained.
+Task3 starts with runnable inert handoff APIs and production native-editor/weak-owner
+regressions; no missing-symbol compilation is counted as behavioral RED.

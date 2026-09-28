@@ -62,6 +62,14 @@ final class AppShellModel {
         else { refreshRecentConversations() }
     }
 
+    let previewContent = ConversationPreviewController()
+
+    // Runnable capability scaffold; production handoff follows compiled behavior RED.
+    func enterPreview() -> Bool { true }
+    func preparePreviewReturn() async -> Bool { true }
+    func commitPreviewReturn() -> Bool { true }
+    func cancelPreviewReturn() {}
+
     private(set) var pane: ConversationPaneController?
     private(set) var actionBridge: ComposerRuntimeActionBridge?
     private(set) var providerSetup: ProviderSetupModel?

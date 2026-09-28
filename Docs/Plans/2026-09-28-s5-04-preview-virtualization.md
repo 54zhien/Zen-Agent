@@ -95,3 +95,16 @@ and draft PR19. Do not start S5-05 or treat CI as physical Gate A acceptance.
 2026-09-28 continuation: the owner requested ownership stabilization and confirmed
 protected-state overflow. The separate Stabilization plan records the scope.
 Task3 remains unstarted; the previous pause is resumed for stabilization only.
+
+
+## Task3 authorized continuation
+
+The owner said continue after the corrected route: resume Task3, final whole-branch
+review and merge only after exact-tree GREEN. Base bc09cf4 is preserved by
+codex/s5-04-before-task3. No S5-05 or new persistence/Runtime functionality.
+Ruling: use bounded current summary plus its next three keyset predecessors;
+new uncommitted page uses an empty preview and retains its session for Return.
+This does not create a new-page navigation recovery feature. Cost if wrong:
+Card ordering/new-page ownership must be refined before browse, not hidden editors retained.
+Task3 starts with runnable inert handoff APIs and production native-editor/weak-owner
+regressions; no missing-symbol compilation is counted as behavioral RED.

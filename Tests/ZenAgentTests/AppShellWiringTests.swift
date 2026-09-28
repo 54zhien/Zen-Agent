@@ -1,5 +1,7 @@
 import Foundation
 import GRDB
+import SwiftUI
+import UIKit
 import Testing
 
 @testable import ZenAgent
@@ -18,6 +20,92 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("stable Preview releases its Pane/live store and returns the same logical session")
+    func previewReleasesDisplayAndRestoresSession() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in try Fixtures.conversation(id: "preview-owner").insert(db) }
+        #expect(fixture.model.openConversation(id: "preview-owner"))
+        let session = try #require(fixture.model.pane?.session)
+        session.composer.draft.text = "你好 Preview draft"
+        session.composer.draft.selection = ComposerSelection(range: 3..<10)
+        let saved = session.composer.draft
+        weak var oldPane = fixture.model.pane
+        weak var oldStore = fixture.model.pane?.liveStore
+        for _ in 0..<5 {
+            #expect(fixture.model.enterPreview())
+            #expect(fixture.model.pane == nil)
+            #expect(fixture.model.actionBridge == nil)
+            #expect(oldPane == nil && oldStore == nil)
+            #expect(fixture.model.previewContent.isPresented)
+            #expect(await fixture.model.preparePreviewReturn())
+            // Preparation must not attach/render the Full Pane before the late handoff.
+            #expect(fixture.model.pane == nil)
+            #expect(fixture.model.commitPreviewReturn())
+            #expect(fixture.model.pane?.session === session)
+            #expect(fixture.model.pane?.composer.draft == saved)
+            #expect(!fixture.model.previewContent.isPresented)
+            oldPane = fixture.model.pane
+            oldStore = fixture.model.pane?.liveStore
+        }
+    }
+
+    @Test("Preview reads current plus three predecessors from 1000 histories and preserves Full on failure")
+    func previewWindowIsBoundedAndReadFailureKeepsOwner() throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            for index in 0..<1_000 {
+                let id = String(format: "preview-bounded-%04d", index)
+                try Fixtures.conversation(id: id, title: "Preview \(index)").insert(db)
+            }
+        }
+        #expect(fixture.model.openConversation(id: "preview-bounded-0050"))
+        #expect(fixture.model.enterPreview())
+        #expect(fixture.model.previewContent.summaries.map(\.id) == (50...53).map {
+            String(format: "preview-bounded-%04d", $0)
+        })
+        #expect(try fixture.store.conversation(id: "preview-bounded-0050")?.userActiveAt == Fixtures.epoch)
+        #expect(fixture.model.openConversation(id: "preview-bounded-0051"))
+        let full = try #require(fixture.model.pane)
+        try fixture.store.database.write { db in try db.execute(sql: "DROP TABLE conversation") }
+        #expect(!fixture.model.enterPreview())
+        #expect(fixture.model.pane === full)
+        #expect(fixture.model.previewContent.errorMessage != nil)
+    }
+
+    @Test("production SwiftUI Preview dismantles the actual native editor and remounts its UTF16 selection")
+    func nativePreviewEditorReleaseAndSelection() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let session = try #require(fixture.model.pane?.session)
+        session.composer.draft.text = "你好 🌍 draft selection"
+        session.composer.draft.selection = ComposerSelection(range: 3..<5)
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: AppShellRootView(model: fixture.model))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        func editor(in view: UIView) -> UITextView? {
+            if let text = view as? UITextView, text.accessibilityIdentifier == "conversation-composer-input" { return text }
+            return view.subviews.lazy.compactMap { editor(in: $0) }.first
+        }
+        for _ in 0..<40 where editor(in: host.view) == nil { try await Task.sleep(for: .milliseconds(25)) }
+        weak var oldEditor = try #require(editor(in: host.view))
+        #expect(oldEditor?.selectedRange == NSRange(location: 3, length: 2))
+        #expect(fixture.model.enterPreview())
+        for _ in 0..<40 where editor(in: host.view) != nil { try await Task.sleep(for: .milliseconds(25)) }
+        #expect(editor(in: host.view) == nil)
+        #expect(oldEditor == nil)
+        #expect(await fixture.model.preparePreviewReturn())
+        #expect(fixture.model.commitPreviewReturn())
+        for _ in 0..<40 where editor(in: host.view) == nil { try await Task.sleep(for: .milliseconds(25)) }
+        let remounted = try #require(editor(in: host.view))
+        #expect(remounted.text == session.composer.draft.text)
+        #expect(remounted.selectedRange == NSRange(location: 3, length: 2))
+    }
+
     @Test("safe warm sessions are bounded while drafts survive cache pressure")
     func warmCacheReleasesOnlyReconstructibleSessions() throws {
         let fixture = try makeFixture(seed: .active)
