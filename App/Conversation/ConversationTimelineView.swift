@@ -28,6 +28,7 @@ struct ConversationTimelineView: View {
     var bottomComposerClearance: CGFloat = 62
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.surfaceLiftController) private var surfaceLift
     @ScaledMetric(relativeTo: .body) private var betweenTurns = Metrics.betweenTurns
     @ScaledMetric(relativeTo: .body) private var contentInset = Metrics.contentInset
     @State private var selectedApproval: ToolApprovalProjection?
@@ -120,7 +121,7 @@ struct ConversationTimelineView: View {
                         in: frames,
                         geometry: latestScrollGeometry
                     )
-                    if scrollBridge?.isHeightChangeActive == true {
+                    if acceptsReadingGeometry, scrollBridge?.isHeightChangeActive == true {
                         scrollBridge?.continueHeightChange(
                             geometry: latestScrollGeometry,
                             turnTops: turnTops(in: frames, geometry: latestScrollGeometry)
@@ -136,6 +137,7 @@ struct ConversationTimelineView: View {
             }
             .onScrollPhaseChange { _, phase, context in
                 activeScrollPhase = phase
+                guard acceptsReadingGeometry else { return }
                 switch phase {
                 case .tracking, .interacting:
                     pendingAppliedScroll = nil
@@ -154,6 +156,13 @@ struct ConversationTimelineView: View {
                 @unknown default:
                     break
                 }
+            }
+            .onChange(of: surfaceLift?.state.phase) { _, phase in
+                guard phase == .full, let scrollBridge, let latestScrollGeometry else { return }
+                scrollBridge.endHeightChange()
+                pendingAppliedScroll = nil
+                _ = scrollBridge.pane.updateReading(.geometryChanged(geometry: latestScrollGeometry, anchor: nil))
+                applyPendingScrollIfReady()
             }
             .onChange(of: scrollBridge?.pane.scrollRequest) { _, request in
                 guard let request else {
@@ -210,7 +219,9 @@ struct ConversationTimelineView: View {
         let previousBottomReferenceTurn = latestBottomReferenceTurn
         latestScrollGeometry = geometry
 
-        guard let scrollBridge else { return }
+        // Lift transforms can cause transient safe-area/viewport measurements.
+        // They describe presentation, not a resize of the reader's logical pane.
+        guard acceptsReadingGeometry, let scrollBridge else { return }
         if isUserDrivenScroll {
             pendingAppliedScroll = nil
             scrollBridge.userScrolled(
@@ -244,6 +255,10 @@ struct ConversationTimelineView: View {
         latestBottomReferenceTurn = bottomVisibleTurn(in: turnFrames, geometry: geometry)
         acknowledgeAppliedScrollIfReady(geometry)
         applyPendingScrollIfReady()
+    }
+
+    private var acceptsReadingGeometry: Bool {
+        surfaceLift == nil || surfaceLift?.state.phase == .full
     }
 
     private var isUserDrivenScroll: Bool {
@@ -315,7 +330,7 @@ struct ConversationTimelineView: View {
     }
 
     private func applyScrollRequest(_ request: ConversationPaneScrollRequest) {
-        guard let scrollBridge,
+        guard acceptsReadingGeometry, let scrollBridge,
               scrollBridge.pane.scrollRequest?.sequence == request.sequence,
               !isUserDrivenScroll,
               pendingAppliedScroll?.sequence != request.sequence,

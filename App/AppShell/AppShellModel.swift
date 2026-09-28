@@ -385,8 +385,9 @@ final class AppShellModel {
         guard let visibleIDs = try? dependencies.store.visibleConversations().map(\.id),
               visibleIDs.contains(id) else { return false }
 
-        if id == conversationID, pane != nil {
-            return true
+        if id == conversationID {
+            if pane != nil { return true }
+            if previewContent.prepared != nil { return commitPreviewReturn() }
         }
 
         do {
@@ -410,7 +411,7 @@ final class AppShellModel {
             cancelPreviewReturn()
             previewContent.finish()
             let outgoingConversationID = conversationID
-            router.unregisterPane(for: outgoingConversationID)
+            if outgoingConversationID != id { router.unregisterPane(for: outgoingConversationID) }
             conversationID = id
             actionBridge = wiring.bridge
             pane = wiring.pane

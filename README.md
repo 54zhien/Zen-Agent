@@ -60,7 +60,8 @@ As of 2026-09-28:
   ownership and bounded real-history previews are not yet delivered on main.
 - S5-04 Task1/Task2 and ownership stabilization are on draft PR #19;
   [the slice record](tasks/s5-04-preview-virtualization.md) separates their CI evidence.
-  Production lightweight Preview/native-editor handoff (Task3) remains unimplemented;
+  Production lightweight Preview/native-editor handoff (Task3) is implemented on
+  the branch and completing real CI regressions and whole-branch review.
   S5-04 is not merged or closed. Upstream S5-05 remains Card browse/snap.
 - Formal Settings IA and
   `Settings → Agent → Soul` belong to later Stage 5 slices; Memory, Skills, MCP and

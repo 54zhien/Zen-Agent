@@ -60,8 +60,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     isPresented: { [weak model] in model?.previewContent.isPresented ?? false },
                     label: { [weak model] in
                         guard let model else { return "当前会话" }
-                        let title = model.previewContent.summaries.first { $0.id == model.conversationID }?.title ?? "新会话"
-                        return [title, model.previewContent.errorMessage, "轻点返回会话"].compactMap { $0 }.joined(separator: "，")
+                        return model.previewContent.accessibilityLabel
                     })
             }
             updateMinimumSize()
@@ -74,7 +73,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 model.refreshPreview()
             }
         }
-        .onChange(of: model?.previewContent.errorMessage) { _, _ in lift.refreshCardAccessibility() }
+        .onChange(of: model?.previewContent.accessibilityLabel) { _, _ in lift.refreshCardAccessibility() }
         .onChange(of: dynamicTypeSize) { _, _ in updateMinimumSize() }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { lift.invalidate() }

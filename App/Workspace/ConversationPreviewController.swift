@@ -12,10 +12,20 @@ final class ConversationPreviewController {
     @ObservationIgnored private(set) var prepared: (pane: ConversationPaneController, bridge: ComposerRuntimeActionBridge)?
     @ObservationIgnored private var preparationID: UUID?
 
+    var currentSummary: ConversationSummary? {
+        summaries.first { $0.id == session?.conversationID }
+    }
+
+    var accessibilityLabel: String {
+        [currentSummary?.title ?? "新会话",
+         ConversationCardStatus.derive(from: currentSummary?.runProjection)?.label,
+         errorMessage, "轻点返回会话"].compactMap { $0 }.joined(separator: "，")
+    }
+
     var status: ConversationPreviewStatus {
         if let errorMessage { return .failed(errorMessage) }
         if isPreparing { return .restoring }
-        return summaries.first?.contentUnavailable == true ? .contentUnavailable : .ready
+        return currentSummary?.contentUnavailable == true ? .contentUnavailable : .ready
     }
 
     func present(session: ConversationSession, store: PersistenceStore) -> Bool {

@@ -68,6 +68,11 @@ struct NewConversationView: View {
             }
         }
         .onChange(of: model.conversationID) { _, _ in lift?.resetForConversationChange() }
+        .onChange(of: model.previewContent.isPresented) { _, presented in
+            // Directly opening the current Card has no identity change. Normal
+            // animated Return is already settling and must finish its late segment.
+            if !presented, lift?.state.phase == .card { lift?.resetForConversationChange() }
+        }
     }
 
     private var fullContent: some View {
