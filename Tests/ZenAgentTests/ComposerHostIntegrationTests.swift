@@ -98,6 +98,36 @@ struct ComposerHostIntegrationTests {
                                                     turnFrames: frames))
     }
 
+    @Test("Lift reads native composition and keyboard transition separately")
+    func nativeLiftReadinessDoesNotInferSafetyFromZeroKeyboardHeight() {
+        let (window, host) = installedHost()
+        defer { host.editor.resignFirstResponder(); window.isHidden = true }
+        let editor = host.editor
+        host.configure(configuration(state: .editing))
+        #expect(host.nativeLiftInput.isEditing)
+        #expect(!host.nativeLiftInput.allowsLift)
+        host.configure(configuration(state: .resting))
+        editor.setMarkedText("候选文字", selectedRange: NSRange(location: 2, length: 0))
+        #expect(editor.markedTextRange != nil)
+        #expect(host.nativeLiftInput.hasMarkedText)
+        #expect(!host.nativeLiftInput.allowsLift)
+        #expect(host.editor === editor)
+        editor.unmarkText()
+        let info: [AnyHashable: Any] = [
+            UIResponder.keyboardFrameEndUserInfoKey: CGRect(x: 0, y: window.bounds.maxY,
+                width: window.bounds.width, height: 300),
+            UIResponder.keyboardAnimationDurationUserInfoKey: NSNumber(value: 0.2),
+            UIResponder.keyboardAnimationCurveUserInfoKey: NSNumber(value: 0),
+        ]
+        NotificationCenter.default.post(name: UIResponder.keyboardWillChangeFrameNotification,
+                                        object: window.screen, userInfo: info)
+        #expect(host.nativeLiftInput.keyboardTransitioning)
+        #expect(!host.nativeLiftInput.allowsLift)
+        NotificationCenter.default.post(name: UIResponder.keyboardDidChangeFrameNotification,
+                                        object: window.screen, userInfo: info)
+        #expect(!host.nativeLiftInput.keyboardTransitioning)
+    }
+
     private func installedHost(
         initialState: ComposerPresentationState = .resting
     ) -> (UIWindow, ComposerHostView) {

@@ -195,6 +195,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         keyboardLayoutGuide.layoutFrame.minY - surface.frame.maxY
     }
 
+    // Compilable RED readiness: ignores native editing/composition/keyboard state.
+    var nativeLiftInput: SurfaceLiftEligibility { SurfaceLiftEligibility() }
+
     var surfaceFrame: CGRect { surface.frame }
     var motionGeneration: Int { motion.generation }
     var reportedClearance: CGFloat { lastReportedClearance }
