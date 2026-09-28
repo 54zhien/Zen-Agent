@@ -26,13 +26,13 @@ struct SurfaceGeometryTests {
         for progress in [CGFloat.nan, .infinity, -.infinity] {
             #expect(SurfaceGeometry.resolve(size: size, safeArea: insets, request: .init(to: target, progress: progress)) == nil)
         }
-        for badSize in [CGSize.zero, CGSize(width: -1, height: 800), CGSize(width: .infinity, height: 800)] {
+        for badSize in [CGSize.zero, CGSize(width: -1, height: 800), CGSize(width: CGFloat.infinity, height: 800)] {
             #expect(SurfaceGeometry.resolve(size: badSize, safeArea: insets, request: .full) == nil)
         }
         for badPose in [
             SurfaceGeometry.Pose(scale: 0, translation: .zero, cornerRadius: 0),
             .init(scale: .nan, translation: .zero, cornerRadius: 0),
-            .init(scale: 1, translation: CGSize(width: .infinity, height: 0), cornerRadius: 0),
+            .init(scale: 1, translation: CGSize(width: CGFloat.infinity, height: 0), cornerRadius: 0),
             .init(scale: 1, translation: .zero, cornerRadius: -1),
             .init(scale: 1, translation: .zero, cornerRadius: .infinity),
             .init(scale: 1, translation: CGSize(width: .greatestFiniteMagnitude, height: 0), cornerRadius: 0)
