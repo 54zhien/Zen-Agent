@@ -66,3 +66,22 @@ Fix candidate b820521/CI36409143844 generated and built the App, but new approva
 test omitted the required Pane coalescer argument (test compilation failure).
 No behavioral outcome from that run is counted. Fixture argument repaired; the
 compiled694-test/7-issue RED above remains the production regression evidence.
+
+Task1 GREEN:1cac7b34e76e11e5a8a8425439cd25bd68a3215d,
+tree5fa9df0f935138899a4ea6b25c3d522524300243; CI36409682592 attempt1,
+build/test job108886742072 and hygiene108886675925 passed; Guard36409682620
+passed.697 Swift Testing/108 suites passed in63.262s;20 XCTest units and11UI
+passed (UI256.577s). One test run start/no restart. Real file-backed1000-chunk
+Runtime/remount/reopen test passed11.057s, detached completion/Stop0.107s,
+original-Runtime approval remount/reject0.047s; late-owner and terminal-Part cases
+passed. This closes Task1 code evidence, not S5-04 or physical acceptance.
+
+Task2 RED package uses existing Shell APIs with100/1000 real unnamed histories and
+GRDB7.11.1 statement tracing: bounded50-row first page, fixed query budget, honest
+read-error retention/publication and unchanged activity. New cursor/window/status
+APIs have a minimal runnable scaffold because no prior API existed; it deliberately
+retains whole-list reads, no cursor and incomplete status/data projections. Tests
+cover complete keyset order, pinned/time/id ties, max4 caller-ordered previews,
+extreme page limits, corrupt JSON/shape, provider/model provenance, text bounds and
+the Blueprint status mapping. Compilation alone is not RED. Replace the temporary
+scaffold only after actual behavioral failures; no capability/whole-branch claim yet.

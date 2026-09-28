@@ -31,6 +31,8 @@ final class AppShellModel {
     private(set) var targetMessage: String?
     private(set) var sendAvailability: ComposerSendAvailability = .unconfigured
     private(set) var recentConversations: [RecentConversationSummary] = []
+    // Task2 RED capability field; error publication is exercised before wiring.
+    private(set) var recentLoadError: String?
     private(set) var pane: ConversationPaneController?
     private(set) var actionBridge: ComposerRuntimeActionBridge?
     private(set) var providerSetup: ProviderSetupModel?

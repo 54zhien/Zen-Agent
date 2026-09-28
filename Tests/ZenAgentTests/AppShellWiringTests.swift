@@ -18,6 +18,59 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("recent read failure preserves loaded rows and exposes retry instead of empty history")
+    func recentFailurePreservesRows() throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "recent-survives-read-error", title: "Saved title").insert(db)
+        }
+        fixture.model.refreshRecentConversations()
+        let previous = fixture.model.recentConversations
+        #expect(previous.count == 1)
+        try fixture.store.database.write { db in try db.execute(sql: "DROP TABLE conversation") }
+        fixture.model.refreshRecentConversations()
+        #expect(fixture.model.recentConversations == previous)
+        #expect(fixture.model.recentLoadError != nil)
+    }
+
+    @Test("recent entry reads a bounded first page without per-conversation title queries",
+          arguments: [100, 1_000])
+    func recentFirstPageIsBounded(historyCount: Int) throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            for index in 0..<historyCount {
+                let id = String(format: "bounded-recent-%04d", index)
+                try Fixtures.conversation(id: id, title: "").insert(db)
+                let messageID = "user-\(id)"
+                try Fixtures.message(id: messageID, conversationID: id).insert(db)
+                try Fixtures.textPart(id: "part-\(id)", messageID: messageID,
+                    text: "  question \(index)  ").insert(db)
+            }
+            try Fixtures.conversation(id: "hidden-recent", lifecycle: .pendingDeletion).insert(db)
+        }
+        let trace = S504SQLTrace()
+        try fixture.store.database.read { db in
+            db.trace { event in
+                if case .statement(let statement) = event { trace.record(statement.sql) }
+            }
+        }
+        let clock = ContinuousClock()
+        let begin = clock.now
+        fixture.model.refreshRecentConversations()
+        let elapsed = begin.duration(to: clock.now)
+        try fixture.store.database.read { db in db.trace(nil) }
+        #expect(fixture.model.recentConversations.count == 50)
+        #expect(trace.selectCount <= 2)
+        let first = try #require(fixture.model.recentConversations.first)
+        #expect(first.id == "bounded-recent-0000")
+        #expect(first.title == "question 0")
+        #expect(!fixture.model.recentConversations.contains { $0.id == "hidden-recent" })
+        #expect(try fixture.store.conversation(id: first.id)?.userActiveAt == Fixtures.epoch)
+        print("S504 existing Recent rows=\(historyCount) returned=\(fixture.model.recentConversations.count) SELECTs=\(trace.selectCount) elapsed=\(elapsed)")
+    }
+
     @Test("late send preflight failure updates its original session even when targets match")
     func lateTargetFailureKeepsConversationOwner() async throws {
         let fixture = try makeFixture(seed: .active, scripts: [.events([]), .events([])])
@@ -1204,4 +1257,17 @@ private struct ShellFixture {
     let defaults: UserDefaults
     let defaultsSuite: String
     let model: AppShellModel
+}
+
+// GRDB invokes on its connection queue; the test reads on its own executor.
+final class S504SQLTrace: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var selectCount: Int { lock.withLock { count } }
+    func record(_ sql: String) {
+        let normalized = sql.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if normalized.hasPrefix("SELECT") || normalized.hasPrefix("WITH") {
+            lock.withLock { count += 1 }
+        }
+    }
 }
