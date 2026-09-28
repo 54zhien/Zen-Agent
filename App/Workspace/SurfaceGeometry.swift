@@ -6,6 +6,7 @@ enum SurfaceGeometry {
         let scale: CGFloat
         let translation: CGSize
         let cornerRadius: CGFloat
+        var clipFraction = CGSize(width: 1, height: 1)
         static let full = Pose(scale: 1, translation: .zero, cornerRadius: 0)
 
         var isValid: Bool {
@@ -27,6 +28,7 @@ enum SurfaceGeometry {
         let scale: CGFloat
         let translation: CGSize
         let cornerRadius: CGFloat
+        var clipFraction = CGSize(width: 1, height: 1)
         static let full = Presentation(scale: 1, translation: .zero, cornerRadius: 0)
     }
 

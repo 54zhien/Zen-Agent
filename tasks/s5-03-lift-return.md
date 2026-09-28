@@ -39,3 +39,13 @@ it must prove continuous endpoints and stable internal layout before real handof
 Catalog/real summary previews remain S5-04; browse/Split/creation/decoration remain later.
 No physical-device interaction/IME/readability/VoiceOver/performance evidence yet;
 Stage5/Gate A remain open. No dependency, schema, signing or build-setting change.
+
+## Task1 GREEN and Task2 entry
+
+Core candidate `af284fdcf768c32b83b63264b4a1b9379a3ba1c4`,
+[CI36385602064](https://github.com/54zhien/Zen-Agent/actions/runs/36385602064) attempt1:
+App/XcodeGen build passed;675 Swift Testing/106 suites,20XCTest units,8UI tests passed.
+Pure state only; production Lift is not complete. Task2 RED adds normalized crop
+interface defaults, deliberately Full-only target geometry and unbound presentation
+transport, real host/selection/overlay assertions and three real-gesture UI acceptance
+tests before routing exists. Compiler errors and missing-type failures do not count.
