@@ -121,6 +121,32 @@ struct ConversationSurfaceHostTests {
         #expect(host.surfaceView.transform == .identity)
     }
 
+    @Test func containerSafeAreaChangesWhileScaledConverge() {
+        let host = ConversationSurfaceViewController(content: Text("safe area"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        for insets in [UIEdgeInsets(top: 21, left: 9, bottom: 13, right: 7), .zero] {
+            host.additionalSafeAreaInsets = insets
+            host.view.setNeedsLayout()
+            host.view.layoutIfNeeded()
+            for progress in [CGFloat(0.5), 1, 0.5, 0] {
+                #expect(host.apply(.init(to: .init(scale: 0.6, translation: CGSize(width: 0.1, height: -0.2), cornerRadius: 24), progress: progress)))
+                host.view.layoutIfNeeded()
+                #expect(host.contentController.view.safeAreaInsets == host.view.safeAreaInsets)
+                let settled = host.contentController.additionalSafeAreaInsets
+                for _ in 0..<3 {
+                    host.view.setNeedsLayout()
+                    host.view.layoutIfNeeded()
+                    #expect(host.contentController.additionalSafeAreaInsets == settled)
+                    #expect(host.contentController.view.safeAreaInsets == host.view.safeAreaInsets)
+                }
+            }
+        }
+    }
+
     private func textViews(in view: UIView) -> [UITextView] {
         (view as? UITextView).map { [$0] } ?? view.subviews.flatMap { textViews(in: $0) }
     }
