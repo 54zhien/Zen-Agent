@@ -29,10 +29,12 @@ final class AppShellModel {
     private(set) var conversationID = UUID().uuidString
     private(set) var target: AppExecutionTarget?
     private(set) var targetMessage: String?
+    private(set) var sendAvailability: ComposerSendAvailability = .unconfigured
     private(set) var recentConversations: [RecentConversationSummary] = []
     private(set) var pane: ConversationPaneController?
     private(set) var actionBridge: ComposerRuntimeActionBridge?
     private(set) var providerSetup: ProviderSetupModel?
+    private(set) var coldStartRecoveryMessage: String?
     private(set) var router: RunEventRouter
 
     @ObservationIgnored private let userDefaults: UserDefaults
@@ -42,7 +44,7 @@ final class AppShellModel {
     @ObservationIgnored private var draftsByConversationID: [String: ComposerDraftState] = [:]
 
     var canSend: Bool {
-        target != nil && pane != nil && actionBridge != nil
+        sendAvailability.isReady && target != nil && pane != nil && actionBridge != nil
     }
 
     var runtimeForPresentation: ConversationRuntime? {
@@ -70,7 +72,7 @@ final class AppShellModel {
         prepareProviderSetup()
         loadDefaultTarget()
         refreshRecentConversations()
-        restoreAtLaunch(at: Date())
+        beginColdStartRecoveryThenRestore(at: Date())
     }
 
     func assembleIfNeeded() {
@@ -86,6 +88,7 @@ final class AppShellModel {
         actionBridge = nil
         target = nil
         targetMessage = nil
+        sendAvailability = .unconfigured
         recentConversations = []
         providerSetup = nil
         router = RunEventRouter()
@@ -97,7 +100,7 @@ final class AppShellModel {
             prepareProviderSetup()
             loadDefaultTarget()
             refreshRecentConversations()
-            restoreAtLaunch(at: Date())
+            beginColdStartRecoveryThenRestore(at: Date())
         } catch let failure as AppAssemblyFailure {
             launchState = .failed(failure)
         } catch {
@@ -142,9 +145,66 @@ final class AppShellModel {
 
     private func restoreAtLaunch(at date: Date) {
         let marker = ConversationResumeMarker.read(from: userDefaults)
-        ConversationResumeMarker.clear(from: userDefaults)
-        guard let marker, marker.isWithinRestoreWindow(at: date) else { return }
-        _ = openConversation(id: marker.conversationID)
+        guard let marker else { return }
+        guard marker.isWithinRestoreWindow(at: date) else {
+            ConversationResumeMarker.clear(from: userDefaults)
+            return
+        }
+        if openConversation(id: marker.conversationID) {
+            ConversationResumeMarker.clear(from: userDefaults)
+            return
+        }
+        guard let store = dependencies?.store else { return }
+        do {
+            if try store.conversationLifecycle(id: marker.conversationID) != .visible {
+                ConversationResumeMarker.clear(from: userDefaults)
+            }
+        } catch {
+            // A transient read failure must leave the marker available for retry.
+        }
+    }
+
+    private func beginColdStartRecoveryThenRestore(at date: Date) {
+        guard let dependencies else { return }
+        do {
+            guard !((try dependencies.store.activeParentRunIDs()).isEmpty) else {
+                restoreAtLaunch(at: date)
+                return
+            }
+        } catch {
+            coldStartRecoveryMessage = "无法检查未完成的运行，请重试恢复。"
+            return
+        }
+
+        launchState = .loading
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let report = try await dependencies.runtime.reconcileColdStartRuns()
+                coldStartRecoveryMessage = report.needsRetry
+                    ? "部分运行尚未恢复，可阅读历史并重试恢复。"
+                    : nil
+            } catch {
+                coldStartRecoveryMessage = "无法恢复未完成的运行，请重试恢复。"
+            }
+            launchState = .ready
+            restoreAtLaunch(at: date)
+        }
+    }
+
+    func retryColdStartRecovery() {
+        guard let runtime = dependencies?.runtime else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let report = try await runtime.retryColdStartRecovery()
+                coldStartRecoveryMessage = report.needsRetry
+                    ? "部分运行尚未恢复，可阅读历史并重试恢复。"
+                    : nil
+            } catch {
+                coldStartRecoveryMessage = "无法恢复未完成的运行，请重试恢复。"
+            }
+        }
     }
 
     private var isCurrentConversationVisible: Bool {
@@ -183,7 +243,7 @@ final class AppShellModel {
 
     @discardableResult
     func openConversation(id: String) -> Bool {
-        guard let dependencies, let target else { return false }
+        guard let dependencies else { return false }
         guard let visibleIDs = try? dependencies.store.visibleConversations().map(\.id),
               visibleIDs.contains(id) else { return false }
 
@@ -241,6 +301,8 @@ final class AppShellModel {
               !modelRawValue.isEmpty else {
             target = nil
             targetMessage = "尚未配置模型"
+            sendAvailability = .unconfigured
+            installPaneIfReady()
             return
         }
 
@@ -248,6 +310,8 @@ final class AppShellModel {
             providerInstanceID: ProviderInstanceID(rawValue: instanceRawValue),
             modelID: ModelID(rawValue: modelRawValue)
         )
+        target = candidate
+        sendAvailability = .checking
         do {
             _ = try AppAssembly.validateTarget(
                 providerInstanceID: candidate.providerInstanceID,
@@ -256,21 +320,22 @@ final class AppShellModel {
                 provider: dependencies.provider,
                 credentials: dependencies.credentials
             )
-            target = candidate
+            sendAvailability = .ready
             targetMessage = nil
-            installPaneIfReady()
         } catch let failure as AppTargetFailure {
-            target = nil
+            sendAvailability = .unavailable(failure.message)
             targetMessage = failure.message
         } catch {
-            target = nil
+            sendAvailability = .unavailable(AppTargetFailure.configurationUnavailable.message)
             targetMessage = AppTargetFailure.configurationUnavailable.message
         }
+        installPaneIfReady()
     }
 
     private func targetWasSaved(_ savedTarget: AppExecutionTarget) {
         target = savedTarget
         targetMessage = nil
+        sendAvailability = .ready
         guard let pane else {
             installPaneIfReady()
             return
@@ -279,15 +344,25 @@ final class AppShellModel {
             providerInstanceID: savedTarget.providerInstanceID,
             modelID: savedTarget.modelID
         )
+        pane.composer.sendAvailability = .ready
     }
 
-    private func targetBecameUnavailable(_ failure: AppTargetFailure) {
-        target = nil
+    private func targetBecameUnavailable(
+        _ failure: AppTargetFailure,
+        for failedTarget: AppExecutionTarget
+    ) {
+        guard pane?.composer.configuration == ConversationComposerConfiguration(
+            providerInstanceID: failedTarget.providerInstanceID,
+            modelID: failedTarget.modelID
+        ) else { return }
+        target = failedTarget
         targetMessage = failure.message
+        sendAvailability = .unavailable(failure.message)
+        pane?.composer.sendAvailability = sendAvailability
     }
 
     private func installPaneIfReady() {
-        guard let dependencies, let target else { return }
+        guard let dependencies else { return }
         do {
             try installPane(
                 initialTimeline: ConversationTimelineProjection(
@@ -305,7 +380,7 @@ final class AppShellModel {
     private func installPane(
         initialTimeline: ConversationTimelineProjection,
         dependencies: AppAssembly.Dependencies,
-        target: AppExecutionTarget
+        target: AppExecutionTarget?
     ) throws {
         let wiring = try makePane(
             id: conversationID,
@@ -324,22 +399,25 @@ final class AppShellModel {
         id: String,
         initialTimeline: ConversationTimelineProjection,
         dependencies: AppAssembly.Dependencies,
-        target: AppExecutionTarget
+        target: AppExecutionTarget?
     ) throws -> (bridge: ComposerRuntimeActionBridge, pane: ConversationPaneController) {
         let bridge = AppAssembly.wireConversation(
             id: id,
             dependencies: dependencies,
-            onTargetFailure: { [weak self] failure in
-                self?.targetBecameUnavailable(failure)
+            onTargetFailure: { [weak self] failure, failedTarget in
+                self?.targetBecameUnavailable(failure, for: failedTarget)
             }
         )
         let pane = try ConversationPaneController(
             conversationID: id,
             initialTimeline: initialTimeline,
-            configuration: ConversationComposerConfiguration(
-                providerInstanceID: target.providerInstanceID,
-                modelID: target.modelID
-            ),
+            configuration: target.map {
+                ConversationComposerConfiguration(
+                    providerInstanceID: $0.providerInstanceID,
+                    modelID: $0.modelID
+                )
+            },
+            sendAvailability: sendAvailability,
             coalescer: StreamingCoalescer(interval: .milliseconds(10)),
             loadTimeline: { id in
                 try ConversationTimelineLoader.load(conversationID: id, from: dependencies.store)

@@ -6,6 +6,111 @@ import Testing
 @Suite("Composer send coordinator")
 @MainActor
 struct ComposerSendCoordinatorTests {
+    @Test("an active Run can Stop after send configuration disappears")
+    func stopWorksWithoutSendConfiguration() async {
+        let stopped = StopCallLedger()
+        let controller = ComposerController(configuration: nil)
+        let bridge = ComposerRuntimeActionBridge(
+            start: { _ in "unexpected-start" },
+            stop: { runID in await stopped.record(runID) },
+            models: { _ in [] },
+            projection: { _ in RunProjection(runID: "active-run", state: .cancelled) },
+            projectionUpdates: { _ in AsyncStream { $0.yield(nil) } }
+        )
+        let coordinator = ComposerSendCoordinator(
+            conversationID: "offline-stop-conversation",
+            controller: controller,
+            configuration: nil,
+            bridge: bridge,
+            maxProviderSteps: 4
+        )
+        coordinator.updateRunProjection(RunProjection(runID: "active-run", state: .streaming))
+
+        _ = await coordinator.handlePrimaryAction()
+
+        #expect(await stopped.runIDs() == ["active-run"])
+        #expect(coordinator.sendErrorMessage == nil)
+    }
+
+    @Test("a late model lookup cannot send through an old configuration")
+    func staleModelLookupCannotSend() async {
+        let gate = PendingModelLookup()
+        let starts = StopCallLedger()
+        let old = ConversationComposerConfiguration(
+            providerInstanceID: ProviderInstanceID(rawValue: "old-instance"),
+            modelID: ModelID(rawValue: "old-model")
+        )
+        let new = ConversationComposerConfiguration(
+            providerInstanceID: ProviderInstanceID(rawValue: "new-instance"),
+            modelID: ModelID(rawValue: "new-model")
+        )
+        let controller = ComposerController(configuration: old)
+        controller.draft.text = "draft stays"
+        let bridge = ComposerRuntimeActionBridge(
+            start: { _ in
+                await starts.record("unexpected")
+                return "unexpected-run"
+            },
+            stop: { _ in },
+            models: { _ in await gate.models() },
+            projection: { _ in nil },
+            projectionUpdates: { _ in AsyncStream { $0.yield(nil) } }
+        )
+        let coordinator = ComposerSendCoordinator(
+            conversationID: "switch-conversation",
+            controller: controller,
+            configuration: old,
+            bridge: bridge,
+            maxProviderSteps: 4
+        )
+        let action = Task { await coordinator.handlePrimaryAction() }
+        await gate.waitUntilRequested()
+        controller.configuration = new
+        await gate.release([ModelDescriptor(
+            id: old.modelID,
+            providerInstanceID: old.providerInstanceID,
+            displayName: "Old model",
+            capabilities: [.text, .streaming]
+        )])
+        _ = await action.value
+
+        #expect((await starts.runIDs()).isEmpty)
+        #expect(controller.configuration == new)
+        #expect(controller.draft.text == "draft stays")
+        #expect(coordinator.sendErrorMessage == "模型配置已变更，请重试。")
+    }
+
+    @Test("a failed Stop stays visible and leaves the active Run projection intact")
+    func failedStopShowsControlledError() async {
+        let instanceID = ProviderInstanceID(rawValue: "stop-error-instance")
+        let modelID = ModelID(rawValue: "stop-error-model")
+        let configuration = ConversationComposerConfiguration(
+            providerInstanceID: instanceID,
+            modelID: modelID
+        )
+        let controller = ComposerController(configuration: configuration)
+        let bridge = ComposerRuntimeActionBridge(
+            start: { _ in "unused" },
+            stop: { runID in throw AgentRuntimeError.runIsNotActive(runID) },
+            models: { _ in [] },
+            projection: { _ in RunProjection(runID: "active-run", state: .streaming) },
+            projectionUpdates: { _ in AsyncStream { $0.yield(nil) } }
+        )
+        let coordinator = ComposerSendCoordinator(
+            conversationID: "stop-error-conversation",
+            controller: controller,
+            configuration: configuration,
+            bridge: bridge,
+            maxProviderSteps: 4
+        )
+        coordinator.updateRunProjection(RunProjection(runID: "active-run", state: .streaming))
+
+        let action = await coordinator.handlePrimaryAction()
+
+        #expect(coordinator.sendErrorMessage == "停止失败，请重试。")
+        #expect(action == .stop(runID: "active-run", enabled: true))
+    }
+
     @Test("a completed first send leaves the same composer ready for a second send")
     func completedRunAllowsSecondSend() async {
         let ledger = TwoSendLedger()
@@ -262,6 +367,41 @@ struct ComposerSendCoordinatorTests {
             snapshot: snapshot,
             createdAt: Fixtures.epoch
         )
+    }
+}
+
+private actor StopCallLedger {
+    private var values: [String] = []
+
+    func record(_ runID: String) { values.append(runID) }
+    func runIDs() -> [String] { values }
+}
+
+private actor PendingModelLookup {
+    private var requested = false
+    private var requestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var resultWaiter: CheckedContinuation<[ModelDescriptor], Never>?
+
+    func models() async -> [ModelDescriptor] {
+        await withCheckedContinuation { continuation in
+            resultWaiter = continuation
+            requested = true
+            let waiters = requestWaiters
+            requestWaiters.removeAll()
+            for waiter in waiters { waiter.resume() }
+        }
+    }
+
+    func waitUntilRequested() async {
+        if requested { return }
+        await withCheckedContinuation { continuation in
+            requestWaiters.append(continuation)
+        }
+    }
+
+    func release(_ descriptors: [ModelDescriptor]) {
+        resultWaiter?.resume(returning: descriptors)
+        resultWaiter = nil
     }
 }
 

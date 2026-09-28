@@ -12,6 +12,37 @@ indirect enum ConversationProjectionError: Error, Equatable, Sendable {
     )
 }
 
+enum ColdStartRecoveryDisposition: Sendable, Equatable {
+    case settled
+    case continued
+    case pending
+    case failed
+}
+
+enum ColdStartRecoveryIssueCategory: Sendable, Equatable {
+    case credentialTemporarilyUnavailable
+    case systemPermissionConsent
+    case unresolvedCheckpoint
+    case persistenceOrReadFailure
+}
+
+struct ColdStartRecoveryEntry: Sendable, Equatable {
+    let runID: String
+    let conversationID: String?
+    let disposition: ColdStartRecoveryDisposition
+    let issueCategory: ColdStartRecoveryIssueCategory?
+}
+
+struct ColdStartRecoveryReport: Sendable, Equatable {
+    var settledRunIDs: [String] = []
+    var continuedRunIDs: [String] = []
+    var pendingRunIDs: [String] = []
+    var failedRunIDs: [String] = []
+    var entries: [ColdStartRecoveryEntry] = []
+
+    var needsRetry: Bool { !pendingRunIDs.isEmpty || !failedRunIDs.isEmpty }
+}
+
 /// The Parent Send boundary.
 ///
 /// It owns the 12-step preparation/commit order and is the only business writer for
@@ -27,12 +58,14 @@ actor ConversationRuntime {
     private let agentRuntime: AgentRuntime
     private let toolRegistry: ToolRegistry
     private let onEvent: @Sendable (AgentEvent) async -> Void
+    private let registerRecoveredRun: @Sendable (String, String) async -> Void
     private let approvalRuntimeInstanceID = UUID().uuidString
 
     private var operations: [String: Task<Void, Never>] = [:]
     private var completionErrors: [String: ConversationProjectionError] = [:]
     private var projections: [String: RunProjection] = [:]
     private var didRecoverManagedFiles = false
+    private var coldStartRecovery: Task<ColdStartRecoveryReport, Error>?
     private var projectionSubscribers: [
         String: [UUID: AsyncStream<RunProjection?>.Continuation]
     ] = [:]
@@ -44,6 +77,7 @@ actor ConversationRuntime {
         provider: any ModelProvider,
         credentials: any CredentialStoring,
         onEvent: @escaping @Sendable (AgentEvent) async -> Void = { _ in },
+        registerRecoveredRun: @escaping @Sendable (String, String) async -> Void = { _, _ in },
         toolRegistry: ToolRegistry? = nil,
         toolRuntime: ToolRuntime? = nil,
         managedFileStore: ManagedFileStore? = nil
@@ -64,6 +98,7 @@ actor ConversationRuntime {
             )
         )
         self.onEvent = onEvent
+        self.registerRecoveredRun = registerRecoveredRun
     }
 
     /// Runs a Send to completion and returns the durable Parent Run id.
@@ -78,7 +113,8 @@ actor ConversationRuntime {
     /// making the provider request itself synchronous.
     func start(
         _ command: SendCommand,
-        creatingConversationIfMissing pending: ConversationRecord? = nil
+        creatingConversationIfMissing pending: ConversationRecord? = nil,
+        initiatedAt: Date = Date()
     ) async throws -> String {
         guard !command.submissionID.isEmpty else {
             throw ConversationRuntimeError.emptySubmissionID
@@ -99,6 +135,11 @@ actor ConversationRuntime {
             }
             return existing.id
         }
+
+        // The first new Send in a process shares the same single-flight recovery
+        // barrier as app launch. A pending run keeps its database active slot until
+        // it is continued, stopped, or explicitly settled.
+        _ = try await reconcileColdStartRuns()
 
         guard command.maxProviderSteps > 0 else {
             throw ConversationRuntimeError.invalidMaxProviderSteps(command.maxProviderSteps)
@@ -189,7 +230,7 @@ actor ConversationRuntime {
             conversationID: command.conversationID,
             role: .user,
             sequence: nextSequence,
-            createdAt: now
+            createdAt: initiatedAt
         )
         let run = AgentRunRecord(
             id: runID,
@@ -351,6 +392,382 @@ actor ConversationRuntime {
         return runID
     }
 
+    /// Serializes startup reconciliation with every new Send in this Runtime.
+    /// A completed task is retained so foregrounding and a second Pane cannot
+    /// rescan a live task as if its process had died.
+    func reconcileColdStartRuns() async throws -> ColdStartRecoveryReport {
+        if let coldStartRecovery {
+            return try await coldStartRecovery.value
+        }
+        let task = Task { try await self.performColdStartRecovery() }
+        coldStartRecovery = task
+        do {
+            return try await task.value
+        } catch {
+            coldStartRecovery = nil
+            throw error
+        }
+    }
+
+    func retryColdStartRecovery() async throws -> ColdStartRecoveryReport {
+        if let coldStartRecovery {
+            // A retry may race the launch scan. Finish that scan before replacing
+            // its barrier so the same persisted Run never gains two owners.
+            _ = try? await coldStartRecovery.value
+        }
+        coldStartRecovery = nil
+        return try await reconcileColdStartRuns()
+    }
+
+    private func performColdStartRecovery() async throws -> ColdStartRecoveryReport {
+        let runIDs = try store.activeParentRunIDs()
+        var report = ColdStartRecoveryReport()
+        for runID in runIDs {
+            if operations[runID] != nil { continue }
+            var conversationID: String?
+            var issueCategory: ColdStartRecoveryIssueCategory?
+            defer {
+                let disposition: ColdStartRecoveryDisposition?
+                if report.settledRunIDs.contains(runID) {
+                    disposition = .settled
+                } else if report.continuedRunIDs.contains(runID) {
+                    disposition = .continued
+                } else if report.pendingRunIDs.contains(runID) {
+                    disposition = .pending
+                } else if report.failedRunIDs.contains(runID) {
+                    disposition = .failed
+                } else {
+                    disposition = nil
+                }
+                if let disposition {
+                    report.entries.append(ColdStartRecoveryEntry(
+                        runID: runID,
+                        conversationID: conversationID,
+                        disposition: disposition,
+                        issueCategory: issueCategory
+                    ))
+                }
+            }
+            do {
+                guard let run = try store.run(id: runID), run.state.isActive else { continue }
+                conversationID = run.conversationID
+                await registerRecoveredRun(run.id, run.conversationID)
+                let outcome: (RunState, EndReason)?
+                switch run.state {
+                case .preparing:
+                    do {
+                        try await continueFrozenPreparingRun(run)
+                        report.continuedRunIDs.append(runID)
+                    } catch CredentialError.unavailable(_, _) {
+                        issueCategory = .credentialTemporarilyUnavailable
+                        report.pendingRunIDs.append(runID)
+                    } catch _ as CredentialError {
+                        try await settleRecoveredRun(
+                            id: runID,
+                            expectedState: .preparing,
+                            terminalState: .failed,
+                            endReason: .credentialExpired
+                        )
+                        report.settledRunIDs.append(runID)
+                    } catch RunRequestRebuildError.missingDependency {
+                        try await settleRecoveredRun(
+                            id: runID,
+                            expectedState: .preparing,
+                            terminalState: .failed,
+                            endReason: .dependencyUnavailable
+                        )
+                        report.settledRunIDs.append(runID)
+                    } catch RunRequestRebuildError.incompleteCommittedInput,
+                            RunRequestRebuildError.incompatibleSnapshot {
+                        try await settleRecoveredRun(
+                            id: runID,
+                            expectedState: .preparing,
+                            terminalState: .failed,
+                            endReason: .unrecoverable
+                        )
+                        report.settledRunIDs.append(runID)
+                    }
+                    continue
+                case .waitingForApproval, .toolRequested, .executingTools, .continuing:
+                    do {
+                        let calls = try store.toolCalls(inRun: runID)
+                        if calls.contains(where: {
+                            $0.state == .dispatched || $0.state == .indeterminate
+                        }) {
+                            try await settleRecoveredRun(
+                                id: runID,
+                                expectedState: run.state,
+                                terminalState: .failed,
+                                endReason: .toolOutcomeUnknown
+                            )
+                            report.settledRunIDs.append(runID)
+                            continue
+                        }
+                        if calls.contains(where: {
+                            $0.state == .waitingForSystemPermissionConsent
+                        }) {
+                            issueCategory = .systemPermissionConsent
+                            report.pendingRunIDs.append(runID)
+                            continue
+                        }
+                        try await continueRecoveredToolBatch(run)
+                        report.continuedRunIDs.append(runID)
+                    } catch CredentialError.unavailable(_, _) {
+                        issueCategory = .credentialTemporarilyUnavailable
+                        report.pendingRunIDs.append(runID)
+                    } catch _ as CredentialError {
+                        try await settleRecoveredRun(
+                            id: runID,
+                            expectedState: run.state,
+                            terminalState: .failed,
+                            endReason: .credentialExpired
+                        )
+                        report.settledRunIDs.append(runID)
+                    } catch RunRequestRebuildError.missingDependency {
+                        try await settleRecoveredRun(
+                            id: runID,
+                            expectedState: run.state,
+                            terminalState: .failed,
+                            endReason: .dependencyUnavailable
+                        )
+                        report.settledRunIDs.append(runID)
+                    } catch RunRequestRebuildError.incompleteCommittedInput,
+                            RunRequestRebuildError.incompatibleSnapshot {
+                        try await settleRecoveredRun(
+                            id: runID,
+                            expectedState: run.state,
+                            terminalState: .failed,
+                            endReason: .unrecoverable
+                        )
+                        report.settledRunIDs.append(runID)
+                    }
+                    continue
+                case .requestingModel, .streaming:
+                    outcome = (.failed, .streamInterrupted)
+                case .stopping:
+                    outcome = (.cancelled, .cancelledByUser)
+                case .suspended, .recovering:
+                    let steps = try store.steps(inRun: runID)
+                    let calls = try store.toolCalls(inRun: runID)
+                    let latestStep = steps.max {
+                        if $0.sequence == $1.sequence { return $0.attempt < $1.attempt }
+                        return $0.sequence < $1.sequence
+                    }
+                    let latestBatchID = latestStep.map {
+                        "batch-\(runID)-\($0.sequence)-\($0.attempt)"
+                    }
+                    let latestCalls = latestBatchID.map { batchID in
+                        calls.filter { $0.batchID == batchID }
+                    } ?? []
+                    let hasOpenPart: Bool
+                    if let responseID = run.responseMessageID {
+                        hasOpenPart = try store.parts(ofMessage: responseID).contains {
+                            $0.state == .pending || $0.state == .streaming
+                        }
+                    } else {
+                        hasOpenPart = false
+                    }
+                    if calls.contains(where: {
+                        $0.state == .dispatched || $0.state == .indeterminate
+                    }) {
+                        outcome = (.failed, .toolOutcomeUnknown)
+                    } else if hasOpenPart || (latestStep != nil && latestCalls.isEmpty) {
+                        // A Step is the durable request identity. An older tool batch
+                        // cannot prove that the newest provider POST was not sent.
+                        outcome = (.failed, .streamInterrupted)
+                    } else if (latestStep == nil && !calls.isEmpty) ||
+                                (run.state == .recovering && run.recoveryAction == nil) {
+                        outcome = (.failed, .unrecoverable)
+                    } else if latestCalls.contains(where: {
+                        $0.state == .waitingForSystemPermissionConsent
+                    }) {
+                        issueCategory = .systemPermissionConsent
+                        report.pendingRunIDs.append(runID)
+                        continue
+                    } else {
+                        do {
+                            if latestCalls.isEmpty {
+                                try await continueFrozenPreparingRun(run)
+                            } else {
+                                try await continueRecoveredToolBatch(run)
+                            }
+                            report.continuedRunIDs.append(runID)
+                        } catch CredentialError.unavailable(_, _) {
+                            issueCategory = .credentialTemporarilyUnavailable
+                            report.pendingRunIDs.append(runID)
+                        } catch _ as CredentialError {
+                            try await settleRecoveredRun(
+                                id: runID,
+                                expectedState: run.state,
+                                terminalState: .failed,
+                                endReason: .credentialExpired
+                            )
+                            report.settledRunIDs.append(runID)
+                        } catch RunRequestRebuildError.missingDependency {
+                            try await settleRecoveredRun(
+                                id: runID,
+                                expectedState: run.state,
+                                terminalState: .failed,
+                                endReason: .dependencyUnavailable
+                            )
+                            report.settledRunIDs.append(runID)
+                        } catch RunRequestRebuildError.incompleteCommittedInput,
+                                RunRequestRebuildError.incompatibleSnapshot {
+                            try await settleRecoveredRun(
+                                id: runID,
+                                expectedState: run.state,
+                                terminalState: .failed,
+                                endReason: .unrecoverable
+                            )
+                            report.settledRunIDs.append(runID)
+                        }
+                        continue
+                    }
+                default:
+                    outcome = nil
+                }
+                guard let outcome else {
+                    issueCategory = .unresolvedCheckpoint
+                    report.pendingRunIDs.append(runID)
+                    continue
+                }
+                try await settleRecoveredRun(
+                    id: runID,
+                    expectedState: run.state,
+                    terminalState: outcome.0,
+                    endReason: outcome.1
+                )
+                report.settledRunIDs.append(runID)
+            } catch {
+                if conversationID == nil {
+                    // Reading the identity bypasses the potentially damaged seed.
+                    // If even that read fails, the run ID remains available for retry.
+                    conversationID = try? store.parentRunConversationID(id: runID)
+                }
+                issueCategory = .persistenceOrReadFailure
+                report.failedRunIDs.append(runID)
+            }
+        }
+        return report
+    }
+
+    private func settleRecoveredRun(
+        id: String,
+        expectedState: RunState,
+        terminalState: RunState,
+        endReason: EndReason
+    ) async throws {
+        try store.settleTasklessRun(
+            id: id,
+            expectedState: expectedState,
+            terminalState: terminalState,
+            endReason: endReason
+        )
+        await publish(.runStateChanged(runID: id, state: terminalState))
+        await publish(.runEnded(runID: id, state: terminalState, endReason: endReason))
+    }
+
+    private func continueFrozenPreparingRun(_ run: AgentRunRecord) async throws {
+        guard let encoded = run.executionSnapshot else {
+            throw RunRequestRebuildError.incompatibleSnapshot
+        }
+        let snapshot: RunExecutionSnapshot
+        do {
+            snapshot = try ExecutionSnapshotCodec.decode(encoded)
+        } catch {
+            throw RunRequestRebuildError.incompatibleSnapshot
+        }
+        guard try store.steps(inRun: run.id).isEmpty,
+              let triggerID = run.triggerMessageID
+        else { throw RunRequestRebuildError.incompleteCommittedInput }
+
+        let request = try RunRequestRebuilder(
+            store: store,
+            provider: provider,
+            toolRegistry: toolRegistry
+        ).initialRequest(
+            for: run,
+            snapshot: snapshot,
+            history: try promptHistory(
+                inConversation: run.conversationID,
+                excludingMessageID: triggerID
+            )
+        )
+        guard try credentials.resolve(
+            frozenReference: run.requestConfigSeed.credentialBinding.reference,
+            generation: run.requestConfigSeed.credentialBinding.generation
+        ) != nil else {
+            throw RunRequestRebuildError.missingDependency
+        }
+
+        try await RunRecovery(store: store).recover(runID: run.id)
+        guard try store.run(id: run.id)?.state == .requestingModel else {
+            throw RunRequestRebuildError.incompatibleSnapshot
+        }
+        let stream = await agentRuntime.advance(
+            runID: run.id,
+            request: request,
+            snapshot: snapshot,
+            project: { event in try await self.applyAndPublish(event) }
+        )
+        let task: Task<Void, Never> = Task { [weak self] in
+            guard let self else { return }
+            await self.consume(runID: run.id, stream: stream)
+            await self.removeCompletedOperation(runID: run.id)
+        }
+        operations[run.id] = task
+    }
+
+    private func continueRecoveredToolBatch(_ run: AgentRunRecord) async throws {
+        guard let encoded = run.executionSnapshot,
+              let triggerID = run.triggerMessageID
+        else { throw RunRequestRebuildError.incompleteCommittedInput }
+        let snapshot: RunExecutionSnapshot
+        do {
+            snapshot = try ExecutionSnapshotCodec.decode(encoded)
+        } catch {
+            throw RunRequestRebuildError.incompatibleSnapshot
+        }
+        let batch = try RunRequestRebuilder(
+            store: store,
+            provider: provider,
+            toolRegistry: toolRegistry
+        ).latestToolBatch(
+            for: run,
+            snapshot: snapshot,
+            history: try promptHistory(
+                inConversation: run.conversationID,
+                excludingMessageID: triggerID
+            )
+        )
+        guard try credentials.resolve(
+            frozenReference: run.requestConfigSeed.credentialBinding.reference,
+            generation: run.requestConfigSeed.credentialBinding.generation
+        ) != nil else { throw RunRequestRebuildError.missingDependency }
+
+        try await RunRecovery(store: store).recover(runID: run.id)
+        guard let recoveredState = try store.run(id: run.id)?.state,
+              recoveredState == .waitingForApproval ||
+                recoveredState == .executingTools ||
+                recoveredState == .continuing ||
+                recoveredState == .requestingModel
+        else {
+            throw RunRequestRebuildError.incompatibleSnapshot
+        }
+        let stream = await agentRuntime.advanceRecoveredToolBatch(
+            runID: run.id,
+            batch: batch,
+            snapshot: snapshot,
+            project: { event in try await self.applyAndPublish(event) }
+        )
+        let task: Task<Void, Never> = Task { [weak self] in
+            guard let self else { return }
+            await self.consume(runID: run.id, stream: stream)
+            await self.removeCompletedOperation(runID: run.id)
+        }
+        operations[run.id] = task
+    }
+
     func loadAttachmentContent(
         _ attachment: SendAttachment,
         forMessageID messageID: String
@@ -472,11 +889,54 @@ actor ConversationRuntime {
     /// terminal transition and active-slot release happen only after cancellation has
     /// flushed the open part.
     func stop(runID: String) async throws {
-        if let events = try await agentRuntime.cancelTasklessSuspendedRun(runID: runID) {
-            for event in events {
-                try await applyAndPublish(event)
+        if operations[runID] == nil {
+            if let run = try store.run(id: runID), run.state == .suspended {
+                // An explicit Stop wins over a deferred cold-start retry. This row
+                // has no current task owner, and all open children settle before its
+                // active slot is released.
+                await registerRecoveredRun(run.id, run.conversationID)
+                try store.transitionRun(
+                    id: runID,
+                    expectedState: .suspended,
+                    to: .stopping
+                )
+                await publish(.runStateChanged(runID: runID, state: .stopping))
+                try await settleRecoveredRun(
+                    id: runID,
+                    expectedState: .stopping,
+                    terminalState: .cancelled,
+                    endReason: .cancelledByUser
+                )
+                return
             }
-            return
+            let report = try await reconcileColdStartRuns()
+            if operations[runID] == nil,
+               report.pendingRunIDs.contains(runID) || report.failedRunIDs.contains(runID) {
+                guard let run = try store.run(id: runID), run.state.isActive else {
+                    throw AgentRuntimeError.runIsNotActive(runID)
+                }
+                if run.state != .stopping {
+                    try store.transitionRun(
+                        id: runID,
+                        expectedState: run.state,
+                        to: .stopping
+                    )
+                    await publish(.runStateChanged(runID: runID, state: .stopping))
+                }
+                try await settleRecoveredRun(
+                    id: runID,
+                    expectedState: .stopping,
+                    terminalState: .cancelled,
+                    endReason: .cancelledByUser
+                )
+                return
+            }
+            if let events = try await agentRuntime.cancelTasklessSuspendedRun(runID: runID) {
+                for event in events {
+                    try await applyAndPublish(event)
+                }
+                return
+            }
         }
         try await agentRuntime.stop(runID: runID)
     }
@@ -499,13 +959,21 @@ actor ConversationRuntime {
 
     func projection(conversationID: String) throws -> RunProjection? {
         if let run = try store.activeParentRuns(inConversation: conversationID).first {
-            let projection = RunProjection(runID: run.id, state: run.state)
+            let projection = RunProjection(
+                runID: run.id,
+                state: run.state,
+                endReason: run.endReason
+            )
             projections[conversationID] = projection
             return projection
         }
         if let cached = projections[conversationID],
            let persisted = try store.run(id: cached.runID) {
-            let projection = RunProjection(runID: persisted.id, state: persisted.state)
+            let projection = RunProjection(
+                runID: persisted.id,
+                state: persisted.state,
+                endReason: persisted.endReason
+            )
             projections[conversationID] = projection
             return projection
         }
@@ -870,7 +1338,11 @@ actor ConversationRuntime {
         } else if let initial = RunProjection(event: event) {
             projection = initial
         } else if let run = try? store.run(id: eventRunID) {
-            projection = RunProjection(runID: eventRunID, state: run.state)
+            projection = RunProjection(
+                runID: eventRunID,
+                state: run.state,
+                endReason: run.endReason
+            )
         } else {
             return
         }

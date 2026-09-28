@@ -95,6 +95,7 @@ enum FinishReason: Sendable, Equatable {
     case length
     case contentFilter
     case toolCalls
+    case interrupted
     case unknown(String)
 }
 

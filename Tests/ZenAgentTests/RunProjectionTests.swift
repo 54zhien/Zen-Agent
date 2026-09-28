@@ -58,6 +58,7 @@ struct RunProjectionTests {
         )
         #expect(projection.state == .completed)
         #expect(!projection.isActive)
+        #expect(projection.endReason == .completed)
     }
 
     @Test("reduces an event stream into one projection")
@@ -70,6 +71,7 @@ struct RunProjectionTests {
 
         #expect(projection?.runID == "r1")
         #expect(projection?.state == .failed)
+        #expect(projection?.endReason == .providerFailed)
         #expect(projection?.isActive == false)
     }
 }

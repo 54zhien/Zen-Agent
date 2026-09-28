@@ -90,6 +90,9 @@ enum EndReason: String, Codable, Sendable {
     case streamInterrupted
     case streamInactivityTimeout
     case providerFailed
+    case outputLimit
+    case contentFiltered
+    case providerInterrupted
     case toolFailed
     case toolOutcomeUnknown
     case credentialExpired

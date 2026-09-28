@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct ZenAgentApp: App {
+    @State private var shellModel = AppShellModel()
 
     init() {
         do {
@@ -22,10 +23,10 @@ struct ZenAgentApp: App {
             } else if ProcessInfo.processInfo.environment["ZEN_COMPOSER_GEOMETRY_TEST"] == "1" {
                 ComposerUITestFixtureView()
             } else {
-                AppShellRootView()
+                AppShellRootView(model: shellModel)
             }
 #else
-            AppShellRootView()
+            AppShellRootView(model: shellModel)
 #endif
         }
     }

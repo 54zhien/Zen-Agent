@@ -539,16 +539,13 @@ private struct TimelineItemView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
         case .runNotice(let notice):
-            // The words are the state's own token, not display copy. User-facing wording and
-            // the Retry entry belong to the Action Row item, and inventing strings here would
-            // pre-empt the Blueprint's copy table.
             HStack(alignment: .firstTextBaseline, spacing: inlineSpacing) {
-                Text(notice.state.rawValue)
-                    .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
-                if let endReason = notice.endReason {
-                    Text(endReason.rawValue)
+                if let explanation = notice.explanation {
+                    Text(explanation)
                         .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
-                        .foregroundStyle(.tertiary)
+                } else {
+                    Text(notice.state.rawValue)
+                        .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
                 }
             }
             .foregroundStyle(.secondary)

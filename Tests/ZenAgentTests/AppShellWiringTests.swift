@@ -4,7 +4,7 @@ import Testing
 
 @testable import ZenAgent
 
-private enum ShellCredentialSeed {
+enum ShellCredentialSeed: Equatable, Sendable {
     case none
     case active
     case missingSecret
@@ -18,6 +18,167 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test(
+        "local history opens independently of send configuration",
+        arguments: [
+            ShellCredentialSeed.none,
+            .missingSecret,
+            .unreadableSecret,
+        ]
+    )
+    func historyOpensWithoutSendTarget(_ seed: ShellCredentialSeed) throws {
+        let unconfigured = seed == .none
+        let fixture = try makeFixture(
+            seed: seed,
+            createInstance: !unconfigured,
+            setDefault: !unconfigured
+        )
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let conversationID = "saved-\(UUID().uuidString)"
+        try fixture.store.commitUserTurnAndCreateParentRun(Fixtures.send(
+            conversationID: conversationID,
+            messageID: "user-\(conversationID)",
+            runID: "run-\(conversationID)",
+            runState: .completed
+        ))
+        fixture.model.refreshRecentConversations()
+
+        #expect(fixture.model.recentConversations.map(\.id).contains(conversationID))
+        #expect(fixture.model.openConversation(id: conversationID))
+        #expect(fixture.model.conversationID == conversationID)
+        #expect(fixture.model.pane?.liveStore.state.timeline.turns.count == 1)
+        #expect(!fixture.model.canSend)
+        #expect(try fixture.store.visibleConversations().count == 1)
+    }
+
+    @Test("configuring after offline reading preserves the same Pane and full Draft")
+    func configuringAfterOfflineReadingPreservesDraft() async throws {
+        let fixture = try makeFixture(seed: .none, createInstance: false, setDefault: false)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let pane = try #require(fixture.model.pane)
+        let bridge = try #require(fixture.model.actionBridge)
+        let quote = QuoteReference(
+            id: "offline-quote",
+            source: QuoteSourceLocator(
+                sourceConversationID: "source-conversation",
+                sourceMessageID: "source-message",
+                sourcePartID: "source-part",
+                range: QuoteTextRange(utf16Start: 0, utf16Length: 6)
+            ),
+            snapshot: "quoted",
+            createdAt: Fixtures.epoch
+        )
+        let draft = ComposerDraftState(
+            text: "keep this draft",
+            selection: ComposerSelection(range: 5..<9),
+            references: [quote],
+            attachments: [AttachmentReference(
+                id: "offline-file",
+                versionID: "version-1",
+                fingerprint: "sha256:\(String(repeating: "a", count: 64))",
+                displayName: "notes.pdf",
+                kind: .file
+            )],
+            presentationState: .editing
+        )
+        pane.composer.draft = draft
+        let coordinator = ComposerSendCoordinator(
+            conversationID: fixture.model.conversationID,
+            controller: pane.composer,
+            configuration: nil,
+            bridge: bridge,
+            maxProviderSteps: AppShellModel.maxProviderSteps
+        )
+        #expect(coordinator.beginSend(
+            capabilities: [.text, .streaming],
+            quoteCommitReady: true,
+            imageInputReady: false,
+            fileInputReady: false,
+            submissionID: "offline-unsendable"
+        ) == nil)
+        _ = await coordinator.handlePrimaryAction()
+        #expect(coordinator.sendErrorMessage == "尚未配置模型")
+        #expect(try conversationCount(in: fixture.store) == 0)
+
+        let setup = try #require(fixture.model.providerSetup)
+        setup.apiKey = "sk-configured-after-reading"
+        #expect(setup.save())
+        #expect(fixture.model.canSend)
+        #expect(fixture.model.pane === pane)
+        #expect(pane.composer.draft == draft)
+        #expect(pane.composer.configuration != nil)
+        #expect(try conversationCount(in: fixture.store) == 0)
+    }
+
+    @Test("cold launch settles an orphaned streaming run without replaying its provider request")
+    func coldLaunchSettlesOrphanedStreamingRun() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zen-cold-start-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let runID = "orphan-\(UUID().uuidString)"
+        let conversationID = "conversation-\(runID)"
+        let partID = "partial-\(runID)"
+
+        do {
+            let firstStore = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+            try firstStore.commitUserTurnAndCreateParentRun(Fixtures.send(
+                conversationID: conversationID,
+                messageID: "user-\(runID)",
+                runID: runID,
+                runState: .streaming
+            ))
+            let response = try firstStore.ensureAssistantResponse(
+                forRunID: runID,
+                messageID: "assistant-\(runID)"
+            )
+            try firstStore.createPart(Fixtures.streamingPart(
+                id: partID,
+                messageID: response.id,
+                text: "preserved partial"
+            ))
+        }
+
+        let reopenedStore = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+        let ledger = Stage2ProviderLedger()
+        let provider = Stage2ScriptedProvider(ledger: ledger, scripts: [.events([.finish(.stop)])])
+        let credentials = CredentialStore(
+            secrets: InMemorySecretBackend(),
+            metadataRepository: InMemoryCredentialMetadataRepository()
+        )
+        let router = RunEventRouter()
+        let runtime = AppAssembly.makeRuntime(
+            store: reopenedStore,
+            provider: provider,
+            credentials: credentials,
+            router: router,
+            toolRegistry: .empty
+        )
+        let dependencies = AppAssembly.Dependencies(
+            store: reopenedStore,
+            credentials: credentials,
+            provider: provider,
+            runtime: runtime,
+            router: router
+        )
+        let suite = "ZenAgentTests.ColdStart.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let shell = AppShellModel(dependencies: dependencies, userDefaults: defaults)
+        for _ in 0..<100 {
+            if try reopenedStore.run(id: runID)?.state == .failed,
+               shell.launchState == .ready { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let run = try #require(try reopenedStore.run(id: runID))
+        #expect(shell.launchState == .ready)
+        #expect(run.state == .failed)
+        #expect(run.endReason == .streamInterrupted)
+        #expect(try reopenedStore.text(ofPart: partID) == "preserved partial")
+        #expect(try reopenedStore.parts(ofMessage: "assistant-\(runID)").first?.state == .failed)
+        #expect(try reopenedStore.activeParentRuns(inConversation: conversationID).isEmpty)
+        #expect(await ledger.requestsSnapshot().isEmpty)
+    }
+
     @Test("zeroConfigurationDoesNotCreateConversationOrEnableSend")
     func zeroConfigurationDoesNotCreateConversationOrEnableSend() throws {
         let fixture = try makeFixture(seed: .none, createInstance: false, setDefault: false)
@@ -29,8 +190,9 @@ struct AppShellWiringTests {
         let finalCount = try conversationCount(in: fixture.store)
 
         #expect(!fixture.model.canSend)
-        #expect(fixture.model.pane == nil)
-        #expect(fixture.model.actionBridge == nil)
+        #expect(fixture.model.pane != nil)
+        #expect(fixture.model.pane?.composer.configuration == nil)
+        #expect(fixture.model.actionBridge != nil)
         #expect(fixture.model.conversationID != originalConversationID)
         #expect(initialCount == 0)
         #expect(finalCount == 0)
@@ -65,7 +227,11 @@ struct AppShellWiringTests {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
 
         #expect(!fixture.model.canSend)
-        #expect(fixture.model.pane == nil)
+        #expect(fixture.model.pane != nil)
+        #expect(fixture.model.target == AppExecutionTarget(
+            providerInstanceID: fixture.instanceID,
+            modelID: fixture.modelID
+        ))
         #expect(fixture.model.targetMessage == "Key 缺失")
         #expect(try fixture.store.conversation(id: fixture.model.conversationID) == nil)
     }
@@ -76,7 +242,11 @@ struct AppShellWiringTests {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
 
         #expect(!fixture.model.canSend)
-        #expect(fixture.model.pane == nil)
+        #expect(fixture.model.pane != nil)
+        #expect(fixture.model.target == AppExecutionTarget(
+            providerInstanceID: fixture.instanceID,
+            modelID: fixture.modelID
+        ))
         #expect(fixture.model.targetMessage == "Keychain 不可用")
         #expect(fixture.model.targetMessage != "Key 缺失")
     }
@@ -202,6 +372,40 @@ struct AppShellWiringTests {
         #expect(!items.contains(.assistantText("second answer")))
     }
 
+    @Test("repeat send uses the user's action time and survives shell reconstruction")
+    func repeatSendAdvancesRecentActivity() async throws {
+        let fixture = try makeFixture(
+            seed: .active,
+            scripts: [
+                .events([.textDelta("A answer"), .finish(.stop)]),
+                .events([.textDelta("B answer"), .finish(.stop)]),
+                .events([.textDelta("A follow-up"), .finish(.stop)])
+            ]
+        )
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let t1 = Date(timeIntervalSince1970: 1_790_000_100)
+        let t2 = t1.addingTimeInterval(60)
+        let t3 = t2.addingTimeInterval(60)
+        let firstID = fixture.model.conversationID
+        try await send("A first", at: t1, in: fixture)
+        fixture.model.newConversation()
+        let secondID = fixture.model.conversationID
+        try await send("B first", at: t2, in: fixture)
+
+        #expect(fixture.model.openConversation(id: firstID))
+        #expect(try fixture.store.conversation(id: firstID)?.userActiveAt == t1)
+        try await send("A again", at: t3, in: fixture)
+
+        let reopenedShell = makeReconstructedModel(from: fixture)
+        let first = try #require(try fixture.store.conversation(id: firstID))
+        #expect(reopenedShell.recentConversations.map(\.id) == [firstID, secondID])
+        #expect(first.createdAt == t1)
+        #expect(first.userActiveAt == t3)
+        #expect(first.updatedAt == t3)
+        #expect(try fixture.store.messages(inConversation: firstID)
+            .filter { $0.role == .user }.last?.createdAt == t3)
+    }
+
     @Test("cold launch restores a visible conversation within twenty minutes")
     func coldLaunchRestoresRecentConversation() async throws {
         let fixture = try makeFixture(seed: .active)
@@ -216,6 +420,25 @@ struct AppShellWiringTests {
         #expect(reconstructed.pane?.liveStore.state.timeline.turns.count == 1)
         #expect(ConversationResumeMarker.read(from: fixture.defaults) == nil)
         #expect(try conversationCount(in: fixture.store) == 1)
+    }
+
+    @Test("a temporary Timeline read failure keeps the cold-launch marker")
+    func unreadableTimelineKeepsRestoreMarker() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let conversationID = fixture.model.conversationID
+        try await send("restore after read retry", at: Date(), in: fixture)
+        fixture.model.enteredBackground(at: Date())
+        let marker = try #require(ConversationResumeMarker.read(from: fixture.defaults))
+        try fixture.store.database.write { db in
+            try db.execute(sql: "ALTER TABLE messagePart RENAME TO messagePart_temporarily_unavailable")
+        }
+
+        let reconstructed = makeReconstructedModel(from: fixture)
+
+        #expect(reconstructed.conversationID != conversationID)
+        #expect(ConversationResumeMarker.read(from: fixture.defaults) == marker)
+        #expect(try fixture.store.conversationLifecycle(id: conversationID) == .visible)
     }
 
     @Test("expired cold launch enters a new blank page and keeps the old conversation reachable")

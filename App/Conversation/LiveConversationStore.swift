@@ -99,8 +99,13 @@ final class LiveConversationStore {
                 rebuiltRuns: &rebuiltRuns
             )
 
-        case .runEnded(let runID, _, _):
-            consumeRunEnded(runID: runID, rebuiltRuns: &rebuiltRuns)
+        case .runEnded(let runID, let runState, let endReason):
+            consumeRunEnded(
+                runID: runID,
+                runState: runState,
+                endReason: endReason,
+                rebuiltRuns: &rebuiltRuns
+            )
             needsPendingToolApprovalReconciliation = true
 
         case .runAccepted:
@@ -272,6 +277,8 @@ final class LiveConversationStore {
 
     private func consumeRunEnded(
         runID: String,
+        runState: RunState,
+        endReason: EndReason,
         rebuiltRuns: inout Set<String>
     ) {
         let partIDs = partIDsByRunID[runID] ?? []
@@ -285,6 +292,32 @@ final class LiveConversationStore {
             consumedUTF8OffsetByPartID.removeValue(forKey: partID)
         }
         partIDsByRunID.removeValue(forKey: runID)
+
+        guard let turnIndex = turnIndexByRunID[runID],
+              state.timeline.turns.indices.contains(turnIndex)
+        else { return }
+        var items = state.timeline.turns[turnIndex].items
+        let hasResponseItem = items.contains {
+            switch $0 {
+            case .assistantText, .reasoning, .toolCall, .toolResult: return true
+            default: return false
+            }
+        }
+        if let noticeIndex = items.firstIndex(where: {
+            if case .runNotice = $0 { return true }
+            return false
+        }) {
+            items.remove(at: noticeIndex)
+        }
+        if runState == .failed || runState == .cancelled || !hasResponseItem {
+            items.append(.runNotice(RunNoticePresentation(
+                runID: runID,
+                state: runState,
+                endReason: endReason
+            )))
+        }
+        replaceTurn(at: turnIndex, with: items)
+        rebuiltRuns.insert(runID)
     }
 
     private func register(_ part: LivePartState) {
@@ -340,6 +373,11 @@ final class LiveConversationStore {
         else { return }
 
         var items = state.timeline.turns[turnIndex].items
+        if case .assistantText = item,
+           let last = items.last,
+           case .runNotice = last {
+            items.removeLast()
+        }
         items.append(item)
         let itemIndex = items.count - 1
         var sources = state.timeline.turns[turnIndex].textSourcesByItemIndex

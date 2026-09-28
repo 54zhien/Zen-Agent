@@ -2,7 +2,7 @@ import SwiftUI
 
 @MainActor
 struct AppShellRootView: View {
-    @State private var model = AppShellModel()
+    let model: AppShellModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
 
@@ -56,8 +56,7 @@ struct NewConversationView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if model.canSend,
-                   let pane = model.pane,
+                if let pane = model.pane,
                    let bridge = model.actionBridge,
                    let runtime = model.runtimeForPresentation {
                     ConversationPaneView(
@@ -99,7 +98,7 @@ struct NewConversationView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 16) {
-                        if model.canSend && !model.recentConversations.isEmpty {
+                        if !model.recentConversations.isEmpty {
                             Button {
                                 isRecentConversationsPresented = true
                             } label: {
@@ -123,7 +122,15 @@ struct NewConversationView: View {
                 }
             }
             .overlay(alignment: .top) {
-                if let message = model.router.recoveryMessage(for: model.conversationID) {
+                if let message = model.coldStartRecoveryMessage {
+                    HStack(spacing: 12) {
+                        Text(message)
+                        Button("重试恢复") { model.retryColdStartRecovery() }
+                    }
+                    .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
+                    .padding()
+                    .background(.regularMaterial)
+                } else if let message = model.router.recoveryMessage(for: model.conversationID) {
                     HStack(spacing: 12) {
                         Text(message)
                             .font(Typography.font(

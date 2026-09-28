@@ -73,12 +73,30 @@ struct ToolResultPresentation: Equatable, Sendable {
     let payload: String
 }
 
-/// A run that produced no assistant message. Covers both a run that failed before producing
-/// anything and a run that is still going: identical presentation, different `state`.
+/// Run status within its own Turn. Failed partial output keeps its assistant text
+/// and gains this notice after it; a run with no response uses the notice alone.
 struct RunNoticePresentation: Equatable, Sendable {
     let runID: String
     let state: RunState
     let endReason: EndReason?
+
+    var explanation: String? {
+        guard state == .failed || state == .cancelled else { return nil }
+        switch endReason {
+        case .outputLimit:
+            return "回答达到长度限制，已保留已生成内容。"
+        case .contentFiltered:
+            return "回答因内容过滤而结束。"
+        case .providerInterrupted:
+            return "模型生成被中断，已保留已生成内容。"
+        case .providerFailed:
+            return "模型未正常结束本次回答。"
+        case .cancelledByUser:
+            return "已停止生成。"
+        default:
+            return "本次回答未能完成。"
+        }
+    }
 }
 
 /// One line of a Turn, in reading order.
@@ -139,6 +157,13 @@ extension ConversationTimelineProjection {
                 items.append(contentsOf: itemized.items)
                 for (index, source) in itemized.textSourcesByItemIndex {
                     textSourcesByItemIndex[offset + index] = source
+                }
+                if run.state == .failed || run.state == .cancelled {
+                    items.append(.runNotice(RunNoticePresentation(
+                        runID: run.id,
+                        state: run.state,
+                        endReason: run.endReason
+                    )))
                 }
             } else {
                 // No assistant message. Do NOT fabricate one: the run's own state is the

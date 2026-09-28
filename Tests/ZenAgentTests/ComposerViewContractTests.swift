@@ -85,7 +85,8 @@ struct ComposerViewContractTests {
         #expect(host.contains("disabled(\"添加文件\""))
         #expect(host.contains("disabled(\"插件\""))
         #expect(host.contains("configuration.models.map"))
-        #expect(view.contains("controller.configuration.modelID = modelID"))
+        #expect(view.contains("configuration.modelID = modelID"))
+        #expect(view.contains("controller.configuration = configuration"))
     }
 
     @Test("viewRequiresBridgeAndDoesNotRenderVoice")

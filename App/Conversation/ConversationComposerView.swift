@@ -34,22 +34,24 @@ struct ConversationComposerView: View {
                            focused: controller.draft.presentationState == .editing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .task(id: conversationID) { await observeRunProjection() }
-            .task(id: controller.configuration.providerInstanceID) { await loadKnownModels() }
+            .task(id: controller.configuration?.providerInstanceID) { await loadKnownModels() }
     }
 
     private var selectedCapabilities: Set<ModelCapability> {
-        knownModels.first {
-            $0.providerInstanceID == controller.configuration.providerInstanceID
-                && $0.id == controller.configuration.modelID
+        guard let configuration = controller.configuration else { return [] }
+        return knownModels.first {
+            $0.providerInstanceID == configuration.providerInstanceID
+                && $0.id == configuration.modelID
         }?.capabilities ?? []
     }
 
     private var modelsForSelectedInstance: [ModelDescriptor] {
-        knownModels.filter { $0.providerInstanceID == controller.configuration.providerInstanceID }
+        guard let instanceID = controller.configuration?.providerInstanceID else { return [] }
+        return knownModels.filter { $0.providerInstanceID == instanceID }
     }
 
     private var isSendable: Bool {
-        ComposerActionPolicy.isSendable(
+        controller.sendAvailability.isReady && ComposerActionPolicy.isSendable(
             draft: controller.draft,
             capabilities: selectedCapabilities,
             quoteCommitReady: true,
@@ -80,8 +82,8 @@ struct ConversationComposerView: View {
             showsPlus: action.showsPlus,
             primary: action.primary,
             models: modelsForSelectedInstance,
-            selectedModelID: controller.configuration.modelID,
-            errorMessage: coordinator.sendErrorMessage,
+            selectedModelID: controller.configuration?.modelID,
+            errorMessage: coordinator.sendErrorMessage ?? controller.sendAvailability.message,
             references: controller.draft.references,
             onRemoveQuote: controller.removeQuoteReference(id:),
             onAcceptQuote: { reference in _ = controller.addQuoteReference(reference) },
@@ -108,7 +110,11 @@ struct ConversationComposerView: View {
             onKeyboardWillChange: onKeyboardWillChange,
             onSend: { sendDraft() },
             onStop: { Task { _ = await coordinator.handlePrimaryAction() } },
-            onModel: { modelID in controller.configuration.modelID = modelID },
+            onModel: { modelID in
+                guard var configuration = controller.configuration else { return }
+                configuration.modelID = modelID
+                controller.configuration = configuration
+            },
             onHeightChanged: onHeightChanged
         )
     }
@@ -136,11 +142,18 @@ struct ConversationComposerView: View {
     }
 
     private func loadKnownModels() async {
-        do {
-            knownModels = try await bridge.models(controller.configuration.providerInstanceID)
-                .filter { $0.providerInstanceID == controller.configuration.providerInstanceID }
-        } catch {
+        guard let instanceID = controller.configuration?.providerInstanceID else {
             knownModels = []
+            return
+        }
+        do {
+            let models = try await bridge.models(instanceID)
+            guard controller.configuration?.providerInstanceID == instanceID else { return }
+            knownModels = models.filter { $0.providerInstanceID == instanceID }
+        } catch {
+            if controller.configuration?.providerInstanceID == instanceID {
+                knownModels = []
+            }
         }
     }
 }

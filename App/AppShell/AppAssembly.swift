@@ -117,6 +117,12 @@ struct AppAssembly {
             onEvent: { event in
                 await router.handle(event)
             },
+            registerRecoveredRun: { runID, conversationID in
+                await router.registerRecoveredRun(
+                    runID: runID,
+                    conversationID: conversationID
+                )
+            },
             toolRegistry: toolRegistry
         )
     }
@@ -199,7 +205,7 @@ struct AppAssembly {
     static func wireConversation(
         id: String,
         dependencies: Dependencies,
-        onTargetFailure: @escaping @MainActor @Sendable (AppTargetFailure) -> Void = { _ in }
+        onTargetFailure: @escaping @MainActor @Sendable (AppTargetFailure, AppExecutionTarget) -> Void = { _, _ in }
     ) -> ComposerRuntimeActionBridge {
         let startContext = ConversationStartContext(
             conversationID: id,
@@ -244,7 +250,7 @@ actor ConversationStartContext {
     private let provider: any ModelProvider
     private let credentials: any CredentialStoring
     private let runtime: ConversationRuntime
-    private let onTargetFailure: @MainActor @Sendable (AppTargetFailure) -> Void
+    private let onTargetFailure: @MainActor @Sendable (AppTargetFailure, AppExecutionTarget) -> Void
     private var pendingConversation: ConversationRecord?
     private var isPersisted = false
 
@@ -254,7 +260,7 @@ actor ConversationStartContext {
         provider: any ModelProvider,
         credentials: any CredentialStoring,
         runtime: ConversationRuntime,
-        onTargetFailure: @escaping @MainActor @Sendable (AppTargetFailure) -> Void
+        onTargetFailure: @escaping @MainActor @Sendable (AppTargetFailure, AppExecutionTarget) -> Void
     ) {
         self.conversationID = conversationID
         self.store = store
@@ -289,7 +295,10 @@ actor ConversationStartContext {
                 credentials: credentials
             )
         } catch let failure as AppTargetFailure {
-            await onTargetFailure(failure)
+            await onTargetFailure(failure, AppExecutionTarget(
+                providerInstanceID: command.providerInstanceID,
+                modelID: command.modelID
+            ))
             switch failure {
             case .keyMissing:
                 throw ComposerSendFailure.keyMissing
@@ -303,7 +312,8 @@ actor ConversationStartContext {
         do {
             let runID = try await runtime.start(
                 command,
-                creatingConversationIfMissing: isPersisted ? nil : pendingConversation
+                creatingConversationIfMissing: isPersisted ? nil : pendingConversation,
+                initiatedAt: initiatedAt
             )
             if try store.conversation(id: conversationID) != nil {
                 isPersisted = true
