@@ -2,7 +2,8 @@
 
 Execute inline, serially, with test-first changes and one fresh whole-branch review.
 Current state: Task1/2/stabilization/Task3 implemented; final review completed,
-three Important have genuine RED. Single corrective pass/full CI/merge pending.
+three Important have genuine RED and corrective source. Exact final CI/integration
+receipts are maintained in PR19; dated pending entries below are historical.
 Dated pause/unstarted entries below are historical; S5-05 has not started.
 Base: aeaa05cd7ce6c1e41329da629ed6bdfc54b6e7a5. S5-03 main CI36401064255
 passed generation/build,689 Swift Testing/108 suites,20 XCTest units and11UI tests;
@@ -178,3 +179,60 @@ change, Preview database, durable Composer, multiwindow or future producer seam.
 
 Deferred production minors: none reported. Preserve the dated historical evidence
 below; the current-state paragraph and this section supersede its pending wording.
+
+## Final rulings and costs
+
+- Release stable-Card native editors; retain logical Draft/selection/configuration/
+  reading owners. Native recreation is deliberate. Cost if wrong: handoff/selection/
+  anchor calibration and physical Gate A repair.
+- Keep Runtime ownership and observed persist-before-publication; detached routes
+  retain identity/checkpoints, no full Pane/token queue. Consumed visible End is
+  not replayed; completed routes reject late events. Cost if wrong: future producers
+  need a durable acknowledged checkpoint and unread reconciliation.
+- Cold historical configuration uses latest persisted Parent seed; warm choices and
+  old immutable seeds survive. Reconstruction rechecks a bounded latest seed rather
+  than its initial config. Cost if wrong: S5-06 binding/migration/reselection.
+- Page/window/query/refresh numbers are engineering budgets. Ten is reconstructible
+  warm-cache budget; protect unsaved/input/config/reading/active Run/pending Send and
+  permit overflow; terminal cleanup is opportunistic on successful navigation.
+  Cost if wrong: device profiling and a separately specified durable transient policy.
+- New cross-page Draft recovery and detach-before-install failure atomicity retain
+  baseline behavior; same-page Card/Return is preserved. Cost if wrong: unsent New
+  Draft/outgoing display can be lost until the later New lifecycle slice.
+- Readiness vocabulary does not implement restoring/migration/error workflows.
+  Cost if wrong: later recovery work must be designed before claiming those paths.
+- Current plus at most three predecessors; empty New retains its Session. Refresh
+  includes current ID even before its first durable commit. Cost if wrong: later
+  browse/New ordering policy must be refined through explicit owner acquisition.
+- Preparation tickets reject stale/Run-invalidated reads; cancelled bounded reads
+  may finish but cannot install. Cost if wrong: transactional snapshot reconciliation
+  or resource cancellation after profiling, not another Runtime writer.
+- DEBUG persistence seeds and weak mounted-coordinator observation use actual
+  Shell/native/Send boundaries. Invalid controls are not RED. Cost if wrong: expand
+  real fixtures; no Preview database or artificial coordinator proof.
+- Lift geometry is transient; preserve the logical anchor, restore native pixel
+  transform and reissue a pending physical target on fresh measurements. The failed
+  speculative geometry guard was reverted. Incoming Full may restore before its
+  completion. Cost if wrong: first-Full/interruption/device geometry calibration.
+- Missing Lazy target materializes once per logical sequence by stable ID; precise
+  content coordinates apply only to that sequence. Existing visible/keyboard
+  transport remains. Global target registration was removed after real UI failures.
+  Cost if wrong: coherent frame/inset calibration under unchanged tests, not loosened
+  3-point/10-second position assertions.
+- Session owns pending submission coordinator; native View tasks capture only that
+  coordinator. Keep its original app/runtime bridge without retaining the Pane.
+  Cost if wrong: bridge lifetime refinement when dependency owners change; no Runtime
+  transfer, database Session or persistent Composer.
+- Independent warm/current-refresh local source followed genuine RED while other
+  pinned regressions ran unchanged. Cost if wrong: split/redo proof at shared seams.
+- Browse/snap/actionable predecessors, Pin/Rename/Delete/Split/multiwindow and future
+  producer/reasoning policy remain later scopes. Optional provider/model/shorter
+  excerpts remain future presentation. Cost if wrong: explicit future ownership,
+  checkpoint/arbitration and presentation design are still required.
+- Device comfort/Instruments/peak memory/Gate A remain unobserved. Cost if wrong:
+  physical findings require calibration; CI is not device acceptance.
+- Keep chronological evidence and direct live integration status to PR19 rather than
+  predicting its final self-referential commit SHA. Cost if wrong: future readers must
+  inspect PR/Git/CI; stale historical pending wording is not an authoritative status.
+
+Deferred production minors: none reported by the one whole-branch reviewer.

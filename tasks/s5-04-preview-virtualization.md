@@ -8,8 +8,9 @@ records ownership, failures, cancellation and file boundaries.
 
 Current state: Task1/Task2/stabilization and Task3 are implemented in PR19.
 The one fresh final review found three Important; a single test-first fix pass
-has genuine RED for each. Final corrective full CI and exact-tree merge remain
-pending; see the Task3/final-review section and PR19. Physical Gate A remains open.
+has genuine RED and corrective source for each. The live final CI, tested tree,
+merge and main-CI receipt belong to PR19; the dated receipts below are historical.
+Physical Gate A remains open.
 S5-05 browse/snap has not started.
 
 Initial regression contract: detached active Run releases its Full Pane and live

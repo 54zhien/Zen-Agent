@@ -59,8 +59,8 @@ As of 2026-09-28:
 - S5-04 is implemented on [PR #19](https://github.com/54zhien/Zen-Agent/pull/19),
   including Session/LRU ownership, bounded history previews and native-editor
   Preview/Full handoff. One whole-branch review found three Important; a single
-  test-first fix pass has reproduced all three and is awaiting final full CI.
-  Integration is conditional on exact-tree GREEN and verified main CI; inspect
+  test-first fix pass has reproduced all three and added corrective source.
+  Integration requires exact-tree GREEN and verified main CI; inspect
   PR #19 for the final tested head/tree and merge status. See
   [the slice record](tasks/s5-04-preview-virtualization.md). Physical Gate A and
   device memory/comfort remain open. Upstream S5-05 remains Card browse/snap.
