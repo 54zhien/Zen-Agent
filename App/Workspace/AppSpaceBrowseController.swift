@@ -53,6 +53,10 @@ final class AppSpaceBrowseController {
         }
     }
 
+    // Runnable seam for the Current replacement behavior tests.
+    @discardableResult
+    func selectAfterDeleting(id: String) -> Bool { false }
+
     func setInteractionSuspended(_ value: Bool) {
         guard interactionSuspended != value else { return }
         if value { cancel() }

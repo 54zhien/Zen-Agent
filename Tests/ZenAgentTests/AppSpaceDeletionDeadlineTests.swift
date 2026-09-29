@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import GRDB
 
 @testable import ZenAgent
 
@@ -51,5 +52,54 @@ struct AppSpaceDeletionDeadlineTests {
         #expect(try store.conversationLifecycle(id: "c1") == .finalizedDeletion)
         #expect(try store.messages(inConversation: "c1").isEmpty)
         #expect(try store.pendingCardDeletion(id: "c1") == nil)
+    }
+
+    @Test("a failed deadline insert cannot hide the card or lose its body")
+    func deadlineWriteFailureRollsBackLifecycle() throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(
+            Fixtures.send(messageID: "atomic-m1", runID: "atomic-r1", runState: .completed)
+        )
+        try store.database.write { db in
+            try db.execute(sql: """
+                CREATE TRIGGER reject_card_deadline BEFORE INSERT ON conversationDeletionDeadline
+                BEGIN SELECT RAISE(ABORT, 'test deadline failure'); END
+                """)
+        }
+        #expect(throws: (any Error).self) {
+            _ = try store.beginCardDeletion(conversationID: "c1", at: Fixtures.epoch)
+        }
+        #expect(try store.conversationLifecycle(id: "c1") == .visible)
+        #expect(try store.messages(inConversation: "c1").count == 1)
+    }
+
+    @Test("v12 pending deletion survives upgrade without an invented Card Undo deadline")
+    func upgradePreservesLegacyPendingDeletion() throws {
+        let url = try Fixtures.scratchPath(name: "card-deadline-upgrade.sqlite")
+        defer { Fixtures.cleanUp(url) }
+        var old = DatabaseMigrator()
+        Migrations.registerV1(&old)
+        Migrations.registerV2(&old)
+        Migrations.registerV3(&old)
+        Migrations.registerV4(&old)
+        Migrations.registerV5(&old)
+        Migrations.registerV6(&old)
+        Migrations.registerV7(&old)
+        Migrations.registerV8(&old)
+        Migrations.registerV9(&old)
+        Migrations.registerV10(&old)
+        Migrations.registerV11(&old)
+        Migrations.registerV12(&old)
+        do {
+            let before = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: old))
+            try before.commitUserTurnAndCreateParentRun(
+                Fixtures.send(messageID: "legacy-m1", runID: "legacy-r1", runState: .completed)
+            )
+            try before.beginDeletion(conversationID: "c1", at: Fixtures.epoch)
+        }
+        let after = PersistenceStore(database: try ZenDatabase.open(at: url.path()))
+        #expect(try after.conversationLifecycle(id: "c1") == .pendingDeletion)
+        #expect(try after.messages(inConversation: "c1").count == 1)
+        #expect(try after.pendingCardDeletion(id: "c1") == nil)
     }
 }
