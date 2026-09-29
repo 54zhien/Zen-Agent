@@ -131,6 +131,28 @@ struct SurfaceLiftStateTests {
         #expect(state.phase == .armed)
     }
 
+    @Test func acceptedSplitSettlesSeparatelyFromCardAndCanReturn() throws {
+        var state = SurfaceLiftState()
+        let armed = state.arm(SurfaceLiftEligibility())
+        #expect(armed)
+        let dragged = state.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility())
+        #expect(dragged)
+        let splitResult = state.endForSplit()
+        let split = try #require(splitResult)
+        #expect(split.destination == .split)
+        let completed = state.complete(split, finished: true)
+        #expect(completed)
+        #expect(state.phase == .split && state.progress == 1)
+        let returnResult = state.requestReturn(visibleProgress: 0.8)
+        let returning = try #require(returnResult)
+        #expect(returning.destination == .full && returning.startProgress == 0.8)
+        let staleCompletion = state.complete(split, finished: true)
+        #expect(!staleCompletion)
+        let returned = state.complete(returning, finished: true)
+        #expect(returned)
+        #expect(state.phase == .full && state.progress == 0)
+    }
+
     @Test func interruptAndUnfinishedCompletionCannotLeaveStuckPresentation() throws {
         var state = SurfaceLiftState()
         let arm10 = state.arm(SurfaceLiftEligibility())

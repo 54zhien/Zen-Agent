@@ -39,7 +39,9 @@ final class SurfaceLiftController {
     @ObservationIgnored private var returnNeedsHandoff = false
     @ObservationIgnored private var splitTargeting = SplitTargetingState()
     @ObservationIgnored private var splitPreviewPose: SurfaceGeometry.Pose?
+    @ObservationIgnored private var splitFinalPose: SurfaceGeometry.Pose?
     @ObservationIgnored private var splitReturnPose: SurfaceGeometry.Pose?
+    @ObservationIgnored private var splitActivationProgress = 0.0
     @ObservationIgnored private var sourceConversationID: String?
     @ObservationIgnored private var splitDropConsumer: ((SplitDropIntent) -> Bool)?
     @ObservationIgnored var onSplitTargetEntry: () -> Void = {
@@ -97,7 +99,7 @@ final class SurfaceLiftController {
             host?.resetLiftPresentation()
         }
         capture = { [weak self, weak host] in
-            guard let host, let target = self?.target else { return 0 }
+            guard let host, let target = self?.splitReturnPose ?? self?.target else { return 0 }
             return host.captureLiftProgress(target: target)
         }
         interaction = { [weak self, weak host] phase in
@@ -110,6 +112,16 @@ final class SurfaceLiftController {
                 self?.invalidate(); return
             }
             let binding = self.hostID
+            if settlement.destination == .split {
+                host.convergeLift(to: target, animated: animated) { [weak self] finished in
+                    guard let self, self.hostID == binding,
+                          self.state.complete(settlement, finished: finished) else { return }
+                    if !finished { self.invalidate(); return }
+                    self.splitReturnPose = target
+                    self.updatePresentation()
+                }
+                return
+            }
             let handoff = settlement.destination == .full && self.returnNeedsHandoff
             let endpoint = settlement.destination == .card ? 1.0 : (handoff ? 0.35 : 0)
             host.animateLift(target: target, from: self.splitReturnPose == nil ? settlement.startProgress : 1,
@@ -197,13 +209,16 @@ final class SurfaceLiftController {
         let intent = slot.flatMap { slot in sourceConversationID.map { SplitDropIntent(conversationID: $0, slot: slot) } }
         if let intent { lastSplitDropIntent = intent }
         let hadSplitPreview = splitPreviewPose != nil
+        let finalPose = splitFinalPose
         if hadSplitPreview { splitReturnPose = splitPreviewPose }
         clearSplitTargeting()
         sourceConversationID = nil
-        // Until a Split Container accepts an intent, the original Surface
-        // returns directly to Full with its native editor and draft intact.
         let accepted = intent.flatMap { splitDropConsumer?($0) } ?? false
-        let settlement = state.end(cancelled: cancelled || hadSplitPreview || accepted)
+        if accepted, let finalPose {
+            splitReturnPose = finalPose
+        }
+        let settlement = accepted && finalPose != nil
+            ? state.endForSplit() : state.end(cancelled: cancelled || hadSplitPreview)
         interaction?(state.phase)
         if let settlement { animate?(settlement, animated) } else { updatePresentation() }
         return settlement
@@ -211,7 +226,7 @@ final class SurfaceLiftController {
     @discardableResult
     func returnToFull(animated: Bool = true) -> Bool {
         guard !overlayPresented, presentedOverlay?() != true else { return false }
-        guard state.phase == .card || state.phase == .settling || state.phase == .lifting else { return false }
+        guard state.phase == .card || state.phase == .split || state.phase == .settling || state.phase == .lifting else { return false }
         if previewIsPresented?() == true, state.phase == .card, let prepareFull {
             if returnOperation != nil { return true }
             let operation = UUID()
@@ -256,6 +271,7 @@ final class SurfaceLiftController {
     func resetForConversationChange() {
         cancelReturn()
         clearSplitTargeting()
+        lastSplitDropIntent = nil
         splitReturnPose = nil
         sourceConversationID = nil
         cancel?()
@@ -285,6 +301,7 @@ final class SurfaceLiftController {
 
     private func updatePresentation() {
         if let splitPreviewPose { _ = presentSplit?(splitPreviewPose) }
+        else if state.phase == .split, let splitReturnPose { _ = presentSplit?(splitReturnPose) }
         else { _ = present?(CGFloat(state.progress)) }
         interaction?(state.phase)
     }
@@ -302,12 +319,13 @@ final class SurfaceLiftController {
         // The original 220 pt Card gesture remains intact. Continuing beyond it
         // reveals Split targets; values are first-pass calibration for device review.
         let progress = min(1, max(0, (upwardDistance - 220) / 80))
+        splitActivationProgress = max(splitActivationProgress, progress)
         let viewport = CGRect(x: sample.safeArea.left, y: sample.safeArea.top,
                               width: sample.size.width - sample.safeArea.left - sample.safeArea.right,
                               height: sample.size.height - sample.safeArea.top - sample.safeArea.bottom)
         let update = splitTargeting.update(point: sample.point, viewport: viewport,
-                                           liftProgress: progress)
-        splitTargetingVisible = progress > 0
+                                           liftProgress: splitActivationProgress)
+        splitTargetingVisible = splitActivationProgress > 0
         splitTargetSlot = update.slot
         splitTopFrame = top.paneFrame
         splitBottomFrame = bottom.paneFrame
@@ -317,9 +335,12 @@ final class SurfaceLiftController {
               let preview = SplitTargetingGeometry.preview(slot: slot, progress: 0.85,
                   size: sample.size, safeArea: sample.safeArea), let target else {
             splitPreviewPose = nil
+            splitFinalPose = nil
             return
         }
-        let blend = CGFloat(progress)
+        splitFinalPose = SplitTargetingGeometry.preview(slot: slot, progress: 1,
+            size: sample.size, safeArea: sample.safeArea)?.pose
+        let blend = CGFloat(splitActivationProgress)
         func between(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * blend }
         var pose = SurfaceGeometry.Pose(scale: between(target.scale, preview.pose.scale),
             translation: CGSize(width: between(target.translation.width, preview.pose.translation.width),
@@ -338,6 +359,8 @@ final class SurfaceLiftController {
         splitBottomFrame = nil
         splitGuideFrame = nil
         splitPreviewPose = nil
+        splitFinalPose = nil
+        splitActivationProgress = 0
     }
     func setOverlayPresented(_ value: Bool) {
         guard overlayPresented != value else { return }

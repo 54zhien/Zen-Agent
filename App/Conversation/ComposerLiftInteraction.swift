@@ -90,12 +90,23 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
             }
         case .ended, .cancelled, .failed:
             defer { origin = nil }
-            guard origin != nil else { return }
+            guard let origin else { return }
             guard input.allowsLift else { configuration.driver.invalidate(); return }
-            _ = configuration.driver.end(cancelled: gesture.state != .ended)
+            Self.finish(driver: configuration.driver, origin: origin, point: point,
+                        eligibility: input, cancelled: gesture.state != .ended)
         default:
             break
         }
+    }
+
+    static func finish(driver: SurfaceLiftController, origin: CGPoint, point: CGPoint,
+                       eligibility: SurfaceLiftEligibility, cancelled: Bool) {
+        if !cancelled && !driver.drag(upwardDistance: Double(origin.y - point.y),
+                                      eligibility: eligibility, locationInWindow: point) {
+            driver.invalidate()
+            return
+        }
+        _ = driver.end(cancelled: cancelled)
     }
 
     @objc private func liftForAccessibility() -> Bool {
