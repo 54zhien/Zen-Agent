@@ -20,6 +20,61 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("selected Card prepares a different history without replacing the original warm owner")
+    func selectedPreviewHandoffPreservesOriginal() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "browse-origin").insert(db)
+            try Fixtures.conversation(id: "browse-target").insert(db)
+        }
+        #expect(await fixture.model.openConversation(id: "browse-origin"))
+        let original = try #require(fixture.model.pane?.session)
+        original.composer.draft.text = "未发送的原会话草稿"
+        #expect(fixture.model.enterPreview())
+        let reads = fixture.model.router.historyPreparation.requested
+        #expect(await fixture.model.preparePreviewReturn(to: "browse-target"))
+        #expect(fixture.model.conversationID == "browse-origin" && fixture.model.pane == nil)
+        #expect(fixture.model.previewContent.session === original)
+        weak var cancelled = fixture.model.previewContent.prepared?.pane
+        #expect(cancelled?.conversationID == "browse-target")
+        fixture.model.cancelPreviewReturn()
+        #expect(cancelled == nil)
+        #expect(fixture.model.previewContent.session === original)
+        #expect(await fixture.model.preparePreviewReturn(to: "browse-target"))
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.conversationID == "browse-target")
+        #expect(fixture.model.pane?.conversationID == "browse-target")
+        #expect(fixture.model.router.historyPreparation.requested == reads + 2)
+        #expect(try fixture.store.conversation(id: "browse-origin")?.userActiveAt == Fixtures.epoch)
+        #expect(try fixture.store.conversation(id: "browse-target")?.userActiveAt == Fixtures.epoch)
+        #expect(await fixture.model.openConversation(id: "browse-origin"))
+        #expect(fixture.model.pane?.session === original)
+        #expect(original.composer.draft.text == "未发送的原会话草稿")
+    }
+
+    @Test("selected Return cannot invent an absent or pending-deletion history")
+    func selectedPreviewUnavailableTarget() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "browse-visible").insert(db)
+            try Fixtures.conversation(id: "browse-deleted", lifecycle: .pendingDeletion).insert(db)
+        }
+        #expect(await fixture.model.openConversation(id: "browse-visible"))
+        let original = try #require(fixture.model.pane?.session)
+        #expect(fixture.model.enterPreview())
+        for id in ["browse-deleted", "browse-missing"] {
+            #expect(!(await fixture.model.preparePreviewReturn(to: id)))
+            #expect(!fixture.model.commitPreviewReturn())
+            #expect(fixture.model.previewContent.session === original)
+            #expect(fixture.model.conversationID == "browse-visible" && fixture.model.pane == nil)
+        }
+        #expect(await fixture.model.preparePreviewReturn())
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.pane?.session === original)
+    }
+
     @Test("releasing an idle shell releases its registered route and native display owner")
     func idleShellReleasesRoute() throws {
         weak var route: RunEventRouter?

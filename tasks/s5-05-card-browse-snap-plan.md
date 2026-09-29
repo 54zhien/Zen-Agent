@@ -28,7 +28,7 @@
 4. Live projection refresh cannot reorder the in-flight drag or change userActiveAt; missing/unavailable rows remain explicit.
 5. Uncommitted current page and real-history edges must not create a new Conversation through the New sentinel; accessibility navigation has equivalent one-step behavior.
 
-## Task1 — Runnable native behavior RED
+## Task 1 — Runnable native behavior RED
 
 **Files:** new `Tests/ZenAgentUITests/AppSpaceBrowseUITests.swift`; existing Preview fixture only.
 **Interfaces:** consumes existing `ZEN_PREVIEW_HANDOFF_UI_TEST`, `workspace-current-card`, real `preview-ui-11` and12 persisted summaries. Produces compiled gesture/selected-return failure evidence without new product APIs.
@@ -37,7 +37,7 @@
 - [ ] Swipe left10→11, then one fast right swipe11→10; no multi-card jump. Activate selected Card and assert Full target10 with exactly one editor.
 - [ ] Publish tests only and observe real native behavior failure after test compilation; compiler/fixture errors do not count RED.
 
-## Task2 — Bounded selection, motion and summary source
+## Task 2 — Bounded selection, motion and summary source
 
 **Files:** `App/Workspace/AppSpaceBrowseState.swift`, `AppSpaceBrowseController.swift`, `AppSpaceBrowseGeometry.swift`; extend `PersistenceStore+ConversationSummaries.swift`; tests `AppSpaceBrowseTests.swift`, existing `ConversationSummaryTests.swift`.
 **Interfaces:** state consumes existing `AppSpaceGeometry.Item`; motion accepts finite displacement/velocity/card travel, produces previous/current/next one-step settlement with UUID. Controller receives a throwing summary-reader closure and holds only summaries/selection. Reader uses current ID lookup and bounded keyset older/newer queries, sharing existing summary projection SQL.
@@ -48,7 +48,7 @@
 - [ ] No copied Card projection type if ConversationSummary already supplies title/excerpt/status. Use existing ConversationPreviewView and ConversationCardStatus derivation.
 - [ ] Native RED and new pure tests drive minimal implementation. Freeze ordered IDs for each drag; successful settlement re-centers/reloads a bounded neighborhood.
 
-## Task3 — Native interaction, depth interpolation and explicit Full activation
+## Task 3 — Native interaction, depth interpolation and explicit Full activation
 
 **Files:** `ConversationSurfaceHost.swift`, `SurfaceLiftController.swift`, `WorkspaceSurfaceView.swift`, `NewConversationView.swift`; minimal target-aware changes `AppShellModel.swift`, `ConversationPreviewController.swift`; native/unit/UI tests.
 **Interfaces:** native host has one card-only horizontal recognizer, window coordinates, cancellation and animation completion token. Workspace renders selected summary into the existing Surface and background depth cards. SurfaceLift preparation closure passes the selected ID only on activation; its animation/handoff remains the existing two segments.
@@ -62,7 +62,7 @@
 - [ ] New sentinel stays non-creating; an already uncommitted original page can return to its retained warm owner. No new page creation action.
 - [ ] Existing native UI RED passes unchanged; add ownership/no-userActiveAt/no-Stop/100-window controls and cancellation/failure tests. UI tests exercise multi-window traversal, short/fast drag and selected Return.
 
-## Task4 — Actual full CI, independent review and receipt
+## Task 4 — Actual full CI, independent review and receipt
 
 - [ ] Static path/whitespace/hygiene checks, exact staged-tree publication; no generated project changes.
 - [ ] Exact-source XcodeGen/build/full unit/UI CI, actual counts and host restart guard. Preserve earlier input failures and new failures; no weakening assertions.

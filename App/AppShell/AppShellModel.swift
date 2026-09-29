@@ -85,7 +85,7 @@ final class AppShellModel {
         return true
     }
 
-    func preparePreviewReturn() async -> Bool {
+    func preparePreviewReturn(to _: String? = nil) async -> Bool {
         guard previewContent.isPresented, let dependencies,
               let session = previewContent.session else { return pane != nil }
         if previewContent.prepared != nil { return true }

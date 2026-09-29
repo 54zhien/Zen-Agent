@@ -29,7 +29,18 @@ struct ConversationSummaryPage: Equatable, Sendable {
     let nextCursor: ConversationSummaryCursor?
 }
 
+struct ConversationBrowseWindow: Equatable, Sendable {
+    let current: ConversationSummary?
+    let older: [ConversationSummary]
+    let newer: ConversationSummary?
+    var summaries: [ConversationSummary] { (current.map { [$0] } ?? []) + older + (newer.map { [$0] } ?? []) }
+}
+
 extension PersistenceStore {
+    func conversationBrowseWindow(id: String) throws -> ConversationBrowseWindow {
+        ConversationBrowseWindow(current: nil, older: [], newer: nil)
+    }
+
     func conversationSummaryPage(limit: Int = 50,
                                  after cursor: ConversationSummaryCursor? = nil) throws -> ConversationSummaryPage {
         let count = min(50, max(1, limit))
