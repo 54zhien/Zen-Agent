@@ -180,6 +180,22 @@ final class LiveConversationStore {
         kind: MessagePartKind,
         rebuiltRuns: inout Set<String>
     ) {
+        if let active = state.activeParts[partID] {
+            if active.runID != runID || active.messageID != messageID || active.kind != kind {
+                needsTimelineReload = true
+            }
+            return
+        }
+        if let persisted = persistedDisplayPart(runID: runID, partID: partID) {
+            guard persisted.source.messageID == messageID, persisted.kind == kind else {
+                needsTimelineReload = true
+                return
+            }
+            // A snapshot can be ahead of Start delivery, including completion.
+            // Stable Part identity must not create another item or reset its offset.
+            _ = resumePersistedPart(runID: runID, messageID: messageID, partID: partID, kind: kind)
+            return
+        }
         let part = LivePartState(
             runID: runID,
             messageID: messageID,

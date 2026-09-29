@@ -21,6 +21,10 @@ struct ConversationPaneFactory {
             dependencies: dependencies,
             onTargetFailure: onTargetFailure
         )
+        // Router owns the Pane. Capturing Dependencies here would retain Router
+        // through this closure and keep an idle shell's display alive indefinitely.
+        let store = dependencies.store
+        let preparation = dependencies.router.historyPreparation
         let pane = try ConversationPaneController(
             conversationID: id,
             initialTimeline: initialTimeline,
@@ -29,7 +33,7 @@ struct ConversationPaneFactory {
             session: savedSession,
             coalescer: StreamingCoalescer(interval: .milliseconds(10)),
             asynchronousLoad: { id in
-                try await dependencies.router.historyPreparation.prepare(id: id, store: dependencies.store).timeline
+                try await preparation.prepare(id: id, store: store).timeline
             }
         )
         pane.composer.sendAvailability = validatedAvailability

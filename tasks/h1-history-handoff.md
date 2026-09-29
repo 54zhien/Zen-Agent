@@ -1,7 +1,8 @@
 # H1 — 历史读取与 Preview 接管
 
-状态：PR [20](https://github.com/54zhien/Zen-Agent/pull/20) 开发中，未合并。
-完整 GREEN、独立整分支 review、主线 tree 核对及真机 Gate A 尚未关闭。
+状态：PR [20](https://github.com/54zhien/Zen-Agent/pull/20) 实现候选，未合并。
+最终提交的完整 CI、独立整分支 review 和主线 tree 回执维护在 PR 20；下列失败记录是历史检查点。
+真机 Gate A 尚未关闭。
 H1 是 S5-04 后的维护修复；S5-05～16 未在本分支实施。
 
 ## 依据与范围
@@ -71,3 +72,20 @@ CI `36522290295` attempt 1 / job `109257915770`，应用构建成功，736 Swift
 深层定位回归正常。异步 Open 后 ConversationPaneView 沿用旧空页的 SwiftUI 滚动状态及测量。
 按 Conversation ID 重建原生内容，保留既有 UI 断言及 3px 容差；待下一次真实 CI 验证。
 新增 completed-snapshot/late-Start 和 idle-shell/route-release 行为探针，先观察实际失败，后修对应行为。
+
+## 补充 RED 与原生定位修复回执
+
+源码 `aeefc11fa5580f06493adde6e0a3206ee685198c`，PR merge commit
+`4926a396f54bbebcfab54ee84e7ad2b3ad1bda69`，二者 tree 均为
+`1e76fded7b8efaa1e6730e6ffaa743e392ba6e15`（实际 fetch 和 rev-parse 核对）。
+PR CI `36523844604` attempt 1 / job `109262420961`：应用构建成功。
+738 Swift Testing / 111 suites 仅有 2 个新探针问题：已完成 Part 的 late Start 生成两份“你好👋”；idle Shell 离开作用域后 Router 未释放。
+20 XCTest、14 UI 全通过，无宿主重启。浅层锚点前后 minY 均为 299.333；深层同样一致。
+这一回执确认原生页面身份修复，不作为完整 H1 GREEN。
+
+对应最小修复：Start 按稳定 Part 身份去重，已完成快照不重新开启或清空偏移；加载闭包只捕获 store 和 preparation owner，解除 Router→Pane→Router 引用环。
+保留所有失败断言，等待最终源代码 CI 与整分支 review。
+
+平台依据：[Apple View.id](https://developer.apple.com/documentation/swiftui/view/id%28_%3A%29) 定义身份变化时重置 View 状态；
+[GRDB 7.11.1 DatabaseReader](https://github.com/groue/GRDB.swift/blob/v7.11.1/GRDB/Core/DatabaseReader.swift) 和
+[SerializedDatabase](https://github.com/groue/GRDB.swift/blob/v7.11.1/GRDB/Core/SerializedDatabase.swift) 定义异步读取、隔离与取消。

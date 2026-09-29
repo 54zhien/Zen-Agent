@@ -34,7 +34,7 @@ baseline is recorded in `Docs/ADR/`.
 
 ## Status
 
-As of 2026-09-28:
+As of 2026-09-29:
 
 - Stage 0 and Stage 1 are closed; Stage 2 Runtime and Tool boundaries are on `main`.
 - Stage 3 W1 wires the real App shell and text send/history. PR #12 added the
@@ -56,14 +56,19 @@ As of 2026-09-28:
   [Main CI](https://github.com/54zhien/Zen-Agent/actions/runs/36401064255) passed
   generation/build,689 Swift Testing,20 XCTest unit and11 UI tests. See
   [the slice record](tasks/s5-03-lift-return.md); physical Gate A remains open.
-- S5-04 is implemented on [PR #19](https://github.com/54zhien/Zen-Agent/pull/19),
+- S5-04 is integrated through [PR #19](https://github.com/54zhien/Zen-Agent/pull/19)
+  at `70c5c17`; [main CI](https://github.com/54zhien/Zen-Agent/actions/runs/36466689960) passed.
   including Session/LRU ownership, bounded history previews and native-editor
   Preview/Full handoff. One whole-branch review found three Important; a single
   test-first fix pass has reproduced all three and added corrective source.
-  Integration requires exact-tree GREEN and verified main CI; inspect
-  PR #19 for the final tested head/tree and merge status. See
+  Inspect PR #19 for its tested head/tree and integration receipt. See
   [the slice record](tasks/s5-04-preview-virtualization.md). Physical Gate A and
   device memory/comfort remain open. Upstream S5-05 remains Card browse/snap.
+- H1 consistent history reads and cancellable Preview handoff are maintained
+  separately on [PR #20](https://github.com/54zhien/Zen-Agent/pull/20). See
+  [the repair record](tasks/h1-history-handoff.md) for behavioral RED and failed
+  source runs; PR #20 holds the latest exact-tree CI, review and integration status.
+  H2 follows its implementation gate. S5-05–16 are not implemented by this repair.
 - Formal Settings IA and
   `Settings → Agent → Soul` belong to later Stage 5 slices; Memory, Skills, MCP and
   Subagent remain later stages.
