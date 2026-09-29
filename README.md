@@ -24,7 +24,7 @@ Blueprint  ──defines intent──▶  Zen-Agent
 ## Blueprint baseline
 
 ```
-Zen-Agent-Blueprint @ 596a84d4b58769e3e7b838be95edcb43f9e0ec82
+Zen-Agent-Blueprint @ 52b0958b63858cd298eb5bbaf269fb5cc4891505
 ```
 
 This is a snapshot of the design state this work started from, not a permanent

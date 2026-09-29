@@ -41,6 +41,7 @@ struct IndeterminateTombstoneTests {
                 intent: intent
             )
         )
+        try store.finishRun(id: "r1", state: .cancelled, endReason: .cancelledByUser)
         return store
     }
 
@@ -182,6 +183,7 @@ struct IndeterminateTombstoneTests {
             try store.createToolCall(
                 Fixtures.toolCall(id: "t1", runID: "r1", state: .indeterminate)
             )
+            try store.finishRun(id: "r1", state: .cancelled, endReason: .cancelledByUser)
             try store.beginDeletion(conversationID: "c1")
             try store.finalizeDeletion(conversationID: "c1")
         }

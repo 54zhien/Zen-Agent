@@ -25,8 +25,26 @@ extension PersistenceStore {
     }
 
     /// Commits the delete. Hides the conversation; keeps everything.
+    /// The active-slot check shares this transaction with the lifecycle update, so
+    /// a new Parent Run cannot slip in after the caller's Stop and before deletion.
     func beginDeletion(conversationID: String, at now: Date = Date()) throws {
-        try transition(from: .visible, to: .pendingDeletion, conversationID: conversationID, at: now)
+        try database.write { db in
+            let conversation = try requireConversation(conversationID, in: db)
+            guard conversation.lifecycle == .visible else {
+                throw PersistenceError.invalidLifecycleTransition(
+                    expected: .visible, actual: conversation.lifecycle
+                )
+            }
+            guard try String.fetchOne(db,
+                sql: "SELECT id FROM agentRun WHERE activeSlot = ? LIMIT 1",
+                arguments: [conversationID]) == nil else {
+                throw PersistenceError.invalidTransition("Active Parent Run must settle before deletion")
+            }
+            try db.execute(
+                sql: "UPDATE conversation SET lifecycle = ?, updatedAt = ? WHERE id = ?",
+                arguments: [ConversationLifecycle.pendingDeletion.rawValue, now, conversationID]
+            )
+        }
     }
 
     /// Puts it back. The body was never touched, so there is nothing to restore.
