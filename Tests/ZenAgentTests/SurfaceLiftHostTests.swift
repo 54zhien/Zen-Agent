@@ -260,7 +260,7 @@ struct SurfaceLiftHostTests {
         #expect(host.presentation == .full)
     }
 
-    @Test func finalReleaseSampleOverridesThePreviousSplitTarget() {
+    @Test func finalReleaseSampleOverridesThePreviousSplitTarget() async throws {
         let host = ConversationSurfaceViewController(content: Text("final Split release"))
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
         window.rootViewController = host
@@ -278,6 +278,8 @@ struct SurfaceLiftHostTests {
         ComposerLiftInteraction.finish(driver: driver, origin: CGPoint(x: 200, y: 480),
             point: CGPoint(x: 200, y: 600), eligibility: SurfaceLiftEligibility(), cancelled: false)
         #expect(delivered == SplitDropIntent(conversationID: "source", slot: .bottom))
+        #expect(driver.state.pendingSettlement?.destination == .full)
+        try await Task.sleep(for: .milliseconds(450))
         #expect(driver.state.phase == .full && host.presentation == .full)
     }
 

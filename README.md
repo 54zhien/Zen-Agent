@@ -97,7 +97,19 @@ As of 2026-09-30:
   [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36627442020)
   (803 Swift Testing, 20 XCTest, 19 UI), including the mounted accessibility Delete
   action. PR #24 holds the exact-head receipt after closure documentation.
-  See [the S5-07 record](tasks/s5-07-delete-undo.md). S5-08–16 remain later work.
+  See [the S5-07 record](tasks/s5-07-delete-undo.md).
+- S5-08 Split Targeting is on stacked draft
+  [PR #25](https://github.com/54zhien/Zen-Agent/pull/25). Native top/bottom
+  Composer drags, the live Surface preview and a captured Split drop intent
+  passed [initial full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36636116839)
+  (809 Swift Testing, 20 XCTest, 21 UI). Read-only review identified target
+  traversal, final-release sampling and accepted-Surface handoff gaps. The
+  repair's test-only [RED](https://github.com/54zhien/Zen-Agent/actions/runs/36638889365)
+  compiled and reproduced the traversal and handoff failures. A first repair
+  candidate passed build, 20 XCTest and 21 UI tests; one new Swift test needed
+  to await its native Return animation. The corrected test and closure docs
+  await full CI; see [the S5-08 record](tasks/s5-08-split-targeting.md).
+  S5-09–16 remain later work. A usable two-Pane Split begins in S5-09.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
   does not establish device memory, performance, input, comfort or VoiceOver acceptance.
