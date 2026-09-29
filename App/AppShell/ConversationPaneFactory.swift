@@ -42,7 +42,7 @@ struct ConversationPaneFactory {
                                       snapshot: ConversationHistorySnapshot?) throws -> ConversationComposerConfiguration? {
         if let savedSession {
             return savedSession.composer.configuration
-        } else if try dependencies.store.conversationLifecycle(id: id) != nil {
+        } else if snapshot?.conversation != nil {
             // Compatibility for history created before durable Conversation binding.
             // This is an initial choice, never a rewrite of an old frozen Run seed.
             if let seed = snapshot?.runs

@@ -394,10 +394,8 @@ final class AppShellModel {
     @discardableResult
     func openConversation(id: String) async -> Bool {
         guard let dependencies else { return false }
-        guard (try? dependencies.store.conversationLifecycle(id: id)) == .visible else { return false }
-
         if id == conversationID {
-            if pane != nil { return true }
+            if pane != nil { return (try? dependencies.store.conversationLifecycle(id: id)) == .visible }
             if previewContent.prepared != nil { return commitPreviewReturn() }
         }
 

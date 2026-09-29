@@ -58,8 +58,8 @@ struct AppShellWiringTests {
         #expect(fixture.model.commitPreviewReturn())
     }
 
-    @Test("durable deltas during every history read cannot starve Preview Return")
-    func previewDeltasDuringHistoryRead() async throws {
+    @Test("durable deltas and terminal events during history cannot starve Preview Return", arguments: [false, true])
+    func previewDeltasDuringHistoryRead(endsDuringRead: Bool) async throws {
         let path = try Fixtures.scratchPath(name: "preview-continuous.sqlite")
         let store = PersistenceStore(database: try ZenDatabase.open(at: path.path))
         let writer = PersistenceStore(database: try ZenDatabase.open(at: path.path))
@@ -102,6 +102,12 @@ struct AppShellWiringTests {
             expected += delta
             await fixture.model.router.handle(.messagePartDelta(runID: runID,
                 partID: "read-part", delta: delta, endUTF8Offset: expected.utf8.count))
+            if endsDuringRead {
+                try writer.finishPart(id: "read-part", state: .completed)
+                try writer.transitionRun(id: runID, expectedState: .streaming, to: .completed, endReason: .completed)
+                await fixture.model.router.handle(.messagePartCompleted(runID: runID, partID: "read-part", state: .completed))
+                await fixture.model.router.handle(.runEnded(runID: runID, state: .completed, endReason: .completed))
+            }
             gate.release()
         }
         await operation.value
@@ -109,11 +115,49 @@ struct AppShellWiringTests {
         #expect(fixture.model.commitPreviewReturn())
         let pane = try #require(fixture.model.pane)
         #expect(pane.session === session)
-        try writer.finishPart(id: "read-part", state: .completed)
-        await fixture.model.router.handle(.messagePartCompleted(runID: runID, partID: "read-part", state: .completed))
+        if !endsDuringRead {
+            try writer.finishPart(id: "read-part", state: .completed)
+            await fixture.model.router.handle(.messagePartCompleted(runID: runID, partID: "read-part", state: .completed))
+        }
         #expect(pane.liveStore.state.timeline.turns.flatMap(\.items).contains(.assistantText(expected)))
         #expect(pane.liveStore.droppedUnlocatableDeltas == 0)
         #expect(!pane.liveStore.needsTimelineReload)
+    }
+
+    @Test("queued Open keeps the outgoing Pane and only the latest navigation starts a read")
+    func queuedNavigationHasOneHistoryWorker() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            for id in ["queued-a", "queued-b", "queued-c"] { try Fixtures.conversation(id: id).insert(db) }
+        }
+        let outgoing = try #require(fixture.model.pane)
+        let owner = fixture.model.router.historyPreparation
+        let started = owner.started
+        let finished = owner.finished
+        let gate = PreviewReadGate()
+        defer { gate.release(); try? fixture.store.database.read { $0.trace(nil) } }
+        try fixture.store.database.read { db in
+            db.trace { event in
+                if case .statement(let statement) = event,
+                   statement.sql.lowercased().contains("agentrun") { gate.blockOnce() }
+            }
+        }
+        let first = Task { await fixture.model.openConversation(id: "queued-a") }
+        for _ in 0..<200 where !gate.hasBlocked { try await Task.sleep(for: .milliseconds(5)) }
+        _ = try #require(gate.hasBlocked)
+        let second = Task { await fixture.model.openConversation(id: "queued-b") }
+        await Task.yield()
+        let third = Task { await fixture.model.openConversation(id: "queued-c") }
+        await Task.yield()
+        #expect(fixture.model.pane === outgoing)
+        #expect(owner.inFlight == 1 && owner.started == started + 1)
+        gate.release()
+        #expect(!(await first.value))
+        #expect(!(await second.value))
+        #expect(await third.value)
+        #expect(fixture.model.conversationID == "queued-c")
+        #expect(owner.started == started + 2 && owner.finished == finished + 2 && owner.inFlight == 0)
     }
     @Test("native Composer remount preserves a pre-acceptance Send and its late error")
     func previewPendingSendSurvivesNativeRemount() async throws {
