@@ -142,7 +142,8 @@ struct ComposerHostIntegrationTests {
         autoreleasepool {
             let host = ComposerHostView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
             var config = configuration()
-            config.liftInteraction = .init(driver: SurfaceLiftController(), eligibility: { $0 })
+            config.liftInteraction = .init(driver: SurfaceLiftController(),
+                                           conversationID: "test-conversation", eligibility: { $0 })
             host.configure(config)
             weakHost = host
             weakEditor = host.editor
