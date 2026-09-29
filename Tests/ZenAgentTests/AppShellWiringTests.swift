@@ -20,6 +20,101 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("cancelling Return stops obsolete SQL work before a new Return completes")
+    func previewCancellationStopsHistoryWork() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.commitUserTurnAndCreateParentRun(Fixtures.send(
+            conversationID: "cancel-work", runID: "cancel-work-run", runState: .completed))
+        #expect(fixture.model.openConversation(id: "cancel-work"))
+        #expect(fixture.model.enterPreview())
+        for _ in 0..<3 {
+            let gate = PreviewReadGate()
+            let trace = S504SQLTrace()
+            defer {
+                gate.release()
+                try? fixture.store.database.read { db in db.trace(nil) }
+            }
+            try fixture.store.database.read { db in
+                db.trace { event in
+                    if case .statement(let statement) = event {
+                        trace.record(statement.sql)
+                        if statement.sql.lowercased().contains("agentrun") { gate.blockOnce() }
+                    }
+                }
+            }
+            let oldReturn = Task { await fixture.model.preparePreviewReturn() }
+            for _ in 0..<200 where !gate.hasBlocked { try await Task.sleep(for: .milliseconds(5)) }
+            _ = try #require(gate.hasBlocked, "cancel test did not start its history read")
+            oldReturn.cancel()
+            fixture.model.cancelPreviewReturn()
+            gate.release()
+            #expect(!(await oldReturn.value))
+            try fixture.store.database.read { db in db.trace(nil) }
+            #expect(trace.selectCount <= 2, "cancelled work kept executing \(trace.selectCount) history SELECTs")
+            #expect(fixture.model.pane == nil && fixture.model.previewContent.isPresented)
+        }
+        #expect(await fixture.model.preparePreviewReturn())
+        #expect(fixture.model.commitPreviewReturn())
+    }
+
+    @Test("durable deltas during every history read cannot starve Preview Return")
+    func previewDeltasDuringHistoryRead() async throws {
+        let path = try Fixtures.scratchPath(name: "preview-continuous.sqlite")
+        let store = PersistenceStore(database: try ZenDatabase.open(at: path.path))
+        let writer = PersistenceStore(database: try ZenDatabase.open(at: path.path))
+        let fixture = try makeFixture(seed: .active, store: store)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let id = "read-with-deltas"
+        let runID = "read-with-deltas-run"
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(conversationID: id,
+            messageID: "read-user", runID: runID, runState: .streaming))
+        _ = try store.ensureAssistantResponse(forRunID: runID, messageID: "read-assistant")
+        try store.createPart(Fixtures.streamingPart(id: "read-part", messageID: "read-assistant", text: "before"))
+        #expect(fixture.model.openConversation(id: id))
+        fixture.model.router.registerRecoveredRun(runID: runID, conversationID: id)
+        await fixture.model.router.handle(.messagePartStarted(runID: runID,
+            messageID: "read-assistant", partID: "read-part", kind: .text))
+        let session = try #require(fixture.model.pane?.session)
+        #expect(fixture.model.enterPreview())
+        let gate = HistoryReadRounds()
+        defer {
+            gate.release()
+            try? store.database.read { db in db.trace(nil) }
+        }
+        try store.database.read { db in
+            db.trace { event in
+                if case .statement(let statement) = event,
+                   statement.sql.lowercased().contains("from \"message\"") { gate.blockNext() }
+            }
+        }
+        var result: Bool?
+        let operation = Task { result = await fixture.model.preparePreviewReturn() }
+        var expected = "before"
+        for round in 1...3 {
+            for _ in 0..<200 where gate.entered < round && result == nil {
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            if result != nil { break }
+            _ = try #require(gate.entered >= round, "history read did not reach its gate")
+            let delta = " 你好\(round)👋"
+            try writer.appendText(toPart: "read-part", delta: delta)
+            expected += delta
+            await fixture.model.router.handle(.messagePartDelta(runID: runID,
+                partID: "read-part", delta: delta, endUTF8Offset: expected.utf8.count))
+            gate.release()
+        }
+        await operation.value
+        #expect(result == true)
+        #expect(fixture.model.commitPreviewReturn())
+        let pane = try #require(fixture.model.pane)
+        #expect(pane.session === session)
+        try writer.finishPart(id: "read-part", state: .completed)
+        await fixture.model.router.handle(.messagePartCompleted(runID: runID, partID: "read-part", state: .completed))
+        #expect(pane.liveStore.state.timeline.turns.flatMap(\.items).contains(.assistantText(expected)))
+        #expect(pane.liveStore.droppedUnlocatableDeltas == 0)
+        #expect(!pane.liveStore.needsTimelineReload)
+    }
     @Test("native Composer remount preserves a pre-acceptance Send and its late error")
     func previewPendingSendSurvivesNativeRemount() async throws {
         let fixture = try makeFixture(seed: .active)
@@ -1657,9 +1752,10 @@ struct AppShellWiringTests {
         seed: ShellCredentialSeed,
         createInstance: Bool = true,
         setDefault: Bool = true,
-        scripts: [Stage2ProviderScript] = [.events([])]
+        scripts: [Stage2ProviderScript] = [.events([])],
+        store suppliedStore: PersistenceStore? = nil
     ) throws -> ShellFixture {
-        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        let store = try suppliedStore ?? PersistenceStore(database: ZenDatabase.inMemory())
         let backend = InMemorySecretBackend()
         let metadata = InMemoryCredentialMetadataRepository()
         let credentials = CredentialStore(secrets: backend, metadataRepository: metadata)
@@ -1877,6 +1973,18 @@ final class S504SQLTrace: @unchecked Sendable {
     }
 }
 
+
+private final class HistoryReadRounds: @unchecked Sendable {
+    private let lock = NSLock()
+    private let resume = DispatchSemaphore(value: 0)
+    private var count = 0
+    var entered: Int { lock.withLock { count } }
+    func blockNext() {
+        let round = lock.withLock { count += 1; return count }
+        if round <= 3 { _ = resume.wait(timeout: .now() + 10) }
+    }
+    func release() { resume.signal() }
+}
 
 private final class PreviewReadGate: @unchecked Sendable {
     private let lock = NSLock()

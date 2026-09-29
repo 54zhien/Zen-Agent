@@ -14,6 +14,38 @@ import Testing
 @Suite("Conversation timeline loader")
 struct ConversationTimelineLoaderTests {
 
+    @Test("a history read sees one snapshot while a second WAL connection commits")
+    func historyReadIsConsistent() async throws {
+        let path = try Fixtures.scratchPath(name: "history-consistency.sqlite")
+        let store = PersistenceStore(database: try ZenDatabase.open(at: path.path))
+        let writer = PersistenceStore(database: try ZenDatabase.open(at: path.path))
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(runState: .streaming))
+        _ = try store.ensureAssistantResponse(forRunID: "r1", messageID: "reply")
+        try store.createPart(Fixtures.streamingPart(id: "reply-p", messageID: "reply", text: "before"))
+        let gate = HistorySnapshotGate()
+        defer {
+            gate.release()
+            try? store.database.read { db in db.trace(nil) }
+        }
+        try store.database.read { db in
+            db.trace { event in
+                if case .statement(let statement) = event,
+                   statement.sql.lowercased().contains("from \"message\"") { gate.blockOnce() }
+            }
+        }
+        let read = Task.detached { try ConversationTimelineLoader.load(conversationID: "c1", from: store) }
+        for _ in 0..<200 where !gate.entered { try await Task.sleep(for: .milliseconds(5)) }
+        _ = try #require(gate.entered, "history read did not reach its snapshot gate")
+        try writer.appendText(toPart: "reply-p", delta: " after")
+        try writer.finishPart(id: "reply-p", state: .completed)
+        gate.release()
+        let snapshot = try await read.value
+        #expect(snapshot.turns.flatMap(\.items).contains(.assistantText("before")))
+        #expect(snapshot.turns.first?.textSourcesByItemIndex.values.first(where: { $0.partID == "reply-p" })?.partState == .streaming)
+        let latest = try ConversationTimelineLoader.load(conversationID: "c1", from: store)
+        #expect(latest.turns.flatMap(\.items).contains(.assistantText("before after")))
+    }
+
     @Test("full history query count is independent of Turn count", arguments: [1, 100, 1_000])
     func historyQueryBudget(turnCount: Int) throws {
         let store = try makeStore()
@@ -242,4 +274,16 @@ struct ConversationTimelineLoaderTests {
         #expect(!quoteItems[0].sourceIsAvailable)
         #expect(projection.turns.first?.textSourcesByItemIndex[0]?.partID == "target-message-p0")
     }
+}
+
+private final class HistorySnapshotGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let resume = DispatchSemaphore(value: 0)
+    private var blocked = false
+    var entered: Bool { lock.withLock { blocked } }
+    func blockOnce() {
+        let first = lock.withLock { if blocked { return false }; blocked = true; return true }
+        if first { _ = resume.wait(timeout: .now() + 10) }
+    }
+    func release() { resume.signal() }
 }
