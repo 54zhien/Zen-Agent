@@ -152,4 +152,23 @@ struct AppSpaceDeletionCoordinationTests {
         #expect(try store.messages(inConversation: "c1").count == 1)
         #expect(owner.errorMessage != nil)
     }
+
+    @Test("cold-start wall-clock jump cannot erase a recoverable body after grace")
+    func coldStartClockJumpNeedsDecision() async throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(
+            Fixtures.send(messageID: "cold-clock-m1", runID: "cold-clock-r1", runState: .completed)
+        )
+        _ = try store.beginCardDeletion(conversationID: "c1", at: Fixtures.epoch)
+        let owner = AppSpaceConversationDeletion(store: store,
+            stopRun: { _ in }, waitForRun: { _ in },
+            now: { Fixtures.epoch.addingTimeInterval(3600) })
+
+        owner.recoverPending()
+        try await Task.sleep(for: .seconds(10.2))
+
+        #expect(try store.conversationLifecycle(id: "c1") == .pendingDeletion)
+        #expect(try store.messages(inConversation: "c1").count == 1)
+        #expect(owner.pending?.conversationID == "c1")
+    }
 }

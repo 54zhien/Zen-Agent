@@ -4,9 +4,42 @@ import UIKit
 
 @testable import ZenAgent
 
+private enum CardReplacementReadError: Error { case injected }
+
 @Suite("App Space selection after Card Delete")
 @MainActor
 struct AppSpaceCardDeletionSelectionTests {
+    @Test("failed replacement reads never leave a deleted Current selected")
+    func failedReplacementKeepsBrowseCoherent() throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.createEmptyConversation(id: "only", at: Fixtures.epoch)
+        var failReads = false
+        let browse = AppSpaceBrowseController(reader: { id in
+            if failReads { throw CardReplacementReadError.injected }
+            return try store.conversationBrowseWindow(id: id)
+        })
+        browse.configureNewEntry(reader: {
+            if failReads { throw CardReplacementReadError.injected }
+            return try store.conversationNewBrowseWindow(originID: "only")
+        })
+        browse.present(originID: "only")
+        browse.beginDeletionReplacement(id: "only")
+        browse.advanceDeletionReplacement()
+        _ = try store.beginCardDeletion(conversationID: "only", at: Fixtures.epoch)
+        failReads = true
+
+        #expect(!browse.selectAfterDeleting(id: "only"))
+        #expect(browse.selectedConversationID != "only")
+        #expect(browse.deletionTarget == nil)
+        #expect(browse.deletionProgress == 0)
+        #expect(browse.errorMessage != nil)
+
+        failReads = false
+        browse.refresh()
+        #expect(browse.isNewEntry)
+        #expect(browse.selectedConversationID == nil)
+    }
+
     @Test("deleted Current reveals its nearest predecessor in a bounded window")
     func predecessorBecomesCurrent() throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
