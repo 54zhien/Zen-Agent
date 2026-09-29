@@ -65,6 +65,33 @@ final class SurfaceLiftUITests: XCTestCase {
     }
 
     @MainActor
+    func testComposerDragTargetsTopSplit() {
+        assertSplitTarget(.init(dx: 0.5, dy: 0.18), expected: "top")
+    }
+
+    @MainActor
+    func testComposerDragTargetsBottomSplit() {
+        assertSplitTarget(.init(dx: 0.5, dy: 0.68), expected: "bottom")
+    }
+
+    @MainActor
+    private func assertSplitTarget(_ destination: CGVector, expected slot: String) {
+        let app = launch()
+        guard waitForPhase("full", app: app) else { return }
+        guard prepareDraft("Split 草稿", app: app) else { return }
+        let editor = app.textViews["conversation-composer-input"]
+        let saved = editor.value as? String
+        let start = editor.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.5))
+        let end = app.coordinate(withNormalizedOffset: destination)
+        start.press(forDuration: 0.7, thenDragTo: end)
+        let probe = app.otherElements["split-drop-intent-probe"]
+        XCTAssertTrue(probe.waitForExistence(timeout: 10), "A real Composer drag must report its Split target")
+        XCTAssertEqual(probe.value as? String, slot)
+        XCTAssertTrue(waitForPhase("full", app: app), "Until a Split consumer is installed, release returns to Full")
+        XCTAssertEqual(editor.value as? String, saved)
+    }
+
+    @MainActor
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_SURFACE_LIFT_UI_TEST"] = "1"
