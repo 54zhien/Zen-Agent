@@ -156,6 +156,7 @@ final class SurfaceLiftController {
     }
     @discardableResult
     func returnToFull(animated: Bool = true) -> Bool {
+        guard !overlayPresented, presentedOverlay?() != true else { return false }
         guard state.phase == .card || state.phase == .settling || state.phase == .lifting else { return false }
         if previewIsPresented?() == true, state.phase == .card, let prepareFull {
             if returnOperation != nil { return true }

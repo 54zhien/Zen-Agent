@@ -87,13 +87,34 @@ final class AppShellModel {
     }
 
     func newConversationBrowseWindow() throws -> ConversationBrowseWindow {
-        throw PersistenceError.invalidTransition("New entry is not implemented")
+        guard previewContent.isPresented, let store = dependencies?.store else { throw AppTargetFailure.persistenceUnavailable }
+        return try store.conversationNewBrowseWindow(originID: conversationID)
     }
     func createConversationFromAppSpace(at now: Date = Date()) throws -> String {
-        throw PersistenceError.invalidTransition("App Space creation is not implemented")
+        guard previewContent.isPresented, !previewContent.isPreparing, let cardActions else { throw AppTargetFailure.persistenceUnavailable }
+        let id = try cardActions.create(originID: conversationID, at: now, initialBinding:
+            ConversationInitialBinding(providerInstanceID: target?.providerInstanceID, modelID: target?.modelID))
+        refreshRecentConversations()
+        return id
     }
-    func renameAppSpaceConversation(id: String, title: String) -> Bool { false }
-    func pinAppSpaceConversation(id: String, pinned: Bool) -> Bool { false }
+    func appSpaceActionError(for id: String?) -> String? { cardActions?.error(for: id) }
+    func acknowledgeAppSpaceCreation(id: String) { cardActions?.acknowledgeCreated(id: id) }
+    func appSpaceConversationTitle(id: String) -> String? {
+        guard previewContent.isPresented, !previewContent.isPreparing else { return nil }
+        return cardActions?.title(id: id)
+    }
+    func renameAppSpaceConversation(id: String, title: String) -> Bool {
+        guard previewContent.isPresented, !previewContent.isPreparing,
+              cardActions?.rename(id: id, title: title) == true else { return false }
+        refreshRecentConversations()
+        return true
+    }
+    func pinAppSpaceConversation(id: String, pinned: Bool) -> Bool {
+        guard previewContent.isPresented, !previewContent.isPreparing,
+              cardActions?.pin(id: id, pinned: pinned) == true else { return false }
+        refreshRecentConversations()
+        return true
+    }
 
     func browseWindow(id: String) throws -> ConversationBrowseWindow {
         guard let store = dependencies?.store else { throw AppTargetFailure.persistenceUnavailable }
@@ -173,6 +194,7 @@ final class AppShellModel {
         sendAvailability = prepared.pane.composer.sendAvailability
         targetMessage = sendAvailability.message
         previewContent.finish()
+        cardActions?.reset()
         return true
     }
 
@@ -197,6 +219,7 @@ final class AppShellModel {
 
     @ObservationIgnored private let userDefaults: UserDefaults
     @ObservationIgnored private var dependencies: AppAssembly.Dependencies?
+    private var cardActions: AppSpaceConversationActions?
     @ObservationIgnored private var startedAssembly = false
     @ObservationIgnored private var backgroundedAtInProcess: Date?
     @ObservationIgnored private let sessions = ConversationSessionStore()
@@ -228,6 +251,7 @@ final class AppShellModel {
     ) {
         self.userDefaults = userDefaults
         self.dependencies = dependencies
+        self.cardActions = AppSpaceConversationActions(store: dependencies.store)
         self.router = dependencies.router
         self.launchState = .ready
         self.startedAssembly = true
@@ -251,6 +275,7 @@ final class AppShellModel {
         cancelPreviewReturn()
         previewContent.finish()
         dependencies = nil
+        cardActions = nil
         sessions.removeAll()
         pane = nil
         actionBridge = nil
@@ -266,6 +291,7 @@ final class AppShellModel {
         do {
             let assembled = try AppAssembly.assemble(router: router)
             dependencies = assembled
+            cardActions = AppSpaceConversationActions(store: assembled.store)
             launchState = .ready
             prepareProviderSetup()
             loadDefaultTarget()
@@ -279,6 +305,7 @@ final class AppShellModel {
     }
 
     func newConversation() {
+        cardActions?.reset()
         navigationID = UUID()
         recentOpenFailure = nil
         router.historyPreparation.cancel()
@@ -411,6 +438,10 @@ final class AppShellModel {
             let configuration: ConversationComposerConfiguration?
             if let instanceID = summary.providerInstanceID, let modelID = summary.modelID {
                 configuration = ConversationComposerConfiguration(providerInstanceID: instanceID, modelID: modelID)
+            } else if summary.runProjection == nil,
+                      let binding = try store.conversationInitialBinding(id: conversationID),
+                      let instanceID = binding.providerInstanceID, let modelID = binding.modelID {
+                configuration = ConversationComposerConfiguration(providerInstanceID: instanceID, modelID: modelID)
             } else {
                 configuration = nil
             }
@@ -498,6 +529,7 @@ final class AppShellModel {
             rememberCurrentSession()
             cancelPreviewReturn()
             previewContent.finish()
+            cardActions?.reset()
             let outgoingConversationID = conversationID
             if outgoingConversationID != id { router.unregisterPane(for: outgoingConversationID) }
             conversationID = id
@@ -580,9 +612,11 @@ final class AppShellModel {
         }
         guard let dependencies else { return }
         do {
-            // The existing setup entry changes the global default. Only a page
-            // with no committed Conversation may adopt that choice directly.
-            if try dependencies.store.conversationLifecycle(id: conversationID) == nil {
+            // Explicit Configure can initialize an unconfigured empty New once.
+            // Global defaults never replace a copied choice or a committed seed.
+            let explicitBinding = ConversationInitialBinding(providerInstanceID: savedTarget.providerInstanceID, modelID: savedTarget.modelID)
+            if try dependencies.store.conversationLifecycle(id: conversationID) == nil
+                || dependencies.store.initializeEmptyConversationBinding(id: conversationID, binding: explicitBinding, at: Date()) {
                 pane.composer.configuration = ConversationComposerConfiguration(
                     providerInstanceID: savedTarget.providerInstanceID, modelID: savedTarget.modelID)
             }

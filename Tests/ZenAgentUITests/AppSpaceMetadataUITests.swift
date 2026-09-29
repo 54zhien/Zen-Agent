@@ -39,9 +39,14 @@ final class AppSpaceMetadataUITests: XCTestCase {
         let field = app.alerts.textFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.tap()
-        field.press(forDuration: 1.2)
-        if app.menuItems["Select All"].exists { app.menuItems["Select All"].tap() }
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 40) + "Manual title")
+        field.typeText(" cancelled edit")
+        app.alerts.buttons["取消"].tap()
+        XCTAssertTrue(wait { card.label.contains("Workspace conversation 11") && !card.label.contains("cancelled edit") })
+        menu.tap()
+        app.buttons["重命名"].tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText(" Manual title")
         app.alerts.buttons["保存"].tap()
         XCTAssertTrue(wait { card.exists && card.label.contains("Manual title") })
         menu.tap()
@@ -51,6 +56,8 @@ final class AppSpaceMetadataUITests: XCTestCase {
         XCTAssertTrue(app.buttons["取消置顶"].waitForExistence(timeout: 5))
         app.buttons["取消置顶"].tap()
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
+        card.swipeRight()
+        XCTAssertTrue(wait { card.label.contains("Workspace conversation 10") })
     }
 
     @MainActor

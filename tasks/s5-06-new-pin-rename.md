@@ -35,6 +35,24 @@ Before feature implementation, Provider section6 rejected the mutable-global emp
 The next tests-only revision adds creation-time copied binding, changed-global cold reopen, explicit unconfigured state,
 exactly-once explicit Configure initialization and configured-empty LRU controls. API additions remain inert.
 Old correct assertions remain; the incorrect newly drafted global-fallback case is replaced with the actual creation-time binding requirement.
+Source `e5ed0e27068d4a1a1b94c4f6c3c496241210c36e`, tree `de33989a76c841e11a0dd22060c25965fd47b2bf`.
+[Push CI36585196927](https://github.com/54zhien/Zen-Agent/actions/runs/36585196927), job `109463620270`, completed with actual behavioral RED:
+generation/App/test compile passed;778 Swift Testing/116 suites129.411s,41 intended issues
+(10 shell ownership/binding,3 creation,12 New Browse,1 migration marker,15 metadata).
+20 XCTest passed;18 UI475.633s had only the2 intended New/menu failures; original16 UI passed.
+One actual Swift start, no host restart. An early log download before job finalization returned BlobNotFound; final complete logs were read successfully.
+
+## First implementation candidate
+
+After matching behavioral RED, implemented metadata transactions and bounded distinct New; after corrected binding RED,
+implemented atomic empty creation/Soul/initial binding, explicit null-binding initialization, retry identity, cold reconstruction and weak LRU.
+Native menu captures the selected ID and suspends motion; dismissal restores logical input availability while delegates check actual UIKit overlays.
+New uses the existing two-segment Surface/Preview handoff and Resting Composer. Metadata errors belong only to their selected ID.
+The old newest-card accessibility assertion is intentionally updated for the authorized new rightmost entry;
+its older/newer/session/request controls remain and now exercise native New/back with no metadata menu on New.
+Native menu test additionally checks Cancel and post-dismissal swipe. Existing first-user-text summary fallback is reused.
+Migrations.swift line endings are normalized to LF for the default whitespace gate; old migration SQL behavior is unchanged.
+No full GREEN or completion claim before candidate CI.
 
 ## Implementation decisions
 

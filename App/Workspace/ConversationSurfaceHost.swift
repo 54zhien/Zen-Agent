@@ -159,16 +159,17 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         surfaceView.isAccessibilityElement = frozen
         surfaceView.accessibilityIdentifier = phase == .card ? "workspace-current-card" : nil
         surfaceView.accessibilityLabel = "当前会话"
-        surfaceView.accessibilityHint = "轻点返回会话"
+        let isNew = browseInteraction?.controller.isNewEntry == true
+        surfaceView.accessibilityHint = isNew ? "轻点创建新对话" : "轻点返回会话"
         surfaceView.accessibilityTraits = .button
         surfaceView.onActivate = frozen ? { [weak self] in
             self?.browseInteraction?.cancel()
             return returnAction()
         } : nil
         surfaceView.accessibilityCustomActions = frozen
-            ? [UIAccessibilityCustomAction(name: "返回会话", target: surfaceView,
+            ? [UIAccessibilityCustomAction(name: isNew ? "创建新对话" : "返回会话", target: surfaceView,
                                            selector: #selector(SurfaceClipView.activateReturn))] : nil
-        if phase == .card, let browse = browseInteraction, browse.canNavigate {
+        if phase == .card, let browse = browseInteraction, browse.hasNavigationActions {
             var actions = surfaceView.accessibilityCustomActions ?? []
             if browse.controller.state.older != nil {
                 actions.append(UIAccessibilityCustomAction(name: "上一会话") { [weak browse] _ in
@@ -178,6 +179,12 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             if browse.controller.state.newer != nil {
                 actions.append(UIAccessibilityCustomAction(name: "下一会话") { [weak browse] _ in
                     browse?.navigate(.newer) ?? false
+                })
+            }
+            if !isNew, browse.controller.currentSummary != nil {
+                actions.append(UIAccessibilityCustomAction(name: "会话菜单") { [weak browse] _ in
+                    guard let browse, browse.canNavigate else { return false }
+                    return browse.controller.onOpenActions?() ?? false
                 })
             }
             surfaceView.accessibilityCustomActions = actions

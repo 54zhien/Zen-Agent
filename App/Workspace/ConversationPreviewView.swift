@@ -4,14 +4,18 @@ import SwiftUI
 struct ConversationPreviewView: View {
     let summary: ConversationSummary?
     var status: ConversationPreviewStatus = .ready
+    var isNewEntry = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text(summary?.title ?? "新会话")
+            if isNewEntry {
+                Image(systemName: "plus").font(.largeTitle).accessibilityHidden(true)
+            }
+            Text(isNewEntry ? "新对话" : (summary?.title ?? "未发送的会话"))
                 .font(Typography.font(for: .interfaceTitle, dynamicTypeSize: dynamicTypeSize))
                 .lineLimit(2)
-            if let summary {
+            if !isNewEntry, let summary {
                 Text(summary.excerpt)
                     .font(Typography.font(for: .conversationBody, dynamicTypeSize: dynamicTypeSize))
                     .lineLimit(8)

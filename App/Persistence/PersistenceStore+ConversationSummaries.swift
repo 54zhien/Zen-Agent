@@ -33,6 +33,12 @@ struct ConversationBrowseWindow: Equatable, Sendable {
     let current: ConversationSummary?
     let older: [ConversationSummary]
     let newer: ConversationSummary?
+    let uncommittedOriginID: String?
+    init(current: ConversationSummary?, older: [ConversationSummary], newer: ConversationSummary?,
+         uncommittedOriginID: String? = nil) {
+        self.current = current; self.older = older; self.newer = newer
+        self.uncommittedOriginID = uncommittedOriginID
+    }
     var summaries: [ConversationSummary] { (current.map { [$0] } ?? []) + older + (newer.map { [$0] } ?? []) }
 }
 
@@ -49,7 +55,7 @@ extension PersistenceStore {
                 }
                 return ConversationBrowseWindow(current: nil,
                     older: try summaryRows(in: db, predicate: "lifecycle = 'visible'", limit: 3,
-                        arguments: StatementArguments()), newer: nil)
+                        arguments: StatementArguments()), newer: nil, uncommittedOriginID: id)
             }
             let cursor = current.cursor
             let arguments: StatementArguments = [cursor.pinned, cursor.pinned, cursor.userActiveAt,
@@ -61,6 +67,25 @@ extension PersistenceStore {
                 predicate: "lifecycle = 'visible' AND (pinned > ? OR (pinned = ? AND userActiveAt > ?) OR (pinned = ? AND userActiveAt = ? AND id < ?))",
                 limit: 1, arguments: arguments, reversed: true).first
             return ConversationBrowseWindow(current: current, older: older, newer: newer)
+        }
+    }
+
+    func conversationNewBrowseWindow(originID: String) throws -> ConversationBrowseWindow {
+        try database.read { db in
+            let lifecycle = try String.fetchOne(db, sql: "SELECT lifecycle FROM conversation WHERE id = ?", arguments: [originID])
+            guard lifecycle == nil || lifecycle == ConversationLifecycle.visible.rawValue else {
+                throw PersistenceError.invalidTransition("Original Conversation is not visible")
+            }
+            let history = try summaryRows(in: db, predicate: "lifecycle = 'visible'",
+                limit: lifecycle == nil ? 2 : 3, arguments: StatementArguments())
+            guard lifecycle == nil else { return ConversationBrowseWindow(current: nil, older: history, newer: nil) }
+            // The retained original is a working page, not another creation entry.
+            // This placeholder has no durable activity cursor; only its ID routes Return.
+            let original = ConversationSummary(id: originID, title: "未发送的会话", excerpt: "", pinned: false,
+                userActiveAt: .distantPast, contentUnavailable: false, runProjection: nil,
+                providerInstanceID: nil, modelID: nil, providerName: nil)
+            return ConversationBrowseWindow(current: nil, older: [original] + history, newer: nil,
+                uncommittedOriginID: originID)
         }
     }
 

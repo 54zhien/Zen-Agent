@@ -188,7 +188,9 @@ struct AppShellWiringTests {
             try await Task.sleep(for: .milliseconds(25))
         }
         let card = try #require(findCard(host.view))
-        #expect(card.accessibilityCustomActions?.contains { $0.name == "下一会话" } == false)
+        // S5-06 adds the distinct New after the latest history. Keep the existing
+        // native older/newer controls and exercise the new boundary as well.
+        #expect(card.accessibilityCustomActions?.contains { $0.name == "下一会话" } == true)
         let previous = try #require(card.accessibilityCustomActions?.first { $0.name == "上一会话" })
         let previousHandler = try #require(previous.actionHandler)
         #expect(previousHandler(previous))
@@ -206,6 +208,24 @@ struct AppShellWiringTests {
             try await Task.sleep(for: .milliseconds(25))
         }
         #expect(card.accessibilityLabel?.contains("Native browse 5") == true)
+        #expect(fixture.model.router.historyPreparation.requested == requests)
+        let toNew = try #require(card.accessibilityCustomActions?.first { $0.name == "下一会话" })
+        let toNewHandler = try #require(toNew.actionHandler)
+        #expect(toNewHandler(toNew))
+        for _ in 0..<40 where card.accessibilityLabel?.contains("创建新对话") != true {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(card.accessibilityLabel?.contains("创建新对话") == true)
+        #expect(card.accessibilityCustomActions?.contains { $0.name == "会话菜单" } == false)
+        #expect(card.accessibilityCustomActions?.contains { $0.name == "创建新对话" } == true)
+        let fromNew = try #require(card.accessibilityCustomActions?.first { $0.name == "上一会话" })
+        let fromNewHandler = try #require(fromNew.actionHandler)
+        #expect(fromNewHandler(fromNew))
+        for _ in 0..<40 where card.accessibilityLabel?.contains("Native browse 5") != true {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(card.accessibilityLabel?.contains("Native browse 5") == true)
+        #expect(fixture.model.previewContent.session === session && fixture.model.previewContent.prepared == nil)
         #expect(fixture.model.router.historyPreparation.requested == requests)
     }
 
