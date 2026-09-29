@@ -94,6 +94,7 @@ final class AppShellModel {
                 guard !Task.isCancelled, conversationID == id,
                       router === dependencies.router, previewContent.accepts(preparation) else {
                     dependencies.router.cancelPanePreparation(for: id, ticket: ticket)
+                    previewContent.cancelPreparation(for: preparation)
                     return false
                 }
                 guard router.acceptsPanePreparation(for: id, ticket: ticket) else { continue }
@@ -110,7 +111,11 @@ final class AppShellModel {
                 return true
             } catch {
                 dependencies.router.cancelPanePreparation(for: id, ticket: ticket)
-                previewContent.failed(preparation)
+                if Task.isCancelled || (error is CancellationError) {
+                    previewContent.cancelPreparation(for: preparation)
+                } else {
+                    previewContent.failed(preparation)
+                }
                 return false
             }
         }

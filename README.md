@@ -64,11 +64,17 @@ As of 2026-09-29:
   Inspect PR #19 for its tested head/tree and integration receipt. See
   [the slice record](tasks/s5-04-preview-virtualization.md). Physical Gate A and
   device memory/comfort remain open. Upstream S5-05 remains Card browse/snap.
-- H1 consistent history reads and cancellable Preview handoff are maintained
-  separately on [PR #20](https://github.com/54zhien/Zen-Agent/pull/20). See
+- H1 consistent history reads and cancellable Preview handoff are integrated
+  through [PR #20](https://github.com/54zhien/Zen-Agent/pull/20) at `3505a2e`.
+  [Main CI](https://github.com/54zhien/Zen-Agent/actions/runs/36531208778) passed
+  generation/build,740 Swift Testing,20 XCTest and14 UI tests. See
   [the repair record](tasks/h1-history-handoff.md) for behavioral RED and failed
   source runs; PR #20 holds the latest exact-tree CI, review and integration status.
-  H2 follows its implementation gate. S5-05–16 are not implemented by this repair.
+- H2 Preview error sources and localized unreadable summary rows are being
+  implemented on [PR #21](https://github.com/54zhien/Zen-Agent/pull/21). See
+  [the slice record](tasks/h2-preview-recovery-state.md) for its runnable RED.
+  Full GREEN and independent branch review remain pending; physical Gate A must
+  be evidenced for the matching H1/H2 build before S5-05. S5-05–16 remain later work.
 - Formal Settings IA and
   `Settings → Agent → Soul` belong to later Stage 5 slices; Memory, Skills, MCP and
   Subagent remain later stages.
