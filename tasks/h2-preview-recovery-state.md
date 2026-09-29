@@ -57,8 +57,25 @@ PR CI `36532649896` attempt 1 / job `109289796012`：generation、应用构建�
 消息派生与操作代际归 Preview owner；SQL/全局读取失败保留 Persistence 错误边界。
 诊断不复制正文、未知原始值或 Secret。
 
-F4 中 Open Bool 的“逐步收敛”在实际 S5-05 导航交互中再决定；本切片验证 Full Return 的错误可见，
-不宣称已新增 Recent/Open 失败 UI。若具体审查发现要求扩展，会先记录行为 RED。
+独立整分支审查将 Recent/Open 的真实读取失败仍然静默列为 Important，已接受。
+Open Bool 的完整类型化重构仍可逐步演进；本 H2 必须提供实际 Full Open 失败反馈。
+Recent 的列表读取与 Full Open 失败独立保存，展示消息派生；摘要刷新不能清除 Open 失败。
+Open 失败保留稳定目标 ID，旧 Pane/Session 不变；“重试打开”只重试该 ID。
+取消及旧导航不写入读取失败；实际打开成功清除 Open 失败。
+Recent View 使用已有可取消 historyAction，并向辅助技术发布当前操作的失败提示。
+播报 API 依据 [Apple UIAccessibility](https://developer.apple.com/documentation/uikit/uiaccessibility)
+及 [announcement](https://developer.apple.com/documentation/uikit/uiaccessibility/notification/announcement)。
+
+审查修复首个 tests-only `4834dbf` / CI `36537184942` 的测试编译失败：bridge 为值类型，
+不能使用身份比较。该运行不是行为 RED；改用真实 Session 身份，生产代码尚未修改。
+有效 tests-only `e66dde506c84e4f809603788d6b296b80e19a366`，tree
+`0ac5b3db76c2a31e4cf01d6d4714d92b0d4103da`；push CI `36542576776` attempt 1 /
+job `109321286051` 生成、应用和测试编译通过；746 Swift Testing / 111 suites 实际运行，
+只有两个新增行为断言失败：未知 Run 元数据、Full-only SQL 故障均没有可见 Recent 错误。
+20 XCTest 通过；14 UI 中原有中文输入断言观察到“你”而非“你好”。一次实际测试启动，无宿主重启。
+之前相同源码 `34c88ec` 的 push 完整通过，重复 PR CI `36534277964` 初次输入键盘焦点失败。
+两条设备/模拟器输入观察保留，原因未确定；不得声称已修复输入或以删除断言关闭它们。
+此次最小修复只更改失败事实、提示与重试，最终完整 CI 仍待验证。
 
 ## 验收记录
 

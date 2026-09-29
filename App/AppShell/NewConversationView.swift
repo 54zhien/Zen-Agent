@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @MainActor
 struct AppShellRootView: View {
@@ -200,12 +201,7 @@ struct NewConversationView: View {
                 List {
                     ForEach(model.recentConversations) { conversation in
                         Button {
-                            historyAction?.cancel()
-                            historyAction = Task {
-                                if await model.openConversation(id: conversation.id) {
-                                    isRecentConversationsPresented = false
-                                }
-                            }
+                            openRecentConversation(id: conversation.id)
                         } label: {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(conversation.title)
@@ -225,8 +221,13 @@ struct NewConversationView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(error)
                                 .foregroundStyle(.secondary)
-                            Button("重试") { model.retryRecentConversations() }
-                                .accessibilityIdentifier("recent-conversations-retry")
+                            if let failure = model.recentOpenFailure {
+                                Button("重试打开") { openRecentConversation(id: failure.conversationID) }
+                                    .accessibilityIdentifier("recent-conversation-open-retry")
+                            } else {
+                                Button("重试") { model.retryRecentConversations() }
+                                    .accessibilityIdentifier("recent-conversations-retry")
+                            }
                         }
                         .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
                     } else if model.recentHasMore {
@@ -256,6 +257,19 @@ struct NewConversationView: View {
         }
         .onDisappear { historyAction?.cancel(); historyAction = nil }
 
+    }
+
+    private func openRecentConversation(id: String) {
+        historyAction?.cancel()
+        historyAction = Task {
+            let opened = await model.openConversation(id: id)
+            guard !Task.isCancelled, isRecentConversationsPresented else { return }
+            if opened {
+                isRecentConversationsPresented = false
+            } else if let failure = model.recentOpenFailure, failure.conversationID == id {
+                UIAccessibility.post(notification: .announcement, argument: failure.message)
+            }
+        }
     }
 
 }
