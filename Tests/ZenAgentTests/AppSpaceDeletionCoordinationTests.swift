@@ -153,6 +153,23 @@ struct AppSpaceDeletionCoordinationTests {
         #expect(owner.errorMessage != nil)
     }
 
+    @Test("a forward wall-clock jump cannot revoke live monotonic Undo")
+    func liveUndoSurvivesClockJump() async throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(
+            Fixtures.send(messageID: "undo-clock-m1", runID: "undo-clock-r1", runState: .completed)
+        )
+        var wall = Fixtures.epoch
+        let owner = AppSpaceConversationDeletion(store: store,
+            stopRun: { _ in }, waitForRun: { _ in }, now: { wall })
+        #expect(await owner.delete(conversationID: "c1", stillSelected: { true }))
+
+        wall = Fixtures.epoch.addingTimeInterval(3600)
+        #expect(owner.undo(conversationID: "c1"))
+        #expect(try store.conversationLifecycle(id: "c1") == .visible)
+        #expect(try store.messages(inConversation: "c1").count == 1)
+    }
+
     @Test("cold-start wall-clock jump cannot erase a recoverable body after grace")
     func coldStartClockJumpNeedsDecision() async throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
