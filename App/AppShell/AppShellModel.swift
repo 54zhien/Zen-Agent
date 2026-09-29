@@ -454,7 +454,7 @@ final class AppShellModel {
     }
 
     private func commitSession(_ session: ConversationSession) {
-        sessions.activate(session)
+        sessions.activate(session, isRuntimeProtected: router.hasActiveRun(for:))
         sessions.evictIfNeeded(isRuntimeProtected: router.hasActiveRun(for:))
     }
 

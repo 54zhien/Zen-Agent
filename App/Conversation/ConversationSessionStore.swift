@@ -75,11 +75,12 @@ final class ConversationSessionStore {
     }
 
     /// Called only after the replacement Pane has loaded and registered.
-    func activate(_ session: ConversationSession) {
+    func activate(_ session: ConversationSession, isRuntimeProtected: (String) -> Bool = { _ in false }) {
         if let activeID, activeID != session.conversationID, var previous = entries[activeID] {
             // Only a pristine blank working page can be retired on replacement.
             // Drafts, changed configuration, anchors and pending submission retain their owner.
             if case .uncommitted = previous.reconstruction,
+               !isRuntimeProtected(activeID),
                previous.session.canReconstruct(configuration: previous.initialConfiguration) {
                 entries.removeValue(forKey: activeID)
             } else {

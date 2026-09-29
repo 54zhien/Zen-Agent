@@ -57,6 +57,7 @@ Files: new AppSpaceCardActionsView.swift; WorkspaceSurfaceView/NewConversationVi
 
 ## Task 4 — Review and delivery
 
-- [ ] One fresh readonly reviewer whole bca95d9..HEAD, spec/Review Focus/ledger supplied. Lead regrades findings and declines; at most one Important/Critical RED→GREEN repair pass.
-- [ ] Static default diff checks, exact source/merge trees, actual full generation/build/test counts and restart guard; README/receipt retains all failed evidence.
-- [ ] Final exact-head CI, ready unmerged PR, device acceptance deferred to Stage5 end. Stop before S5-07.
+- [x] One fresh readonly reviewer whole bca95d9..9dcb508, spec/Review Focus/ledger supplied. Lead regrades findings and exclusions; one Important RED→GREEN repair, Minor deferred.
+- [x] Static default diff checks, exact repair source/merge trees, actual full generation/build/test counts and restart guard; README/receipt retains all failed evidence.
+- Final publication gate: the receipt and existing active-Run retirement protection are committed together, then the exact final head must pass full CI before PR23 becomes ready. Its final head/tree/run result is recorded in PR23 after publication; this static record is not a self-referential CI receipt.
+- Delivery boundary: unmerged stacked PR; all physical acceptance at Stage5 end, gates open. Stop before S5-07.

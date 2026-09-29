@@ -96,8 +96,34 @@ Windows compose at most5/3 summaries in one SQL read; the virtual warm section s
 Only exact retained owners can remount missing rows. Any existing deleted lifecycle row still rejects activation and virtual projection.
 Virtual working cards have Return but no metadata menu. A pristine blank working page may retire only on committed replacement;
 drafts, changed initial configuration, reading anchors and pending submission remain protected by the existing reconstructibility predicate.
-This is the single Important repair pass, pending real full GREEN. No second independent review or Minor polish.
+Retirement also consumes the existing Router active-Run protection predicate, including read-failure uncertainty after Send.
+Repair candidate `99c323b3d5f9597bb46c2fecf3ebf95010d57967`, tree `47ba6538794ac9e4f5ef2369b29a41b6aec70a21`,
+has completed [full push CI36595377400](https://github.com/54zhien/Zen-Agent/actions/runs/36595377400), job `109498856944`:
+generation/App build/test passed;780 Swift Testing/116 suites79.149s,20 XCTest,18 UI527.787s,0 failures.
+`explicitAppSpaceNewPreservesOrigin` and `unsentDraftRemainsNavigableAfterNew` are now GREEN after their five-issue behavioral RED;
+`retainedDraftStillRejectsDeletedAndUnknown` remains GREEN. One actual Swift start, no actual host restart, command guard passed.
+[PR CI36595383020](https://github.com/54zhien/Zen-Agent/actions/runs/36595383020), job `109498869006`, also passed
+generation/App build/test:780 Swift Testing/116 suites112.768s,20 XCTest,18 UI550.033s,0 failures;
+one actual Swift start, no actual host restart. Guard self-test36595383024 passed.
+This is the single Important repair pass; no second independent review or Minor polish.
+Final publication additionally applies Router active-Run protection to blank retirement and updates this receipt.
+Its own exact-head full CI/readiness/merge-tree receipt is published in PR23 after the final commit; no completion claim from this historical candidate alone.
 
 No completion claim before actual full generation/build/test CI and one fresh independent branch review.
 Physical Gate A, Memory Graph, body counts, hitches, peak memory, comfort, actual VoiceOver and input acceptance remain open until Stage5 development ends.
 Prior S505/H2 failure observations remain in their slice records. Green CI does not close physical acceptance.
+
+## Review rulings, chronological
+
+1. Stack on tested unmerged PR22; no implicit merge. Additive tables preserve old-schema Codable fixtures. Cost if wrong: retarget/re-run integration CI or correct migration compatibility.
+2. Use native Windows equivalents for bash-only plan helpers. Cost if wrong: correct manual ledger bookkeeping.
+3. Inert signatures only after compiled native RED; implementation waits for behavioral RED. Cost if wrong: repair tests before claiming RED.
+4. Reject mutable-global empty reopen; persist creation-time binding including unconfigured state, allowing only explicit once-only empty Configure initialization. Cost if wrong: correct binding policy/migration.
+5. Initial binding owns empty histories; latest Parent seed and retained warm configuration remain authoritative, with no speculative extra settings. Cost if wrong: later options need explicit schema/owner work.
+6. All physical acceptance moves to Stage5 end by owner direction; all gates remain open. Cost if wrong: device acceptance is still owed.
+7. Delete/Undo/Split/Sidebar and later work stay outside S506. Cost if wrong: later implementation remains needed.
+8. Process-termination Draft recovery stays outside this plan; exact same-process recovery is required. Cost if wrong: future durable Draft design/migration is needed.
+9. Correct erroneous section19 reference to the actual section18. Cost if wrong: recheck source authority.
+10. Use positive Session provenance and stable creation order for a bounded virtual section next to New; retire only pristine reconstructible, non-Run-protected blanks after replacement. Cost if wrong: correct navigation/configuration protection, without rewriting durable activity.
+
+Deferred Minor: Rename opens blank for a provisional first-user-text Card title; manual titles and entering a new name work. It does not enter this Important repair pass.
