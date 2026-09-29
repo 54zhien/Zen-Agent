@@ -529,6 +529,90 @@ struct AppShellWiringTests {
         #expect(session.composer.draft.text == "cancel-safe draft")
     }
 
+    @Test("a successful summary refresh clears only its refresh error")
+    func previewRefreshRecovers() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try await send("refresh history", at: Fixtures.epoch, in: fixture)
+        #expect(fixture.model.enterPreview())
+        let before = fixture.model.previewContent.summaries
+        let id = fixture.model.conversationID
+        try fixture.store.database.write { db in try db.execute(sql: "ALTER TABLE message RENAME TO failed_refresh_message") }
+        fixture.model.refreshPreview()
+        #expect(fixture.model.previewContent.errorMessage != nil)
+        #expect(fixture.model.previewContent.summaries == before)
+        try fixture.store.database.write { db in
+            try db.execute(sql: "ALTER TABLE failed_refresh_message RENAME TO message")
+            try db.execute(sql: "UPDATE conversation SET title = ? WHERE id = ?",
+                arguments: ["recovered preview", id])
+        }
+        fixture.model.refreshPreview()
+        #expect(fixture.model.previewContent.currentSummary?.title == "recovered preview")
+        #expect(fixture.model.previewContent.errorMessage == nil)
+        #expect(fixture.model.previewContent.status == .ready)
+    }
+
+    @Test("an unavailable summary cannot hide its real Full Return failure")
+    func unavailableSummaryRetainsFullReadError() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try await send("unavailable full history", at: Fixtures.epoch, in: fixture)
+        #expect(fixture.model.enterPreview())
+        let id = fixture.model.conversationID
+        let session = try #require(fixture.model.previewContent.session)
+        try fixture.store.database.write { db in
+            try db.execute(sql: "UPDATE agentRun SET state = ? WHERE conversationID = ? AND kind = 'parent'",
+                arguments: ["unknown-test-only-state", id])
+        }
+        fixture.model.refreshPreview()
+        #expect(fixture.model.previewContent.currentSummary?.contentUnavailable == true)
+        #expect(fixture.model.previewContent.status == .contentUnavailable)
+        #expect(!(await fixture.model.preparePreviewReturn()))
+        let failure = try #require(fixture.model.previewContent.errorMessage)
+        #expect(fixture.model.previewContent.status == .failed(failure))
+        #expect(fixture.model.previewContent.accessibilityLabel.contains(failure))
+        fixture.model.refreshPreview()
+        #expect(fixture.model.previewContent.errorMessage == failure)
+        #expect(fixture.model.previewContent.isPresented && fixture.model.pane == nil)
+        #expect(fixture.model.previewContent.session === session)
+    }
+
+    @Test("caller cancellation leaves Preview retryable without a storage error")
+    func cancelledPreviewPreparationIsNotReadFailure() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.commitUserTurnAndCreateParentRun(Fixtures.send(
+            conversationID: "cancel-error", messageID: "cancel-error-user", runID: "cancel-error-run", runState: .completed))
+        #expect(await fixture.model.openConversation(id: "cancel-error"))
+        #expect(fixture.model.enterPreview())
+        let session = try #require(fixture.model.previewContent.session)
+        let gate = PreviewReadGate()
+        defer {
+            gate.release()
+            try? fixture.store.database.read { $0.trace(nil) }
+            #expect(!gate.timedOut)
+        }
+        try fixture.store.database.read { db in
+            db.trace { event in
+                if case .statement(let statement) = event,
+                   statement.sql.lowercased().contains("agentrun") { gate.blockOnce() }
+            }
+        }
+        let operation = Task { await fixture.model.preparePreviewReturn() }
+        for _ in 0..<200 where !gate.hasBlocked { try await Task.sleep(for: .milliseconds(5)) }
+        _ = try #require(gate.hasBlocked)
+        operation.cancel()
+        gate.release()
+        #expect(!(await operation.value))
+        #expect(fixture.model.previewContent.isPresented && !fixture.model.previewContent.isPreparing)
+        #expect(fixture.model.previewContent.session === session)
+        #expect(fixture.model.previewContent.errorMessage == nil)
+        #expect(fixture.model.previewContent.status == .ready)
+        #expect(await fixture.model.preparePreviewReturn())
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.pane?.session === session)
+    }
+
     @Test("a failed Preview Return retains content and logical state for a real read retry")
     func previewReturnReadFailureAndRetry() async throws {
         let fixture = try makeFixture(seed: .active)
@@ -544,8 +628,14 @@ struct AppShellWiringTests {
         #expect(fixture.model.previewContent.errorMessage != nil)
         #expect(fixture.model.pane == nil)
         #expect(session.composer.draft.text == "retry keeps draft")
+        let returnFailure = try #require(fixture.model.previewContent.errorMessage)
+        fixture.model.refreshPreview()
+        #expect(fixture.model.previewContent.errorMessage == returnFailure)
         try fixture.store.database.write { db in try db.execute(sql: "ALTER TABLE failed_preview_message RENAME TO message") }
+        fixture.model.refreshPreview()
+        #expect(fixture.model.previewContent.errorMessage == returnFailure)
         #expect(await fixture.model.preparePreviewReturn())
+        #expect(fixture.model.previewContent.errorMessage == nil)
         #expect(fixture.model.commitPreviewReturn())
         #expect(fixture.model.pane?.session === session)
         #expect(fixture.model.previewContent.errorMessage == nil)
