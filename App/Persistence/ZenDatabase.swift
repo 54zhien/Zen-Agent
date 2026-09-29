@@ -64,6 +64,11 @@ final class ZenDatabase: Sendable {
         try dbQueue.read(body)
     }
 
+    /// GRDB owns queue scheduling, snapshot isolation and cancellation of this read.
+    func readAsync<T: Sendable>(_ body: @escaping @Sendable (Database) throws -> T) async throws -> T {
+        try await dbQueue.read(body)
+    }
+
     /// Read-write access. Everything in `body` runs in one transaction: it commits
     /// together or rolls back together.
     func write<T>(_ body: @Sendable (Database) throws -> T) throws -> T {
