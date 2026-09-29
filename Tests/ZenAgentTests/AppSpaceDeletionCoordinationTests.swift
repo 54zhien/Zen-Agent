@@ -114,4 +114,23 @@ struct AppSpaceDeletionCoordinationTests {
         #expect(owner.pending?.deadline == started.addingTimeInterval(10))
         #expect(try after.conversationLifecycle(id: "c1") == .pendingDeletion)
     }
+
+    @Test("foreground recovery without a live timer holds the body during clock uncertainty")
+    func foregroundRecoveryKeepsBodyDuringClockJump() throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(
+            Fixtures.send(messageID: "clock-m1", runID: "clock-r1", runState: .completed)
+        )
+        _ = try store.beginCardDeletion(conversationID: "c1", at: Fixtures.epoch)
+        let owner = AppSpaceConversationDeletion(store: store,
+            stopRun: { _ in }, waitForRun: { _ in },
+            now: { Fixtures.epoch.addingTimeInterval(3600) })
+
+        owner.recoverPending(afterLaunch: false)
+        owner.retryFinalization(conversationID: "c1")
+
+        #expect(try store.conversationLifecycle(id: "c1") == .pendingDeletion)
+        #expect(try store.messages(inConversation: "c1").count == 1)
+        #expect(owner.errorMessage != nil)
+    }
 }
