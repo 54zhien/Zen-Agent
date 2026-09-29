@@ -34,7 +34,7 @@ baseline is recorded in `Docs/ADR/`.
 
 ## Status
 
-As of 2026-09-29:
+As of 2026-09-30:
 
 - Stage 0 and Stage 1 are closed; Stage 2 Runtime and Tool boundaries are on `main`.
 - Stage 3 W1 wires the real App shell and text send/history. PR #12 added the
@@ -80,7 +80,19 @@ As of 2026-09-29:
   [PR #22](https://github.com/54zhien/Zen-Agent/pull/22), with generation/build,759 Swift Testing,20 XCTest and16 UI tests
   passed at `9372dfe`, and independent review approved (no Critical/Important). See [the slice record](tasks/s5-05-card-browse-snap.md)
   for bounded projection/selected Return ownership and RED evidence.
-  S5-06–16 remain later work.
+  S5-06 New/Pin/Rename is implemented on stacked
+  [PR #23](https://github.com/54zhien/Zen-Agent/pull/23), based on unmerged PR #22.
+  Its first implementation candidate `9dcb508` passed full CI (778 Swift,20 XCTest,18 UI).
+  Independent review identified one Important (same-process draft navigation after New).
+  Its regression was reproduced before correction; repair candidate `99c323b` passed
+  [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36595377400)
+  (780 Swift,20 XCTest,18 UI). Final publication also applies the existing active-Run
+  protection to pristine-page retirement; the latest exact-head result and readiness
+  are recorded in PR #23 after its own full CI. One Rename prefill Minor is deferred.
+  See [the slice record](tasks/s5-06-new-pin-rename.md). S5-07–16 remain later work.
+- The owner subsequently directed all Stage 5 physical acceptance to take place
+  after Stage 5 development ends. Device gates remain open; the changed order
+  does not establish device memory, performance, input, comfort or VoiceOver acceptance.
 - Formal Settings IA and
   `Settings → Agent → Soul` belong to later Stage 5 slices; Memory, Skills, MCP and
   Subagent remain later stages.

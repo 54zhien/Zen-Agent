@@ -11,11 +11,14 @@ enum ConversationSessionState: Equatable {
 final class ConversationSessionStore {
     enum Reconstruction {
         case unavailable
+        case uncommitted
         case history(configuration: ConversationComposerConfiguration?)
     }
 
     private struct Entry {
         let session: ConversationSession
+        let creationOrder: UInt64
+        let initialConfiguration: ConversationComposerConfiguration?
         var reconstruction: Reconstruction
         var lastAccess: Date
         var accessOrder: UInt64
@@ -37,6 +40,16 @@ final class ConversationSessionStore {
         entries[conversationID]?.session
     }
 
+    var uncommittedIDs: [String] {
+        entries.filter { if case .uncommitted = $0.value.reconstruction { return true }; return false }
+            .sorted { $0.value.creationOrder > $1.value.creationOrder }.map(\.key)
+    }
+
+    func uncommittedSession(for id: String) -> ConversationSession? {
+        guard let entry = entries[id], case .uncommitted = entry.reconstruction else { return nil }
+        return entry.session
+    }
+
     func state(for conversationID: String) -> ConversationSessionState {
         entries[conversationID]?.state ?? .evicted
     }
@@ -44,22 +57,36 @@ final class ConversationSessionStore {
     func retain(_ session: ConversationSession, reconstruction: Reconstruction) {
         let id = session.conversationID
         if var entry = entries[id], entry.session === session {
+            // Read uncertainty cannot erase previously established warm-only provenance.
+            if case .uncommitted = entry.reconstruction, case .unavailable = reconstruction {
+                return
+            }
             entry.reconstruction = reconstruction
             entries[id] = entry
         } else {
             accessOrder += 1
             let date = now()
-            entries[id] = Entry(session: session, reconstruction: reconstruction,
+            entries[id] = Entry(session: session,
+                creationOrder: accessOrder, initialConfiguration: session.composer.configuration,
+                reconstruction: reconstruction,
                 lastAccess: date, accessOrder: accessOrder,
                 state: activeID == id ? .active : .warm(lastAccess: date))
         }
     }
 
     /// Called only after the replacement Pane has loaded and registered.
-    func activate(_ session: ConversationSession) {
-        if let activeID, var previous = entries[activeID] {
-            previous.state = .warm(lastAccess: previous.lastAccess)
-            entries[activeID] = previous
+    func activate(_ session: ConversationSession, isRuntimeProtected: (String) -> Bool = { _ in false }) {
+        if let activeID, activeID != session.conversationID, var previous = entries[activeID] {
+            // Only a pristine blank working page can be retired on replacement.
+            // Drafts, changed configuration, anchors and pending submission retain their owner.
+            if case .uncommitted = previous.reconstruction,
+               !isRuntimeProtected(activeID),
+               previous.session.canReconstruct(configuration: previous.initialConfiguration) {
+                entries.removeValue(forKey: activeID)
+            } else {
+                previous.state = .warm(lastAccess: previous.lastAccess)
+                entries[activeID] = previous
+            }
         }
         let id = session.conversationID
         var entry = entries[id]

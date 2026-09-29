@@ -27,6 +27,7 @@ enum Migrations {
         registerV9(&migrator)
         registerV10(&migrator)
         registerV11(&migrator)
+        registerV12(&migrator)
         return migrator
     }
 
@@ -309,6 +310,29 @@ enum Migrations {
                 BEGIN
                     SELECT RAISE(ABORT, 'Conversation Soul binding is immutable');
                 END
+                """)
+        }
+    }
+
+    static func registerV12(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v12_conversation_card_metadata") { db in
+            try db.execute(sql: """
+                CREATE TABLE conversationManualTitle (
+                    conversationID TEXT PRIMARY KEY NOT NULL
+                        REFERENCES conversation(id) ON DELETE CASCADE
+                )
+                """)
+            // A nullable pair distinguishes an explicitly unconfigured New from
+            // legacy histories. No Provider FK: removed accounts stay unavailable
+            // rather than silently rebinding to another account.
+            try db.execute(sql: """
+                CREATE TABLE conversationInitialBinding (
+                    conversationID TEXT PRIMARY KEY NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+                    providerInstanceID TEXT,
+                    modelID TEXT,
+                    CHECK ((providerInstanceID IS NULL AND modelID IS NULL)
+                        OR (providerInstanceID IS NOT NULL AND modelID IS NOT NULL))
+                )
                 """)
         }
     }

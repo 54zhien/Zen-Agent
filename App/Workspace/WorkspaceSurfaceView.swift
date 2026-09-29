@@ -26,6 +26,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
     private let model: AppShellModel?
     @State private var lift: SurfaceLiftController
     @State private var browse = AppSpaceBrowseController()
+    @State private var requestedMenuID: String?
     @ScaledMetric(relativeTo: .body) private var minimumWidth = 220.0
     @ScaledMetric(relativeTo: .body) private var minimumHeight = 300.0
     @Environment(\.scenePhase) private var scenePhase
@@ -56,6 +57,14 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     .environment(\.surfaceBrowseController, model == nil ? nil : browse)
             }
             .zIndex(4 - (browse.layout()?.cards.first { $0.item == browse.state.selected }?.depth ?? 0))
+            if let model, model.previewContent.isPresented, !browse.isNewEntry, browse.canEditCurrentMetadata,
+               let summary = browse.currentSummary,
+               let frame = browse.layout()?.cards.first(where: { $0.item == browse.state.selected })?.frame {
+                AppSpaceCardActionsView(model: model, browse: browse, lift: lift,
+                    summary: summary, requestedID: $requestedMenuID)
+                    .position(x: frame.maxX - 24, y: frame.minY + 24)
+                    .zIndex(100)
+            }
 #if DEBUG
             if ProcessInfo.processInfo.environment["ZEN_SURFACE_LIFT_UI_TEST"] == "1"
                 || ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
@@ -73,6 +82,19 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     guard let model else { throw PersistenceError.conversationNotFound(id) }
                     return try model.browseWindow(id: id)
                 })
+                browse.configureNewEntry(reader: { [weak model] in
+                    guard let model else { throw AppTargetFailure.persistenceUnavailable }
+                    return try model.newConversationBrowseWindow()
+                })
+                let menuRequest = $requestedMenuID
+                browse.onOpenActions = { [weak browseController, weak model] in
+                    guard let browseController, let model, model.previewContent.isPresented,
+                          !model.previewContent.isPreparing, !browseController.isNewEntry,
+                          browseController.canEditCurrentMetadata,
+                          let id = browseController.currentSummary?.id else { return false }
+                    menuRequest.wrappedValue = id
+                    return true
+                }
                 lift.configurePreview(
                     enter: { [weak model, weak browseController] in
                         guard let model, let browseController, model.enterPreview() else { return false }
@@ -81,8 +103,16 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         return true
                     },
                     prepare: { [weak model, weak browseController] in
-                        browseController?.cancel()
-                        return await model?.preparePreviewReturn(to: browseController?.selectedConversationID) ?? false
+                        guard let model, let browseController else { return false }
+                        browseController.cancel()
+                        if browseController.isNewEntry {
+                            do {
+                                let id = try model.createConversationFromAppSpace()
+                                guard browseController.selectCreatedConversation(id: id) else { return false }
+                                model.acknowledgeAppSpaceCreation(id: id)
+                            } catch { return false }
+                        }
+                        return await model.preparePreviewReturn(to: browseController.selectedConversationID)
                     },
                     commit: { [weak model] in model?.commitPreviewReturn() ?? false },
                     cancel: { [weak model] in model?.cancelPreviewReturn() },
@@ -122,8 +152,12 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     private static func cardLabel(model: AppShellModel, browse: AppSpaceBrowseController) -> String {
+        if browse.isNewEntry {
+            return ["新对话", model.appSpaceActionError(for: nil) ?? browse.errorMessage, "创建新对话"].compactMap { $0 }.joined(separator: "，")
+        }
+        if browse.currentSummary == nil { return "未发送的会话，轻点返回会话" }
         let status = model.previewContent.status(for: browse.selectedConversationID,
-            summary: browse.currentSummary, summaryError: browse.errorMessage)
+            summary: browse.currentSummary, summaryError: model.appSpaceActionError(for: browse.selectedConversationID) ?? browse.errorMessage)
         return ConversationPreviewController.accessibilityLabel(summary: browse.currentSummary, status: status)
     }
 
@@ -138,7 +172,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
         // Match the native Current's logical viewport, scaling and crop. Reflowing
         // a predecessor at its thumbnail width would jump its text at commitment.
         return ConversationPreviewView(summary: summary,
-            status: summary?.contentUnavailable == true ? .contentUnavailable : .ready)
+            status: summary?.contentUnavailable == true ? .contentUnavailable : .ready,
+            isNewEntry: browse.supportsNewEntry && card.item == .newConversation)
             .frame(width: max(1, size.width - insets.left - insets.right),
                 height: max(1, size.height - insets.top - insets.bottom))
             .padding(EdgeInsets(top: insets.top, leading: insets.left, bottom: insets.bottom, trailing: insets.right))

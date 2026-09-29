@@ -54,6 +54,11 @@ struct ConversationPaneFactory {
                 return ConversationComposerConfiguration(
                     providerInstanceID: seed.providerInstanceID, modelID: seed.modelID)
             }
+            if snapshot?.messages.isEmpty == true, snapshot?.runs.isEmpty == true,
+               let binding = try dependencies.store.conversationInitialBinding(id: id),
+               let instanceID = binding.providerInstanceID, let modelID = binding.modelID {
+                return ConversationComposerConfiguration(providerInstanceID: instanceID, modelID: modelID)
+            }
         } else {
             return target.map {
                 ConversationComposerConfiguration(providerInstanceID: $0.providerInstanceID, modelID: $0.modelID)

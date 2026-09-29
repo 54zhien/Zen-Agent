@@ -65,10 +65,11 @@ struct NewConversationView: View {
             if model.previewContent.isPresented {
                 ConversationPreviewView(
                     summary: browse?.isPresented == true ? browse?.currentSummary : model.previewContent.currentSummary,
-                    status: browse?.isPresented == true
+                    status: model.appSpaceActionError(for: browse?.selectedConversationID).map { .failed($0) } ?? (browse?.isPresented == true
                         ? model.previewContent.status(for: browse?.selectedConversationID,
                             summary: browse?.currentSummary, summaryError: browse?.errorMessage)
-                        : model.previewContent.status)
+                        : model.previewContent.status),
+                    isNewEntry: browse?.isNewEntry == true)
             } else {
                 fullContent
             }

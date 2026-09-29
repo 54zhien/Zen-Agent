@@ -15,7 +15,7 @@ final class AppSpaceBrowseUITests: XCTestCase {
         for index in stride(from: 10, through: 4, by: -1) {
             card.swipeRight()
             guard wait({ card.exists && card.label.contains("Workspace conversation \(index)") }) else {
-                XCTFail("Browsing past the initial preview window lost adjacent history \(index)")
+                XCTFail("Browsing past the initial preview window lost adjacent history \(index); actual Card: \(card.label)")
                 return
             }
             XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)

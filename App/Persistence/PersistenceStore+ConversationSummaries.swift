@@ -33,23 +33,43 @@ struct ConversationBrowseWindow: Equatable, Sendable {
     let current: ConversationSummary?
     let older: [ConversationSummary]
     let newer: ConversationSummary?
+    let uncommittedOriginID: String?
+    let uncommittedIDs: Set<String>
+    init(current: ConversationSummary?, older: [ConversationSummary], newer: ConversationSummary?,
+         uncommittedOriginID: String? = nil, uncommittedIDs: Set<String> = []) {
+        self.current = current; self.older = older; self.newer = newer
+        self.uncommittedOriginID = uncommittedOriginID
+        self.uncommittedIDs = uncommittedIDs
+    }
     var summaries: [ConversationSummary] { (current.map { [$0] } ?? []) + older + (newer.map { [$0] } ?? []) }
 }
 
 extension PersistenceStore {
-    func conversationBrowseWindow(id: String) throws -> ConversationBrowseWindow {
+    func conversationBrowseWindow(id: String, uncommittedIDs: [String] = []) throws -> ConversationBrowseWindow {
         // One read snapshot prevents activity/pin changes between neighboring
         // queries from producing a duplicated or mismatched window.
         try database.read { db in
+            let workingIDs = try missingConversationIDs(uncommittedIDs, in: db)
             let current = try summaryRows(in: db, predicate: "lifecycle = 'visible' AND id = ?",
                 limit: 1, arguments: [id]).first
             guard let current else {
                 if try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM conversation WHERE id = ?)", arguments: [id]) == true {
                     throw PersistenceError.invalidTransition("Conversation is not visible")
                 }
+                if let index = workingIDs.firstIndex(of: id) {
+                    let olderIDs = Array(workingIDs.dropFirst(index + 1).prefix(3))
+                    let history = olderIDs.count < 3 ? try summaryRows(in: db,
+                        predicate: "lifecycle = 'visible'", limit: 3 - olderIDs.count,
+                        arguments: StatementArguments()) : []
+                    let newerID = index > 0 ? workingIDs[index - 1] : nil
+                    return ConversationBrowseWindow(current: workingSummary(id: id),
+                        older: olderIDs.map(workingSummary) + history,
+                        newer: newerID.map(workingSummary),
+                        uncommittedIDs: Set([id] + olderIDs + (newerID.map { [$0] } ?? [])))
+                }
                 return ConversationBrowseWindow(current: nil,
                     older: try summaryRows(in: db, predicate: "lifecycle = 'visible'", limit: 3,
-                        arguments: StatementArguments()), newer: nil)
+                        arguments: StatementArguments()), newer: nil, uncommittedOriginID: id)
             }
             let cursor = current.cursor
             let arguments: StatementArguments = [cursor.pinned, cursor.pinned, cursor.userActiveAt,
@@ -60,8 +80,46 @@ extension PersistenceStore {
             let newer = try summaryRows(in: db,
                 predicate: "lifecycle = 'visible' AND (pinned > ? OR (pinned = ? AND userActiveAt > ?) OR (pinned = ? AND userActiveAt = ? AND id < ?))",
                 limit: 1, arguments: arguments, reversed: true).first
-            return ConversationBrowseWindow(current: current, older: older, newer: newer)
+            let workingSuccessor = newer == nil ? workingIDs.last : nil
+            return ConversationBrowseWindow(current: current, older: older,
+                newer: newer ?? workingSuccessor.map(workingSummary),
+                uncommittedIDs: Set(workingSuccessor.map { [$0] } ?? []))
         }
+    }
+
+    func conversationNewBrowseWindow(originID: String, uncommittedIDs: [String] = []) throws -> ConversationBrowseWindow {
+        try database.read { db in
+            let lifecycle = try String.fetchOne(db, sql: "SELECT lifecycle FROM conversation WHERE id = ?", arguments: [originID])
+            guard lifecycle == nil || lifecycle == ConversationLifecycle.visible.rawValue else {
+                throw PersistenceError.invalidTransition("Original Conversation is not visible")
+            }
+            var candidates = uncommittedIDs
+            if lifecycle == nil, !candidates.contains(originID) { candidates.insert(originID, at: 0) }
+            let workingIDs = Array(try missingConversationIDs(candidates, in: db).prefix(3))
+            let history = workingIDs.count < 3 ? try summaryRows(in: db, predicate: "lifecycle = 'visible'",
+                limit: 3 - workingIDs.count, arguments: StatementArguments()) : []
+            return ConversationBrowseWindow(current: nil, older: workingIDs.map(workingSummary) + history,
+                newer: nil, uncommittedOriginID: lifecycle == nil ? originID : nil,
+                uncommittedIDs: Set(workingIDs))
+        }
+    }
+
+    private func missingConversationIDs(_ candidates: [String], in db: Database) throws -> [String] {
+        var seen = Set<String>()
+        return try candidates.filter { id in
+            guard seen.insert(id).inserted else { return false }
+            // Lifecycle rows survive deletion. A retained owner never resurrects them.
+            return try String.fetchOne(db, sql: "SELECT lifecycle FROM conversation WHERE id = ?",
+                arguments: [id]) == nil
+        }
+    }
+
+    private func workingSummary(id: String) -> ConversationSummary {
+        // This virtual cursor never enters a durable keyset query. Creation order
+        // belongs to the Session owner; SQL activity order remains unchanged.
+        ConversationSummary(id: id, title: "未发送的会话", excerpt: "", pinned: false,
+            userActiveAt: .distantPast, contentUnavailable: false, runProjection: nil,
+            providerInstanceID: nil, modelID: nil, providerName: nil)
     }
 
     func conversationSummaryPage(limit: Int = 50,

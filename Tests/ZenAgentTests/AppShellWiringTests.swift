@@ -188,7 +188,9 @@ struct AppShellWiringTests {
             try await Task.sleep(for: .milliseconds(25))
         }
         let card = try #require(findCard(host.view))
-        #expect(card.accessibilityCustomActions?.contains { $0.name == "下一会话" } == false)
+        // S5-06 adds the distinct New after the latest history. Keep the existing
+        // native older/newer controls and exercise the new boundary as well.
+        #expect(card.accessibilityCustomActions?.contains { $0.name == "下一会话" } == true)
         let previous = try #require(card.accessibilityCustomActions?.first { $0.name == "上一会话" })
         let previousHandler = try #require(previous.actionHandler)
         #expect(previousHandler(previous))
@@ -206,6 +208,24 @@ struct AppShellWiringTests {
             try await Task.sleep(for: .milliseconds(25))
         }
         #expect(card.accessibilityLabel?.contains("Native browse 5") == true)
+        #expect(fixture.model.router.historyPreparation.requested == requests)
+        let toNew = try #require(card.accessibilityCustomActions?.first { $0.name == "下一会话" })
+        let toNewHandler = try #require(toNew.actionHandler)
+        #expect(toNewHandler(toNew))
+        for _ in 0..<40 where card.accessibilityLabel?.contains("创建新对话") != true {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(card.accessibilityLabel?.contains("创建新对话") == true)
+        #expect(card.accessibilityCustomActions?.contains { $0.name == "会话菜单" } == false)
+        #expect(card.accessibilityCustomActions?.contains { $0.name == "创建新对话" } == true)
+        let fromNew = try #require(card.accessibilityCustomActions?.first { $0.name == "上一会话" })
+        let fromNewHandler = try #require(fromNew.actionHandler)
+        #expect(fromNewHandler(fromNew))
+        for _ in 0..<40 where card.accessibilityLabel?.contains("Native browse 5") != true {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(card.accessibilityLabel?.contains("Native browse 5") == true)
+        #expect(fixture.model.previewContent.session === session && fixture.model.previewContent.prepared == nil)
         #expect(fixture.model.router.historyPreparation.requested == requests)
     }
 
@@ -2273,6 +2293,202 @@ struct AppShellWiringTests {
         #expect(controller.draft.text.isEmpty)
         #expect(coordinator.submission == .idle)
         #expect(coordinator.sendErrorMessage == "消息已保存，但运行未能完成。")
+    }
+
+    @Test("App Space explicit New becomes durable before Full and preserves the original warm owner on cancellation")
+    func explicitAppSpaceNewPreservesOrigin() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let originalID = fixture.model.conversationID
+        let original = try #require(fixture.model.pane?.session)
+        original.composer.draft.text = "original draft"
+        #expect(fixture.model.enterPreview())
+        let requests = fixture.model.router.historyPreparation.requested
+        let newWindow = try fixture.model.newConversationBrowseWindow()
+        #expect(newWindow.older.first?.id == originalID)
+        #expect(fixture.model.router.historyPreparation.requested == requests)
+        let created = try fixture.model.createConversationFromAppSpace(at: Fixtures.epoch)
+        #expect(created != originalID)
+        #expect(try fixture.store.conversation(id: created)?.lifecycle == .visible)
+        #expect(fixture.model.conversationID == originalID && fixture.model.pane == nil)
+        #expect(fixture.model.previewContent.session === original)
+        #expect(await fixture.model.preparePreviewReturn(to: created))
+        #expect(fixture.model.previewContent.prepared?.pane.composer.configuration?.modelID == fixture.modelID)
+        fixture.model.cancelPreviewReturn()
+        #expect(fixture.model.previewContent.session === original && fixture.model.pane == nil)
+        #expect(original.composer.draft.text == "original draft")
+        #expect(await fixture.model.preparePreviewReturn(to: created))
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.conversationID == created)
+        #expect(fixture.model.pane?.composer.draft.presentationState == .resting)
+        #expect(fixture.model.pane?.composer.draft.text == "")
+        #expect(fixture.model.canSend)
+        #expect(try fixture.store.activeParentRunIDs().isEmpty)
+        #expect(fixture.model.renameAppSpaceConversation(id: created, title: "created manual") == false)
+        // Same-process retained drafts must remain navigable after successful New.
+        #expect(await fixture.model.openConversation(id: originalID))
+        #expect(fixture.model.pane?.session === original)
+        // Missing original is a warm owner, not a newly fabricated persisted row.
+        #expect(try fixture.store.conversation(id: originalID) == nil)
+    }
+
+    @Test("a retained unsent draft remains reachable by Card after New commits")
+    func unsentDraftRemainsNavigableAfterNew() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let id = fixture.model.conversationID
+        let original = try #require(fixture.model.pane?.session)
+        original.composer.draft.text = "未发送的草稿 🧑🏽‍💻"
+        #expect(fixture.model.enterPreview())
+        let created = try fixture.model.createConversationFromAppSpace(at: Fixtures.epoch)
+        #expect(await fixture.model.preparePreviewReturn(to: created))
+        #expect(fixture.model.commitPreviewReturn())
+        let newOwner = try #require(fixture.model.pane?.session)
+        #expect(fixture.model.enterPreview())
+        let reads = fixture.model.router.historyPreparation.requested
+        let window = try fixture.model.newConversationBrowseWindow()
+        #expect(window.summaries.contains { $0.id == id })
+        #expect(window.summaries.count <= 3)
+        let warmWindow = try fixture.model.browseWindow(id: id)
+        #expect(warmWindow.current?.id == id)
+        #expect(warmWindow.summaries.count <= 5)
+        #expect(fixture.model.router.historyPreparation.requested == reads)
+        let ready = await fixture.model.preparePreviewReturn(to: id)
+        #expect(ready)
+        guard ready else { return }
+        #expect(fixture.model.conversationID == created && fixture.model.previewContent.session === newOwner)
+        #expect(fixture.model.previewContent.prepared?.pane.session === original)
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.pane?.session === original)
+        #expect(original.composer.draft.text == "未发送的草稿 🧑🏽‍💻")
+        #expect(try fixture.store.conversation(id: id) == nil)
+        #expect(try fixture.store.activeParentRunIDs().isEmpty)
+    }
+
+    @Test("retained draft ownership cannot remount a deleted ID or fabricate an unknown ID")
+    func retainedDraftStillRejectsDeletedAndUnknown() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let id = fixture.model.conversationID
+        let original = try #require(fixture.model.pane?.session)
+        original.composer.draft.text = "protected draft"
+        #expect(fixture.model.enterPreview())
+        let created = try fixture.model.createConversationFromAppSpace(at: Fixtures.epoch)
+        #expect(await fixture.model.preparePreviewReturn(to: created))
+        #expect(fixture.model.commitPreviewReturn())
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: id, lifecycle: .pendingDeletion).insert(db)
+        }
+        #expect(fixture.model.enterPreview())
+        #expect(!(await fixture.model.preparePreviewReturn(to: id)))
+        #expect(!(await fixture.model.preparePreviewReturn(to: "unknown-retained-draft")))
+        #expect(!fixture.model.commitPreviewReturn())
+        #expect(fixture.model.conversationID == created && fixture.model.pane == nil)
+        #expect(original.composer.draft.text == "protected draft")
+        #expect(try fixture.store.conversation(id: id)?.lifecycle == .pendingDeletion)
+        #expect(try fixture.store.conversation(id: "unknown-retained-draft") == nil)
+    }
+
+    @Test("explicit empty history keeps its copied model binding before its first Send")
+    func emptyDurableHistoryCanSend() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.createEmptyConversation(id: "empty-history", at: Fixtures.epoch, initialBinding: .init(providerInstanceID: fixture.instanceID, modelID: fixture.modelID))
+        #expect(await fixture.model.openConversation(id: "empty-history"))
+        #expect(fixture.model.pane?.composer.configuration?.modelID == fixture.modelID)
+        #expect(fixture.model.canSend)
+        #expect(fixture.model.persistedTurnCount == 0)
+        try fixture.store.renameConversation(id: "empty-history", title: "manual before actual Send", at: Fixtures.epoch)
+        try await send("first real turn", at: Fixtures.epoch.addingTimeInterval(10), in: fixture)
+        #expect(fixture.model.persistedTurnCount == 1)
+        #expect(try fixture.store.conversation(id: "empty-history")?.title == "manual before actual Send")
+    }
+
+    @Test("selected metadata edits neither prepare history nor replace the retained Session")
+    func selectedMetadataDoesNotOpenFull() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "metadata-origin").insert(db)
+            try Fixtures.conversation(id: "metadata-selected").insert(db)
+        }
+        #expect(await fixture.model.openConversation(id: "metadata-origin"))
+        let original = try #require(fixture.model.pane?.session)
+        #expect(fixture.model.enterPreview())
+        let requests = fixture.model.router.historyPreparation.requested
+        #expect(fixture.model.renameAppSpaceConversation(id: "metadata-selected", title: "Selected manual"))
+        #expect(fixture.model.pinAppSpaceConversation(id: "metadata-selected", pinned: true))
+        #expect(try fixture.store.conversation(id: "metadata-selected")?.title == "Selected manual")
+        #expect(try fixture.store.conversation(id: "metadata-selected")?.pinned == true)
+        #expect(try fixture.store.conversation(id: "metadata-selected")?.userActiveAt == Fixtures.epoch)
+        #expect(fixture.model.previewContent.session === original && fixture.model.pane == nil)
+        #expect(fixture.model.router.historyPreparation.requested == requests)
+    }
+
+    @Test("configured empty histories remain evictable after repeated selected Returns")
+    func emptyConfiguredHistoryDoesNotPinColdSessions() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        for index in 0..<15 {
+            try fixture.store.createEmptyConversation(id: "empty-lru-\(index)", at: Fixtures.epoch,
+                initialBinding: .init(providerInstanceID: fixture.instanceID, modelID: fixture.modelID))
+        }
+        #expect(await fixture.model.openConversation(id: "empty-lru-0"))
+        #expect(fixture.model.canSend)
+        weak var cold = fixture.model.pane?.session
+        for index in 1..<15 {
+            #expect(fixture.model.enterPreview())
+            #expect(await fixture.model.preparePreviewReturn(to: "empty-lru-\(index)"))
+            #expect(fixture.model.commitPreviewReturn())
+        }
+        #expect(cold == nil)
+    }
+
+    @Test("New copied binding survives a cold reopen after the global default changes")
+    func explicitNewBindingSurvivesGlobalChange() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        #expect(fixture.model.enterPreview())
+        let created = try fixture.model.createConversationFromAppSpace(at: Fixtures.epoch)
+        #expect(try fixture.store.conversationInitialBinding(id: created) == ConversationInitialBinding(providerInstanceID: fixture.instanceID, modelID: fixture.modelID))
+        fixture.defaults.set("unavailable-new-global-instance", forKey: AppShellModel.defaultInstanceIDKey)
+        let reopened = await makeReconstructedModel(from: fixture)
+        #expect(await reopened.openConversation(id: created))
+        #expect(reopened.pane?.composer.configuration?.providerInstanceID == fixture.instanceID)
+        #expect(reopened.pane?.composer.configuration?.modelID == fixture.modelID)
+        #expect(reopened.canSend)
+    }
+
+    @Test("New created without a binding does not silently follow a later global choice")
+    func explicitlyUnconfiguredNewRemainsUnconfigured() async throws {
+        let fixture = try makeFixture(seed: .active, setDefault: false)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        #expect(fixture.model.enterPreview())
+        let created = try fixture.model.createConversationFromAppSpace(at: Fixtures.epoch)
+        fixture.defaults.set(fixture.instanceID.rawValue, forKey: AppShellModel.defaultInstanceIDKey)
+        fixture.defaults.set(fixture.modelID.rawValue, forKey: AppShellModel.defaultModelIDKey)
+        let reopened = await makeReconstructedModel(from: fixture)
+        #expect(await reopened.openConversation(id: created))
+        #expect(reopened.pane?.composer.configuration == nil)
+        #expect(!reopened.canSend)
+    }
+
+    @Test("the existing explicit configure action can initialize an unconfigured New without changing activity")
+    func unconfiguredNewCanBeExplicitlyConfigured() async throws {
+        let fixture = try makeFixture(seed: .active, setDefault: false)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        #expect(fixture.model.enterPreview())
+        let created = try fixture.model.createConversationFromAppSpace(at: Fixtures.epoch)
+        #expect(await fixture.model.preparePreviewReturn(to: created))
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(!fixture.model.canSend)
+        let setup = try #require(fixture.model.providerSetup)
+        setup.apiKey = "explicit-new-fake-test-key"
+        setup.selectedModelID = fixture.modelID
+        #expect(setup.save())
+        #expect(fixture.model.canSend)
+        #expect(try fixture.store.conversationInitialBinding(id: created)?.providerInstanceID == setup.instanceID)
+        #expect(try fixture.store.conversation(id: created)?.userActiveAt == Fixtures.epoch)
     }
 
     private func makeFixture(

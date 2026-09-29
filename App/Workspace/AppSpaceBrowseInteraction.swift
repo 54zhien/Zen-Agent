@@ -22,6 +22,8 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
     private var lastSelected: AppSpaceGeometry.Item?
     private var lastOlder: AppSpaceGeometry.Item?
     private var lastNewer: AppSpaceGeometry.Item?
+    private var lastSuspended: Bool?
+    private var lastCanEditMetadata: Bool?
 
     init(surface: SurfaceClipView, coordinates: UIView, controller: AppSpaceBrowseController,
          canBrowse: @escaping () -> Bool, render: @escaping (AppSpaceBrowseGeometry.Card) -> Bool,
@@ -48,11 +50,17 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
     }
 
     func updateAvailability() {
-        let enabled = canBrowse()
+        // UIKit can still report the dismissing alert here. Keep the recognizer
+        // available after logical dismissal; the delegate checks actual overlays
+        // again at gesture start, so a transition cannot leave it disabled forever.
+        let enabled = controller.isPresented && !controller.interactionSuspended
         if recognizer.isEnabled != enabled { recognizer.isEnabled = enabled }
     }
 
     var canNavigate: Bool { canBrowse() && controller.state.phase == .idle }
+    var hasNavigationActions: Bool {
+        controller.isPresented && !controller.interactionSuspended && controller.state.phase == .idle
+    }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer === recognizer, canBrowse(), controller.state.phase == .idle,
@@ -153,11 +161,15 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
             UIView.performWithoutAnimation { _ = render(card) }
         }
         if lastPhase != state.phase || lastSelected != state.selected
-            || lastOlder != state.older || lastNewer != state.newer {
+            || lastOlder != state.older || lastNewer != state.newer
+            || lastSuspended != controller.interactionSuspended
+            || lastCanEditMetadata != controller.canEditCurrentMetadata {
             lastPhase = state.phase
             lastSelected = state.selected
             lastOlder = state.older
             lastNewer = state.newer
+            lastSuspended = controller.interactionSuspended
+            lastCanEditMetadata = controller.canEditCurrentMetadata
             refreshAccessibility()
         }
     }
