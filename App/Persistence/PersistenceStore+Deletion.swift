@@ -14,21 +14,40 @@ struct PendingCardDeletion: Equatable, Sendable {
 /// conversation is gone from ordinary listing but its body is entirely intact. Undo
 /// that returns an empty shell is the failure this shape exists to make impossible.
 extension PersistenceStore {
+    static let cardUndoWindow: TimeInterval = 10
 
-    // Runnable API seam for the deadline behavior tests. The persisted deadline
-    // and expiry guards are implemented only after those tests fail in CI.
     func beginCardDeletion(conversationID: String, at now: Date = Date()) throws -> PendingCardDeletion {
-        try beginDeletion(conversationID: conversationID, at: now)
-        return PendingCardDeletion(conversationID: conversationID, deadline: now)
+        let pending = PendingCardDeletion(conversationID: conversationID,
+            deadline: now.addingTimeInterval(Self.cardUndoWindow))
+        try beginDeletion(conversationID: conversationID, at: now, deadline: pending.deadline)
+        return pending
     }
 
-    func pendingCardDeletion(id: String) throws -> PendingCardDeletion? { nil }
+    func pendingCardDeletion(id: String) throws -> PendingCardDeletion? {
+        try database.read { db in
+            guard let deadline = try Date.fetchOne(db, sql: """
+                SELECT deletion.deadlineAt FROM conversationDeletionDeadline AS deletion
+                JOIN conversation ON conversation.id = deletion.conversationID
+                WHERE deletion.conversationID = ? AND conversation.lifecycle = ?
+                """, arguments: [id, ConversationLifecycle.pendingDeletion.rawValue]) else { return nil }
+            return PendingCardDeletion(conversationID: id, deadline: deadline)
+        }
+    }
 
     func undoCardDeletion(conversationID: String, at now: Date = Date()) throws {
+        guard try pendingCardDeletion(id: conversationID) != nil else {
+            throw PersistenceError.invalidTransition("No pending Card Delete to undo")
+        }
         try undoDeletion(conversationID: conversationID, at: now)
     }
 
-    func finalizeExpiredCardDeletion(conversationID: String, at now: Date = Date()) throws -> Bool { false }
+    func finalizeExpiredCardDeletion(conversationID: String, at now: Date = Date()) throws -> Bool {
+        guard let pending = try pendingCardDeletion(id: conversationID), now >= pending.deadline else { return false }
+        // If Undo wins after this read, finalizeDeletion refuses its visible row;
+        // it cannot erase the restored body.
+        try finalizeDeletion(conversationID: conversationID, at: now)
+        return true
+    }
 
     /// Conversations in ordinary listing. Pending-deletion ones are absent.
     func visibleConversations() throws -> [ConversationRecord] {
@@ -48,6 +67,10 @@ extension PersistenceStore {
     /// The active-slot check shares this transaction with the lifecycle update, so
     /// a new Parent Run cannot slip in after the caller's Stop and before deletion.
     func beginDeletion(conversationID: String, at now: Date = Date()) throws {
+        try beginDeletion(conversationID: conversationID, at: now, deadline: nil)
+    }
+
+    private func beginDeletion(conversationID: String, at now: Date, deadline: Date?) throws {
         try database.write { db in
             let conversation = try requireConversation(conversationID, in: db)
             guard conversation.lifecycle == .visible else {
@@ -64,6 +87,11 @@ extension PersistenceStore {
                 sql: "UPDATE conversation SET lifecycle = ?, updatedAt = ? WHERE id = ?",
                 arguments: [ConversationLifecycle.pendingDeletion.rawValue, now, conversationID]
             )
+            if let deadline {
+                try db.execute(sql: """
+                    INSERT INTO conversationDeletionDeadline(conversationID, deadlineAt) VALUES (?, ?)
+                    """, arguments: [conversationID, deadline])
+            }
         }
     }
 
@@ -75,7 +103,25 @@ extension PersistenceStore {
     /// claims to be there and has nothing in it. The undo window is a state, not a
     /// boolean you can set back.
     func undoDeletion(conversationID: String, at now: Date = Date()) throws {
-        try transition(from: .pendingDeletion, to: .visible, conversationID: conversationID, at: now)
+        try database.write { db in
+            let conversation = try requireConversation(conversationID, in: db)
+            guard conversation.lifecycle == .pendingDeletion else {
+                throw PersistenceError.invalidLifecycleTransition(
+                    expected: .pendingDeletion, actual: conversation.lifecycle)
+            }
+            if try db.tableExists("conversationDeletionDeadline"),
+               let deadline = try Date.fetchOne(db, sql: """
+                   SELECT deadlineAt FROM conversationDeletionDeadline WHERE conversationID = ?
+                   """, arguments: [conversationID]), now >= deadline {
+                throw PersistenceError.invalidTransition("Card Delete Undo deadline has expired")
+            }
+            try db.execute(sql: "UPDATE conversation SET lifecycle = ?, updatedAt = ? WHERE id = ?",
+                arguments: [ConversationLifecycle.visible.rawValue, now, conversationID])
+            if try db.tableExists("conversationDeletionDeadline") {
+                try db.execute(sql: "DELETE FROM conversationDeletionDeadline WHERE conversationID = ?",
+                    arguments: [conversationID])
+            }
+        }
     }
 
     /// The point of no return: the body goes, and what must survive, survives.
@@ -88,8 +134,8 @@ extension PersistenceStore {
     func finalizeDeletion(conversationID: String, at now: Date = Date()) throws {
         try database.write { db in
             // Refused before any write — a refused finalise must not even write
-            // tombstones. Run in this transaction rather than via `transition`, which
-            // would open a second `database.write` here; GRDB forbids nesting writes.
+            // tombstones. Keep the lifecycle check in this transaction; nesting
+            // another `database.write` here would violate GRDB's write boundary.
             let conversation = try requireConversation(conversationID, in: db)
             switch conversation.lifecycle {
             case .pendingDeletion:
@@ -153,6 +199,10 @@ extension PersistenceStore {
                 sql: "UPDATE conversation SET lifecycle = ?, updatedAt = ? WHERE id = ?",
                 arguments: [ConversationLifecycle.finalizedDeletion.rawValue, now, conversationID]
             )
+            if try db.tableExists("conversationDeletionDeadline") {
+                try db.execute(sql: "DELETE FROM conversationDeletionDeadline WHERE conversationID = ?",
+                    arguments: [conversationID])
+            }
         }
     }
 
@@ -171,32 +221,6 @@ extension PersistenceStore {
     }
 
     // MARK: - Internals
-
-    /// Moves the lifecycle, refusing transitions the lifecycle does not have.
-    ///
-    /// Written as an explicit from/to pair so every transition has to name where it
-    /// starts. A bare "set to X" cannot express that, and one of the two directions here
-    /// is one-way.
-    private func transition(
-        from expected: ConversationLifecycle,
-        to next: ConversationLifecycle,
-        conversationID: String,
-        at now: Date
-    ) throws {
-        try database.write { db in
-            let conversation = try requireConversation(conversationID, in: db)
-            guard conversation.lifecycle == expected else {
-                throw PersistenceError.invalidLifecycleTransition(
-                    expected: expected,
-                    actual: conversation.lifecycle
-                )
-            }
-            try db.execute(
-                sql: "UPDATE conversation SET lifecycle = ?, updatedAt = ? WHERE id = ?",
-                arguments: [next.rawValue, now, conversationID]
-            )
-        }
-    }
 
     /// Fetches the conversation a lifecycle mutation names. A mutation on a
     /// conversation that does not exist is a caller bug, not a no-op.
