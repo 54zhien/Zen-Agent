@@ -859,6 +859,85 @@ struct AppShellWiringTests {
         #expect(owner == nil)
     }
 
+    @Test("Recent Full Open failure stays visible across summary refresh and retries the same history",
+          arguments: ["metadata", "sql"])
+    func recentFullOpenFailureIsVisible(kind: String) async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let id = "recent-full-error"
+        try fixture.store.commitUserTurnAndCreateParentRun(Fixtures.send(
+            conversationID: id, messageID: "recent-error-user", runID: "recent-error-run", runState: .completed))
+        fixture.model.refreshRecentConversations()
+        let outgoingID = fixture.model.conversationID
+        let outgoingPane = fixture.model.pane
+        let outgoingBridge = fixture.model.actionBridge
+        if kind == "metadata" {
+            try fixture.store.database.write { db in
+                try db.execute(sql: "UPDATE agentRun SET state = ? WHERE id = ?",
+                    arguments: ["unknown-recent-test-state", "recent-error-run"])
+            }
+            fixture.model.refreshRecentConversations()
+            #expect(fixture.model.recentConversations.first { $0.id == id }?.contentUnavailable == true)
+        } else {
+            // The bounded summary still looks healthy; only the real full-history SQL fails.
+            try fixture.store.database.write { db in try db.execute(sql: "ALTER TABLE toolCall RENAME TO failed_recent_toolCall") }
+        }
+        #expect(!(await fixture.model.openConversation(id: id)))
+        #expect(fixture.model.recentLoadError != nil)
+        #expect(fixture.model.conversationID == outgoingID)
+        #expect(fixture.model.pane === outgoingPane)
+        #expect(fixture.model.actionBridge === outgoingBridge)
+        let failure = fixture.model.recentLoadError
+        fixture.model.refreshRecentConversations()
+        #expect(fixture.model.recentLoadError == failure)
+        try fixture.store.database.write { db in
+            if kind == "metadata" {
+                try db.execute(sql: "UPDATE agentRun SET state = ? WHERE id = ?",
+                    arguments: [RunState.completed.rawValue, "recent-error-run"])
+            } else {
+                try db.execute(sql: "ALTER TABLE failed_recent_toolCall RENAME TO toolCall")
+            }
+        }
+        fixture.model.refreshRecentConversations()
+        #expect(fixture.model.recentLoadError == failure)
+        #expect(await fixture.model.openConversation(id: id))
+        #expect(fixture.model.conversationID == id)
+        #expect(fixture.model.recentLoadError == nil)
+    }
+
+    @Test("cancelled Recent Open preserves its owner without presenting a read failure")
+    func cancelledRecentOpenHasNoReadFailure() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.commitUserTurnAndCreateParentRun(Fixtures.send(
+            conversationID: "recent-cancel", messageID: "recent-cancel-user", runID: "recent-cancel-run", runState: .completed))
+        fixture.model.refreshRecentConversations()
+        let outgoingID = fixture.model.conversationID
+        let outgoingPane = fixture.model.pane
+        let gate = PreviewReadGate()
+        defer {
+            gate.release()
+            try? fixture.store.database.read { $0.trace(nil) }
+            #expect(!gate.timedOut)
+        }
+        try fixture.store.database.read { db in
+            db.trace { event in
+                if case .statement(let statement) = event,
+                   statement.sql.lowercased().contains("agentrun") { gate.blockOnce() }
+            }
+        }
+        let opening = Task { await fixture.model.openConversation(id: "recent-cancel") }
+        for _ in 0..<200 where !gate.hasBlocked { try await Task.sleep(for: .milliseconds(5)) }
+        _ = try #require(gate.hasBlocked)
+        opening.cancel()
+        gate.release()
+        #expect(!(await opening.value))
+        #expect(!gate.timedOut)
+        #expect(fixture.model.recentLoadError == nil)
+        #expect(fixture.model.conversationID == outgoingID)
+        #expect(fixture.model.pane === outgoingPane)
+    }
+
     @Test("Recent presentation publishes typed corruption readiness")
     func recentContentReadinessIsTyped() throws {
         let fixture = try makeFixture(seed: .active)
