@@ -42,6 +42,7 @@ final class SurfaceLiftController {
     }
 
     var hasSelection: Bool { !selectedSources.isEmpty }
+    var isPreparingReturn: Bool { returnOperation != nil }
 
     func bind<Content: View>(_ host: ConversationSurfaceViewController<Content>) {
         guard hostID != ObjectIdentifier(host) else { return }
@@ -65,7 +66,7 @@ final class SurfaceLiftController {
             guard let host else { return false }
             return host.apply(.init(to: self?.target ?? .full, progress: progress))
         }
-        cancel = { [weak host] in host?.resetLiftPresentation() }
+        cancel = { [weak host] in host?.browseInteraction?.cancel(); host?.resetLiftPresentation() }
         capture = { [weak self, weak host] in
             guard let host, let target = self?.target else { return 0 }
             return host.captureLiftProgress(target: target)

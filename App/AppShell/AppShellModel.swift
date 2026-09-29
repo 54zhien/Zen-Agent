@@ -34,6 +34,7 @@ final class AppShellModel {
 
     private(set) var launchState: AppShellLaunchState = .notStarted
     private(set) var conversationID = UUID().uuidString
+    private(set) var previewHandoffID: String?
     private(set) var target: AppExecutionTarget?
     private(set) var targetMessage: String?
     private(set) var sendAvailability: ComposerSendAvailability = .unconfigured
@@ -85,13 +86,23 @@ final class AppShellModel {
         return true
     }
 
-    func preparePreviewReturn() async -> Bool {
+    func browseWindow(id: String) throws -> ConversationBrowseWindow {
+        guard let store = dependencies?.store else { throw AppTargetFailure.persistenceUnavailable }
+        return try store.conversationBrowseWindow(id: id)
+    }
+
+    func preparePreviewReturn(to requestedID: String? = nil) async -> Bool {
         guard previewContent.isPresented, let dependencies,
               let session = previewContent.session else { return pane != nil }
-        if previewContent.prepared != nil { return true }
+        let originID = conversationID
+        let id = requestedID ?? originID
+        if let prepared = previewContent.prepared {
+            if prepared.pane.conversationID == id { return true }
+            cancelPreviewReturn()
+        }
+        if previewContent.isPreparing, previewContent.preparationTargetID != id { cancelPreviewReturn() }
         guard !previewContent.isPreparing else { return false }
-        let id = conversationID
-        let preparation = previewContent.beginPreparation()
+        let preparation = previewContent.beginPreparation(targetID: id)
         // Structural Run/Tool changes may invalidate a read. Text growth is replayed.
         // Retry a finite number of times; failure
         // leaves the Preview and its logical state intact for an explicit retry.
@@ -99,20 +110,26 @@ final class AppShellModel {
             let ticket = router.beginPanePreparation(for: id)
             do {
                 let history = try await router.historyPreparation.prepare(id: id, store: dependencies.store)
-                guard !Task.isCancelled, conversationID == id,
+                guard !Task.isCancelled, conversationID == originID,
                       router === dependencies.router, previewContent.accepts(preparation) else {
                     dependencies.router.cancelPanePreparation(for: id, ticket: ticket)
                     previewContent.cancelPreparation(for: preparation)
                     return false
                 }
                 guard router.acceptsPanePreparation(for: id, ticket: ticket) else { continue }
+                // Only the retained original may be an uncommitted page. A missing
+                // selected history must never manufacture a new Conversation.
+                guard history.snapshot.conversation?.lifecycle == .visible
+                    || (id == originID && history.snapshot.conversation == nil) else {
+                    throw PersistenceError.conversationNotFound(id)
+                }
                 let wiring = try ConversationPaneFactory(sessions: sessions).makePane(
                     id: id, initialTimeline: history.timeline, dependencies: dependencies, target: target,
                     snapshot: history.snapshot,
                     onTargetFailure: { [weak self] failure, failedTarget in
                         self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
                     })
-                guard wiring.pane.session === session,
+                guard (id != originID || wiring.pane.session === session),
                       router.registerPreparedPane(wiring.pane, ticket: ticket) else { continue }
                 // Receive durable Runtime events while still hidden behind Preview.
                 previewContent.ready(wiring, id: preparation)
@@ -134,7 +151,13 @@ final class AppShellModel {
 
     func commitPreviewReturn() -> Bool {
         guard previewContent.isPresented, let prepared = previewContent.prepared,
-              prepared.pane.conversationID == conversationID else { return false }
+              previewContent.session?.conversationID == conversationID,
+              prepared.pane.conversationID == previewContent.preparationTargetID else { return false }
+        if prepared.pane.conversationID != conversationID {
+            rememberCurrentSession(retainUncommitted: true)
+        }
+        previewHandoffID = prepared.pane.conversationID
+        conversationID = prepared.pane.conversationID
         pane = prepared.pane
         actionBridge = prepared.bridge
         commitSession(prepared.pane.session)
@@ -149,7 +172,7 @@ final class AppShellModel {
         if let prepared = previewContent.prepared {
             router.unregisterPane(for: prepared.pane.conversationID)
         }
-        router.cancelPanePreparation(for: conversationID)
+        if let targetID = previewContent.preparationTargetID { router.cancelPanePreparation(for: targetID) }
         previewContent.cancelPreparation()
     }
 
@@ -362,12 +385,16 @@ final class AppShellModel {
         return (try? store.conversationLifecycle(id: conversationID)) == .visible
     }
 
-    private func rememberCurrentSession() {
+    private func rememberCurrentSession(retainUncommitted: Bool = false) {
         guard let session = pane?.session ?? previewContent.session,
               let store = dependencies?.store else { return }
         do {
             guard let summary = try store.conversationSummaryWindow(ids: [conversationID]).first else {
-                sessions.remove(conversationID: conversationID)
+                if retainUncommitted, try store.conversationLifecycle(id: conversationID) == nil {
+                    sessions.retain(session, reconstruction: .unavailable)
+                } else {
+                    sessions.remove(conversationID: conversationID)
+                }
                 return
             }
             // Re-read the latest persisted Parent choice. An initial choice can
@@ -423,7 +450,7 @@ final class AppShellModel {
                     return false
                 }
             }
-            if previewContent.prepared != nil {
+            if previewContent.prepared?.pane.conversationID == id {
                 let committed = commitPreviewReturn()
                 if committed { recentOpenFailure = nil }
                 return committed

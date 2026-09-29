@@ -58,18 +58,28 @@ struct NewConversationView: View {
     @State private var isRecentConversationsPresented = false
     @State private var historyAction: Task<Void, Never>?
     @Environment(\.surfaceLiftController) private var lift
+    @Environment(\.surfaceBrowseController) private var browse
 
     var body: some View {
         Group {
             if model.previewContent.isPresented {
                 ConversationPreviewView(
-                    summary: model.previewContent.summaries.first { $0.id == model.conversationID },
-                    status: model.previewContent.status)
+                    summary: browse?.isPresented == true ? browse?.currentSummary : model.previewContent.currentSummary,
+                    status: browse?.isPresented == true
+                        ? model.previewContent.status(for: browse?.selectedConversationID,
+                            summary: browse?.currentSummary, summaryError: browse?.errorMessage)
+                        : model.previewContent.status)
             } else {
                 fullContent
             }
         }
-        .onChange(of: model.conversationID) { _, _ in lift?.resetForConversationChange() }
+        .onChange(of: model.conversationID) { _, _ in
+            // Selected Full commits at the existing late handoff. Cancelling here
+            // would interrupt the second segment of that same Surface.
+            if lift?.state.phase == .settling, lift?.state.pendingSettlement?.destination == .full,
+               model.previewHandoffID == model.conversationID { return }
+            lift?.resetForConversationChange()
+        }
         .onChange(of: model.previewContent.isPresented) { _, presented in
             // Directly opening the current Card has no identity change. Normal
             // animated Return is already settling and must finish its late segment.

@@ -20,6 +20,250 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("selected Return preserves the outgoing actual Run and warm reading state")
+    func selectedCardDoesNotStopHiddenStreaming() async throws {
+        let box = Stage2StreamBox()
+        let fixture = try makeFixture(seed: .active, scripts: [.holding(prefix: [.textDelta("before")], box: box)])
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let id = fixture.model.conversationID
+        try fixture.store.database.write { db in try Fixtures.conversation(id: "selected-stream-target").insert(db) }
+        let bridge = try #require(fixture.model.actionBridge)
+        let runID = try await bridge.start(SendCommand(conversationID: id, text: "selected streaming",
+            providerInstanceID: fixture.instanceID, modelID: fixture.modelID, maxProviderSteps: 4,
+            submissionID: "selected-streaming"))
+        await box.waitUntilReady()
+        for _ in 0..<100 {
+            if try ConversationTimelineLoader.load(conversationID: id, from: fixture.store).turns
+                .flatMap(\.items).contains(.assistantText("before")) { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let original = try #require(fixture.model.pane?.session)
+        let anchor = TurnAnchor(runID: runID, relativeViewportOffset: 0.2)
+        original.readingPosition.setReadingAnchorForUITest(anchor)
+        weak var oldPane = fixture.model.pane
+        #expect(fixture.model.enterPreview())
+        let requests = fixture.model.router.historyPreparation.requested
+        let browse = AppSpaceBrowseController(reader: { try fixture.store.conversationBrowseWindow(id: $0) })
+        browse.present(originID: id)
+        #expect(browse.begin())
+        #expect(browse.drag(displacement: 200, travel: 300))
+        let move = try #require(browse.end(velocity: 0, travel: 300))
+        #expect(browse.complete(move, finished: true))
+        #expect(browse.currentSummary?.id == "selected-stream-target")
+        #expect(fixture.model.conversationID == id && oldPane == nil)
+        #expect(fixture.model.previewContent.session === original)
+        #expect(fixture.model.router.historyPreparation.requested == requests)
+        #expect(await fixture.model.preparePreviewReturn(to: browse.selectedConversationID))
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.conversationID == "selected-stream-target")
+        #expect(fixture.model.router.hasActiveRun(for: id) && box.cancellations == 0)
+        box.yieldLate(.textDelta(" after"))
+        box.yieldLate(.finish(.stop))
+        try await fixture.runtime.waitForCompletion(runID: runID)
+        #expect(try fixture.store.run(id: runID)?.state == .completed)
+        // Stage2StreamBox counts normal AsyncThrowingStream termination too.
+        // The live assertions above prove navigation did not tear down the stream.
+        #expect(box.cancellations == 1)
+        #expect(await fixture.model.openConversation(id: id))
+        let restored = try #require(fixture.model.pane)
+        #expect(restored.session === original)
+        #expect(restored.liveStore.state.timeline.turns.flatMap(\.items).contains(.assistantText("before after")))
+        if case .reading(let value, _) = restored.readingPosition.mode { #expect(value == anchor) }
+        else { #expect(false, "Selected Return lost the outgoing reading anchor") }
+    }
+
+    @Test("real native snap interruption cannot commit its late neighbor", arguments: [false, true])
+    func nativeSnapInterruption(returnToFull: Bool) async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            for index in 0..<2 {
+                var row = Fixtures.conversation(id: "snap-interrupt-\(index)", title: "Snap interrupt \(index)")
+                row.userActiveAt = Fixtures.epoch.addingTimeInterval(Double(index))
+                try row.insert(db)
+            }
+        }
+        #expect(await fixture.model.openConversation(id: "snap-interrupt-1"))
+        let original = try #require(fixture.model.pane?.session)
+        #expect(fixture.model.enterPreview())
+        let lift = SurfaceLiftController()
+        let host = UIHostingController(rootView: WorkspaceSurfaceView(model: fixture.model, liftController: lift) {
+            NewConversationView(model: fixture.model)
+        })
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        func findCard(_ view: UIView) -> SurfaceClipView? {
+            if let card = view as? SurfaceClipView { return card }
+            return view.subviews.lazy.compactMap(findCard).first
+        }
+        for _ in 0..<40 where findCard(host.view)?.accessibilityIdentifier != "workspace-current-card" {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let card = try #require(findCard(host.view))
+        let native = try #require(card.gestureRecognizers?.compactMap { $0.delegate as? AppSpaceBrowseInteraction }.first)
+        #expect(fixture.model.previewContent.summaries.isEmpty, "Workspace must retain only one summary window")
+        #expect(native.controller.summaries.count <= 5)
+        let action = try #require(card.accessibilityCustomActions?.first { $0.name == "上一会话" })
+        let handler = try #require(action.actionHandler)
+        #expect(handler(action))
+        let animator = try #require(native.animatorForTesting)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0.4
+        CATransaction.flush()
+        let pending = try #require(native.controller.state.pendingSettlement)
+        if returnToFull {
+            #expect(card.accessibilityActivate())
+        } else {
+            let container = try #require(card.superview)
+            container.frame.size.width += 80
+            container.setNeedsLayout()
+            container.layoutIfNeeded()
+        }
+        #expect(native.animatorForTesting == nil)
+        #expect(!native.controller.complete(pending, finished: true))
+        #expect(native.controller.state.selected == .conversation("snap-interrupt-1"))
+        try await Task.sleep(for: .milliseconds(800))
+        #expect(fixture.model.conversationID == "snap-interrupt-1")
+        #expect(card.alpha == 1)
+        if returnToFull {
+            #expect(fixture.model.pane?.session === original)
+            #expect(card.transform == .identity)
+        } else {
+            #expect(fixture.model.pane == nil && fixture.model.previewContent.session === original)
+            #expect(native.controller.state.selected == .conversation("snap-interrupt-1"))
+        }
+    }
+
+    @Test("Preview retains durable reconstruction eligibility under warm-cache pressure")
+    func previewDoesNotDisableExistingWarmEviction() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            for index in 0..<15 { try Fixtures.conversation(id: "preview-warm-\(index)").insert(db) }
+        }
+        #expect(await fixture.model.openConversation(id: "preview-warm-0"))
+        weak var evictable = fixture.model.pane?.session
+        for index in 1..<15 {
+            #expect(fixture.model.enterPreview())
+            #expect(await fixture.model.preparePreviewReturn(to: "preview-warm-\(index)"))
+            #expect(fixture.model.commitPreviewReturn())
+            #expect(fixture.model.conversationID == "preview-warm-\(index)")
+        }
+        #expect(evictable == nil, "Preview must not permanently pin a reconstructible Session")
+    }
+
+    @Test("real hosted Card accessibility actions browse without preparing Full")
+    func nativeCardAccessibilityBrowse() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            for index in 0..<6 {
+                var row = Fixtures.conversation(id: "native-browse-\(index)", title: "Native browse \(index)")
+                row.userActiveAt = Fixtures.epoch.addingTimeInterval(Double(index))
+                try row.insert(db)
+            }
+        }
+        #expect(await fixture.model.openConversation(id: "native-browse-5"))
+        let session = try #require(fixture.model.pane?.session)
+        #expect(fixture.model.enterPreview())
+        let requests = fixture.model.router.historyPreparation.requested
+        let host = UIHostingController(rootView: WorkspaceSurfaceView(model: fixture.model) {
+            NewConversationView(model: fixture.model)
+        })
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        func findCard(_ view: UIView) -> SurfaceClipView? {
+            if let card = view as? SurfaceClipView { return card }
+            return view.subviews.lazy.compactMap(findCard).first
+        }
+        for _ in 0..<40 where findCard(host.view)?.accessibilityIdentifier != "workspace-current-card" {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let card = try #require(findCard(host.view))
+        #expect(card.accessibilityCustomActions?.contains { $0.name == "下一会话" } == false)
+        let previous = try #require(card.accessibilityCustomActions?.first { $0.name == "上一会话" })
+        let previousHandler = try #require(previous.actionHandler)
+        #expect(previousHandler(previous))
+        for _ in 0..<40 where card.accessibilityLabel?.contains("Native browse 4") != true {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(card.accessibilityLabel?.contains("Native browse 4") == true)
+        #expect(fixture.model.conversationID == "native-browse-5" && fixture.model.pane == nil)
+        #expect(fixture.model.previewContent.session === session && fixture.model.previewContent.prepared == nil)
+        #expect(fixture.model.router.historyPreparation.requested == requests)
+        let next = try #require(card.accessibilityCustomActions?.first { $0.name == "下一会话" })
+        let nextHandler = try #require(next.actionHandler)
+        #expect(nextHandler(next))
+        for _ in 0..<40 where card.accessibilityLabel?.contains("Native browse 5") != true {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(card.accessibilityLabel?.contains("Native browse 5") == true)
+        #expect(fixture.model.router.historyPreparation.requested == requests)
+    }
+
+    @Test("selected Card prepares a different history without replacing the original warm owner")
+    func selectedPreviewHandoffPreservesOriginal() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "browse-origin").insert(db)
+            try Fixtures.conversation(id: "browse-target").insert(db)
+        }
+        #expect(await fixture.model.openConversation(id: "browse-origin"))
+        let original = try #require(fixture.model.pane?.session)
+        original.composer.draft.text = "未发送的原会话草稿"
+        #expect(fixture.model.enterPreview())
+        let reads = fixture.model.router.historyPreparation.requested
+        #expect(await fixture.model.preparePreviewReturn(to: "browse-target"))
+        #expect(fixture.model.conversationID == "browse-origin" && fixture.model.pane == nil)
+        #expect(fixture.model.previewContent.session === original)
+        weak var cancelled = fixture.model.previewContent.prepared?.pane
+        #expect(cancelled?.conversationID == "browse-target")
+        fixture.model.cancelPreviewReturn()
+        #expect(cancelled == nil)
+        #expect(fixture.model.previewContent.session === original)
+        #expect(await fixture.model.preparePreviewReturn(to: "browse-target"))
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.conversationID == "browse-target")
+        #expect(fixture.model.pane?.conversationID == "browse-target")
+        #expect(fixture.model.router.historyPreparation.requested == reads + 2)
+        #expect(try fixture.store.conversation(id: "browse-origin")?.userActiveAt == Fixtures.epoch)
+        #expect(try fixture.store.conversation(id: "browse-target")?.userActiveAt == Fixtures.epoch)
+        #expect(await fixture.model.openConversation(id: "browse-origin"))
+        #expect(fixture.model.pane?.session === original)
+        #expect(original.composer.draft.text == "未发送的原会话草稿")
+    }
+
+    @Test("selected Return cannot invent an absent or pending-deletion history")
+    func selectedPreviewUnavailableTarget() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "browse-visible").insert(db)
+            try Fixtures.conversation(id: "browse-deleted", lifecycle: .pendingDeletion).insert(db)
+        }
+        #expect(await fixture.model.openConversation(id: "browse-visible"))
+        let original = try #require(fixture.model.pane?.session)
+        #expect(fixture.model.enterPreview())
+        for id in ["browse-deleted", "browse-missing"] {
+            #expect(!(await fixture.model.preparePreviewReturn(to: id)))
+            #expect(!fixture.model.commitPreviewReturn())
+            #expect(fixture.model.previewContent.session === original)
+            #expect(fixture.model.conversationID == "browse-visible" && fixture.model.pane == nil)
+        }
+        #expect(await fixture.model.preparePreviewReturn())
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.pane?.session === original)
+    }
+
     @Test("releasing an idle shell releases its registered route and native display owner")
     func idleShellReleasesRoute() throws {
         weak var route: RunEventRouter?

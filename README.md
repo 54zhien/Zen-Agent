@@ -70,11 +70,17 @@ As of 2026-09-29:
   generation/build,740 Swift Testing,20 XCTest and14 UI tests. See
   [the repair record](tasks/h1-history-handoff.md) for behavioral RED and failed
   source runs; PR #20 holds the latest exact-tree CI, review and integration status.
-- H2 Preview error sources and localized unreadable summary rows are being
-  implemented on [PR #21](https://github.com/54zhien/Zen-Agent/pull/21). See
-  [the slice record](tasks/h2-preview-recovery-state.md) for its runnable RED.
-  Full GREEN and independent branch review remain pending; physical Gate A must
-  be evidenced for the matching H1/H2 build before S5-05. S5-05–16 remain later work.
+- H2 Preview error sources and localized unreadable summary rows are integrated
+  through [PR #21](https://github.com/54zhien/Zen-Agent/pull/21) at `eec3eb3`.
+  [Main CI](https://github.com/54zhien/Zen-Agent/actions/runs/36555411803) passed
+  generation/build,746 Swift Testing,20 XCTest and14 UI tests after independent
+  review and its test-first repair. See [the slice record](tasks/h2-preview-recovery-state.md).
+- The owner authorized S5-05 development before physical Gate A on 2026-09-29;
+  Gate A remains open. Card Browse / Snap is on unmerged
+  [PR #22](https://github.com/54zhien/Zen-Agent/pull/22), with generation/build,759 Swift Testing,20 XCTest and16 UI tests
+  passed at `9372dfe`, and independent review approved (no Critical/Important). See [the slice record](tasks/s5-05-card-browse-snap.md)
+  for bounded projection/selected Return ownership and RED evidence.
+  S5-06–16 remain later work.
 - Formal Settings IA and
   `Settings → Agent → Soul` belong to later Stage 5 slices; Memory, Skills, MCP and
   Subagent remain later stages.

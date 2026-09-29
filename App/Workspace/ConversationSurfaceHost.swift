@@ -5,18 +5,22 @@ import UIKit
 struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var request: SurfaceGeometry.Request = .full
     var liftController: SurfaceLiftController?
+    var browseController: AppSpaceBrowseController?
     let content: Content
 
     init(request: SurfaceGeometry.Request = .full, liftController: SurfaceLiftController? = nil,
+         browseController: AppSpaceBrowseController? = nil,
          @ViewBuilder content: () -> Content) {
         self.request = request
         self.liftController = liftController
+        self.browseController = browseController
         self.content = content()
     }
 
     func makeUIViewController(context: Context) -> ConversationSurfaceViewController<Content> {
         let controller = ConversationSurfaceViewController(content: content, request: request)
         liftController?.bind(controller)
+        controller.bindBrowse(browseController)
         return controller
     }
 
@@ -29,10 +33,12 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
             controller.liftController?.unbind(controller)
             _ = controller.apply(request)
         }
+        controller.bindBrowse(browseController)
     }
 
     static func dismantleUIViewController(_ controller: ConversationSurfaceViewController<Content>,
                                          coordinator: Void) {
+        controller.unbindBrowse()
         controller.liftController?.unbind(controller)
     }
 }
@@ -44,6 +50,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private(set) var presentation = SurfaceGeometry.Presentation.full
     private var request = SurfaceGeometry.Request.full
     weak var liftController: SurfaceLiftController?
+    private(set) var browseInteraction: AppSpaceBrowseInteraction?
     var onViewportChanged: (() -> Void)?
     private var lastViewport: CGRect?
     private var lastInsets: UIEdgeInsets?
@@ -100,10 +107,13 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         if surfaceView.bounds != bounds { surfaceView.bounds = bounds }
         if surfaceView.center != center { surfaceView.center = center }
         contentController.preserveContainerSafeArea(view.safeAreaInsets)
-        let changed = lastViewport != nil && (lastViewport != view.bounds || lastInsets != view.safeAreaInsets)
+        // onAppear may restore Card before a usable viewport exists. Notify the
+        // first layout too, so that Card's first Return has a resolved Lift target.
+        let changed = lastViewport != view.bounds || lastInsets != view.safeAreaInsets
         lastViewport = view.bounds
         lastInsets = view.safeAreaInsets
         if changed { onViewportChanged?() }
+        browseInteraction?.updateViewport()
         _ = apply(request)
     }
 
@@ -151,10 +161,54 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         surfaceView.accessibilityLabel = "当前会话"
         surfaceView.accessibilityHint = "轻点返回会话"
         surfaceView.accessibilityTraits = .button
-        surfaceView.onActivate = frozen ? returnAction : nil
+        surfaceView.onActivate = frozen ? { [weak self] in
+            self?.browseInteraction?.cancel()
+            return returnAction()
+        } : nil
         surfaceView.accessibilityCustomActions = frozen
             ? [UIAccessibilityCustomAction(name: "返回会话", target: surfaceView,
                                            selector: #selector(SurfaceClipView.activateReturn))] : nil
+        if phase == .card, let browse = browseInteraction, browse.canNavigate {
+            var actions = surfaceView.accessibilityCustomActions ?? []
+            if browse.controller.state.older != nil {
+                actions.append(UIAccessibilityCustomAction(name: "上一会话") { [weak browse] _ in
+                    browse?.navigate(.older) ?? false
+                })
+            }
+            if browse.controller.state.newer != nil {
+                actions.append(UIAccessibilityCustomAction(name: "下一会话") { [weak browse] _ in
+                    browse?.navigate(.newer) ?? false
+                })
+            }
+            surfaceView.accessibilityCustomActions = actions
+        }
+        browseInteraction?.updateAvailability()
+    }
+
+    func bindBrowse(_ controller: AppSpaceBrowseController?) {
+        guard browseInteraction?.controller !== controller else { return }
+        unbindBrowse()
+        guard let controller else { return }
+        loadViewIfNeeded()
+        browseInteraction = AppSpaceBrowseInteraction(surface: surfaceView, coordinates: view, controller: controller,
+            canBrowse: { [weak self, weak controller] in
+                guard let self, let lift = self.liftController else { return false }
+                return controller?.isPresented == true && lift.state.phase == .card
+                    && !lift.isPreparingReturn && !lift.overlayPresented && !self.hasPresentedOverlay
+            }, render: { [weak self, weak controller] card in
+                guard let self, let controller, self.liftController?.state.phase == .card,
+                      let pose = AppSpaceBrowseGeometry.pose(for: card,
+                        size: controller.viewportSize, safeArea: controller.safeArea) else { return false }
+                let rendered = self.apply(.init(to: pose, progress: 1), force: true)
+                if rendered { self.surfaceView.alpha = CGFloat(card.opacity) }
+                return rendered
+            }, refreshAccessibility: { [weak self] in self?.liftController?.refreshCardAccessibility() })
+        browseInteraction?.updateAvailability()
+    }
+
+    func unbindBrowse() {
+        browseInteraction?.unbind()
+        browseInteraction = nil
     }
 
     var hasPresentedOverlay: Bool {
@@ -237,7 +291,7 @@ private final class SurfaceHitView: UIView {
             return super.hitTest(point, with: event)
         }
         guard isUserInteractionEnabled, !isHidden, alpha > 0.01,
-              !surfaceView.isHidden, surfaceView.alpha > 0.01,
+              !surfaceView.isHidden, (surfaceView.layer.presentation()?.opacity ?? surfaceView.layer.opacity) > 0.01,
               self.point(inside: point, with: event) else { return nil }
         // UIKit's model transform already points at the destination. Route new
         // settlement touches through the still-visible transform and mask instead.
@@ -250,6 +304,30 @@ private final class SurfaceHitView: UIView {
 final class SurfaceClipView: UIView {
     var visibleRect: CGRect?
     var onActivate: (() -> Bool)?
+    private var touchOrigin: CGPoint?
+    private var touchMoved = false
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        touchOrigin = touches.first?.location(in: window)
+        touchMoved = touches.count != 1
+        super.touchesBegan(touches, with: event)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        recordMovement(touches)
+        super.touchesMoved(touches, with: event)
+    }
+
+    private func recordMovement(_ touches: Set<UITouch>) {
+        guard let origin = touchOrigin, let point = touches.first?.location(in: window) else { return }
+        if hypot(point.x - origin.x, point.y - origin.y) > 8 { touchMoved = true }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        touchOrigin = nil
+        touchMoved = true
+        super.touchesCancelled(touches, with: event)
+    }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         guard super.point(inside: point, with: event) else { return false }
@@ -265,10 +343,12 @@ final class SurfaceClipView: UIView {
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if let point = touches.first?.location(in: superview),
+        recordMovement(touches)
+        if !touchMoved, let point = touches.first?.location(in: superview),
            self.point(inside: visiblePoint(fromParent: point), with: event) {
             _ = onActivate?()
         }
+        touchOrigin = nil
         super.touchesEnded(touches, with: event)
     }
 
