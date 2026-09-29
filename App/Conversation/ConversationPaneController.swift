@@ -114,6 +114,11 @@ final class ConversationPaneController {
         enqueue(readingPosition.applyStoreChanges(changedRunIDs).action)
     }
 
+    func flushStreamingText() {
+        let changed = liveStore.flushStreamingText()
+        if !changed.isEmpty { enqueue(readingPosition.applyStoreChanges(changed).action) }
+    }
+
     func adoptLiveStore(_ store: LiveConversationStore) throws {
         guard store.state.timeline.conversationID == conversationID else {
             throw ConversationPaneError.mismatchedTimeline(

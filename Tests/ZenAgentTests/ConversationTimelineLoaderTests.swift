@@ -26,6 +26,7 @@ struct ConversationTimelineLoaderTests {
         defer {
             gate.release()
             try? store.database.read { db in db.trace(nil) }
+            #expect(!gate.timedOut, "snapshot gate expired before the test released its read")
         }
         try store.database.read { db in
             db.trace { event in
@@ -280,10 +281,14 @@ private final class HistorySnapshotGate: @unchecked Sendable {
     private let lock = NSLock()
     private let resume = DispatchSemaphore(value: 0)
     private var blocked = false
+    private var expired = false
     var entered: Bool { lock.withLock { blocked } }
+    var timedOut: Bool { lock.withLock { expired } }
     func blockOnce() {
         let first = lock.withLock { if blocked { return false }; blocked = true; return true }
-        if first { _ = resume.wait(timeout: .now() + 10) }
+        if first, resume.wait(timeout: .now() + 10) == .timedOut {
+            lock.withLock { expired = true }
+        }
     }
     func release() { resume.signal() }
 }

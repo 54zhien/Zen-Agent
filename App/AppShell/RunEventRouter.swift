@@ -189,6 +189,7 @@ final class RunEventRouter {
             _ = try pane.consume(event, in: pane.conversationID)
             if case .runEnded = event { terminalCheckpoints.removeValue(forKey: pane.conversationID) }
         }
+        pane.flushStreamingText()
     }
 
     @discardableResult

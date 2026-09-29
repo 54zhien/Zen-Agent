@@ -89,3 +89,22 @@ PR CI `36523844604` attempt 1 / job `109262420961`：应用构建成功。
 平台依据：[Apple View.id](https://developer.apple.com/documentation/swiftui/view/id%28_%3A%29) 定义身份变化时重置 View 状态；
 [GRDB 7.11.1 DatabaseReader](https://github.com/groue/GRDB.swift/blob/v7.11.1/GRDB/Core/DatabaseReader.swift) 和
 [SerializedDatabase](https://github.com/groue/GRDB.swift/blob/v7.11.1/GRDB/Core/SerializedDatabase.swift) 定义异步读取、隔离与取消。
+
+## 独立整分支审查与修复
+
+独立审查 `70c5c17…f1e1924`：无 Critical；两项 Important 需修复：旧 Pane 的 `runAccepted` 重载抢占用户 Open；journal 重放的最后一段可能仍在合并缓冲中。审查者独立确认 f1e1924 的完整 CI，通过既有用例不足以关闭这两个缺口。
+
+测试先行源码 `54e7fe077aabfb56068422a8015af8b8b2690296`；PR 测试 merge
+`3f9c7d1d3111313d6f0e32b547d7eee8c11179b5`，实际 fetch 后两者 tree 均为
+`bba485141baf519c7b01d170e3ca1981fcb0a592`。
+CI `36526793137` attempt 1 / job `109271535126`：generation、应用构建和测试编译成功；
+740 Swift Testing / 111 suites 仅有 3 个新增断言失败：Open 被取消、current ID 未切换、未结束 Part 的补齐文本不可见。
+20 XCTest、14 UI 通过；一次 Swift test-run start，无实际宿主重启。
+
+最小修复合同：导航拥有优先权，后台维护等待导航结束；单工作预算和取消代际保留。
+导航打断后台重载后重新等待，显式取消不允许后台自行重启。
+接管重放完成是显示刷新边界，只发布缓冲文本，不完成 Part，不修改消费偏移。
+原 Preview Return 用例在 Part 完成前检查全文；导航竞争补充反向顺序、Run 继续和无伪恢复错误断言。
+
+Minor 门闩超时问题属于 brief 已有测试合同：记录超时并使测试失败，不放宽时长。
+最终修复的完整 CI、实际源码 SHA/tree 与整分支审查回执维护在 PR #20。

@@ -48,6 +48,7 @@ struct AppShellWiringTests {
             defer {
                 gate.release()
                 try? fixture.store.database.read { db in db.trace(nil) }
+                #expect(!gate.timedOut, "cancel gate expired before explicit release")
             }
             try fixture.store.database.read { db in
                 db.trace { event in
@@ -95,6 +96,7 @@ struct AppShellWiringTests {
         defer {
             gate.release()
             try? store.database.read { db in db.trace(nil) }
+            #expect(!gate.timedOut, "delta gate expired before explicit release")
         }
         try store.database.read { db in
             db.trace { event in
@@ -129,6 +131,7 @@ struct AppShellWiringTests {
         #expect(fixture.model.commitPreviewReturn())
         let pane = try #require(fixture.model.pane)
         #expect(pane.session === session)
+        #expect(pane.liveStore.state.timeline.turns.flatMap(\.items).contains(.assistantText(expected)))
         if !endsDuringRead {
             try writer.finishPart(id: "read-part", state: .completed)
             await fixture.model.router.handle(.messagePartCompleted(runID: runID, partID: "read-part", state: .completed))
@@ -152,7 +155,11 @@ struct AppShellWiringTests {
         let finished = owner.finished
         let requested = owner.requested
         let gate = PreviewReadGate()
-        defer { gate.release(); try? fixture.store.database.read { $0.trace(nil) } }
+        defer {
+            gate.release()
+            try? fixture.store.database.read { $0.trace(nil) }
+            #expect(!gate.timedOut, "navigation gate expired before explicit release")
+        }
         try fixture.store.database.read { db in
             db.trace { event in
                 if case .statement(let statement) = event,
@@ -177,8 +184,8 @@ struct AppShellWiringTests {
         #expect(fixture.model.conversationID == "queued-c")
         #expect(owner.started == started + 2 && owner.finished == finished + 2 && owner.inFlight == 0)
     }
-    @Test("an outgoing Run acceptance cannot cancel a user's Open")
-    func outgoingRunCannotCancelOpen() async throws {
+    @Test("an outgoing Run acceptance cannot cancel a user's Open", arguments: [false, true])
+    func outgoingRunCannotCancelOpen(acceptanceFirst: Bool) async throws {
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
         let outgoing = try #require(fixture.model.pane)
@@ -188,26 +195,35 @@ struct AppShellWiringTests {
         let owner = fixture.model.router.historyPreparation
         let requested = owner.requested
         let gate = PreviewReadGate()
-        defer { gate.release(); try? fixture.store.database.read { $0.trace(nil) } }
+        defer {
+            gate.release()
+            try? fixture.store.database.read { $0.trace(nil) }
+            #expect(!gate.timedOut, "acceptance gate expired before explicit release")
+        }
         try fixture.store.database.read { db in
             db.trace { event in
                 if case .statement(let statement) = event,
                    statement.sql.lowercased().contains("agentrun") { gate.blockOnce() }
             }
         }
-        let navigation = Task { await fixture.model.openConversation(id: "open-target") }
+        let firstNavigation = acceptanceFirst ? nil : Task { await fixture.model.openConversation(id: "open-target") }
+        let firstAcceptance = acceptanceFirst ? Task { await fixture.model.router.handle(.runAccepted(
+            runID: "outgoing-run", conversationID: outgoing.conversationID)) } : nil
         for _ in 0..<200 where !gate.hasBlocked { try await Task.sleep(for: .milliseconds(5)) }
         _ = try #require(gate.hasBlocked)
-        let acceptance = Task { await fixture.model.router.handle(.runAccepted(
+        let navigation = firstNavigation ?? Task { await fixture.model.openConversation(id: "open-target") }
+        let acceptance = firstAcceptance ?? Task { await fixture.model.router.handle(.runAccepted(
             runID: "outgoing-run", conversationID: outgoing.conversationID)) }
         for _ in 0..<200 where owner.requested < requested + 2 { try await Task.sleep(for: .milliseconds(5)) }
         _ = try #require(owner.requested == requested + 2)
         #expect(fixture.model.pane === outgoing)
+        #expect(owner.inFlight == 1)
         gate.release()
         #expect(await navigation.value)
         await acceptance.value
         #expect(fixture.model.conversationID == "open-target")
         #expect(fixture.model.router.hasActiveRun(for: outgoing.conversationID))
+        #expect(fixture.model.router.recoveryMessage(for: outgoing.conversationID) == nil)
         #expect(owner.inFlight == 0)
     }
 
@@ -416,6 +432,7 @@ struct AppShellWiringTests {
         defer {
             gate.release()
             try? fixture.store.database.read { db in db.trace(nil) }
+            #expect(!gate.timedOut, "inflight gate expired before explicit release")
         }
         try fixture.store.database.read { db in
             db.trace { event in
@@ -2076,10 +2093,14 @@ private final class HistoryReadRounds: @unchecked Sendable {
     private let lock = NSLock()
     private let resume = DispatchSemaphore(value: 0)
     private var count = 0
+    private var expired = false
     var entered: Int { lock.withLock { count } }
+    var timedOut: Bool { lock.withLock { expired } }
     func blockNext() {
         let round = lock.withLock { count += 1; return count }
-        if round <= 3 { _ = resume.wait(timeout: .now() + 10) }
+        if round <= 3, resume.wait(timeout: .now() + 10) == .timedOut {
+            lock.withLock { expired = true }
+        }
     }
     func release() { resume.signal() }
 }
@@ -2088,14 +2109,18 @@ private final class PreviewReadGate: @unchecked Sendable {
     private let lock = NSLock()
     private let resume = DispatchSemaphore(value: 0)
     private var blocked = false
+    private var expired = false
     var hasBlocked: Bool { lock.withLock { blocked } }
+    var timedOut: Bool { lock.withLock { expired } }
     func blockOnce() {
         let first = lock.withLock {
             if blocked { return false }
             blocked = true
             return true
         }
-        if first { _ = resume.wait(timeout: .now() + 10) }
+        if first, resume.wait(timeout: .now() + 10) == .timedOut {
+            lock.withLock { expired = true }
+        }
     }
     func release() { resume.signal() }
 }

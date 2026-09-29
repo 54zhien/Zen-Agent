@@ -33,7 +33,7 @@ struct ConversationPaneFactory {
             session: savedSession,
             coalescer: StreamingCoalescer(interval: .milliseconds(10)),
             asynchronousLoad: { id in
-                try await preparation.prepare(id: id, store: store).timeline
+                try await preparation.prepare(id: id, store: store, intent: .maintenance).timeline
             }
         )
         pane.composer.sendAvailability = validatedAvailability

@@ -122,6 +122,16 @@ final class LiveConversationStore {
         return rebuiltRuns
     }
 
+    /// Handoff is a display boundary, even when the Provider pauses mid-Part.
+    /// Publish held text without completing Parts or changing their byte offsets.
+    func flushStreamingText() -> Set<String> {
+        var rebuiltRuns: Set<String> = []
+        for partID in Array(coalescers.keys) {
+            flush(partID: partID, rebuiltRuns: &rebuiltRuns)
+        }
+        return rebuiltRuns
+    }
+
     /// Replaces the out-of-timeline approval list with a Conversation-scoped,
     /// stable-ID-deduplicated Runtime projection.
     func reconcilePendingToolApprovals(_ approvals: [ToolApprovalProjection]) {
