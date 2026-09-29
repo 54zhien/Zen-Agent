@@ -177,6 +177,40 @@ struct AppShellWiringTests {
         #expect(fixture.model.conversationID == "queued-c")
         #expect(owner.started == started + 2 && owner.finished == finished + 2 && owner.inFlight == 0)
     }
+    @Test("an outgoing Run acceptance cannot cancel a user's Open")
+    func outgoingRunCannotCancelOpen() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let outgoing = try #require(fixture.model.pane)
+        try fixture.store.commitUserTurnAndCreateParentRun(Fixtures.send(
+            conversationID: outgoing.conversationID, messageID: "outgoing-user", runID: "outgoing-run"))
+        try fixture.store.database.write { db in try Fixtures.conversation(id: "open-target").insert(db) }
+        let owner = fixture.model.router.historyPreparation
+        let requested = owner.requested
+        let gate = PreviewReadGate()
+        defer { gate.release(); try? fixture.store.database.read { $0.trace(nil) } }
+        try fixture.store.database.read { db in
+            db.trace { event in
+                if case .statement(let statement) = event,
+                   statement.sql.lowercased().contains("agentrun") { gate.blockOnce() }
+            }
+        }
+        let navigation = Task { await fixture.model.openConversation(id: "open-target") }
+        for _ in 0..<200 where !gate.hasBlocked { try await Task.sleep(for: .milliseconds(5)) }
+        _ = try #require(gate.hasBlocked)
+        let acceptance = Task { await fixture.model.router.handle(.runAccepted(
+            runID: "outgoing-run", conversationID: outgoing.conversationID)) }
+        for _ in 0..<200 where owner.requested < requested + 2 { try await Task.sleep(for: .milliseconds(5)) }
+        _ = try #require(owner.requested == requested + 2)
+        #expect(fixture.model.pane === outgoing)
+        gate.release()
+        #expect(await navigation.value)
+        await acceptance.value
+        #expect(fixture.model.conversationID == "open-target")
+        #expect(fixture.model.router.hasActiveRun(for: outgoing.conversationID))
+        #expect(owner.inFlight == 0)
+    }
+
     @Test("native Composer remount preserves a pre-acceptance Send and its late error")
     func previewPendingSendSurvivesNativeRemount() async throws {
         let fixture = try makeFixture(seed: .active)

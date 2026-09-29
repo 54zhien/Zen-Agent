@@ -6,6 +6,34 @@ import Testing
 @Suite("Run event routing across Pane remount")
 @MainActor
 struct RunEventRouterRemountTests {
+    @Test("handoff publishes a journal suffix while its Part is still streaming")
+    func handoffPublishesUnfinishedSuffix() async throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        let id = "unfinished-handoff"
+        let run = "unfinished-run"
+        let part = "unfinished-part"
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(conversationID: id,
+            messageID: "unfinished-user", runID: run, runState: .streaming))
+        _ = try store.ensureAssistantResponse(forRunID: run, messageID: "unfinished-assistant")
+        try store.createPart(Fixtures.streamingPart(id: part, messageID: "unfinished-assistant", text: "before"))
+        let projection = try ConversationTimelineLoader.load(conversationID: id, from: store)
+        let pane = try ConversationPaneController(conversationID: id, initialTimeline: projection,
+            configuration: nil, coalescer: StreamingCoalescer(interval: .milliseconds(10)))
+        let instant = ContinuousClock.now
+        try pane.adoptLiveStore(LiveConversationStore(projection: projection,
+            coalescer: StreamingCoalescer(interval: .milliseconds(10)), now: { instant }))
+        let router = RunEventRouter()
+        router.registerRecoveredRun(runID: run, conversationID: id)
+        let ticket = router.beginPanePreparation(for: id)
+        await router.handle(.messagePartDelta(runID: run, partID: part, delta: "你好👋",
+            endUTF8Offset: "before你好👋".utf8.count))
+        #expect(router.registerPreparedPane(pane, ticket: ticket))
+        #expect(pane.liveStore.state.timeline.turns.flatMap(\.items).contains(.assistantText("before你好👋")))
+        #expect(pane.liveStore.state.activeParts[part]?.state == .streaming)
+        #expect(router.hasActiveRun(for: id))
+        #expect(!pane.liveStore.needsTimelineReload)
+    }
+
     @Test("a completed snapshot Part is not inserted again by a late durable Start")
     func completedSnapshotPrecedesStart() async throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
