@@ -71,7 +71,7 @@ final class SurfaceLiftUITests: XCTestCase {
 
     @MainActor
     func testComposerDragTargetsBottomSplit() {
-        assertSplitTarget(.init(dx: 0.5, dy: 0.68), expected: "bottom")
+        assertSplitTarget(.init(dx: 0.5, dy: 0.56), expected: "bottom")
     }
 
     @MainActor
@@ -85,7 +85,10 @@ final class SurfaceLiftUITests: XCTestCase {
         let end = app.coordinate(withNormalizedOffset: destination)
         start.press(forDuration: 0.7, thenDragTo: end)
         let probe = app.otherElements["split-drop-intent-probe"]
-        XCTAssertTrue(probe.waitForExistence(timeout: 10), "A real Composer drag must report its Split target")
+        guard probe.waitForExistence(timeout: 10) else {
+            XCTFail("A real Composer drag must report its Split target")
+            return
+        }
         XCTAssertEqual(probe.value as? String, slot)
         XCTAssertTrue(waitForPhase("full", app: app), "Until a Split consumer is installed, release returns to Full")
         XCTAssertEqual(editor.value as? String, saved)

@@ -6,6 +6,7 @@ import UIKit
 final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
     struct Configuration {
         let driver: SurfaceLiftController
+        let conversationID: String
         let eligibility: (SurfaceLiftEligibility) -> SurfaceLiftEligibility
     }
 
@@ -80,10 +81,11 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
         let point = gesture.location(in: window)
         switch gesture.state {
         case .began:
-            origin = configuration.driver.arm(input) ? point : nil
+            origin = configuration.driver.arm(input, conversationID: configuration.conversationID) ? point : nil
         case .changed:
             guard let origin else { return }
-            if !configuration.driver.drag(upwardDistance: Double(origin.y - point.y), eligibility: input) {
+            if !configuration.driver.drag(upwardDistance: Double(origin.y - point.y),
+                                          eligibility: input, locationInWindow: point) {
                 self.origin = nil
             }
         case .ended, .cancelled, .failed:

@@ -7,12 +7,20 @@ import UIKit
 final class SurfaceLiftController {
     private(set) var state = SurfaceLiftState()
     private(set) var overlayPresented = false
+    private(set) var splitTargetingVisible = false
+    private(set) var splitTargetSlot: SplitDropSlot?
+    private(set) var splitTopFrame: CGRect?
+    private(set) var splitBottomFrame: CGRect?
+    private(set) var splitGuideFrame: CGRect?
+    private(set) var lastSplitDropIntent: SplitDropIntent?
     private var selectedSources: Set<String> = []
     var minimumCardSize = CGSize(width: 220, height: 300)
     @ObservationIgnored private var hostID: ObjectIdentifier?
     @ObservationIgnored private var target: SurfaceGeometry.Pose?
     @ObservationIgnored private var resolveTarget: ((CGSize) -> SurfaceGeometry.Pose?)?
     @ObservationIgnored private var present: ((CGFloat) -> Bool)?
+    @ObservationIgnored private var presentSplit: ((SurfaceGeometry.Pose) -> Bool)?
+    @ObservationIgnored private var splitSample: ((CGPoint) -> (point: CGPoint, size: CGSize, safeArea: UIEdgeInsets)?)?
     @ObservationIgnored private var animate: ((SurfaceLiftState.Settlement, Bool) -> Void)?
     @ObservationIgnored private var capture: (() -> Double)?
     @ObservationIgnored private var cancel: (() -> Void)?
@@ -29,6 +37,18 @@ final class SurfaceLiftController {
     @ObservationIgnored private var returnTask: Task<Void, Never>?
     @ObservationIgnored private var returnOperation: UUID?
     @ObservationIgnored private var returnNeedsHandoff = false
+    @ObservationIgnored private var splitTargeting = SplitTargetingState()
+    @ObservationIgnored private var splitPreviewPose: SurfaceGeometry.Pose?
+    @ObservationIgnored private var splitReturnPose: SurfaceGeometry.Pose?
+    @ObservationIgnored private var sourceConversationID: String?
+    @ObservationIgnored private var splitDropConsumer: ((SplitDropIntent) -> Bool)?
+    @ObservationIgnored var onSplitTargetEntry: () -> Void = {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    func configureSplit(onDrop: ((SplitDropIntent) -> Bool)?) {
+        splitDropConsumer = onDrop
+    }
 
     func configurePreview(enter: @escaping () -> Bool, prepare: @escaping () async -> Bool,
                           commit: @escaping () -> Bool, cancel: @escaping () -> Void,
@@ -66,6 +86,11 @@ final class SurfaceLiftController {
             guard let host else { return false }
             return host.apply(.init(to: self?.target ?? .full, progress: progress))
         }
+        presentSplit = { [weak host] pose in host?.apply(.init(to: pose, progress: 1)) ?? false }
+        splitSample = { [weak host] point in
+            guard let host, let window = host.view.window else { return nil }
+            return (host.view.convert(point, from: window), host.view.bounds.size, host.view.safeAreaInsets)
+        }
         cancel = { [weak host] in
             host?.deletionInteraction?.cancel()
             host?.browseInteraction?.cancel()
@@ -81,11 +106,13 @@ final class SurfaceLiftController {
         }
         presentedOverlay = { [weak host] in host?.hasPresentedOverlay ?? true }
         animate = { [weak self, weak host] settlement, animated in
-            guard let self, let host, let target = self.target else { self?.invalidate(); return }
+            guard let self, let host, let target = self.splitReturnPose ?? self.target else {
+                self?.invalidate(); return
+            }
             let binding = self.hostID
             let handoff = settlement.destination == .full && self.returnNeedsHandoff
             let endpoint = settlement.destination == .card ? 1.0 : (handoff ? 0.35 : 0)
-            host.animateLift(target: target, from: settlement.startProgress,
+            host.animateLift(target: target, from: self.splitReturnPose == nil ? settlement.startProgress : 1,
                 to: endpoint, animated: animated) { [weak self, weak host] finished in
                 guard let self, let host, self.hostID == binding,
                       self.state.pendingSettlement == settlement else { return }
@@ -101,6 +128,7 @@ final class SurfaceLiftController {
                     }
                 } else {
                     guard self.state.complete(settlement, finished: finished) else { return }
+                    self.splitReturnPose = nil
                     if self.state.phase == .card, self.enterPreview?() == false {
                         _ = self.returnToFull(animated: animated)
                         return
@@ -120,6 +148,8 @@ final class SurfaceLiftController {
         hostID = nil
         resolveTarget = nil
         present = nil
+        presentSplit = nil
+        splitSample = nil
         animate = nil
         capture = nil
         cancel = nil
@@ -137,23 +167,43 @@ final class SurfaceLiftController {
     func canArm(_ input: SurfaceLiftEligibility) -> Bool {
         state.phase == .full && guarded(input).allowsLift && resolveTarget?(minimumCardSize) != nil
     }
-    func arm(_ input: SurfaceLiftEligibility) -> Bool {
+    func arm(_ input: SurfaceLiftEligibility, conversationID: String? = nil) -> Bool {
         guard canArm(input), let pose = resolveTarget?(minimumCardSize) else { return false }
+        clearSplitTargeting()
+        lastSplitDropIntent = nil
+        sourceConversationID = conversationID
         target = pose
         let armed = state.arm(guarded(input))
         updatePresentation()
         return armed
     }
-    func drag(upwardDistance: Double, eligibility: SurfaceLiftEligibility) -> Bool {
+    func drag(upwardDistance: Double, eligibility: SurfaceLiftEligibility,
+              locationInWindow: CGPoint? = nil) -> Bool {
         guard state.phase == .armed || state.phase == .lifting else { return false }
         let dragged = state.drag(upwardDistance: upwardDistance, eligibility: guarded(eligibility))
+        if dragged, state.phase == .lifting, sourceConversationID != nil,
+           let locationInWindow, let sample = splitSample?(locationInWindow) {
+            updateSplitTargeting(upwardDistance: upwardDistance, sample: sample)
+        } else {
+            clearSplitTargeting()
+        }
         updatePresentation()
         return dragged
     }
     @discardableResult
     func end(cancelled: Bool = false, animated: Bool = true) -> SurfaceLiftState.Settlement? {
         guard state.phase == .armed || state.phase == .lifting else { return nil }
-        let settlement = state.end(cancelled: cancelled)
+        let slot = splitTargeting.end(cancelled: cancelled)
+        let intent = slot.flatMap { slot in sourceConversationID.map { SplitDropIntent(conversationID: $0, slot: slot) } }
+        if let intent { lastSplitDropIntent = intent }
+        let hadSplitPreview = splitPreviewPose != nil
+        if hadSplitPreview { splitReturnPose = splitPreviewPose }
+        clearSplitTargeting()
+        sourceConversationID = nil
+        // Until a Split Container accepts an intent, the original Surface
+        // returns directly to Full with its native editor and draft intact.
+        let accepted = intent.flatMap { splitDropConsumer?($0) } ?? false
+        let settlement = state.end(cancelled: cancelled || hadSplitPreview || accepted)
         interaction?(state.phase)
         if let settlement { animate?(settlement, animated) } else { updatePresentation() }
         return settlement
@@ -205,6 +255,9 @@ final class SurfaceLiftController {
 
     func resetForConversationChange() {
         cancelReturn()
+        clearSplitTargeting()
+        splitReturnPose = nil
+        sourceConversationID = nil
         cancel?()
         state.interrupt()
         updatePresentation()
@@ -213,6 +266,9 @@ final class SurfaceLiftController {
 
     func invalidate() {
         cancelReturn()
+        clearSplitTargeting()
+        splitReturnPose = nil
+        sourceConversationID = nil
         cancel?()
         if previewIsPresented?() == true {
             state.restoreCard()
@@ -228,8 +284,60 @@ final class SurfaceLiftController {
     func refreshCardAccessibility() { interaction?(state.phase) }
 
     private func updatePresentation() {
-        _ = present?(CGFloat(state.progress))
+        if let splitPreviewPose { _ = presentSplit?(splitPreviewPose) }
+        else { _ = present?(CGFloat(state.progress)) }
         interaction?(state.phase)
+    }
+
+    private func updateSplitTargeting(upwardDistance: Double,
+                                      sample: (point: CGPoint, size: CGSize, safeArea: UIEdgeInsets)) {
+        guard upwardDistance.isFinite,
+              let top = SplitTargetingGeometry.preview(slot: .top, progress: 1,
+                  size: sample.size, safeArea: sample.safeArea),
+              let bottom = SplitTargetingGeometry.preview(slot: .bottom, progress: 1,
+                  size: sample.size, safeArea: sample.safeArea) else {
+            clearSplitTargeting()
+            return
+        }
+        // The original 220 pt Card gesture remains intact. Continuing beyond it
+        // reveals Split targets; values are first-pass calibration for device review.
+        let progress = min(1, max(0, (upwardDistance - 220) / 80))
+        let viewport = CGRect(x: sample.safeArea.left, y: sample.safeArea.top,
+                              width: sample.size.width - sample.safeArea.left - sample.safeArea.right,
+                              height: sample.size.height - sample.safeArea.top - sample.safeArea.bottom)
+        let update = splitTargeting.update(point: sample.point, viewport: viewport,
+                                           liftProgress: progress)
+        splitTargetingVisible = progress > 0
+        splitTargetSlot = update.slot
+        splitTopFrame = top.paneFrame
+        splitBottomFrame = bottom.paneFrame
+        splitGuideFrame = top.guideFrame
+        if update.enteredTarget { onSplitTargetEntry() }
+        guard let slot = update.slot,
+              let preview = SplitTargetingGeometry.preview(slot: slot, progress: 0.85,
+                  size: sample.size, safeArea: sample.safeArea), let target else {
+            splitPreviewPose = nil
+            return
+        }
+        let blend = CGFloat(progress)
+        func between(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * blend }
+        var pose = SurfaceGeometry.Pose(scale: between(target.scale, preview.pose.scale),
+            translation: CGSize(width: between(target.translation.width, preview.pose.translation.width),
+                                height: between(target.translation.height, preview.pose.translation.height)),
+            cornerRadius: between(target.cornerRadius, preview.pose.cornerRadius))
+        pose.clipFraction = CGSize(width: between(target.clipFraction.width, preview.pose.clipFraction.width),
+                                   height: between(target.clipFraction.height, preview.pose.clipFraction.height))
+        splitPreviewPose = pose.isValid ? pose : nil
+    }
+
+    private func clearSplitTargeting() {
+        splitTargeting.reset()
+        splitTargetingVisible = false
+        splitTargetSlot = nil
+        splitTopFrame = nil
+        splitBottomFrame = nil
+        splitGuideFrame = nil
+        splitPreviewPose = nil
     }
     func setOverlayPresented(_ value: Bool) {
         guard overlayPresented != value else { return }
