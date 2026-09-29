@@ -1,6 +1,11 @@
 import Foundation
 import GRDB
 
+struct PendingCardDeletion: Equatable, Sendable {
+    let conversationID: String
+    let deadline: Date
+}
+
 /// The conversation deletion lifecycle.
 ///
 ///     visible → pendingDeletion → (undo → visible | finalize → finalizedDeletion)
@@ -9,6 +14,21 @@ import GRDB
 /// conversation is gone from ordinary listing but its body is entirely intact. Undo
 /// that returns an empty shell is the failure this shape exists to make impossible.
 extension PersistenceStore {
+
+    // Runnable API seam for the deadline behavior tests. The persisted deadline
+    // and expiry guards are implemented only after those tests fail in CI.
+    func beginCardDeletion(conversationID: String, at now: Date = Date()) throws -> PendingCardDeletion {
+        try beginDeletion(conversationID: conversationID, at: now)
+        return PendingCardDeletion(conversationID: conversationID, deadline: now)
+    }
+
+    func pendingCardDeletion(id: String) throws -> PendingCardDeletion? { nil }
+
+    func undoCardDeletion(conversationID: String, at now: Date = Date()) throws {
+        try undoDeletion(conversationID: conversationID, at: now)
+    }
+
+    func finalizeExpiredCardDeletion(conversationID: String, at now: Date = Date()) throws -> Bool { false }
 
     /// Conversations in ordinary listing. Pending-deletion ones are absent.
     func visibleConversations() throws -> [ConversationRecord] {
