@@ -133,4 +133,23 @@ struct AppSpaceDeletionCoordinationTests {
         #expect(try store.messages(inConversation: "c1").count == 1)
         #expect(owner.errorMessage != nil)
     }
+
+    @Test("a live monotonic timer prevents manual cleanup after a forward clock jump")
+    func liveTimerKeepsBodyDuringClockJump() async throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(
+            Fixtures.send(messageID: "live-clock-m1", runID: "live-clock-r1", runState: .completed)
+        )
+        var wall = Fixtures.epoch
+        let owner = AppSpaceConversationDeletion(store: store,
+            stopRun: { _ in }, waitForRun: { _ in }, now: { wall })
+        #expect(await owner.delete(conversationID: "c1", stillSelected: { true }))
+
+        wall = Fixtures.epoch.addingTimeInterval(3600)
+        owner.retryFinalization(conversationID: "c1")
+
+        #expect(try store.conversationLifecycle(id: "c1") == .pendingDeletion)
+        #expect(try store.messages(inConversation: "c1").count == 1)
+        #expect(owner.errorMessage != nil)
+    }
 }

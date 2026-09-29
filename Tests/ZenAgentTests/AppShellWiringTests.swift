@@ -20,6 +20,36 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("finalized Card Delete releases the warm origin and still opens another card")
+    func finalizedCardDeleteReleasesOriginSession() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "delete-origin").insert(db)
+            try Fixtures.conversation(id: "delete-next").insert(db)
+        }
+        #expect(await fixture.model.openConversation(id: "delete-origin"))
+        weak var original: ConversationSession?
+        do {
+            original = try #require(fixture.model.pane?.session)
+            #expect(fixture.model.enterPreview())
+        }
+        #expect(original != nil)
+        _ = try fixture.store.beginCardDeletion(conversationID: "delete-origin",
+            at: Date().addingTimeInterval(-3600))
+        fixture.model.cardDeletion?.recoverPending(afterLaunch: false)
+        for _ in 0..<120 {
+            if try fixture.store.conversationLifecycle(id: "delete-origin") == .finalizedDeletion { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        #expect(try fixture.store.conversationLifecycle(id: "delete-origin") == .finalizedDeletion)
+        #expect(original == nil)
+        #expect(fixture.model.previewContent.session == nil)
+        #expect(await fixture.model.preparePreviewReturn(to: "delete-next"))
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.conversationID == "delete-next")
+    }
+
     @Test("selected Return preserves the outgoing actual Run and warm reading state")
     func selectedCardDoesNotStopHiddenStreaming() async throws {
         let box = Stage2StreamBox()
