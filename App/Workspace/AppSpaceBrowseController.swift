@@ -13,6 +13,8 @@ final class AppSpaceBrowseController {
     private(set) var originID: String?
     private(set) var isPresented = false
     private var originWasNew = false
+    private(set) var deletionTarget: AppSpaceGeometry.Item?
+    private(set) var deletionProgress = 0.0
     private(set) var viewportSize: CGSize = .zero
     private(set) var safeArea: UIEdgeInsets = .zero
     private var minimumCardSize = CGSize(width: 220, height: 300)
@@ -48,6 +50,92 @@ final class AppSpaceBrowseController {
             return true
         } catch {
             errorMessage = "新会话已创建，但预览读取失败。请重试。"
+            onChanged?()
+            return false
+        }
+    }
+
+    @discardableResult
+    func selectAfterDeleting(id: String) -> Bool {
+        guard isPresented, selectedConversationID == id else { return false }
+        cancel()
+        // The first predecessor is already the card immediately behind Current.
+        // Only one successor is held, so neither route materializes full history.
+        let candidates = window.older.map(\.id) + (window.newer.map { [$0.id] } ?? [])
+        for candidate in candidates {
+            if let next = try? read(id: candidate, allowsMissing: false) {
+                install(next)
+                clearDeletionReplacement()
+                errorMessage = nil
+                onChanged?()
+                return true
+            }
+        }
+        do {
+            install(try readNew(), selectingNew: true)
+            clearDeletionReplacement()
+            errorMessage = nil
+            onChanged?()
+            return true
+        } catch {
+            // The committed deletion already removed Current from ordinary
+            // browsing. Keep a readable New shell while the bounded read retries;
+            // retaining the hidden ID would leave gesture and visual owners split.
+            install(ConversationBrowseWindow(current: nil, older: [], newer: nil), selectingNew: true)
+            clearDeletionReplacement()
+            errorMessage = "下一张卡片读取失败。会话已保留在撤销窗口内，请重试。"
+            onChanged?()
+            return false
+        }
+    }
+
+    func beginDeletionReplacement(id: String) {
+        guard selectedConversationID == id else { return }
+        deletionTarget = state.older ?? state.newer
+        deletionProgress = 0
+        onChanged?()
+    }
+
+    func advanceDeletionReplacement() {
+        guard deletionTarget != nil else { return }
+        deletionProgress = 1
+        onChanged?()
+    }
+
+    func clearDeletionReplacement() {
+        guard deletionTarget != nil || deletionProgress != 0 else { return }
+        deletionTarget = nil
+        deletionProgress = 0
+        onChanged?()
+    }
+
+    func deletionProjection(_ card: AppSpaceBrowseGeometry.Card,
+                            in layout: AppSpaceBrowseGeometry.Layout) -> AppSpaceBrowseGeometry.Card {
+        guard card.item == deletionTarget,
+              let current = layout.cards.first(where: { $0.item == state.selected }) else { return card }
+        let fraction = CGFloat(min(1, max(0, deletionProgress)))
+        func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * fraction }
+        return AppSpaceBrowseGeometry.Card(item: card.item,
+            frame: CGRect(x: mix(card.frame.minX, current.frame.minX),
+                y: mix(card.frame.minY, current.frame.minY),
+                width: mix(card.frame.width, current.frame.width),
+                height: mix(card.frame.height, current.frame.height)),
+            cornerRadius: mix(card.cornerRadius, current.cornerRadius),
+            opacity: Double(mix(CGFloat(card.opacity), 1)),
+            depth: Double(mix(CGFloat(card.depth), 0)))
+    }
+
+    @discardableResult
+    func selectRestoredConversation(id: String) -> Bool {
+        guard isPresented else { return false }
+        cancel()
+        do {
+            install(try read(id: id, allowsMissing: false))
+            errorMessage = nil
+            onChanged?()
+            return true
+        } catch {
+            errorMessage = "已恢复会话，但卡片预览读取失败。请重试。"
             onChanged?()
             return false
         }
@@ -159,6 +247,7 @@ final class AppSpaceBrowseController {
     }
     func finish() {
         cancel()
+        clearDeletionReplacement()
         isPresented = false
         interactionSuspended = false
         originID = nil

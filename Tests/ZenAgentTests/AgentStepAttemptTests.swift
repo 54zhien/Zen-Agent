@@ -137,6 +137,7 @@ struct AgentStepAttemptTests {
         try makeRun(store)
         try store.recordStep(Fixtures.step(stepID: "s1", runID: "r1"))
 
+        try store.finishRun(id: "r1", state: .cancelled, endReason: .cancelledByUser)
         try store.beginDeletion(conversationID: "c1")
         try store.finalizeDeletion(conversationID: "c1")
 

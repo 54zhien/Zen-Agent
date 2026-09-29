@@ -28,6 +28,7 @@ enum Migrations {
         registerV10(&migrator)
         registerV11(&migrator)
         registerV12(&migrator)
+        registerV13(&migrator)
         return migrator
     }
 
@@ -333,6 +334,25 @@ enum Migrations {
                     CHECK ((providerInstanceID IS NULL AND modelID IS NULL)
                         OR (providerInstanceID IS NOT NULL AND modelID IS NOT NULL))
                 )
+                """)
+        }
+    }
+
+    static func registerV13(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v13_card_deletion_deadline") { db in
+            // The intent is a separate row so legacy pendingDeletion records retain
+            // their original lifecycle semantics. A Card Delete writes this row and
+            // the lifecycle transition in one transaction.
+            try db.execute(sql: """
+                CREATE TABLE conversationDeletionDeadline (
+                    conversationID TEXT PRIMARY KEY NOT NULL
+                        REFERENCES conversation(id) ON DELETE CASCADE,
+                    deadlineAt DATETIME NOT NULL
+                )
+                """)
+            try db.execute(sql: """
+                CREATE INDEX conversationDeletionDeadline_by_deadline
+                ON conversationDeletionDeadline(deadlineAt, conversationID)
                 """)
         }
     }

@@ -113,6 +113,32 @@ final class AppShellModel {
         return true
     }
 
+    func deleteAppSpaceConversation(id: String, stillSelected: @MainActor () -> Bool) async -> Bool {
+        guard previewContent.isPresented, !previewContent.isPreparing,
+              let cardDeletion else { return false }
+        let deleted = await cardDeletion.delete(conversationID: id, stillSelected: stillSelected)
+        if deleted { refreshRecentConversations() }
+        return deleted
+    }
+
+    func undoAppSpaceConversation(id: String) -> Bool {
+        guard let cardDeletion, cardDeletion.undo(conversationID: id) else { return false }
+        refreshRecentConversations()
+        return true
+    }
+
+    func restoreRecoveredAppSpaceConversation(id: String) -> Bool {
+        guard let cardDeletion, cardDeletion.restoreRecovered(conversationID: id) else { return false }
+        refreshRecentConversations()
+        return true
+    }
+
+    func confirmRecoveredAppSpaceConversationDeletion(id: String) -> Bool {
+        guard let cardDeletion, cardDeletion.confirmRecovered(conversationID: id) else { return false }
+        refreshRecentConversations()
+        return true
+    }
+
     func browseWindow(id: String) throws -> ConversationBrowseWindow {
         guard let store = dependencies?.store else { throw AppTargetFailure.persistenceUnavailable }
         return try store.conversationBrowseWindow(id: id, uncommittedIDs: sessions.uncommittedIDs)
@@ -120,7 +146,8 @@ final class AppShellModel {
 
     func preparePreviewReturn(to requestedID: String? = nil) async -> Bool {
         guard previewContent.isPresented, let dependencies,
-              let session = previewContent.session else { return pane != nil }
+              previewContent.originID == conversationID else { return pane != nil }
+        let session = previewContent.session
         let originID = conversationID
         let id = requestedID ?? originID
         if let prepared = previewContent.prepared {
@@ -156,7 +183,7 @@ final class AppShellModel {
                     onTargetFailure: { [weak self] failure, failedTarget in
                         self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
                     })
-                guard (id != originID || wiring.pane.session === session),
+                guard (id != originID || (session.map { wiring.pane.session === $0 } ?? false)),
                       (warmOwner == nil || wiring.pane.session === warmOwner),
                       router.registerPreparedPane(wiring.pane, ticket: ticket) else { continue }
                 // Receive durable Runtime events while still hidden behind Preview.
@@ -179,7 +206,7 @@ final class AppShellModel {
 
     func commitPreviewReturn() -> Bool {
         guard previewContent.isPresented, let prepared = previewContent.prepared,
-              previewContent.session?.conversationID == conversationID,
+              previewContent.originID == conversationID,
               prepared.pane.conversationID == previewContent.preparationTargetID else { return false }
         if prepared.pane.conversationID != conversationID {
             rememberCurrentSession(retainUncommitted: true)
@@ -218,6 +245,7 @@ final class AppShellModel {
     @ObservationIgnored private let userDefaults: UserDefaults
     @ObservationIgnored private var dependencies: AppAssembly.Dependencies?
     private var cardActions: AppSpaceConversationActions?
+    private(set) var cardDeletion: AppSpaceConversationDeletion?
     @ObservationIgnored private var startedAssembly = false
     @ObservationIgnored private var backgroundedAtInProcess: Date?
     @ObservationIgnored private let sessions = ConversationSessionStore()
@@ -251,6 +279,7 @@ final class AppShellModel {
         self.dependencies = dependencies
         self.cardActions = AppSpaceConversationActions(store: dependencies.store)
         self.router = dependencies.router
+        installCardDeletion(dependencies)
         self.launchState = .ready
         self.startedAssembly = true
         prepareProviderSetup()
@@ -274,6 +303,7 @@ final class AppShellModel {
         previewContent.finish()
         dependencies = nil
         cardActions = nil
+        cardDeletion = nil
         sessions.removeAll()
         pane = nil
         actionBridge = nil
@@ -290,6 +320,7 @@ final class AppShellModel {
             let assembled = try AppAssembly.assemble(router: router)
             dependencies = assembled
             cardActions = AppSpaceConversationActions(store: assembled.store)
+            installCardDeletion(assembled)
             launchState = .ready
             prepareProviderSetup()
             loadDefaultTarget()
@@ -332,6 +363,7 @@ final class AppShellModel {
     }
 
     func becameActive(at date: Date) {
+        cardDeletion?.recoverPending()
         guard let backgroundedAtInProcess else { return }
         self.backgroundedAtInProcess = nil
         ConversationResumeMarker.clear(from: userDefaults)
@@ -342,6 +374,23 @@ final class AppShellModel {
         if !marker.isWithinRestoreWindow(at: date), isCurrentConversationVisible {
             newConversation()
         }
+    }
+
+    private func installCardDeletion(_ dependencies: AppAssembly.Dependencies) {
+        let runtime = dependencies.runtime
+        let owner = AppSpaceConversationDeletion(store: dependencies.store,
+            stopRun: { id in try await runtime.stop(runID: id) },
+            waitForRun: { id in try await runtime.waitForCompletion(runID: id) },
+            now: { Date() },
+            onFinalized: { [weak self] id in
+                if self?.previewContent.preparationTargetID == id {
+                    self?.cancelPreviewReturn()
+                }
+                self?.sessions.remove(conversationID: id)
+                self?.previewContent.discardFinalizedOriginSession(id: id)
+            })
+        cardDeletion = owner
+        owner.recoverPending()
     }
 
     private func restoreAtLaunch(at date: Date) async {

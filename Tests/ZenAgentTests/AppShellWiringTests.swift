@@ -20,6 +20,35 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("finalized Card Delete releases the warm origin and still opens another card")
+    func finalizedCardDeleteReleasesOriginSession() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "delete-origin").insert(db)
+            try Fixtures.conversation(id: "delete-next").insert(db)
+        }
+        #expect(await fixture.model.openConversation(id: "delete-origin"))
+        weak var original: ConversationSession?
+        do {
+            original = try #require(fixture.model.pane?.session)
+            #expect(fixture.model.enterPreview())
+        }
+        #expect(original != nil)
+        _ = try fixture.store.beginCardDeletion(conversationID: "delete-origin",
+            at: Date().addingTimeInterval(-3600))
+        let deletion = try #require(fixture.model.cardDeletion)
+        deletion.recoverPending()
+        #expect(deletion.needsRecoveryDecision(conversationID: "delete-origin"))
+        #expect(fixture.model.confirmRecoveredAppSpaceConversationDeletion(id: "delete-origin"))
+        #expect(try fixture.store.conversationLifecycle(id: "delete-origin") == .finalizedDeletion)
+        #expect(original == nil)
+        #expect(fixture.model.previewContent.session == nil)
+        #expect(await fixture.model.preparePreviewReturn(to: "delete-next"))
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.conversationID == "delete-next")
+    }
+
     @Test("selected Return preserves the outgoing actual Run and warm reading state")
     func selectedCardDoesNotStopHiddenStreaming() async throws {
         let box = Stage2StreamBox()
@@ -191,6 +220,7 @@ struct AppShellWiringTests {
         // S5-06 adds the distinct New after the latest history. Keep the existing
         // native older/newer controls and exercise the new boundary as well.
         #expect(card.accessibilityCustomActions?.contains { $0.name == "下一会话" } == true)
+        #expect(card.accessibilityCustomActions?.contains { $0.name == "删除会话" } == true)
         let previous = try #require(card.accessibilityCustomActions?.first { $0.name == "上一会话" })
         let previousHandler = try #require(previous.actionHandler)
         #expect(previousHandler(previous))
@@ -217,6 +247,7 @@ struct AppShellWiringTests {
         }
         #expect(card.accessibilityLabel?.contains("创建新对话") == true)
         #expect(card.accessibilityCustomActions?.contains { $0.name == "会话菜单" } == false)
+        #expect(card.accessibilityCustomActions?.contains { $0.name == "删除会话" } == false)
         #expect(card.accessibilityCustomActions?.contains { $0.name == "创建新对话" } == true)
         let fromNew = try #require(card.accessibilityCustomActions?.first { $0.name == "上一会话" })
         let fromNewHandler = try #require(fromNew.actionHandler)
