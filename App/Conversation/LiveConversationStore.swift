@@ -122,6 +122,16 @@ final class LiveConversationStore {
         return rebuiltRuns
     }
 
+    /// Handoff is a display boundary, even when the Provider pauses mid-Part.
+    /// Publish held text without completing Parts or changing their byte offsets.
+    func flushStreamingText() -> Set<String> {
+        var rebuiltRuns: Set<String> = []
+        for partID in Array(coalescers.keys) {
+            flush(partID: partID, rebuiltRuns: &rebuiltRuns)
+        }
+        return rebuiltRuns
+    }
+
     /// Replaces the out-of-timeline approval list with a Conversation-scoped,
     /// stable-ID-deduplicated Runtime projection.
     func reconcilePendingToolApprovals(_ approvals: [ToolApprovalProjection]) {
@@ -180,6 +190,22 @@ final class LiveConversationStore {
         kind: MessagePartKind,
         rebuiltRuns: inout Set<String>
     ) {
+        if let active = state.activeParts[partID] {
+            if active.runID != runID || active.messageID != messageID || active.kind != kind {
+                needsTimelineReload = true
+            }
+            return
+        }
+        if let persisted = persistedDisplayPart(runID: runID, partID: partID) {
+            guard persisted.source.messageID == messageID, persisted.kind == kind else {
+                needsTimelineReload = true
+                return
+            }
+            // A snapshot can be ahead of Start delivery, including completion.
+            // Stable Part identity must not create another item or reset its offset.
+            _ = resumePersistedPart(runID: runID, messageID: messageID, partID: partID, kind: kind)
+            return
+        }
         let part = LivePartState(
             runID: runID,
             messageID: messageID,
@@ -227,15 +253,21 @@ final class LiveConversationStore {
 
         let consumedOffset = consumedUTF8OffsetByPartID[partID] ?? part.text.utf8.count
         if endUTF8Offset <= consumedOffset { return }
-        guard startUTF8Offset == consumedOffset else {
-            // A gap or partial overlap cannot be reconciled from display text: the
-            // coalescer may still hold bytes that are not visible in `part.text`.
+        guard startUTF8Offset <= consumedOffset else {
+            // A gap needs a fresh snapshot; a persisted prefix can overlap replay.
+            needsTimelineReload = true
+            return
+        }
+
+        let missingBytes = Array(delta.utf8.dropFirst(consumedOffset - startUTF8Offset))
+        guard let suffix = String(bytes: missingBytes, encoding: .utf8) else {
+            // Offsets must fall on UTF-8 boundaries, including Chinese and emoji.
             needsTimelineReload = true
             return
         }
 
         var coalescer = coalescers[partID] ?? coalescerTemplate
-        let readyText = coalescer.append(delta, at: now())
+        let readyText = coalescer.append(suffix, at: now())
         coalescers[partID] = coalescer
         consumedUTF8OffsetByPartID[partID] = endUTF8Offset
 

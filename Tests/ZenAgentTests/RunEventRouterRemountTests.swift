@@ -6,6 +6,69 @@ import Testing
 @Suite("Run event routing across Pane remount")
 @MainActor
 struct RunEventRouterRemountTests {
+    @Test("handoff publishes a journal suffix while its Part is still streaming")
+    func handoffPublishesUnfinishedSuffix() async throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        let id = "unfinished-handoff"
+        let run = "unfinished-run"
+        let part = "unfinished-part"
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(conversationID: id,
+            messageID: "unfinished-user", runID: run, runState: .streaming))
+        _ = try store.ensureAssistantResponse(forRunID: run, messageID: "unfinished-assistant")
+        try store.createPart(Fixtures.streamingPart(id: part, messageID: "unfinished-assistant", text: "before"))
+        let projection = try ConversationTimelineLoader.load(conversationID: id, from: store)
+        let pane = try ConversationPaneController(conversationID: id, initialTimeline: projection,
+            configuration: nil, coalescer: StreamingCoalescer(interval: .milliseconds(10)))
+        let instant = ContinuousClock.now
+        try pane.adoptLiveStore(LiveConversationStore(projection: projection,
+            coalescer: StreamingCoalescer(interval: .milliseconds(10)), now: { instant }))
+        let router = RunEventRouter()
+        router.registerRecoveredRun(runID: run, conversationID: id)
+        let ticket = router.beginPanePreparation(for: id)
+        await router.handle(.messagePartDelta(runID: run, partID: part, delta: "你好👋",
+            endUTF8Offset: "before你好👋".utf8.count))
+        #expect(router.registerPreparedPane(pane, ticket: ticket))
+        #expect(pane.liveStore.state.timeline.turns.flatMap(\.items).contains(.assistantText("before你好👋")))
+        #expect(pane.liveStore.state.activeParts[part]?.state == .streaming)
+        #expect(router.hasActiveRun(for: id))
+        #expect(!pane.liveStore.needsTimelineReload)
+    }
+
+    @Test("a completed snapshot Part is not inserted again by a late durable Start")
+    func completedSnapshotPrecedesStart() async throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        let id = "late-start-conversation"
+        let run = "late-start-run"
+        let message = "late-start-assistant"
+        let part = "late-start-part"
+        let text = "你好👋"
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(conversationID: id,
+            messageID: "late-start-user", runID: run, runState: .streaming))
+        _ = try store.ensureAssistantResponse(forRunID: run, messageID: message)
+        try store.createPart(Fixtures.streamingPart(id: part, messageID: message, text: text))
+        try store.finishPart(id: part, state: .completed)
+        let router = RunEventRouter()
+        router.registerRecoveredRun(runID: run, conversationID: id)
+        let pane = try ConversationPaneController(conversationID: id,
+            initialTimeline: ConversationTimelineLoader.load(conversationID: id, from: store),
+            configuration: nil, coalescer: StreamingCoalescer(interval: .milliseconds(0)),
+            loadTimeline: { try ConversationTimelineLoader.load(conversationID: $0, from: store) })
+        #expect(router.registerPane(pane))
+        // Persistence can be ahead of the event's main-actor delivery.
+        await router.handle(.messagePartStarted(runID: run, messageID: message, partID: part, kind: .text))
+        await router.handle(.messagePartDelta(runID: run, partID: part, delta: text, endUTF8Offset: text.utf8.count))
+        await router.handle(.messagePartCompleted(runID: run, partID: part, state: .completed))
+        try store.transitionRun(id: run, expectedState: .streaming, to: .completed, endReason: .completed)
+        await router.handle(.runEnded(runID: run, state: .completed, endReason: .completed))
+        let texts = pane.liveStore.state.timeline.turns.flatMap(\.items).compactMap { item -> String? in
+            if case .assistantText(let text) = item { return text }
+            return nil
+        }
+        #expect(texts == [text])
+        #expect(pane.liveStore.state.activeParts.isEmpty)
+        #expect(pane.liveStore.droppedUnlocatableDeltas == 0)
+    }
+
     @Test("a real Run settling while detached remounts its durable terminal outcome",
           .timeLimit(.minutes(1)), arguments: [false, true])
     func runtimeSettlesWhileDetached(cancel: Bool) async throws {
@@ -406,7 +469,7 @@ struct RunEventRouterRemountTests {
 
         // Persistence commits this delta before its event reaches the router.
         durableText = "onetwo"
-        #expect(router.retryTimelineLoad(for: conversationID))
+        #expect(await router.retryTimelineLoad(for: conversationID))
         await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "two", endUTF8Offset: 6))
         #expect(assistantText(in: pane) == "onetwo")
 

@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 
 @testable import ZenAgent
@@ -12,6 +13,67 @@ import Testing
 /// query pass by handing back whatever the test happened to insert.
 @Suite("Conversation timeline loader")
 struct ConversationTimelineLoaderTests {
+
+    @Test("a history read sees one snapshot while a second WAL connection commits")
+    func historyReadIsConsistent() async throws {
+        let path = try Fixtures.scratchPath(name: "history-consistency.sqlite")
+        let store = PersistenceStore(database: try ZenDatabase.open(at: path.path))
+        let writer = PersistenceStore(database: try ZenDatabase.open(at: path.path))
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1", runState: .streaming))
+        _ = try store.ensureAssistantResponse(forRunID: "r1", messageID: "reply")
+        try store.createPart(Fixtures.streamingPart(id: "reply-p", messageID: "reply", text: "before"))
+        let gate = HistorySnapshotGate()
+        defer {
+            gate.release()
+            try? store.database.read { db in db.trace(nil) }
+            #expect(!gate.timedOut, "snapshot gate expired before the test released its read")
+        }
+        try store.database.read { db in
+            db.trace { event in
+                if case .statement(let statement) = event,
+                   statement.sql.lowercased().contains("from \"message\"") { gate.blockOnce() }
+            }
+        }
+        let read = Task.detached { try ConversationTimelineLoader.load(conversationID: "c1", from: store) }
+        for _ in 0..<200 where !gate.entered { try await Task.sleep(for: .milliseconds(5)) }
+        _ = try #require(gate.entered, "history read did not reach its snapshot gate")
+        try writer.appendText(toPart: "reply-p", delta: " after")
+        try writer.finishPart(id: "reply-p", state: .completed)
+        gate.release()
+        let snapshot = try await read.value
+        #expect(snapshot.turns.flatMap(\.items).contains(.assistantText("before")))
+        #expect(snapshot.turns.first?.textSourcesByItemIndex.values.first(where: { $0.partID == "reply-p" })?.partState == .streaming)
+        let latest = try ConversationTimelineLoader.load(conversationID: "c1", from: store)
+        #expect(latest.turns.flatMap(\.items).contains(.assistantText("before after")))
+    }
+
+    @Test("full history query count is independent of Turn count", arguments: [1, 100, 1_000])
+    func historyQueryBudget(turnCount: Int) throws {
+        let store = try makeStore()
+        try store.database.write { db in
+            try Fixtures.conversation(id: "budget").insert(db)
+            for index in 0..<turnCount {
+                let messageID = "budget-m-\(index)"
+                try Fixtures.message(id: messageID, conversationID: "budget").insert(db)
+                try Fixtures.textPart(id: "budget-p-\(index)", messageID: messageID,
+                    text: "你好 👋 Turn \(index)").insert(db)
+                try Fixtures.run(id: String(format: "budget-r-%04d", index),
+                    conversationID: "budget", state: .completed, triggerMessageID: messageID).insert(db)
+            }
+        }
+        let trace = S504SQLTrace()
+        try store.database.read { db in
+            db.trace { event in
+                if case .statement(let statement) = event { trace.record(statement.sql) }
+            }
+        }
+        defer { try? store.database.read { db in db.trace(nil) } }
+        let projection = try ConversationTimelineLoader.load(conversationID: "budget", from: store)
+        #expect(projection.turns.count == turnCount)
+        #expect(projection.turns.first?.items.first == .userText("你好 👋 Turn 0"))
+        #expect(projection.turns.last?.items.first == .userText("你好 👋 Turn \(turnCount - 1)"))
+        #expect(trace.selectCount <= 8, "history read issued \(trace.selectCount) SELECTs for \(turnCount) Turns")
+    }
 
     private func makeStore() throws -> PersistenceStore {
         PersistenceStore(database: try ZenDatabase.inMemory())
@@ -213,4 +275,20 @@ struct ConversationTimelineLoaderTests {
         #expect(!quoteItems[0].sourceIsAvailable)
         #expect(projection.turns.first?.textSourcesByItemIndex[0]?.partID == "target-message-p0")
     }
+}
+
+private final class HistorySnapshotGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let resume = DispatchSemaphore(value: 0)
+    private var blocked = false
+    private var expired = false
+    var entered: Bool { lock.withLock { blocked } }
+    var timedOut: Bool { lock.withLock { expired } }
+    func blockOnce() {
+        let first = lock.withLock { if blocked { return false }; blocked = true; return true }
+        if first, resume.wait(timeout: .now() + 10) == .timedOut {
+            lock.withLock { expired = true }
+        }
+    }
+    func release() { resume.signal() }
 }

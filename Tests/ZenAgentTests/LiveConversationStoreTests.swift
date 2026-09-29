@@ -11,6 +11,23 @@ private final class LiveStoreTestClock: @unchecked Sendable {
 @MainActor
 struct LiveConversationStoreTests {
 
+    @Test("a delta straddling a persisted UTF-8 snapshot appends only its missing suffix")
+    func replayOverlappingSnapshotSuffix() {
+        let source = TimelineTextSource(conversationID: "conversation-1", messageID: "overlap-message",
+            partID: "overlap-part", isCompleted: false, partState: .streaming)
+        let harness = makeStore(turns: [ConversationTurn(runID: "overlap-run",
+            items: [.assistantText("你")], textSourcesByItemIndex: [0: source])], interval: .milliseconds(0))
+        #expect(harness.store.resumePersistedPart(runID: "overlap-run", messageID: "overlap-message",
+            partID: "overlap-part", kind: .text))
+        _ = harness.store.consume(.messagePartDelta(runID: "overlap-run", partID: "overlap-part",
+            delta: "你好👋", endUTF8Offset: "你好👋".utf8.count))
+        _ = harness.store.consume(.messagePartDelta(runID: "overlap-run", partID: "overlap-part",
+            delta: "你好👋", endUTF8Offset: "你好👋".utf8.count))
+        _ = harness.store.consume(.messagePartCompleted(runID: "overlap-run", partID: "overlap-part", state: .completed))
+        #expect(harness.store.state.timeline.turns.first?.items == [.assistantText("你好👋")])
+        #expect(!harness.store.needsTimelineReload)
+    }
+
     private func makeStore(
         turns: [ConversationTurn],
         interval: Duration = .milliseconds(10),

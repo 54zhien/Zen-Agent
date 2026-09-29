@@ -1,61 +1,26 @@
 import Foundation
 
-/// Reads a conversation out of the store and hands the projection a plain value.
-///
-/// The projection stays pure; everything that can throw (database access, ordering) happens here.
 enum ConversationTimelineLoader {
+    static func load(conversationID: String, from store: PersistenceStore) throws -> ConversationTimelineProjection {
+        try project(conversationID: conversationID, snapshot: store.conversationHistory(id: conversationID))
+    }
 
-    static func load(
-        conversationID: String,
-        from store: PersistenceStore
-    ) throws -> ConversationTimelineProjection {
-        let allRuns = try store.runs(inConversation: conversationID)
-        let parentRuns = allRuns.filter { $0.kind == .parent }
-
-        // One read for the conversation's messages, indexed once — not one read per message.
-        let messages = try store.messages(inConversation: conversationID)
-        var messagesByID: [String: MessageRecord] = [:]
-        for message in messages { messagesByID[message.id] = message }
-
-        var partsByMessageID: [String: [MessagePartRecord]] = [:]
-        var toolCallsByID: [String: ToolCallRecord] = [:]
-        var toolResultsByToolCallID: [String: ToolResultRecord] = [:]
-        var quoteReferencesByMessageID: [String: [QuoteReferencePresentation]] = [:]
-
-        for run in parentRuns {
-            let calls = try store.toolCalls(inRun: run.id)
-            for call in calls { toolCallsByID[call.id] = call }
-
-            let results = try store.toolResults(forToolCallIDs: calls.map(\.id))
-            for result in results { toolResultsByToolCallID[result.toolCallID] = result }
-
-            for messageID in [run.triggerMessageID, run.responseMessageID].compactMap({ $0 })
-            where partsByMessageID[messageID] == nil {
-                partsByMessageID[messageID] = try store.parts(ofMessage: messageID)
-            }
-
-            if let triggerMessageID = run.triggerMessageID,
-               quoteReferencesByMessageID[triggerMessageID] == nil {
-                quoteReferencesByMessageID[triggerMessageID] = try store
-                    .quoteReferences(forMessageID: triggerMessageID)
-                    .map { reference in
-                        QuoteReferencePresentation(
-                            reference: reference,
-                            sourceIsAvailable: try store.quoteSourceIsAvailable(reference)
-                        )
-                    }
-            }
-        }
-
-        let input = ConversationTimelineInput(
-            conversationID: conversationID,
-            runs: allRuns,
-            messagesByID: messagesByID,
-            partsByMessageID: partsByMessageID,
-            toolCallsByID: toolCallsByID,
-            toolResultsByToolCallID: toolResultsByToolCallID,
-            quoteReferencesByMessageID: quoteReferencesByMessageID
-        )
-        return ConversationTimelineProjection.build(from: input)
+    static func project(conversationID: String,
+                        snapshot: ConversationHistorySnapshot) throws -> ConversationTimelineProjection {
+        try Task.checkCancellation()
+        let messages = Dictionary(uniqueKeysWithValues: snapshot.messages.map { ($0.id, $0) })
+        let parts = Dictionary(grouping: snapshot.parts, by: \.messageID)
+        let calls = Dictionary(uniqueKeysWithValues: snapshot.calls.map { ($0.id, $0) })
+        let results = Dictionary(uniqueKeysWithValues: snapshot.results.map { ($0.toolCallID, $0) })
+        let quotes = Dictionary(grouping: snapshot.quotes.map {
+            QuoteReferencePresentation(reference: $0, sourceIsAvailable: snapshot.availableQuoteIDs.contains($0.id))
+        }, by: { $0.reference.messageID })
+        try Task.checkCancellation()
+        let input = ConversationTimelineInput(conversationID: conversationID, runs: snapshot.runs,
+            messagesByID: messages, partsByMessageID: parts, toolCallsByID: calls,
+            toolResultsByToolCallID: results, quoteReferencesByMessageID: quotes)
+        let projection = ConversationTimelineProjection.build(from: input)
+        try Task.checkCancellation()
+        return projection
     }
 }
