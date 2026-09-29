@@ -63,6 +63,18 @@ tree `2d8f16749fb0cdfcf328982d73250d073e612777`。
 诊断 CI `36567500173` 待定位；文档发布可能替代它，替代运行只提供诊断，不能算行为 RED/GREEN。
 完整候选验证与一次独立全分支审查仍待确认。此处不宣称 S5-05 已验收。
 
+诊断 `45a30b5` 的实际阶段日志表明：原编辑器已挂载、进入 Preview、释放并接受回交，随后 Full 中反复 Lift 失效。
+既有 Composer readiness 在保留选择时会重复 invalidate；新 Browse 的空闲 cancel 仍发布观察变化，形成反馈。
+最小修复 `576ed9de3c56eecc60fce5783174dbcbea8f5c8d` / tree `ac7c902c36a630488b1a0d0d776be2f1075a4cbe`
+让空闲取消不发布变化，非空闲取消仍恢复状态和实际几何。
+PR CI [36569044421](https://github.com/54zhien/Zen-Agent/actions/runs/36569044421), job `109408384891`：
+生成、App/测试编译通过；759 Swift / 112 suites 在 65.514s 完整结束，只剩 native Return 控制的 2 个问题。
+原编辑器释放/UTF-16 重挂载控制通过；20 XCTest 与全部 16 UI（307.176s）通过；一次实际 Swift 启动，无宿主重启。
+
+该轮调用点日志排除了重新绑定、viewport/minimum/scene 改变和已执行 handoff 的失败：初始已在 Preview 的 Workspace
+会先恢复 Card，再获得首次有效布局；旧 viewport 回调跳过首次布局，Lift 的 Return target 仍为空，首次 Return 因而回到 Card。
+接续修复通知首次布局，复用既有 Lift 几何解析与失效路径；移除所有临时阶段日志。最终完整 CI 和审查待验收。
+
 ## 保留的设备门与历史观察
 
 真机 Gate A、Memory Graph、SwiftUI body 次数、动画卡顿、峰值内存、舒适度、VoiceOver 操作和中文/emoji 选择仍缺设备证据。

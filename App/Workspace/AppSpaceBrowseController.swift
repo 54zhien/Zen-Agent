@@ -5,17 +5,6 @@ import UIKit
 @MainActor
 @Observable
 final class AppSpaceBrowseController {
-#if DEBUG
-    static var diagnosticsEnabledForTesting = false {
-        didSet { if diagnosticsEnabledForTesting { diagnosticCount = 0 } }
-    }
-    private static var diagnosticCount = 0
-    static func trace(_ event: String) {
-        guard diagnosticsEnabledForTesting, diagnosticCount < 60 else { return }
-        diagnosticCount += 1
-        print("S505_BROWSE_TRACE \(event)")
-    }
-#endif
     typealias Reader = (String) throws -> ConversationBrowseWindow
     private(set) var state = AppSpaceBrowseState(selected: .newConversation, older: nil, newer: nil)
     private var window = ConversationBrowseWindow(current: nil, older: [], newer: nil)
@@ -130,9 +119,6 @@ final class AppSpaceBrowseController {
 
     func updateViewport(size: CGSize, safeArea: UIEdgeInsets) {
         guard size != viewportSize || safeArea != self.safeArea else { return }
-#if DEBUG
-        Self.trace("viewport \(size) \(safeArea)")
-#endif
         state.cancel()
         viewportSize = size
         self.safeArea = safeArea

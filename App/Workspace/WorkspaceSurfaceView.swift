@@ -39,9 +39,6 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     var body: some View {
-#if DEBUG
-        let _ = AppSpaceBrowseController.trace("body presented=\(model?.previewContent.isPresented == true) browse=\(browse.isPresented)")
-#endif
         ZStack(alignment: .topLeading) {
             Color(white: 0.035)
             if model?.previewContent.isPresented == true, let layout = browse.layout() {
@@ -115,9 +112,6 @@ struct WorkspaceSurfaceView<Content: View>: View {
         }
         .onChange(of: dynamicTypeSize) { _, _ in updateMinimumSize() }
         .onChange(of: scenePhase) { _, phase in
-#if DEBUG
-            AppSpaceBrowseController.trace("scene \(phase)")
-#endif
             if phase != .active { browse.cancel(); lift.invalidate() }
         }
     }
@@ -154,9 +148,6 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     private func updateMinimumSize() {
-#if DEBUG
-        AppSpaceBrowseController.trace("minimum size")
-#endif
         browse.updateMinimumCardSize(CGSize(width: minimumWidth, height: minimumHeight))
         lift.minimumCardSize = CGSize(width: minimumWidth, height: minimumHeight)
         lift.invalidate()

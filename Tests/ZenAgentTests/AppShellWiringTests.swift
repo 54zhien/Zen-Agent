@@ -74,8 +74,6 @@ struct AppShellWiringTests {
 
     @Test("real native snap interruption cannot commit its late neighbor", arguments: [false, true])
     func nativeSnapInterruption(returnToFull: Bool) async throws {
-        AppSpaceBrowseController.diagnosticsEnabledForTesting = true
-        defer { AppSpaceBrowseController.diagnosticsEnabledForTesting = false }
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
         try fixture.store.database.write { db in
@@ -129,7 +127,6 @@ struct AppShellWiringTests {
         #expect(!native.controller.complete(pending, finished: true))
         #expect(native.controller.state.selected == .conversation("snap-interrupt-1"))
         try await Task.sleep(for: .milliseconds(800))
-        print("S505_RETURN_CONTROL return=\(returnToFull) phase=\(lift.state.phase) preparing=\(fixture.model.previewContent.isPreparing) presented=\(fixture.model.previewContent.isPresented) pane=\(fixture.model.pane != nil) error=\(fixture.model.previewContent.errorMessage != nil)")
         #expect(fixture.model.conversationID == "snap-interrupt-1")
         #expect(card.alpha == 1)
         if returnToFull {
@@ -989,9 +986,6 @@ struct AppShellWiringTests {
 
     @Test("production SwiftUI Preview dismantles the actual native editor and remounts its UTF16 selection")
     func nativePreviewEditorReleaseAndSelection() async throws {
-        AppSpaceBrowseController.diagnosticsEnabledForTesting = true
-        defer { AppSpaceBrowseController.diagnosticsEnabledForTesting = false }
-        print("S505_EDITOR_STAGE fixture")
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
         let session = try #require(fixture.model.pane?.session)
@@ -1001,9 +995,7 @@ struct AppShellWiringTests {
         let window = UIWindow(windowScene: scene)
         let host = UIHostingController(rootView: AppShellRootView(model: fixture.model))
         window.rootViewController = host
-        print("S505_EDITOR_STAGE show")
         window.makeKeyAndVisible()
-        print("S505_EDITOR_STAGE shown")
         defer { window.isHidden = true; window.rootViewController = nil }
         func editor(in view: UIView) -> UITextView? {
             if let text = view as? UITextView, text.accessibilityIdentifier == "conversation-composer-input" { return text }
@@ -1011,22 +1003,17 @@ struct AppShellWiringTests {
         }
         for _ in 0..<40 where editor(in: host.view) == nil { try await Task.sleep(for: .milliseconds(25)) }
         weak var oldEditor = try #require(editor(in: host.view))
-        print("S505_EDITOR_STAGE editor")
         #expect(oldEditor?.selectedRange == NSRange(location: 3, length: 2))
         #expect(fixture.model.enterPreview())
-        print("S505_EDITOR_STAGE entered")
         for _ in 0..<40 where editor(in: host.view) != nil { try await Task.sleep(for: .milliseconds(25)) }
         #expect(editor(in: host.view) == nil)
         #expect(oldEditor == nil)
-        print("S505_EDITOR_STAGE released")
         #expect(await fixture.model.preparePreviewReturn())
         #expect(fixture.model.commitPreviewReturn())
-        print("S505_EDITOR_STAGE committed")
         for _ in 0..<40 where editor(in: host.view) == nil { try await Task.sleep(for: .milliseconds(25)) }
         let remounted = try #require(editor(in: host.view))
         #expect(remounted.text == session.composer.draft.text)
         #expect(remounted.selectedRange == NSRange(location: 3, length: 2))
-        print("S505_EDITOR_STAGE done")
     }
 
     @Test("safe warm sessions are bounded while drafts survive cache pressure")

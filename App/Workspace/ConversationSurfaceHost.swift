@@ -107,7 +107,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         if surfaceView.bounds != bounds { surfaceView.bounds = bounds }
         if surfaceView.center != center { surfaceView.center = center }
         contentController.preserveContainerSafeArea(view.safeAreaInsets)
-        let changed = lastViewport != nil && (lastViewport != view.bounds || lastInsets != view.safeAreaInsets)
+        // onAppear may restore Card before a usable viewport exists. Notify the
+        // first layout too, so that Card's first Return has a resolved Lift target.
+        let changed = lastViewport != view.bounds || lastInsets != view.safeAreaInsets
         lastViewport = view.bounds
         lastInsets = view.safeAreaInsets
         if changed { onViewportChanged?() }
