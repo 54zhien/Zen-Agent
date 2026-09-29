@@ -36,7 +36,7 @@ struct ConversationMetadataMigrationTests {
         #expect(try after.conversation(id: "c1")?.title == "A conversation")
         #expect(try after.conversation(id: "c1")?.userActiveAt == Fixtures.epoch)
         #expect(try after.messages(inConversation: "c1").map(\.id) == ["old-message"])
-        #expect(try after.text(ofPart: "old-part") != nil)
+        #expect(try after.text(ofPart: "old-part") == "hello")
         try after.renameConversation(id: "c1", title: "migrated manual", at: Fixtures.epoch)
         #expect(try after.hasManualConversationTitle(id: "c1"))
     }

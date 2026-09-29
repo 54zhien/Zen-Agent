@@ -30,6 +30,30 @@ struct ConversationMetadataTests {
         #expect(try store.hasManualConversationTitle(id: "c1"))
     }
 
+    @Test("empty creation copies an initial binding and metadata edits preserve it")
+    func copiedInitialBindingIsDurableMetadata() throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        let binding = ConversationInitialBinding(providerInstanceID: ProviderInstanceID(rawValue: "frozen-account"), modelID: ModelID(rawValue: "frozen-model"))
+        try store.createEmptyConversation(id: "bound-empty", at: Fixtures.epoch, initialBinding: binding)
+        #expect(try store.conversationInitialBinding(id: "bound-empty") == binding)
+        try store.renameConversation(id: "bound-empty", title: "manual", at: Fixtures.epoch)
+        try store.setConversationPinned(id: "bound-empty", pinned: true, at: Fixtures.epoch)
+        #expect(try store.conversationInitialBinding(id: "bound-empty") == binding)
+        #expect(try store.conversationInitialBinding(id: "missing") == nil)
+    }
+
+    @Test("an explicitly unconfigured empty history accepts an explicit initial choice only once")
+    func unconfiguredInitialChoiceIsExplicitAndOnce() throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.createEmptyConversation(id: "unconfigured", at: Fixtures.epoch)
+        let choice = ConversationInitialBinding(providerInstanceID: ProviderInstanceID(rawValue: "chosen-account"), modelID: ModelID(rawValue: "chosen-model"))
+        #expect(try store.initializeEmptyConversationBinding(id: "unconfigured", binding: choice, at: Fixtures.epoch))
+        #expect(try store.conversationInitialBinding(id: "unconfigured") == choice)
+        #expect(try store.initializeEmptyConversationBinding(id: "unconfigured", binding: .init(providerInstanceID: ProviderInstanceID(rawValue: "other"), modelID: ModelID(rawValue: "other")), at: Fixtures.epoch) == false)
+        #expect(try store.conversationInitialBinding(id: "unconfigured") == choice)
+        #expect(try store.conversation(id: "unconfigured")?.userActiveAt == Fixtures.epoch)
+    }
+
     @Test("blank names, deleted targets and failed writes leave metadata untouched")
     func invalidAndFailedEditsAreAtomic() throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
@@ -76,7 +100,7 @@ struct ConversationMetadataTests {
         defer { Fixtures.cleanUp(url) }
         do {
             let store = PersistenceStore(database: try ZenDatabase.open(at: url.path()))
-            try store.createEmptyConversation(id: "durable-empty", at: Fixtures.epoch)
+            try store.createEmptyConversation(id: "durable-empty", at: Fixtures.epoch, initialBinding: .init(providerInstanceID: ProviderInstanceID(rawValue: "durable-account"), modelID: ModelID(rawValue: "durable-model")))
             try store.renameConversation(id: "durable-empty", title: "持久手动标题", at: Fixtures.epoch)
             try store.setConversationPinned(id: "durable-empty", pinned: true, at: Fixtures.epoch)
         }
@@ -84,6 +108,7 @@ struct ConversationMetadataTests {
         #expect(try reopened.conversation(id: "durable-empty")?.title == "持久手动标题")
         #expect(try reopened.conversation(id: "durable-empty")?.pinned == true)
         #expect(try reopened.hasManualConversationTitle(id: "durable-empty"))
+        #expect(try reopened.conversationInitialBinding(id: "durable-empty")?.providerInstanceID?.rawValue == "durable-account")
         #expect(try reopened.messages(inConversation: "durable-empty").isEmpty)
     }
 

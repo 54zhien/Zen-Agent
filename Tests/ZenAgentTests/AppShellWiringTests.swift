@@ -2310,11 +2310,11 @@ struct AppShellWiringTests {
         #expect(try fixture.store.conversation(id: originalID) == nil)
     }
 
-    @Test("empty persisted history resolves the configured default before its first Send")
+    @Test("explicit empty history keeps its copied model binding before its first Send")
     func emptyDurableHistoryCanSend() async throws {
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
-        try fixture.store.database.write { db in try Fixtures.conversation(id: "empty-history").insert(db) }
+        try fixture.store.createEmptyConversation(id: "empty-history", at: Fixtures.epoch, initialBinding: .init(providerInstanceID: fixture.instanceID, modelID: fixture.modelID))
         #expect(await fixture.model.openConversation(id: "empty-history"))
         #expect(fixture.model.pane?.composer.configuration?.modelID == fixture.modelID)
         #expect(fixture.model.canSend)
@@ -2344,6 +2344,72 @@ struct AppShellWiringTests {
         #expect(try fixture.store.conversation(id: "metadata-selected")?.userActiveAt == Fixtures.epoch)
         #expect(fixture.model.previewContent.session === original && fixture.model.pane == nil)
         #expect(fixture.model.router.historyPreparation.requested == requests)
+    }
+
+    @Test("configured empty histories remain evictable after repeated selected Returns")
+    func emptyConfiguredHistoryDoesNotPinColdSessions() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        for index in 0..<15 {
+            try fixture.store.createEmptyConversation(id: "empty-lru-\(index)", at: Fixtures.epoch,
+                initialBinding: .init(providerInstanceID: fixture.instanceID, modelID: fixture.modelID))
+        }
+        #expect(await fixture.model.openConversation(id: "empty-lru-0"))
+        #expect(fixture.model.canSend)
+        weak var cold = fixture.model.pane?.session
+        for index in 1..<15 {
+            #expect(fixture.model.enterPreview())
+            #expect(await fixture.model.preparePreviewReturn(to: "empty-lru-\(index)"))
+            #expect(fixture.model.commitPreviewReturn())
+        }
+        #expect(cold == nil)
+    }
+
+    @Test("New copied binding survives a cold reopen after the global default changes")
+    func explicitNewBindingSurvivesGlobalChange() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        #expect(fixture.model.enterPreview())
+        let created = try fixture.model.createConversationFromAppSpace(at: Fixtures.epoch)
+        #expect(try fixture.store.conversationInitialBinding(id: created) == ConversationInitialBinding(providerInstanceID: fixture.instanceID, modelID: fixture.modelID))
+        fixture.defaults.set("unavailable-new-global-instance", forKey: AppShellModel.defaultInstanceIDKey)
+        let reopened = await makeReconstructedModel(from: fixture)
+        #expect(await reopened.openConversation(id: created))
+        #expect(reopened.pane?.composer.configuration?.providerInstanceID == fixture.instanceID)
+        #expect(reopened.pane?.composer.configuration?.modelID == fixture.modelID)
+        #expect(reopened.canSend)
+    }
+
+    @Test("New created without a binding does not silently follow a later global choice")
+    func explicitlyUnconfiguredNewRemainsUnconfigured() async throws {
+        let fixture = try makeFixture(seed: .active, setDefault: false)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        #expect(fixture.model.enterPreview())
+        let created = try fixture.model.createConversationFromAppSpace(at: Fixtures.epoch)
+        fixture.defaults.set(fixture.instanceID.rawValue, forKey: AppShellModel.defaultInstanceIDKey)
+        fixture.defaults.set(fixture.modelID.rawValue, forKey: AppShellModel.defaultModelIDKey)
+        let reopened = await makeReconstructedModel(from: fixture)
+        #expect(await reopened.openConversation(id: created))
+        #expect(reopened.pane?.composer.configuration == nil)
+        #expect(!reopened.canSend)
+    }
+
+    @Test("the existing explicit configure action can initialize an unconfigured New without changing activity")
+    func unconfiguredNewCanBeExplicitlyConfigured() async throws {
+        let fixture = try makeFixture(seed: .active, setDefault: false)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        #expect(fixture.model.enterPreview())
+        let created = try fixture.model.createConversationFromAppSpace(at: Fixtures.epoch)
+        #expect(await fixture.model.preparePreviewReturn(to: created))
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(!fixture.model.canSend)
+        let setup = try #require(fixture.model.providerSetup)
+        setup.apiKey = "explicit-new-fake-test-key"
+        setup.selectedModelID = fixture.modelID
+        #expect(setup.save())
+        #expect(fixture.model.canSend)
+        #expect(try fixture.store.conversationInitialBinding(id: created)?.providerInstanceID == setup.instanceID)
+        #expect(try fixture.store.conversation(id: created)?.userActiveAt == Fixtures.epoch)
     }
 
     private func makeFixture(
