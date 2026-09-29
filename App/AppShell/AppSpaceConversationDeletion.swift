@@ -15,15 +15,18 @@ final class AppSpaceConversationDeletion {
     @ObservationIgnored private let stopRun: RunAction
     @ObservationIgnored private let waitForRun: RunAction
     @ObservationIgnored private let now: @MainActor () -> Date
+    @ObservationIgnored private let onFinalized: @MainActor (String) -> Void
     @ObservationIgnored private var expiryTasks: [String: Task<Void, Never>] = [:]
-    @ObservationIgnored private var recoveryGraceIDs: Set<String> = []
+    @ObservationIgnored private var awaitingMonotonicExpiryIDs: Set<String> = []
 
     init(store: PersistenceStore, stopRun: @escaping RunAction,
-         waitForRun: @escaping RunAction, now: @escaping @MainActor () -> Date) {
+         waitForRun: @escaping RunAction, now: @escaping @MainActor () -> Date,
+         onFinalized: @escaping @MainActor (String) -> Void = { _ in }) {
         self.store = store
         self.stopRun = stopRun
         self.waitForRun = waitForRun
         self.now = now
+        self.onFinalized = onFinalized
     }
 
     func delete(conversationID: String, stillSelected: @MainActor () -> Bool) async -> Bool {
@@ -60,7 +63,7 @@ final class AppSpaceConversationDeletion {
         do {
             try store.undoCardDeletion(conversationID: conversationID, at: now())
             expiryTasks.removeValue(forKey: conversationID)?.cancel()
-            recoveryGraceIDs.remove(conversationID)
+            awaitingMonotonicExpiryIDs.remove(conversationID)
             pendingCards.removeAll { $0.conversationID == conversationID }
             errorMessage = nil
             return true
@@ -80,7 +83,12 @@ final class AppSpaceConversationDeletion {
                 let page = try store.pendingCardDeletionPage(after: cursor)
                 for item in page {
                     addPending(item)
-                    scheduleExpiry(for: item, recovered: afterLaunch)
+                    // Keep a live monotonic timer across foreground transitions.
+                    // If none exists, treat the wall deadline as uncertain and
+                    // give recovery the same conservative grace as a cold start.
+                    if afterLaunch || expiryTasks[item.conversationID] == nil {
+                        scheduleExpiry(for: item, recovered: true)
+                    }
                 }
                 guard page.count == 50, let last = page.last else { break }
                 cursor = last
@@ -92,7 +100,7 @@ final class AppSpaceConversationDeletion {
     }
 
     func retryFinalization(conversationID: String) {
-        guard !recoveryGraceIDs.contains(conversationID) else {
+        guard !awaitingMonotonicExpiryIDs.contains(conversationID) else {
             errorMessage = "正在确认删除期限，请稍后重试。"
             return
         }
@@ -111,14 +119,16 @@ final class AppSpaceConversationDeletion {
     }
 
     private func scheduleExpiry(for item: PendingCardDeletion, recovered: Bool) {
-        if !recovered && recoveryGraceIDs.contains(item.conversationID) { return }
-        if recovered { recoveryGraceIDs.insert(item.conversationID) }
+        if !recovered && awaitingMonotonicExpiryIDs.contains(item.conversationID) { return }
+        awaitingMonotonicExpiryIDs.insert(item.conversationID)
         expiryTasks.removeValue(forKey: item.conversationID)?.cancel()
         let remaining = max(0, item.deadline.timeIntervalSince(now()))
         let delay = max(recovered ? Self.cardUndoRecoveryGrace : 0, remaining)
         expiryTasks[item.conversationID] = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(delay)) } catch { return }
-            self?.recoveryGraceIDs.remove(item.conversationID)
+            guard !Task.isCancelled else { return }
+            self?.expiryTasks.removeValue(forKey: item.conversationID)
+            self?.awaitingMonotonicExpiryIDs.remove(item.conversationID)
             self?.expire(conversationID: item.conversationID)
         }
     }
@@ -130,6 +140,7 @@ final class AppSpaceConversationDeletion {
             if try store.finalizeExpiredCardDeletion(conversationID: conversationID, at: now()) {
                 expiryTasks.removeValue(forKey: conversationID)
                 pendingCards.removeAll { $0.conversationID == conversationID }
+                onFinalized(conversationID)
                 errorMessage = nil
             } else if let item = try store.pendingCardDeletion(id: conversationID) {
                 // A backward clock adjustment retains the body. The absolute
@@ -138,6 +149,9 @@ final class AppSpaceConversationDeletion {
             } else {
                 expiryTasks.removeValue(forKey: conversationID)
                 pendingCards.removeAll { $0.conversationID == conversationID }
+                if try store.conversationLifecycle(id: conversationID) == .finalizedDeletion {
+                    onFinalized(conversationID)
+                }
             }
         } catch {
             // Failed cleanup is recoverable and must never imply an erased body.

@@ -134,7 +134,8 @@ final class AppShellModel {
 
     func preparePreviewReturn(to requestedID: String? = nil) async -> Bool {
         guard previewContent.isPresented, let dependencies,
-              let session = previewContent.session else { return pane != nil }
+              previewContent.originID == conversationID else { return pane != nil }
+        let session = previewContent.session
         let originID = conversationID
         let id = requestedID ?? originID
         if let prepared = previewContent.prepared {
@@ -170,7 +171,7 @@ final class AppShellModel {
                     onTargetFailure: { [weak self] failure, failedTarget in
                         self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
                     })
-                guard (id != originID || wiring.pane.session === session),
+                guard (id != originID || (session.map { wiring.pane.session === $0 } ?? false)),
                       (warmOwner == nil || wiring.pane.session === warmOwner),
                       router.registerPreparedPane(wiring.pane, ticket: ticket) else { continue }
                 // Receive durable Runtime events while still hidden behind Preview.
@@ -193,7 +194,7 @@ final class AppShellModel {
 
     func commitPreviewReturn() -> Bool {
         guard previewContent.isPresented, let prepared = previewContent.prepared,
-              previewContent.session?.conversationID == conversationID,
+              previewContent.originID == conversationID,
               prepared.pane.conversationID == previewContent.preparationTargetID else { return false }
         if prepared.pane.conversationID != conversationID {
             rememberCurrentSession(retainUncommitted: true)
@@ -368,7 +369,14 @@ final class AppShellModel {
         let owner = AppSpaceConversationDeletion(store: dependencies.store,
             stopRun: { id in try await runtime.stop(runID: id) },
             waitForRun: { id in try await runtime.waitForCompletion(runID: id) },
-            now: { Date() })
+            now: { Date() },
+            onFinalized: { [weak self] id in
+                if self?.previewContent.preparationTargetID == id {
+                    self?.cancelPreviewReturn()
+                }
+                self?.sessions.remove(conversationID: id)
+                self?.previewContent.discardFinalizedOriginSession(id: id)
+            })
         cardDeletion = owner
         owner.recoverPending()
     }

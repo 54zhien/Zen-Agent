@@ -42,7 +42,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
     private var deleteAction: AppSpaceCardDeletionInteraction.Commit? {
         guard let model else { return nil }
         return { id, stillSelected in
-            await model.deleteAppSpaceConversation(id: id, stillSelected: stillSelected)
+            await model.deleteAppSpaceConversation(id: id, stillSelected: {
+                model.previewContent.isPresented && lift.state.phase == .card && stillSelected()
+            })
         }
     }
 

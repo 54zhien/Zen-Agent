@@ -12,12 +12,13 @@ final class ConversationPreviewController {
     private(set) var isPresented = false
     private(set) var isPreparing = false
     private(set) var preparationTargetID: String?
+    private(set) var originID: String?
     @ObservationIgnored private(set) var session: ConversationSession?
     @ObservationIgnored private(set) var prepared: (pane: ConversationPaneController, bridge: ComposerRuntimeActionBridge)?
     @ObservationIgnored private var preparationID: UUID?
 
     var currentSummary: ConversationSummary? {
-        summaries.first { $0.id == session?.conversationID }
+        summaries.first { $0.id == originID }
     }
 
     var errorMessage: String? {
@@ -69,6 +70,14 @@ final class ConversationPreviewController {
         summaries = []
     }
 
+    func discardFinalizedOriginSession(id: String) {
+        guard isPresented, originID == id else { return }
+        // Keep only the scalar origin identity for an in-flight Return. The
+        // deleted Conversation's draft and reading state must leave memory.
+        session = nil
+        summaries.removeAll { $0.id == id }
+    }
+
     func present(session: ConversationSession, store: PersistenceStore) -> Bool {
         do {
             let current = try store.conversationSummaryWindow(ids: [session.conversationID]).first
@@ -78,6 +87,7 @@ final class ConversationPreviewController {
             }
             let predecessors = try store.conversationSummaryPage(limit: 3, after: current?.cursor).items
             summaries = (current.map { [$0] } ?? []) + predecessors
+            originID = session.conversationID
             self.session = session
             summaryFailure = nil
             returnFailure = nil
@@ -140,6 +150,7 @@ final class ConversationPreviewController {
     func finish() {
         cancelPreparation()
         isPresented = false
+        originID = nil
         session = nil
         summaries = []
         summaryFailure = nil
