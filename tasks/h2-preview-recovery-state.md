@@ -79,6 +79,14 @@ job `109321286051` 生成、应用和测试编译通过；746 Swift Testing / 11
 
 ## 验收记录
 
+2026-09-29 更新：最终 H2 源码 `40b6f012bb1e64d038c42f38e8d1e96a0df3ec15`，
+tree `2d8f16749fb0cdfcf328982d73250d073e612777`；PR CI `36544461398` 与 push CI
+`36544456500` 全通过。独立审查的 Important 已完成测试先行修复，历史输入失败观察保留。
+按用户授权合并 PR #21 为 `eec3eb38c3d4869a58031449f303f04dec55d0fd`，实际 main tree 与最终测试 tree 相等。
+main CI `36555411803` / job `109363329800` 全通过：生成/构建、746 Swift Testing / 111 suites、
+20 XCTest、14 UI；一次实际 Swift 测试启动，无实际宿主重启，终止检查通过。
+用户随后明确调整顺序：先开发 S5-05，真机 Gate A 保持待验收；这取代本文开头的旧先后顺序，未关闭设备门。
+
 实际 RED/GREEN run、attempt、head/tree、测试数量与独立整分支审查维护在 PR #21；
 未取得真实完整 CI 之前不宣称 H2 完成。
 真机 Gate A、中文/emoji 输入选择、触摸/无障碍、Instruments/主线程耗时、内存和舒适度继续待验收。

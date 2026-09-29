@@ -33,9 +33,9 @@
 **Files:** new `Tests/ZenAgentUITests/AppSpaceBrowseUITests.swift`; existing Preview fixture only.
 **Interfaces:** consumes existing `ZEN_PREVIEW_HANDOFF_UI_TEST`, `workspace-current-card`, real `preview-ui-11` and12 persisted summaries. Produces compiled gesture/selected-return failure evidence without new product APIs.
 
-- [ ] Lift existing fixture, prove Card/no editor, swipe right toward older neighbor, assert Card stays present and title changes11→10.
-- [ ] Swipe left10→11, then one fast right swipe11→10; no multi-card jump. Activate selected Card and assert Full target10 with exactly one editor.
-- [ ] Publish tests only and observe real native behavior failure after test compilation; compiler/fixture errors do not count RED.
+- [x] Lift existing fixture, prove Card/no editor, swipe right toward older neighbor, assert Card stays present and title changes11→10.
+- [x] Swipe left10→11, then one fast right swipe11→10; no multi-card jump. Activate selected Card and assert Full target10 with exactly one editor.
+- [x] Publish tests only and observe real native behavior failure after test compilation; compiler/fixture errors do not count RED.
 
 ## Task 2 — Bounded selection, motion and summary source
 
