@@ -260,6 +260,39 @@ struct SurfaceLiftHostTests {
         #expect(host.presentation == .full)
     }
 
+    @Test func returnDuringAcceptedSplitConvergenceStartsFromVisiblePose() async throws {
+        let host = ConversationSurfaceViewController(content: Text("interruptible Split convergence"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        driver.configureSplit { _ in true }
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
+        #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 160)))
+        let split = try #require(driver.end())
+        #expect(split.destination == .split)
+        let animator = try #require(host.liftAnimatorForTesting)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0.25
+        CATransaction.flush()
+        try await Task.sleep(for: .milliseconds(40))
+        let visibleBefore = try #require(host.surfaceView.layer.presentation())
+        let before = visibleBefore.transform.m42
+        #expect(driver.returnToFull(animated: true))
+        let returning = try #require(driver.state.pendingSettlement)
+        #expect(returning.destination == .full)
+        #expect(returning.startProgress < 0.99)
+        CATransaction.flush()
+        let visibleAfter = try #require(host.surfaceView.layer.presentation())
+        let after = visibleAfter.transform.m42
+        #expect(abs(after - before) < 12)
+        driver.invalidate()
+    }
+
     @Test func finalReleaseSampleOverridesThePreviousSplitTarget() async throws {
         let host = ConversationSurfaceViewController(content: Text("final Split release"))
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
