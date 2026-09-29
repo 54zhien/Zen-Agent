@@ -529,6 +529,91 @@ struct AppShellWiringTests {
         #expect(session.composer.draft.text == "cancel-safe draft")
     }
 
+    @Test("a successful summary refresh clears only its refresh error")
+    func previewRefreshRecovers() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try await send("refresh history", at: Fixtures.epoch, in: fixture)
+        #expect(fixture.model.enterPreview())
+        let before = fixture.model.previewContent.summaries
+        let id = fixture.model.conversationID
+        try fixture.store.database.write { db in try db.execute(sql: "ALTER TABLE message RENAME TO failed_refresh_message") }
+        fixture.model.refreshPreview()
+        #expect(fixture.model.previewContent.errorMessage != nil)
+        #expect(fixture.model.previewContent.summaries == before)
+        try fixture.store.database.write { db in
+            try db.execute(sql: "ALTER TABLE failed_refresh_message RENAME TO message")
+            try db.execute(sql: "UPDATE conversation SET title = ? WHERE id = ?",
+                arguments: ["recovered preview", id])
+        }
+        fixture.model.refreshPreview()
+        #expect(fixture.model.previewContent.currentSummary?.title == "recovered preview")
+        #expect(fixture.model.previewContent.errorMessage == nil)
+        #expect(fixture.model.previewContent.status == .ready)
+    }
+
+    @Test("an unavailable summary cannot hide its real Full Return failure")
+    func unavailableSummaryRetainsFullReadError() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try await send("unavailable full history", at: Fixtures.epoch, in: fixture)
+        #expect(fixture.model.enterPreview())
+        let id = fixture.model.conversationID
+        let session = try #require(fixture.model.previewContent.session)
+        try fixture.store.database.write { db in
+            try db.execute(sql: "UPDATE agentRun SET state = ? WHERE conversationID = ? AND kind = 'parent'",
+                arguments: ["unknown-test-only-state", id])
+        }
+        fixture.model.refreshPreview()
+        #expect(fixture.model.previewContent.currentSummary?.contentUnavailable == true)
+        #expect(fixture.model.previewContent.status == .contentUnavailable)
+        #expect(fixture.model.previewContent.accessibilityLabel.contains("部分内容暂不可用"))
+        #expect(!(await fixture.model.preparePreviewReturn()))
+        let failure = try #require(fixture.model.previewContent.errorMessage)
+        #expect(fixture.model.previewContent.status == .failed(failure))
+        #expect(fixture.model.previewContent.accessibilityLabel.contains(failure))
+        fixture.model.refreshPreview()
+        #expect(fixture.model.previewContent.errorMessage == failure)
+        #expect(fixture.model.previewContent.isPresented && fixture.model.pane == nil)
+        #expect(fixture.model.previewContent.session === session)
+    }
+
+    @Test("caller cancellation leaves Preview retryable without a storage error")
+    func cancelledPreviewPreparationIsNotReadFailure() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.commitUserTurnAndCreateParentRun(Fixtures.send(
+            conversationID: "cancel-error", messageID: "cancel-error-user", runID: "cancel-error-run", runState: .completed))
+        #expect(await fixture.model.openConversation(id: "cancel-error"))
+        #expect(fixture.model.enterPreview())
+        let session = try #require(fixture.model.previewContent.session)
+        let gate = PreviewReadGate()
+        defer {
+            gate.release()
+            try? fixture.store.database.read { $0.trace(nil) }
+            #expect(!gate.timedOut)
+        }
+        try fixture.store.database.read { db in
+            db.trace { event in
+                if case .statement(let statement) = event,
+                   statement.sql.lowercased().contains("agentrun") { gate.blockOnce() }
+            }
+        }
+        let operation = Task { await fixture.model.preparePreviewReturn() }
+        for _ in 0..<200 where !gate.hasBlocked { try await Task.sleep(for: .milliseconds(5)) }
+        _ = try #require(gate.hasBlocked)
+        operation.cancel()
+        gate.release()
+        #expect(!(await operation.value))
+        #expect(fixture.model.previewContent.isPresented && !fixture.model.previewContent.isPreparing)
+        #expect(fixture.model.previewContent.session === session)
+        #expect(fixture.model.previewContent.errorMessage == nil)
+        #expect(fixture.model.previewContent.status == .ready)
+        #expect(await fixture.model.preparePreviewReturn())
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.pane?.session === session)
+    }
+
     @Test("a failed Preview Return retains content and logical state for a real read retry")
     func previewReturnReadFailureAndRetry() async throws {
         let fixture = try makeFixture(seed: .active)
@@ -544,8 +629,14 @@ struct AppShellWiringTests {
         #expect(fixture.model.previewContent.errorMessage != nil)
         #expect(fixture.model.pane == nil)
         #expect(session.composer.draft.text == "retry keeps draft")
+        let returnFailure = try #require(fixture.model.previewContent.errorMessage)
+        fixture.model.refreshPreview()
+        #expect(fixture.model.previewContent.errorMessage == returnFailure)
         try fixture.store.database.write { db in try db.execute(sql: "ALTER TABLE failed_preview_message RENAME TO message") }
+        fixture.model.refreshPreview()
+        #expect(fixture.model.previewContent.errorMessage == returnFailure)
         #expect(await fixture.model.preparePreviewReturn())
+        #expect(fixture.model.previewContent.errorMessage == nil)
         #expect(fixture.model.commitPreviewReturn())
         #expect(fixture.model.pane?.session === session)
         #expect(fixture.model.previewContent.errorMessage == nil)
@@ -766,6 +857,85 @@ struct AppShellWiringTests {
             #expect(await fixture.model.openConversation(id: "active-budget-\(index)"))
         }
         #expect(owner == nil)
+    }
+
+    @Test("Recent Full Open failure stays visible across summary refresh and retries the same history",
+          arguments: ["metadata", "sql"])
+    func recentFullOpenFailureIsVisible(kind: String) async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let id = "recent-full-error"
+        try fixture.store.commitUserTurnAndCreateParentRun(Fixtures.send(
+            conversationID: id, messageID: "recent-error-user", runID: "recent-error-run", runState: .completed))
+        fixture.model.refreshRecentConversations()
+        let outgoingID = fixture.model.conversationID
+        let outgoingPane = fixture.model.pane
+        let outgoingSession = fixture.model.pane?.session
+        if kind == "metadata" {
+            try fixture.store.database.write { db in
+                try db.execute(sql: "UPDATE agentRun SET state = ? WHERE id = ?",
+                    arguments: ["unknown-recent-test-state", "recent-error-run"])
+            }
+            fixture.model.refreshRecentConversations()
+            #expect(fixture.model.recentConversations.first { $0.id == id }?.contentUnavailable == true)
+        } else {
+            // The bounded summary still looks healthy; only the real full-history SQL fails.
+            try fixture.store.database.write { db in try db.execute(sql: "ALTER TABLE toolCall RENAME TO failed_recent_toolCall") }
+        }
+        #expect(!(await fixture.model.openConversation(id: id)))
+        #expect(fixture.model.recentLoadError != nil)
+        #expect(fixture.model.conversationID == outgoingID)
+        #expect(fixture.model.pane === outgoingPane)
+        #expect(fixture.model.pane?.session === outgoingSession)
+        let failure = fixture.model.recentLoadError
+        fixture.model.refreshRecentConversations()
+        #expect(fixture.model.recentLoadError == failure)
+        try fixture.store.database.write { db in
+            if kind == "metadata" {
+                try db.execute(sql: "UPDATE agentRun SET state = ? WHERE id = ?",
+                    arguments: [RunState.completed.rawValue, "recent-error-run"])
+            } else {
+                try db.execute(sql: "ALTER TABLE failed_recent_toolCall RENAME TO toolCall")
+            }
+        }
+        fixture.model.refreshRecentConversations()
+        #expect(fixture.model.recentLoadError == failure)
+        #expect(await fixture.model.openConversation(id: id))
+        #expect(fixture.model.conversationID == id)
+        #expect(fixture.model.recentLoadError == nil)
+    }
+
+    @Test("cancelled Recent Open preserves its owner without presenting a read failure")
+    func cancelledRecentOpenHasNoReadFailure() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.commitUserTurnAndCreateParentRun(Fixtures.send(
+            conversationID: "recent-cancel", messageID: "recent-cancel-user", runID: "recent-cancel-run", runState: .completed))
+        fixture.model.refreshRecentConversations()
+        let outgoingID = fixture.model.conversationID
+        let outgoingPane = fixture.model.pane
+        let gate = PreviewReadGate()
+        defer {
+            gate.release()
+            try? fixture.store.database.read { $0.trace(nil) }
+            #expect(!gate.timedOut)
+        }
+        try fixture.store.database.read { db in
+            db.trace { event in
+                if case .statement(let statement) = event,
+                   statement.sql.lowercased().contains("agentrun") { gate.blockOnce() }
+            }
+        }
+        let opening = Task { await fixture.model.openConversation(id: "recent-cancel") }
+        for _ in 0..<200 where !gate.hasBlocked { try await Task.sleep(for: .milliseconds(5)) }
+        _ = try #require(gate.hasBlocked)
+        opening.cancel()
+        gate.release()
+        #expect(!(await opening.value))
+        #expect(!gate.timedOut)
+        #expect(fixture.model.recentLoadError == nil)
+        #expect(fixture.model.conversationID == outgoingID)
+        #expect(fixture.model.pane === outgoingPane)
     }
 
     @Test("Recent presentation publishes typed corruption readiness")

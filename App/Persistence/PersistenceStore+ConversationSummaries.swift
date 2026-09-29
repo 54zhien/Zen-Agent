@@ -120,17 +120,19 @@ extension PersistenceStore {
             try Row.fetchAll(db, sql: sql, arguments: arguments).map { row in
                 let runID: String? = row["runID"]
                 var projection: RunProjection?
+                var runMetadataUnavailable = false
                 if let runID {
                     let rawState: String = row["runState"]
-                    guard let state = RunState(rawValue: rawState) else {
-                        throw PersistenceError.invalidTransition("Unreadable summary Run state")
-                    }
+                    let state = RunState(rawValue: rawState)
                     let rawReason: String? = row["endReason"]
                     let reason = rawReason.flatMap(EndReason.init(rawValue:))
-                    if rawReason != nil && reason == nil {
-                        throw PersistenceError.invalidTransition("Unreadable summary Run end reason")
+                    if let state, rawReason == nil || reason != nil {
+                        projection = RunProjection(runID: runID, state: state, endReason: reason)
+                    } else {
+                        // Keep a readable row's identity/cursor, but do not invent
+                        // a successful business state for unknown persisted metadata.
+                        runMetadataUnavailable = true
                     }
-                    projection = RunProjection(runID: runID, state: state, endReason: reason)
                 }
                 let stored: String = row["storedTitle"]
                 let prompt: String? = row["firstPrompt"]
@@ -142,7 +144,8 @@ extension PersistenceStore {
                 return ConversationSummary(id: row["id"], title: Self.summaryClip(title, limit: 56),
                     excerpt: Self.summaryClip(Self.summaryText(row["excerpt"] as String? ?? ""), limit: 320),
                     pinned: row["pinned"], userActiveAt: row["userActiveAt"],
-                    contentUnavailable: (row["firstUnavailable"] as Int) != 0 || (row["latestUnavailable"] as Int) != 0,
+                    contentUnavailable: runMetadataUnavailable || (row["firstUnavailable"] as Int) != 0
+                        || (row["latestUnavailable"] as Int) != 0,
                     runProjection: projection, providerInstanceID: providerID.map(ProviderInstanceID.init(rawValue:)),
                     modelID: modelID.map(ModelID.init(rawValue:)), providerName: row["providerName"])
             }

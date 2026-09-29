@@ -134,6 +134,35 @@ struct ConversationSummaryTests {
         #expect(throws: DatabaseError.self) { try store.conversationSummaryPage() }
     }
 
+    @Test("unknown Run metadata isolates one summary without losing page or window identity",
+          arguments: ["state", "endReason"])
+    func unknownRunMetadataIsLocal(column: String) throws {
+        let fixture = try seed(historyCount: 52)
+        let before = try fixture.store.conversationSummaryPage()
+        let badID = fixture.orderedIDs[1]
+        let badBefore = try #require(before.items.first { $0.id == badID })
+        try fixture.store.database.write { db in
+            try db.execute(sql: "UPDATE agentRun SET \(column) = ? WHERE id = ?",
+                arguments: ["unknown-test-only-value", "run-\(badID)"])
+        }
+        let page = try fixture.store.conversationSummaryPage()
+        #expect(page.items.map(\.id) == before.items.map(\.id))
+        #expect(page.nextCursor == before.nextCursor)
+        let bad = try #require(page.items.first { $0.id == badID })
+        #expect(bad.title == badBefore.title && bad.excerpt == badBefore.excerpt && bad.cursor == badBefore.cursor)
+        #expect(bad.contentUnavailable)
+        #expect(bad.runProjection == nil)
+        #expect(page.items.filter { $0.id != badID } == before.items.filter { $0.id != badID })
+        let cursor = try #require(page.nextCursor)
+        let next = try fixture.store.conversationSummaryPage(after: cursor)
+        #expect(next.items.map(\.id) == Array(fixture.orderedIDs.dropFirst(50)))
+        let ids = Array(fixture.orderedIDs.prefix(4))
+        let window = try fixture.store.conversationSummaryWindow(ids: ids)
+        #expect(window.map(\.id) == ids)
+        #expect(window.first { $0.id == badID }?.contentUnavailable == true)
+        #expect(window.filter { $0.id != badID }.allSatisfy { $0.runProjection?.state == .completed })
+    }
+
     @Test("malformed text has an explicit unavailable outcome and never discloses other Part kinds",
           arguments: ["{broken", #"{"notText":42}"#, #"{"text":42}"#])
     func corruptPayloadAndDisclosure(payload: String) throws {

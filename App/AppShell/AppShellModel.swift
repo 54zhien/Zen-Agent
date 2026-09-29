@@ -13,6 +13,11 @@ struct RecentConversationSummary: Identifiable, Equatable, Sendable {
     var contentUnavailable: Bool { previewStatus == .contentUnavailable }
 }
 
+struct RecentConversationOpenFailure: Equatable, Sendable {
+    let conversationID: String
+    let message = "会话读取失败，原会话已保留。请重试打开。"
+}
+
 enum AppShellLaunchState: Equatable {
     case notStarted
     case loading
@@ -33,7 +38,10 @@ final class AppShellModel {
     private(set) var targetMessage: String?
     private(set) var sendAvailability: ComposerSendAvailability = .unconfigured
     private(set) var recentConversations: [RecentConversationSummary] = []
-    private(set) var recentLoadError: String?
+    private var recentListLoadError: String?
+    private(set) var recentOpenFailure: RecentConversationOpenFailure?
+    // List refresh cannot erase a failed Full Open's retry target.
+    var recentLoadError: String? { recentOpenFailure?.message ?? recentListLoadError }
     private var recentCursor: ConversationSummaryCursor?
     var recentHasMore: Bool { recentCursor != nil }
 
@@ -48,16 +56,16 @@ final class AppShellModel {
                 .map { RecentConversationSummary(id: $0.id, title: $0.title,
                     previewStatus: $0.contentUnavailable ? .contentUnavailable : .ready) })
             recentCursor = page.nextCursor
-            recentLoadError = nil
+            recentListLoadError = nil
             recentFailureWasNextPage = false
         } catch {
             recentFailureWasNextPage = true
-            recentLoadError = "会话列表读取失败，请重试。"
+            recentListLoadError = "会话列表读取失败，请重试。"
         }
     }
 
     func retryRecentConversations() {
-        guard recentLoadError != nil else { return }
+        guard recentListLoadError != nil else { return }
         if recentFailureWasNextPage { loadMoreRecentConversations() }
         else { refreshRecentConversations() }
     }
@@ -94,6 +102,7 @@ final class AppShellModel {
                 guard !Task.isCancelled, conversationID == id,
                       router === dependencies.router, previewContent.accepts(preparation) else {
                     dependencies.router.cancelPanePreparation(for: id, ticket: ticket)
+                    previewContent.cancelPreparation(for: preparation)
                     return false
                 }
                 guard router.acceptsPanePreparation(for: id, ticket: ticket) else { continue }
@@ -110,7 +119,11 @@ final class AppShellModel {
                 return true
             } catch {
                 dependencies.router.cancelPanePreparation(for: id, ticket: ticket)
-                previewContent.failed(preparation)
+                if Task.isCancelled || (error is CancellationError) {
+                    previewContent.cancelPreparation(for: preparation)
+                } else {
+                    previewContent.failed(preparation)
+                }
                 return false
             }
         }
@@ -213,6 +226,8 @@ final class AppShellModel {
         targetMessage = nil
         sendAvailability = .unconfigured
         recentConversations = []
+        recentListLoadError = nil
+        recentOpenFailure = nil
         providerSetup = nil
         router = RunEventRouter()
 
@@ -233,6 +248,7 @@ final class AppShellModel {
 
     func newConversation() {
         navigationID = UUID()
+        recentOpenFailure = nil
         router.historyPreparation.cancel()
         launchRestorationTask?.cancel()
         rememberCurrentSession()
@@ -384,21 +400,34 @@ final class AppShellModel {
             recentConversations = page.items.map { RecentConversationSummary(id: $0.id, title: $0.title,
                 previewStatus: $0.contentUnavailable ? .contentUnavailable : .ready) }
             recentCursor = page.nextCursor
-            recentLoadError = nil
+            recentListLoadError = nil
             recentFailureWasNextPage = false
         } catch {
             // Preserve the last readable page and its cursor so failure remains retryable.
             recentFailureWasNextPage = false
-            recentLoadError = "会话列表读取失败，请重试。"
+            recentListLoadError = "会话列表读取失败，请重试。"
         }
     }
 
     @discardableResult
     func openConversation(id: String) async -> Bool {
-        guard let dependencies else { return false }
+        guard let dependencies, !Task.isCancelled else { return false }
         if id == conversationID {
-            if pane != nil { return (try? dependencies.store.conversationLifecycle(id: id)) == .visible }
-            if previewContent.prepared != nil { return commitPreviewReturn() }
+            if pane != nil {
+                do {
+                    let visible = try dependencies.store.conversationLifecycle(id: id) == .visible
+                    if visible { recentOpenFailure = nil }
+                    return visible
+                } catch {
+                    recentOpenFailure = RecentConversationOpenFailure(conversationID: id)
+                    return false
+                }
+            }
+            if previewContent.prepared != nil {
+                let committed = commitPreviewReturn()
+                if committed { recentOpenFailure = nil }
+                return committed
+            }
         }
 
         cancelPreviewReturn()
@@ -441,8 +470,14 @@ final class AppShellModel {
             commitSession(wiring.pane.session)
             sendAvailability = wiring.pane.composer.sendAvailability
             targetMessage = sendAvailability.message
+            recentOpenFailure = nil
             return true
         } catch {
+            // Cancelled or obsolete navigation must not replace the current action's feedback.
+            if !Task.isCancelled, !(error is CancellationError),
+               navigationID == navigation, router === dependencies.router {
+                recentOpenFailure = RecentConversationOpenFailure(conversationID: id)
+            }
             return false
         }
     }
