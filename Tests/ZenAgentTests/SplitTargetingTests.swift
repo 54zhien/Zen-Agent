@@ -28,7 +28,7 @@ struct SplitTargetingTests {
                                  liftProgress: 0.2).slot == nil)
         #expect(targeting.update(point: CGPoint(x: 200, y: 180), viewport: .zero,
                                  liftProgress: 0.8).slot == nil)
-        #expect(targeting.update(point: CGPoint(x: .nan, y: 180), viewport: viewport,
+        #expect(targeting.update(point: CGPoint(x: CGFloat.nan, y: 180), viewport: viewport,
                                  liftProgress: 0.8).slot == nil)
         #expect(targeting.update(point: CGPoint(x: 200, y: 180), viewport: viewport,
                                  liftProgress: 0.8).slot == .top)
