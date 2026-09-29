@@ -2325,9 +2325,68 @@ struct AppShellWiringTests {
         #expect(fixture.model.canSend)
         #expect(try fixture.store.activeParentRunIDs().isEmpty)
         #expect(fixture.model.renameAppSpaceConversation(id: created, title: "created manual") == false)
-        #expect(await fixture.model.openConversation(id: originalID) == false)
+        // Same-process retained drafts must remain navigable after successful New.
+        #expect(await fixture.model.openConversation(id: originalID))
+        #expect(fixture.model.pane?.session === original)
         // Missing original is a warm owner, not a newly fabricated persisted row.
         #expect(try fixture.store.conversation(id: originalID) == nil)
+    }
+
+    @Test("a retained unsent draft remains reachable by Card after New commits")
+    func unsentDraftRemainsNavigableAfterNew() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let id = fixture.model.conversationID
+        let original = try #require(fixture.model.pane?.session)
+        original.composer.draft.text = "未发送的草稿 🧑🏽‍💻"
+        #expect(fixture.model.enterPreview())
+        let created = try fixture.model.createConversationFromAppSpace(at: Fixtures.epoch)
+        #expect(await fixture.model.preparePreviewReturn(to: created))
+        #expect(fixture.model.commitPreviewReturn())
+        let newOwner = try #require(fixture.model.pane?.session)
+        #expect(fixture.model.enterPreview())
+        let reads = fixture.model.router.historyPreparation.requested
+        let window = try fixture.model.newConversationBrowseWindow()
+        #expect(window.summaries.contains { $0.id == id })
+        #expect(window.summaries.count <= 3)
+        let warmWindow = try fixture.model.browseWindow(id: id)
+        #expect(warmWindow.current?.id == id)
+        #expect(warmWindow.summaries.count <= 5)
+        #expect(fixture.model.router.historyPreparation.requested == reads)
+        let ready = await fixture.model.preparePreviewReturn(to: id)
+        #expect(ready)
+        guard ready else { return }
+        #expect(fixture.model.conversationID == created && fixture.model.previewContent.session === newOwner)
+        #expect(fixture.model.previewContent.prepared?.pane.session === original)
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.pane?.session === original)
+        #expect(original.composer.draft.text == "未发送的草稿 🧑🏽‍💻")
+        #expect(try fixture.store.conversation(id: id) == nil)
+        #expect(try fixture.store.activeParentRunIDs().isEmpty)
+    }
+
+    @Test("retained draft ownership cannot remount a deleted ID or fabricate an unknown ID")
+    func retainedDraftStillRejectsDeletedAndUnknown() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let id = fixture.model.conversationID
+        let original = try #require(fixture.model.pane?.session)
+        original.composer.draft.text = "protected draft"
+        #expect(fixture.model.enterPreview())
+        let created = try fixture.model.createConversationFromAppSpace(at: Fixtures.epoch)
+        #expect(await fixture.model.preparePreviewReturn(to: created))
+        #expect(fixture.model.commitPreviewReturn())
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: id, lifecycle: .pendingDeletion).insert(db)
+        }
+        #expect(fixture.model.enterPreview())
+        #expect(!(await fixture.model.preparePreviewReturn(to: id)))
+        #expect(!(await fixture.model.preparePreviewReturn(to: "unknown-retained-draft")))
+        #expect(!fixture.model.commitPreviewReturn())
+        #expect(fixture.model.conversationID == created && fixture.model.pane == nil)
+        #expect(original.composer.draft.text == "protected draft")
+        #expect(try fixture.store.conversation(id: id)?.lifecycle == .pendingDeletion)
+        #expect(try fixture.store.conversation(id: "unknown-retained-draft") == nil)
     }
 
     @Test("explicit empty history keeps its copied model binding before its first Send")

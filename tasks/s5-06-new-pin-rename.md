@@ -27,7 +27,7 @@ XcodeGen/App/test compile passed;772 Swift Testing /116 suites84.056s reported37
 18 UI416.395s had only the2 intended New/menu failures; original16 UI, including distant browsing, passed without product changes or relaxed assertions.
 There was one actual Swift start and no actual host restart. The failed native first push observation remains unexplained, not claimed fixed.
 Three Swift issues belonged to the subsequently rejected empty-open mutable-global assumption; they are not feature RED evidence.
-The remaining34 cover inert metadata/manual marker/creation/window/selected-owner behavior. PR36582283469 was still running before the next tests-only publication.
+The remaining34 cover inert metadata/manual marker/creation/window/selected-owner behavior. PR36582283469 subsequently completed with failure on the same source; this receipt's detailed RED evidence is the push job above.
 
 ## Binding-policy RED correction
 
@@ -41,6 +41,7 @@ generation/App/test compile passed;778 Swift Testing/116 suites129.411s,41 inten
 (10 shell ownership/binding,3 creation,12 New Browse,1 migration marker,15 metadata).
 20 XCTest passed;18 UI475.633s had only the2 intended New/menu failures; original16 UI passed.
 One actual Swift start, no host restart. An early log download before job finalization returned BlobNotFound; final complete logs were read successfully.
+PR36585204137 also completed with failure on the same corrected tests-only source; detailed counts above come from the complete push logs.
 
 ## First implementation candidate
 
@@ -53,6 +54,18 @@ its older/newer/session/request controls remain and now exercise native New/back
 Native menu test additionally checks Cancel and post-dismissal swipe. Existing first-user-text summary fallback is reused.
 Migrations.swift line endings are normalized to LF for the default whitespace gate; old migration SQL behavior is unchanged.
 No full GREEN or completion claim before candidate CI.
+Published candidate `9dcb508bbc476cfa4612f13366cf8a15c2e04c5c`, source tree `7ec32b63132a2fc546613edf6cf1e345cdf5c73d`.
+Actual PR merge `361ccf4cd382a9b89775d1556b06bc64fe0fa4f3` has the identical tree.
+[Push CI36588413830](https://github.com/54zhien/Zen-Agent/actions/runs/36588413830), job `109474906354`, completed successfully:
+XcodeGen/App build/test passed;778 Swift Testing/116 suites81.133s,20 XCTest,18 UI460.719s,0 failures.
+The actual command was `xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent -configuration Debug -destination id=<CI simulator> -resultBundlePath <CI result bundle>`.
+One actual Swift start; no actual host restart; command guard passed, failed-only host diagnostics/artifacts skipped.
+Both native metadata UI tests passed, including Cancel and post-dismissal navigation; all original16 UI controls passed.
+[Guard self-test36588420776](https://github.com/54zhien/Zen-Agent/actions/runs/36588420776) passed.
+[PR CI36588420757](https://github.com/54zhien/Zen-Agent/actions/runs/36588420757), job `109474894296`, also completed successfully:
+XcodeGen/build/test passed;778 Swift Testing/116 suites79.880s,20 XCTest,18 UI489.193s,0 failures.
+One actual Swift start/no actual host restart. The actual PR merge tree is identical to source.
+Ready/merged/physical acceptance is not claimed before independent review and final-head receipt verification.
 
 ## Implementation decisions
 
@@ -64,6 +77,16 @@ No full GREEN or completion claim before candidate CI.
 - Keep New creation/edit-error ownership separate from Session/Runtime ownership. Current menu captures an ID; scene/selection changes cancel its presentation.
 
 ## Remaining acceptance
+
+Independent whole-branch review of bca95d9..9dcb508 requested changes:0 Critical,1 Important,1 Minor.
+Important: successful New makes original same-process uncommitted draft inaccessible despite retaining its Session.
+Accepted one test-first repair pass: draft A -> New B -> re-Lift -> bounded projection A -> exact Session/draft Return.
+Unknown and deleted targets must still fail; no durable Draft row is fabricated. Correct the newly added test that incorrectly codified missing original as unopenable.
+Minor deferred: Rename opens blank when the stored title is empty and Card uses the provisional first-user-text fallback.
+Manual full titles and entering a new name work; no minor polish enters the fix pass.
+Reviewer exclusions accepted: physical checks at Stage5 end, later slices, and process-termination Draft recovery.
+Same-process recovery is required. The actual Blueprint App Space snapshot ends at section18, so the prior section19 citation is corrected to18.
+Repair regression tests are written before production correction; actual compiled RED still required.
 
 No completion claim before actual full generation/build/test CI and one fresh independent branch review.
 Physical Gate A, Memory Graph, body counts, hitches, peak memory, comfort, actual VoiceOver and input acceptance remain open until Stage5 development ends.
