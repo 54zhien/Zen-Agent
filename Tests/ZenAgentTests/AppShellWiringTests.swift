@@ -870,7 +870,7 @@ struct AppShellWiringTests {
         fixture.model.refreshRecentConversations()
         let outgoingID = fixture.model.conversationID
         let outgoingPane = fixture.model.pane
-        let outgoingBridge = fixture.model.actionBridge
+        let outgoingSession = fixture.model.pane?.session
         if kind == "metadata" {
             try fixture.store.database.write { db in
                 try db.execute(sql: "UPDATE agentRun SET state = ? WHERE id = ?",
@@ -886,7 +886,7 @@ struct AppShellWiringTests {
         #expect(fixture.model.recentLoadError != nil)
         #expect(fixture.model.conversationID == outgoingID)
         #expect(fixture.model.pane === outgoingPane)
-        #expect(fixture.model.actionBridge === outgoingBridge)
+        #expect(fixture.model.pane?.session === outgoingSession)
         let failure = fixture.model.recentLoadError
         fixture.model.refreshRecentConversations()
         #expect(fixture.model.recentLoadError == failure)
