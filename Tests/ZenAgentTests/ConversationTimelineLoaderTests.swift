@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 
 @testable import ZenAgent
@@ -12,6 +13,34 @@ import Testing
 /// query pass by handing back whatever the test happened to insert.
 @Suite("Conversation timeline loader")
 struct ConversationTimelineLoaderTests {
+
+    @Test("full history query count is independent of Turn count", arguments: [1, 100, 1_000])
+    func historyQueryBudget(turnCount: Int) throws {
+        let store = try makeStore()
+        try store.database.write { db in
+            try Fixtures.conversation(id: "budget").insert(db)
+            for index in 0..<turnCount {
+                let messageID = "budget-m-\(index)"
+                try Fixtures.message(id: messageID, conversationID: "budget").insert(db)
+                try Fixtures.textPart(id: "budget-p-\(index)", messageID: messageID,
+                    text: "你好 👋 Turn \(index)").insert(db)
+                try Fixtures.run(id: String(format: "budget-r-%04d", index),
+                    conversationID: "budget", state: .completed, triggerMessageID: messageID).insert(db)
+            }
+        }
+        let trace = S504SQLTrace()
+        try store.database.read { db in
+            db.trace { event in
+                if case .statement(let statement) = event { trace.record(statement.sql) }
+            }
+        }
+        defer { try? store.database.read { db in db.trace(nil) } }
+        let projection = try ConversationTimelineLoader.load(conversationID: "budget", from: store)
+        #expect(projection.turns.count == turnCount)
+        #expect(projection.turns.first?.items.first == .userText("你好 👋 Turn 0"))
+        #expect(projection.turns.last?.items.first == .userText("你好 👋 Turn \(turnCount - 1)"))
+        #expect(trace.selectCount <= 8, "history read issued \(trace.selectCount) SELECTs for \(turnCount) Turns")
+    }
 
     private func makeStore() throws -> PersistenceStore {
         PersistenceStore(database: try ZenDatabase.inMemory())
