@@ -77,8 +77,8 @@ As of 2026-09-29:
   review and its test-first repair. See [the slice record](tasks/h2-preview-recovery-state.md).
 - The owner authorized S5-05 development before physical Gate A on 2026-09-29;
   Gate A remains open. Card Browse / Snap is on unmerged
-  [PR #22](https://github.com/54zhien/Zen-Agent/pull/22), with full candidate CI
-  and independent review pending. See [the slice record](tasks/s5-05-card-browse-snap.md)
+  [PR #22](https://github.com/54zhien/Zen-Agent/pull/22), with generation/build,759 Swift Testing,20 XCTest and16 UI tests
+  passed at `9372dfe`, and independent review approved (no Critical/Important). See [the slice record](tasks/s5-05-card-browse-snap.md)
   for bounded projection/selected Return ownership and RED evidence.
   S5-06–16 remain later work.
 - Formal Settings IA and

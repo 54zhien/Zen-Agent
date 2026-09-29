@@ -42,32 +42,32 @@
 **Files:** `App/Workspace/AppSpaceBrowseState.swift`, `AppSpaceBrowseController.swift`, `AppSpaceBrowseGeometry.swift`; extend `PersistenceStore+ConversationSummaries.swift`; tests `AppSpaceBrowseTests.swift`, existing `ConversationSummaryTests.swift`.
 **Interfaces:** state consumes existing `AppSpaceGeometry.Item`; motion accepts finite displacement/velocity/card travel, produces previous/current/next one-step settlement with UUID. Controller receives a throwing summary-reader closure and holds only summaries/selection. Reader uses current ID lookup and bounded keyset older/newer queries, sharing existing summary projection SQL.
 
-- [ ] After native RED, introduce runnable inert pure APIs as a recorded scaffolding exception where new API tests cannot exist on the base. Never claim missing symbols as RED.
-- [ ] Unit cases: tiny/large drag, opposite release velocity, both boundaries, cancellation, interrupted/obsolete settlement, invalid/zero width, single-card velocity cap.
-- [ ] Read actual100 records with pinned/date/ID ties; nearest newer and older rows, stable cursors, localized unavailable row, global failure preserves current window, retained summary count≤5.
-- [ ] No copied Card projection type if ConversationSummary already supplies title/excerpt/status. Use existing ConversationPreviewView and ConversationCardStatus derivation.
-- [ ] Native RED and new pure tests drive minimal implementation. Freeze ordered IDs for each drag; successful settlement re-centers/reloads a bounded neighborhood.
+- [x] After native RED, introduce runnable inert pure APIs as a recorded scaffolding exception where new API tests cannot exist on the base. Never claim missing symbols as RED.
+- [x] Unit cases: tiny/large drag, opposite release velocity, both boundaries, cancellation, interrupted/obsolete settlement, invalid/zero width, single-card velocity cap.
+- [x] Read actual100 records with pinned/date/ID ties; nearest newer and older rows, stable cursors, localized unavailable row, global failure preserves current window, retained summary count≤5.
+- [x] No copied Card projection type if ConversationSummary already supplies title/excerpt/status. Use existing ConversationPreviewView and ConversationCardStatus derivation.
+- [x] Native RED and new pure tests drive minimal implementation. Freeze ordered IDs for each drag; successful settlement re-centers/reloads a bounded neighborhood.
 
 ## Task 3 — Native interaction, depth interpolation and explicit Full activation
 
 **Files:** `ConversationSurfaceHost.swift`, `SurfaceLiftController.swift`, `WorkspaceSurfaceView.swift`, `NewConversationView.swift`; minimal target-aware changes `AppShellModel.swift`, `ConversationPreviewController.swift`; native/unit/UI tests.
 **Interfaces:** native host has one card-only horizontal recognizer, window coordinates, cancellation and animation completion token. Workspace renders selected summary into the existing Surface and background depth cards. SurfaceLift preparation closure passes the selected ID only on activation; its animation/handoff remains the existing two segments.
 
-- [ ] Horizontal direction lock; vertical input does not browse. Full/settling/overlay/prepare cannot begin a new browse; no drag-release activation masquerading as a tap.
-- [ ] Interpolate the whole depth stack using existing AppSpaceGeometry; preserve right bias, scale/depth and finite geometry. No hundred Card views; at most5 bounded projections.
-- [ ] Native host settlement uses existing animation style and Reduce Motion; cancellation/viewport/scene changes invalidate completion generations.
-- [ ] Expose native “上一会话”/“下一会话” actions on Current, boundary-aware. Test actual native actions directly in hosted unit tests (no fake SwiftUI API).
-- [ ] Extend existing preparation to accept a selected target while retaining original Session until commit. No Full read or Session construction during browse. Correct cancellation routes to the actual target.
-- [ ] Cross-ID commit must retain continuous Surface animation, original draft/reading warm state and hidden Run; returning to original uses same Session. Failed Full open leaves selected Card and original owner retryable.
-- [ ] New sentinel stays non-creating; an already uncommitted original page can return to its retained warm owner. No new page creation action.
-- [ ] Existing native UI RED passes unchanged; add ownership/no-userActiveAt/no-Stop/100-window controls and cancellation/failure tests. UI tests exercise multi-window traversal, short/fast drag and selected Return.
+- [x] Horizontal direction lock; vertical input does not browse. Full/settling/overlay/prepare cannot begin a new browse; no drag-release activation masquerading as a tap.
+- [x] Interpolate the whole depth stack using existing AppSpaceGeometry; preserve right bias, scale/depth and finite geometry. No hundred Card views; at most5 bounded projections.
+- [x] Native host settlement uses existing animation style and Reduce Motion; cancellation/viewport/scene changes invalidate completion generations.
+- [x] Expose native “上一会话”/“下一会话” actions on Current, boundary-aware. Test actual native actions directly in hosted unit tests (no fake SwiftUI API).
+- [x] Extend existing preparation to accept a selected target while retaining original Session until commit. No Full read or Session construction during browse. Correct cancellation routes to the actual target.
+- [x] Cross-ID commit must retain continuous Surface animation, original draft/reading warm state and hidden Run; returning to original uses same Session. Failed Full open leaves selected Card and original owner retryable.
+- [x] New sentinel stays non-creating; an already uncommitted original page can return to its retained warm owner. No new page creation action.
+- [x] Existing native UI RED passes unchanged; add ownership/no-userActiveAt/no-Stop/100-window controls and cancellation/failure tests. UI tests exercise multi-window traversal, short/fast drag and selected Return.
 
 ## Task 4 — Actual full CI, independent review and receipt
 
-- [ ] Static path/whitespace/hygiene checks, exact staged-tree publication; no generated project changes.
-- [ ] Exact-source XcodeGen/build/full unit/UI CI, actual counts and host restart guard. Preserve earlier input failures and new failures; no weakening assertions.
-- [ ] One fresh read-only whole-branch reviewer against base eec3eb3; re-grade every finding and every declined behavior. One Important/Critical test-first fix pass; minor findings ledgered.
-- [ ] Record source/tree, PR, pushed/unmerged state, relevant RED/GREEN and gate status in receipt/README. Physical Memory Graph, SwiftUI body count, animation hitches, peak memory and comfort remain unmeasured until actual device traces.
+- [x] Static path/whitespace/hygiene checks, exact staged-tree publication; no generated project changes.
+- [x] Exact-source XcodeGen/build/full unit/UI CI, actual counts and host restart guard. Preserve earlier input failures and new failures; no weakening assertions.
+- [x] One fresh read-only whole-branch reviewer against base eec3eb3; re-grade every finding and every declined behavior. One Important/Critical test-first fix pass; minor findings ledgered.
+- [x] Record source/tree, PR, pushed/unmerged state, relevant RED/GREEN and gate status in receipt/README. Physical Memory Graph, SwiftUI body count, animation hitches, peak memory and comfort remain unmeasured until actual device traces.
 
 ## Implementation rulings
 

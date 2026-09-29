@@ -45,7 +45,7 @@ tree `2d8f16749fb0cdfcf328982d73250d073e612777`。
 三个运行的实际 PR merge tree 分别与对应源码 tree 相等。原首个 UI 测试断言保持不变。
 额外的真实 Run 持续流与实际 paused animator 中断测试属于回归控制，不单独声称 RED。
 
-## 完整候选与审查
+## 完整候选、诊断与验收历程
 
 生产候选 `1d15b8ebb1031402c5613ce0784784d795694962`，tree `5fc900d1509065c57ca511fe77e90289ffb64dbb`。
 本地 staged tree 与 API 发布 tree 相等；静态 whitespace/path/hygiene 检查未发现错误。
@@ -60,8 +60,7 @@ tree `2d8f16749fb0cdfcf328982d73250d073e612777`。
 
 诊断源码 `45a30b588d6cd964773448b3d8209b6b758f37a1`，tree `f31c4e0a31b6b4c466c263419ebd64533e99f0d9`，
 增加有限的 native Return、编辑器挂载/进入 Preview/释放/回交与 viewport/body 阶段日志，无产品修复。
-诊断 CI `36567500173` 待定位；文档发布可能替代它，替代运行只提供诊断，不能算行为 RED/GREEN。
-完整候选验证与一次独立全分支审查仍待确认。此处不宣称 S5-05 已验收。
+诊断 CI `36567500173` 被后续文档提交替代；实际日志仅用于下述定位，不算行为 RED/GREEN。
 
 诊断 `45a30b5` 的实际阶段日志表明：原编辑器已挂载、进入 Preview、释放并接受回交，随后 Full 中反复 Lift 失效。
 既有 Composer readiness 在保留选择时会重复 invalidate；新 Browse 的空闲 cancel 仍发布观察变化，形成反馈。
@@ -73,7 +72,27 @@ PR CI [36569044421](https://github.com/54zhien/Zen-Agent/actions/runs/3656904442
 
 该轮调用点日志排除了重新绑定、viewport/minimum/scene 改变和已执行 handoff 的失败：初始已在 Preview 的 Workspace
 会先恢复 Card，再获得首次有效布局；旧 viewport 回调跳过首次布局，Lift 的 Return target 仍为空，首次 Return 因而回到 Card。
-接续修复通知首次布局，复用既有 Lift 几何解析与失效路径；移除所有临时阶段日志。最终完整 CI 和审查待验收。
+接续修复通知首次布局，复用既有 Lift 几何解析与失效路径；移除所有临时阶段日志；完整验收结果如下。
+
+## 代码验收与独立审查
+
+验收源码 `9372dfe6e9c198684780c9beaf1d10b04858c033`，tree `05d47c8f3ed057af7c2401631304dd5c8bf0cd86`。
+实际 PR merge `fcdd9b991ccc0c8ebac8e8050050f7c7c3d9c200` 的 tree 与源码相等。
+[PR CI 36570845465](https://github.com/54zhien/Zen-Agent/actions/runs/36570845465)，job `109414214267`：
+XcodeGen、App/测试编译和 build 通过；759 Swift Testing / 112 suites（84.781s）、20 XCTest、16 UI（444.132s）全部通过。
+实际 Swift 启动一次，无实际宿主重启，xcode 命令重启 guard 通过；仅失败时执行的宿主诊断步骤在绿色运行中跳过。
+实际 paused animator 中断/首次 Return 控制及既有编辑器释放/UTF-16 重挂载控制均通过。
+[Push CI 36570838907](https://github.com/54zhien/Zen-Agent/actions/runs/36570838907) 也全部通过。
+
+一位新的只读全分支审查者对 `eec3eb3..9372dfe` 审查实现、测试及相关 ownership/runtime/history 路径：
+结论 Approve，Critical 0、Important 0、Minor 1。
+主代理逐项复核：接受 README 新增段落混合 CRLF 导致默认 diff whitespace 检查失败的 Minor；
+收口提交统一 README 为 LF，并重新执行默认 `git diff --check`。没有 Important/Critical，因此没有触发额外修复轮。
+审查未评价的真机舒适度、实际 VoiceOver、body 次数、内存与动画测量确实缺设备证据；主代理接受该范围限制，保留 Gate A。
+审查已覆盖选中交接与其他导航、Session 身份复用、原会话在 Card 时落库的路径，没有额外代码行为延期项。
+
+本节记录已验收代码的不可变 SHA；后续文档收口的最终 HEAD/tree 与对应 CI 在 PR #22 中记录，避免自引用提交哈希。
+PR #22 已发布，交付时保持未合并；不推进 S5-06。
 
 ## 保留的设备门与历史观察
 
