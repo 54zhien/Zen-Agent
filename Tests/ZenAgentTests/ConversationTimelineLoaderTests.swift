@@ -19,7 +19,7 @@ struct ConversationTimelineLoaderTests {
         let path = try Fixtures.scratchPath(name: "history-consistency.sqlite")
         let store = PersistenceStore(database: try ZenDatabase.open(at: path.path))
         let writer = PersistenceStore(database: try ZenDatabase.open(at: path.path))
-        try store.commitUserTurnAndCreateParentRun(Fixtures.send(runState: .streaming))
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1", runState: .streaming))
         _ = try store.ensureAssistantResponse(forRunID: "r1", messageID: "reply")
         try store.createPart(Fixtures.streamingPart(id: "reply-p", messageID: "reply", text: "before"))
         let gate = HistorySnapshotGate()
