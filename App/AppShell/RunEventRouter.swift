@@ -50,6 +50,7 @@ final class RunEventRouter {
     @ObservationIgnored private var terminalCheckpoints: [String: AgentEvent] = [:]
     private(set) var diagnostics: [String] = []
     private(set) var recoveryMessages: [String: String] = [:]
+    private(set) var lastHandoffDuration: Duration = .zero
 
     /// Runtime owns these Runs; registration only establishes their display route.
     func registerRecoveredRun(runID: String, conversationID: String) {
@@ -140,6 +141,9 @@ final class RunEventRouter {
     }
 
     func registerPreparedPane(_ pane: ConversationPaneController, ticket: UUID) -> Bool {
+        let clock = ContinuousClock()
+        let began = clock.now
+        defer { lastHandoffDuration = began.duration(to: clock.now) }
         let id = pane.conversationID
         guard acceptsPanePreparation(for: id, ticket: ticket), panesByConversationID[id] == nil else { return false }
         let journal = preparationJournals[id] ?? PreparationJournal()
@@ -159,6 +163,9 @@ final class RunEventRouter {
     }
 
     private func replay(_ events: [AgentEvent], in pane: ConversationPaneController) throws {
+        let persistedPartIDs = Set(pane.liveStore.state.timeline.turns.flatMap {
+            $0.textSourcesByItemIndex.values.map(\.partID)
+        })
         // An End received during the read may already have removed Runtime routing.
         // Snapshot Parts still provide the identity and the persisted replay lower bound.
         for turn in pane.liveStore.state.timeline.turns {
@@ -175,12 +182,8 @@ final class RunEventRouter {
             }
         }
         for event in events {
-            if case .messagePartStarted(_, let messageID, let partID, _) = event,
-               pane.liveStore.state.timeline.turns.contains(where: { turn in
-                   turn.textSourcesByItemIndex.values.contains {
-                       $0.messageID == messageID && $0.partID == partID
-                   }
-               }) { continue }
+            if case .messagePartStarted(_, _, let partID, _) = event,
+               persistedPartIDs.contains(partID) { continue }
             _ = try pane.consume(event, in: pane.conversationID)
             if case .runEnded = event { terminalCheckpoints.removeValue(forKey: pane.conversationID) }
         }

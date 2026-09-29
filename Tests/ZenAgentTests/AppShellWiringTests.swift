@@ -135,6 +135,7 @@ struct AppShellWiringTests {
         let owner = fixture.model.router.historyPreparation
         let started = owner.started
         let finished = owner.finished
+        let requested = owner.requested
         let gate = PreviewReadGate()
         defer { gate.release(); try? fixture.store.database.read { $0.trace(nil) } }
         try fixture.store.database.read { db in
@@ -147,9 +148,11 @@ struct AppShellWiringTests {
         for _ in 0..<200 where !gate.hasBlocked { try await Task.sleep(for: .milliseconds(5)) }
         _ = try #require(gate.hasBlocked)
         let second = Task { await fixture.model.openConversation(id: "queued-b") }
-        await Task.yield()
+        for _ in 0..<200 where owner.requested < requested + 2 { try await Task.sleep(for: .milliseconds(5)) }
+        _ = try #require(owner.requested == requested + 2)
         let third = Task { await fixture.model.openConversation(id: "queued-c") }
-        await Task.yield()
+        for _ in 0..<200 where owner.requested < requested + 3 { try await Task.sleep(for: .milliseconds(5)) }
+        _ = try #require(owner.requested == requested + 3)
         #expect(fixture.model.pane === outgoing)
         #expect(owner.inFlight == 1 && owner.started == started + 1)
         gate.release()

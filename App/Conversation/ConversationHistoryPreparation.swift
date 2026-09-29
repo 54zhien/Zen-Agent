@@ -15,6 +15,7 @@ final class ConversationHistoryPreparation {
     }
     private var worker: Worker?
     private var requestID = UUID()
+    private(set) var requested = 0
     private(set) var started = 0
     private(set) var finished = 0
     var inFlight: Int { worker == nil ? 0 : 1 }
@@ -25,6 +26,7 @@ final class ConversationHistoryPreparation {
     }
 
     func prepare(id: String, store: PersistenceStore) async throws -> PreparedConversationHistory {
+        requested += 1
         let request = UUID()
         requestID = request
         if let previous = worker {

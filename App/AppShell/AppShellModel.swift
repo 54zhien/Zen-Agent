@@ -155,6 +155,7 @@ final class AppShellModel {
     @ObservationIgnored private var backgroundedAtInProcess: Date?
     @ObservationIgnored private let sessions = ConversationSessionStore()
     @ObservationIgnored private var navigationID = UUID()
+    @ObservationIgnored private var openTicket: (conversationID: String, ticket: UUID)?
     @ObservationIgnored private(set) var launchRestorationTask: Task<Void, Never>?
 
     var canSend: Bool {
@@ -402,8 +403,15 @@ final class AppShellModel {
         cancelPreviewReturn()
         let navigation = UUID()
         navigationID = navigation
+        if let openTicket {
+            router.cancelPanePreparation(for: openTicket.conversationID, ticket: openTicket.ticket)
+        }
         let ticket = router.beginPanePreparation(for: id)
-        defer { dependencies.router.cancelPanePreparation(for: id, ticket: ticket) }
+        openTicket = (id, ticket)
+        defer {
+            dependencies.router.cancelPanePreparation(for: id, ticket: ticket)
+            if openTicket?.ticket == ticket { openTicket = nil }
+        }
         do {
             let history = try await router.historyPreparation.prepare(id: id, store: dependencies.store)
             guard !Task.isCancelled, navigationID == navigation, router === dependencies.router,
