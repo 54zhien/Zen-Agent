@@ -86,6 +86,15 @@ final class AppShellModel {
         return true
     }
 
+    func newConversationBrowseWindow() throws -> ConversationBrowseWindow {
+        throw PersistenceError.invalidTransition("New entry is not implemented")
+    }
+    func createConversationFromAppSpace(at now: Date = Date()) throws -> String {
+        throw PersistenceError.invalidTransition("App Space creation is not implemented")
+    }
+    func renameAppSpaceConversation(id: String, title: String) -> Bool { false }
+    func pinAppSpaceConversation(id: String, pinned: Bool) -> Bool { false }
+
     func browseWindow(id: String) throws -> ConversationBrowseWindow {
         guard let store = dependencies?.store else { throw AppTargetFailure.persistenceUnavailable }
         return try store.conversationBrowseWindow(id: id)

@@ -27,6 +27,11 @@ final class AppSpaceBrowseController {
     @ObservationIgnored private var reader: Reader?
     @ObservationIgnored var onChanged: (() -> Void)?
 
+    var isNewEntry: Bool { false }
+    func configureNewEntry(reader: @escaping () throws -> ConversationBrowseWindow) { }
+    @discardableResult
+    func selectCreatedConversation(id: String) -> Bool { false }
+
     init(reader: Reader? = nil) { self.reader = reader }
     func configure(reader: @escaping Reader) { self.reader = reader }
 

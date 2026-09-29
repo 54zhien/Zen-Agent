@@ -2275,6 +2275,77 @@ struct AppShellWiringTests {
         #expect(coordinator.sendErrorMessage == "消息已保存，但运行未能完成。")
     }
 
+    @Test("App Space explicit New becomes durable before Full and preserves the original warm owner on cancellation")
+    func explicitAppSpaceNewPreservesOrigin() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let originalID = fixture.model.conversationID
+        let original = try #require(fixture.model.pane?.session)
+        original.composer.draft.text = "original draft"
+        #expect(fixture.model.enterPreview())
+        let requests = fixture.model.router.historyPreparation.requested
+        let newWindow = try fixture.model.newConversationBrowseWindow()
+        #expect(newWindow.older.first?.id == originalID)
+        #expect(fixture.model.router.historyPreparation.requested == requests)
+        let created = try fixture.model.createConversationFromAppSpace(at: Fixtures.epoch)
+        #expect(created != originalID)
+        #expect(try fixture.store.conversation(id: created)?.lifecycle == .visible)
+        #expect(fixture.model.conversationID == originalID && fixture.model.pane == nil)
+        #expect(fixture.model.previewContent.session === original)
+        #expect(await fixture.model.preparePreviewReturn(to: created))
+        #expect(fixture.model.previewContent.prepared?.pane.composer.configuration?.modelID == fixture.modelID)
+        fixture.model.cancelPreviewReturn()
+        #expect(fixture.model.previewContent.session === original && fixture.model.pane == nil)
+        #expect(original.composer.draft.text == "original draft")
+        #expect(await fixture.model.preparePreviewReturn(to: created))
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.conversationID == created)
+        #expect(fixture.model.pane?.composer.draft.presentationState == .resting)
+        #expect(fixture.model.pane?.composer.draft.text == "")
+        #expect(fixture.model.canSend)
+        #expect(try fixture.store.activeParentRunIDs().isEmpty)
+        #expect(fixture.model.renameAppSpaceConversation(id: created, title: "created manual") == false)
+        #expect(await fixture.model.openConversation(id: originalID) == false)
+        // Missing original is a warm owner, not a newly fabricated persisted row.
+        #expect(try fixture.store.conversation(id: originalID) == nil)
+    }
+
+    @Test("empty persisted history resolves the configured default before its first Send")
+    func emptyDurableHistoryCanSend() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in try Fixtures.conversation(id: "empty-history").insert(db) }
+        #expect(await fixture.model.openConversation(id: "empty-history"))
+        #expect(fixture.model.pane?.composer.configuration?.modelID == fixture.modelID)
+        #expect(fixture.model.canSend)
+        #expect(fixture.model.persistedTurnCount == 0)
+        try fixture.store.renameConversation(id: "empty-history", title: "manual before actual Send", at: Fixtures.epoch)
+        try await send("first real turn", at: Fixtures.epoch.addingTimeInterval(10), in: fixture)
+        #expect(fixture.model.persistedTurnCount == 1)
+        #expect(try fixture.store.conversation(id: "empty-history")?.title == "manual before actual Send")
+    }
+
+    @Test("selected metadata edits neither prepare history nor replace the retained Session")
+    func selectedMetadataDoesNotOpenFull() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "metadata-origin").insert(db)
+            try Fixtures.conversation(id: "metadata-selected").insert(db)
+        }
+        #expect(await fixture.model.openConversation(id: "metadata-origin"))
+        let original = try #require(fixture.model.pane?.session)
+        #expect(fixture.model.enterPreview())
+        let requests = fixture.model.router.historyPreparation.requested
+        #expect(fixture.model.renameAppSpaceConversation(id: "metadata-selected", title: "Selected manual"))
+        #expect(fixture.model.pinAppSpaceConversation(id: "metadata-selected", pinned: true))
+        #expect(try fixture.store.conversation(id: "metadata-selected")?.title == "Selected manual")
+        #expect(try fixture.store.conversation(id: "metadata-selected")?.pinned == true)
+        #expect(try fixture.store.conversation(id: "metadata-selected")?.userActiveAt == Fixtures.epoch)
+        #expect(fixture.model.previewContent.session === original && fixture.model.pane == nil)
+        #expect(fixture.model.router.historyPreparation.requested == requests)
+    }
+
     private func makeFixture(
         seed: ShellCredentialSeed,
         createInstance: Bool = true,
