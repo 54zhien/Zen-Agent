@@ -115,6 +115,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
         }
         .onChange(of: dynamicTypeSize) { _, _ in updateMinimumSize() }
         .onChange(of: scenePhase) { _, phase in
+#if DEBUG
+            AppSpaceBrowseController.trace("scene \(phase)")
+#endif
             if phase != .active { browse.cancel(); lift.invalidate() }
         }
     }
@@ -151,6 +154,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     private func updateMinimumSize() {
+#if DEBUG
+        AppSpaceBrowseController.trace("minimum size")
+#endif
         browse.updateMinimumCardSize(CGSize(width: minimumWidth, height: minimumHeight))
         lift.minimumCardSize = CGSize(width: minimumWidth, height: minimumHeight)
         lift.invalidate()

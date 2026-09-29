@@ -110,7 +110,13 @@ final class AppSpaceBrowseController {
         }
     }
 
-    func cancel() { state.cancel(); onChanged?() }
+    func cancel() {
+        // Native Composer readiness can invalidate Lift on every update. An idle
+        // browse cancellation must not publish another observed update back to it.
+        guard state.phase != .idle || state.pendingSettlement != nil || state.offset != 0 else { return }
+        state.cancel()
+        onChanged?()
+    }
     func finish() {
         cancel()
         isPresented = false

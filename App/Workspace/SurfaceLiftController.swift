@@ -46,6 +46,9 @@ final class SurfaceLiftController {
 
     func bind<Content: View>(_ host: ConversationSurfaceViewController<Content>) {
         guard hostID != ObjectIdentifier(host) else { return }
+#if DEBUG
+        AppSpaceBrowseController.trace("bind rebind=\(hostID != nil)")
+#endif
         invalidate()
         detach?()
         host.liftController?.unbind(host)
@@ -53,7 +56,12 @@ final class SurfaceLiftController {
         hostID = ObjectIdentifier(host)
         host.liftController = self
         detach = { [weak host] in host?.onViewportChanged = nil; host?.liftController = nil }
-        host.onViewportChanged = { [weak self] in self?.invalidate() }
+        host.onViewportChanged = { [weak self] in
+#if DEBUG
+            AppSpaceBrowseController.trace("native viewport invalidation")
+#endif
+            self?.invalidate()
+        }
         resolveTarget = { [weak host] minimum in
             guard let host,
                   let placement = AppSpaceGeometry.resolve(size: host.view.bounds.size,
@@ -86,6 +94,9 @@ final class SurfaceLiftController {
                 guard let self, let host, self.hostID == binding,
                       self.state.pendingSettlement == settlement else { return }
                 if handoff {
+#if DEBUG
+                    AppSpaceBrowseController.trace("handoff completion finished=\(finished)")
+#endif
                     guard finished, self.commitFull?() == true else { self.invalidate(); return }
                     self.returnNeedsHandoff = false
                     // Preview occupies the first segment. The same Surface hosts
@@ -110,6 +121,9 @@ final class SurfaceLiftController {
 
     func unbind<Content: View>(_ host: ConversationSurfaceViewController<Content>) {
         guard hostID == ObjectIdentifier(host) else { return }
+#if DEBUG
+        AppSpaceBrowseController.trace("unbind")
+#endif
         invalidate()
         host.onViewportChanged = nil
         host.liftController = nil
