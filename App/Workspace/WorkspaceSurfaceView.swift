@@ -5,10 +5,18 @@ private struct SurfaceLiftControllerKey: EnvironmentKey {
     static let defaultValue: SurfaceLiftController? = nil
 }
 
+private struct SurfaceBrowseControllerKey: EnvironmentKey {
+    static let defaultValue: AppSpaceBrowseController? = nil
+}
+
 extension EnvironmentValues {
     var surfaceLiftController: SurfaceLiftController? {
         get { self[SurfaceLiftControllerKey.self] }
         set { self[SurfaceLiftControllerKey.self] = newValue }
+    }
+    var surfaceBrowseController: AppSpaceBrowseController? {
+        get { self[SurfaceBrowseControllerKey.self] }
+        set { self[SurfaceBrowseControllerKey.self] = newValue }
     }
 }
 
@@ -17,6 +25,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
     let content: Content
     private let model: AppShellModel?
     @State private var lift: SurfaceLiftController
+    @State private var browse = AppSpaceBrowseController()
     @ScaledMetric(relativeTo: .body) private var minimumWidth = 220.0
     @ScaledMetric(relativeTo: .body) private var minimumHeight = 300.0
     @Environment(\.scenePhase) private var scenePhase
@@ -30,16 +39,23 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topLeading) {
             Color(white: 0.035)
-            if let model, model.previewContent.isPresented {
-                predecessorPreviews(model)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+            if model?.previewContent.isPresented == true, let layout = browse.layout() {
+                ForEach(layout.cards.filter { $0.item != browse.state.selected }, id: \.item) { card in
+                    projectedCard(card)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                        .opacity(card.opacity)
+                        .position(x: card.frame.midX, y: card.frame.midY)
+                        .zIndex(4 - card.depth)
+                }
             }
-            ConversationSurfaceHost(liftController: lift) {
+            ConversationSurfaceHost(liftController: lift, browseController: model == nil ? nil : browse) {
                 content.environment(\.surfaceLiftController, lift)
+                    .environment(\.surfaceBrowseController, model == nil ? nil : browse)
             }
+            .zIndex(4 - (browse.layout()?.cards.first { $0.item == browse.state.selected }?.depth ?? 0))
 #if DEBUG
             if ProcessInfo.processInfo.environment["ZEN_SURFACE_LIFT_UI_TEST"] == "1"
                 || ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
@@ -52,16 +68,33 @@ struct WorkspaceSurfaceView<Content: View>: View {
         .ignoresSafeArea()
         .onAppear {
             if let model {
+                let browseController = browse
+                browse.configure(reader: { [weak model] id in
+                    guard let model else { throw PersistenceError.conversationNotFound(id) }
+                    return try model.browseWindow(id: id)
+                })
                 lift.configurePreview(
-                    enter: { [weak model] in model?.enterPreview() ?? false },
-                    prepare: { [weak model] in await model?.preparePreviewReturn() ?? false },
+                    enter: { [weak model, weak browseController] in
+                        guard let model, let browseController, model.enterPreview() else { return false }
+                        browseController.present(originID: model.conversationID, fallback: model.previewContent.summaries)
+                        model.previewContent.releaseSummaryWindow()
+                        return true
+                    },
+                    prepare: { [weak model, weak browseController] in
+                        browseController?.cancel()
+                        return await model?.preparePreviewReturn(to: browseController?.selectedConversationID) ?? false
+                    },
                     commit: { [weak model] in model?.commitPreviewReturn() ?? false },
                     cancel: { [weak model] in model?.cancelPreviewReturn() },
                     isPresented: { [weak model] in model?.previewContent.isPresented ?? false },
-                    label: { [weak model] in
-                        guard let model else { return "当前会话" }
-                        return model.previewContent.accessibilityLabel
+                    label: { [weak model, weak browseController] in
+                        guard let model, let browseController else { return "当前会话" }
+                        return Self.cardLabel(model: model, browse: browseController)
                     })
+                if model.previewContent.isPresented {
+                    browse.present(originID: model.conversationID, fallback: model.previewContent.summaries)
+                    model.previewContent.releaseSummaryWindow()
+                }
             }
             updateMinimumSize()
         }
@@ -70,46 +103,54 @@ struct WorkspaceSurfaceView<Content: View>: View {
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
                 guard model.previewContent.isPresented else { return }
-                model.refreshPreview()
+                if !model.previewContent.isPreparing { browse.refresh() }
             }
         }
-        .onChange(of: model?.previewContent.accessibilityLabel) { _, _ in lift.refreshCardAccessibility() }
+        .onChange(of: cardLabel) { _, _ in lift.refreshCardAccessibility() }
+        .onChange(of: model?.previewContent.isPresented) { _, presented in
+            if presented != true { browse.finish() }
+        }
         .onChange(of: dynamicTypeSize) { _, _ in updateMinimumSize() }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { lift.invalidate() }
+            if phase != .active { browse.cancel(); lift.invalidate() }
         }
     }
 
-    private func predecessorPreviews(_ model: AppShellModel) -> some View {
-        GeometryReader { viewport in
-            let rows = model.previewContent.summaries
-            let ids = Array(rows.map(\.id).reversed())
-            let current: AppSpaceGeometry.Item = ids.contains(model.conversationID)
-                ? .conversation(model.conversationID) : .newConversation
-            let insets = viewport.safeAreaInsets
-            if let layout = AppSpaceGeometry.resolve(size: viewport.size,
-                safeArea: UIEdgeInsets(top: insets.top, left: insets.leading, bottom: insets.bottom, right: insets.trailing),
-                historyIDs: ids, current: current,
-                minimumCardSize: CGSize(width: minimumWidth, height: minimumHeight)) {
-                ZStack(alignment: .topLeading) {
-                    ForEach(layout.cards.filter { $0.depth > 0 }, id: \.item) { card in
-                        if case .conversation(let id) = card.item, let row = rows.first(where: { $0.id == id }) {
-                            ConversationPreviewView(summary: row)
-                                .frame(width: card.frame.width, height: card.frame.height)
-                                .clipShape(RoundedRectangle(cornerRadius: card.cornerRadius))
-                                .position(x: card.frame.midX, y: card.frame.midY)
-                                .zIndex(Double(3 - card.depth))
-                        }
-                    }
-                }
-                .frame(width: viewport.size.width, height: viewport.size.height)
-            }
-        }
+    private var cardLabel: String {
+        guard let model else { return "当前会话" }
+        return Self.cardLabel(model: model, browse: browse)
+    }
+
+    private static func cardLabel(model: AppShellModel, browse: AppSpaceBrowseController) -> String {
+        let status = model.previewContent.status(for: browse.selectedConversationID,
+            summary: browse.currentSummary, summaryError: browse.errorMessage)
+        return ConversationPreviewController.accessibilityLabel(summary: browse.currentSummary, status: status)
+    }
+
+    private func projectedCard(_ card: AppSpaceBrowseGeometry.Card) -> some View {
+        let summary: ConversationSummary? = {
+            if case .conversation(let id) = card.item { return browse.summaries.first { $0.id == id } }
+            return nil
+        }()
+        let size = browse.viewportSize
+        let insets = browse.safeArea
+        let pose = AppSpaceBrowseGeometry.pose(for: card, size: size, safeArea: insets)
+        // Match the native Current's logical viewport, scaling and crop. Reflowing
+        // a predecessor at its thumbnail width would jump its text at commitment.
+        return ConversationPreviewView(summary: summary,
+            status: summary?.contentUnavailable == true ? .contentUnavailable : .ready)
+            .frame(width: max(1, size.width - insets.left - insets.right),
+                height: max(1, size.height - insets.top - insets.bottom))
+            .padding(EdgeInsets(top: insets.top, leading: insets.left, bottom: insets.bottom, trailing: insets.right))
+            .scaleEffect(pose?.scale ?? 1)
+            .frame(width: card.frame.width, height: card.frame.height)
+            .clipShape(RoundedRectangle(cornerRadius: card.cornerRadius, style: .continuous))
     }
 
     private func updateMinimumSize() {
-        lift.invalidate()
+        browse.updateMinimumCardSize(CGSize(width: minimumWidth, height: minimumHeight))
         lift.minimumCardSize = CGSize(width: minimumWidth, height: minimumHeight)
+        lift.invalidate()
     }
 }
 

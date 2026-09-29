@@ -38,7 +38,30 @@ struct ConversationBrowseWindow: Equatable, Sendable {
 
 extension PersistenceStore {
     func conversationBrowseWindow(id: String) throws -> ConversationBrowseWindow {
-        ConversationBrowseWindow(current: nil, older: [], newer: nil)
+        // One read snapshot prevents activity/pin changes between neighboring
+        // queries from producing a duplicated or mismatched window.
+        try database.read { db in
+            let current = try summaryRows(in: db, predicate: "lifecycle = 'visible' AND id = ?",
+                limit: 1, arguments: [id]).first
+            guard let current else {
+                if try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM conversation WHERE id = ?)", arguments: [id]) == true {
+                    throw PersistenceError.invalidTransition("Conversation is not visible")
+                }
+                return ConversationBrowseWindow(current: nil,
+                    older: try summaryRows(in: db, predicate: "lifecycle = 'visible'", limit: 3,
+                        arguments: StatementArguments()), newer: nil)
+            }
+            let cursor = current.cursor
+            let arguments: StatementArguments = [cursor.pinned, cursor.pinned, cursor.userActiveAt,
+                cursor.pinned, cursor.userActiveAt, cursor.id]
+            let older = try summaryRows(in: db,
+                predicate: "lifecycle = 'visible' AND (pinned < ? OR (pinned = ? AND userActiveAt < ?) OR (pinned = ? AND userActiveAt = ? AND id > ?))",
+                limit: 3, arguments: arguments)
+            let newer = try summaryRows(in: db,
+                predicate: "lifecycle = 'visible' AND (pinned > ? OR (pinned = ? AND userActiveAt > ?) OR (pinned = ? AND userActiveAt = ? AND id < ?))",
+                limit: 1, arguments: arguments, reversed: true).first
+            return ConversationBrowseWindow(current: current, older: older, newer: newer)
+        }
     }
 
     func conversationSummaryPage(limit: Int = 50,
@@ -73,6 +96,15 @@ extension PersistenceStore {
 
     private func summaryRows(predicate: String, limit: Int,
                              arguments: StatementArguments) throws -> [ConversationSummary] {
+        try database.read { db in
+            try summaryRows(in: db, predicate: predicate, limit: limit, arguments: arguments)
+        }
+    }
+
+    private func summaryRows(in db: Database, predicate: String, limit: Int,
+                             arguments: StatementArguments, reversed: Bool = false) throws -> [ConversationSummary] {
+        let order = reversed ? "pinned ASC, userActiveAt ASC, id DESC" : "pinned DESC, userActiveAt DESC, id ASC"
+        let resultOrder = reversed ? "c.pinned ASC, c.userActiveAt ASC, c.id DESC" : "c.pinned DESC, c.userActiveAt DESC, c.id ASC"
         // Materialize only bounded metadata before looking up any message body.
         // JSON validation guards decoding; reasoning and credential references never leave SQL.
         let sql = """
@@ -80,7 +112,7 @@ extension PersistenceStore {
             SELECT id, substr(title, 1, 512) AS storedTitle, pinned, userActiveAt
             FROM conversation
             WHERE \(predicate)
-            ORDER BY pinned DESC, userActiveAt DESC, id ASC
+            ORDER BY \(order)
             LIMIT \(limit)
         )
         SELECT c.*,
@@ -125,41 +157,39 @@ extension PersistenceStore {
             WHERE m.conversationID = c.id AND m.role IN ('user', 'assistant') AND p.kind = 'text'
             ORDER BY m.sequence DESC, m.id DESC, p.sequence DESC, p.id DESC LIMIT 1
         )
-        ORDER BY c.pinned DESC, c.userActiveAt DESC, c.id ASC
+        ORDER BY \(resultOrder)
         """
-        return try database.read { db in
-            try Row.fetchAll(db, sql: sql, arguments: arguments).map { row in
-                let runID: String? = row["runID"]
-                var projection: RunProjection?
-                var runMetadataUnavailable = false
-                if let runID {
-                    let rawState: String = row["runState"]
-                    let state = RunState(rawValue: rawState)
-                    let rawReason: String? = row["endReason"]
-                    let reason = rawReason.flatMap(EndReason.init(rawValue:))
-                    if let state, rawReason == nil || reason != nil {
-                        projection = RunProjection(runID: runID, state: state, endReason: reason)
-                    } else {
-                        // Keep a readable row's identity/cursor, but do not invent
-                        // a successful business state for unknown persisted metadata.
-                        runMetadataUnavailable = true
-                    }
+        return try Row.fetchAll(db, sql: sql, arguments: arguments).map { row in
+            let runID: String? = row["runID"]
+            var projection: RunProjection?
+            var runMetadataUnavailable = false
+            if let runID {
+                let rawState: String = row["runState"]
+                let state = RunState(rawValue: rawState)
+                let rawReason: String? = row["endReason"]
+                let reason = rawReason.flatMap(EndReason.init(rawValue:))
+                if let state, rawReason == nil || reason != nil {
+                    projection = RunProjection(runID: runID, state: state, endReason: reason)
+                } else {
+                    // Keep a readable row's identity/cursor, but do not invent
+                    // a successful business state for unknown persisted metadata.
+                    runMetadataUnavailable = true
                 }
-                let stored: String = row["storedTitle"]
-                let prompt: String? = row["firstPrompt"]
-                let normalized = Self.summaryText(stored)
-                let fallback = Self.summaryText(prompt ?? "")
-                let title = normalized.isEmpty ? (fallback.isEmpty ? "未命名会话" : fallback) : normalized
-                let providerID: String? = row["providerInstanceID"]
-                let modelID: String? = row["modelID"]
-                return ConversationSummary(id: row["id"], title: Self.summaryClip(title, limit: 56),
-                    excerpt: Self.summaryClip(Self.summaryText(row["excerpt"] as String? ?? ""), limit: 320),
-                    pinned: row["pinned"], userActiveAt: row["userActiveAt"],
-                    contentUnavailable: runMetadataUnavailable || (row["firstUnavailable"] as Int) != 0
-                        || (row["latestUnavailable"] as Int) != 0,
-                    runProjection: projection, providerInstanceID: providerID.map(ProviderInstanceID.init(rawValue:)),
-                    modelID: modelID.map(ModelID.init(rawValue:)), providerName: row["providerName"])
             }
+            let stored: String = row["storedTitle"]
+            let prompt: String? = row["firstPrompt"]
+            let normalized = Self.summaryText(stored)
+            let fallback = Self.summaryText(prompt ?? "")
+            let title = normalized.isEmpty ? (fallback.isEmpty ? "未命名会话" : fallback) : normalized
+            let providerID: String? = row["providerInstanceID"]
+            let modelID: String? = row["modelID"]
+            return ConversationSummary(id: row["id"], title: Self.summaryClip(title, limit: 56),
+                excerpt: Self.summaryClip(Self.summaryText(row["excerpt"] as String? ?? ""), limit: 320),
+                pinned: row["pinned"], userActiveAt: row["userActiveAt"],
+                contentUnavailable: runMetadataUnavailable || (row["firstUnavailable"] as Int) != 0
+                    || (row["latestUnavailable"] as Int) != 0,
+                runProjection: projection, providerInstanceID: providerID.map(ProviderInstanceID.init(rawValue:)),
+                modelID: modelID.map(ModelID.init(rawValue:)), providerName: row["providerName"])
         }
     }
 
