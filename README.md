@@ -93,8 +93,10 @@ As of 2026-09-30:
 - S5-07 Card Delete/Undo is on stacked draft
   [PR #24](https://github.com/54zhien/Zen-Agent/pull/24). Its reviewed clock and
   replacement-read repair source passed [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36624971027)
-  (802 Swift Testing, 20 XCTest, 19 UI). A mounted accessibility-action test and
-  delivery receipt follow in the final revision; use PR #24 for its exact-head CI.
+  (802 Swift Testing, 20 XCTest, 19 UI). Its final source/test revision passed
+  [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36627442020)
+  (803 Swift Testing, 20 XCTest, 19 UI), including the mounted accessibility Delete
+  action. PR #24 holds the exact-head receipt after closure documentation.
   See [the S5-07 record](tasks/s5-07-delete-undo.md). S5-08–16 remain later work.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order

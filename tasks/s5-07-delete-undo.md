@@ -33,4 +33,6 @@ Repair source tree `6e898e1b43509fdd3c81b5753de60938f12f086a`, remote commit `f9
 
 ## Delivery receipt
 
-The final delivery revision adds a mounted UIKit accessibility-action test and this receipt. Its exact-head CI result is published in PR #24 after that revision runs. CI cannot establish physical performance, reading comfort, gesture error rate, actual VoiceOver behavior or device memory. The owner will review the whole Stage 5 before physical-device testing.
+The final source/test revision, remote commit `328804f9a99d17efad2c0410462e05f59357bbe2`, tree `08d7ec162db05dd521b18031fe4b96fee81f9615`, passed [full CI 36627442020](https://github.com/54zhien/Zen-Agent/actions/runs/36627442020), job `109608023892`: generation, App build, 803 Swift Testing / 121 suites, 20 XCTest, 19 UI, zero failures. The mounted UIKit accessibility Delete action passed on its real Card host. One Swift Testing start and one full UI suite completed; no host restart was reported. [Guard self-test 36627442284](https://github.com/54zhien/Zen-Agent/actions/runs/36627442284) passed. This closure-only documentation update gets its own exact-tree CI, reported in PR #24.
+
+CI cannot establish physical performance, reading comfort, gesture error rate, actual VoiceOver behavior or device memory. The owner will review the whole Stage 5 before physical-device testing.
