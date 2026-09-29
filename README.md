@@ -89,7 +89,13 @@ As of 2026-09-30:
   (780 Swift,20 XCTest,18 UI). Final publication also applies the existing active-Run
   protection to pristine-page retirement; the latest exact-head result and readiness
   are recorded in PR #23 after its own full CI. One Rename prefill Minor is deferred.
-  See [the slice record](tasks/s5-06-new-pin-rename.md). S5-07–16 remain later work.
+  See [the slice record](tasks/s5-06-new-pin-rename.md).
+- S5-07 Card Delete/Undo is on stacked draft
+  [PR #24](https://github.com/54zhien/Zen-Agent/pull/24). Its reviewed clock and
+  replacement-read repair source passed [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36624971027)
+  (802 Swift Testing, 20 XCTest, 19 UI). A mounted accessibility-action test and
+  delivery receipt follow in the final revision; use PR #24 for its exact-head CI.
+  See [the S5-07 record](tasks/s5-07-delete-undo.md). S5-08–16 remain later work.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
   does not establish device memory, performance, input, comfort or VoiceOver acceptance.

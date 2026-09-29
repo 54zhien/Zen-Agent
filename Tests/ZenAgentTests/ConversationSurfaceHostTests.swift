@@ -15,6 +15,49 @@ private actor SurfaceCommandProbe {
 @Suite("Stable Conversation Surface", .serialized)
 @MainActor
 struct ConversationSurfaceHostTests {
+    @Test("mounted Current exposes a working accessibility Delete action")
+    func mountedCardAccessibilityDeleteCommitsCapturedID() async throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.createEmptyConversation(id: "accessible-card", at: Date())
+        let browse = AppSpaceBrowseController(reader: { try store.conversationBrowseWindow(id: $0) })
+        browse.configureNewEntry(reader: { try store.conversationNewBrowseWindow(originID: "accessible-card") })
+        let host = ConversationSurfaceViewController(content: Text("Card"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        let lift = SurfaceLiftController()
+        lift.bind(host)
+        host.bindBrowse(browse)
+        browse.present(originID: "accessible-card")
+        host.bindDeletion({ id, _ in
+            guard id == "accessible-card" else { return false }
+            do {
+                _ = try store.beginCardDeletion(conversationID: id, at: Date())
+                return true
+            } catch { return false }
+        }, isPending: { id in (try? store.pendingCardDeletion(id: id)) != nil })
+        defer {
+            host.unbindDeletion()
+            host.unbindBrowse()
+            lift.unbind(host)
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+
+        host.view.layoutIfNeeded()
+        #expect(lift.arm(SurfaceLiftEligibility()))
+        #expect(lift.drag(upwardDistance: 180, eligibility: SurfaceLiftEligibility()))
+        #expect(lift.end(animated: false)?.destination == .card)
+        let action = try #require(host.surfaceView.accessibilityCustomActions?.first { $0.name == "删除会话" })
+        let handler = try #require(action.actionHandler)
+        #expect(handler(action))
+        for _ in 0..<20 {
+            if try store.conversationLifecycle(id: "accessible-card") == .pendingDeletion { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(try store.conversationLifecycle(id: "accessible-card") == .pendingDeletion)
+    }
+
     @Test(arguments: [false, true])
     func roundTripKeepsEditorOwnersDraftRunAndMessages(actualLift: Bool) async throws {
         let timeline = ConversationTimelineProjection(conversationID: "surface-conversation", turns: [

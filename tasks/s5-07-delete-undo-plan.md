@@ -33,24 +33,24 @@
 
 **Files:** `Tests/ZenAgentTests/AppSpaceDeletionTests.swift`; `App/Persistence/PersistenceStore+Deletion.swift`; `App/Persistence/Migrations.swift`; `App/Runtime/ConversationRuntime.swift` only if a true missing Runtime boundary is found.
 
-- [ ] Test selected durable ID deletion after a terminal Run; assert hidden summary, intact Messages/FileAsset references/Soul, Undo restores full body.
-- [ ] Test live and suspended Parent Runs; assert Runtime Stop reaches cancelled terminal state before lifecycle changes; injected Stop failure retains visible state.
-- [ ] Test deadline recovery, expired finalization, stale/double Undo and finalization, plus a concurrent Run acceptance race.
-- [ ] Publish tests-only branch; read actual compiled macOS behavioral RED. Compilation or fixture errors do not count.
-- [ ] Implement the smallest Persistence/read and Runtime coordination boundary; run full macOS CI GREEN.
+- [x] Test selected durable ID deletion after a terminal Run; assert hidden summary, intact Messages/FileAsset references/Soul, Undo restores full body.
+- [x] Test live and suspended Parent Runs; assert Runtime Stop reaches cancelled terminal state before lifecycle changes; injected Stop failure retains visible state.
+- [x] Test deadline recovery, expired finalization, stale/double Undo and finalization, plus a concurrent Run acceptance race.
+- [x] Publish tests-only branch; read actual compiled macOS behavioral RED. Compilation or fixture errors do not count.
+- [x] Implement the smallest Persistence/read and Runtime coordination boundary; run full macOS CI GREEN.
 
 ### Task 2: Selection and native interaction RED
 
 **Files:** `App/AppShell/AppSpaceConversationDeletion.swift` (new); `App/AppShell/AppShellModel.swift`; `App/Workspace/AppSpaceBrowseController.swift`; `App/Workspace/AppSpaceCardDeletionInteraction.swift` (new); `App/Workspace/ConversationSurfaceHost.swift`; `App/Workspace/WorkspaceSurfaceView.swift`; focused unit and UI tests.
 
-- [ ] Test that a committed selected ID disappears, next valid ID takes Current, Undo restores the exact ID, and New/uncommitted cards reject Delete.
-- [ ] Test direction lock, under-threshold rebound, over-threshold upward commit, bounded velocity, and stale completion rejection.
+- [x] Test that a committed selected ID disappears, next valid ID takes Current, Undo restores the exact ID, and New/uncommitted cards reject Delete.
+- [x] Test direction lock, under-threshold rebound, over-threshold upward commit, bounded velocity, and stale completion rejection.
 - [ ] Test native upward swipe and accessibility Delete/Undo on actual mounted Current, with a stable error/Undo affordance.
-- [ ] Publish tests-only compiled behavioral RED before source; implement the owner and UIKit transport without changing horizontal Browse or Surface ownership.
-- [ ] Run full macOS CI. Repair all failures without weakening existing keyboard/Lift/browse assertions.
+- [x] Publish tests-only compiled behavioral RED before source; implement the owner and UIKit transport without changing horizontal Browse or Surface ownership.
+- [x] Run full macOS CI. Repair all failures without weakening existing keyboard/Lift/browse assertions.
 
 ### Task 3: Whole-slice review and delivery
 
-- [ ] Independently review the complete S5-06..S5-07 diff, repair Critical/Important findings with behavioral RED, and rerun full CI.
+- [x] Independently review the complete S5-06..S5-07 diff, repair Critical/Important findings with behavioral RED, and rerun full CI.
 - [ ] Record exact head/tree, CI run/attempt, counts, remaining device evidence, and PR dependency in `tasks/s5-07-delete-undo.md`.
 - [ ] Keep this slice on a stacked PR for the owner's whole-stage review; continue to S5-08 only after exact-tree GREEN.
