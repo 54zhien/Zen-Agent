@@ -567,6 +567,7 @@ struct AppShellWiringTests {
         fixture.model.refreshPreview()
         #expect(fixture.model.previewContent.currentSummary?.contentUnavailable == true)
         #expect(fixture.model.previewContent.status == .contentUnavailable)
+        #expect(fixture.model.previewContent.accessibilityLabel.contains("部分内容暂不可用"))
         #expect(!(await fixture.model.preparePreviewReturn()))
         let failure = try #require(fixture.model.previewContent.errorMessage)
         #expect(fixture.model.previewContent.status == .failed(failure))
