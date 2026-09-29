@@ -10,7 +10,7 @@ struct AppSpaceCardDeletionGestureTests {
         #expect(AppSpaceCardDeletionGesture.shouldBegin(velocity: CGPoint(x: 20, y: -400)))
         #expect(!AppSpaceCardDeletionGesture.shouldBegin(velocity: CGPoint(x: 400, y: -20)))
         #expect(!AppSpaceCardDeletionGesture.shouldBegin(velocity: CGPoint(x: 0, y: 400)))
-        #expect(!AppSpaceCardDeletionGesture.shouldBegin(velocity: CGPoint(x: .nan, y: -400)))
+        #expect(!AppSpaceCardDeletionGesture.shouldBegin(velocity: CGPoint(x: CGFloat.nan, y: -400)))
     }
 
     @Test("short releases rebound; distance or bounded fling commits Delete")
