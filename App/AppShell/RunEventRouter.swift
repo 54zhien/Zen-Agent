@@ -163,12 +163,14 @@ final class RunEventRouter {
     }
 
     private func replay(_ events: [AgentEvent], in pane: ConversationPaneController) throws {
+        guard !events.isEmpty else { return }
+        let replayRunIDs = Set(events.map(Self.runID(for:)))
         let persistedPartIDs = Set(pane.liveStore.state.timeline.turns.flatMap {
             $0.textSourcesByItemIndex.values.map(\.partID)
         })
         // An End received during the read may already have removed Runtime routing.
         // Snapshot Parts still provide the identity and the persisted replay lower bound.
-        for turn in pane.liveStore.state.timeline.turns {
+        for turn in pane.liveStore.state.timeline.turns where replayRunIDs.contains(turn.runID) {
             for (index, source) in turn.textSourcesByItemIndex
             where source.canResume && turn.items.indices.contains(index) {
                 let kind: MessagePartKind

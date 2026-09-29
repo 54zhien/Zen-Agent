@@ -88,6 +88,9 @@ struct NewConversationView: View {
                         actionBridge: bridge,
                         maxProviderSteps: AppShellModel.maxProviderSteps
                     )
+                    // Native scroll geometry belongs to this Conversation's Pane.
+                    // Async Open must not reuse the outgoing empty page's measurements.
+                    .id(pane.conversationID)
                 } else {
                     ContentUnavailableView {
                         Label("新会话", systemImage: "bubble.left")

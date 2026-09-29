@@ -84,7 +84,8 @@ final class AppShellModel {
         guard !previewContent.isPreparing else { return false }
         let id = conversationID
         let preparation = previewContent.beginPreparation()
-        // A busy Run may invalidate a read. Retry a finite number of times; failure
+        // Structural Run/Tool changes may invalidate a read. Text growth is replayed.
+        // Retry a finite number of times; failure
         // leaves the Preview and its logical state intact for an explicit retry.
         for _ in 0..<3 {
             let ticket = router.beginPanePreparation(for: id)

@@ -20,6 +20,20 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("releasing an idle shell releases its registered route and native display owner")
+    func idleShellReleasesRoute() throws {
+        weak var route: RunEventRouter?
+        weak var display: ConversationPaneController?
+        do {
+            let fixture = try makeFixture(seed: .active)
+            defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+            route = fixture.model.router
+            display = fixture.model.pane
+            #expect(route != nil && display != nil)
+        }
+        #expect(route == nil && display == nil)
+    }
+
     @Test("cancelling Return stops obsolete SQL work before a new Return completes")
     func previewCancellationStopsHistoryWork() async throws {
         let fixture = try makeFixture(seed: .active)
@@ -122,6 +136,7 @@ struct AppShellWiringTests {
         #expect(pane.liveStore.state.timeline.turns.flatMap(\.items).contains(.assistantText(expected)))
         #expect(pane.liveStore.droppedUnlocatableDeltas == 0)
         #expect(!pane.liveStore.needsTimelineReload)
+        if endsDuringRead { #expect(pane.liveStore.state.activeParts.isEmpty) }
     }
 
     @Test("queued Open keeps the outgoing Pane and only the latest navigation starts a read")
