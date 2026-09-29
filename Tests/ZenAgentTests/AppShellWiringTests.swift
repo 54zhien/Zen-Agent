@@ -20,6 +20,77 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("Preview retains durable reconstruction eligibility under warm-cache pressure")
+    func previewDoesNotDisableExistingWarmEviction() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            for index in 0..<15 { try Fixtures.conversation(id: "preview-warm-\(index)").insert(db) }
+        }
+        #expect(await fixture.model.openConversation(id: "preview-warm-0"))
+        weak var evictable = fixture.model.pane?.session
+        for index in 1..<15 {
+            #expect(fixture.model.enterPreview())
+            #expect(await fixture.model.preparePreviewReturn(to: "preview-warm-\(index)"))
+            #expect(fixture.model.commitPreviewReturn())
+            #expect(fixture.model.conversationID == "preview-warm-\(index)")
+        }
+        #expect(evictable == nil, "Preview must not permanently pin a reconstructible Session")
+    }
+
+    @Test("real hosted Card accessibility actions browse without preparing Full")
+    func nativeCardAccessibilityBrowse() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            for index in 0..<6 {
+                var row = Fixtures.conversation(id: "native-browse-\(index)", title: "Native browse \(index)")
+                row.userActiveAt = Fixtures.epoch.addingTimeInterval(Double(index))
+                try row.insert(db)
+            }
+        }
+        #expect(await fixture.model.openConversation(id: "native-browse-5"))
+        let session = try #require(fixture.model.pane?.session)
+        #expect(fixture.model.enterPreview())
+        let requests = fixture.model.router.historyPreparation.requested
+        let host = UIHostingController(rootView: WorkspaceSurfaceView(model: fixture.model) {
+            NewConversationView(model: fixture.model)
+        })
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        func findCard(_ view: UIView) -> SurfaceClipView? {
+            if let card = view as? SurfaceClipView { return card }
+            return view.subviews.lazy.compactMap(findCard).first
+        }
+        for _ in 0..<40 where findCard(host.view)?.accessibilityIdentifier != "workspace-current-card" {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let card = try #require(findCard(host.view))
+        #expect(card.accessibilityCustomActions?.contains { $0.name == "下一会话" } == false)
+        let previous = try #require(card.accessibilityCustomActions?.first { $0.name == "上一会话" })
+        let previousHandler = try #require(previous.actionHandler)
+        #expect(previousHandler(previous))
+        for _ in 0..<40 where card.accessibilityLabel?.contains("Native browse 4") != true {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(card.accessibilityLabel?.contains("Native browse 4") == true)
+        #expect(fixture.model.conversationID == "native-browse-5" && fixture.model.pane == nil)
+        #expect(fixture.model.previewContent.session === session && fixture.model.previewContent.prepared == nil)
+        #expect(fixture.model.router.historyPreparation.requested == requests)
+        let next = try #require(card.accessibilityCustomActions?.first { $0.name == "下一会话" })
+        let nextHandler = try #require(next.actionHandler)
+        #expect(nextHandler(next))
+        for _ in 0..<40 where card.accessibilityLabel?.contains("Native browse 5") != true {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(card.accessibilityLabel?.contains("Native browse 5") == true)
+        #expect(fixture.model.router.historyPreparation.requested == requests)
+    }
+
     @Test("selected Card prepares a different history without replacing the original warm owner")
     func selectedPreviewHandoffPreservesOriginal() async throws {
         let fixture = try makeFixture(seed: .active)

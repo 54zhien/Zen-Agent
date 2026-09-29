@@ -2,6 +2,37 @@ import XCTest
 
 final class AppSpaceBrowseUITests: XCTestCase {
     @MainActor
+    func testDistantBrowseAndVerticalDragKeepPreviewUntilExplicitActivation() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launch()
+        let editor = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
+        let card = app.descendants(matching: .any)["workspace-current-card"]
+        XCTAssertTrue(wait { card.exists && card.label.contains("Workspace conversation 11") })
+        for index in stride(from: 10, through: 4, by: -1) {
+            card.swipeRight()
+            guard wait({ card.exists && card.label.contains("Workspace conversation \(index)") }) else {
+                XCTFail("Browsing past the initial preview window lost adjacent history \(index)")
+                return
+            }
+            XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
+        }
+        let center = card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        center.press(forDuration: 0.05, thenDragTo: center.withOffset(CGVector(dx: 0, dy: -100)))
+        XCTAssertTrue(wait { card.exists && card.label.contains("Workspace conversation 4") })
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
+        card.swipeLeft()
+        XCTAssertTrue(wait { card.exists && card.label.contains("Workspace conversation 5") })
+        card.tap()
+        XCTAssertTrue(wait { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" })
+        XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-5"].exists)
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+    }
+
+    @MainActor
     func testNativeBrowseSnapsOneNeighborAndOpensSelectedHistory() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
