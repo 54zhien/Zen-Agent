@@ -181,7 +181,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
                     browse?.navigate(.newer) ?? false
                 })
             }
-            if !isNew, browse.controller.currentSummary != nil {
+            if !isNew, browse.controller.canEditCurrentMetadata {
                 actions.append(UIAccessibilityCustomAction(name: "会话菜单") { [weak browse] _ in
                     guard let browse, browse.canNavigate else { return false }
                     return browse.controller.onOpenActions?() ?? false

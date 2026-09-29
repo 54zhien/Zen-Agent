@@ -57,7 +57,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     .environment(\.surfaceBrowseController, model == nil ? nil : browse)
             }
             .zIndex(4 - (browse.layout()?.cards.first { $0.item == browse.state.selected }?.depth ?? 0))
-            if let model, model.previewContent.isPresented, !browse.isNewEntry,
+            if let model, model.previewContent.isPresented, !browse.isNewEntry, browse.canEditCurrentMetadata,
                let summary = browse.currentSummary,
                let frame = browse.layout()?.cards.first(where: { $0.item == browse.state.selected })?.frame {
                 AppSpaceCardActionsView(model: model, browse: browse, lift: lift,
@@ -90,6 +90,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 browse.onOpenActions = { [weak browseController, weak model] in
                     guard let browseController, let model, model.previewContent.isPresented,
                           !model.previewContent.isPreparing, !browseController.isNewEntry,
+                          browseController.canEditCurrentMetadata,
                           let id = browseController.currentSummary?.id else { return false }
                     menuRequest.wrappedValue = id
                     return true

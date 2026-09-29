@@ -62,6 +62,11 @@ choose a product policy or interpret these as completed work.
 
 ## Device evidence still owed
 
+On 2026-09-29 the owner explicitly moved **all Stage 5 physical-device acceptance
+until after Stage 5 development ends**. This replaces earlier slice ordering that
+put Gate A before subsequent development. Keep the historical observations below;
+all device gates stay pending. CI and code review do not close these gates.
+
 The owner reported the Stage 3 device Gate closed on 2026-09-27. That progression
 decision remains recorded; D1–D7 observations, installed source/build, and signing
 method have not been supplied. The old `840a2e2` IPA predates both #12 and #14.

@@ -3,7 +3,7 @@
 > Use superpowers:executing-plans inline; one fresh whole-branch review at completion.
 
 **Goal:** App Space creates a durable empty Conversation through its rightmost New entry and edits only selected-card metadata.
-**Spec:** Blueprint 596a84d, App Space note sections 5/6/19; message/data note Conversation Title and userActiveAt; Provider note section6 creation-time binding; CONTEXT. User requires strict Stage5 order and defers all device acceptance until Stage5 development ends.
+**Spec:** Blueprint 596a84d, App Space note sections 5/6/18; message/data note Conversation Title and userActiveAt; Provider note section6 creation-time binding; CONTEXT. User requires strict Stage5 order and defers all device acceptance until Stage5 development ends.
 **Base:** bca95d9bd1e083be1f9e1c21ab6a0dc1f85f64c6 (PR22, tested, unmerged). PR targets codex/s5-card-browse-snap until that dependency integrates.
 **Binding policy:** New copies the creation-time global choice, including explicitly unconfigured state. A later explicit Configure/Save action may initialize an unconfigured empty New once; a changed global default alone cannot update it. Existing history Run seeds retain their current meaning.
 
@@ -28,6 +28,8 @@
 4. Empty durable histories must open/reopen/Send with configured and unconfigured targets, preserving immutable Soul binding and manual title.
 5. Real native accessibility must distinguish New activation from original warm Return and expose selected menu actions without requiring visual gestures.
 
+**Review repair:** successful New must also retain same-process navigation back to proven warm-only draft owners. Use SessionStore provenance and bounded projections; unknown/deleted IDs cannot remount and no durable Draft row is created. One accepted Important TDD repair pass; process-termination Draft recovery stays outside scope.
+
 ## Task 1 — Existing native-path RED
 
 Files: Tests/ZenAgentUITests/AppSpaceMetadataUITests.swift.
@@ -38,20 +40,20 @@ Files: Tests/ZenAgentUITests/AppSpaceMetadataUITests.swift.
 ## Task 2 — Durable metadata and bounded New selection
 
 Files: new PersistenceStore+ConversationMetadata.swift, Migrations.swift; Browse controller; AppShellModel minimal wiring; unit tests.
-- [ ] After native RED, runnable inert new methods only where old API cannot express unit assertions; ledger this compatibility scaffolding, require actual behavior RED before implementation.
-- [ ] Persistence tests: visible-only rename/pin, Unicode/whitespace validation, failed write rollback, metadata timestamp monotonicity, activity unchanged, manual marker durable/reopen, stale Send preserves metadata, empty creation exactly one/Soul binding.
-- [ ] Browse tests: actual New after newest persisted row, distinct warm origin, >100 history bounded windows, cancellation/stale completion, New reader failure keeps selection, selected Pin reload preserves ID.
-- [ ] Implement metadata transactions with no whole-record stale overwrite; one additive migration with manual-title marker and initial-binding tables avoids changing Codable records used against old schemas. Initial binding copies creation-time providerInstanceID/modelID; cold reopen cannot adopt a changed global default. Missing/unavailable account stays explicit.
-- [ ] New preparation creates exactly one ID, reuses existing selected history preparation, retains original owner until commit, marks failed target retryable. Selected Rename/Pin do not construct Session.
-- [ ] Full unit controls cover old Run no Stop, selected New retry/cancel, empty history first Send/manual title/Soul binding, cold reopen after changed default and explicitly unconfigured creation; require actual full GREEN.
+- [x] After native RED, runnable inert new methods only where old API cannot express unit assertions; ledger this compatibility scaffolding, require actual behavior RED before implementation.
+- [x] Persistence tests: visible-only rename/pin, Unicode/whitespace validation, failed write rollback, metadata timestamp monotonicity, activity unchanged, manual marker durable/reopen, stale Send preserves metadata, empty creation exactly one/Soul binding.
+- [x] Browse tests: actual New after newest persisted row, distinct warm origin, 100-row history bounded windows, cancellation/stale completion, New reader failure keeps selection, selected Pin reload preserves ID.
+- [x] Implement metadata transactions with no whole-record stale overwrite; one additive migration with manual-title marker and initial-binding tables avoids changing Codable records used against old schemas. Initial binding copies creation-time providerInstanceID/modelID; cold reopen cannot adopt a changed global default. Missing/unavailable account stays explicit.
+- [x] New preparation creates exactly one ID, reuses existing selected history preparation, retains original owner until commit, marks failed target retryable. Selected Rename/Pin do not construct Session.
+- [x] Full unit controls cover old Run no Stop, selected New retry/cancel, empty history first Send/manual title/Soul binding, cold reopen after changed default and explicitly unconfigured creation; require actual full GREEN.
 
 ## Task 3 — Current menu and New native activation
 
 Files: new AppSpaceCardActionsView.swift; WorkspaceSurfaceView/NewConversationView; minimal native host accessibility actions.
-- [ ] Real ellipsis outside frozen editor subtree aligned to actual Current frame. Menu/rename freezes selection; action snapshot captures ID; failure keeps readable Card and retry message.
-- [ ] New renders plus/新对话; native activation dispatches one create/preparation through existing two-segment Return. No auto keyboard.
-- [ ] Native accessibility Current actions include selected metadata equivalents; New has create/navigation only, no metadata/Run state. Scene or interrupted Return invalidates obsolete work.
-- [ ] Original RED UI assertions pass unchanged, selected metadata/New failure/cancel/native controls pass; full actual CI.
+- [x] Real ellipsis outside frozen editor subtree aligned to actual Current frame. Menu/rename freezes selection; action snapshot captures ID; failure keeps readable Card and retry message.
+- [x] New renders plus/新对话; native activation dispatches one create/preparation through existing two-segment Return. No auto keyboard.
+- [x] Native accessibility Current actions include selected metadata equivalents; New has create/navigation only, no metadata/Run state. Scene or interrupted Return invalidates obsolete work.
+- [x] Original RED UI controls pass; the newest-card native accessibility boundary now includes the authorized New with old browse/owner/request controls retained. Selected metadata/New failure/cancel/native controls pass; actual full CI.
 
 ## Task 4 — Review and delivery
 

@@ -76,10 +76,7 @@ final class AppShellModel {
     func enterPreview() -> Bool {
         guard let pane, let store = dependencies?.store else { return previewContent.isPresented }
         guard previewContent.present(session: pane.session, store: store) else { return false }
-        rememberCurrentSession()
-        // The current uncommitted page is also retained for Card/Return, without
-        // adding durable Draft storage or changing navigation to another page.
-        sessions.retain(pane.session, reconstruction: .unavailable)
+        rememberCurrentSession(retainUncommitted: true)
         router.unregisterPane(for: conversationID)
         self.pane = nil
         actionBridge = nil
@@ -88,7 +85,7 @@ final class AppShellModel {
 
     func newConversationBrowseWindow() throws -> ConversationBrowseWindow {
         guard previewContent.isPresented, let store = dependencies?.store else { throw AppTargetFailure.persistenceUnavailable }
-        return try store.conversationNewBrowseWindow(originID: conversationID)
+        return try store.conversationNewBrowseWindow(originID: conversationID, uncommittedIDs: sessions.uncommittedIDs)
     }
     func createConversationFromAppSpace(at now: Date = Date()) throws -> String {
         guard previewContent.isPresented, !previewContent.isPreparing, let cardActions else { throw AppTargetFailure.persistenceUnavailable }
@@ -118,7 +115,7 @@ final class AppShellModel {
 
     func browseWindow(id: String) throws -> ConversationBrowseWindow {
         guard let store = dependencies?.store else { throw AppTargetFailure.persistenceUnavailable }
-        return try store.conversationBrowseWindow(id: id)
+        return try store.conversationBrowseWindow(id: id, uncommittedIDs: sessions.uncommittedIDs)
     }
 
     func preparePreviewReturn(to requestedID: String? = nil) async -> Bool {
@@ -147,10 +144,10 @@ final class AppShellModel {
                     return false
                 }
                 guard router.acceptsPanePreparation(for: id, ticket: ticket) else { continue }
-                // Only the retained original may be an uncommitted page. A missing
-                // selected history must never manufacture a new Conversation.
+                // Missing durable rows require a positively retained presentation owner.
+                let warmOwner = sessions.uncommittedSession(for: id)
                 guard history.snapshot.conversation?.lifecycle == .visible
-                    || (id == originID && history.snapshot.conversation == nil) else {
+                    || (history.snapshot.conversation == nil && (id == originID || warmOwner != nil)) else {
                     throw PersistenceError.conversationNotFound(id)
                 }
                 let wiring = try ConversationPaneFactory(sessions: sessions).makePane(
@@ -160,6 +157,7 @@ final class AppShellModel {
                         self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
                     })
                 guard (id != originID || wiring.pane.session === session),
+                      (warmOwner == nil || wiring.pane.session === warmOwner),
                       router.registerPreparedPane(wiring.pane, ticket: ticket) else { continue }
                 // Receive durable Runtime events while still hidden behind Preview.
                 previewContent.ready(wiring, id: preparation)
@@ -427,7 +425,7 @@ final class AppShellModel {
         do {
             guard let summary = try store.conversationSummaryWindow(ids: [conversationID]).first else {
                 if retainUncommitted, try store.conversationLifecycle(id: conversationID) == nil {
-                    sessions.retain(session, reconstruction: .unavailable)
+                    sessions.retain(session, reconstruction: .uncommitted)
                 } else {
                     sessions.remove(conversationID: conversationID)
                 }
@@ -482,7 +480,9 @@ final class AppShellModel {
         if id == conversationID {
             if pane != nil {
                 do {
-                    let visible = try dependencies.store.conversationLifecycle(id: id) == .visible
+                    let lifecycle = try dependencies.store.conversationLifecycle(id: id)
+                    let visible = lifecycle == .visible || (lifecycle == nil
+                        && pane?.session === sessions.uncommittedSession(for: id))
                     if visible { recentOpenFailure = nil }
                     return visible
                 } catch {
@@ -511,8 +511,10 @@ final class AppShellModel {
         }
         do {
             let history = try await router.historyPreparation.prepare(id: id, store: dependencies.store)
+            let warmOwner = sessions.uncommittedSession(for: id)
             guard !Task.isCancelled, navigationID == navigation, router === dependencies.router,
-                  history.snapshot.conversation?.lifecycle == .visible else { return false }
+                  history.snapshot.conversation?.lifecycle == .visible
+                    || (history.snapshot.conversation == nil && warmOwner != nil) else { return false }
             let wiring = try ConversationPaneFactory(sessions: sessions).makePane(
                 id: id,
                 initialTimeline: history.timeline,
@@ -523,10 +525,11 @@ final class AppShellModel {
                     self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
                 }
             )
-            guard dependencies.router.registerPreparedPane(wiring.pane, ticket: ticket) else { return false }
+            guard (warmOwner == nil || wiring.pane.session === warmOwner),
+                  dependencies.router.registerPreparedPane(wiring.pane, ticket: ticket) else { return false }
 
             // Keep the outgoing pane intact until the replacement has loaded and registered.
-            rememberCurrentSession()
+            rememberCurrentSession(retainUncommitted: true)
             cancelPreviewReturn()
             previewContent.finish()
             cardActions?.reset()

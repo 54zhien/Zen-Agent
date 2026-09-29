@@ -23,6 +23,7 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
     private var lastOlder: AppSpaceGeometry.Item?
     private var lastNewer: AppSpaceGeometry.Item?
     private var lastSuspended: Bool?
+    private var lastCanEditMetadata: Bool?
 
     init(surface: SurfaceClipView, coordinates: UIView, controller: AppSpaceBrowseController,
          canBrowse: @escaping () -> Bool, render: @escaping (AppSpaceBrowseGeometry.Card) -> Bool,
@@ -161,12 +162,14 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
         }
         if lastPhase != state.phase || lastSelected != state.selected
             || lastOlder != state.older || lastNewer != state.newer
-            || lastSuspended != controller.interactionSuspended {
+            || lastSuspended != controller.interactionSuspended
+            || lastCanEditMetadata != controller.canEditCurrentMetadata {
             lastPhase = state.phase
             lastSelected = state.selected
             lastOlder = state.older
             lastNewer = state.newer
             lastSuspended = controller.interactionSuspended
+            lastCanEditMetadata = controller.canEditCurrentMetadata
             refreshAccessibility()
         }
     }

@@ -24,6 +24,10 @@ final class AppSpaceBrowseController {
         if case .conversation(let id) = state.selected { return id }
         return isNewEntry ? nil : originID
     }
+    var canEditCurrentMetadata: Bool {
+        guard let id = currentSummary?.id else { return false }
+        return !window.uncommittedIDs.contains(id)
+    }
     @ObservationIgnored private var reader: Reader?
     @ObservationIgnored private var newReader: (() throws -> ConversationBrowseWindow)?
     @ObservationIgnored var onChanged: (() -> Void)?

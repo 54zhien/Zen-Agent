@@ -2,7 +2,7 @@
 
 ## Authority and delivery boundary
 
-Blueprint `596a84d4b58769e3e7b838be95edcb43f9e0ec82`, App Space sections 5/6/19, message/data title/activity rules, Provider section6 creation-time binding, CONTEXT.
+Blueprint `596a84d4b58769e3e7b838be95edcb43f9e0ec82`, App Space sections 5/6/18, message/data title/activity rules, Provider section6 creation-time binding, CONTEXT.
 User requested strict Stage5 development and S5-06 continuation. All physical acceptance is deferred by the owner until Stage5 development ends.
 Production desktop remains clean main `eec3eb3`; worktree branch `codex/s5-new-pin-rename` starts at tested PR22 `bca95d9`.
 [PR23](https://github.com/54zhien/Zen-Agent/pull/23) targets `codex/s5-card-browse-snap`; PR22 remains unmerged.
@@ -86,7 +86,17 @@ Minor deferred: Rename opens blank when the stored title is empty and Card uses 
 Manual full titles and entering a new name work; no minor polish enters the fix pass.
 Reviewer exclusions accepted: physical checks at Stage5 end, later slices, and process-termination Draft recovery.
 Same-process recovery is required. The actual Blueprint App Space snapshot ends at section18, so the prior section19 citation is corrected to18.
-Repair regression tests are written before production correction; actual compiled RED still required.
+Repair tests-only source `687409bf6a4a7b69f6c161d9a49815c3059317c9`, tree `2857e3a1952146f7ec2c48b020213e8635c1a02e`.
+[Repair RED CI36592110507](https://github.com/54zhien/Zen-Agent/actions/runs/36592110507), job `109487639092`, completed with successful generation/App build/test compilation:
+780 Swift Testing/116 suites83.007s failed with exactly5 intended issues:2 original-owner Open assertions and3 bounded draft projection/Return assertions.
+20 XCTest and18 UI500.336s passed, including deleted/unknown safety control and original UI controls. No actual host restart.
+Production correction began only after reading this completed behavioral RED log.
+The existing Session store now records positive warm-only provenance and stable creation order, preserving that proof through read uncertainty.
+Windows compose at most5/3 summaries in one SQL read; the virtual warm section sits next to New and never changes durable activity ordering.
+Only exact retained owners can remount missing rows. Any existing deleted lifecycle row still rejects activation and virtual projection.
+Virtual working cards have Return but no metadata menu. A pristine blank working page may retire only on committed replacement;
+drafts, changed initial configuration, reading anchors and pending submission remain protected by the existing reconstructibility predicate.
+This is the single Important repair pass, pending real full GREEN. No second independent review or Minor polish.
 
 No completion claim before actual full generation/build/test CI and one fresh independent branch review.
 Physical Gate A, Memory Graph, body counts, hitches, peak memory, comfort, actual VoiceOver and input acceptance remain open until Stage5 development ends.
