@@ -406,7 +406,7 @@ struct RunEventRouterRemountTests {
 
         // Persistence commits this delta before its event reaches the router.
         durableText = "onetwo"
-        #expect(router.retryTimelineLoad(for: conversationID))
+        #expect(await router.retryTimelineLoad(for: conversationID))
         await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: "two", endUTF8Offset: 6))
         #expect(assistantText(in: pane) == "onetwo")
 

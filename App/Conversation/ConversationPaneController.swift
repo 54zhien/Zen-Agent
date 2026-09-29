@@ -2,6 +2,7 @@ import Foundation
 import Observation
 
 enum ConversationPaneError: Error, Equatable {
+    case asynchronousLoadRequired
     case mismatchedTimeline(expected: String, actual: String)
     case mismatchedSession(expected: String, actual: String)
 }
@@ -23,6 +24,7 @@ final class ConversationPaneController {
 
     @ObservationIgnored private let coalescer: StreamingCoalescer
     @ObservationIgnored private let loadTimeline: @MainActor (String) throws -> ConversationTimelineProjection
+    @ObservationIgnored private let asynchronousLoad: (@MainActor (String) async throws -> ConversationTimelineProjection)?
     @ObservationIgnored private var nextScrollSequence: UInt64 = 0
     @ObservationIgnored private var appliedGeometry: (sequence: UInt64, geometry: ScrollGeometry)?
     @ObservationIgnored private var cachedScrollBridge: ConversationPaneScrollBridge?
@@ -35,7 +37,10 @@ final class ConversationPaneController {
         session: ConversationSession? = nil,
         coalescer: StreamingCoalescer,
         tolerance: Double = 12,
-        loadTimeline: @escaping @MainActor (String) throws -> ConversationTimelineProjection
+        loadTimeline: @escaping @MainActor (String) throws -> ConversationTimelineProjection = { _ in
+            throw ConversationPaneError.asynchronousLoadRequired
+        },
+        asynchronousLoad: (@MainActor (String) async throws -> ConversationTimelineProjection)? = nil
     ) throws {
         guard initialTimeline.conversationID == conversationID else {
             throw ConversationPaneError.mismatchedTimeline(
@@ -59,6 +64,7 @@ final class ConversationPaneController {
         self.composer = owner.composer
         self.coalescer = coalescer
         self.loadTimeline = loadTimeline
+        self.asynchronousLoad = asynchronousLoad
         if session != nil {
             switch readingPosition.mode {
             case .followingBottom: enqueue(.scrollToBottom)
@@ -96,6 +102,12 @@ final class ConversationPaneController {
     @discardableResult
     func reloadTimeline() throws -> Set<String> {
         try reloadTimelineAndReportNewRuns()
+    }
+
+    func loadTimelineAsync() async throws -> ConversationTimelineProjection {
+        if let asynchronousLoad { return try await asynchronousLoad(conversationID) }
+        // Synthetic Pane tests can supply a pure synchronous projection closure.
+        return try loadTimeline(conversationID)
     }
 
     func applyHiddenStoreChanges(_ changedRunIDs: Set<String>) {
@@ -169,8 +181,13 @@ final class ConversationPaneController {
     }
 
     private func reloadTimelineAndReportNewRuns() throws -> Set<String> {
-        let previousRunIDs = Set(liveStore.state.timeline.turns.map(\.runID))
         let timeline = try loadTimeline(conversationID)
+        return try applyTimeline(timeline)
+    }
+
+    @discardableResult
+    func applyTimeline(_ timeline: ConversationTimelineProjection) throws -> Set<String> {
+        let previousRunIDs = Set(liveStore.state.timeline.turns.map(\.runID))
         guard timeline.conversationID == conversationID else {
             throw ConversationPaneError.mismatchedTimeline(
                 expected: conversationID,

@@ -4,6 +4,7 @@ import Observation
 @MainActor
 @Observable
 final class RunEventRouter {
+    let historyPreparation = ConversationHistoryPreparation()
     private enum PaneLoadState: Equatable { case ready, waitingForRecovery }
     private enum ReconciliationError: Error { case pendingReload }
     private struct PaneRegistration {
@@ -16,6 +17,27 @@ final class RunEventRouter {
         let partID: String
         let kind: MessagePartKind
     }
+    private struct PreparationJournal {
+        var events: [AgentEvent] = []
+        var bytes = 0
+        var overflowed = false
+
+        mutating func append(_ event: AgentEvent) {
+            guard !overflowed else { return }
+            if case .messagePartDelta(_, _, let delta, _) = event { bytes += delta.utf8.count }
+            // A temporary catch-up budget, not a limit on conversation history.
+            guard bytes <= 256 * 1024 else { overflowed = true; events.removeAll(); return }
+            if case .messagePartDelta(let run, let part, let delta, let end) = event,
+               case .messagePartDelta(let oldRun, let oldPart, let oldDelta, let oldEnd) = events.last,
+               run == oldRun, part == oldPart, oldEnd == end - delta.utf8.count {
+                events[events.count - 1] = .messagePartDelta(runID: run, partID: part,
+                    delta: oldDelta + delta, endUTF8Offset: end)
+            } else {
+                guard events.count < 512 else { overflowed = true; events.removeAll(); return }
+                events.append(event)
+            }
+        }
+    }
 
     @ObservationIgnored private var conversationByRunID: [String: String] = [:]
     @ObservationIgnored private var activeRunIDsByConversationID: [String: Set<String>] = [:]
@@ -23,6 +45,7 @@ final class RunEventRouter {
     @ObservationIgnored private var partsByRunID: [String: [String: PartIdentity]] = [:]
     @ObservationIgnored private var needsReload: Set<String> = []
     @ObservationIgnored private var preparationTickets: [String: UUID] = [:]
+    @ObservationIgnored private var preparationJournals: [String: PreparationJournal] = [:]
     @ObservationIgnored private var hiddenChanges: [String: Set<String>] = [:]
     @ObservationIgnored private var terminalCheckpoints: [String: AgentEvent] = [:]
     private(set) var diagnostics: [String] = []
@@ -47,7 +70,11 @@ final class RunEventRouter {
             }
             registerRecoveredRun(runID: runID, conversationID: conversationID)
             terminalCheckpoints.removeValue(forKey: conversationID)
-            route(event, to: conversationID)
+            if panesByConversationID[conversationID]?.state == .ready {
+                _ = await reloadPane(for: conversationID)
+            } else {
+                markHidden(event, in: conversationID)
+            }
             return
         }
 
@@ -56,7 +83,13 @@ final class RunEventRouter {
             record("Dropped unregistered Run event for \(runID)")
             return
         }
-        invalidatePreparation(for: conversationID)
+        if case .toolCallChanged = event {
+            invalidatePreparation(for: conversationID)
+        } else if case .approvalRequired = event {
+            invalidatePreparation(for: conversationID)
+        } else {
+            preparationJournals[conversationID]?.append(event)
+        }
         switch event {
         case .messagePartStarted(_, let messageID, let partID, let kind):
             if kind == .text || kind == .reasoning {
@@ -86,6 +119,7 @@ final class RunEventRouter {
     func beginPanePreparation(for id: String) -> UUID {
         let ticket = UUID()
         preparationTickets[id] = ticket
+        preparationJournals[id] = PreparationJournal()
         return ticket
     }
 
@@ -94,21 +128,26 @@ final class RunEventRouter {
     }
 
     func cancelPanePreparation(for id: String, ticket: UUID? = nil) {
-        if ticket == nil || preparationTickets[id] == ticket { preparationTickets.removeValue(forKey: id) }
+        if ticket == nil || preparationTickets[id] == ticket {
+            preparationTickets.removeValue(forKey: id)
+            preparationJournals.removeValue(forKey: id)
+        }
     }
 
     private func invalidatePreparation(for id: String) {
-        // Tickets exist only while a projection is being loaded, not for every
-        // Conversation ever seen. A delivered event invalidates that old read.
-        preparationTickets.removeValue(forKey: id)
+        // Structural changes need a new projection. Text growth is replayed by offset.
+        cancelPanePreparation(for: id)
     }
 
     func registerPreparedPane(_ pane: ConversationPaneController, ticket: UUID) -> Bool {
         let id = pane.conversationID
         guard acceptsPanePreparation(for: id, ticket: ticket), panesByConversationID[id] == nil else { return false }
-        preparationTickets.removeValue(forKey: id)
+        let journal = preparationJournals[id] ?? PreparationJournal()
+        cancelPanePreparation(for: id, ticket: ticket)
+        guard !journal.overflowed else { return false }
         panesByConversationID[id] = PaneRegistration(pane: pane, state: .ready)
         do {
+            try replay(journal.events, in: pane)
             // The just-loaded projection replaces the dirty read. No second
             // synchronous full-history read is needed on the presentation actor.
             try reconcile(pane)
@@ -116,6 +155,34 @@ final class RunEventRouter {
         } catch {
             panesByConversationID.removeValue(forKey: id)
             return false
+        }
+    }
+
+    private func replay(_ events: [AgentEvent], in pane: ConversationPaneController) throws {
+        // An End received during the read may already have removed Runtime routing.
+        // Snapshot Parts still provide the identity and the persisted replay lower bound.
+        for turn in pane.liveStore.state.timeline.turns {
+            for (index, source) in turn.textSourcesByItemIndex
+            where source.canResume && turn.items.indices.contains(index) {
+                let kind: MessagePartKind
+                switch turn.items[index] {
+                case .assistantText: kind = .text
+                case .reasoning: kind = .reasoning
+                default: continue
+                }
+                _ = pane.liveStore.resumePersistedPart(runID: turn.runID, messageID: source.messageID,
+                    partID: source.partID, kind: kind)
+            }
+        }
+        for event in events {
+            if case .messagePartStarted(_, let messageID, let partID, _) = event,
+               pane.liveStore.state.timeline.turns.contains(where: { turn in
+                   turn.textSourcesByItemIndex.values.contains {
+                       $0.messageID == messageID && $0.partID == partID
+                   }
+               }) { continue }
+            _ = try pane.consume(event, in: pane.conversationID)
+            if case .runEnded = event { terminalCheckpoints.removeValue(forKey: pane.conversationID) }
         }
     }
 
@@ -140,6 +207,7 @@ final class RunEventRouter {
 
     func unregisterPane(for conversationID: String) {
         guard panesByConversationID.removeValue(forKey: conversationID) != nil else { return }
+        cancelPanePreparation(for: conversationID)
         // Presentation detachment never owns Stop. Runtime has already persisted
         // visible Part events before publication, so no hidden token queue is needed.
         needsReload.insert(conversationID)
@@ -152,15 +220,34 @@ final class RunEventRouter {
     func recoveryMessage(for conversationID: String) -> String? { recoveryMessages[conversationID] }
 
     @discardableResult
-    func retryTimelineLoad(for conversationID: String) -> Bool {
+    func retryTimelineLoad(for conversationID: String) async -> Bool {
         guard let registration = panesByConversationID[conversationID],
               registration.state == .waitingForRecovery else { return false }
+        return await reloadPane(for: conversationID)
+    }
+
+    private func reloadPane(for conversationID: String) async -> Bool {
+        guard let registration = panesByConversationID[conversationID] else { return false }
+        panesByConversationID[conversationID]?.state = .waitingForRecovery
+        let ticket = beginPanePreparation(for: conversationID)
+        defer { cancelPanePreparation(for: conversationID, ticket: ticket) }
         do {
-            try registration.pane.reloadTimeline()
+            let timeline = try await registration.pane.loadTimelineAsync()
+            guard !Task.isCancelled,
+                  panesByConversationID[conversationID]?.pane === registration.pane,
+                  acceptsPanePreparation(for: conversationID, ticket: ticket) else { throw CancellationError() }
+            let journal = preparationJournals[conversationID] ?? PreparationJournal()
+            guard !journal.overflowed else { throw ReconciliationError.pendingReload }
+            cancelPanePreparation(for: conversationID, ticket: ticket)
+            try registration.pane.applyTimeline(timeline)
+            try replay(journal.events, in: registration.pane)
             try reconcile(registration.pane)
             return true
         } catch {
-            markRecovery(for: conversationID, runID: nil)
+            if panesByConversationID[conversationID]?.pane === registration.pane,
+               preparationTickets[conversationID] == nil || preparationTickets[conversationID] == ticket {
+                markRecovery(for: conversationID, runID: nil)
+            }
             return false
         }
     }

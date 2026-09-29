@@ -55,6 +55,7 @@ struct NewConversationView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var isProviderSetupPresented = false
     @State private var isRecentConversationsPresented = false
+    @State private var historyAction: Task<Void, Never>?
     @Environment(\.surfaceLiftController) private var lift
 
     var body: some View {
@@ -165,7 +166,10 @@ struct NewConversationView: View {
                                 dynamicTypeSize: dynamicTypeSize
                             ))
                         Button("重试加载") {
-                            _ = model.router.retryTimelineLoad(for: model.conversationID)
+                            historyAction?.cancel()
+                            historyAction = Task {
+                                _ = await model.router.retryTimelineLoad(for: model.conversationID)
+                            }
                         }
                         .font(Typography.font(
                             for: .interfaceCaption,
@@ -193,8 +197,11 @@ struct NewConversationView: View {
                 List {
                     ForEach(model.recentConversations) { conversation in
                         Button {
-                            if model.openConversation(id: conversation.id) {
-                                isRecentConversationsPresented = false
+                            historyAction?.cancel()
+                            historyAction = Task {
+                                if await model.openConversation(id: conversation.id) {
+                                    isRecentConversationsPresented = false
+                                }
                             }
                         } label: {
                             VStack(alignment: .leading, spacing: 4) {
@@ -241,6 +248,10 @@ struct NewConversationView: View {
         .onChange(of: isProviderSetupPresented || isRecentConversationsPresented) { _, presented in
             lift?.setOverlayPresented(presented)
         }
+        .onChange(of: isRecentConversationsPresented) { _, presented in
+            if !presented { historyAction?.cancel(); historyAction = nil }
+        }
+        .onDisappear { historyAction?.cancel(); historyAction = nil }
 
     }
 

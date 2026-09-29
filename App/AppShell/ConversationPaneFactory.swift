@@ -9,11 +9,12 @@ struct ConversationPaneFactory {
         initialTimeline: ConversationTimelineProjection,
         dependencies: AppAssembly.Dependencies,
         target: AppExecutionTarget?,
+        snapshot: ConversationHistorySnapshot? = nil,
         onTargetFailure: @escaping @MainActor @Sendable (AppTargetFailure, AppExecutionTarget) -> Void
     ) throws -> (bridge: ComposerRuntimeActionBridge, pane: ConversationPaneController) {
         let savedSession = sessions.session(for: id)
         let configuration = try resolveConfiguration(id: id, savedSession: savedSession,
-            dependencies: dependencies, target: target)
+            dependencies: dependencies, target: target, snapshot: snapshot)
         let validatedAvailability = Self.availability(for: configuration, in: dependencies)
         let bridge = AppAssembly.wireConversation(
             id: id,
@@ -27,8 +28,8 @@ struct ConversationPaneFactory {
             sendAvailability: validatedAvailability,
             session: savedSession,
             coalescer: StreamingCoalescer(interval: .milliseconds(10)),
-            loadTimeline: { id in
-                try ConversationTimelineLoader.load(conversationID: id, from: dependencies.store)
+            asynchronousLoad: { id in
+                try await dependencies.router.historyPreparation.prepare(id: id, store: dependencies.store).timeline
             }
         )
         pane.composer.sendAvailability = validatedAvailability
@@ -37,13 +38,14 @@ struct ConversationPaneFactory {
 
     private func resolveConfiguration(id: String, savedSession: ConversationSession?,
                                       dependencies: AppAssembly.Dependencies,
-                                      target: AppExecutionTarget?) throws -> ConversationComposerConfiguration? {
+                                      target: AppExecutionTarget?,
+                                      snapshot: ConversationHistorySnapshot?) throws -> ConversationComposerConfiguration? {
         if let savedSession {
             return savedSession.composer.configuration
         } else if try dependencies.store.conversationLifecycle(id: id) != nil {
             // Compatibility for history created before durable Conversation binding.
             // This is an initial choice, never a rewrite of an old frozen Run seed.
-            if let seed = try dependencies.store.runs(inConversation: id)
+            if let seed = snapshot?.runs
                 .last(where: { $0.kind == .parent })?.requestConfigSeed {
                 return ConversationComposerConfiguration(
                     providerInstanceID: seed.providerInstanceID, modelID: seed.modelID)

@@ -26,7 +26,7 @@ struct AppShellWiringTests {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
         try fixture.store.commitUserTurnAndCreateParentRun(Fixtures.send(
             conversationID: "cancel-work", messageID: "cancel-work-user", runID: "cancel-work-run", runState: .completed))
-        #expect(fixture.model.openConversation(id: "cancel-work"))
+        #expect(await fixture.model.openConversation(id: "cancel-work"))
         #expect(fixture.model.enterPreview())
         for _ in 0..<3 {
             let gate = PreviewReadGate()
@@ -71,7 +71,7 @@ struct AppShellWiringTests {
             messageID: "read-user", runID: runID, runState: .streaming))
         _ = try store.ensureAssistantResponse(forRunID: runID, messageID: "read-assistant")
         try store.createPart(Fixtures.streamingPart(id: "read-part", messageID: "read-assistant", text: "before"))
-        #expect(fixture.model.openConversation(id: id))
+        #expect(await fixture.model.openConversation(id: id))
         fixture.model.router.registerRecoveredRun(runID: runID, conversationID: id)
         await fixture.model.router.handle(.messagePartStarted(runID: runID,
             messageID: "read-assistant", partID: "read-part", kind: .text))
@@ -247,10 +247,10 @@ struct AppShellWiringTests {
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
         try fixture.store.database.write { db in try Fixtures.conversation(id: "current-preview").insert(db) }
-        #expect(fixture.model.openConversation(id: "current-preview"))
+        #expect(await fixture.model.openConversation(id: "current-preview"))
         #expect(fixture.model.enterPreview())
         if prewarm { #expect(await fixture.model.preparePreviewReturn()) }
-        #expect(fixture.model.openConversation(id: "current-preview"))
+        #expect(await fixture.model.openConversation(id: "current-preview"))
         let full = try #require(fixture.model.pane)
         #expect(!fixture.model.previewContent.isPresented)
         #expect(!fixture.model.router.registerPane(full))
@@ -280,7 +280,7 @@ struct AppShellWiringTests {
             try Fixtures.run(id: "card-status-run", conversationID: "card-status", state: .failed,
                 endReason: .providerInterrupted).insert(db)
         }
-        #expect(fixture.model.openConversation(id: "card-status"))
+        #expect(await fixture.model.openConversation(id: "card-status"))
         let driver = SurfaceLiftController()
         let host = UIHostingController(rootView: WorkspaceSurfaceView(model: fixture.model, liftController: driver) {
             NewConversationView(model: fixture.model)
@@ -312,7 +312,7 @@ struct AppShellWiringTests {
             try Fixtures.conversation(id: "inflight-a").insert(db)
             try Fixtures.conversation(id: "inflight-b").insert(db)
         }
-        #expect(fixture.model.openConversation(id: "inflight-a"))
+        #expect(await fixture.model.openConversation(id: "inflight-a"))
         let session = try #require(fixture.model.pane?.session)
         session.composer.draft.text = "pending load draft"
         #expect(fixture.model.enterPreview())
@@ -333,7 +333,7 @@ struct AppShellWiringTests {
         fixture.model.cancelPreviewReturn()
         let newerReturn: Task<Bool, Never>? = navigate ? nil : Task { await fixture.model.preparePreviewReturn() }
         gate.release()
-        if navigate { #expect(fixture.model.openConversation(id: "inflight-b")) }
+        if navigate { #expect(await fixture.model.openConversation(id: "inflight-b")) }
         #expect(!(await oldReturn.value))
         if let newerReturn {
             #expect(await newerReturn.value)
@@ -396,7 +396,7 @@ struct AppShellWiringTests {
             try Fixtures.conversation(id: "preview-cancel-a").insert(db)
             try Fixtures.conversation(id: "preview-cancel-b").insert(db)
         }
-        #expect(fixture.model.openConversation(id: "preview-cancel-a"))
+        #expect(await fixture.model.openConversation(id: "preview-cancel-a"))
         let session = try #require(fixture.model.pane?.session)
         session.composer.draft.text = "cancel-safe draft"
         #expect(fixture.model.enterPreview())
@@ -408,10 +408,10 @@ struct AppShellWiringTests {
         #expect(fixture.model.previewContent.isPresented)
         #expect(await fixture.model.preparePreviewReturn())
         prepared = fixture.model.previewContent.prepared?.pane
-        #expect(fixture.model.openConversation(id: "preview-cancel-b"))
+        #expect(await fixture.model.openConversation(id: "preview-cancel-b"))
         #expect(prepared == nil && !fixture.model.commitPreviewReturn())
         #expect(fixture.model.conversationID == "preview-cancel-b")
-        #expect(fixture.model.openConversation(id: "preview-cancel-a"))
+        #expect(await fixture.model.openConversation(id: "preview-cancel-a"))
         #expect(fixture.model.pane?.session === session)
         #expect(session.composer.draft.text == "cancel-safe draft")
     }
@@ -481,7 +481,7 @@ struct AppShellWiringTests {
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
         try fixture.store.database.write { db in try Fixtures.conversation(id: "preview-owner").insert(db) }
-        #expect(fixture.model.openConversation(id: "preview-owner"))
+        #expect(await fixture.model.openConversation(id: "preview-owner"))
         let session = try #require(fixture.model.pane?.session)
         session.composer.draft.text = "你好 Preview draft"
         session.composer.draft.selection = ComposerSelection(range: 3..<10)
@@ -507,7 +507,7 @@ struct AppShellWiringTests {
     }
 
     @Test("Preview reads current plus three predecessors from 1000 histories and preserves Full on failure")
-    func previewWindowIsBoundedAndReadFailureKeepsOwner() throws {
+    func previewWindowIsBoundedAndReadFailureKeepsOwner() async throws {
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
         try fixture.store.database.write { db in
@@ -516,7 +516,7 @@ struct AppShellWiringTests {
                 try Fixtures.conversation(id: id, title: "Preview \(index)").insert(db)
             }
         }
-        #expect(fixture.model.openConversation(id: "preview-bounded-0050"))
+        #expect(await fixture.model.openConversation(id: "preview-bounded-0050"))
         let trace = S504SQLTrace()
         try fixture.store.database.read { db in
             db.trace { event in if case .statement(let statement) = event { trace.record(statement.sql) } }
@@ -528,7 +528,7 @@ struct AppShellWiringTests {
             String(format: "preview-bounded-%04d", $0)
         })
         #expect(try fixture.store.conversation(id: "preview-bounded-0050")?.userActiveAt == Fixtures.epoch)
-        #expect(fixture.model.openConversation(id: "preview-bounded-0051"))
+        #expect(await fixture.model.openConversation(id: "preview-bounded-0051"))
         let full = try #require(fixture.model.pane)
         try fixture.store.database.write { db in try db.execute(sql: "DROP TABLE conversation") }
         #expect(!fixture.model.enterPreview())
@@ -569,7 +569,7 @@ struct AppShellWiringTests {
     }
 
     @Test("safe warm sessions are bounded while drafts survive cache pressure")
-    func warmCacheReleasesOnlyReconstructibleSessions() throws {
+    func warmCacheReleasesOnlyReconstructibleSessions() async throws {
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
         try fixture.store.database.write { db in
@@ -577,25 +577,25 @@ struct AppShellWiringTests {
                 try Fixtures.conversation(id: "warm-budget-\(index)").insert(db)
             }
         }
-        #expect(fixture.model.openConversation(id: "warm-budget-0"))
+        #expect(await fixture.model.openConversation(id: "warm-budget-0"))
         weak var evictable = fixture.model.pane?.session
-        #expect(fixture.model.openConversation(id: "warm-budget-1"))
+        #expect(await fixture.model.openConversation(id: "warm-budget-1"))
         weak var protected = fixture.model.pane?.session
         fixture.model.pane?.composer.draft.text = "unsaved draft"
         for index in 2..<15 {
-            #expect(fixture.model.openConversation(id: "warm-budget-\(index)"))
+            #expect(await fixture.model.openConversation(id: "warm-budget-\(index)"))
         }
         #expect(evictable == nil)
         #expect(protected != nil)
-        #expect(fixture.model.openConversation(id: "warm-budget-1"))
+        #expect(await fixture.model.openConversation(id: "warm-budget-1"))
         #expect(fixture.model.pane?.session === protected)
         #expect(fixture.model.pane?.composer.draft.text == "unsaved draft")
-        #expect(fixture.model.openConversation(id: "warm-budget-0"))
+        #expect(await fixture.model.openConversation(id: "warm-budget-0"))
         #expect(fixture.model.pane?.composer.draft.text == "")
     }
 
     @Test("warm sessions with changed configuration and reading anchors exceed the safe cache budget")
-    func warmCacheProtectsConfigurationAndReading() throws {
+    func warmCacheProtectsConfigurationAndReading() async throws {
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
         try fixture.store.database.write { db in
@@ -603,30 +603,30 @@ struct AppShellWiringTests {
                 try Fixtures.conversation(id: "protected-budget-\(index)").insert(db)
             }
         }
-        #expect(fixture.model.openConversation(id: "protected-budget-0"))
+        #expect(await fixture.model.openConversation(id: "protected-budget-0"))
         weak var configurationOwner = fixture.model.pane?.session
         let chosen = ConversationComposerConfiguration(providerInstanceID: fixture.instanceID,
             modelID: fixture.modelID)
         fixture.model.pane?.composer.configuration = chosen
-        #expect(fixture.model.openConversation(id: "protected-budget-1"))
+        #expect(await fixture.model.openConversation(id: "protected-budget-1"))
         weak var readingOwner = fixture.model.pane?.session
         let anchor = TurnAnchor(runID: "reading-turn", relativeViewportOffset: -0.5)
         _ = fixture.model.pane?.readingPosition.apply(.userScrolled(
             geometry: ScrollGeometry(viewportHeight: 500, contentHeight: 1500, offset: 100),
             anchor: anchor))
         for index in 2..<25 {
-            #expect(fixture.model.openConversation(id: "protected-budget-\(index)"))
+            #expect(await fixture.model.openConversation(id: "protected-budget-\(index)"))
             fixture.model.pane?.composer.draft.text = "draft \(index)"
         }
         #expect(configurationOwner != nil)
         #expect(readingOwner != nil)
-        #expect(fixture.model.openConversation(id: "protected-budget-0"))
+        #expect(await fixture.model.openConversation(id: "protected-budget-0"))
         #expect(fixture.model.pane?.session === configurationOwner)
         #expect(fixture.model.pane?.composer.configuration == chosen)
-        #expect(fixture.model.openConversation(id: "protected-budget-1"))
+        #expect(await fixture.model.openConversation(id: "protected-budget-1"))
         #expect(fixture.model.pane?.session === readingOwner)
         #expect(fixture.model.pane?.readingPosition.mode == .reading(anchor: anchor, pendingTurns: []))
-        #expect(fixture.model.openConversation(id: "protected-budget-2"))
+        #expect(await fixture.model.openConversation(id: "protected-budget-2"))
         #expect(fixture.model.pane?.composer.draft.text == "draft 2")
     }
 
@@ -639,18 +639,18 @@ struct AppShellWiringTests {
                 try Fixtures.conversation(id: "active-budget-\(index)").insert(db)
             }
         }
-        #expect(fixture.model.openConversation(id: "active-budget-0"))
+        #expect(await fixture.model.openConversation(id: "active-budget-0"))
         weak var owner = fixture.model.pane?.session
         fixture.model.router.registerRecoveredRun(runID: "protected-active-run",
             conversationID: "active-budget-0")
         for index in 1..<13 {
-            #expect(fixture.model.openConversation(id: "active-budget-\(index)"))
+            #expect(await fixture.model.openConversation(id: "active-budget-\(index)"))
         }
         #expect(owner != nil)
         await fixture.model.router.handle(.runEnded(runID: "protected-active-run",
             state: .completed, endReason: .completed))
         for index in 13..<25 {
-            #expect(fixture.model.openConversation(id: "active-budget-\(index)"))
+            #expect(await fixture.model.openConversation(id: "active-budget-\(index)"))
         }
         #expect(owner == nil)
     }
@@ -839,7 +839,7 @@ struct AppShellWiringTests {
         secondComposer.draft.text = "B follow-up"
         let secondDraft = secondComposer.draft
 
-        #expect(fixture.model.openConversation(id: firstID))
+        #expect(await fixture.model.openConversation(id: firstID))
         let reopened = try #require(fixture.model.pane)
         #expect(reopened.composer === firstComposer)
         #expect(reopened.readingPosition === firstReading)
@@ -854,7 +854,7 @@ struct AppShellWiringTests {
         #expect(setup.save())
         #expect(reopened.composer.configuration == chosen)
         #expect(try fixture.store.run(id: committed.id)?.requestConfigSeed == frozenSeed)
-        #expect(fixture.model.openConversation(id: secondID))
+        #expect(await fixture.model.openConversation(id: secondID))
         #expect(fixture.model.pane?.composer === secondComposer)
         #expect(fixture.model.pane?.composer.draft == secondDraft)
         #expect(try conversationCount(in: fixture.store) == 2)
@@ -868,7 +868,7 @@ struct AppShellWiringTests {
             .unreadableSecret,
         ]
     )
-    func historyOpensWithoutSendTarget(_ seed: ShellCredentialSeed) throws {
+    func historyOpensWithoutSendTarget(_ seed: ShellCredentialSeed) async throws {
         let unconfigured = seed == .none
         let fixture = try makeFixture(
             seed: seed,
@@ -886,7 +886,7 @@ struct AppShellWiringTests {
         fixture.model.refreshRecentConversations()
 
         #expect(fixture.model.recentConversations.map(\.id).contains(conversationID))
-        #expect(fixture.model.openConversation(id: conversationID))
+        #expect(await fixture.model.openConversation(id: conversationID))
         #expect(fixture.model.conversationID == conversationID)
         #expect(fixture.model.pane?.liveStore.state.timeline.turns.count == 1)
         #expect(!fixture.model.canSend)
@@ -1196,14 +1196,14 @@ struct AppShellWiringTests {
         try await send("second question", at: Date(timeIntervalSince1970: 1_790_000_200), in: fixture)
         fixture.model.refreshRecentConversations()
 
-        let reconstructed = makeReconstructedModel(from: fixture)
+        let reconstructed = await makeReconstructedModel(from: fixture)
         #expect(reconstructed.recentConversations.map(\.id) == [
             secondConversationID,
             firstConversationID
         ])
         let selected = try #require(reconstructed.recentConversations.last)
         #expect(selected.id == firstConversationID)
-        #expect(reconstructed.openConversation(id: selected.id))
+        #expect(await reconstructed.openConversation(id: selected.id))
 
         let pane = try #require(reconstructed.pane)
         let timeline = pane.liveStore.state.timeline
@@ -1234,11 +1234,11 @@ struct AppShellWiringTests {
         let secondID = fixture.model.conversationID
         try await send("B first", at: t2, in: fixture)
 
-        #expect(fixture.model.openConversation(id: firstID))
+        #expect(await fixture.model.openConversation(id: firstID))
         #expect(try fixture.store.conversation(id: firstID)?.userActiveAt == t1)
         try await send("A again", at: t3, in: fixture)
 
-        let reopenedShell = makeReconstructedModel(from: fixture)
+        let reopenedShell = await makeReconstructedModel(from: fixture)
         let first = try #require(try fixture.store.conversation(id: firstID))
         #expect(reopenedShell.recentConversations.map(\.id) == [firstID, secondID])
         #expect(first.createdAt == t1)
@@ -1256,7 +1256,7 @@ struct AppShellWiringTests {
         try await send("restore me", at: Date(), in: fixture)
         fixture.model.enteredBackground(at: Date())
 
-        let reconstructed = makeReconstructedModel(from: fixture)
+        let reconstructed = await makeReconstructedModel(from: fixture)
 
         #expect(reconstructed.conversationID == conversationID)
         #expect(reconstructed.pane?.liveStore.state.timeline.turns.count == 1)
@@ -1276,7 +1276,7 @@ struct AppShellWiringTests {
             try db.execute(sql: "ALTER TABLE messagePart RENAME TO messagePart_temporarily_unavailable")
         }
 
-        let reconstructed = makeReconstructedModel(from: fixture)
+        let reconstructed = await makeReconstructedModel(from: fixture)
 
         #expect(reconstructed.conversationID != conversationID)
         #expect(ConversationResumeMarker.read(from: fixture.defaults) == marker)
@@ -1291,13 +1291,13 @@ struct AppShellWiringTests {
         try await send("old conversation", at: Date(), in: fixture)
         fixture.model.enteredBackground(at: Date().addingTimeInterval(-1_201))
 
-        let reconstructed = makeReconstructedModel(from: fixture)
+        let reconstructed = await makeReconstructedModel(from: fixture)
 
         #expect(reconstructed.conversationID != oldID)
         #expect(reconstructed.pane?.liveStore.state.timeline.turns.isEmpty == true)
         #expect(reconstructed.recentConversations.contains { $0.id == oldID })
         #expect(try fixture.store.conversation(id: reconstructed.conversationID) == nil)
-        #expect(reconstructed.openConversation(id: oldID))
+        #expect(await reconstructed.openConversation(id: oldID))
         #expect(reconstructed.pane?.liveStore.state.timeline.turns.count == 1)
     }
 
@@ -1318,7 +1318,7 @@ struct AppShellWiringTests {
         #expect(fixture.model.conversationID != oldID)
         #expect(fixture.model.pane?.composer.draft.text == "")
         #expect(fixture.model.recentConversations.contains { $0.id == oldID })
-        #expect(fixture.model.openConversation(id: oldID))
+        #expect(await fixture.model.openConversation(id: oldID))
         #expect(fixture.model.pane?.composer.draft.text == "unsent follow-up")
         #expect(try conversationCount(in: fixture.store) == 1)
     }
@@ -1351,7 +1351,7 @@ struct AppShellWiringTests {
         fixture.model.enteredBackground(at: Date())
         try fixture.store.beginDeletion(conversationID: oldID)
 
-        let reconstructed = makeReconstructedModel(from: fixture)
+        let reconstructed = await makeReconstructedModel(from: fixture)
 
         #expect(reconstructed.conversationID != oldID)
         #expect(!reconstructed.recentConversations.contains { $0.id == oldID })
@@ -1359,7 +1359,7 @@ struct AppShellWiringTests {
     }
 
     @Test("recent entry excludes hidden conversations and refuses stale hidden selections")
-    func recentEntryExcludesPendingAndFinalizedDeletion() throws {
+    func recentEntryExcludesPendingAndFinalizedDeletion() async throws {
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
 
@@ -1379,8 +1379,8 @@ struct AppShellWiringTests {
 
         #expect(fixture.model.recentConversations.map(\.id) == ["visible-a", "visible-z"])
         let currentConversationID = fixture.model.conversationID
-        #expect(!fixture.model.openConversation(id: "pending-hidden"))
-        #expect(!fixture.model.openConversation(id: "finalized-hidden"))
+        #expect(!(await fixture.model.openConversation(id: "pending-hidden")))
+        #expect(!(await fixture.model.openConversation(id: "finalized-hidden")))
         #expect(fixture.model.conversationID == currentConversationID)
         #expect(fixture.model.launchState == .ready)
     }
@@ -1481,7 +1481,7 @@ struct AppShellWiringTests {
 
         #expect(router.recoveryMessage(for: "recover-conversation") != nil)
         #expect(loadCount == 1)
-        #expect(router.retryTimelineLoad(for: "recover-conversation"))
+        #expect(await router.retryTimelineLoad(for: "recover-conversation"))
         #expect(router.recoveryMessage(for: "recover-conversation") == nil)
         #expect(loadCount == 2)
         #expect(assistantTexts(in: pane.liveStore.state.timeline) == ["recovered reply"])
@@ -1529,7 +1529,7 @@ struct AppShellWiringTests {
         #expect(router.registerPane(reopenedPane))
         persistedText = "hello world"
         await router.handle(.messagePartDelta(runID: runID, partID: partID, delta: " world", endUTF8Offset: 11))
-        #expect(router.retryTimelineLoad(for: conversationID))
+        #expect(await router.retryTimelineLoad(for: conversationID))
         #expect(assistantTexts(in: reopenedPane.liveStore.state.timeline) == ["hello world"])
         #expect(reopenedPane.liveStore.state.activeParts[partID]?.text == "hello world")
 
@@ -1866,7 +1866,7 @@ struct AppShellWiringTests {
         try await fixture.runtime.waitForCompletion(runID: runID)
     }
 
-    private func makeReconstructedModel(from fixture: ShellFixture) -> AppShellModel {
+    private func makeReconstructedModel(from fixture: ShellFixture) async -> AppShellModel {
         let router = RunEventRouter()
         let runtime = AppAssembly.makeRuntime(
             store: fixture.store,
@@ -1882,7 +1882,9 @@ struct AppShellWiringTests {
             runtime: runtime,
             router: router
         )
-        return AppShellModel(dependencies: dependencies, userDefaults: fixture.defaults)
+        let model = AppShellModel(dependencies: dependencies, userDefaults: fixture.defaults)
+        await model.launchRestorationTask?.value
+        return model
     }
 
     private func makePane(

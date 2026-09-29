@@ -227,15 +227,21 @@ final class LiveConversationStore {
 
         let consumedOffset = consumedUTF8OffsetByPartID[partID] ?? part.text.utf8.count
         if endUTF8Offset <= consumedOffset { return }
-        guard startUTF8Offset == consumedOffset else {
-            // A gap or partial overlap cannot be reconciled from display text: the
-            // coalescer may still hold bytes that are not visible in `part.text`.
+        guard startUTF8Offset <= consumedOffset else {
+            // A gap needs a fresh snapshot; a persisted prefix can overlap replay.
+            needsTimelineReload = true
+            return
+        }
+
+        let missingBytes = Array(delta.utf8.dropFirst(consumedOffset - startUTF8Offset))
+        guard let suffix = String(bytes: missingBytes, encoding: .utf8) else {
+            // Offsets must fall on UTF-8 boundaries, including Chinese and emoji.
             needsTimelineReload = true
             return
         }
 
         var coalescer = coalescers[partID] ?? coalescerTemplate
-        let readyText = coalescer.append(delta, at: now())
+        let readyText = coalescer.append(suffix, at: now())
         coalescers[partID] = coalescer
         consumedUTF8OffsetByPartID[partID] = endUTF8Offset
 

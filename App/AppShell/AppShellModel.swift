@@ -84,16 +84,12 @@ final class AppShellModel {
         guard !previewContent.isPreparing else { return false }
         let id = conversationID
         let preparation = previewContent.beginPreparation()
-        let store = dependencies.store
         // A busy Run may invalidate a read. Retry a finite number of times; failure
         // leaves the Preview and its logical state intact for an explicit retry.
         for _ in 0..<3 {
             let ticket = router.beginPanePreparation(for: id)
             do {
-                let timeline = try await Task.detached(priority: .userInitiated) {
-                    try Task.checkCancellation()
-                    return try ConversationTimelineLoader.load(conversationID: id, from: store)
-                }.value
+                let history = try await router.historyPreparation.prepare(id: id, store: dependencies.store)
                 guard !Task.isCancelled, conversationID == id,
                       router === dependencies.router, previewContent.accepts(preparation) else {
                     dependencies.router.cancelPanePreparation(for: id, ticket: ticket)
@@ -101,7 +97,8 @@ final class AppShellModel {
                 }
                 guard router.acceptsPanePreparation(for: id, ticket: ticket) else { continue }
                 let wiring = try ConversationPaneFactory(sessions: sessions).makePane(
-                    id: id, initialTimeline: timeline, dependencies: dependencies, target: target,
+                    id: id, initialTimeline: history.timeline, dependencies: dependencies, target: target,
+                    snapshot: history.snapshot,
                     onTargetFailure: { [weak self] failure, failedTarget in
                         self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
                     })
@@ -134,6 +131,7 @@ final class AppShellModel {
     }
 
     func cancelPreviewReturn() {
+        if previewContent.isPreparing { router.historyPreparation.cancel() }
         if let prepared = previewContent.prepared {
             router.unregisterPane(for: prepared.pane.conversationID)
         }
@@ -156,6 +154,8 @@ final class AppShellModel {
     @ObservationIgnored private var startedAssembly = false
     @ObservationIgnored private var backgroundedAtInProcess: Date?
     @ObservationIgnored private let sessions = ConversationSessionStore()
+    @ObservationIgnored private var navigationID = UUID()
+    @ObservationIgnored private(set) var launchRestorationTask: Task<Void, Never>?
 
     var canSend: Bool {
         pane?.composer.sendAvailability.isReady == true
@@ -196,6 +196,9 @@ final class AppShellModel {
     }
 
     func assemble() {
+        navigationID = UUID()
+        router.historyPreparation.cancel()
+        launchRestorationTask?.cancel()
         startedAssembly = true
         launchState = .loading
         cancelPreviewReturn()
@@ -227,6 +230,9 @@ final class AppShellModel {
     }
 
     func newConversation() {
+        navigationID = UUID()
+        router.historyPreparation.cancel()
+        launchRestorationTask?.cancel()
         rememberCurrentSession()
         cancelPreviewReturn()
         previewContent.finish()
@@ -263,14 +269,14 @@ final class AppShellModel {
         }
     }
 
-    private func restoreAtLaunch(at date: Date) {
+    private func restoreAtLaunch(at date: Date) async {
         let marker = ConversationResumeMarker.read(from: userDefaults)
         guard let marker else { return }
         guard marker.isWithinRestoreWindow(at: date) else {
             ConversationResumeMarker.clear(from: userDefaults)
             return
         }
-        if openConversation(id: marker.conversationID) {
+        if await openConversation(id: marker.conversationID) {
             ConversationResumeMarker.clear(from: userDefaults)
             return
         }
@@ -288,7 +294,12 @@ final class AppShellModel {
         guard let dependencies else { return }
         do {
             guard !((try dependencies.store.activeParentRunIDs()).isEmpty) else {
-                restoreAtLaunch(at: date)
+                if ConversationResumeMarker.read(from: userDefaults) != nil {
+                    launchRestorationTask = Task { [weak self] in
+                        guard let self else { return }
+                        await self.restoreAtLaunch(at: date)
+                    }
+                }
                 return
             }
         } catch {
@@ -297,7 +308,7 @@ final class AppShellModel {
         }
 
         launchState = .loading
-        Task { [weak self] in
+        launchRestorationTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let report = try await dependencies.runtime.reconcileColdStartRuns()
@@ -308,7 +319,8 @@ final class AppShellModel {
                 coldStartRecoveryMessage = "无法恢复未完成的运行，请重试恢复。"
             }
             launchState = .ready
-            restoreAtLaunch(at: date)
+            guard !Task.isCancelled, router === dependencies.router else { return }
+            await restoreAtLaunch(at: date)
         }
     }
 
@@ -380,31 +392,35 @@ final class AppShellModel {
     }
 
     @discardableResult
-    func openConversation(id: String) -> Bool {
+    func openConversation(id: String) async -> Bool {
         guard let dependencies else { return false }
-        guard let visibleIDs = try? dependencies.store.visibleConversations().map(\.id),
-              visibleIDs.contains(id) else { return false }
+        guard (try? dependencies.store.conversationLifecycle(id: id)) == .visible else { return false }
 
         if id == conversationID {
             if pane != nil { return true }
             if previewContent.prepared != nil { return commitPreviewReturn() }
         }
 
+        cancelPreviewReturn()
+        let navigation = UUID()
+        navigationID = navigation
+        let ticket = router.beginPanePreparation(for: id)
+        defer { dependencies.router.cancelPanePreparation(for: id, ticket: ticket) }
         do {
-            let timeline = try ConversationTimelineLoader.load(
-                conversationID: id,
-                from: dependencies.store
-            )
+            let history = try await router.historyPreparation.prepare(id: id, store: dependencies.store)
+            guard !Task.isCancelled, navigationID == navigation, router === dependencies.router,
+                  history.snapshot.conversation?.lifecycle == .visible else { return false }
             let wiring = try ConversationPaneFactory(sessions: sessions).makePane(
                 id: id,
-                initialTimeline: timeline,
+                initialTimeline: history.timeline,
                 dependencies: dependencies,
                 target: target,
+                snapshot: history.snapshot,
                 onTargetFailure: { [weak self] failure, failedTarget in
                     self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
                 }
             )
-            guard dependencies.router.registerPane(wiring.pane) else { return false }
+            guard dependencies.router.registerPreparedPane(wiring.pane, ticket: ticket) else { return false }
 
             // Keep the outgoing pane intact until the replacement has loaded and registered.
             rememberCurrentSession()

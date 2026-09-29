@@ -5,6 +5,7 @@ import SwiftUI
 struct ConversationPreviewUITestFixture: View {
     @State private var model: AppShellModel
     @State private var positionRequest: UInt64?
+    @State private var didOpenHistory = false
 
     init() {
         do {
@@ -18,7 +19,6 @@ struct ConversationPreviewUITestFixture: View {
             defaults.removePersistentDomain(forName: "ZenAgent.PreviewHandoffUITest")
             let model = AppShellModel(dependencies: AppAssembly.Dependencies(store: store,
                 credentials: credentials, provider: provider, runtime: runtime, router: router), userDefaults: defaults)
-            guard model.openConversation(id: "preview-ui-11") else { fatalError("Preview history fixture could not open") }
             _model = State(initialValue: model)
         } catch {
             fatalError("Preview fixture could not assemble: \(error)")
@@ -27,6 +27,14 @@ struct ConversationPreviewUITestFixture: View {
 
     var body: some View {
         AppShellRootView(model: model)
+            .task {
+                guard !didOpenHistory else { return }
+                didOpenHistory = true
+                guard await model.openConversation(id: "preview-ui-11") else {
+                    if !Task.isCancelled { fatalError("Preview history fixture could not open") }
+                    return
+                }
+            }
             .overlay(alignment: .bottomLeading) {
                 Text("pending=\(String(describing: model.pane?.scrollRequest?.sequence)) \(model.pane?.previewReadingDiagnosticForUITest ?? "Preview")")
                     .font(.system(size: 1)).frame(width: 1, height: 1)
