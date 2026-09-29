@@ -180,7 +180,12 @@ struct WorkspaceSurfaceView<Content: View>: View {
             if let error = deletion.errorMessage {
                 HStack(spacing: 12) {
                     Text(error).font(.footnote)
-                    Button("关闭") { deletion.clearError() }
+                    if deletion.needsRecoveryRetry {
+                        Button("重试") { deletion.recoverPending() }
+                            .accessibilityIdentifier("workspace-card-recovery-retry")
+                    } else {
+                        Button("关闭") { deletion.clearError() }
+                    }
                 }
                 .padding(10)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
@@ -190,8 +195,24 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     LazyHStack(spacing: 8) {
                         ForEach(deletion.pendingCards, id: \.conversationID) { item in
                             HStack(spacing: 12) {
-                                Text("会话已删除").font(.footnote)
-                                if Date() < item.deadline {
+                                Text(deletion.needsRecoveryDecision(conversationID: item.conversationID)
+                                    ? "删除待确认" : "会话已删除").font(.footnote)
+                                if deletion.needsRecoveryDecision(conversationID: item.conversationID) {
+                                    Button("保留会话") {
+                                        if model.restoreRecoveredAppSpaceConversation(id: item.conversationID) {
+                                            if browse.isPresented {
+                                                _ = browse.selectRestoredConversation(id: item.conversationID)
+                                            }
+                                            UIAccessibility.post(notification: .announcement,
+                                                argument: "会话已保留")
+                                        }
+                                    }
+                                    .accessibilityIdentifier("workspace-card-restore-\(item.conversationID)")
+                                    Button("确认删除", role: .destructive) {
+                                        _ = model.confirmRecoveredAppSpaceConversationDeletion(id: item.conversationID)
+                                    }
+                                    .accessibilityIdentifier("workspace-card-confirm-delete-\(item.conversationID)")
+                                } else if deletion.canUndo(conversationID: item.conversationID) {
                                     Button("撤销") {
                                         if model.undoAppSpaceConversation(id: item.conversationID) {
                                             if browse.isPresented {

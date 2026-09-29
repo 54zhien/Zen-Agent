@@ -126,7 +126,7 @@ struct AppSpaceDeletionCoordinationTests {
             stopRun: { _ in }, waitForRun: { _ in },
             now: { Fixtures.epoch.addingTimeInterval(3600) })
 
-        owner.recoverPending(afterLaunch: false)
+        owner.recoverPending()
         owner.retryFinalization(conversationID: "c1")
 
         #expect(try store.conversationLifecycle(id: "c1") == .pendingDeletion)
@@ -187,5 +187,34 @@ struct AppSpaceDeletionCoordinationTests {
         #expect(try store.conversationLifecycle(id: "c1") == .pendingDeletion)
         #expect(try store.messages(inConversation: "c1").count == 1)
         #expect(owner.pending?.conversationID == "c1")
+    }
+
+    @Test("recovered Card intent requires an exact explicit restore or delete choice")
+    func recoveredChoicePreservesOrFinalizesExactBody() throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(
+            Fixtures.send(messageID: "recovered-choice-m1", runID: "recovered-choice-r1", runState: .completed)
+        )
+        try store.createEmptyConversation(id: "untouched", at: Fixtures.epoch)
+        _ = try store.beginCardDeletion(conversationID: "c1", at: Fixtures.epoch)
+        let future = Fixtures.epoch.addingTimeInterval(3600)
+        let owner = AppSpaceConversationDeletion(store: store,
+            stopRun: { _ in }, waitForRun: { _ in }, now: { future })
+
+        owner.recoverPending()
+        #expect(owner.needsRecoveryDecision(conversationID: "c1"))
+        #expect(!owner.canUndo(conversationID: "c1"))
+        #expect(!owner.confirmRecovered(conversationID: "untouched"))
+        #expect(try store.conversationLifecycle(id: "untouched") == .visible)
+        #expect(owner.restoreRecovered(conversationID: "c1"))
+        #expect(try store.conversationLifecycle(id: "c1") == .visible)
+        #expect(try store.messages(inConversation: "c1").count == 1)
+
+        _ = try store.beginCardDeletion(conversationID: "c1", at: future)
+        owner.recoverPending()
+        #expect(owner.confirmRecovered(conversationID: "c1"))
+        #expect(try store.conversationLifecycle(id: "c1") == .finalizedDeletion)
+        #expect(try store.messages(inConversation: "c1").isEmpty)
+        #expect(try store.conversationLifecycle(id: "untouched") == .visible)
     }
 }

@@ -8,7 +8,7 @@
 
 **Tech stack:** SwiftUI, UIKit, Swift Testing, XCTest UI, GRDB, XcodeGen, GitHub macOS CI.
 
-**Spec:** Blueprint `52b0958` `Design/Zen Agent 开发规划.md` Stage 5 step 7; `Design/Zen Agent App Space、Split 与全局导航.md` §§1, 6, 17–18; `Design/CONTEXT.md` deletion terms. Base `56c8425` (S5-06, PR #23 on S5-05 PR #22). Prior owner decision in `tasks/h1-history-handoff.md`: 10-second Undo window, persistent deadline, cold-start and clock contract.
+**Spec:** Blueprint `99d30b8` `Design/Zen Agent 开发规划.md` Stage 5 step 7; `Design/Zen Agent App Space、Split 与全局导航.md` §§1, 6, 17–18; `Design/CONTEXT.md` deletion terms. Base `56c8425` (S5-06, PR #23 on S5-05 PR #22). Prior owner decision in `tasks/h1-history-handoff.md`: 10-second Undo window and persistent deadline. `Docs/ADR/0004-card-delete-recovery-clock.md` records the revised cold-start recovery rule.
 
 ## Global constraints
 
@@ -16,7 +16,7 @@
 - A nonterminal Parent Run, including suspended and stopping, reaches a terminal cancelled state through the real Runtime before `beginDeletion`.
 - During `pendingDeletion`, Messages, Parts, FileAsset references, and Soul binding remain intact; Undo restores them but never restarts a cancelled Run.
 - `finalizeDeletion` is the sole body removal point. Repeated and stale requests cannot delete a different selected ID.
-- Commit a 10-second absolute Undo deadline with `pendingDeletion` in one transaction. Use a monotonic in-process timer only to trigger an expiry check; persisted wall-clock deadline controls cold-start recovery. Clock or storage uncertainty keeps the body and exposes retry.
+- Commit a 10-second absolute Undo deadline with `pendingDeletion` in one transaction. Use a monotonic in-process timer to bound ordinary Undo. If that timer is lost across process restart or foreground recovery, keep the body and require an explicit restore/delete choice; the persisted wall-clock deadline alone cannot authorize body removal. Storage uncertainty keeps the body and exposes retry.
 - Current + three predecessors + nearest successor remains bounded. Deleting Current selects its nearest valid neighbor or New.
 - VoiceOver/Switch Control can invoke Delete and Undo. Reduced Motion suppresses motion while preserving state changes.
 - No Split, Sidebar, Search, Files Workspace, Settings, shader, signing, or new dependency work in this slice. One additive deadline migration is owned by this slice.
@@ -27,7 +27,7 @@
 2. Stop failure, cancellation, or read uncertainty leaves the card visible and retryable.
 3. A concurrent Run accepted just before Delete cannot leave an active slot after `pendingDeletion` begins.
 4. Undo and deadline finalization race on one persisted lifecycle state, with one visible outcome and no empty restored shell.
-5. Process restart recovers pending deadlines; expired entries finalize, live entries remain Undo-able until their original deadline.
+5. Process restart recovers pending deletion intents without auto-erasing the body; explicit restore/delete resolution is atomic. A surviving in-process timer still completes the original ten-second window.
 
 ### Task 1: Persistence and Runtime behavior RED
 

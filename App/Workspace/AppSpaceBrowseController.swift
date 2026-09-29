@@ -78,6 +78,11 @@ final class AppSpaceBrowseController {
             onChanged?()
             return true
         } catch {
+            // The committed deletion already removed Current from ordinary
+            // browsing. Keep a readable New shell while the bounded read retries;
+            // retaining the hidden ID would leave gesture and visual owners split.
+            install(ConversationBrowseWindow(current: nil, older: [], newer: nil), selectingNew: true)
+            clearDeletionReplacement()
             errorMessage = "下一张卡片读取失败。会话已保留在撤销窗口内，请重试。"
             onChanged?()
             return false

@@ -127,6 +127,18 @@ final class AppShellModel {
         return true
     }
 
+    func restoreRecoveredAppSpaceConversation(id: String) -> Bool {
+        guard let cardDeletion, cardDeletion.restoreRecovered(conversationID: id) else { return false }
+        refreshRecentConversations()
+        return true
+    }
+
+    func confirmRecoveredAppSpaceConversationDeletion(id: String) -> Bool {
+        guard let cardDeletion, cardDeletion.confirmRecovered(conversationID: id) else { return false }
+        refreshRecentConversations()
+        return true
+    }
+
     func browseWindow(id: String) throws -> ConversationBrowseWindow {
         guard let store = dependencies?.store else { throw AppTargetFailure.persistenceUnavailable }
         return try store.conversationBrowseWindow(id: id, uncommittedIDs: sessions.uncommittedIDs)
@@ -351,7 +363,7 @@ final class AppShellModel {
     }
 
     func becameActive(at date: Date) {
-        cardDeletion?.recoverPending(afterLaunch: false)
+        cardDeletion?.recoverPending()
         guard let backgroundedAtInProcess else { return }
         self.backgroundedAtInProcess = nil
         ConversationResumeMarker.clear(from: userDefaults)

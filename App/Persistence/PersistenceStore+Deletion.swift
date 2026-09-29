@@ -73,6 +73,32 @@ extension PersistenceStore {
         }
     }
 
+    /// The UI may use this only while it still owns the original continuous
+    /// timer, or after a recovered item receives an explicit restore choice.
+    /// A wall-clock jump must not turn a live Undo into a refused transaction.
+    func restoreCardDeletionWithoutWallDeadline(conversationID: String,
+                                                at now: Date = Date()) throws {
+        try database.write { db in
+            try undoDeletion(conversationID: conversationID, at: now,
+                requiresCardIntent: true, ignoreCardDeadline: true, in: db)
+        }
+    }
+
+    /// Explicit recovery choice. Both the Card intent and pending lifecycle are
+    /// checked in the same transaction that removes the body.
+    func confirmRecoveredCardDeletion(conversationID: String, at now: Date = Date()) throws {
+        try database.write { db in
+            guard try Date.fetchOne(db, sql: """
+                SELECT deletion.deadlineAt FROM conversationDeletionDeadline AS deletion
+                JOIN conversation ON conversation.id = deletion.conversationID
+                WHERE deletion.conversationID = ? AND conversation.lifecycle = ?
+                """, arguments: [conversationID, ConversationLifecycle.pendingDeletion.rawValue]) != nil else {
+                throw PersistenceError.invalidTransition("No recovered Card Delete to confirm")
+            }
+            try finalizeDeletion(conversationID: conversationID, at: now, in: db)
+        }
+    }
+
     func finalizeExpiredCardDeletion(conversationID: String, at now: Date = Date()) throws -> Bool {
         try database.write { db in
             guard let deadline = try Date.fetchOne(db, sql: """
@@ -147,7 +173,8 @@ extension PersistenceStore {
     }
 
     private func undoDeletion(conversationID: String, at now: Date,
-                              requiresCardIntent: Bool, in db: Database) throws {
+                              requiresCardIntent: Bool, ignoreCardDeadline: Bool = false,
+                              in db: Database) throws {
         let conversation = try requireConversation(conversationID, in: db)
         guard conversation.lifecycle == .pendingDeletion else {
             throw PersistenceError.invalidLifecycleTransition(
@@ -163,7 +190,7 @@ extension PersistenceStore {
         if requiresCardIntent && deadline == nil {
             throw PersistenceError.invalidTransition("No pending Card Delete to undo")
         }
-        if let deadline, now >= deadline {
+        if let deadline, now >= deadline, !ignoreCardDeadline {
             throw PersistenceError.invalidTransition("Card Delete Undo deadline has expired")
         }
         try db.execute(sql: "UPDATE conversation SET lifecycle = ?, updatedAt = ? WHERE id = ?",

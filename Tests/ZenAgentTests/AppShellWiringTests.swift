@@ -37,11 +37,10 @@ struct AppShellWiringTests {
         #expect(original != nil)
         _ = try fixture.store.beginCardDeletion(conversationID: "delete-origin",
             at: Date().addingTimeInterval(-3600))
-        fixture.model.cardDeletion?.recoverPending(afterLaunch: false)
-        for _ in 0..<120 {
-            if try fixture.store.conversationLifecycle(id: "delete-origin") == .finalizedDeletion { break }
-            try await Task.sleep(for: .milliseconds(100))
-        }
+        let deletion = try #require(fixture.model.cardDeletion)
+        deletion.recoverPending()
+        #expect(deletion.needsRecoveryDecision(conversationID: "delete-origin"))
+        #expect(fixture.model.confirmRecoveredAppSpaceConversationDeletion(id: "delete-origin"))
         #expect(try fixture.store.conversationLifecycle(id: "delete-origin") == .finalizedDeletion)
         #expect(original == nil)
         #expect(fixture.model.previewContent.session == nil)

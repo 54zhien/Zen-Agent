@@ -9,6 +9,8 @@ final class AppSpaceConversationDeletion {
     private(set) var pendingCards: [PendingCardDeletion] = []
     var pending: PendingCardDeletion? { pendingCards.last }
     private(set) var errorMessage: String?
+    private(set) var needsRecoveryRetry = false
+    private(set) var recoveryDecisionIDs: Set<String> = []
     private(set) var isDeleting = false
 
     @ObservationIgnored private let store: PersistenceStore
@@ -49,7 +51,7 @@ final class AppSpaceConversationDeletion {
             guard !Task.isCancelled, stillSelected() else { return false }
             let committed = try store.beginCardDeletion(conversationID: conversationID, at: now())
             addPending(committed)
-            scheduleExpiry(for: committed, recovered: false)
+            scheduleExpiry(for: committed)
             errorMessage = nil
             return true
         } catch {
@@ -60,11 +62,13 @@ final class AppSpaceConversationDeletion {
 
     @discardableResult
     func undo(conversationID: String) -> Bool {
+        guard canUndo(conversationID: conversationID) else {
+            errorMessage = "撤销窗口已结束，请检查会话的恢复选项。"
+            return false
+        }
         do {
-            try store.undoCardDeletion(conversationID: conversationID, at: now())
-            expiryTasks.removeValue(forKey: conversationID)?.cancel()
-            awaitingMonotonicExpiryIDs.remove(conversationID)
-            pendingCards.removeAll { $0.conversationID == conversationID }
+            try store.restoreCardDeletionWithoutWallDeadline(conversationID: conversationID, at: now())
+            clearPending(conversationID)
             errorMessage = nil
             return true
         } catch {
@@ -73,33 +77,75 @@ final class AppSpaceConversationDeletion {
         }
     }
 
-    /// Rehydrate only the bounded deadline index. A fresh monotonic grace period
-    /// after launch prevents a jumped wall clock from causing immediate erasure.
-    /// Undo still checks the original persisted deadline; this grace never resets it.
-    func recoverPending(afterLaunch: Bool = true) {
+    func canUndo(conversationID: String) -> Bool {
+        awaitingMonotonicExpiryIDs.contains(conversationID)
+            && !recoveryDecisionIDs.contains(conversationID)
+    }
+
+    func needsRecoveryDecision(conversationID: String) -> Bool {
+        recoveryDecisionIDs.contains(conversationID)
+    }
+
+    @discardableResult
+    func restoreRecovered(conversationID: String) -> Bool {
+        guard recoveryDecisionIDs.contains(conversationID) else { return false }
+        do {
+            try store.restoreCardDeletionWithoutWallDeadline(conversationID: conversationID, at: now())
+            clearPending(conversationID)
+            errorMessage = nil
+            return true
+        } catch {
+            errorMessage = "保留会话失败，正文仍在；请重试。"
+            return false
+        }
+    }
+
+    @discardableResult
+    func confirmRecovered(conversationID: String) -> Bool {
+        guard recoveryDecisionIDs.contains(conversationID) else { return false }
+        do {
+            try store.confirmRecoveredCardDeletion(conversationID: conversationID, at: now())
+            clearPending(conversationID)
+            onFinalized(conversationID)
+            errorMessage = nil
+            return true
+        } catch {
+            errorMessage = "确认删除失败，正文仍在；请重试。"
+            return false
+        }
+    }
+
+    /// A lost continuous timer makes the persisted wall deadline insufficient
+    /// proof of elapsed time. Keep the body until the user resolves that intent.
+    func recoverPending() {
         do {
             var cursor: PendingCardDeletion?
             while true {
                 let page = try store.pendingCardDeletionPage(after: cursor)
                 for item in page {
                     addPending(item)
-                    // Keep a live monotonic timer across foreground transitions.
-                    // If none exists, treat the wall deadline as uncertain and
-                    // give recovery the same conservative grace as a cold start.
-                    if afterLaunch || expiryTasks[item.conversationID] == nil {
-                        scheduleExpiry(for: item, recovered: true)
+                    // A surviving timer remains the authority across foreground
+                    // transitions. Rehydrating from disk cannot recreate its proof.
+                    if expiryTasks[item.conversationID] == nil {
+                        recoveryDecisionIDs.insert(item.conversationID)
                     }
                 }
                 guard page.count == 50, let last = page.last else { break }
                 cursor = last
             }
+            needsRecoveryRetry = false
             errorMessage = nil
         } catch {
+            needsRecoveryRetry = true
             errorMessage = "待删除会话读取失败，正文已保留；请重试。"
         }
     }
 
     func retryFinalization(conversationID: String) {
+        guard !recoveryDecisionIDs.contains(conversationID) else {
+            errorMessage = "删除期限无法确认，请选择保留会话或确认删除。"
+            return
+        }
         guard !awaitingMonotonicExpiryIDs.contains(conversationID) else {
             errorMessage = "正在确认删除期限，请稍后重试。"
             return
@@ -118,14 +164,19 @@ final class AppSpaceConversationDeletion {
         }
     }
 
-    private func scheduleExpiry(for item: PendingCardDeletion, recovered: Bool) {
-        if !recovered && awaitingMonotonicExpiryIDs.contains(item.conversationID) { return }
+    private func clearPending(_ conversationID: String) {
+        expiryTasks.removeValue(forKey: conversationID)?.cancel()
+        awaitingMonotonicExpiryIDs.remove(conversationID)
+        recoveryDecisionIDs.remove(conversationID)
+        pendingCards.removeAll { $0.conversationID == conversationID }
+    }
+
+    private func scheduleExpiry(for item: PendingCardDeletion) {
+        if awaitingMonotonicExpiryIDs.contains(item.conversationID) { return }
         awaitingMonotonicExpiryIDs.insert(item.conversationID)
         expiryTasks.removeValue(forKey: item.conversationID)?.cancel()
-        let remaining = max(0, item.deadline.timeIntervalSince(now()))
-        let delay = max(recovered ? Self.cardUndoRecoveryGrace : 0, remaining)
         expiryTasks[item.conversationID] = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+            do { try await Task.sleep(for: .seconds(PersistenceStore.cardUndoWindow)) } catch { return }
             guard !Task.isCancelled else { return }
             self?.expiryTasks.removeValue(forKey: item.conversationID)
             self?.awaitingMonotonicExpiryIDs.remove(item.conversationID)
@@ -133,22 +184,20 @@ final class AppSpaceConversationDeletion {
         }
     }
 
-    private static let cardUndoRecoveryGrace: TimeInterval = 10
-
     private func expire(conversationID: String) {
         do {
             if try store.finalizeExpiredCardDeletion(conversationID: conversationID, at: now()) {
-                expiryTasks.removeValue(forKey: conversationID)
-                pendingCards.removeAll { $0.conversationID == conversationID }
+                clearPending(conversationID)
                 onFinalized(conversationID)
                 errorMessage = nil
             } else if let item = try store.pendingCardDeletion(id: conversationID) {
-                // A backward clock adjustment retains the body. The absolute
-                // deadline remains unchanged; a later monotonic wake retries.
-                scheduleExpiry(for: item, recovered: false)
+                // The continuous window elapsed but the wall deadline moved
+                // backwards. Neither clock alone may now erase the body.
+                addPending(item)
+                recoveryDecisionIDs.insert(conversationID)
+                errorMessage = nil
             } else {
-                expiryTasks.removeValue(forKey: conversationID)
-                pendingCards.removeAll { $0.conversationID == conversationID }
+                clearPending(conversationID)
                 if try store.conversationLifecycle(id: conversationID) == .finalizedDeletion {
                     onFinalized(conversationID)
                 }
