@@ -25,7 +25,7 @@ struct AppShellWiringTests {
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
         try fixture.store.commitUserTurnAndCreateParentRun(Fixtures.send(
-            conversationID: "cancel-work", runID: "cancel-work-run", runState: .completed))
+            conversationID: "cancel-work", messageID: "cancel-work-user", runID: "cancel-work-run", runState: .completed))
         #expect(fixture.model.openConversation(id: "cancel-work"))
         #expect(fixture.model.enterPreview())
         for _ in 0..<3 {
