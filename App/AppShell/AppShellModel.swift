@@ -113,6 +113,20 @@ final class AppShellModel {
         return true
     }
 
+    func deleteAppSpaceConversation(id: String, stillSelected: @MainActor () -> Bool) async -> Bool {
+        guard previewContent.isPresented, !previewContent.isPreparing,
+              let cardDeletion else { return false }
+        let deleted = await cardDeletion.delete(conversationID: id, stillSelected: stillSelected)
+        if deleted { refreshRecentConversations() }
+        return deleted
+    }
+
+    func undoAppSpaceConversation(id: String) -> Bool {
+        guard let cardDeletion, cardDeletion.undo(conversationID: id) else { return false }
+        refreshRecentConversations()
+        return true
+    }
+
     func browseWindow(id: String) throws -> ConversationBrowseWindow {
         guard let store = dependencies?.store else { throw AppTargetFailure.persistenceUnavailable }
         return try store.conversationBrowseWindow(id: id, uncommittedIDs: sessions.uncommittedIDs)
@@ -218,6 +232,7 @@ final class AppShellModel {
     @ObservationIgnored private let userDefaults: UserDefaults
     @ObservationIgnored private var dependencies: AppAssembly.Dependencies?
     private var cardActions: AppSpaceConversationActions?
+    private(set) var cardDeletion: AppSpaceConversationDeletion?
     @ObservationIgnored private var startedAssembly = false
     @ObservationIgnored private var backgroundedAtInProcess: Date?
     @ObservationIgnored private let sessions = ConversationSessionStore()
@@ -251,6 +266,7 @@ final class AppShellModel {
         self.dependencies = dependencies
         self.cardActions = AppSpaceConversationActions(store: dependencies.store)
         self.router = dependencies.router
+        installCardDeletion(dependencies)
         self.launchState = .ready
         self.startedAssembly = true
         prepareProviderSetup()
@@ -274,6 +290,7 @@ final class AppShellModel {
         previewContent.finish()
         dependencies = nil
         cardActions = nil
+        cardDeletion = nil
         sessions.removeAll()
         pane = nil
         actionBridge = nil
@@ -290,6 +307,7 @@ final class AppShellModel {
             let assembled = try AppAssembly.assemble(router: router)
             dependencies = assembled
             cardActions = AppSpaceConversationActions(store: assembled.store)
+            installCardDeletion(assembled)
             launchState = .ready
             prepareProviderSetup()
             loadDefaultTarget()
@@ -332,6 +350,7 @@ final class AppShellModel {
     }
 
     func becameActive(at date: Date) {
+        cardDeletion?.recoverPending(afterLaunch: false)
         guard let backgroundedAtInProcess else { return }
         self.backgroundedAtInProcess = nil
         ConversationResumeMarker.clear(from: userDefaults)
@@ -342,6 +361,16 @@ final class AppShellModel {
         if !marker.isWithinRestoreWindow(at: date), isCurrentConversationVisible {
             newConversation()
         }
+    }
+
+    private func installCardDeletion(_ dependencies: AppAssembly.Dependencies) {
+        let runtime = dependencies.runtime
+        let owner = AppSpaceConversationDeletion(store: dependencies.store,
+            stopRun: { id in try await runtime.stop(runID: id) },
+            waitForRun: { id in try await runtime.waitForCompletion(runID: id) },
+            now: { Date() })
+        cardDeletion = owner
+        owner.recoverPending()
     }
 
     private func restoreAtLaunch(at date: Date) async {

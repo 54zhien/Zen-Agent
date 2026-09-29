@@ -34,19 +34,56 @@ extension PersistenceStore {
         }
     }
 
-    func undoCardDeletion(conversationID: String, at now: Date = Date()) throws {
-        guard try pendingCardDeletion(id: conversationID) != nil else {
-            throw PersistenceError.invalidTransition("No pending Card Delete to undo")
+    /// Keyset page for cold-start expiry recovery. Only intent metadata crosses
+    /// this boundary; no Message, Part, or file body is materialized.
+    func pendingCardDeletionPage(after cursor: PendingCardDeletion? = nil,
+                                 limit: Int = 50) throws -> [PendingCardDeletion] {
+        try database.read { db in
+            let count = min(50, max(1, limit))
+            let rows: [Row]
+            if let cursor {
+                rows = try Row.fetchAll(db, sql: """
+                    SELECT deletion.conversationID, deletion.deadlineAt
+                    FROM conversationDeletionDeadline AS deletion
+                    JOIN conversation ON conversation.id = deletion.conversationID
+                    WHERE conversation.lifecycle = ?
+                      AND (deletion.deadlineAt > ? OR
+                           (deletion.deadlineAt = ? AND deletion.conversationID > ?))
+                    ORDER BY deletion.deadlineAt, deletion.conversationID LIMIT ?
+                    """, arguments: [ConversationLifecycle.pendingDeletion.rawValue,
+                        cursor.deadline, cursor.deadline, cursor.conversationID, count])
+            } else {
+                rows = try Row.fetchAll(db, sql: """
+                    SELECT deletion.conversationID, deletion.deadlineAt
+                    FROM conversationDeletionDeadline AS deletion
+                    JOIN conversation ON conversation.id = deletion.conversationID
+                    WHERE conversation.lifecycle = ?
+                    ORDER BY deletion.deadlineAt, deletion.conversationID LIMIT ?
+                    """, arguments: [ConversationLifecycle.pendingDeletion.rawValue, count])
+            }
+            return rows.map { PendingCardDeletion(conversationID: $0["conversationID"],
+                deadline: $0["deadlineAt"]) }
         }
-        try undoDeletion(conversationID: conversationID, at: now)
+    }
+
+    func undoCardDeletion(conversationID: String, at now: Date = Date()) throws {
+        try database.write { db in
+            try undoDeletion(conversationID: conversationID, at: now,
+                requiresCardIntent: true, in: db)
+        }
     }
 
     func finalizeExpiredCardDeletion(conversationID: String, at now: Date = Date()) throws -> Bool {
-        guard let pending = try pendingCardDeletion(id: conversationID), now >= pending.deadline else { return false }
-        // If Undo wins after this read, finalizeDeletion refuses its visible row;
-        // it cannot erase the restored body.
-        try finalizeDeletion(conversationID: conversationID, at: now)
-        return true
+        try database.write { db in
+            guard let deadline = try Date.fetchOne(db, sql: """
+                SELECT deletion.deadlineAt FROM conversationDeletionDeadline AS deletion
+                JOIN conversation ON conversation.id = deletion.conversationID
+                WHERE deletion.conversationID = ? AND conversation.lifecycle = ?
+                """, arguments: [conversationID, ConversationLifecycle.pendingDeletion.rawValue]),
+                now >= deadline else { return false }
+            try finalizeDeletion(conversationID: conversationID, at: now, in: db)
+            return true
+        }
     }
 
     /// Conversations in ordinary listing. Pending-deletion ones are absent.
@@ -104,23 +141,36 @@ extension PersistenceStore {
     /// boolean you can set back.
     func undoDeletion(conversationID: String, at now: Date = Date()) throws {
         try database.write { db in
-            let conversation = try requireConversation(conversationID, in: db)
-            guard conversation.lifecycle == .pendingDeletion else {
-                throw PersistenceError.invalidLifecycleTransition(
-                    expected: .pendingDeletion, actual: conversation.lifecycle)
-            }
-            if try db.tableExists("conversationDeletionDeadline"),
-               let deadline = try Date.fetchOne(db, sql: """
-                   SELECT deadlineAt FROM conversationDeletionDeadline WHERE conversationID = ?
-                   """, arguments: [conversationID]), now >= deadline {
-                throw PersistenceError.invalidTransition("Card Delete Undo deadline has expired")
-            }
-            try db.execute(sql: "UPDATE conversation SET lifecycle = ?, updatedAt = ? WHERE id = ?",
-                arguments: [ConversationLifecycle.visible.rawValue, now, conversationID])
-            if try db.tableExists("conversationDeletionDeadline") {
-                try db.execute(sql: "DELETE FROM conversationDeletionDeadline WHERE conversationID = ?",
-                    arguments: [conversationID])
-            }
+            try undoDeletion(conversationID: conversationID, at: now,
+                requiresCardIntent: false, in: db)
+        }
+    }
+
+    private func undoDeletion(conversationID: String, at now: Date,
+                              requiresCardIntent: Bool, in db: Database) throws {
+        let conversation = try requireConversation(conversationID, in: db)
+        guard conversation.lifecycle == .pendingDeletion else {
+            throw PersistenceError.invalidLifecycleTransition(
+                expected: .pendingDeletion, actual: conversation.lifecycle)
+        }
+        let hasDeadlineTable = try db.tableExists("conversationDeletionDeadline")
+        var deadline: Date?
+        if hasDeadlineTable {
+            deadline = try Date.fetchOne(db, sql: """
+                SELECT deadlineAt FROM conversationDeletionDeadline WHERE conversationID = ?
+                """, arguments: [conversationID])
+        }
+        if requiresCardIntent && deadline == nil {
+            throw PersistenceError.invalidTransition("No pending Card Delete to undo")
+        }
+        if let deadline, now >= deadline {
+            throw PersistenceError.invalidTransition("Card Delete Undo deadline has expired")
+        }
+        try db.execute(sql: "UPDATE conversation SET lifecycle = ?, updatedAt = ? WHERE id = ?",
+            arguments: [ConversationLifecycle.visible.rawValue, now, conversationID])
+        if hasDeadlineTable {
+            try db.execute(sql: "DELETE FROM conversationDeletionDeadline WHERE conversationID = ?",
+                arguments: [conversationID])
         }
     }
 
@@ -133,6 +183,12 @@ extension PersistenceStore {
     /// side effect later.
     func finalizeDeletion(conversationID: String, at now: Date = Date()) throws {
         try database.write { db in
+            try finalizeDeletion(conversationID: conversationID, at: now, in: db)
+        }
+    }
+
+    private func finalizeDeletion(conversationID: String, at now: Date,
+                                  in db: Database) throws {
             // Refused before any write — a refused finalise must not even write
             // tombstones. Keep the lifecycle check in this transaction; nesting
             // another `database.write` here would violate GRDB's write boundary.
@@ -203,7 +259,6 @@ extension PersistenceStore {
                 try db.execute(sql: "DELETE FROM conversationDeletionDeadline WHERE conversationID = ?",
                     arguments: [conversationID])
             }
-        }
     }
 
     // MARK: - Tombstones

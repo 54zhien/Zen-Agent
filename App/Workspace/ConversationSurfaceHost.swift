@@ -6,14 +6,20 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var request: SurfaceGeometry.Request = .full
     var liftController: SurfaceLiftController?
     var browseController: AppSpaceBrowseController?
+    var deleteAction: AppSpaceCardDeletionInteraction.Commit?
+    var isDeletionPending: (@MainActor (String) -> Bool)?
     let content: Content
 
     init(request: SurfaceGeometry.Request = .full, liftController: SurfaceLiftController? = nil,
          browseController: AppSpaceBrowseController? = nil,
+         deleteAction: AppSpaceCardDeletionInteraction.Commit? = nil,
+         isDeletionPending: (@MainActor (String) -> Bool)? = nil,
          @ViewBuilder content: () -> Content) {
         self.request = request
         self.liftController = liftController
         self.browseController = browseController
+        self.deleteAction = deleteAction
+        self.isDeletionPending = isDeletionPending
         self.content = content()
     }
 
@@ -21,6 +27,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         let controller = ConversationSurfaceViewController(content: content, request: request)
         liftController?.bind(controller)
         controller.bindBrowse(browseController)
+        controller.bindDeletion(deleteAction, isPending: isDeletionPending)
         return controller
     }
 
@@ -34,10 +41,12 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
             _ = controller.apply(request)
         }
         controller.bindBrowse(browseController)
+        controller.bindDeletion(deleteAction, isPending: isDeletionPending)
     }
 
     static func dismantleUIViewController(_ controller: ConversationSurfaceViewController<Content>,
                                          coordinator: Void) {
+        controller.unbindDeletion()
         controller.unbindBrowse()
         controller.liftController?.unbind(controller)
     }
@@ -51,6 +60,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private var request = SurfaceGeometry.Request.full
     weak var liftController: SurfaceLiftController?
     private(set) var browseInteraction: AppSpaceBrowseInteraction?
+    private(set) var deletionInteraction: AppSpaceCardDeletionInteraction?
     var onViewportChanged: (() -> Void)?
     private var lastViewport: CGRect?
     private var lastInsets: UIEdgeInsets?
@@ -182,6 +192,11 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
                 })
             }
             if !isNew, browse.controller.canEditCurrentMetadata {
+                if let deletion = deletionInteraction, deletion.canTrigger {
+                    actions.append(UIAccessibilityCustomAction(name: "删除会话") { [weak deletion] _ in
+                        deletion?.triggerAccessibilityDelete() ?? false
+                    })
+                }
                 actions.append(UIAccessibilityCustomAction(name: "会话菜单") { [weak browse] _ in
                     guard let browse, browse.canNavigate else { return false }
                     return browse.controller.onOpenActions?() ?? false
@@ -190,6 +205,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             surfaceView.accessibilityCustomActions = actions
         }
         browseInteraction?.updateAvailability()
+        deletionInteraction?.updateAvailability()
     }
 
     func bindBrowse(_ controller: AppSpaceBrowseController?) {
@@ -214,8 +230,41 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func unbindBrowse() {
+        unbindDeletion()
         browseInteraction?.unbind()
         browseInteraction = nil
+    }
+
+    func bindDeletion(_ commit: AppSpaceCardDeletionInteraction.Commit?,
+                      isPending: (@MainActor (String) -> Bool)?) {
+        guard let commit, let isPending, let browse = browseInteraction?.controller else {
+            unbindDeletion()
+            return
+        }
+        if let deletionInteraction {
+            deletionInteraction.updateActions(commit: commit, stillPending: isPending)
+            deletionInteraction.updateAvailability()
+            return
+        }
+        deletionInteraction = AppSpaceCardDeletionInteraction(surface: surfaceView,
+            coordinates: view, browse: browse,
+            canDelete: { [weak self, weak browse] in
+                guard let self, let browse, let lift = self.liftController else { return false }
+                return browse.isPresented && !browse.interactionSuspended
+                    && browse.state.phase == .idle && browse.canEditCurrentMetadata
+                    && lift.state.phase == .card && !lift.isPreparingReturn
+                    && !lift.overlayPresented && !self.hasPresentedOverlay
+            },
+            refreshAccessibility: { [weak self] in self?.liftController?.refreshCardAccessibility() },
+            stillPending: isPending,
+            commit: commit)
+        deletionInteraction?.updateAvailability()
+        liftController?.refreshCardAccessibility()
+    }
+
+    func unbindDeletion() {
+        deletionInteraction?.unbind()
+        deletionInteraction = nil
     }
 
     var hasPresentedOverlay: Bool {

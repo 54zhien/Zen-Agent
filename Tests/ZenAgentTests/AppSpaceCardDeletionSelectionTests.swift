@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UIKit
 
 @testable import ZenAgent
 
@@ -19,6 +20,15 @@ struct AppSpaceCardDeletionSelectionTests {
         #expect(browse.selectedConversationID == "c2")
 
         _ = try store.beginCardDeletion(conversationID: "c2", at: Fixtures.epoch.addingTimeInterval(4))
+        browse.updateViewport(size: CGSize(width: 400, height: 800),
+            safeArea: UIEdgeInsets(top: 59, left: 0, bottom: 34, right: 0))
+        let before = try #require(browse.layout())
+        let current = try #require(before.cards.first { $0.item == .conversation("c2") })
+        let predecessor = try #require(before.cards.first { $0.item == .conversation("c1") })
+        browse.beginDeletionReplacement(id: "c2")
+        browse.advanceDeletionReplacement()
+        let promoted = browse.deletionProjection(predecessor, in: before)
+        #expect(promoted.frame == current.frame)
         #expect(browse.selectAfterDeleting(id: "c2"))
         #expect(browse.selectedConversationID == "c1")
         #expect(browse.currentSummary?.id == "c1")

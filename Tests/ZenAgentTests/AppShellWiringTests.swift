@@ -191,6 +191,7 @@ struct AppShellWiringTests {
         // S5-06 adds the distinct New after the latest history. Keep the existing
         // native older/newer controls and exercise the new boundary as well.
         #expect(card.accessibilityCustomActions?.contains { $0.name == "下一会话" } == true)
+        #expect(card.accessibilityCustomActions?.contains { $0.name == "删除会话" } == true)
         let previous = try #require(card.accessibilityCustomActions?.first { $0.name == "上一会话" })
         let previousHandler = try #require(previous.actionHandler)
         #expect(previousHandler(previous))
@@ -217,6 +218,7 @@ struct AppShellWiringTests {
         }
         #expect(card.accessibilityLabel?.contains("创建新对话") == true)
         #expect(card.accessibilityCustomActions?.contains { $0.name == "会话菜单" } == false)
+        #expect(card.accessibilityCustomActions?.contains { $0.name == "删除会话" } == false)
         #expect(card.accessibilityCustomActions?.contains { $0.name == "创建新对话" } == true)
         let fromNew = try #require(card.accessibilityCustomActions?.first { $0.name == "上一会话" })
         let fromNewHandler = try #require(fromNew.actionHandler)

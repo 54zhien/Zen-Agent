@@ -66,7 +66,11 @@ final class SurfaceLiftController {
             guard let host else { return false }
             return host.apply(.init(to: self?.target ?? .full, progress: progress))
         }
-        cancel = { [weak host] in host?.browseInteraction?.cancel(); host?.resetLiftPresentation() }
+        cancel = { [weak host] in
+            host?.deletionInteraction?.cancel()
+            host?.browseInteraction?.cancel()
+            host?.resetLiftPresentation()
+        }
         capture = { [weak self, weak host] in
             guard let host, let target = self?.target else { return 0 }
             return host.captureLiftProgress(target: target)

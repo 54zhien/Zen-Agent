@@ -73,4 +73,45 @@ struct AppSpaceDeletionCoordinationTests {
         #expect(try store.conversationLifecycle(id: "c1") == .visible)
         #expect(try store.run(id: "stale-r1")?.state == .cancelled)
     }
+
+    @Test("Undo restores the body without restarting a cancelled Run")
+    func ownerUndoRestoresBodyOnly() async throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(
+            Fixtures.send(messageID: "restore-m1", runID: "restore-r1")
+        )
+        try store.transitionRun(id: "restore-r1", expectedState: .preparing, to: .stopping)
+        try store.transitionRun(id: "restore-r1", expectedState: .stopping,
+            to: .cancelled, endReason: .cancelledByUser)
+        let owner = AppSpaceConversationDeletion(store: store,
+            stopRun: { _ in Issue.record("terminal Run must not be stopped again") },
+            waitForRun: { _ in Issue.record("terminal Run must not be waited again") },
+            now: { Fixtures.epoch })
+        #expect(await owner.delete(conversationID: "c1", stillSelected: { true }))
+        #expect(owner.undo(conversationID: "c1"))
+        #expect(try store.conversationLifecycle(id: "c1") == .visible)
+        #expect(try store.messages(inConversation: "c1").count == 1)
+        #expect(try store.run(id: "restore-r1")?.state == .cancelled)
+        #expect(owner.pending == nil)
+    }
+
+    @Test("a new owner recovers the original deadline from disk")
+    func coldStartRecoversPendingIntent() throws {
+        let url = try Fixtures.scratchPath(name: "owner-undo-recovery.sqlite")
+        defer { Fixtures.cleanUp(url) }
+        let started = Fixtures.epoch
+        do {
+            let before = PersistenceStore(database: try ZenDatabase.open(at: url.path()))
+            try before.createEmptyConversation(id: "c1", at: started)
+            _ = try before.beginCardDeletion(conversationID: "c1", at: started)
+        }
+        let after = PersistenceStore(database: try ZenDatabase.open(at: url.path()))
+        let owner = AppSpaceConversationDeletion(store: after,
+            stopRun: { _ in }, waitForRun: { _ in },
+            now: { started.addingTimeInterval(5) })
+        owner.recoverPending()
+        #expect(owner.pending?.conversationID == "c1")
+        #expect(owner.pending?.deadline == started.addingTimeInterval(10))
+        #expect(try after.conversationLifecycle(id: "c1") == .pendingDeletion)
+    }
 }

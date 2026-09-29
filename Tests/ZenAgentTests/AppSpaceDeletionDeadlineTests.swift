@@ -102,4 +102,23 @@ struct AppSpaceDeletionDeadlineTests {
         #expect(try after.messages(inConversation: "c1").count == 1)
         #expect(try after.pendingCardDeletion(id: "c1") == nil)
     }
+
+    @Test("cold start pages persisted intents without loading conversation bodies")
+    func pendingIntentPageSurvivesReopen() throws {
+        let url = try Fixtures.scratchPath(name: "card-intent-page.sqlite")
+        defer { Fixtures.cleanUp(url) }
+        do {
+            let store = PersistenceStore(database: try ZenDatabase.open(at: url.path()))
+            try store.createEmptyConversation(id: "a", at: Fixtures.epoch)
+            try store.createEmptyConversation(id: "b", at: Fixtures.epoch)
+            _ = try store.beginCardDeletion(conversationID: "a", at: Fixtures.epoch)
+            _ = try store.beginCardDeletion(conversationID: "b", at: Fixtures.epoch.addingTimeInterval(1))
+        }
+        let reopened = PersistenceStore(database: try ZenDatabase.open(at: url.path()))
+        let first = try reopened.pendingCardDeletionPage(limit: 1)
+        #expect(first.map(\.conversationID) == ["a"])
+        let second = try reopened.pendingCardDeletionPage(after: first.first, limit: 1)
+        #expect(second.map(\.conversationID) == ["b"])
+        #expect(try reopened.pendingCardDeletionPage(after: second.first, limit: 1).isEmpty)
+    }
 }

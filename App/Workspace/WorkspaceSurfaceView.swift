@@ -39,11 +39,24 @@ struct WorkspaceSurfaceView<Content: View>: View {
         self.content = content()
     }
 
+    private var deleteAction: AppSpaceCardDeletionInteraction.Commit? {
+        guard let model else { return nil }
+        return { id, stillSelected in
+            await model.deleteAppSpaceConversation(id: id, stillSelected: stillSelected)
+        }
+    }
+
+    private var isDeletionPending: (@MainActor (String) -> Bool)? {
+        guard let model else { return nil }
+        return { id in model.cardDeletion?.pendingCards.contains { $0.conversationID == id } == true }
+    }
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color(white: 0.035)
             if model?.previewContent.isPresented == true, let layout = browse.layout() {
-                ForEach(layout.cards.filter { $0.item != browse.state.selected }, id: \.item) { card in
+                ForEach(layout.cards.filter { $0.item != browse.state.selected }
+                    .map { browse.deletionProjection($0, in: layout) }, id: \.item) { card in
                     projectedCard(card)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
@@ -52,7 +65,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         .zIndex(4 - card.depth)
                 }
             }
-            ConversationSurfaceHost(liftController: lift, browseController: model == nil ? nil : browse) {
+            ConversationSurfaceHost(liftController: lift, browseController: model == nil ? nil : browse,
+                                    deleteAction: deleteAction, isDeletionPending: isDeletionPending) {
                 content.environment(\.surfaceLiftController, lift)
                     .environment(\.surfaceBrowseController, model == nil ? nil : browse)
             }
@@ -64,6 +78,13 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     summary: summary, requestedID: $requestedMenuID)
                     .position(x: frame.maxX - 24, y: frame.minY + 24)
                     .zIndex(100)
+            }
+            if let model, let deletion = model.cardDeletion,
+               !deletion.pendingCards.isEmpty || deletion.errorMessage != nil {
+                deletionBanner(model: model, deletion: deletion)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .padding(.bottom, 36)
+                    .zIndex(200)
             }
 #if DEBUG
             if ProcessInfo.processInfo.environment["ZEN_SURFACE_LIFT_UI_TEST"] == "1"
@@ -149,6 +170,53 @@ struct WorkspaceSurfaceView<Content: View>: View {
     private var cardLabel: String {
         guard let model else { return "当前会话" }
         return Self.cardLabel(model: model, browse: browse)
+    }
+
+    private func deletionBanner(model: AppShellModel,
+                                deletion: AppSpaceConversationDeletion) -> some View {
+        VStack(spacing: 6) {
+            if let error = deletion.errorMessage {
+                HStack(spacing: 12) {
+                    Text(error).font(.footnote)
+                    Button("关闭") { deletion.clearError() }
+                }
+                .padding(10)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
+            if !deletion.pendingCards.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 8) {
+                        ForEach(deletion.pendingCards, id: \.conversationID) { item in
+                            HStack(spacing: 12) {
+                                Text("会话已删除").font(.footnote)
+                                if Date() < item.deadline {
+                                    Button("撤销") {
+                                        if model.undoAppSpaceConversation(id: item.conversationID) {
+                                            if browse.isPresented {
+                                                _ = browse.selectRestoredConversation(id: item.conversationID)
+                                            }
+                                            UIAccessibility.post(notification: .announcement,
+                                                argument: "会话已恢复")
+                                        }
+                                    }
+                                    .accessibilityIdentifier("workspace-card-undo-\(item.conversationID)")
+                                } else {
+                                    Button("重试清理") {
+                                        deletion.retryFinalization(conversationID: item.conversationID)
+                                    }
+                                    .accessibilityIdentifier("workspace-card-cleanup-\(item.conversationID)")
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background(.regularMaterial, in: Capsule())
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+                .frame(maxHeight: 54)
+            }
+        }
     }
 
     private static func cardLabel(model: AppShellModel, browse: AppSpaceBrowseController) -> String {

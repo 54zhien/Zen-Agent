@@ -90,7 +90,11 @@ extension PersistenceStore {
     func conversationNewBrowseWindow(originID: String, uncommittedIDs: [String] = []) throws -> ConversationBrowseWindow {
         try database.read { db in
             let lifecycle = try String.fetchOne(db, sql: "SELECT lifecycle FROM conversation WHERE id = ?", arguments: [originID])
-            guard lifecycle == nil || lifecycle == ConversationLifecycle.visible.rawValue else {
+            // A deleted origin may still own the Preview presentation until a
+            // different Card returns to Full. It must not re-enter the window, but
+            // New remains a valid destination after its last neighbor is deleted.
+            guard lifecycle == nil || lifecycle == ConversationLifecycle.visible.rawValue
+                || lifecycle == ConversationLifecycle.pendingDeletion.rawValue else {
                 throw PersistenceError.invalidTransition("Original Conversation is not visible")
             }
             var candidates = uncommittedIDs
