@@ -39,6 +39,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     var body: some View {
+#if DEBUG
+        let _ = AppSpaceBrowseController.trace("body presented=\(model?.previewContent.isPresented == true) browse=\(browse.isPresented)")
+#endif
         ZStack(alignment: .topLeading) {
             Color(white: 0.035)
             if model?.previewContent.isPresented == true, let layout = browse.layout() {

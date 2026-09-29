@@ -207,6 +207,9 @@ final class SurfaceLiftController {
     }
 
     func invalidate() {
+#if DEBUG
+        AppSpaceBrowseController.trace("invalidate phase=\(state.phase) preview=\(previewIsPresented?() == true)")
+#endif
         cancelReturn()
         cancel?()
         if previewIsPresented?() == true {
