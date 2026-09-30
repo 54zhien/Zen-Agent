@@ -65,6 +65,49 @@ final class SurfaceLiftUITests: XCTestCase {
     }
 
     @MainActor
+    func testComposerDragTargetsTopSplit() {
+        assertSplitTarget(.init(dx: 0.5, dy: 0.18), expected: "top")
+    }
+
+    @MainActor
+    func testComposerDragTargetsBottomSplit() {
+        assertSplitTarget(.init(dx: 0.5, dy: 0.56), expected: "bottom")
+    }
+
+    @MainActor
+    private func assertSplitTarget(_ destination: CGVector, expected slot: String) {
+        let app = launch()
+        guard waitForPhase("full", app: app) else { return }
+        let position = app.buttons["conversation-reading-test-position-older-turn"]
+        guard position.waitForExistence(timeout: 10) else { XCTFail("Reading fixture missing"); return }
+        position.tap()
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (position.value as? String)?.hasPrefix("settled-") == true
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 10), .completed)
+        guard prepareDraft("Split 草稿", app: app) else { return }
+        let editor = app.textViews["conversation-composer-input"]
+        let saved = editor.value as? String
+        let anchor = app.staticTexts["OLDER_READING_POSITION_ANCHOR_TURN_10"]
+        XCTAssertTrue(anchor.exists && anchor.isHittable)
+        let originalAnchor = anchor.frame
+        let start = editor.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.5))
+        let end = app.coordinate(withNormalizedOffset: destination)
+        start.press(forDuration: 0.7, thenDragTo: end)
+        let probe = app.otherElements["split-drop-intent-probe"]
+        guard probe.waitForExistence(timeout: 10) else {
+            XCTFail("A real Composer drag must report its Split target")
+            return
+        }
+        XCTAssertEqual(probe.value as? String, slot)
+        XCTAssertTrue(waitForPhase("full", app: app), "Until a Split consumer is installed, release returns to Full")
+        XCTAssertEqual(editor.value as? String, saved)
+        XCTAssertTrue(anchor.isHittable)
+        XCTAssertEqual(anchor.frame.minY, originalAnchor.minY, accuracy: 3)
+        XCTAssertEqual(anchor.frame.height, originalAnchor.height, accuracy: 3)
+    }
+
+    @MainActor
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_SURFACE_LIFT_UI_TEST"] = "1"

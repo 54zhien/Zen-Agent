@@ -153,6 +153,239 @@ struct SurfaceLiftHostTests {
         #expect(host.contentController === child)
     }
 
+    @Test func splitIntentKeepsCapturedConversationAndRejectedDropReturnsSameSurface() throws {
+        let host = ConversationSurfaceViewController(content: Text("retained Split source"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let child = host.contentController
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        var entries = 0
+        var delivered: SplitDropIntent?
+        driver.onSplitTargetEntry = { entries += 1 }
+        driver.configureSplit(onDrop: { intent in delivered = intent; return false })
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "captured"))
+        #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 160)))
+        #expect(driver.splitTargetSlot == .top)
+        #expect(entries == 1)
+        #expect(driver.drag(upwardDistance: 325, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 150)))
+        #expect(entries == 1)
+        #expect(host.presentation != .full)
+        _ = driver.end(animated: false)
+        #expect(delivered == SplitDropIntent(conversationID: "captured", slot: .top))
+        #expect(driver.lastSplitDropIntent == delivered)
+        #expect(driver.state.phase == .full && host.presentation == .full)
+        #expect(host.contentController === child)
+    }
+
+    @Test func splitCancellationCannotDeliverAndInvalidationRestoresNativePixels() {
+        let host = ConversationSurfaceViewController(content: Text("cancelled Split source"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        var deliveries = 0
+        driver.configureSplit(onDrop: { _ in deliveries += 1; return true })
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
+        #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 640)))
+        #expect(driver.splitTargetSlot == .bottom)
+        _ = driver.end(cancelled: true, animated: false)
+        #expect(deliveries == 0)
+        #expect(driver.lastSplitDropIntent == nil)
+        #expect(driver.state.phase == .full && host.presentation == .full)
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
+        #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 160)))
+        driver.invalidate()
+        #expect(driver.state.phase == .full && host.presentation == .full)
+        #expect(!driver.splitTargetingVisible && driver.splitTargetSlot == nil)
+    }
+
+    @Test func splitTargetCanMoveFromTopToLowerPaneCenterAfterActivation() {
+        let host = ConversationSurfaceViewController(content: Text("mobile Split target"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        var entries = 0
+        var intent: SplitDropIntent?
+        driver.onSplitTargetEntry = { entries += 1 }
+        driver.configureSplit(onDrop: { value in intent = value; return false })
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
+        #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 160)))
+        #expect(driver.splitTargetSlot == .top)
+        #expect(driver.drag(upwardDistance: 100, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 600)))
+        #expect(driver.splitTargetSlot == .bottom)
+        #expect(entries == 2)
+        _ = driver.end(animated: false)
+        #expect(intent == SplitDropIntent(conversationID: "source", slot: .bottom))
+        #expect(driver.state.phase == .full && host.presentation == .full)
+    }
+
+    @Test func acceptedSplitDropDoesNotAnimateTheSourceBackToFull() {
+        let host = ConversationSurfaceViewController(content: Text("accepted Split target"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let child = host.contentController
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        var intent: SplitDropIntent?
+        driver.configureSplit(onDrop: { value in intent = value; return true })
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
+        #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 160)))
+        _ = driver.end(animated: false)
+        #expect(intent == SplitDropIntent(conversationID: "source", slot: .top))
+        #expect(driver.state.phase != .full)
+        #expect(host.presentation != .full)
+        #expect(host.contentController === child)
+        driver.invalidate()
+        #expect(host.presentation == .full)
+    }
+
+    @Test func returnDuringAcceptedSplitConvergenceStartsFromVisiblePose() async throws {
+        let host = ConversationSurfaceViewController(content: Text("interruptible Split convergence"))
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        driver.configureSplit(onDrop: { _ in true })
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
+        #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 160)))
+        let split = try #require(driver.end())
+        #expect(split.destination == .split)
+        let animator = try #require(host.liftAnimatorForTesting)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0.25
+        CATransaction.flush()
+        try await Task.sleep(for: .milliseconds(40))
+        let visibleBefore = try #require(host.surfaceView.layer.presentation())
+        let before = visibleBefore.transform.m42
+        #expect(driver.returnToFull(animated: true))
+        let returning = try #require(driver.state.pendingSettlement)
+        #expect(returning.destination == .full)
+        #expect(returning.startProgress < 0.99)
+        CATransaction.flush()
+        let visibleAfter = try #require(host.surfaceView.layer.presentation())
+        let after = visibleAfter.transform.m42
+        #expect(abs(after - before) < 12)
+        driver.invalidate()
+    }
+
+    @Test func splitLayoutCommitFollowsSuccessfulNativeConvergence() async throws {
+        let host = ConversationSurfaceViewController(content: Text("deferred Split commit"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let child = host.contentController
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        var admissions = 0
+        var commits: [SplitDropIntent] = []
+        var committedPhase: SurfaceLiftState.Phase?
+        driver.configureSplit(onDrop: { _ in admissions += 1; return true },
+            onConverged: { intent in
+                commits.append(intent)
+                committedPhase = driver.state.phase
+                #expect(host.presentation != .full)
+                host.view.frame = CGRect(x: 0, y: 0, width: 400, height: 396)
+                host.view.layoutIfNeeded()
+            })
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
+        #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 160)))
+        let first = try #require(driver.end(animated: true))
+        #expect(first.destination == .split)
+        #expect(admissions == 1 && commits.isEmpty)
+        let animator = try #require(host.liftAnimatorForTesting)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0.25
+        driver.invalidate()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(commits.isEmpty)
+        #expect(driver.state.phase == .full && host.presentation == .full)
+
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
+        #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 160)))
+        let second = try #require(driver.end(animated: false))
+        #expect(second.destination == .split)
+        #expect(admissions == 2)
+        #expect(commits == [SplitDropIntent(conversationID: "source", slot: .top)])
+        #expect(committedPhase == .split)
+        #expect(host.contentController === child)
+        #expect(driver.state.phase == .full && host.presentation == .full)
+        driver.invalidate()
+    }
+
+    @Test func finalReleaseSampleOverridesThePreviousSplitTarget() async throws {
+        let host = ConversationSurfaceViewController(content: Text("final Split release"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        var delivered: SplitDropIntent?
+        driver.configureSplit(onDrop: { intent in delivered = intent; return false })
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
+        #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 160)))
+        #expect(driver.splitTargetSlot == .top)
+        ComposerLiftInteraction.finish(driver: driver, origin: CGPoint(x: 200, y: 480),
+            point: CGPoint(x: 200, y: 600), eligibility: SurfaceLiftEligibility(), cancelled: false)
+        #expect(delivered == SplitDropIntent(conversationID: "source", slot: .bottom))
+        #expect(driver.state.pendingSettlement?.destination == .full || driver.state.phase == .full)
+        try await Task.sleep(for: .milliseconds(450))
+        #expect(driver.state.phase == .full && host.presentation == .full)
+    }
+
+    @Test func conversationChangeCancelsCapturedSplitSource() {
+        let host = ConversationSurfaceViewController(content: Text("obsolete Split source"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        var deliveries = 0
+        driver.configureSplit(onDrop: { _ in deliveries += 1; return true })
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "old"))
+        #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 160)))
+        driver.resetForConversationChange()
+        #expect(driver.end(animated: false) == nil)
+        #expect(deliveries == 0 && driver.lastSplitDropIntent == nil)
+        #expect(driver.state.phase == .full && host.presentation == .full)
+    }
+
     @Test func selectionAggregationAndOverlayInvalidateCurrentLift() {
         let host = ConversationSurfaceViewController(content: Text("guarded"))
         host.loadViewIfNeeded()

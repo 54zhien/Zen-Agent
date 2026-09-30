@@ -73,6 +73,13 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     .environment(\.surfaceBrowseController, model == nil ? nil : browse)
             }
             .zIndex(4 - (browse.layout()?.cards.first { $0.item == browse.state.selected }?.depth ?? 0))
+            if lift.splitTargetingVisible, let top = lift.splitTopFrame,
+               let bottom = lift.splitBottomFrame, let guide = lift.splitGuideFrame {
+                splitTargetOverlay(top: top, bottom: bottom, guide: guide)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    .zIndex(50)
+            }
             if let model, model.previewContent.isPresented, !browse.isNewEntry, browse.canEditCurrentMetadata,
                let summary = browse.currentSummary,
                let frame = browse.layout()?.cards.first(where: { $0.item == browse.state.selected })?.frame {
@@ -92,6 +99,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
             if ProcessInfo.processInfo.environment["ZEN_SURFACE_LIFT_UI_TEST"] == "1"
                 || ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
                 SurfaceLiftStateProbe(phase: lift.state.phase)
+                    .frame(width: 1, height: 1)
+                    .allowsHitTesting(false)
+                SplitDropIntentProbe(slot: lift.lastSplitDropIntent?.slot)
                     .frame(width: 1, height: 1)
                     .allowsHitTesting(false)
             }
@@ -172,6 +182,26 @@ struct WorkspaceSurfaceView<Content: View>: View {
     private var cardLabel: String {
         guard let model else { return "当前会话" }
         return Self.cardLabel(model: model, browse: browse)
+    }
+
+    private func splitTargetOverlay(top: CGRect, bottom: CGRect, guide: CGRect) -> some View {
+        ZStack(alignment: .topLeading) {
+            zone(top, selected: lift.splitTargetSlot == .top)
+            zone(bottom, selected: lift.splitTargetSlot == .bottom)
+            Capsule()
+                .fill(Color.white.opacity(0.18))
+                .frame(width: min(64, guide.width * 0.2), height: guide.height)
+                .position(x: guide.midX, y: guide.midY)
+        }
+    }
+
+    private func zone(_ frame: CGRect, selected: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .strokeBorder(Color.white.opacity(selected ? 0.35 : 0.09), lineWidth: selected ? 1.5 : 1)
+            .background(RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color.white.opacity(selected ? 0.07 : 0.025)))
+            .frame(width: frame.width, height: frame.height)
+            .position(x: frame.midX, y: frame.midY)
     }
 
     private func deletionBanner(model: AppShellModel,
@@ -291,6 +321,19 @@ private struct SurfaceLiftStateProbe: UIViewRepresentable {
     }
     func updateUIView(_ uiView: UIView, context: Context) {
         uiView.accessibilityValue = String(describing: phase)
+    }
+}
+
+private struct SplitDropIntentProbe: UIViewRepresentable {
+    let slot: SplitDropSlot?
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isAccessibilityElement = true
+        view.accessibilityIdentifier = "split-drop-intent-probe"
+        return view
+    }
+    func updateUIView(_ uiView: UIView, context: Context) {
+        uiView.accessibilityValue = slot?.rawValue ?? "none"
     }
 }
 

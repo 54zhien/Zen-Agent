@@ -127,7 +127,7 @@ struct ConversationComposerView: View {
             },
             onHeightChanged: onHeightChanged,
             liftInteraction: lift.map { driver in
-                ComposerLiftInteraction.Configuration(driver: driver) { native in
+                ComposerLiftInteraction.Configuration(driver: driver, conversationID: conversationID) { native in
                     var input = native
                     input.isEditing = input.isEditing || controller.draft.presentationState == .editing
                     input.hasMarkedText = input.hasMarkedText || controller.isComposing

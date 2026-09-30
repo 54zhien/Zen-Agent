@@ -163,7 +163,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func setLiftInteraction(_ phase: SurfaceLiftState.Phase, returnAction: @escaping () -> Bool) {
-        let frozen = phase == .settling || phase == .card
+        let frozen = phase == .settling || phase == .card || phase == .split
         contentController.view.isUserInteractionEnabled = !frozen
         contentController.view.accessibilityElementsHidden = frozen
         surfaceView.isAccessibilityElement = frozen
@@ -295,8 +295,23 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     func captureLiftProgress(target: SurfaceGeometry.Pose) -> Double {
         var progress = request.progress
-        if animator != nil, let layer = surfaceView.layer.presentation(), abs(target.scale - 1) > 0.000001 {
-            progress = (layer.transform.m11 - 1) / (target.scale - 1)
+        if animator != nil, let visible = surfaceView.layer.presentation()?.transform {
+            let available = CGSize(width: view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right,
+                                   height: view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom)
+            let candidates: [(magnitude: CGFloat, fraction: CGFloat)] = [
+                (abs((target.scale - 1) * view.bounds.width),
+                 abs(target.scale - 1) > 0.000001 ? (visible.m11 - 1) / (target.scale - 1) : 0),
+                (abs(target.translation.width * available.width),
+                 abs(target.translation.width * available.width) > 0.000001
+                    ? visible.m41 / (target.translation.width * available.width) : 0),
+                (abs(target.translation.height * available.height),
+                 abs(target.translation.height * available.height) > 0.000001
+                    ? visible.m42 / (target.translation.height * available.height) : 0)
+            ]
+            if let strongest = candidates.max(by: { $0.magnitude < $1.magnitude }),
+               strongest.magnitude > 0.000001, strongest.fraction.isFinite {
+                progress = strongest.fraction
+            }
         }
         progress = min(1, max(0, progress))
         cancelLiftAnimation()
@@ -319,6 +334,33 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         animationIdentity = identity
         let animation = UIViewPropertyAnimator(duration: 0.28, curve: .easeInOut) { [weak self] in
             _ = self?.apply(.init(to: target, progress: CGFloat(to)))
+        }
+        animation.isManualHitTestingEnabled = true
+        animator = animation
+        animation.addCompletion { [weak self] position in
+            guard let self, self.animationIdentity == identity else { return }
+            self.animationIdentity = nil
+            self.animator = nil
+            self.retainsAnimationMask = false
+            self.updateCrop()
+            completion(position == .end)
+        }
+        animation.startAnimation()
+    }
+
+    func convergeLift(to pose: SurfaceGeometry.Pose, animated: Bool,
+                      completion: @escaping (Bool) -> Void) {
+        cancelLiftAnimation()
+        guard animated, !UIAccessibility.isReduceMotionEnabled else {
+            completion(apply(.init(to: pose, progress: 1)))
+            return
+        }
+        retainsAnimationMask = true
+        updateCrop()
+        let identity = UUID()
+        animationIdentity = identity
+        let animation = UIViewPropertyAnimator(duration: 0.12, curve: .easeOut) { [weak self] in
+            _ = self?.apply(.init(to: pose, progress: 1))
         }
         animation.isManualHitTestingEnabled = true
         animator = animation
