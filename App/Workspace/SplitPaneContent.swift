@@ -5,6 +5,9 @@ struct SplitEmptyPanePicker: View {
     let summaries: [RecentConversationSummary]
     let occupiedID: String
     let errorMessage: String?
+    let hasMore: Bool
+    let onLoadMore: () -> Void
+    let onRetry: () -> Void
     let onOpen: (String) -> Void
     let onNew: () -> Void
 
@@ -23,6 +26,11 @@ struct SplitEmptyPanePicker: View {
                         Text(errorMessage)
                             .font(.footnote)
                             .foregroundStyle(.white)
+                        Button("重试列表", action: onRetry)
+                    }
+                    if hasMore {
+                        Button("更早的会话", action: onLoadMore)
+                            .accessibilityIdentifier("split-history-more")
                     }
                     ScrollView(.horizontal) {
                         LazyHStack(spacing: 8) {
@@ -57,7 +65,6 @@ struct SplitEmptyPanePicker: View {
                 }
                 .padding(12)
                 .onAppear { reader.scrollTo("split-new", anchor: .trailing) }
-                .onChange(of: choices.count) { _, _ in reader.scrollTo("split-new", anchor: .trailing) }
             }
         }
         .background(Color(white: 0.09))
@@ -73,39 +80,74 @@ struct SplitEmptyPanePicker: View {
 @MainActor
 struct SplitSecondaryPaneView: View {
     let model: AppShellModel
-    let lift: SurfaceLiftController
-    let browse: AppSpaceBrowseController
-    let deleteAction: AppSpaceCardDeletionInteraction.Commit?
-    let isDeletionPending: (@MainActor (String) -> Bool)?
+    @Environment(\.surfaceLiftController) private var lift
+    @State private var showsRecent = false
+    @State private var selection: Task<Void, Never>?
 
     var body: some View {
-        ConversationSurfaceHost(liftController: lift,
-                                browseController: model.splitPreviewOriginSlot == model.splitWorkspace?.emptySlot ? browse : nil,
-                                deleteAction: deleteAction, isDeletionPending: isDeletionPending) {
-            Group {
-                if model.previewContent.isPresented,
-                   model.splitPreviewOriginSlot == model.splitWorkspace?.emptySlot {
-                    ConversationPreviewView(
-                        summary: browse.isPresented ? browse.currentSummary : model.previewContent.currentSummary,
-                        status: model.appSpaceActionError(for: browse.selectedConversationID).map { .failed($0) }
-                            ?? (browse.isPresented
-                                ? model.previewContent.status(for: browse.selectedConversationID,
-                                    summary: browse.currentSummary, summaryError: browse.errorMessage)
-                                : model.previewContent.status),
-                        isNewEntry: browse.isNewEntry)
-                } else if let pane = model.splitPane, let bridge = model.splitActionBridge,
+        Group {
+                if let pane = model.splitPane, let bridge = model.splitActionBridge,
                           let runtime = model.runtimeForPresentation {
                     NavigationStack {
                         ConversationPaneView(pane: pane, runtime: runtime, actionBridge: bridge,
-                                             maxProviderSteps: AppShellModel.maxProviderSteps)
+                            maxProviderSteps: AppShellModel.maxProviderSteps,
+                            isActive: model.splitWorkspace?.activeSlot == model.splitWorkspace?.emptySlot,
+                            onUserFocus: {
+                                if let split = model.splitWorkspace { model.selectSplitSlot(split.emptySlot) }
+                            })
                             .navigationTitle("会话")
+                            .toolbar {
+                                ToolbarItem(placement: .topBarLeading) {
+                                    Button("新会话") { _ = model.createNewInSplit() }
+                                        .accessibilityIdentifier("split-secondary-new")
+                                }
+                                ToolbarItem(placement: .topBarTrailing) {
+                                    Button { showsRecent = true } label: { Image(systemName: "clock.arrow.circlepath") }
+                                        .accessibilityLabel("最近会话")
+                                        .accessibilityIdentifier("split-secondary-recent")
+                                }
+                            }
                     }
                     .id(pane.conversationID)
                 }
-            }
-            .environment(\.surfaceLiftController, lift)
-            .environment(\.surfaceBrowseController, browse)
         }
         .accessibilityIdentifier("split-secondary-pane")
+        .sheet(isPresented: $showsRecent) {
+            NavigationStack {
+                List {
+                    ForEach(model.recentConversations) { conversation in
+                        Button(conversation.title) {
+                            selection?.cancel()
+                            selection = Task {
+                                let opened = conversation.id == model.conversationID
+                                    ? await model.openConversation(id: conversation.id)
+                                    : await model.openInSplit(id: conversation.id)
+                                if opened, !Task.isCancelled { showsRecent = false }
+                            }
+                        }
+                        .accessibilityIdentifier("split-recent-\(conversation.id)")
+                    }
+                    if let error = model.splitOpenError ?? model.recentLoadError {
+                        Text(error).foregroundStyle(.secondary)
+                        Button("重试列表") { model.retryRecentConversations() }
+                    }
+                    if model.recentHasMore {
+                        Button("加载更多") { model.loadMoreRecentConversations() }
+                    }
+                }
+                .navigationTitle("最近会话")
+                .toolbar { Button("完成") { showsRecent = false } }
+            }
+        }
+        .onChange(of: showsRecent) { _, presented in
+            lift?.setOverlayPresented(presented)
+            if !presented { selection?.cancel(); selection = nil }
+        }
+        .onChange(of: model.splitPane?.conversationID) { _, _ in
+            guard !model.previewContent.isPresented, model.splitPane != nil else { return }
+            if lift?.state.phase == .settling, lift?.state.pendingSettlement?.destination == .full { return }
+            lift?.resetForConversationChange()
+        }
+        .onDisappear { selection?.cancel(); selection = nil }
     }
 }

@@ -99,7 +99,11 @@ struct NewConversationView: View {
                         pane: pane,
                         runtime: runtime,
                         actionBridge: bridge,
-                        maxProviderSteps: AppShellModel.maxProviderSteps
+                        maxProviderSteps: AppShellModel.maxProviderSteps,
+                        isActive: model.splitWorkspace == nil || model.splitWorkspace?.activeSlot == model.splitWorkspace?.sourceSlot,
+                        onUserFocus: {
+                            if let split = model.splitWorkspace { model.selectSplitSlot(split.sourceSlot) }
+                        }
                     )
                     // Native scroll geometry belongs to this Conversation's Pane.
                     // Async Open must not reuse the outgoing empty page's measurements.

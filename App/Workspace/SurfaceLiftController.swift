@@ -14,6 +14,7 @@ final class SurfaceLiftController {
     private(set) var splitBottomFrame: CGRect?
     private(set) var splitGuideFrame: CGRect?
     private(set) var lastSplitDropIntent: SplitDropIntent?
+    private(set) var requestedSplitReturnSlot: SplitDropSlot?
     private var selectedSources: Set<String> = []
     var minimumCardSize = CGSize(width: 220, height: 300)
     @ObservationIgnored private var hostID: ObjectIdentifier?
@@ -38,7 +39,13 @@ final class SurfaceLiftController {
     @ObservationIgnored private var returnTask: Task<Void, Never>?
     @ObservationIgnored private var returnOperation: UUID?
     @ObservationIgnored private var returnNeedsHandoff = false
-    @ObservationIgnored private var pendingViewportReturn: (() -> Void)?
+    @ObservationIgnored private var pendingViewportReturn: (id: UUID, action: () -> Void)?
+    @ObservationIgnored private var committingViewportReturn = false
+    @ObservationIgnored private var originalPaneFrame: CGRect?
+    @ObservationIgnored private var returnRestingPose: SurfaceGeometry.Pose?
+    @ObservationIgnored private var captureHostFrame: (() -> CGRect?)?
+    @ObservationIgnored private var resolveReturnPose: (() -> SurfaceGeometry.Pose?)?
+    @ObservationIgnored private var returnDestination: ((CGSize, UIEdgeInsets) -> CGRect?)?
     @ObservationIgnored private var splitTargeting = SplitTargetingState()
     @ObservationIgnored private var splitPreviewPose: SurfaceGeometry.Pose?
     @ObservationIgnored private var splitFinalPose: SurfaceGeometry.Pose?
@@ -63,6 +70,10 @@ final class SurfaceLiftController {
 
     func setSplitWorkspacePresented(_ presented: Bool) {
         splitWorkspacePresented = presented
+    }
+
+    func configureReturnDestination(_ resolver: @escaping (CGSize, UIEdgeInsets) -> CGRect?) {
+        returnDestination = resolver
     }
 
     func configurePreview(enter: @escaping () -> Bool, prepare: @escaping () async -> Bool,
@@ -90,10 +101,20 @@ final class SurfaceLiftController {
         detach = { [weak host] in host?.onViewportChanged = nil; host?.liftController = nil }
         host.onViewportChanged = { [weak self] in
             guard let self else { return }
-            if let handoff = self.pendingViewportReturn {
-                self.pendingViewportReturn = nil
-                handoff()
+            if self.pendingViewportReturn != nil {
+                self.consumeViewportReturn()
             } else { self.invalidate() }
+        }
+        captureHostFrame = { [weak host] in
+            guard let host, let window = host.view.window else { return nil }
+            return host.view.convert(host.view.bounds, to: window)
+        }
+        resolveReturnPose = { [weak self, weak host] in
+            guard let self, let host, let window = host.view.window else { return nil }
+            let destination = self.returnDestination?(window.bounds.size, window.safeAreaInsets)
+                ?? (self.splitWorkspacePresented ? self.originalPaneFrame : nil) ?? window.bounds
+            return SurfaceLiftGeometry.targetPose(size: host.view.bounds.size, safeArea: host.view.safeAreaInsets,
+                card: host.view.convert(destination, from: window), cornerRadius: 0, constrainedToSafeArea: false)
         }
         resolveTarget = { [weak self, weak host] minimum in
             guard let host else { return nil }
@@ -109,7 +130,8 @@ final class SurfaceLiftController {
         }
         present = { [weak self, weak host] progress in
             guard let host else { return false }
-            return host.apply(.init(to: self?.target ?? .full, progress: progress))
+            return host.apply(.init(from: self?.returnRestingPose ?? .full,
+                                    to: self?.target ?? .full, progress: progress))
         }
         presentSplit = { [weak host] pose in host?.apply(.init(to: pose, progress: 1)) ?? false }
         splitSample = { [weak host] point in
@@ -123,7 +145,7 @@ final class SurfaceLiftController {
         }
         capture = { [weak self, weak host] in
             guard let host, let target = self?.splitReturnPose ?? self?.target else { return 0 }
-            return host.captureLiftProgress(target: target)
+            return host.captureLiftProgress(target: target, restingPose: self?.returnRestingPose ?? .full)
         }
         interaction = { [weak self, weak host] phase in
             host?.setLiftInteraction(phase) { [weak self] in self?.returnToFull() ?? false }
@@ -152,20 +174,21 @@ final class SurfaceLiftController {
             let handoff = settlement.destination == .full && self.returnNeedsHandoff
             let endpoint = settlement.destination == .card ? 1.0 : (handoff ? 0.35 : 0)
             host.animateLift(target: target, from: settlement.startProgress,
-                to: endpoint, animated: animated) { [weak self, weak host] finished in
+                to: endpoint, restingPose: self.returnRestingPose ?? .full,
+                animated: animated) { [weak self, weak host] finished in
                 guard let self, let host, self.hostID == binding,
                       self.state.pendingSettlement == settlement else { return }
                 if handoff {
-                    if finished, self.splitWorkspacePresented, self.retainsAppSpaceViewport,
-                       let window = host.view.window {
+                    if finished, self.retainsAppSpaceViewport, let window = host.view.window {
                         let frame = host.surfaceView.convert(host.surfaceView.visibleRect ?? host.surfaceView.bounds,
                                                              to: window)
                         let radius = host.presentation.cornerRadius * host.presentation.scale
-                        guard self.commitFull?() == true else { self.invalidate(); return }
-                        self.returnNeedsHandoff = false
+                        let destination = self.returnDestination?(window.bounds.size, window.safeAreaInsets)
+                            ?? (self.splitWorkspacePresented ? self.originalPaneFrame : nil) ?? window.bounds
                         // Rebase the same native Surface at the content handoff. The
                         // final segment then uses the restored Pane's logical viewport.
-                        self.pendingViewportReturn = { [weak self, weak host, weak window] in
+                        let token = UUID()
+                        self.pendingViewportReturn = (token, { [weak self, weak host, weak window] in
                             guard let self, let host, let window, self.hostID == binding,
                                   self.state.pendingSettlement == settlement,
                                   let pose = SurfaceLiftGeometry.targetPose(size: host.view.bounds.size,
@@ -173,13 +196,34 @@ final class SurfaceLiftController {
                                     card: host.view.convert(frame, from: window), cornerRadius: radius,
                                     constrainedToSafeArea: false) else { self?.invalidate(); return }
                             self.target = pose
+                            self.returnRestingPose = nil
                             host.animateLift(target: pose, from: 1, to: 0, animated: animated) { [weak self] finished in
                                 guard let self, self.hostID == binding,
                                       self.state.complete(settlement, finished: finished) else { return }
+                                self.requestedSplitReturnSlot = nil
                                 self.updatePresentation()
                             }
-                        }
+                        })
+                        // Arm before mutations: a synchronous layout callback may
+                        // otherwise invalidate the same settlement during commit.
+                        self.committingViewportReturn = true
+                        let committed = self.commitFull?() == true
+                        self.returnNeedsHandoff = false
                         self.retainsAppSpaceViewport = false
+                        self.committingViewportReturn = false
+                        guard committed else { self.invalidate(); return }
+                        Task { @MainActor [weak self, weak host, weak window] in
+                            await Task.yield()
+                            guard let self, let host, let window,
+                                  self.pendingViewportReturn?.id == token else { return }
+                            window.layoutIfNeeded()
+                            // Collapse to Single can retain the expanded viewport,
+                            // so no viewport notification will consume the handoff.
+                            if abs(host.view.bounds.width - destination.width) < 1,
+                               abs(host.view.bounds.height - destination.height) < 1 {
+                                self.consumeViewportReturn()
+                            }
+                        }
                         return
                     }
                     guard finished, self.commitFull?() == true else { self.invalidate(); return }
@@ -190,6 +234,8 @@ final class SurfaceLiftController {
                         guard let self, self.hostID == binding,
                               self.state.complete(settlement, finished: finished) else { return }
                         self.retainsAppSpaceViewport = false
+                        self.returnRestingPose = nil
+                        self.requestedSplitReturnSlot = nil
                         self.updatePresentation()
                     }
                 } else {
@@ -214,6 +260,8 @@ final class SurfaceLiftController {
         host.liftController = nil
         hostID = nil
         resolveTarget = nil
+        resolveReturnPose = nil
+        captureHostFrame = nil
         present = nil
         presentSplit = nil
         splitSample = nil
@@ -241,6 +289,7 @@ final class SurfaceLiftController {
         lastSplitDropIntent = nil
         acceptedSplitIntent = nil
         sourceConversationID = conversationID
+        originalPaneFrame = captureHostFrame?()
         target = pose
         let armed = state.arm(guarded(input))
         updatePresentation()
@@ -301,6 +350,7 @@ final class SurfaceLiftController {
                     return
                 }
                 self.returnNeedsHandoff = true
+                self.returnRestingPose = self.resolveReturnPose?()
                 self.startReturn(animated: animated)
             }
             return true
@@ -312,6 +362,20 @@ final class SurfaceLiftController {
         return true
     }
 
+    @discardableResult
+    func returnToSplit(_ slot: SplitDropSlot, animated: Bool = true) -> Bool {
+        guard state.phase == .card, !splitWorkspacePresented else { return false }
+        requestedSplitReturnSlot = slot
+        guard returnToFull(animated: animated) else { requestedSplitReturnSlot = nil; return false }
+        return true
+    }
+
+    private func consumeViewportReturn() {
+        guard !committingViewportReturn, let handoff = pendingViewportReturn else { return }
+        pendingViewportReturn = nil
+        handoff.action()
+    }
+
     private func startReturn(animated: Bool) {
         guard let settlement = state.requestReturn(visibleProgress: capture?()) else { return }
         acceptedSplitIntent = nil
@@ -321,6 +385,9 @@ final class SurfaceLiftController {
 
     private func cancelReturn() {
         pendingViewportReturn = nil
+        committingViewportReturn = false
+        returnRestingPose = nil
+        requestedSplitReturnSlot = nil
         returnOperation = nil
         returnTask?.cancel()
         returnTask = nil

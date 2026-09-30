@@ -86,11 +86,16 @@ struct AppShellWiringTests {
         source.draft.text = "source focus draft"
         other.draft.text = "other focus draft"
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
         let host = UIHostingController(rootView: AppShellRootView(model: fixture.model))
         window.rootViewController = host
         window.makeKeyAndVisible()
-        defer { window.isHidden = true; window.rootViewController = nil }
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKeyAndVisible()
+        }
         func editors(in view: UIView) -> [UITextView] {
             if let text = view as? UITextView, text.accessibilityIdentifier == "conversation-composer-input" { return [text] }
             return view.subviews.flatMap { editors(in: $0) }
@@ -99,12 +104,13 @@ struct AppShellWiringTests {
         let mounted = editors(in: host.view)
         let sourceEditor = try #require(mounted.first { $0.text == "source focus draft" })
         let otherEditor = try #require(mounted.first { $0.text == "other focus draft" })
+        // Native focus callbacks are synchronous. Do not yield the main actor
+        // between focus and assertions to another suite's temporary key window.
+        window.makeKeyAndVisible()
         #expect(sourceEditor.becomeFirstResponder())
-        try await Task.sleep(for: .milliseconds(100))
         #expect(fixture.model.splitWorkspace?.activeSlot == .top)
         #expect(sourceEditor.isFirstResponder && !otherEditor.isFirstResponder)
         #expect(otherEditor.becomeFirstResponder())
-        try await Task.sleep(for: .milliseconds(100))
         #expect(fixture.model.splitWorkspace?.activeSlot == .bottom)
         #expect(otherEditor.isFirstResponder && !sourceEditor.isFirstResponder)
         #expect(source.draft.text == "source focus draft")

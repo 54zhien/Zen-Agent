@@ -293,20 +293,23 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         UIView.performWithoutAnimation { _ = apply(.full, force: true) }
     }
 
-    func captureLiftProgress(target: SurfaceGeometry.Pose) -> Double {
+    func captureLiftProgress(target: SurfaceGeometry.Pose, restingPose: SurfaceGeometry.Pose = .full) -> Double {
         var progress = request.progress
         if animator != nil, let visible = surfaceView.layer.presentation()?.transform {
             let available = CGSize(width: view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right,
                                    height: view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom)
             let candidates: [(magnitude: CGFloat, fraction: CGFloat)] = [
-                (abs((target.scale - 1) * view.bounds.width),
-                 abs(target.scale - 1) > 0.000001 ? (visible.m11 - 1) / (target.scale - 1) : 0),
-                (abs(target.translation.width * available.width),
-                 abs(target.translation.width * available.width) > 0.000001
-                    ? visible.m41 / (target.translation.width * available.width) : 0),
-                (abs(target.translation.height * available.height),
-                 abs(target.translation.height * available.height) > 0.000001
-                    ? visible.m42 / (target.translation.height * available.height) : 0)
+                (abs((target.scale - restingPose.scale) * view.bounds.width),
+                 abs(target.scale - restingPose.scale) > 0.000001
+                    ? (visible.m11 - restingPose.scale) / (target.scale - restingPose.scale) : 0),
+                (abs((target.translation.width - restingPose.translation.width) * available.width),
+                 abs(target.translation.width - restingPose.translation.width) > 0.000001
+                    ? (visible.m41 / available.width - restingPose.translation.width)
+                        / (target.translation.width - restingPose.translation.width) : 0),
+                (abs((target.translation.height - restingPose.translation.height) * available.height),
+                 abs(target.translation.height - restingPose.translation.height) > 0.000001
+                    ? (visible.m42 / available.height - restingPose.translation.height)
+                        / (target.translation.height - restingPose.translation.height) : 0)
             ]
             if let strongest = candidates.max(by: { $0.magnitude < $1.magnitude }),
                strongest.magnitude > 0.000001, strongest.fraction.isFinite {
@@ -315,16 +318,17 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         }
         progress = min(1, max(0, progress))
         cancelLiftAnimation()
-        UIView.performWithoutAnimation { _ = apply(.init(to: target, progress: progress)) }
+        UIView.performWithoutAnimation { _ = apply(.init(from: restingPose, to: target, progress: progress)) }
         return Double(progress)
     }
 
     func animateLift(target: SurfaceGeometry.Pose, from: Double, to: Double,
+                     restingPose: SurfaceGeometry.Pose = .full,
                      animated: Bool, completion: @escaping (Bool) -> Void) {
         cancelLiftAnimation()
-        _ = apply(.init(to: target, progress: CGFloat(from)))
+        _ = apply(.init(from: restingPose, to: target, progress: CGFloat(from)))
         guard animated, !UIAccessibility.isReduceMotionEnabled, abs(to - from) > 0.000001 else {
-            let applied = apply(.init(to: target, progress: CGFloat(to)))
+            let applied = apply(.init(from: restingPose, to: target, progress: CGFloat(to)))
             completion(applied)
             return
         }
@@ -333,7 +337,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         let identity = UUID()
         animationIdentity = identity
         let animation = UIViewPropertyAnimator(duration: 0.28, curve: .easeInOut) { [weak self] in
-            _ = self?.apply(.init(to: target, progress: CGFloat(to)))
+            _ = self?.apply(.init(from: restingPose, to: target, progress: CGFloat(to)))
         }
         animation.isManualHitTestingEnabled = true
         animator = animation

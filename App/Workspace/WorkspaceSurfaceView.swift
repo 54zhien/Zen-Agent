@@ -69,55 +69,55 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 }
             }
             GeometryReader { geometry in
-                let sourceExpanded = model?.splitWorkspace != nil
-                    && lift.retainsAppSpaceViewport
-                let secondaryExpanded = model?.splitWorkspace != nil
-                    && secondaryLift.retainsAppSpaceViewport
                 let fullFrame = CGRect(origin: .zero, size: geometry.size)
-                let sourceFrame = sourceExpanded ? fullFrame
-                    : splitFrame(in: geometry, slot: model?.splitWorkspace?.sourceSlot) ?? fullFrame
                 ZStack(alignment: .topLeading) {
-                    ConversationSurfaceHost(liftController: lift,
-                                            browseController: model == nil || (model?.splitWorkspace != nil
-                                                && model?.splitPreviewOriginSlot != model?.splitWorkspace?.sourceSlot) ? nil : browse,
-                                            deleteAction: deleteAction, isDeletionPending: isDeletionPending) {
-                        content.environment(\.surfaceLiftController, lift)
-                            .environment(\.surfaceBrowseController, model == nil ? nil : browse)
+                    ForEach(WorkspaceSurfaceSlot.allCases, id: \.self) { slot in
+                        let driver = controller(for: slot)
+                        let frame = driver.retainsAppSpaceViewport ? fullFrame
+                            : splitFrame(in: geometry, slot: logicalSlot(for: slot)) ?? fullFrame
+                        let visible = surfaceIsVisible(slot)
+                        ConversationSurfaceHost(liftController: driver,
+                            browseController: model != nil && slot == (model?.previewSurfaceSlot ?? model?.sourceSurfaceSlot) ? browse : nil,
+                            deleteAction: deleteAction, isDeletionPending: isDeletionPending) {
+                            WorkspaceHostedContent(model: model, slot: slot, browse: browse, content: content)
+                                .environment(\.surfaceLiftController, driver)
+                                .environment(\.surfaceBrowseController, model == nil ? nil : browse)
+                        }
+                        .frame(width: frame.width, height: frame.height)
+                        .position(x: frame.midX, y: frame.midY)
+                        .opacity(visible ? 1 : 0)
+                        .allowsHitTesting(visible)
+                        .accessibilityHidden(!visible)
+                        .zIndex(activeSurfaceSlot == slot ? 10 : 0)
                     }
-                    .frame(width: sourceFrame.width, height: sourceFrame.height)
-                    .position(x: sourceFrame.midX, y: sourceFrame.midY)
-                    .zIndex(sourceExpanded ? 10 : 0)
 
                     if let model, let split = model.splitWorkspace,
                        let emptyFrame = splitFrame(in: geometry, slot: split.emptySlot) {
-                        if model.splitPane != nil || (model.previewContent.isPresented
-                            && model.splitPreviewOriginSlot == split.emptySlot) {
-                            let frame = secondaryExpanded ? fullFrame : emptyFrame
-                            SplitSecondaryPaneView(model: model, lift: secondaryLift, browse: browse,
-                                deleteAction: deleteAction, isDeletionPending: isDeletionPending)
-                                .frame(width: frame.width, height: frame.height)
-                                .position(x: frame.midX, y: frame.midY)
-                                .zIndex(secondaryExpanded ? 10 : 0)
-                        } else {
+                        if model.splitPane == nil, activeSurfaceSlot == nil {
                             SplitEmptyPanePicker(summaries: model.recentConversations,
                                 occupiedID: split.sourceConversationID,
-                                errorMessage: model.splitOpenError,
+                                errorMessage: model.splitOpenError ?? model.recentLoadError,
+                                hasMore: model.recentHasMore,
+                                onLoadMore: model.loadMoreRecentConversations,
+                                onRetry: model.retryRecentConversations,
                                 onOpen: { id in Task { _ = await model.openInSplit(id: id) } },
                                 onNew: { _ = model.createNewInSplit() })
                                 .frame(width: emptyFrame.width, height: emptyFrame.height)
                                 .position(x: emptyFrame.midX, y: emptyFrame.midY)
                         }
-                        if !model.previewContent.isPresented {
+                        if activeSurfaceSlot == nil {
                             splitDivider(width: emptyFrame.width) { model.closeSplit() }
-                                .position(x: emptyFrame.midX, y: geometry.size.height / 2)
+                                .position(x: emptyFrame.midX,
+                                    y: geometry.safeAreaInsets.top + (geometry.size.height
+                                        - geometry.safeAreaInsets.top - geometry.safeAreaInsets.bottom) / 2)
                         }
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
             }
             .zIndex(4 - (browse.layout()?.cards.first { $0.item == browse.state.selected }?.depth ?? 0))
-            if lift.splitTargetingVisible, let top = lift.splitTopFrame,
-               let bottom = lift.splitBottomFrame, let guide = lift.splitGuideFrame {
+            if activeLift.splitTargetingVisible, let top = activeLift.splitTopFrame,
+               let bottom = activeLift.splitBottomFrame, let guide = activeLift.splitGuideFrame {
                 splitTargetOverlay(top: top, bottom: bottom, guide: guide)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
@@ -176,17 +176,15 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     menuRequest.wrappedValue = id
                     return true
                 }
-                configurePreview(lift, model: model, secondary: false)
-                configurePreview(secondaryLift, model: model, secondary: true)
-                let liftController = lift
-                lift.configureSplit(onDrop: { [weak model] intent in
-                    model?.acceptsSplitDrop(intent) ?? false
-                }, onConverged: { [weak model, weak liftController] intent in
-                    guard model?.commitSplitDrop(intent) == true else {
-                        _ = liftController?.returnToFull()
-                        return
-                    }
-                })
+                for slot in WorkspaceSurfaceSlot.allCases {
+                    let driver = controller(for: slot)
+                    configurePreview(driver, model: model, slot: slot)
+                    driver.configureSplit(onDrop: { [weak model] intent in
+                        model?.acceptsSplitDrop(intent) ?? false
+                    }, onConverged: { [weak model, weak driver] intent in
+                        if model?.commitSplitDrop(intent) != true { _ = driver?.returnToFull() }
+                    })
+                }
                 lift.setSplitWorkspacePresented(model.splitWorkspace != nil)
                 secondaryLift.setSplitWorkspacePresented(model.splitWorkspace != nil)
                 if model.previewContent.isPresented {
@@ -223,20 +221,38 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     private var activeLift: SurfaceLiftController {
-        guard let model, let split = model.splitWorkspace,
-              model.splitPreviewOriginSlot == split.emptySlot else { return lift }
-        return secondaryLift
+        controller(for: activeSurfaceSlot ?? model?.sourceSurfaceSlot ?? .primary)
+    }
+
+    private func controller(for slot: WorkspaceSurfaceSlot) -> SurfaceLiftController {
+        slot == .primary ? lift : secondaryLift
+    }
+
+    private var activeSurfaceSlot: WorkspaceSurfaceSlot? {
+        if let slot = model?.previewSurfaceSlot { return slot }
+        return WorkspaceSurfaceSlot.allCases.first { controller(for: $0).state.phase != .full }
+    }
+
+    private func logicalSlot(for slot: WorkspaceSurfaceSlot) -> SplitDropSlot? {
+        guard let model, let split = model.splitWorkspace else { return nil }
+        return slot == model.sourceSurfaceSlot ? split.sourceSlot : split.emptySlot
+    }
+
+    private func surfaceIsVisible(_ slot: WorkspaceSurfaceSlot) -> Bool {
+        if let activeSurfaceSlot { return activeSurfaceSlot == slot }
+        guard let model else { return slot == .primary }
+        return slot == model.sourceSurfaceSlot || model.splitPane != nil
     }
 
     private func configurePreview(_ controller: SurfaceLiftController,
-                                  model: AppShellModel, secondary: Bool) {
+                                  model: AppShellModel, slot: WorkspaceSurfaceSlot) {
         let browseController = browse
         controller.configurePreview(
             enter: { [weak model, weak browseController] in
                 guard let model, let browseController else { return false }
                 if let split = model.splitWorkspace {
-                    model.selectSplitSlot(secondary ? split.emptySlot : split.sourceSlot)
-                } else if secondary { return false }
+                    model.selectSplitSlot(slot == model.sourceSurfaceSlot ? split.sourceSlot : split.emptySlot)
+                } else if slot != model.sourceSurfaceSlot { return false }
                 guard model.enterPreview() else { return false }
                 browseController.present(originID: model.previewContent.originID ?? model.conversationID,
                                          fallback: model.previewContent.summaries)
@@ -255,23 +271,29 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 }
                 return await model.preparePreviewReturn(to: browseController.selectedConversationID)
             },
-            commit: { [weak model] in model?.commitPreviewReturn() ?? false },
+            commit: { [weak model, weak controller] in
+                model?.commitPreviewReturn(openingSplitAt: controller?.requestedSplitReturnSlot) ?? false
+            },
             cancel: { [weak model] in
                 guard let model, model.previewContent.isPresented else { return }
-                if let split = model.splitWorkspace {
-                    guard model.splitPreviewOriginSlot == (secondary ? split.emptySlot : split.sourceSlot) else { return }
-                } else if secondary { return }
+                guard model.previewSurfaceSlot == slot else { return }
                 model.cancelPreviewReturn()
             },
             isPresented: { [weak model] in
                 guard let model, model.previewContent.isPresented else { return false }
-                guard let split = model.splitWorkspace else { return !secondary }
-                return model.splitPreviewOriginSlot == (secondary ? split.emptySlot : split.sourceSlot)
+                return model.previewSurfaceSlot == slot
             },
             label: { [weak model, weak browseController] in
                 guard let model, let browseController else { return "当前会话" }
                 return Self.cardLabel(model: model, browse: browseController)
             })
+        controller.configureReturnDestination { [weak model, weak controller] size, insets in
+            let destination = controller?.requestedSplitReturnSlot
+                ?? (model?.previewRestoresSplit == true ? model?.splitPreviewOriginSlot : nil)
+            guard let destination else { return CGRect(origin: .zero, size: size) }
+            return SplitTargetingGeometry.preview(slot: destination, progress: 1,
+                size: size, safeArea: insets)?.paneFrame
+        }
     }
 
     private var cardLabel: String {
@@ -303,8 +325,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
 
     private func splitTargetOverlay(top: CGRect, bottom: CGRect, guide: CGRect) -> some View {
         ZStack(alignment: .topLeading) {
-            zone(top, selected: lift.splitTargetSlot == .top)
-            zone(bottom, selected: lift.splitTargetSlot == .bottom)
+            zone(top, selected: activeLift.splitTargetSlot == .top)
+            zone(bottom, selected: activeLift.splitTargetSlot == .bottom)
             Capsule()
                 .fill(Color.white.opacity(0.18))
                 .frame(width: min(64, guide.width * 0.2), height: guide.height)
@@ -426,6 +448,39 @@ struct WorkspaceSurfaceView<Content: View>: View {
         secondaryLift.minimumCardSize = CGSize(width: minimumWidth, height: minimumHeight)
         lift.invalidate()
         secondaryLift.invalidate()
+    }
+}
+
+/// The hosting controller installs this root once. Read the observable owner
+/// mapping here so a surviving secondary Surface can become Single in place.
+@MainActor
+private struct WorkspaceHostedContent<Content: View>: View {
+    let model: AppShellModel?
+    let slot: WorkspaceSurfaceSlot
+    let browse: AppSpaceBrowseController
+    let content: Content
+
+    var body: some View {
+        Group {
+            if let model {
+                if model.previewContent.isPresented, model.previewSurfaceSlot == slot {
+                    ConversationPreviewView(
+                        summary: browse.isPresented ? browse.currentSummary : model.previewContent.currentSummary,
+                        status: model.appSpaceActionError(for: browse.selectedConversationID).map { .failed($0) }
+                            ?? (browse.isPresented
+                                ? model.previewContent.status(for: browse.selectedConversationID,
+                                    summary: browse.currentSummary, summaryError: browse.errorMessage)
+                                : model.previewContent.status),
+                        isNewEntry: browse.isNewEntry)
+                } else if slot == model.sourceSurfaceSlot {
+                    content
+                } else if model.splitWorkspace != nil {
+                    SplitSecondaryPaneView(model: model)
+                }
+            } else if slot == .primary {
+                content
+            }
+        }
     }
 }
 
