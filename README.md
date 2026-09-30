@@ -107,9 +107,14 @@ As of 2026-09-30:
   repair's test-only [RED](https://github.com/54zhien/Zen-Agent/actions/runs/36638889365)
   compiled and reproduced the traversal and handoff failures. A first repair
   candidate passed build, 20 XCTest and 21 UI tests; one new Swift test needed
-  to await its native Return animation. The corrected test and closure docs
-  await full CI; see [the S5-08 record](tasks/s5-08-split-targeting.md).
-  S5-09–16 remain later work. A usable two-Pane Split begins in S5-09.
+  to await its native Return animation. The corrected tree passed
+  [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36642873825)
+  (814 Swift Testing, 20 XCTest, 21 UI). Re-review found two additional
+  handoff/animation interruption risks. Their test-first repair passed
+  [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36659735487)
+  (816 Swift Testing, 20 XCTest, 21 UI), with the exact source/test tree recorded
+  in [the S5-08 record](tasks/s5-08-split-targeting.md). S5-09–16 remain later
+  work. A usable two-Pane Split begins in S5-09.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
   does not establish device memory, performance, input, comfort or VoiceOver acceptance.
