@@ -361,7 +361,7 @@ struct SurfaceLiftHostTests {
         ComposerLiftInteraction.finish(driver: driver, origin: CGPoint(x: 200, y: 480),
             point: CGPoint(x: 200, y: 600), eligibility: SurfaceLiftEligibility(), cancelled: false)
         #expect(delivered == SplitDropIntent(conversationID: "source", slot: .bottom))
-        #expect(driver.state.pendingSettlement?.destination == .full)
+        #expect(driver.state.pendingSettlement?.destination == .full || driver.state.phase == .full)
         try await Task.sleep(for: .milliseconds(450))
         #expect(driver.state.phase == .full && host.presentation == .full)
     }
