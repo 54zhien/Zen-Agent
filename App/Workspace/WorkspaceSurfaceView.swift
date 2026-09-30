@@ -78,7 +78,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         let visible = surfaceIsVisible(slot)
                         ConversationSurfaceHost(liftController: driver,
                             browseController: model != nil && slot == (model?.previewSurfaceSlot ?? model?.sourceSurfaceSlot) ? browse : nil,
-                            deleteAction: deleteAction, isDeletionPending: isDeletionPending) {
+                            deleteAction: deleteAction, isDeletionPending: isDeletionPending,
+                            isWorkspaceVisible: visible) {
                             WorkspaceHostedContent(model: model, slot: slot, browse: browse, content: content)
                                 .environment(\.surfaceLiftController, driver)
                                 .environment(\.surfaceBrowseController, model == nil ? nil : browse)

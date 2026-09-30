@@ -488,7 +488,7 @@ struct AppShellWiringTests {
         defer { window.isHidden = true; window.rootViewController = nil }
         host.view.layoutIfNeeded()
         func findCard(_ view: UIView) -> SurfaceClipView? {
-            if let card = view as? SurfaceClipView { return card }
+            if let card = view as? SurfaceClipView, card.accessibilityIdentifier == "workspace-current-card" { return card }
             return view.subviews.lazy.compactMap(findCard).first
         }
         for _ in 0..<40 where findCard(host.view)?.accessibilityIdentifier != "workspace-current-card" {
@@ -572,7 +572,7 @@ struct AppShellWiringTests {
         defer { window.isHidden = true; window.rootViewController = nil }
         host.view.layoutIfNeeded()
         func findCard(_ view: UIView) -> SurfaceClipView? {
-            if let card = view as? SurfaceClipView { return card }
+            if let card = view as? SurfaceClipView, card.accessibilityIdentifier == "workspace-current-card" { return card }
             return view.subviews.lazy.compactMap(findCard).first
         }
         for _ in 0..<40 where findCard(host.view)?.accessibilityIdentifier != "workspace-current-card" {
@@ -1065,7 +1065,7 @@ struct AppShellWiringTests {
         #expect(driver.drag(upwardDistance: 180, eligibility: SurfaceLiftEligibility()))
         #expect(driver.end(animated: false)?.destination == .card)
         func card(in view: UIView) -> SurfaceClipView? {
-            if let card = view as? SurfaceClipView { return card }
+            if let card = view as? SurfaceClipView, card.accessibilityIdentifier == "workspace-current-card" { return card }
             return view.subviews.lazy.compactMap { card(in: $0) }.first
         }
         let current = try #require(card(in: host.view))

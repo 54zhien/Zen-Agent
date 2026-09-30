@@ -42,6 +42,7 @@
 - Produce `SplitWorkspaceState.topBottomRatio: Double` initially `0.5` and `setRatio(_ ratio: Double)`; reject non-finite values before mutation.
 - Produce `AppShellModel.closeSplit(keeping slot: SplitDropSlot)`; existing `closeSplit()` retains its source-preserving behavior.
 - Geometry produces both Pane frames and a Divider frame from size, safe area and ratio. Pane and Divider frames share the same safe viewport.
+- Native Lift/Return destinations consume that same measured viewport. Do not assume a window's safe insets and a nested `GeometryProxy` report identical values; the integration check compares the actual mounted Pane frame with the transition destination.
 
 - [ ] Add a production-root UI regression: open an occupied Split, drag the Divider Handle, assert both editor frames change in opposite directions while IDs and drafts remain. The initial static Divider must fail this behavior test after compiling.
 - [ ] Add resize regressions for both reading and following-latest modes, independently seeded Pane anchors, and two streaming Runs. Assert the bottom reference Turn retains its logical distance from the viewport bottom through repeated height changes; do not merely test the ratio formula.

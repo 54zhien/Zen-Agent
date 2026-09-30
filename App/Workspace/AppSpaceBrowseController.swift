@@ -33,8 +33,22 @@ final class AppSpaceBrowseController {
     @ObservationIgnored private var reader: Reader?
     @ObservationIgnored private var newReader: (() throws -> ConversationBrowseWindow)?
     @ObservationIgnored var onChanged: (() -> Void)?
+    @ObservationIgnored private var transportOwner: UUID?
     @ObservationIgnored var onOpenActions: (() -> Bool)?
     private(set) var interactionSuspended = false
+
+    func claimTransport(_ owner: UUID, onChanged: @escaping () -> Void) {
+        transportOwner = owner
+        self.onChanged = onChanged
+    }
+
+    func ownsTransport(_ owner: UUID) -> Bool { transportOwner == owner }
+
+    func releaseTransport(_ owner: UUID) {
+        guard ownsTransport(owner) else { return }
+        transportOwner = nil
+        onChanged = nil
+    }
 
     var supportsNewEntry: Bool { newReader != nil }
     var isNewEntry: Bool { supportsNewEntry && state.selected == .newConversation }

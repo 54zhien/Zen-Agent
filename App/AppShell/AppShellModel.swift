@@ -464,6 +464,7 @@ final class AppShellModel {
             } else {
                 commitSession(prepared.pane.session)
             }
+            previewHandoffID = targetID
             if slot == split.sourceSlot {
                 var updated = SplitWorkspaceState(sourceConversationID: targetID,
                                                   sourceSlot: split.sourceSlot)
@@ -485,7 +486,6 @@ final class AppShellModel {
                 splitPane = prepared.pane
                 splitActionBridge = prepared.bridge
             }
-            previewHandoffID = targetID
             previewContent.finish()
             splitPreviewOriginSlot = nil
             splitExistingOtherReturnID = nil

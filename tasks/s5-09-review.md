@@ -121,6 +121,41 @@ push CI is [36677465965](https://github.com/54zhien/Zen-Agent/actions/runs/36677
 
 ## Remaining gates
 
+### Current repair candidate
+
+The repair commit is `86222c42b92ae00fad7bc6e36461d70237707c68`, exact tree
+`546da8245c5bf8894775bc4079090ed6e0744162` (local `c2f5a54`). Its child
+`b6f5f9e54b3d1a7cf0dcb793ac756d47e56dcb4e`, tree
+`91eb58f9e9fab863d6909def3099c2ee78a79d55` (local `c24b037`), adds a new
+native Browse transport regression. The old host's late viewport write and
+unbind must not steal the new host's callback or stop its gesture. Production
+transport ownership is intentionally unchanged until that test's compiled RED.
+
+Candidate [push CI 36680216019](https://github.com/54zhien/Zen-Agent/actions/runs/36680216019)
+and [PR CI 36680221545](https://github.com/54zhien/Zen-Agent/actions/runs/36680221545)
+both passed generation/build, then reproduced 7 issues across 834 Swift tests
+and 3 failures across 30 UI tests; all 20 XCTest unit tests passed. Five Swift
+issues came from older test helpers selecting the first of the two stable hosts
+instead of the Current Card. The two new transport assertions reproduced the
+stale viewport/callback defect. UI exposed the hidden sibling's editor and an
+uneditable surviving Single after deleting the opposite Pane. These are not
+accepted results. Guard self-test passed.
+
+The next candidate fixes transport ownership and native container visibility,
+selects Current Card explicitly in the existing tests, and adds a Full-phase
+assertion before the surviving Single's unchanged real typing assertion. It also
+adds the failed Split preparation regression; its production correction awaits
+a compiled failure from that test.
+
+Independent review of this candidate confirmed the fixed-host mapping and the
+handoff ordering, with no further concrete deletion/borrowed-owner defect. It
+confirmed the transport regression and found a second boundary: failed menu
+Split preparation leaves a destination intent that a later ordinary Return can
+consume. A focused native regression is being added before correcting that path.
+The source Return handoff marker is also being moved before observable Pane/ID
+mutations; no deterministic animation failure from the former ordering has been
+established.
+
 - Observe compiled behavioral RED for the repair tests, then implement and run
   full macOS generation/build/tests.
 - Re-review native host lifetime, stale async work, duplicate owners and menu/

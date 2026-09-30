@@ -14,6 +14,7 @@ final class SplitContainerUITests: XCTestCase {
         card.swipeUp()
         expect { card.exists && card.label.contains("Workspace conversation 10") }
         card.tap()
+        expect { (app.otherElements["split-secondary-lift-state-probe"].value as? String) == "full" }
         expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
         XCTAssertFalse(app.descendants(matching: .any)["split-divider"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-10"].exists)

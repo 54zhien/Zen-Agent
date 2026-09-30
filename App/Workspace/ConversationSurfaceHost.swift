@@ -8,18 +8,21 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var browseController: AppSpaceBrowseController?
     var deleteAction: AppSpaceCardDeletionInteraction.Commit?
     var isDeletionPending: (@MainActor (String) -> Bool)?
+    var isWorkspaceVisible: Bool
     let content: Content
 
     init(request: SurfaceGeometry.Request = .full, liftController: SurfaceLiftController? = nil,
          browseController: AppSpaceBrowseController? = nil,
          deleteAction: AppSpaceCardDeletionInteraction.Commit? = nil,
          isDeletionPending: (@MainActor (String) -> Bool)? = nil,
+         isWorkspaceVisible: Bool = true,
          @ViewBuilder content: () -> Content) {
         self.request = request
         self.liftController = liftController
         self.browseController = browseController
         self.deleteAction = deleteAction
         self.isDeletionPending = isDeletionPending
+        self.isWorkspaceVisible = isWorkspaceVisible
         self.content = content()
     }
 
@@ -28,6 +31,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         liftController?.bind(controller)
         controller.bindBrowse(browseController)
         controller.bindDeletion(deleteAction, isPending: isDeletionPending)
+        controller.setWorkspaceVisible(isWorkspaceVisible)
         return controller
     }
 
@@ -42,6 +46,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         }
         controller.bindBrowse(browseController)
         controller.bindDeletion(deleteAction, isPending: isDeletionPending)
+        controller.setWorkspaceVisible(isWorkspaceVisible)
     }
 
     static func dismantleUIViewController(_ controller: ConversationSurfaceViewController<Content>,
@@ -72,6 +77,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 #endif
     private var animationIdentity: UUID?
     private var retainsAnimationMask = false
+    private var workspaceVisible = true
 
     init(content: Content, request: SurfaceGeometry.Request = .full) {
         contentController = SurfaceHostingController(rootView: content)
@@ -164,9 +170,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     func setLiftInteraction(_ phase: SurfaceLiftState.Phase, returnAction: @escaping () -> Bool) {
         let frozen = phase == .settling || phase == .card || phase == .split
-        contentController.view.isUserInteractionEnabled = !frozen
-        contentController.view.accessibilityElementsHidden = frozen
-        surfaceView.isAccessibilityElement = frozen
+        contentController.view.isUserInteractionEnabled = workspaceVisible && !frozen
+        contentController.view.accessibilityElementsHidden = !workspaceVisible || frozen
+        surfaceView.isAccessibilityElement = workspaceVisible && frozen
         surfaceView.accessibilityIdentifier = phase == .card ? "workspace-current-card" : nil
         surfaceView.accessibilityLabel = "当前会话"
         let isNew = browseInteraction?.controller.isNewEntry == true
@@ -216,7 +222,8 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         browseInteraction = AppSpaceBrowseInteraction(surface: surfaceView, coordinates: view, controller: controller,
             canBrowse: { [weak self, weak controller] in
                 guard let self, let lift = self.liftController else { return false }
-                return controller?.isPresented == true && lift.state.phase == .card
+                return self.browseInteraction?.isCurrentOwner == true
+                    && controller?.isPresented == true && lift.state.phase == .card
                     && !lift.isPreparingReturn && !lift.overlayPresented && !self.hasPresentedOverlay
             }, render: { [weak self, weak controller] card in
                 guard let self, let controller, self.liftController?.state.phase == .card,
@@ -251,6 +258,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             canDelete: { [weak self, weak browse] in
                 guard let self, let browse, let lift = self.liftController else { return false }
                 return browse.isPresented && !browse.interactionSuspended
+                    && self.browseInteraction?.isCurrentOwner == true
                     && browse.state.phase == .idle && browse.canEditCurrentMetadata
                     && lift.state.phase == .card && !lift.isPreparingReturn
                     && !lift.overlayPresented && !self.hasPresentedOverlay
@@ -265,6 +273,16 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     func unbindDeletion() {
         deletionInteraction?.unbind()
         deletionInteraction = nil
+    }
+
+    func setWorkspaceVisible(_ visible: Bool) {
+        workspaceVisible = visible
+        // SwiftUI visibility modifiers do not reliably suppress the hosted
+        // UIKit accessibility tree. The native container owns that boundary.
+        view.isHidden = !visible
+        view.isUserInteractionEnabled = visible
+        view.accessibilityElementsHidden = !visible
+        liftController?.refreshCardAccessibility()
     }
 
     var hasPresentedOverlay: Bool {
