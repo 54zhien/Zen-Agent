@@ -67,10 +67,39 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         .zIndex(4 - card.depth)
                 }
             }
-            ConversationSurfaceHost(liftController: lift, browseController: model == nil ? nil : browse,
-                                    deleteAction: deleteAction, isDeletionPending: isDeletionPending) {
-                content.environment(\.surfaceLiftController, lift)
-                    .environment(\.surfaceBrowseController, model == nil ? nil : browse)
+            GeometryReader { geometry in
+                let sourceFrame = splitFrame(in: geometry, slot: model?.splitWorkspace?.sourceSlot)
+                    ?? CGRect(origin: .zero, size: geometry.size)
+                ZStack(alignment: .topLeading) {
+                    ConversationSurfaceHost(liftController: lift, browseController: model == nil ? nil : browse,
+                                            deleteAction: deleteAction, isDeletionPending: isDeletionPending) {
+                        content.environment(\.surfaceLiftController, lift)
+                            .environment(\.surfaceBrowseController, model == nil ? nil : browse)
+                    }
+                    .frame(width: sourceFrame.width, height: sourceFrame.height)
+                    .position(x: sourceFrame.midX, y: sourceFrame.midY)
+
+                    if let model, let split = model.splitWorkspace,
+                       let emptyFrame = splitFrame(in: geometry, slot: split.emptySlot) {
+                        if let pane = model.splitPane, let bridge = model.splitActionBridge,
+                           let runtime = model.runtimeForPresentation {
+                            SplitSecondaryPaneView(pane: pane, runtime: runtime, bridge: bridge)
+                                .frame(width: emptyFrame.width, height: emptyFrame.height)
+                                .position(x: emptyFrame.midX, y: emptyFrame.midY)
+                        } else {
+                            SplitEmptyPanePicker(summaries: model.recentConversations,
+                                occupiedID: split.sourceConversationID,
+                                errorMessage: model.splitOpenError,
+                                onOpen: { id in Task { _ = await model.openInSplit(id: id) } },
+                                onNew: { _ = model.createNewInSplit() })
+                                .frame(width: emptyFrame.width, height: emptyFrame.height)
+                                .position(x: emptyFrame.midX, y: emptyFrame.midY)
+                        }
+                        splitDivider(width: emptyFrame.width) { model.closeSplit() }
+                            .position(x: emptyFrame.midX, y: geometry.size.height / 2)
+                    }
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height)
             }
             .zIndex(4 - (browse.layout()?.cards.first { $0.item == browse.state.selected }?.depth ?? 0))
             if lift.splitTargetingVisible, let top = lift.splitTopFrame,
@@ -154,6 +183,16 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         guard let model, let browseController else { return "当前会话" }
                         return Self.cardLabel(model: model, browse: browseController)
                     })
+                let liftController = lift
+                lift.configureSplit(onDrop: { [weak model] intent in
+                    model?.acceptsSplitDrop(intent) ?? false
+                }, onConverged: { [weak model, weak liftController] intent in
+                    guard model?.commitSplitDrop(intent) == true else {
+                        _ = liftController?.returnToFull()
+                        return
+                    }
+                })
+                lift.setSplitWorkspacePresented(model.splitWorkspace != nil)
                 if model.previewContent.isPresented {
                     browse.present(originID: model.conversationID, fallback: model.previewContent.summaries)
                     model.previewContent.releaseSummaryWindow()
@@ -173,6 +212,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
         .onChange(of: model?.previewContent.isPresented) { _, presented in
             if presented != true { browse.finish() }
         }
+        .onChange(of: model?.splitWorkspace) { _, split in
+            lift.setSplitWorkspacePresented(split != nil)
+        }
         .onChange(of: dynamicTypeSize) { _, _ in updateMinimumSize() }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { browse.cancel(); lift.invalidate() }
@@ -182,6 +224,28 @@ struct WorkspaceSurfaceView<Content: View>: View {
     private var cardLabel: String {
         guard let model else { return "当前会话" }
         return Self.cardLabel(model: model, browse: browse)
+    }
+
+    private func splitFrame(in geometry: GeometryProxy, slot: SplitDropSlot?) -> CGRect? {
+        guard let slot else { return nil }
+        let safe = geometry.safeAreaInsets
+        return SplitTargetingGeometry.preview(slot: slot, progress: 1, size: geometry.size,
+            safeArea: UIEdgeInsets(top: safe.top, left: safe.leading,
+                                   bottom: safe.bottom, right: safe.trailing))?.paneFrame
+    }
+
+    private func splitDivider(width: CGFloat, onClose: @escaping () -> Void) -> some View {
+        ZStack {
+            Rectangle().fill(Color.white.opacity(0.20)).frame(height: 2)
+            Capsule().fill(Color.white).frame(width: min(64, width * 0.2), height: 4)
+        }
+        .frame(width: width, height: 28)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onClose)
+        .accessibilityElement()
+        .accessibilityLabel("分屏分隔线")
+        .accessibilityHint("轻点关闭分屏")
+        .accessibilityIdentifier("split-divider")
     }
 
     private func splitTargetOverlay(top: CGRect, bottom: CGRect, guide: CGRect) -> some View {

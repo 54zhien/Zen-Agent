@@ -46,6 +46,7 @@ final class SurfaceLiftController {
     @ObservationIgnored private var splitDropConsumer: ((SplitDropIntent) -> Bool)?
     @ObservationIgnored private var splitConverged: ((SplitDropIntent) -> Void)?
     @ObservationIgnored private var acceptedSplitIntent: SplitDropIntent?
+    @ObservationIgnored private var splitWorkspacePresented = false
     @ObservationIgnored var onSplitTargetEntry: () -> Void = {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
@@ -56,6 +57,10 @@ final class SurfaceLiftController {
                         onConverged: ((SplitDropIntent) -> Void)? = nil) {
         splitDropConsumer = onDrop
         splitConverged = onConverged
+    }
+
+    func setSplitWorkspacePresented(_ presented: Bool) {
+        splitWorkspacePresented = presented
     }
 
     func configurePreview(enter: @escaping () -> Bool, prepare: @escaping () async -> Bool,
@@ -187,7 +192,8 @@ final class SurfaceLiftController {
         return result
     }
     func canArm(_ input: SurfaceLiftEligibility) -> Bool {
-        state.phase == .full && guarded(input).allowsLift && resolveTarget?(minimumCardSize) != nil
+        !splitWorkspacePresented && state.phase == .full
+            && guarded(input).allowsLift && resolveTarget?(minimumCardSize) != nil
     }
     func arm(_ input: SurfaceLiftEligibility, conversationID: String? = nil) -> Bool {
         guard canArm(input), let pose = resolveTarget?(minimumCardSize) else { return false }
