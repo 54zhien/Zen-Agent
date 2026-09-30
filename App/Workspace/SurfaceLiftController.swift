@@ -29,6 +29,9 @@ final class SurfaceLiftController {
     @ObservationIgnored private var interaction: ((SurfaceLiftState.Phase) -> Void)?
     @ObservationIgnored private var presentedOverlay: (() -> Bool)?
     @ObservationIgnored private var detach: (() -> Void)?
+#if DEBUG
+    @ObservationIgnored var nativeInteractionDiagnostic: (() -> String)?
+#endif
 
     @ObservationIgnored private var enterPreview: (() -> Bool)?
     @ObservationIgnored private var prepareFull: (() async -> Bool)?
@@ -98,6 +101,9 @@ final class SurfaceLiftController {
         host.loadViewIfNeeded()
         hostID = ObjectIdentifier(host)
         host.liftController = self
+#if DEBUG
+        nativeInteractionDiagnostic = { [weak host] in host?.interactionDiagnostic ?? "host released" }
+#endif
         detach = { [weak host] in host?.onViewportChanged = nil; host?.liftController = nil }
         host.onViewportChanged = { [weak self] in
             guard let self else { return }
@@ -271,6 +277,9 @@ final class SurfaceLiftController {
         interaction = nil
         presentedOverlay = nil
         detach = nil
+#if DEBUG
+        nativeInteractionDiagnostic = nil
+#endif
     }
 
     private func guarded(_ input: SurfaceLiftEligibility) -> SurfaceLiftEligibility {
@@ -345,7 +354,7 @@ final class SurfaceLiftController {
                 self.returnTask = nil
                 self.returnOperation = nil
                 guard ready, !Task.isCancelled, self.hostID == binding, self.state.phase == .card else {
-                    self.cancelPreparation?()
+                    self.cancelReturn()
                     self.updatePresentation()
                     return
                 }

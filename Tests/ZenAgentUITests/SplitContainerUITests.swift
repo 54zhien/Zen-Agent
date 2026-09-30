@@ -19,7 +19,9 @@ final class SplitContainerUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["split-divider"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-10"].exists)
         let survivor = app.textViews["conversation-composer-input"]
+        recordNativeSurfaces(app, stage: "Single before editor tap")
         survivor.tap()
+        recordNativeSurfaces(app, stage: "Single after editor tap")
         survivor.typeText("surviving secondary draft")
         XCTAssertTrue((survivor.value as? String)?.contains("surviving secondary draft") == true)
     }
@@ -55,6 +57,7 @@ final class SplitContainerUITests: XCTestCase {
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
         expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "card" }
+        recordNativeSurfaces(app, stage: "source lifted")
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
         app.descendants(matching: .any)["workspace-current-card"].tap()
         expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" }
@@ -70,11 +73,19 @@ final class SplitContainerUITests: XCTestCase {
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
         expect { (app.otherElements["split-secondary-lift-state-probe"].value as? String) == "card" }
+        recordNativeSurfaces(app, stage: "secondary lifted")
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
         app.descendants(matching: .any)["workspace-current-card"].tap()
         expect { (app.otherElements["split-secondary-lift-state-probe"].value as? String) == "full" }
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2)
         XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-11"].exists)
+    }
+
+    @MainActor
+    private func recordNativeSurfaces(_ app: XCUIApplication, stage: String) {
+        for id in ["surface-native-interaction-probe", "split-secondary-native-interaction-probe"] {
+            print("SPLIT_NATIVE \(stage) \(id): \(String(describing: app.otherElements[id].value))")
+        }
     }
 
     @MainActor

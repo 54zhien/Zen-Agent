@@ -74,6 +74,37 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 #if DEBUG
     // Tests pause the real animator so a busy simulator cannot skip settlement.
     var liftAnimatorForTesting: UIViewPropertyAnimator? { animator }
+
+    var interactionDiagnostic: String {
+        func editors(in node: UIView) -> [UITextView] {
+            if let editor = node as? UITextView,
+               editor.accessibilityIdentifier == "conversation-composer-input" { return [editor] }
+            return node.subviews.flatMap { editors(in: $0) }
+        }
+        func chain(_ view: UIView?) -> String {
+            var node = view
+            var values: [String] = []
+            while let current = node, values.count < 14 {
+                values.append("\(type(of: current))[hidden=\(current.isHidden),interaction=\(current.isUserInteractionEnabled),alpha=\(current.alpha)]")
+                node = current.superview
+            }
+            return values.joined(separator: ">")
+        }
+        let mounted = editors(in: contentController.view)
+        var fields = ["host=\(ObjectIdentifier(self))", "phase=\(String(describing: liftController?.state.phase))",
+            "visible=\(workspaceVisible)", "root=\(chain(view))",
+            "contentInteraction=\(contentController.view.isUserInteractionEnabled)",
+            "contentAXHidden=\(contentController.view.accessibilityElementsHidden)",
+            "surfaceAX=\(surfaceView.isAccessibilityElement)", "activate=\(surfaceView.onActivate != nil)",
+            "editors=\(mounted.count)"]
+        if let editor = mounted.first, let window = view.window {
+            let point = editor.convert(CGPoint(x: editor.bounds.midX, y: editor.bounds.midY), to: window)
+            fields.append("focused=\(editor.isFirstResponder)")
+            fields.append("point=\(point)")
+            fields.append("hit=\(chain(window.hitTest(point, with: nil)))")
+        }
+        return fields.joined(separator: ";")
+    }
 #endif
     private var animationIdentity: UUID?
     private var retainsAnimationMask = false

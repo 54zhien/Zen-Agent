@@ -52,6 +52,30 @@ struct ConversationSurfaceHostTests {
         #expect(browse.selectedConversationID == "transport-current")
     }
 
+    @Test("a retained Surface can reclaim the same Browse controller before the departing host unbinds")
+    func browseTransportCanReturnToAnExistingBinding() throws {
+        let browse = AppSpaceBrowseController()
+        let first = ConversationSurfaceViewController(content: Text("first Pane"))
+        let second = ConversationSurfaceViewController(content: Text("second Pane"))
+        first.loadViewIfNeeded()
+        second.loadViewIfNeeded()
+        first.view.frame = CGRect(x: 0, y: 0, width: 320, height: 700)
+        second.view.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        first.bindBrowse(browse)
+        second.bindBrowse(browse)
+        defer { first.unbindBrowse(); second.unbindBrowse() }
+
+        // Representable updates may arrive in either order. The latest binding
+        // is authoritative even when that host still retains its old transport.
+        first.bindBrowse(browse)
+        second.unbindBrowse()
+        let returned = try #require(first.browseInteraction)
+        #expect(returned.isCurrentOwner)
+        returned.updateViewport()
+        #expect(browse.viewportSize == CGSize(width: 320, height: 700))
+        #expect(browse.onChanged != nil)
+    }
+
     @Test("mounted Current exposes a working accessibility Delete action")
     func mountedCardAccessibilityDeleteCommitsCapturedID() async throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())

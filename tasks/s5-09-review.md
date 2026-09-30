@@ -156,6 +156,24 @@ The source Return handoff marker is also being moved before observable Pane/ID
 mutations; no deterministic animation failure from the former ordering has been
 established.
 
+Candidate `2cc9548864b15d7beca1ffb03695b49bcb6a76aa`, tree
+`66115542bb06aa17c93a6cdc109e00baa0c3ba17` (local `0581d87`), passed
+generation/build in [push CI 36683032202](https://github.com/54zhien/Zen-Agent/actions/runs/36683032202).
+All previous Swift failures passed; the new failed-preparation regression was
+the sole issue across 835 Swift tests: a later ordinary Return consumed `.top`
+instead of no Split destination. All 20 XCTest unit tests passed. All three
+Split UI failures persisted across the 30 UI tests. The new secondary Full-phase
+assertion passed before typing failed, so a stuck Return phase is not supported
+by this result. Native root visibility alone did not fix hidden-editor exposure.
+
+The next candidate clears the entire failed Return operation through the existing
+cancellation boundary and adds DEBUG-only live native interaction diagnostics to
+the failing UI paths. It also adds a separate regression for reclaiming Browse
+on a retained host before the departing host unbinds; the same-controller fast
+path currently skips ownership validation. That production correction awaits
+the new regression's compiled RED. Resize test drafts are separate, unpublished
+S5-10 work and are not part of this candidate.
+
 - Observe compiled behavioral RED for the repair tests, then implement and run
   full macOS generation/build/tests.
 - Re-review native host lifetime, stale async work, duplicate owners and menu/

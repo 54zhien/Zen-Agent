@@ -150,6 +150,12 @@ struct WorkspaceSurfaceView<Content: View>: View {
                                       identifier: "split-secondary-lift-state-probe")
                     .frame(width: 1, height: 1)
                     .allowsHitTesting(false)
+                SurfaceInteractionProbe(identifier: "surface-native-interaction-probe", driver: lift)
+                    .frame(width: 1, height: 1)
+                    .allowsHitTesting(false)
+                SurfaceInteractionProbe(identifier: "split-secondary-native-interaction-probe", driver: secondaryLift)
+                    .frame(width: 1, height: 1)
+                    .allowsHitTesting(false)
                 SplitDropIntentProbe(slot: lift.lastSplitDropIntent?.slot)
                     .frame(width: 1, height: 1)
                     .allowsHitTesting(false)
@@ -486,6 +492,27 @@ private struct WorkspaceHostedContent<Content: View>: View {
 }
 
 #if DEBUG
+private struct SurfaceInteractionProbe: UIViewRepresentable {
+    let identifier: String
+    let driver: SurfaceLiftController
+    func makeUIView(context: Context) -> SurfaceInteractionProbeView {
+        let view = SurfaceInteractionProbeView()
+        view.isAccessibilityElement = true
+        view.accessibilityIdentifier = identifier
+        view.readValue = { [weak driver] in driver?.nativeInteractionDiagnostic?() ?? "unbound" }
+        return view
+    }
+    func updateUIView(_ uiView: SurfaceInteractionProbeView, context: Context) {}
+}
+
+private final class SurfaceInteractionProbeView: UIView {
+    var readValue: (() -> String)?
+    override var accessibilityValue: String? {
+        get { readValue?() ?? super.accessibilityValue }
+        set { super.accessibilityValue = newValue }
+    }
+}
+
 private struct SurfaceLiftStateProbe: UIViewRepresentable {
     let phase: SurfaceLiftState.Phase
     let identifier: String
