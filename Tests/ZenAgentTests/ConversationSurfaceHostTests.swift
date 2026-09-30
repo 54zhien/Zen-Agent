@@ -15,6 +15,43 @@ private actor SurfaceCommandProbe {
 @Suite("Stable Conversation Surface", .serialized)
 @MainActor
 struct ConversationSurfaceHostTests {
+    @Test("a late old Surface unbind cannot steal the new Surface's Browse transport")
+    func browseTransportSurvivesReversedHostUpdateOrder() throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.createEmptyConversation(id: "transport-older", at: Date(timeIntervalSince1970: 1))
+        try store.createEmptyConversation(id: "transport-current", at: Date(timeIntervalSince1970: 2))
+        let browse = AppSpaceBrowseController(reader: { try store.conversationBrowseWindow(id: $0) })
+        let oldHost = ConversationSurfaceViewController(content: Text("old Pane"))
+        let newHost = ConversationSurfaceViewController(content: Text("new Pane"))
+        oldHost.loadViewIfNeeded()
+        newHost.loadViewIfNeeded()
+        oldHost.view.frame = CGRect(x: 0, y: 0, width: 320, height: 700)
+        newHost.view.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        oldHost.view.layoutIfNeeded()
+        newHost.view.layoutIfNeeded()
+        oldHost.bindBrowse(browse)
+        let lift = SurfaceLiftController()
+        lift.bind(newHost)
+        #expect(lift.arm(SurfaceLiftEligibility()))
+        #expect(lift.drag(upwardDistance: 220, eligibility: SurfaceLiftEligibility()))
+        #expect(lift.end(animated: false)?.destination == .card)
+        newHost.bindBrowse(browse)
+        browse.present(originID: "transport-current")
+        defer { oldHost.unbindBrowse(); newHost.unbindBrowse(); lift.unbind(newHost) }
+
+        oldHost.view.frame.size.height = 600
+        oldHost.view.setNeedsLayout()
+        oldHost.view.layoutIfNeeded()
+        #expect(browse.viewportSize == CGSize(width: 400, height: 800))
+        oldHost.unbindBrowse()
+        let before = newHost.presentation
+        let layout = try #require(browse.layout())
+        #expect(browse.begin())
+        #expect(browse.drag(displacement: 100, travel: Double(layout.travel)))
+        #expect(newHost.presentation != before, "The new native Current must still render Browse updates")
+        #expect(browse.selectedConversationID == "transport-current")
+    }
+
     @Test("mounted Current exposes a working accessibility Delete action")
     func mountedCardAccessibilityDeleteCommitsCapturedID() async throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
