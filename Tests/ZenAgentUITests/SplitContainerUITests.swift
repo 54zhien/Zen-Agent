@@ -2,6 +2,41 @@ import XCTest
 
 final class SplitContainerUITests: XCTestCase {
     @MainActor
+    func testAccessibleBottomSplitCreatesANewSecondConversationAndClosesWithoutDeletingIt() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launch()
+        let source = app.descendants(matching: .any)["conversation-pane-preview-ui-11"]
+        XCTAssertTrue(source.waitForExistence(timeout: 15))
+        let entry = app.buttons["split-entry"]
+        guard entry.waitForExistence(timeout: 10) else {
+            XCTFail("Accessible Split menu missing")
+            return
+        }
+        entry.tap()
+        let action = app.buttons["split-open-bottom"]
+        guard action.waitForExistence(timeout: 10) else {
+            XCTFail("Bottom Pane action missing")
+            return
+        }
+        action.tap()
+        let picker = app.otherElements["split-empty-pane-picker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        let newCard = app.buttons["split-new-conversation"]
+        XCTAssertTrue(newCard.waitForExistence(timeout: 10))
+        newCard.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["split-secondary-pane"].waitForExistence(timeout: 10))
+        XCTAssertTrue(source.exists)
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2)
+        let divider = app.descendants(matching: .any)["split-divider"]
+        XCTAssertTrue(divider.waitForExistence(timeout: 10))
+        divider.tap()
+        XCTAssertTrue(source.exists)
+        XCTAssertFalse(app.descendants(matching: .any)["split-secondary-pane"].exists)
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+    }
+
+    @MainActor
     func testPickerSelectionMountsASecondLiveConversation() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"

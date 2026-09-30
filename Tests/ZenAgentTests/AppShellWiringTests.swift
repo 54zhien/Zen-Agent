@@ -20,6 +20,56 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("Split keeps two independent Pane owners; closing it preserves the secondary Conversation")
+    func splitOwnersAndClose() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let sourceID = fixture.model.conversationID
+        let source = try #require(fixture.model.pane?.session)
+        source.composer.draft.text = "source draft"
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "split-secondary").insert(db)
+        }
+        let accepted = fixture.model.commitSplitDrop(SplitDropIntent(conversationID: sourceID, slot: .bottom))
+        #expect(accepted)
+        #expect(fixture.model.splitWorkspace?.sourceSlot == .bottom)
+        #expect(fixture.model.splitWorkspace?.emptySlot == .top)
+        let duplicateOpened = await fixture.model.openInSplit(id: sourceID)
+        #expect(!duplicateOpened)
+        let opened = await fixture.model.openInSplit(id: "split-secondary")
+        #expect(opened)
+        let secondary = try #require(fixture.model.splitPane?.session)
+        #expect(secondary !== source)
+        secondary.composer.draft.text = "secondary draft"
+        #expect(fixture.model.pane?.session === source)
+        #expect(fixture.model.splitWorkspace?.secondaryConversationID == "split-secondary")
+        fixture.model.closeSplit()
+        #expect(fixture.model.splitWorkspace == nil)
+        #expect(fixture.model.splitPane == nil)
+        #expect(fixture.model.pane?.session === source)
+        #expect(source.composer.draft.text == "source draft")
+        #expect(try fixture.store.conversation(id: "split-secondary")?.lifecycle == .visible)
+        #expect(await fixture.model.openConversation(id: "split-secondary"))
+        #expect(fixture.model.pane?.session === secondary)
+        #expect(secondary.composer.draft.text == "secondary draft")
+    }
+
+    @Test("a failed Split selection leaves the source and empty Picker owner intact")
+    func failedSplitSelection() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let source = try #require(fixture.model.pane?.session)
+        let accepted = fixture.model.commitSplitDrop(SplitDropIntent(
+            conversationID: fixture.model.conversationID, slot: .top))
+        #expect(accepted)
+        let opened = await fixture.model.openInSplit(id: "missing-split-target")
+        #expect(!opened)
+        #expect(fixture.model.pane?.session === source)
+        #expect(fixture.model.splitPane == nil)
+        #expect(fixture.model.splitWorkspace?.secondaryConversationID == nil)
+        #expect(fixture.model.splitOpenError != nil)
+    }
+
     @Test("finalized Card Delete releases the warm origin and still opens another card")
     func finalizedCardDeleteReleasesOriginSession() async throws {
         let fixture = try makeFixture(seed: .active)
