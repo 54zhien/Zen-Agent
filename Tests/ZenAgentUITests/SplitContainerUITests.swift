@@ -72,6 +72,14 @@ final class SplitContainerUITests: XCTestCase {
     @MainActor
     func testSecondarySplitPaneLiftsToAppSpaceAndReturnsWithSourceIntact() {
         let app = launchedOccupiedSplit()
+        let position = app.buttons["preview-reading-position"]
+        position.tap()
+        expect { (position.value as? String) == "settled" }
+        let anchor = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label == %@ OR value == %@", "PREVIEW_READING_ANCHOR_10",
+            "PREVIEW_READING_ANCHOR_10")).firstMatch
+        XCTAssertTrue(anchor.exists && anchor.isHittable)
+        let anchorFrame = anchor.frame
         let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 1)
         XCTAssertTrue(editor.exists)
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
@@ -83,6 +91,9 @@ final class SplitContainerUITests: XCTestCase {
         expect { (app.otherElements["split-secondary-lift-state-probe"].value as? String) == "full" }
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2)
         XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-11"].exists)
+        expect { anchor.exists && anchor.isHittable && (position.value as? String) == "settled" }
+        XCTAssertEqual(anchor.frame.minY, anchorFrame.minY, accuracy: 3,
+                       "The hidden sibling must retain its reading position through remount")
     }
 
     @MainActor

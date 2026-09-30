@@ -96,7 +96,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             "contentInteraction=\(contentController.view.isUserInteractionEnabled)",
             "contentAXHidden=\(contentController.view.accessibilityElementsHidden)",
             "surfaceAX=\(surfaceView.isAccessibilityElement)", "activate=\(surfaceView.onActivate != nil)",
-            "editors=\(mounted.count)"]
+            "editors=\(mounted.count)", "browse=\(browseInteraction?.diagnostic ?? "none")"]
         if let editor = mounted.first, let window = view.window {
             let point = editor.convert(CGPoint(x: editor.bounds.midX, y: editor.bounds.midY), to: window)
             fields.append("focused=\(editor.isFirstResponder)")
@@ -109,6 +109,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private var animationIdentity: UUID?
     private var retainsAnimationMask = false
     private var workspaceVisible = true
+    private var contentConstraints: [NSLayoutConstraint] = []
 
     init(content: Content, request: SurfaceGeometry.Request = .full) {
         contentController = SurfaceHostingController(rootView: content)
@@ -137,12 +138,13 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         let contentView = contentController.view!
         contentView.translatesAutoresizingMaskIntoConstraints = false
         surfaceView.addSubview(contentView)
-        NSLayoutConstraint.activate([
+        contentConstraints = [
             contentView.leadingAnchor.constraint(equalTo: surfaceView.leadingAnchor),
             contentView.trailingAnchor.constraint(equalTo: surfaceView.trailingAnchor),
             contentView.topAnchor.constraint(equalTo: surfaceView.topAnchor),
             contentView.bottomAnchor.constraint(equalTo: surfaceView.bottomAnchor)
-        ])
+        ]
+        NSLayoutConstraint.activate(contentConstraints)
         contentController.didMove(toParent: self)
     }
 
@@ -153,7 +155,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         let center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
         if surfaceView.bounds != bounds { surfaceView.bounds = bounds }
         if surfaceView.center != center { surfaceView.center = center }
-        contentController.preserveContainerSafeArea(view.safeAreaInsets)
+        if workspaceVisible { contentController.preserveContainerSafeArea(view.safeAreaInsets) }
         // onAppear may restore Card before a usable viewport exists. Notify the
         // first layout too, so that Card's first Return has a resolved Lift target.
         let changed = lastViewport != view.bounds || lastInsets != view.safeAreaInsets
@@ -166,7 +168,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
-        contentController.preserveContainerSafeArea(view.safeAreaInsets)
+        if workspaceVisible { contentController.preserveContainerSafeArea(view.safeAreaInsets) }
     }
 
     @discardableResult
@@ -308,12 +310,36 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func setWorkspaceVisible(_ visible: Bool) {
-        workspaceVisible = visible
-        // SwiftUI visibility modifiers do not reliably suppress the hosted
-        // UIKit accessibility tree. The native container owns that boundary.
+        loadViewIfNeeded()
+        let contentView = contentController.view!
+        if !visible {
+            // A nested hosting accessibility tree can remain discoverable despite
+            // hidden flags. Retain its owners and native views, but remove the
+            // inactive tree from the window until this Pane is presented again.
+            liftController?.setWorkspaceVisible(false)
+            contentController.suspendsContainerInsets = true
+            workspaceVisible = false
+            if contentView.superview != nil {
+                NSLayoutConstraint.deactivate(contentConstraints)
+                contentView.removeFromSuperview()
+            }
+        } else if contentView.superview == nil {
+            surfaceView.addSubview(contentView)
+            NSLayoutConstraint.activate(contentConstraints)
+            workspaceVisible = true
+            contentController.suspendsContainerInsets = false
+            view.setNeedsLayout()
+            view.layoutIfNeeded()
+            contentController.preserveContainerSafeArea(view.safeAreaInsets)
+            contentView.layoutIfNeeded()
+        } else {
+            workspaceVisible = true
+        }
         view.isHidden = !visible
         view.isUserInteractionEnabled = visible
         view.accessibilityElementsHidden = !visible
+        // Resume after the retained view has its mounted viewport and safe area.
+        liftController?.setWorkspaceVisible(visible)
         liftController?.refreshCardAccessibility()
     }
 
@@ -515,6 +541,7 @@ final class SurfaceClipView: UIView {
 
 @MainActor
 final class SurfaceHostingController<Content: View>: UIHostingController<Content> {
+    var suspendsContainerInsets = false
     private var containerInsets: UIEdgeInsets?
     private var isAdjustingInsets = false
 
@@ -529,7 +556,7 @@ final class SurfaceHostingController<Content: View>: UIHostingController<Content
     }
 
     private func reconcileInsets() {
-        guard let target = containerInsets, !isAdjustingInsets else { return }
+        guard !suspendsContainerInsets, let target = containerInsets, !isAdjustingInsets else { return }
         let current = view.safeAreaInsets
         let added = additionalSafeAreaInsets
         // UIKit recalculates inherited insets from the transformed child's placement.

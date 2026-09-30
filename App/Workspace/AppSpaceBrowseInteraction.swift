@@ -19,6 +19,12 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
     private var animationID: UUID?
 #if DEBUG
     var animatorForTesting: UIViewPropertyAnimator? { animator }
+    private var diagnosticEvents: [String] = []
+    var diagnostic: String { diagnosticEvents.joined(separator: " | ") }
+    private func record(_ event: String) {
+        diagnosticEvents.append(event)
+        if diagnosticEvents.count > 24 { diagnosticEvents.removeFirst() }
+    }
 #endif
     private var lastPhase: AppSpaceBrowseState.Phase?
     private var lastSelected: AppSpaceGeometry.Item?
@@ -48,6 +54,11 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
 
     func updateViewport() {
         guard isCurrentOwner, let coordinates else { return }
+#if DEBUG
+        if controller.viewportSize != coordinates.bounds.size || controller.safeArea != coordinates.safeAreaInsets {
+            record("viewport=\(coordinates.bounds.size) insets=\(coordinates.safeAreaInsets) phase=\(controller.state.phase)")
+        }
+#endif
         controller.updateViewport(size: coordinates.bounds.size, safeArea: coordinates.safeAreaInsets)
     }
 
@@ -66,14 +77,25 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard isCurrentOwner, gestureRecognizer === recognizer, canBrowse(), controller.state.phase == .idle,
-              controller.layout() != nil, let coordinates else { return false }
+              controller.layout() != nil, let coordinates else {
+#if DEBUG
+            record("begin denied owner=\(isCurrentOwner) canBrowse=\(canBrowse()) phase=\(controller.state.phase)")
+#endif
+            return false
+        }
         let velocity = recognizer.velocity(in: coordinates.window ?? coordinates)
+#if DEBUG
+        record("begin velocity=\(velocity)")
+#endif
         return velocity.x.isFinite && velocity.y.isFinite && abs(velocity.x) > abs(velocity.y) * 1.1
     }
 
     @objc private func gestureChanged(_ pan: UIPanGestureRecognizer) {
         guard isCurrentOwner, let coordinates, let layout = controller.layout() else { cancel(); return }
         let reference = coordinates.window ?? coordinates
+#if DEBUG
+        record("pan=\(pan.state.rawValue) x=\(pan.translation(in: reference).x) vx=\(pan.velocity(in: reference).x) phase=\(controller.state.phase)")
+#endif
         switch pan.state {
         case .began:
             guard canBrowse(), controller.begin() else { return }
@@ -105,6 +127,9 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
         }
         guard let settlement,
               let to = controller.layout()?.cards.first(where: { $0.item == controller.state.selected }) else { cancel(); return }
+#if DEBUG
+        record("settle=\(settlement.destination) from=\(settlement.startOffset)")
+#endif
         stopAnimator()
         UIView.performWithoutAnimation { _ = render(from) }
         guard animated else {
@@ -131,6 +156,9 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
     }
 
     func cancel() {
+#if DEBUG
+        record("cancel owner=\(isCurrentOwner) phase=\(controller.state.phase)")
+#endif
         stopAnimator()
         guard isCurrentOwner else { return }
         withAnimation(nil) { controller.cancel() }

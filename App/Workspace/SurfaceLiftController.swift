@@ -6,6 +6,7 @@ import UIKit
 @Observable
 final class SurfaceLiftController {
     private(set) var state = SurfaceLiftState()
+    private(set) var isWorkspaceVisible = true
     private(set) var overlayPresented = false
     private(set) var retainsAppSpaceViewport = false
     private(set) var splitTargetingVisible = false
@@ -69,6 +70,10 @@ final class SurfaceLiftController {
                         onConverged: ((SplitDropIntent) -> Void)? = nil) {
         splitDropConsumer = onDrop
         splitConverged = onConverged
+    }
+
+    func setWorkspaceVisible(_ visible: Bool) {
+        isWorkspaceVisible = visible
     }
 
     func setSplitWorkspacePresented(_ presented: Bool) {

@@ -209,3 +209,26 @@ draft on failure without changing its assertion.
 - S5-10 owns ratio/resize/close thresholds and continuous bottom-anchor behavior;
   S5-11 owns rotation and iPad axes.
 - Physical animation comfort, VoiceOver usability and performance remain open.
+
+## Retained hidden content and release samples
+
+Candidate `6142ee5a444af53ba42b086e7e9f0afeb0793e61` (local `7e423d1`,
+tree `aa06092880ce073100346352fd3652d837c7551f`) passed generation/build,
+836 Swift tests and 20 XCTest tests in both CI runs. PR CI 36687762409 ran
+30 UI tests with the two hidden sibling editor failures; push CI 36687756359
+also failed distant Browse at history 5. Full Undo placement and surviving
+Single editor typing passed in both runs. Inner SwiftUI accessibilityHidden
+therefore did not solve the hidden native editor exposure.
+
+The next candidate detaches only the hidden hosting UIView, retaining its child
+controller, root, native editor, Pane and Session. It reuses the same constraints
+on return and suppresses off-window safe-area and Timeline geometry updates.
+The viewport observation includes visibility, so an identical-size remount can
+resume pending reading work. Native lifetime coverage checks window membership,
+editor identity/selection, draft, Run state and safe area across repeated hides.
+
+A new native Browse test supplies an ended displacement beyond the threshold
+without an intermediate changed sample. Production currently consumes only the
+release velocity; this test must produce compiled RED before that correction.
+Bounded DEBUG gesture/viewport logs accompany the intermittent Browse UI path.
+S5-10 drafts remain unpublished and excluded from this candidate.

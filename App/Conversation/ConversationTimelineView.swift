@@ -1,5 +1,10 @@
 import SwiftUI
 
+private struct ConversationTimelineViewport: Equatable {
+    let geometry: ScrollGeometry
+    let workspaceVisible: Bool
+}
+
 private struct ConversationTimelineTurnMeasurements: Equatable, Sendable {
     var viewportFrames: [String: CGRect] = [:]
     var contentTops: [String: Double] = [:]
@@ -56,7 +61,7 @@ struct ConversationTimelineView: View {
         ScrollViewReader { proxy in
             timelineContent
                 .onChange(of: materializationRequest) { _, request in
-                    guard let request, case .restoreAnchor(let anchor) = request.action else { return }
+                    guard acceptsScrollRequests, let request, case .restoreAnchor(let anchor) = request.action else { return }
                     var transaction = Transaction()
                     transaction.animation = nil
                     withTransaction(transaction) { proxy.scrollTo(anchor.runID, anchor: .top) }
@@ -70,7 +75,8 @@ struct ConversationTimelineView: View {
     }
 
     private var timelineContent: some View {
-        VStack(spacing: 0) {
+        let workspaceVisible = surfaceLift?.isWorkspaceVisible != false
+        return VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
                 if !conversationApprovals.isEmpty {
                     Text("需要处理的工具调用")
@@ -147,6 +153,7 @@ struct ConversationTimelineView: View {
             })
             .scrollPosition($scrollPosition, anchor: .top)
             .onPreferenceChange(ConversationTimelineTurnFramesKey.self) { measurement in
+                guard surfaceLift?.isWorkspaceVisible != false else { return }
                 let frames = measurement.viewportFrames
                 turnFrames = frames
                 turnContentTops = measurement.contentTops
@@ -170,10 +177,18 @@ struct ConversationTimelineView: View {
                     applyPendingScrollIfReady()
                 }
             }
-            .onScrollGeometryChange(for: ScrollGeometry.self) { geometry in
-                paneGeometry(from: geometry)
-            } action: { _, geometry in
-                handleScrollGeometryChange(geometry)
+            .onScrollGeometryChange(for: ConversationTimelineViewport.self) { geometry in
+                ConversationTimelineViewport(geometry: paneGeometry(from: geometry),
+                                             workspaceVisible: workspaceVisible)
+            } action: { previous, viewport in
+                // Visibility participates in equality so mounting the same-size
+                // viewport still drains Run updates held while the Pane was hidden.
+                guard viewport.workspaceVisible, surfaceLift?.isWorkspaceVisible != false else {
+                    readingGeometryWasSuspended = true
+                    return
+                }
+                if !previous.workspaceVisible { readingGeometryWasSuspended = true }
+                handleScrollGeometryChange(viewport.geometry)
             }
             .onScrollPhaseChange { _, phase, context in
                 activeScrollPhase = phase
@@ -198,7 +213,7 @@ struct ConversationTimelineView: View {
                 }
             }
             .onChange(of: surfaceLift?.state.phase) { _, phase in
-                guard phase == .full, let scrollBridge, let latestScrollGeometry else { return }
+                guard phase == .full, acceptsReadingGeometry, let scrollBridge, let latestScrollGeometry else { return }
                 scrollBridge.endHeightChange()
                 pendingAppliedScroll = nil
                 _ = scrollBridge.pane.updateReading(.geometryChanged(geometry: latestScrollGeometry, anchor: nil))
@@ -261,6 +276,7 @@ struct ConversationTimelineView: View {
     }
 
     private func handleScrollGeometryChange(_ geometry: ScrollGeometry) {
+        guard surfaceLift?.isWorkspaceVisible != false else { return }
         let previousGeometry = latestScrollGeometry
         let previousBottomReferenceTurn = latestBottomReferenceTurn
         latestScrollGeometry = geometry
@@ -327,13 +343,13 @@ struct ConversationTimelineView: View {
 #endif
 
     private var acceptsReadingGeometry: Bool {
-        surfaceLift == nil || surfaceLift?.state.phase == .full
+        surfaceLift == nil || (surfaceLift?.isWorkspaceVisible == true && surfaceLift?.state.phase == .full)
     }
 
     private var acceptsScrollRequests: Bool {
         guard let surfaceLift else { return true }
-        return surfaceLift.state.phase == .full
-            || (surfaceLift.state.phase == .settling && surfaceLift.state.pendingSettlement?.destination == .full)
+        return surfaceLift.isWorkspaceVisible && (surfaceLift.state.phase == .full
+            || (surfaceLift.state.phase == .settling && surfaceLift.state.pendingSettlement?.destination == .full))
     }
 
     private var isUserDrivenScroll: Bool {
