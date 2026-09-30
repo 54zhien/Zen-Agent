@@ -2,6 +2,28 @@ import XCTest
 
 final class SplitContainerUITests: XCTestCase {
     @MainActor
+    func testSecondaryLiftSurvivesDeletingTheOppositePaneAndReturnsToEditableSingle() {
+        let app = launchedOccupiedSplit()
+        let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 1)
+        let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
+        let card = app.descendants(matching: .any)["workspace-current-card"]
+        expect { card.exists && card.label.contains("Workspace conversation 10") }
+        card.swipeLeft()
+        expect { card.label.contains("Workspace conversation 11") }
+        card.swipeUp()
+        expect { card.exists && card.label.contains("Workspace conversation 10") }
+        card.tap()
+        expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
+        XCTAssertFalse(app.descendants(matching: .any)["split-divider"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-10"].exists)
+        let survivor = app.textViews["conversation-composer-input"]
+        survivor.tap()
+        survivor.typeText("surviving secondary draft")
+        XCTAssertTrue((survivor.value as? String)?.contains("surviving secondary draft") == true)
+    }
+
+    @MainActor
     func testAppSpaceCardMenuOpensSelectedConversationInSplit() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
