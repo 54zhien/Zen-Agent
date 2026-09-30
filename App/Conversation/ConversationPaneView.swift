@@ -1,5 +1,16 @@
 import SwiftUI
 
+private struct ConversationBottomNoticeKey: EnvironmentKey {
+    static var defaultValue: AnyView? { nil }
+}
+
+extension EnvironmentValues {
+    var conversationBottomNotice: AnyView? {
+        get { self[ConversationBottomNoticeKey.self] }
+        set { self[ConversationBottomNoticeKey.self] = newValue }
+    }
+}
+
 @MainActor
 struct ConversationPaneView: View {
     let pane: ConversationPaneController
@@ -8,6 +19,7 @@ struct ConversationPaneView: View {
     let maxProviderSteps: Int
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.conversationBottomNotice) private var bottomNotice
     @State private var composerClearance: CGFloat = 62
     private let scrollBridge: ConversationPaneScrollBridge
     private let onUserFocus: () -> Void
@@ -95,6 +107,12 @@ struct ConversationPaneView: View {
             }
         }
         .accessibilityIdentifier("conversation-pane-\(pane.conversationID)")
+        .overlay(alignment: .bottom) {
+            // Workspace notices share this Pane's keyboard-adjusted viewport
+            // and the measured Composer clearance, including its quote shelf.
+            bottomNotice
+                .padding(.bottom, composerClearance + 8)
+        }
         .task {
             do {
                 try await pane.refreshPendingApprovals(using: runtime)

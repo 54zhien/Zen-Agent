@@ -133,8 +133,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     .zIndex(100)
             }
             if let model, let deletion = model.cardDeletion,
+               activeSurfaceSlot != nil || model.pane == nil,
                !deletion.pendingCards.isEmpty || deletion.errorMessage != nil {
-                deletionBanner(model: model, deletion: deletion)
+                WorkspaceDeletionNotice(model: model, deletion: deletion, browse: browse)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .padding(.bottom, 36)
                     .zIndex(200)
@@ -350,74 +351,6 @@ struct WorkspaceSurfaceView<Content: View>: View {
             .position(x: frame.midX, y: frame.midY)
     }
 
-    private func deletionBanner(model: AppShellModel,
-                                deletion: AppSpaceConversationDeletion) -> some View {
-        VStack(spacing: 6) {
-            if let error = deletion.errorMessage {
-                HStack(spacing: 12) {
-                    Text(error).font(.footnote)
-                    if deletion.needsRecoveryRetry {
-                        Button("重试") { deletion.recoverPending() }
-                            .accessibilityIdentifier("workspace-card-recovery-retry")
-                    } else {
-                        Button("关闭") { deletion.clearError() }
-                    }
-                }
-                .padding(10)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            }
-            if !deletion.pendingCards.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 8) {
-                        ForEach(deletion.pendingCards, id: \.conversationID) { item in
-                            HStack(spacing: 12) {
-                                Text(deletion.needsRecoveryDecision(conversationID: item.conversationID)
-                                    ? "删除待确认" : "会话已删除").font(.footnote)
-                                if deletion.needsRecoveryDecision(conversationID: item.conversationID) {
-                                    Button("保留会话") {
-                                        if model.restoreRecoveredAppSpaceConversation(id: item.conversationID) {
-                                            if browse.isPresented {
-                                                _ = browse.selectRestoredConversation(id: item.conversationID)
-                                            }
-                                            UIAccessibility.post(notification: .announcement,
-                                                argument: "会话已保留")
-                                        }
-                                    }
-                                    .accessibilityIdentifier("workspace-card-restore-\(item.conversationID)")
-                                    Button("确认删除", role: .destructive) {
-                                        _ = model.confirmRecoveredAppSpaceConversationDeletion(id: item.conversationID)
-                                    }
-                                    .accessibilityIdentifier("workspace-card-confirm-delete-\(item.conversationID)")
-                                } else if deletion.canUndo(conversationID: item.conversationID) {
-                                    Button("撤销") {
-                                        if model.undoAppSpaceConversation(id: item.conversationID) {
-                                            if browse.isPresented {
-                                                _ = browse.selectRestoredConversation(id: item.conversationID)
-                                            }
-                                            UIAccessibility.post(notification: .announcement,
-                                                argument: "会话已恢复")
-                                        }
-                                    }
-                                    .accessibilityIdentifier("workspace-card-undo-\(item.conversationID)")
-                                } else {
-                                    Button("重试清理") {
-                                        deletion.retryFinalization(conversationID: item.conversationID)
-                                    }
-                                    .accessibilityIdentifier("workspace-card-cleanup-\(item.conversationID)")
-                                }
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
-                            .background(.regularMaterial, in: Capsule())
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                }
-                .frame(maxHeight: 54)
-            }
-        }
-    }
-
     private static func cardLabel(model: AppShellModel, browse: AppSpaceBrowseController) -> String {
         if browse.isNewEntry {
             return ["新对话", model.appSpaceActionError(for: nil) ?? browse.errorMessage, "创建新对话"].compactMap { $0 }.joined(separator: "，")
@@ -466,6 +399,7 @@ private struct WorkspaceHostedContent<Content: View>: View {
     let slot: WorkspaceSurfaceSlot
     let browse: AppSpaceBrowseController
     let content: Content
+    @Environment(\.surfaceLiftController) private var lift
 
     var body: some View {
         Group {
@@ -488,6 +422,26 @@ private struct WorkspaceHostedContent<Content: View>: View {
                 content
             }
         }
+        // The nested hosting controller builds its own SwiftUI accessibility
+        // tree. Suppress that tree here while preserving the hidden live Pane.
+        .accessibilityHidden(model?.previewContent.isPresented == true
+            && model?.previewSurfaceSlot != slot)
+        .environment(\.conversationBottomNotice, bottomNotice)
+    }
+
+    private var bottomNotice: AnyView? {
+        guard let model, !model.previewContent.isPresented, lift?.state.phase == .full,
+              let deletion = model.cardDeletion,
+              !deletion.pendingCards.isEmpty || deletion.errorMessage != nil else { return nil }
+        let owner: WorkspaceSurfaceSlot
+        if let split = model.splitWorkspace, model.splitPane != nil,
+           split.activeSlot == split.emptySlot {
+            owner = model.sourceSurfaceSlot == .primary ? .secondary : .primary
+        } else {
+            owner = model.sourceSurfaceSlot
+        }
+        guard slot == owner else { return nil }
+        return AnyView(WorkspaceDeletionNotice(model: model, deletion: deletion, browse: browse))
     }
 }
 

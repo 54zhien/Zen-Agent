@@ -19,6 +19,10 @@ final class SplitContainerUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["split-divider"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-10"].exists)
         let survivor = app.textViews["conversation-composer-input"]
+        let undo = app.buttons["workspace-card-undo-preview-ui-11"]
+        XCTAssertTrue(undo.exists)
+        XCTAssertLessThan(undo.frame.maxY, survivor.frame.minY,
+                          "Full must retain Undo above the live Composer")
         recordNativeSurfaces(app, stage: "Single before editor tap")
         survivor.tap()
         recordNativeSurfaces(app, stage: "Single after editor tap")

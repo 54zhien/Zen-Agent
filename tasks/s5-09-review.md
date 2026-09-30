@@ -174,6 +174,34 @@ path currently skips ownership validation. That production correction awaits
 the new regression's compiled RED. Resize test drafts are separate, unpublished
 S5-10 work and are not part of this candidate.
 
+Candidate `259d6f61a0197de3c33107af39708a15cf436e49`, tree
+`faaa80c055687122ebab98f37fa2be6cd3cc093e` (local `c0676e6`), passed
+generation/build in [push CI 36685026441](https://github.com/54zhien/Zen-Agent/actions/runs/36685026441).
+The failed-preparation regression passed. The new same-controller Browse reclaim
+test produced all three remaining issues across 836 Swift tests: owner, viewport
+and callback were stale. All 20 XCTest tests passed. UI ran 30 tests with five
+failures: the three existing Split failures plus distant Browse failing its first
+swipe and configuration-sheet draft typing failing its final value assertion.
+Those two additional failures remain tracked; neither is waived.
+The independent [PR CI 36685034448](https://github.com/54zhien/Zen-Agent/actions/runs/36685034448)
+reproduced the three Browse unit issues and three Split UI failures, while its
+distant Browse and configuration-sheet draft tests passed.
+
+Live native diagnostics identify the Split UI boundaries. The surviving Full
+editor is interactive, but its center hits the deletion banner's outer
+`HostingScrollView`, not the Composer. The hidden sibling has correct native
+hidden/interaction/accessibility flags and a zero-alpha ancestor, yet its nested
+SwiftUI accessibility tree still exposes an editor. There is no evidence that
+SwiftUI overwrites the native visibility flags.
+
+The next correction validates Browse ownership before taking its same-controller
+fast path, suppresses accessibility inside the retained hosted SwiftUI root, and
+places Full deletion notices in the active Pane above its measured Composer.
+Card notices retain their existing position; the ten-second Undo state and actions
+are unchanged. The real typing regression additionally checks that Undo remains
+available above the editor. The configuration-sheet test now logs its actual
+draft on failure without changing its assertion.
+
 - Observe compiled behavioral RED for the repair tests, then implement and run
   full macOS generation/build/tests.
 - Re-review native host lifetime, stale async work, duplicate owners and menu/

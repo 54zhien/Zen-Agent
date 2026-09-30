@@ -105,7 +105,8 @@ final class ConversationSurfaceUITests: XCTestCase {
         input.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
         input.typeText("_RETURNED")
-        XCTAssertTrue((input.value as? String ?? "").contains("SHEET_DRAFT_RETURNED"))
+        XCTAssertTrue((input.value as? String ?? "").contains("SHEET_DRAFT_RETURNED"),
+                      "Actual draft after sheet Return: \(String(describing: input.value))")
     }
 
     @MainActor

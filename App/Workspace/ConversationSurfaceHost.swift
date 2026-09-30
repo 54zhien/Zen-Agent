@@ -246,7 +246,8 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func bindBrowse(_ controller: AppSpaceBrowseController?) {
-        guard browseInteraction?.controller !== controller else { return }
+        if let browseInteraction, browseInteraction.controller === controller,
+           browseInteraction.isCurrentOwner { return }
         unbindBrowse()
         guard let controller else { return }
         loadViewIfNeeded()
