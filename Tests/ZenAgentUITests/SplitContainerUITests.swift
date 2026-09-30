@@ -2,14 +2,37 @@ import XCTest
 
 final class SplitContainerUITests: XCTestCase {
     @MainActor
+    func testAppSpaceCardMenuOpensSelectedConversationInSplit() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launch()
+        let editor = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
+        let menu = app.buttons["workspace-card-menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 10))
+        menu.tap()
+        let split = app.buttons["分屏打开"]
+        guard split.waitForExistence(timeout: 5) else {
+            XCTFail("The selected Conversation card needs an Open in Split action")
+            return
+        }
+        split.tap()
+        XCTAssertTrue(app.otherElements["split-empty-pane-picker"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-11"].exists)
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+    }
+
+    @MainActor
     func testSourceSplitPaneLiftsToAppSpaceAndReturnsWithOtherPaneIntact() {
-        let app = launchedOccupiedSplit()
+        let app = launchedOccupiedSplit(usingDrag: true)
         let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
         XCTAssertTrue(editor.exists)
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
         expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "card" }
-        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
         app.descendants(matching: .any)["workspace-current-card"].tap()
         expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" }
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2)
@@ -24,7 +47,7 @@ final class SplitContainerUITests: XCTestCase {
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
         expect { (app.otherElements["split-secondary-lift-state-probe"].value as? String) == "card" }
-        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
         app.descendants(matching: .any)["workspace-current-card"].tap()
         expect { (app.otherElements["split-secondary-lift-state-probe"].value as? String) == "full" }
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2)
@@ -32,16 +55,24 @@ final class SplitContainerUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchedOccupiedSplit() -> XCUIApplication {
+    private func launchedOccupiedSplit(usingDrag: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
-        let entry = app.buttons["split-entry"]
-        XCTAssertTrue(entry.waitForExistence(timeout: 15))
-        entry.tap()
-        let action = app.buttons["split-open-top"]
-        XCTAssertTrue(action.waitForExistence(timeout: 10))
-        action.tap()
+        if usingDrag {
+            let editor = app.textViews["conversation-composer-input"]
+            XCTAssertTrue(editor.waitForExistence(timeout: 15))
+            let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            start.press(forDuration: 0.7,
+                        thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)))
+        } else {
+            let entry = app.buttons["split-entry"]
+            XCTAssertTrue(entry.waitForExistence(timeout: 15))
+            entry.tap()
+            let action = app.buttons["split-open-top"]
+            XCTAssertTrue(action.waitForExistence(timeout: 10))
+            action.tap()
+        }
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()
