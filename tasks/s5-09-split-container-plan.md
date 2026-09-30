@@ -39,6 +39,8 @@
 
 **Implementation:** Connect the accepted S5-08 intent after native convergence. Reframe the existing source `ConversationSurfaceHost`; render an empty Picker or second live host in the other frame. Draw the 50/50 Divider with the initial white Handle and correct horizontal orientation for top/bottom. Keep reading geometry suppressed only during transition; once each Pane is stable, its own scroll bridge resumes. Wire App Space's `Open in Split` action if its target can be prepared safely.
 
+**Navigation return:** Blueprint §8 permits Lift from either live Split Pane back to App Space while preserving both Pane owners and their state for Return. The first container candidate temporarily prevents nested Lift; before S5-09 closes, replace that guard with a tested Split → App Space → same Split round trip. Do not let this interim limitation become the final behavior.
+
 **Gate:** Publish behavioral RED, then run full macOS CI. Review the whole S5-09 diff for duplicate owner, reflow jump, stale async completion and accessibility regressions. Record exact tree/CI and leave physical comfort and performance for the owner's device pass.
 
 ## Next boundary

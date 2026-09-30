@@ -31,8 +31,17 @@ final class SplitContainerUITests: XCTestCase {
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
+        let entry = app.buttons["split-entry"]
+        guard entry.waitForExistence(timeout: 10) else {
+            XCTFail("Accessible Split menu missing")
+            return
+        }
+        entry.tap()
         let action = app.buttons["split-open-top"]
-        XCTAssertTrue(action.waitForExistence(timeout: 10))
+        guard action.waitForExistence(timeout: 10) else {
+            XCTFail("Top Pane action missing")
+            return
+        }
         action.tap()
         XCTAssertTrue(app.otherElements["split-empty-pane-picker"].waitForExistence(timeout: 10))
     }
