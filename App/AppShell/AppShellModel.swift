@@ -39,6 +39,7 @@ final class AppShellModel {
     private(set) var splitActionBridge: ComposerRuntimeActionBridge?
     private(set) var splitOpenError: String?
     private(set) var splitPreviewOriginSlot: SplitDropSlot?
+    private var splitExistingOtherReturnID: String?
     private(set) var previewHandoffID: String?
     private(set) var target: AppExecutionTarget?
     private(set) var targetMessage: String?
@@ -195,6 +196,7 @@ final class AppShellModel {
         splitActionBridge = nil
         splitWorkspace = nil
         splitPreviewOriginSlot = nil
+        splitExistingOtherReturnID = nil
         splitOpenError = nil
         sessions.evictIfNeeded(isRuntimeProtected: router.hasActiveRun(for:))
     }
@@ -212,6 +214,7 @@ final class AppShellModel {
             self.splitOpenTicket = nil
         }
         splitPreviewOriginSlot = originSlot
+        splitExistingOtherReturnID = nil
         rememberSession(selected.session, id: selected.conversationID, retainUncommitted: true)
         router.unregisterPane(for: selected.conversationID)
         if fromSecondary {
@@ -305,13 +308,26 @@ final class AppShellModel {
             return pane != nil || splitPane != nil
         }
         let session = previewContent.session
-        let id = requestedID ?? originID
+        let requested = requestedID ?? originID
+        let existingOtherID: String? = {
+            guard let split = splitWorkspace, let slot = splitPreviewOriginSlot else { return nil }
+            let otherID = slot == split.sourceSlot
+                ? split.secondaryConversationID : split.sourceConversationID
+            return requested == otherID ? otherID : nil
+        }()
+        // A Conversation already open in the other Pane has one live owner.
+        // Restore the Lift origin and activate that owner instead of mounting a duplicate.
+        let id = existingOtherID == nil ? requested : originID
         if let prepared = previewContent.prepared {
-            if prepared.pane.conversationID == id { return true }
+            if prepared.pane.conversationID == id {
+                splitExistingOtherReturnID = existingOtherID
+                return true
+            }
             cancelPreviewReturn()
         }
         if previewContent.isPreparing, previewContent.preparationTargetID != id { cancelPreviewReturn() }
         guard !previewContent.isPreparing else { return false }
+        splitExistingOtherReturnID = existingOtherID
         let preparation = previewContent.beginPreparation(targetID: id)
         // Structural Run/Tool changes may invalidate a read. Text growth is replayed.
         // Retry a finite number of times; failure
@@ -369,6 +385,8 @@ final class AppShellModel {
             let otherID = slot == split.sourceSlot
                 ? split.secondaryConversationID : split.sourceConversationID
             guard targetID != otherID else { return false }
+            let selectExistingOther = splitExistingOtherReturnID != nil
+                && splitExistingOtherReturnID == otherID && targetID == originID
             if targetID != originID, let outgoing = previewContent.session {
                 rememberSession(outgoing, id: originID, retainUncommitted: true)
             }
@@ -384,7 +402,7 @@ final class AppShellModel {
                 if let secondaryID = split.secondaryConversationID {
                     guard updated.occupy(secondaryID) else { return false }
                 }
-                updated.select(slot)
+                updated.select(selectExistingOther ? split.emptySlot : slot)
                 splitWorkspace = updated
                 conversationID = targetID
                 pane = prepared.pane
@@ -394,6 +412,7 @@ final class AppShellModel {
             } else {
                 var updated = split
                 guard updated.occupy(targetID) else { return false }
+                if selectExistingOther { updated.select(split.sourceSlot) }
                 splitWorkspace = updated
                 splitPane = prepared.pane
                 splitActionBridge = prepared.bridge
@@ -401,6 +420,7 @@ final class AppShellModel {
             previewHandoffID = targetID
             previewContent.finish()
             splitPreviewOriginSlot = nil
+            splitExistingOtherReturnID = nil
             cardActions?.reset()
             return true
         }
@@ -414,11 +434,13 @@ final class AppShellModel {
         targetMessage = sendAvailability.message
         previewContent.finish()
         splitPreviewOriginSlot = nil
+        splitExistingOtherReturnID = nil
         cardActions?.reset()
         return true
     }
 
     func cancelPreviewReturn() {
+        splitExistingOtherReturnID = nil
         if previewContent.isPreparing { router.historyPreparation.cancel() }
         if let prepared = previewContent.prepared {
             router.unregisterPane(for: prepared.pane.conversationID)

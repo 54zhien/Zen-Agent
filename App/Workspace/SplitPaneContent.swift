@@ -72,18 +72,39 @@ struct SplitEmptyPanePicker: View {
 
 @MainActor
 struct SplitSecondaryPaneView: View {
-    let pane: ConversationPaneController
-    let runtime: ConversationRuntime
-    let bridge: ComposerRuntimeActionBridge
+    let model: AppShellModel
+    let lift: SurfaceLiftController
+    let browse: AppSpaceBrowseController
+    let deleteAction: AppSpaceCardDeletionInteraction.Commit?
+    let isDeletionPending: (@MainActor (String) -> Bool)?
 
     var body: some View {
-        ConversationSurfaceHost {
-            NavigationStack {
-                ConversationPaneView(pane: pane, runtime: runtime, actionBridge: bridge,
-                                     maxProviderSteps: AppShellModel.maxProviderSteps)
-                    .navigationTitle("会话")
+        ConversationSurfaceHost(liftController: lift,
+                                browseController: model.splitPreviewOriginSlot == model.splitWorkspace?.emptySlot ? browse : nil,
+                                deleteAction: deleteAction, isDeletionPending: isDeletionPending) {
+            Group {
+                if model.previewContent.isPresented,
+                   model.splitPreviewOriginSlot == model.splitWorkspace?.emptySlot {
+                    ConversationPreviewView(
+                        summary: browse.isPresented ? browse.currentSummary : model.previewContent.currentSummary,
+                        status: model.appSpaceActionError(for: browse.selectedConversationID).map { .failed($0) }
+                            ?? (browse.isPresented
+                                ? model.previewContent.status(for: browse.selectedConversationID,
+                                    summary: browse.currentSummary, summaryError: browse.errorMessage)
+                                : model.previewContent.status),
+                        isNewEntry: browse.isNewEntry)
+                } else if let pane = model.splitPane, let bridge = model.splitActionBridge,
+                          let runtime = model.runtimeForPresentation {
+                    NavigationStack {
+                        ConversationPaneView(pane: pane, runtime: runtime, actionBridge: bridge,
+                                             maxProviderSteps: AppShellModel.maxProviderSteps)
+                            .navigationTitle("会话")
+                    }
+                    .id(pane.conversationID)
+                }
             }
-            .id(pane.conversationID)
+            .environment(\.surfaceLiftController, lift)
+            .environment(\.surfaceBrowseController, browse)
         }
         .accessibilityIdentifier("split-secondary-pane")
     }

@@ -7,6 +7,7 @@ import UIKit
 final class SurfaceLiftController {
     private(set) var state = SurfaceLiftState()
     private(set) var overlayPresented = false
+    private(set) var retainsAppSpaceViewport = false
     private(set) var splitTargetingVisible = false
     private(set) var splitTargetSlot: SplitDropSlot?
     private(set) var splitTopFrame: CGRect?
@@ -37,6 +38,7 @@ final class SurfaceLiftController {
     @ObservationIgnored private var returnTask: Task<Void, Never>?
     @ObservationIgnored private var returnOperation: UUID?
     @ObservationIgnored private var returnNeedsHandoff = false
+    @ObservationIgnored private var pendingViewportReturn: (() -> Void)?
     @ObservationIgnored private var splitTargeting = SplitTargetingState()
     @ObservationIgnored private var splitPreviewPose: SurfaceGeometry.Pose?
     @ObservationIgnored private var splitFinalPose: SurfaceGeometry.Pose?
@@ -86,14 +88,24 @@ final class SurfaceLiftController {
         hostID = ObjectIdentifier(host)
         host.liftController = self
         detach = { [weak host] in host?.onViewportChanged = nil; host?.liftController = nil }
-        host.onViewportChanged = { [weak self] in self?.invalidate() }
-        resolveTarget = { [weak host] minimum in
-            guard let host,
-                  let placement = AppSpaceGeometry.resolve(size: host.view.bounds.size,
-                    safeArea: host.view.safeAreaInsets, historyIDs: [], current: .newConversation,
+        host.onViewportChanged = { [weak self] in
+            guard let self else { return }
+            if let handoff = self.pendingViewportReturn {
+                self.pendingViewportReturn = nil
+                handoff()
+            } else { self.invalidate() }
+        }
+        resolveTarget = { [weak self, weak host] minimum in
+            guard let host else { return nil }
+            let workspace = self?.splitWorkspacePresented == true ? host.view.window : nil
+            let size = workspace?.bounds.size ?? host.view.bounds.size
+            let safeArea = workspace?.safeAreaInsets ?? host.view.safeAreaInsets
+            guard let placement = AppSpaceGeometry.resolve(size: size,
+                    safeArea: safeArea, historyIDs: [], current: .newConversation,
                     minimumCardSize: minimum)?.cards.last else { return nil }
+            let frame = workspace.map { host.view.convert(placement.frame, from: $0) } ?? placement.frame
             return SurfaceLiftGeometry.targetPose(size: host.view.bounds.size, safeArea: host.view.safeAreaInsets,
-                card: placement.frame, cornerRadius: placement.cornerRadius)
+                card: frame, cornerRadius: placement.cornerRadius, constrainedToSafeArea: workspace == nil)
         }
         present = { [weak self, weak host] progress in
             guard let host else { return false }
@@ -144,6 +156,32 @@ final class SurfaceLiftController {
                 guard let self, let host, self.hostID == binding,
                       self.state.pendingSettlement == settlement else { return }
                 if handoff {
+                    if finished, self.splitWorkspacePresented, self.retainsAppSpaceViewport,
+                       let window = host.view.window {
+                        let frame = host.surfaceView.convert(host.surfaceView.visibleRect ?? host.surfaceView.bounds,
+                                                             to: window)
+                        let radius = host.presentation.cornerRadius * host.presentation.scale
+                        guard self.commitFull?() == true else { self.invalidate(); return }
+                        self.returnNeedsHandoff = false
+                        // Rebase the same native Surface at the content handoff. The
+                        // final segment then uses the restored Pane's logical viewport.
+                        self.pendingViewportReturn = { [weak self, weak host, weak window] in
+                            guard let self, let host, let window, self.hostID == binding,
+                                  self.state.pendingSettlement == settlement,
+                                  let pose = SurfaceLiftGeometry.targetPose(size: host.view.bounds.size,
+                                    safeArea: host.view.safeAreaInsets,
+                                    card: host.view.convert(frame, from: window), cornerRadius: radius,
+                                    constrainedToSafeArea: false) else { self?.invalidate(); return }
+                            self.target = pose
+                            host.animateLift(target: pose, from: 1, to: 0, animated: animated) { [weak self] finished in
+                                guard let self, self.hostID == binding,
+                                      self.state.complete(settlement, finished: finished) else { return }
+                                self.updatePresentation()
+                            }
+                        }
+                        self.retainsAppSpaceViewport = false
+                        return
+                    }
                     guard finished, self.commitFull?() == true else { self.invalidate(); return }
                     self.returnNeedsHandoff = false
                     // Preview occupies the first segment. The same Surface hosts
@@ -151,6 +189,7 @@ final class SurfaceLiftController {
                     host.animateLift(target: target, from: endpoint, to: 0, animated: animated) { [weak self] finished in
                         guard let self, self.hostID == binding,
                               self.state.complete(settlement, finished: finished) else { return }
+                        self.retainsAppSpaceViewport = false
                         self.updatePresentation()
                     }
                 } else {
@@ -160,6 +199,7 @@ final class SurfaceLiftController {
                         _ = self.returnToFull(animated: animated)
                         return
                     }
+                    self.retainsAppSpaceViewport = self.state.phase == .card
                     self.updatePresentation()
                 }
             }
@@ -192,7 +232,7 @@ final class SurfaceLiftController {
         return result
     }
     func canArm(_ input: SurfaceLiftEligibility) -> Bool {
-        !splitWorkspacePresented && state.phase == .full
+        state.phase == .full
             && guarded(input).allowsLift && resolveTarget?(minimumCardSize) != nil
     }
     func arm(_ input: SurfaceLiftEligibility, conversationID: String? = nil) -> Bool {
@@ -210,7 +250,7 @@ final class SurfaceLiftController {
               locationInWindow: CGPoint? = nil) -> Bool {
         guard state.phase == .armed || state.phase == .lifting else { return false }
         let dragged = state.drag(upwardDistance: upwardDistance, eligibility: guarded(eligibility))
-        if dragged, state.phase == .lifting, sourceConversationID != nil,
+        if dragged, state.phase == .lifting, !splitWorkspacePresented, sourceConversationID != nil,
            let locationInWindow, let sample = splitSample?(locationInWindow) {
             updateSplitTargeting(upwardDistance: upwardDistance, sample: sample)
         } else {
@@ -280,6 +320,7 @@ final class SurfaceLiftController {
     }
 
     private func cancelReturn() {
+        pendingViewportReturn = nil
         returnOperation = nil
         returnTask?.cancel()
         returnTask = nil
@@ -288,6 +329,7 @@ final class SurfaceLiftController {
     }
 
     func resetForConversationChange() {
+        retainsAppSpaceViewport = false
         cancelReturn()
         clearSplitTargeting()
         lastSplitDropIntent = nil
@@ -309,10 +351,12 @@ final class SurfaceLiftController {
         cancel?()
         if previewIsPresented?() == true {
             state.restoreCard()
+            retainsAppSpaceViewport = true
             target = resolveTarget?(minimumCardSize)
             updatePresentation()
             return
         }
+        retainsAppSpaceViewport = false
         guard state.phase != .full || state.progress != 0 || target != nil else { return }
         state.interrupt()
         updatePresentation()

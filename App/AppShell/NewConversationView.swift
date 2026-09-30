@@ -62,7 +62,8 @@ struct NewConversationView: View {
 
     var body: some View {
         Group {
-            if model.previewContent.isPresented {
+            if model.previewContent.isPresented,
+               model.splitWorkspace == nil || model.splitPreviewOriginSlot == model.splitWorkspace?.sourceSlot {
                 ConversationPreviewView(
                     summary: browse?.isPresented == true ? browse?.currentSummary : model.previewContent.currentSummary,
                     status: model.appSpaceActionError(for: browse?.selectedConversationID).map { .failed($0) } ?? (browse?.isPresented == true

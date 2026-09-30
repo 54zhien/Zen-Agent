@@ -25,6 +25,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
     let content: Content
     private let model: AppShellModel?
     @State private var lift: SurfaceLiftController
+    @State private var secondaryLift = SurfaceLiftController()
     @State private var browse = AppSpaceBrowseController()
     @State private var requestedMenuID: String?
     @ScaledMetric(relativeTo: .body) private var minimumWidth = 220.0
@@ -43,7 +44,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
         guard let model else { return nil }
         return { id, stillSelected in
             await model.deleteAppSpaceConversation(id: id, stillSelected: {
-                model.previewContent.isPresented && lift.state.phase == .card && stillSelected()
+                model.previewContent.isPresented && activeLift.state.phase == .card && stillSelected()
             })
         }
     }
@@ -68,24 +69,35 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 }
             }
             GeometryReader { geometry in
-                let sourceFrame = splitFrame(in: geometry, slot: model?.splitWorkspace?.sourceSlot)
-                    ?? CGRect(origin: .zero, size: geometry.size)
+                let sourceExpanded = model?.splitWorkspace != nil
+                    && lift.retainsAppSpaceViewport
+                let secondaryExpanded = model?.splitWorkspace != nil
+                    && secondaryLift.retainsAppSpaceViewport
+                let fullFrame = CGRect(origin: .zero, size: geometry.size)
+                let sourceFrame = sourceExpanded ? fullFrame
+                    : splitFrame(in: geometry, slot: model?.splitWorkspace?.sourceSlot) ?? fullFrame
                 ZStack(alignment: .topLeading) {
-                    ConversationSurfaceHost(liftController: lift, browseController: model == nil ? nil : browse,
+                    ConversationSurfaceHost(liftController: lift,
+                                            browseController: model == nil || (model?.splitWorkspace != nil
+                                                && model?.splitPreviewOriginSlot != model?.splitWorkspace?.sourceSlot) ? nil : browse,
                                             deleteAction: deleteAction, isDeletionPending: isDeletionPending) {
                         content.environment(\.surfaceLiftController, lift)
                             .environment(\.surfaceBrowseController, model == nil ? nil : browse)
                     }
                     .frame(width: sourceFrame.width, height: sourceFrame.height)
                     .position(x: sourceFrame.midX, y: sourceFrame.midY)
+                    .zIndex(sourceExpanded ? 10 : 0)
 
                     if let model, let split = model.splitWorkspace,
                        let emptyFrame = splitFrame(in: geometry, slot: split.emptySlot) {
-                        if let pane = model.splitPane, let bridge = model.splitActionBridge,
-                           let runtime = model.runtimeForPresentation {
-                            SplitSecondaryPaneView(pane: pane, runtime: runtime, bridge: bridge)
-                                .frame(width: emptyFrame.width, height: emptyFrame.height)
-                                .position(x: emptyFrame.midX, y: emptyFrame.midY)
+                        if model.splitPane != nil || (model.previewContent.isPresented
+                            && model.splitPreviewOriginSlot == split.emptySlot) {
+                            let frame = secondaryExpanded ? fullFrame : emptyFrame
+                            SplitSecondaryPaneView(model: model, lift: secondaryLift, browse: browse,
+                                deleteAction: deleteAction, isDeletionPending: isDeletionPending)
+                                .frame(width: frame.width, height: frame.height)
+                                .position(x: frame.midX, y: frame.midY)
+                                .zIndex(secondaryExpanded ? 10 : 0)
                         } else {
                             SplitEmptyPanePicker(summaries: model.recentConversations,
                                 occupiedID: split.sourceConversationID,
@@ -95,8 +107,10 @@ struct WorkspaceSurfaceView<Content: View>: View {
                                 .frame(width: emptyFrame.width, height: emptyFrame.height)
                                 .position(x: emptyFrame.midX, y: emptyFrame.midY)
                         }
-                        splitDivider(width: emptyFrame.width) { model.closeSplit() }
-                            .position(x: emptyFrame.midX, y: geometry.size.height / 2)
+                        if !model.previewContent.isPresented {
+                            splitDivider(width: emptyFrame.width) { model.closeSplit() }
+                                .position(x: emptyFrame.midX, y: geometry.size.height / 2)
+                        }
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
@@ -112,7 +126,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
             if let model, model.previewContent.isPresented, !browse.isNewEntry, browse.canEditCurrentMetadata,
                let summary = browse.currentSummary,
                let frame = browse.layout()?.cards.first(where: { $0.item == browse.state.selected })?.frame {
-                AppSpaceCardActionsView(model: model, browse: browse, lift: lift,
+                AppSpaceCardActionsView(model: model, browse: browse, lift: activeLift,
                     summary: summary, requestedID: $requestedMenuID)
                     .position(x: frame.maxX - 24, y: frame.minY + 24)
                     .zIndex(100)
@@ -127,7 +141,12 @@ struct WorkspaceSurfaceView<Content: View>: View {
 #if DEBUG
             if ProcessInfo.processInfo.environment["ZEN_SURFACE_LIFT_UI_TEST"] == "1"
                 || ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
-                SurfaceLiftStateProbe(phase: lift.state.phase)
+                SurfaceLiftStateProbe(phase: lift.state.phase,
+                                      identifier: "surface-lift-state-probe")
+                    .frame(width: 1, height: 1)
+                    .allowsHitTesting(false)
+                SurfaceLiftStateProbe(phase: secondaryLift.state.phase,
+                                      identifier: "split-secondary-lift-state-probe")
                     .frame(width: 1, height: 1)
                     .allowsHitTesting(false)
                 SplitDropIntentProbe(slot: lift.lastSplitDropIntent?.slot)
@@ -157,32 +176,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     menuRequest.wrappedValue = id
                     return true
                 }
-                lift.configurePreview(
-                    enter: { [weak model, weak browseController] in
-                        guard let model, let browseController, model.enterPreview() else { return false }
-                        browseController.present(originID: model.conversationID, fallback: model.previewContent.summaries)
-                        model.previewContent.releaseSummaryWindow()
-                        return true
-                    },
-                    prepare: { [weak model, weak browseController] in
-                        guard let model, let browseController else { return false }
-                        browseController.cancel()
-                        if browseController.isNewEntry {
-                            do {
-                                let id = try model.createConversationFromAppSpace()
-                                guard browseController.selectCreatedConversation(id: id) else { return false }
-                                model.acknowledgeAppSpaceCreation(id: id)
-                            } catch { return false }
-                        }
-                        return await model.preparePreviewReturn(to: browseController.selectedConversationID)
-                    },
-                    commit: { [weak model] in model?.commitPreviewReturn() ?? false },
-                    cancel: { [weak model] in model?.cancelPreviewReturn() },
-                    isPresented: { [weak model] in model?.previewContent.isPresented ?? false },
-                    label: { [weak model, weak browseController] in
-                        guard let model, let browseController else { return "当前会话" }
-                        return Self.cardLabel(model: model, browse: browseController)
-                    })
+                configurePreview(lift, model: model, secondary: false)
+                configurePreview(secondaryLift, model: model, secondary: true)
                 let liftController = lift
                 lift.configureSplit(onDrop: { [weak model] intent in
                     model?.acceptsSplitDrop(intent) ?? false
@@ -193,8 +188,10 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     }
                 })
                 lift.setSplitWorkspacePresented(model.splitWorkspace != nil)
+                secondaryLift.setSplitWorkspacePresented(model.splitWorkspace != nil)
                 if model.previewContent.isPresented {
-                    browse.present(originID: model.conversationID, fallback: model.previewContent.summaries)
+                    browse.present(originID: model.previewContent.originID ?? model.conversationID,
+                                   fallback: model.previewContent.summaries)
                     model.previewContent.releaseSummaryWindow()
                 }
             }
@@ -208,17 +205,73 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 if !model.previewContent.isPreparing { browse.refresh() }
             }
         }
-        .onChange(of: cardLabel) { _, _ in lift.refreshCardAccessibility() }
+        .onChange(of: cardLabel) { _, _ in
+            lift.refreshCardAccessibility()
+            secondaryLift.refreshCardAccessibility()
+        }
         .onChange(of: model?.previewContent.isPresented) { _, presented in
             if presented != true { browse.finish() }
         }
         .onChange(of: model?.splitWorkspace) { _, split in
             lift.setSplitWorkspacePresented(split != nil)
+            secondaryLift.setSplitWorkspacePresented(split != nil)
         }
         .onChange(of: dynamicTypeSize) { _, _ in updateMinimumSize() }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { browse.cancel(); lift.invalidate() }
+            if phase != .active { browse.cancel(); lift.invalidate(); secondaryLift.invalidate() }
         }
+    }
+
+    private var activeLift: SurfaceLiftController {
+        guard let model, let split = model.splitWorkspace,
+              model.splitPreviewOriginSlot == split.emptySlot else { return lift }
+        return secondaryLift
+    }
+
+    private func configurePreview(_ controller: SurfaceLiftController,
+                                  model: AppShellModel, secondary: Bool) {
+        let browseController = browse
+        controller.configurePreview(
+            enter: { [weak model, weak browseController] in
+                guard let model, let browseController else { return false }
+                if let split = model.splitWorkspace {
+                    model.selectSplitSlot(secondary ? split.emptySlot : split.sourceSlot)
+                } else if secondary { return false }
+                guard model.enterPreview() else { return false }
+                browseController.present(originID: model.previewContent.originID ?? model.conversationID,
+                                         fallback: model.previewContent.summaries)
+                model.previewContent.releaseSummaryWindow()
+                return true
+            },
+            prepare: { [weak model, weak browseController] in
+                guard let model, let browseController else { return false }
+                browseController.cancel()
+                if browseController.isNewEntry {
+                    do {
+                        let id = try model.createConversationFromAppSpace()
+                        guard browseController.selectCreatedConversation(id: id) else { return false }
+                        model.acknowledgeAppSpaceCreation(id: id)
+                    } catch { return false }
+                }
+                return await model.preparePreviewReturn(to: browseController.selectedConversationID)
+            },
+            commit: { [weak model] in model?.commitPreviewReturn() ?? false },
+            cancel: { [weak model] in
+                guard let model, model.previewContent.isPresented else { return }
+                if let split = model.splitWorkspace {
+                    guard model.splitPreviewOriginSlot == (secondary ? split.emptySlot : split.sourceSlot) else { return }
+                } else if secondary { return }
+                model.cancelPreviewReturn()
+            },
+            isPresented: { [weak model] in
+                guard let model, model.previewContent.isPresented else { return false }
+                guard let split = model.splitWorkspace else { return !secondary }
+                return model.splitPreviewOriginSlot == (secondary ? split.emptySlot : split.sourceSlot)
+            },
+            label: { [weak model, weak browseController] in
+                guard let model, let browseController else { return "当前会话" }
+                return Self.cardLabel(model: model, browse: browseController)
+            })
     }
 
     private var cardLabel: String {
@@ -370,20 +423,24 @@ struct WorkspaceSurfaceView<Content: View>: View {
     private func updateMinimumSize() {
         browse.updateMinimumCardSize(CGSize(width: minimumWidth, height: minimumHeight))
         lift.minimumCardSize = CGSize(width: minimumWidth, height: minimumHeight)
+        secondaryLift.minimumCardSize = CGSize(width: minimumWidth, height: minimumHeight)
         lift.invalidate()
+        secondaryLift.invalidate()
     }
 }
 
 #if DEBUG
 private struct SurfaceLiftStateProbe: UIViewRepresentable {
     let phase: SurfaceLiftState.Phase
+    let identifier: String
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.isAccessibilityElement = true
-        view.accessibilityIdentifier = "surface-lift-state-probe"
+        view.accessibilityIdentifier = identifier
         return view
     }
     func updateUIView(_ uiView: UIView, context: Context) {
+        uiView.accessibilityIdentifier = identifier
         uiView.accessibilityValue = String(describing: phase)
     }
 }
