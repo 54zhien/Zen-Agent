@@ -2,6 +2,24 @@ import XCTest
 
 final class SplitContainerUITests: XCTestCase {
     @MainActor
+    func testBottomDropPlacesTheEmptyPickerAboveTheSourcePane() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launch()
+        let editor = app.textViews["conversation-composer-input"]
+        guard editor.waitForExistence(timeout: 15) else {
+            XCTFail("Seeded Conversation editor missing")
+            return
+        }
+        let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
+        start.press(forDuration: 0.7,
+                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.57)))
+        let picker = app.otherElements["split-empty-pane-picker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        XCTAssertLessThan(picker.frame.midY, editor.frame.midY)
+    }
+
+    @MainActor
     func testAccessibleBottomSplitCreatesANewSecondConversationAndClosesWithoutDeletingIt() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
@@ -108,5 +126,9 @@ final class SplitContainerUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["split-empty-pane-picker"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         XCTAssertTrue((editor.value as? String)?.contains("Split source draft") == true)
+        XCTAssertTrue(editor.isHittable)
+        editor.tap()
+        editor.typeText(" still editable")
+        XCTAssertTrue((editor.value as? String)?.contains("still editable") == true)
     }
 }
