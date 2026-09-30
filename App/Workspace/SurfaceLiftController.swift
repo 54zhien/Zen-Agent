@@ -44,12 +44,18 @@ final class SurfaceLiftController {
     @ObservationIgnored private var splitActivationProgress = 0.0
     @ObservationIgnored private var sourceConversationID: String?
     @ObservationIgnored private var splitDropConsumer: ((SplitDropIntent) -> Bool)?
+    @ObservationIgnored private var splitConverged: ((SplitDropIntent) -> Void)?
+    @ObservationIgnored private var acceptedSplitIntent: SplitDropIntent?
     @ObservationIgnored var onSplitTargetEntry: () -> Void = {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
-    func configureSplit(onDrop: ((SplitDropIntent) -> Bool)?) {
+    // onDrop is admission only. A consumer that changes Workspace geometry
+    // must wait for onConverged, after the retained native Surface has settled.
+    func configureSplit(onDrop: ((SplitDropIntent) -> Bool)?,
+                        onConverged: ((SplitDropIntent) -> Void)? = nil) {
         splitDropConsumer = onDrop
+        splitConverged = onConverged
     }
 
     func configurePreview(enter: @escaping () -> Bool, prepare: @escaping () async -> Bool,
@@ -119,12 +125,16 @@ final class SurfaceLiftController {
                     if !finished { self.invalidate(); return }
                     self.splitReturnPose = target
                     self.updatePresentation()
+                    if let intent = self.acceptedSplitIntent {
+                        self.acceptedSplitIntent = nil
+                        self.splitConverged?(intent)
+                    }
                 }
                 return
             }
             let handoff = settlement.destination == .full && self.returnNeedsHandoff
             let endpoint = settlement.destination == .card ? 1.0 : (handoff ? 0.35 : 0)
-            host.animateLift(target: target, from: self.splitReturnPose == nil ? settlement.startProgress : 1,
+            host.animateLift(target: target, from: settlement.startProgress,
                 to: endpoint, animated: animated) { [weak self, weak host] finished in
                 guard let self, let host, self.hostID == binding,
                       self.state.pendingSettlement == settlement else { return }
@@ -183,6 +193,7 @@ final class SurfaceLiftController {
         guard canArm(input), let pose = resolveTarget?(minimumCardSize) else { return false }
         clearSplitTargeting()
         lastSplitDropIntent = nil
+        acceptedSplitIntent = nil
         sourceConversationID = conversationID
         target = pose
         let armed = state.arm(guarded(input))
@@ -216,6 +227,7 @@ final class SurfaceLiftController {
         let accepted = intent.flatMap { splitDropConsumer?($0) } ?? false
         if accepted, let finalPose {
             splitReturnPose = finalPose
+            acceptedSplitIntent = intent
         }
         let settlement = accepted && finalPose != nil
             ? state.endForSplit() : state.end(cancelled: cancelled || hadSplitPreview)
@@ -256,6 +268,7 @@ final class SurfaceLiftController {
 
     private func startReturn(animated: Bool) {
         guard let settlement = state.requestReturn(visibleProgress: capture?()) else { return }
+        acceptedSplitIntent = nil
         interaction?(state.phase)
         animate?(settlement, animated)
     }
@@ -272,6 +285,7 @@ final class SurfaceLiftController {
         cancelReturn()
         clearSplitTargeting()
         lastSplitDropIntent = nil
+        acceptedSplitIntent = nil
         splitReturnPose = nil
         sourceConversationID = nil
         cancel?()
@@ -283,6 +297,7 @@ final class SurfaceLiftController {
     func invalidate() {
         cancelReturn()
         clearSplitTargeting()
+        acceptedSplitIntent = nil
         splitReturnPose = nil
         sourceConversationID = nil
         cancel?()

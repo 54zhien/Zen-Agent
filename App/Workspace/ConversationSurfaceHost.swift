@@ -295,8 +295,23 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     func captureLiftProgress(target: SurfaceGeometry.Pose) -> Double {
         var progress = request.progress
-        if animator != nil, let layer = surfaceView.layer.presentation(), abs(target.scale - 1) > 0.000001 {
-            progress = (layer.transform.m11 - 1) / (target.scale - 1)
+        if animator != nil, let visible = surfaceView.layer.presentation()?.transform {
+            let available = CGSize(width: view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right,
+                                   height: view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom)
+            let candidates: [(magnitude: CGFloat, fraction: CGFloat)] = [
+                (abs((target.scale - 1) * view.bounds.width),
+                 abs(target.scale - 1) > 0.000001 ? (visible.m11 - 1) / (target.scale - 1) : 0),
+                (abs(target.translation.width * available.width),
+                 abs(target.translation.width * available.width) > 0.000001
+                    ? visible.m41 / (target.translation.width * available.width) : 0),
+                (abs(target.translation.height * available.height),
+                 abs(target.translation.height * available.height) > 0.000001
+                    ? visible.m42 / (target.translation.height * available.height) : 0)
+            ]
+            if let strongest = candidates.max(by: { $0.magnitude < $1.magnitude }),
+               strongest.magnitude > 0.000001, strongest.fraction.isFinite {
+                progress = strongest.fraction
+            }
         }
         progress = min(1, max(0, progress))
         cancelLiftAnimation()
