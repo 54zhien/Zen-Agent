@@ -2,6 +2,60 @@ import XCTest
 
 final class SplitContainerUITests: XCTestCase {
     @MainActor
+    func testSourceSplitPaneLiftsToAppSpaceAndReturnsWithOtherPaneIntact() {
+        let app = launchedOccupiedSplit()
+        let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
+        XCTAssertTrue(editor.exists)
+        let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
+        expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "card" }
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+        app.descendants(matching: .any)["workspace-current-card"].tap()
+        expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" }
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2)
+        XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-10"].exists)
+    }
+
+    @MainActor
+    func testSecondarySplitPaneLiftsToAppSpaceAndReturnsWithSourceIntact() {
+        let app = launchedOccupiedSplit()
+        let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 1)
+        XCTAssertTrue(editor.exists)
+        let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
+        expect { (app.otherElements["split-secondary-lift-state-probe"].value as? String) == "card" }
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+        app.descendants(matching: .any)["workspace-current-card"].tap()
+        expect { (app.otherElements["split-secondary-lift-state-probe"].value as? String) == "full" }
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2)
+        XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-11"].exists)
+    }
+
+    @MainActor
+    private func launchedOccupiedSplit() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launch()
+        let entry = app.buttons["split-entry"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 15))
+        entry.tap()
+        let action = app.buttons["split-open-top"]
+        XCTAssertTrue(action.waitForExistence(timeout: 10))
+        action.tap()
+        let history = app.buttons["split-history-preview-ui-10"]
+        XCTAssertTrue(history.waitForExistence(timeout: 10))
+        history.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["split-secondary-pane"].waitForExistence(timeout: 10))
+        return app
+    }
+
+    @MainActor
+    private func expect(_ condition: @escaping () -> Bool, file: StaticString = #filePath, line: UInt = #line) {
+        let pending = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [pending], timeout: 10), .completed, file: file, line: line)
+    }
+
+    @MainActor
     func testBottomDropPlacesTheEmptyPickerAboveTheSourcePane() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"

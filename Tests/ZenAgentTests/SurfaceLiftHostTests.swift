@@ -386,6 +386,24 @@ struct SurfaceLiftHostTests {
         #expect(driver.state.phase == .full && host.presentation == .full)
     }
 
+    @Test func occupiedSplitPaneCanArmLiftWithoutOfferingAnotherSplitTarget() {
+        let host = ConversationSurfaceViewController(content: Text("occupied Split Pane"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        driver.setSplitWorkspacePresented(true)
+        #expect(driver.canArm(SurfaceLiftEligibility()))
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "occupied"))
+        #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 160)))
+        #expect(!driver.splitTargetingVisible)
+        #expect(driver.splitTargetSlot == nil)
+    }
+
     @Test func selectionAggregationAndOverlayInvalidateCurrentLift() {
         let host = ConversationSurfaceViewController(content: Text("guarded"))
         host.loadViewIfNeeded()

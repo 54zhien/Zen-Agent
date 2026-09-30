@@ -91,6 +91,29 @@ struct AppShellWiringTests {
         #expect(original.composer.draft.text == "original draft")
     }
 
+    @Test("returning to a card already open in the other Split Pane selects that owner")
+    func splitAppSpaceSelectsOccupiedOtherPane() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let sourceID = fixture.model.conversationID
+        let source = try #require(fixture.model.pane?.session)
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "split-occupied-other").insert(db)
+        }
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: sourceID, slot: .top)))
+        #expect(await fixture.model.openInSplit(id: "split-occupied-other"))
+        let other = try #require(fixture.model.splitPane?.session)
+        fixture.model.selectSplitSlot(.top)
+        #expect(fixture.model.enterPreview())
+        #expect(await fixture.model.preparePreviewReturn(to: "split-occupied-other"))
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.splitWorkspace?.activeSlot == .bottom)
+        #expect(fixture.model.pane?.session === source)
+        #expect(fixture.model.splitPane?.session === other)
+        #expect(fixture.model.splitWorkspace?.sourceConversationID == sourceID)
+        #expect(fixture.model.splitWorkspace?.secondaryConversationID == "split-occupied-other")
+    }
+
     @Test("source Pane New replaces only that Pane and keeps the other live owner")
     func splitSourceNewPreservesOtherPane() async throws {
         let fixture = try makeFixture(seed: .active)
