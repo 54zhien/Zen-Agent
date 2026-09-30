@@ -262,7 +262,9 @@ struct SurfaceLiftHostTests {
 
     @Test func returnDuringAcceptedSplitConvergenceStartsFromVisiblePose() async throws {
         let host = ConversationSurfaceViewController(content: Text("interruptible Split convergence"))
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
