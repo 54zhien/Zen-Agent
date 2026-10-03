@@ -89,6 +89,15 @@ struct WorkspaceSurfaceView<Content: View>: View {
             GeometryReader { geometry in
                 let fullFrame = CGRect(origin: .zero, size: geometry.size)
                 ZStack(alignment: .topLeading) {
+#if DEBUG
+                    if (ProcessInfo.processInfo.environment["ZEN_SURFACE_LIFT_UI_TEST"] == "1"
+                        || ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1"),
+                       let layout = splitGeometry(in: geometry) {
+                        SplitViewportProbe(value: "size=\(geometry.size);safeArea=\(geometry.safeAreaInsets);viewport=\(layout.viewport);top=\(layout.top);bottom=\(layout.bottom)")
+                            .frame(width: 1, height: 1)
+                            .allowsHitTesting(false)
+                    }
+#endif
                     ForEach(WorkspaceSurfaceSlot.allCases, id: \.self) { slot in
                         let driver = controller(for: slot)
                         let frame = driver.retainsAppSpaceViewport ? fullFrame
@@ -180,7 +189,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
             }
 #endif
         }
-        .ignoresSafeArea()
+        // Split shares the keyboard-safe viewport; each retained Composer's
+        // native keyboard guide still owns its controls inside that Pane.
+        .ignoresSafeArea(.container)
         .onAppear {
             if let model {
                 let browseController = browse
@@ -513,6 +524,19 @@ private struct SurfaceInteractionProbe: UIViewRepresentable {
         return view
     }
     func updateUIView(_ uiView: SurfaceInteractionProbeView, context: Context) {}
+}
+
+private struct SplitViewportProbe: UIViewRepresentable {
+    let value: String
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isAccessibilityElement = true
+        view.accessibilityIdentifier = "split-viewport-probe"
+        return view
+    }
+    func updateUIView(_ uiView: UIView, context: Context) {
+        uiView.accessibilityValue = value
+    }
 }
 
 private final class SurfaceInteractionProbeView: UIView {

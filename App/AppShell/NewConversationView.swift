@@ -17,7 +17,7 @@ struct AppShellRootView: View {
                 WorkspaceSurfaceView(model: model, contentForSlot: { slot in
                     NewConversationView(model: model, surfaceSlot: slot)
                 })
-                .ignoresSafeArea()
+                .ignoresSafeArea(.container)
             case .failed(let failure):
                 VStack(spacing: 16) {
                     Text(failure.title)

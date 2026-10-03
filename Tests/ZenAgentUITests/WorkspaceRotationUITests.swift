@@ -26,6 +26,10 @@ final class WorkspaceRotationUITests: XCTestCase {
             CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY)).tap()
         expect { (secondaryProbe.value as? String)?.contains(";focused=true;") == true }
         app.typeText("secondary portrait draft")
+        XCTAssertTrue(source.exists && secondary.exists)
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2,
+            "The portrait keyboard's smaller usable height must not change device presentation")
+        XCTAssertTrue(app.descendants(matching: .any)["split-divider"].exists)
         XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source portrait draft".utf16.count)
         XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), "secondary portrait draft".utf16.count)
         let secondaryEditor = editor(in: app, containing: "secondary portrait draft")
@@ -61,6 +65,8 @@ final class WorkspaceRotationUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         defer { XCUIDevice.shared.orientation = .portrait }
         let app = occupiedSplit()
+        let originProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
+        expect { (originProbe.value as? String)?.contains("liftReady=true;") == true }
         let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 1)
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))

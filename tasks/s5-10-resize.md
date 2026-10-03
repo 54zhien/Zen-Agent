@@ -188,3 +188,99 @@ while retaining both native editor identity and owner-count assertions.
 Native diagnostics add window frame and UTF16 text length, never text content,
 to distinguish a query failure from lost input. No Composer behavior changes.
 This follow-up still requires a full build and test gate; no GREEN is claimed.
+
+### Measured small-Pane editing defect
+
+Follow-up 8d8135cee591fe4afeb261190bfa1809595e5c95 / tree
+d9f992f8d988bca3d04537f268e5986682512496 built in push 37158048864
+(job 111305511104). All 849 Swift and 20 XCTest passed; 35 UI cases ran
+once, with two assertions failing in the same dual-draft case.
+
+The host-local measurements refute a query-only explanation. After typing,
+source retained 19 characters and secondary received its own 22 characters
+with focused=true, but its native editor frame was (28, 527, 346, 1).
+Its Timeline container height was zero. The input and reading viewport were
+actually clipped away while the keyboard occupied the lower fixed Pane.
+Do not replace this failure with a looser content query.
+
+Publish constrained-height geometry regressions plus a native readable-line
+assertion before correcting production geometry. The explicit review-red
+profile runs all units for this RED receipt; it is not the full slice gate.
+Diagnostic fields record the Composer bounds/keyboard guide/surface/viewport
+and actual font line height without logging text. The correction must retain
+one editor and respect the native keyboard region, preserving Split ratios
+and both draft/reading owners. Full generation/build/unit/UI GREEN remains
+required before S5-11 product work.
+
+Test-only candidate 6177fd609ffc7d691a2335420a33d6a8f96cd194 / tree
+2a700ef75a9df09c56ed140e74be491e2c0dee2c generated and built the app,
+but PR 37159749888 (job 111310580273) failed compiling the UI diagnostic's
+chained optional CGFloat conversion. The new unit regressions did not run.
+Replace that parser with explicit typed steps, retaining the same assertions;
+this is a compile repair, not behavioral RED or a product correction.
+
+### Constrained viewport correction
+
+Compiled RED 09b567d19ccf71c5fe35d2a0496362011495a50c / tree
+a1fa5b45b8af7244be0dafae91afdd59c2328fb7 in push 37160044669
+(job 111311446654): generation/app build succeeded and all 20 XCTest passed.
+The single Swift Testing run executed 851 tests in 127 suites; only the new
+constrained-Pane suite failed, with nine issues across its four height arguments
+and scaled-line case. At availableHeight 146, text height was 1.16 instead of
+22. This preserves behavioral evidence before correcting the production cap.
+
+The correction floors the preferred editing cap at top padding + control rail
++ one scaled line, bounded by the actual available height minus bottom spacing.
+Normal large-viewport fractional caps stay unchanged. The older 180 pt fixture
+asserted the fraction even when it clipped a line; it now checks the actual
+height budget and a readable line instead.
+
+The full 8d8135 native UI receipt also showed the lower Timeline at zero usable
+height. Both outer Workspace modifiers previously ignored all safe-area regions,
+so Split kept full-screen slots while the keyboard covered the lower slot.
+Ignore only container regions there; preserve the Composer's native keyboard
+guide and its inner keyboard-region modifier. Saved ratios and Pane/Run owners
+are unchanged. Apple's current definitions distinguish container and keyboard:
+https://developer.apple.com/documentation/swiftui/safearearegions
+
+Source review found no concrete double avoidance blocker, but requires measured
+GeometryProxy size/insets and final Split viewport to reject double subtraction.
+A DEBUG-only geometry receipt records those values. The existing dual-draft UI
+case now also requires both Timeline containers to retain one readable line
+during secondary editing, retaining real editor identities and native text lengths.
+Run all units plus the five resize UI cases once under resize-diagnostic; that
+diagnostic receipt is not slice acceptance. Remove the profile for the full
+generation/build/unit/UI gate after resolving any measured integration failure.
+
+Correction diagnostic 10ac75b793aef908146cbef629f102bf32f10c1a / tree
+b8053247a1e59fad0290386fd7e6952e69508263 is running in push 37160622113
+(job 111313143913). Source review found one diagnostic defect: the new geometry
+probe checked only the surface-lift fixture flag, while resize launches the
+preview-handoff fixture. Include both flags and assert that this probe exists.
+No additional production geometry change is made.
+
+Remove the diagnostic profile and start the full gate while the narrower run
+finishes. Both candidates share the same production correction, with only DEBUG
+probe admission and its test assertion repaired in the full candidate. Preserve
+both exact-tree receipts; neither is accepted until its actual results arrive.
+No S5-11 product work begins before the full candidate is GREEN.
+
+The workflow's existing cancel-in-progress rule superseded the narrower push
+37160622113 when the full candidate was published. Its partial log proves
+generation/build, all 851 Swift and 20 XCTest passed and the first three resize
+UI cases passed. The dual-draft case reached a fixed 120 pt navigation-inset
+assertion with actual Pane AX frame (0, -14, 402, 179.67) and blank Y 50.33;
+that assertion assumes the old full-height large-title layout. Cancellation
+preceded the remaining native interaction receipts. Do not call this run GREEN.
+
+Use the actual UIScrollView bounds minus adjusted Insets, converted to window
+coordinates, as the DEBUG native readable rectangle. The blank tap must lie
+inside that rectangle and above the keyboard, and the real Timeline callback
+must classify blank=true after the touch. Log geometry before the tap as well
+as after it. This strengthens admission without inventing a title height or
+loosening readable-line/draft/identity checks. Production geometry is unchanged.
+Restore the narrow diagnostic scope to resolve this concrete integration risk;
+the superseded full candidate 1d157c51a73c0cc0ffd24cf0bd68b788271adf16 /
+tree 04512e55d561bb4ab302bd111e88b2a6d3cd46a5 has no acceptance receipt.
+Let each new diagnostic finish before publishing the full gate, given the
+workflow cancellation rule. Preserve all partial/cancelled receipts explicitly.

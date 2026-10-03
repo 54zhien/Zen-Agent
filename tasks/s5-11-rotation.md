@@ -10,8 +10,8 @@ starts until that full S5-10 gate and review pass. Any S5-10 correction is
 propagated to this branch and its evidence refreshed before proceeding.
 
 The explicit orientation-red profile is valid only on this slice's exact branch;
-it selects the entire unit target and the two new production-root rotation UI
-tests. It accepts no arbitrary flags. Main/absent-profile remain full. Remove
+it selects the entire unit target and the production-root rotation plus
+cross-owner Return receipt UI tests. It accepts no arbitrary flags. Main/absent-profile remain full. Remove
 the profile for the S5-11 production candidate and full unit/UI acceptance gate.
 The cost if wrong is an extra test-only run, never weakened product acceptance.
 
@@ -55,3 +55,33 @@ while draft setup exposed the same secondary AX-type query failure as S5-10.
 Propagate the type-agnostic query and host-local native draft-length assertions
 from S5-10 remote 8d8135cee591fe4afeb261190bfa1809595e5c95. This refresh
 remains test-only. The full S5-10 gate is still required before product work.
+
+### Keyboard-safe baseline and Return receipt RED refresh
+
+Previous refresh 71bd10e2cf3a98fe69934301c560a4eb49cda832 / tree
+359e144bb600ed4b8173186a32d9bcc6b75946b4 built in push 37158128902
+(job 111305748782). All 849 Swift and 20 XCTest passed. Both rotation UI cases
+failed four assertions; native draft lengths were correct despite the lower
+editor's clipped AX content, and landscape still retained both owners visibly.
+
+Propagate local S5-10 cfb792b / remote ebea1d614ec9c377b2a7d69681142536209b7808 /
+tree 0f9d280eafa8ae0141b558caf3fb1990b8463e94 while its diagnostic/full
+correction gate remains open. This adds no S5-11 product behavior. The S5-10
+production correction already passed 851 Swift and 20 XCTest in its partial
+10ac75b receipt; that cancelled receipt does not constitute a full slice gate.
+Any additional S5-10 correction must still be propagated before S5-11 implementation.
+
+Add a portrait keyboard admission assertion: keyboard-shortened usable geometry
+must not be mistaken for physical landscape. Device presentation must use the
+window/scene's full context. Existing Card tests wait for actual native Lift
+readiness rather than a fixed delay.
+
+Add a third UI regression for the already-occupied selected owner. Its DEBUG
+pause is requested only after the real native window-frame and fresh Timeline
+layout/scroll receipt; it must not fabricate those receipts or mutate ownership.
+While paused, the selected Preview remains visible, the target's original native
+editor is attached to measure the final frame, and all Composer AX nodes and
+input are suppressed. Resume must expose that same editable target owner.
+The fixed orientation-red scope includes these three UI cases and all units.
+The pause seam is not implemented yet: compiled behavior RED is required before
+that handoff correction. No S5-11 GREEN or device/axis acceptance is claimed.
