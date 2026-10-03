@@ -288,7 +288,7 @@ struct AppShellWiringTests {
         #expect(fixture.model.pane === survivor)
         #expect(fixture.model.pane?.scrollBridge === survivorScrollBridge)
         let promotedBridge = try #require(fixture.model.actionBridge)
-        let promotedRun = await promotedBridge.projection(survivor.conversationID)
+        let promotedRun = try await promotedBridge.projection(survivor.conversationID)
         #expect(promotedRun?.runID == (keeping == .top ? sourceRun : otherRun))
         #expect(fixture.model.sourceSurfaceSlot == (keeping == .top ? .primary : .secondary))
         #expect(fixture.model.router.hasActiveRun(for: sourceID))

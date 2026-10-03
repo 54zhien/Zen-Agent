@@ -32,3 +32,16 @@ Both Pane/Session/Run owners survive resizing; closure never deletes or Stops.
 Survivor native content must retain identity and continuously expand. Device
 comfort, thresholds, haptics, VoiceOver usability and performance await the
 owner's final whole-Stage review and later physical-device test.
+
+## Review regression execution ruling — 2026-10-04
+
+Ruling: after the full compiled S5-10 initial RED, use an explicit, branch-limited
+`review-red` CI profile for the three additional unit regressions (missing lazy
+Turn receipt, concurrent source Recent ratio, Single Card New cleanup). App build
+and the entire unit target remain mandatory. The selector rejects arbitrary flags;
+main and absent-profile runs always include UI. Remove the JSON profile before the
+corrected production candidate and full S5-10 GREEN gate. This reduces repeated UI
+waiting for unit RED; it is not acceptance evidence. Test compilation failures in
+37143212009, 37144137510 and 37144774516 are recorded as compilation failures,
+not behavioral RED. The latter app build passed; its test needed `try` on the
+throwing runtime projection.
