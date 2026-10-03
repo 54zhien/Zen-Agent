@@ -82,7 +82,7 @@ final class SplitResizeUITests: XCTestCase {
         initialEditor.typeText("source resize draft")
         let sourceEditor = editor(in: app, containing: "source resize draft")
         XCTAssertTrue(sourceEditor.waitForExistence(timeout: 5))
-        dismissKeyboard(in: app, pane: source, editor: sourceEditor)
+        dismissKeyboard(in: app, pane: source, editor: sourceEditor, probe: sourceProbe)
         XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source resize draft".utf16.count)
         XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), 0)
         // The empty resting editor need not be a separate AX text-view node.
@@ -113,7 +113,7 @@ final class SplitResizeUITests: XCTestCase {
             lineHeight ?? 1, "The editing Pane must retain a readable Timeline viewport")
         let secondaryEditor = editor(in: app, containing: "secondary resize draft")
         XCTAssertTrue(secondaryEditor.waitForExistence(timeout: 5))
-        dismissKeyboard(in: app, pane: secondary, editor: secondaryEditor)
+        dismissKeyboard(in: app, pane: secondary, editor: secondaryEditor, probe: secondaryProbe)
 
         let sourceBefore = source.frame
         let secondaryBefore = secondary.frame
@@ -187,6 +187,17 @@ final class SplitResizeUITests: XCTestCase {
         return CGFloat(height)
     }
 
+    private func timelineFrame(_ diagnostic: String?) -> CGRect? {
+        guard let field = diagnostic?.split(separator: ";").first(where: {
+            $0.hasPrefix("timelineVisibleFrame=(")
+        }) else { return nil }
+        let values = field.dropFirst("timelineVisibleFrame=(".count).dropLast().split(separator: ",").compactMap {
+            Double($0.trimmingCharacters(in: .whitespaces))
+        }
+        guard values.count == 4 else { return nil }
+        return CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
+    }
+
     private func editorPoint(_ diagnostic: String?) -> CGPoint? {
         guard let field = diagnostic?.split(separator: ";").first(where: { $0.hasPrefix("point=(") }) else { return nil }
         let values = field.dropFirst(7).dropLast().split(separator: ",").compactMap {
@@ -223,17 +234,29 @@ final class SplitResizeUITests: XCTestCase {
     }
 
     @MainActor
-    private func dismissKeyboard(in app: XCUIApplication, pane: XCUIElement, editor: XCUIElement) {
-        // Pane AX bounds include the large navigation title. Use the Timeline
-        // margin directly above the actual Composer, outside padded Turn content.
-        let blankY = editor.frame.minY - 30
-        XCTAssertGreaterThan(blankY, pane.frame.minY + 120)
+    private func dismissKeyboard(in app: XCUIApplication, pane: XCUIElement,
+                                 editor: XCUIElement, probe: XCUIElement) {
+        printDiagnostics(app, context: "before blank tap")
+        guard let readable = timelineFrame(probe.value as? String), readable.height > 0 else {
+            XCTFail("The Timeline must have an actual native reading viewport while editing")
+            return
+        }
+        // Navigation height changes with the actual keyboard-safe Pane. Measure
+        // the native reading rectangle instead of assuming a large-title inset.
+        let blankY = min(editor.frame.minY - 30, readable.maxY - 8)
+        let screenPoint = CGPoint(x: pane.frame.maxX - 8, y: blankY)
+        guard readable.contains(screenPoint) else {
+            XCTFail("The measured Timeline margin must be above the Composer: \(readable), \(screenPoint)")
+            return
+        }
         XCTAssertLessThan(blankY, app.keyboards.firstMatch.frame.minY)
         let point = app.coordinate(withNormalizedOffset: .zero).withOffset(
-            CGVector(dx: pane.frame.maxX - 8 - app.frame.minX, dy: blankY - app.frame.minY))
+            CGVector(dx: screenPoint.x - app.frame.minX, dy: screenPoint.y - app.frame.minY))
         print("RESIZE_BLANK_POINT pane=\(pane.frame) point=\(point.screenPoint) keyboard=\(app.keyboards.firstMatch.frame)")
         point.tap()
         expect { !app.keyboards.firstMatch.exists }
+        XCTAssertTrue((probe.value as? String)?.contains(";blank=true;") == true,
+            "The real Timeline must classify this touch as blank background")
         printDiagnostics(app, context: "after blank tap")
     }
 

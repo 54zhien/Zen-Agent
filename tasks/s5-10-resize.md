@@ -264,3 +264,23 @@ finishes. Both candidates share the same production correction, with only DEBUG
 probe admission and its test assertion repaired in the full candidate. Preserve
 both exact-tree receipts; neither is accepted until its actual results arrive.
 No S5-11 product work begins before the full candidate is GREEN.
+
+The workflow's existing cancel-in-progress rule superseded the narrower push
+37160622113 when the full candidate was published. Its partial log proves
+generation/build, all 851 Swift and 20 XCTest passed and the first three resize
+UI cases passed. The dual-draft case reached a fixed 120 pt navigation-inset
+assertion with actual Pane AX frame (0, -14, 402, 179.67) and blank Y 50.33;
+that assertion assumes the old full-height large-title layout. Cancellation
+preceded the remaining native interaction receipts. Do not call this run GREEN.
+
+Use the actual UIScrollView bounds minus adjusted Insets, converted to window
+coordinates, as the DEBUG native readable rectangle. The blank tap must lie
+inside that rectangle and above the keyboard, and the real Timeline callback
+must classify blank=true after the touch. Log geometry before the tap as well
+as after it. This strengthens admission without inventing a title height or
+loosening readable-line/draft/identity checks. Production geometry is unchanged.
+Restore the narrow diagnostic scope to resolve this concrete integration risk;
+the superseded full candidate 1d157c51a73c0cc0ffd24cf0bd68b788271adf16 /
+tree 04512e55d561bb4ab302bd111e88b2a6d3cd46a5 has no acceptance receipt.
+Let each new diagnostic finish before publishing the full gate, given the
+workflow cancellation rule. Preserve all partial/cancelled receipts explicitly.
