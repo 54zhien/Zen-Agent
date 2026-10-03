@@ -218,3 +218,36 @@ but PR 37159749888 (job 111310580273) failed compiling the UI diagnostic's
 chained optional CGFloat conversion. The new unit regressions did not run.
 Replace that parser with explicit typed steps, retaining the same assertions;
 this is a compile repair, not behavioral RED or a product correction.
+
+### Constrained viewport correction
+
+Compiled RED 09b567d19ccf71c5fe35d2a0496362011495a50c / tree
+a1fa5b45b8af7244be0dafae91afdd59c2328fb7 in push 37160044669
+(job 111311446654): generation/app build succeeded and all 20 XCTest passed.
+The single Swift Testing run executed 851 tests in 127 suites; only the new
+constrained-Pane suite failed, with nine issues across its four height arguments
+and scaled-line case. At availableHeight 146, text height was 1.16 instead of
+22. This preserves behavioral evidence before correcting the production cap.
+
+The correction floors the preferred editing cap at top padding + control rail
++ one scaled line, bounded by the actual available height minus bottom spacing.
+Normal large-viewport fractional caps stay unchanged. The older 180 pt fixture
+asserted the fraction even when it clipped a line; it now checks the actual
+height budget and a readable line instead.
+
+The full 8d8135 native UI receipt also showed the lower Timeline at zero usable
+height. Both outer Workspace modifiers previously ignored all safe-area regions,
+so Split kept full-screen slots while the keyboard covered the lower slot.
+Ignore only container regions there; preserve the Composer's native keyboard
+guide and its inner keyboard-region modifier. Saved ratios and Pane/Run owners
+are unchanged. Apple's current definitions distinguish container and keyboard:
+https://developer.apple.com/documentation/swiftui/safearearegions
+
+Source review found no concrete double avoidance blocker, but requires measured
+GeometryProxy size/insets and final Split viewport to reject double subtraction.
+A DEBUG-only geometry receipt records those values. The existing dual-draft UI
+case now also requires both Timeline containers to retain one readable line
+during secondary editing, retaining real editor identities and native text lengths.
+Run all units plus the five resize UI cases once under resize-diagnostic; that
+diagnostic receipt is not slice acceptance. Remove the profile for the full
+generation/build/unit/UI gate after resolving any measured integration failure.

@@ -104,6 +104,11 @@ final class SplitResizeUITests: XCTestCase {
         XCTAssertNotNil(lineHeight)
         XCTAssertGreaterThanOrEqual(nativeFrame?.height ?? 0, lineHeight ?? 1,
             "The focused native editor must expose at least one readable line")
+        XCTAssertGreaterThanOrEqual(timelineHeight(sourceProbe.value as? String) ?? 0,
+            editorLineHeight(sourceProbe.value as? String) ?? 1,
+            "The inactive Pane must remain readable while the other Pane edits")
+        XCTAssertGreaterThanOrEqual(timelineHeight(secondaryProbe.value as? String) ?? 0,
+            lineHeight ?? 1, "The editing Pane must retain a readable Timeline viewport")
         let secondaryEditor = editor(in: app, containing: "secondary resize draft")
         XCTAssertTrue(secondaryEditor.waitForExistence(timeout: 5))
         dismissKeyboard(in: app, pane: secondary, editor: secondaryEditor)
@@ -170,6 +175,16 @@ final class SplitResizeUITests: XCTestCase {
         return CGFloat(value)
     }
 
+    private func timelineHeight(_ diagnostic: String?) -> CGFloat? {
+        guard let field = diagnostic?.split(separator: ";").first(where: {
+            $0.hasPrefix("container=(")
+        }) else { return nil }
+        let values = field.dropFirst("container=(".count).dropLast().split(separator: ",")
+        guard values.count == 2,
+              let height = Double(values[1].trimmingCharacters(in: .whitespaces)) else { return nil }
+        return CGFloat(height)
+    }
+
     private func editorPoint(_ diagnostic: String?) -> CGPoint? {
         guard let field = diagnostic?.split(separator: ";").first(where: { $0.hasPrefix("point=(") }) else { return nil }
         let values = field.dropFirst(7).dropLast().split(separator: ",").compactMap {
@@ -222,7 +237,7 @@ final class SplitResizeUITests: XCTestCase {
 
     @MainActor
     private func printDiagnostics(_ app: XCUIApplication, context: String) {
-        for id in ["surface-native-interaction-probe", "split-secondary-native-interaction-probe"] {
+        for id in ["split-viewport-probe", "surface-native-interaction-probe", "split-secondary-native-interaction-probe"] {
             let probe = app.descendants(matching: .any)[id]
             print("RESIZE_DIAGNOSTIC \(context) \(id): \(probe.exists ? probe.value as? String ?? "no value" : "missing")")
         }

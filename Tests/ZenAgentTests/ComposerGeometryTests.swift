@@ -162,7 +162,8 @@ struct ComposerGeometryTests {
         #expect(narrow.outerWidth <= 180 - 2 * ComposerGeometry.edgeInset)
         #expect(narrow.textFrame.width >= 0)
         #expect(scaled.outerHeight > standard.outerHeight)
-        #expect(constrained.outerHeight <= 180 * ComposerGeometry.editingMaxHeightFraction + 0.01)
+        #expect(constrained.outerHeight + constrained.bottomSpacing <= 180)
+        #expect(constrained.textFrame.height >= 22)
         #expect(constrained.textAreaIsScrollable)
 
         var previousWidth = CGFloat.greatestFiniteMagnitude
