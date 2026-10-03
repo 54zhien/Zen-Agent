@@ -269,10 +269,13 @@ struct AppShellWiringTests {
             maxProviderSteps: 4, submissionID: "split-other-run"))
         await otherStream.waitUntilReady()
         let survivor = try #require(keeping == .top ? fixture.model.pane : fixture.model.splitPane)
-        let survivorBridge = keeping == .top ? fixture.model.actionBridge : fixture.model.splitActionBridge
+        let survivorScrollBridge = survivor.scrollBridge
         fixture.model.closeSplit(keeping: keeping)
         #expect(fixture.model.pane === survivor)
-        #expect(fixture.model.actionBridge === survivorBridge)
+        #expect(fixture.model.pane?.scrollBridge === survivorScrollBridge)
+        let promotedBridge = try #require(fixture.model.actionBridge)
+        let promotedRun = await promotedBridge.projection(survivor.conversationID)
+        #expect(promotedRun?.runID == (keeping == .top ? sourceRun : otherRun))
         #expect(fixture.model.sourceSurfaceSlot == (keeping == .top ? .primary : .secondary))
         #expect(fixture.model.router.hasActiveRun(for: sourceID))
         #expect(fixture.model.router.hasActiveRun(for: otherID))
