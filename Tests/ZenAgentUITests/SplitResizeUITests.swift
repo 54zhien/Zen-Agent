@@ -57,10 +57,12 @@ final class SplitResizeUITests: XCTestCase {
         expect { pane.frame.height > initialHeight + 30 }
         expect { anchor.isHittable && abs(pane.frame.maxY - anchor.frame.minY - bottomDistance) < 4 }
         let grownHeight = pane.frame.height
+        printDiagnostics(app, context: "after first resize")
         let movedHandle = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         movedHandle.press(forDuration: 0.15,
                           thenDragTo: movedHandle.withOffset(CGVector(dx: 0, dy: -50)))
         expect { pane.frame.height < grownHeight - 20 }
+        printDiagnostics(app, context: "after second resize")
         XCTAssertEqual(pane.frame.maxY - anchor.frame.minY, bottomDistance, accuracy: 4)
     }
 
@@ -132,6 +134,16 @@ final class SplitResizeUITests: XCTestCase {
     private func dismissKeyboard(in app: XCUIApplication, pane: XCUIElement) {
         pane.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.25)).tap()
         expect { !app.keyboards.firstMatch.exists }
+        printDiagnostics(app, context: "after blank tap")
+    }
+
+    @MainActor
+    private func printDiagnostics(_ app: XCUIApplication, context: String) {
+        for id in ["timeline-diagnostic-preview-ui-11", "timeline-diagnostic-preview-ui-10",
+                   "surface-native-interaction-probe", "split-secondary-native-interaction-probe"] {
+            let probe = app.descendants(matching: .any)[id]
+            print("RESIZE_DIAGNOSTIC \(context) \(id): \(probe.value as? String ?? "missing")")
+        }
     }
 
     @MainActor

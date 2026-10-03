@@ -72,6 +72,9 @@ struct ConversationTimelineView: View {
     @State private var latestBottomReferenceTurn: (runID: String, turnTop: Double)?
     @State private var activeScrollPhase: ScrollPhase = .idle
     @State private var pendingAppliedScroll: ConversationPaneScrollRequest?
+#if DEBUG
+    @State private var lastBlankTapDiagnostic = "none"
+#endif
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -180,9 +183,21 @@ struct ConversationTimelineView: View {
             .coordinateSpace(name: scrollCoordinateSpace)
             .contentShape(Rectangle())
             .simultaneousGesture(SpatialTapGesture().onEnded { tap in
+#if DEBUG
+                lastBlankTapDiagnostic = "point=\(tap.location);blank=\(Self.isBlankTap(tap.location, turnFrames: turnFrames));frames=\(turnFrames.values)"
+#endif
                 guard Self.isBlankTap(tap.location, turnFrames: turnFrames) else { return }
                 onBlankBackgroundTap()
             })
+#if DEBUG
+            .background(alignment: .topLeading) {
+                if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
+                    TimelineDiagnosticProbe(identifier: "timeline-diagnostic-\(projection.conversationID)",
+                        value: "revision=\(layoutRevision);accepted=\(String(describing: acceptedLayoutRevision));measured=\(String(describing: measuredLayoutRevision));tap=\(lastBlankTapDiagnostic);\(scrollBridge?.dividerDiagnostic ?? "no bridge")")
+                        .frame(width: 1, height: 1).allowsHitTesting(false)
+                }
+            }
+#endif
             .scrollPosition($scrollPosition, anchor: .top)
             .onPreferenceChange(ConversationTimelineTurnFramesKey.self) { measurement in
                 guard surfaceLift?.isWorkspaceVisible != false else { return }

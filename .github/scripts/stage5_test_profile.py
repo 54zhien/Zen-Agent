@@ -7,6 +7,8 @@ from pathlib import Path
 def test_scope(profile, branch):
     if not branch.startswith("codex/s5-") or profile is None:
         return "full"
+    if profile == {"mode": "resize-diagnostic"} and branch == "codex/s5-10-divider-resize":
+        return "resize-diagnostic"
     if profile != {"mode": "review-red"}:
         raise ValueError("Stage 5 profile accepts only the explicit review-red mode")
     return "review-red"

@@ -85,3 +85,19 @@ ratio must use its existing revision. Also explicitly make the ScrollView's
 blank rectangle a tap target so the blank-background dismissal gesture can
 receive margin taps. Keep the repeated drag and actual keyboard/draft UI
 assertions in the full correction gate.
+
+### Native boundary diagnostic run
+
+Remote c9841a1f045556d7802e2eadb257dd6deacc0948 / tree
+4d5f1d1c7027530e866e97c0ed4ceaf9b3014a2c built successfully.
+Push 37149516942 / job 111280233296 passed all 847 Swift tests and
+20 XCTest, but repeated the same three failures in two resize UI tests.
+PR 37149519510 / job 111280237417 executed the same failing UI cases
+before its 30 minute timeout cancelled final collection. Neither is GREEN.
+
+Ruling: collect DEBUG-only blank tap classification and per-Pane accepted,
+measured, prepared and final layout revisions through accessibility probes.
+UI logs explicitly read these probes around the failing actions. No input
+text or secrets are logged. An exact, branch-limited resize-diagnostic profile
+runs all unit tests and the five SplitResize UI cases once to locate the fault;
+it is not the complete slice gate. Remove the profile before full GREEN.

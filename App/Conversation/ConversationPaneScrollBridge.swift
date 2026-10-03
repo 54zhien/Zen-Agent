@@ -31,6 +31,12 @@ final class ConversationPaneScrollBridge {
 
     var hasDividerLease: Bool { dividerLeaseID != nil }
 
+#if DEBUG
+    var dividerDiagnostic: String {
+        "lease=\(hasDividerLease);final=\(String(describing: dividerFinalRevision));prepared=\(String(describing: preparedDividerRevision));target=\(String(describing: lastDividerTarget));offset=\(String(describing: snapshot?.geometry.offset));request=\(String(describing: pane.scrollRequest));mode=\(String(describing: pane.readingPosition.mode))"
+    }
+#endif
+
     var dividerReferenceTurnID: String? {
         guard hasDividerLease else { return nil }
         if composerHeightChangeActive, let captured = composerReadingPixelOffset { return captured.runID }
