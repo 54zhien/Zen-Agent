@@ -12,6 +12,7 @@ struct AppSpaceCardActionsView: View {
     @State private var renamePresented = false
     @State private var capturedID: String?
     @State private var title = ""
+    @State private var pendingSplitID: String?
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -26,6 +27,12 @@ struct AppSpaceCardActionsView: View {
         .accessibilityIdentifier("workspace-card-menu")
         .disabled(lift.state.phase != .card || model.previewContent.isPreparing || browse.state.phase != .idle)
         .confirmationDialog("会话", isPresented: $menuPresented, titleVisibility: .hidden) {
+            if model.splitWorkspace == nil {
+                Button("分屏打开") {
+                    guard isCurrentTarget else { dismiss(); return }
+                    pendingSplitID = capturedID
+                }
+            }
             Button("重命名") {
                 guard isCurrentTarget else { dismiss(); return }
                 guard let initialTitle = model.appSpaceConversationTitle(id: summary.id) else { dismiss(); return }
@@ -63,6 +70,18 @@ struct AppSpaceCardActionsView: View {
             requestedID = nil
             openMenu()
         }
+        .task(id: pendingSplitID) {
+            guard let id = pendingSplitID else { return }
+            defer { pendingSplitID = nil }
+            // SwiftUI's Boolean can clear before UIKit has dismissed the menu.
+            // Let the same native overlay admission gate authorize Return.
+            for _ in 0..<60 {
+                guard !Task.isCancelled, browse.selectedConversationID == id,
+                      model.previewContent.isPresented, model.splitWorkspace == nil else { return }
+                if !menuPresented, !renamePresented, lift.returnToSplit(.top) { return }
+                do { try await Task.sleep(for: .milliseconds(25)) } catch { return }
+            }
+        }
         .onChange(of: browse.selectedConversationID) { _, id in
             if id != capturedID { dismiss() }
         }
@@ -97,6 +116,7 @@ struct AppSpaceCardActionsView: View {
         menuPresented = false
         renamePresented = false
         capturedID = nil
+        pendingSplitID = nil
         lift.setOverlayPresented(false)
         browse.setInteractionSuspended(false)
     }

@@ -34,6 +34,17 @@ final class AppShellModel {
 
     private(set) var launchState: AppShellLaunchState = .notStarted
     private(set) var conversationID = UUID().uuidString
+    private(set) var splitWorkspace: SplitWorkspaceState?
+    private(set) var splitPane: ConversationPaneController?
+    private(set) var splitActionBridge: ComposerRuntimeActionBridge?
+    private(set) var splitOpenError: String?
+    private(set) var splitPreviewOriginSlot: SplitDropSlot?
+    private var splitExistingOtherReturnID: String?
+    private var borrowedPreviewOwner = false
+    private var deletedSplitIDs: Set<String> = []
+    private(set) var sourceSurfaceSlot: WorkspaceSurfaceSlot = .primary
+    private(set) var previewSurfaceSlot: WorkspaceSurfaceSlot?
+    var previewRestoresSplit: Bool { splitWorkspace != nil && deletedSplitIDs.isEmpty }
     private(set) var previewHandoffID: String?
     private(set) var target: AppExecutionTarget?
     private(set) var targetMessage: String?
@@ -73,23 +84,198 @@ final class AppShellModel {
 
     let previewContent = ConversationPreviewController()
 
-    func enterPreview() -> Bool {
-        guard let pane, let store = dependencies?.store else { return previewContent.isPresented }
-        guard previewContent.present(session: pane.session, store: store) else { return false }
-        rememberCurrentSession(retainUncommitted: true)
-        router.unregisterPane(for: conversationID)
-        self.pane = nil
-        actionBridge = nil
+    func acceptsSplitDrop(_ intent: SplitDropIntent) -> Bool {
+        launchState == .ready && splitWorkspace == nil && !previewContent.isPresented
+            && pane?.conversationID == intent.conversationID
+    }
+
+    @discardableResult
+    func commitSplitDrop(_ intent: SplitDropIntent) -> Bool {
+        guard acceptsSplitDrop(intent) else { return false }
+        splitWorkspace = SplitWorkspaceState(sourceConversationID: intent.conversationID,
+                                             sourceSlot: intent.slot)
         return true
     }
 
+    func selectSplitSlot(_ slot: SplitDropSlot) {
+        splitWorkspace?.select(slot)
+    }
+
+    @discardableResult
+    func createNewInSplit() -> Bool {
+        guard var split = splitWorkspace, !previewContent.isPresented,
+              split.sourceConversationID == conversationID, let dependencies else { return false }
+        let id = UUID().uuidString
+        do {
+            let wiring = try ConversationPaneFactory(sessions: sessions).makePane(
+                id: id, initialTimeline: ConversationTimelineProjection(conversationID: id, turns: []),
+                dependencies: dependencies, target: target,
+                onTargetFailure: { [weak self] failure, failedTarget in
+                    self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
+                })
+            guard router.registerPane(wiring.pane) else { throw AppTargetFailure.configurationUnavailable }
+            guard sessions.activate(wiring.pane.session, alongside: conversationID,
+                                    isRuntimeProtected: router.hasActiveRun(for:)) else {
+                router.unregisterPane(for: id)
+                throw AppTargetFailure.configurationUnavailable
+            }
+            guard split.occupy(id) else { return false }
+            retireSecondaryPane()
+            cancelSplitSelection()
+            splitPane = wiring.pane
+            splitActionBridge = wiring.bridge
+            splitWorkspace = split
+            splitOpenError = nil
+            return true
+        } catch {
+            splitOpenError = "无法创建会话，请重试。"
+            return false
+        }
+    }
+
+    @discardableResult
+    func openInSplit(id: String) async -> Bool {
+        guard let split = splitWorkspace, !previewContent.isPresented,
+              id != split.sourceConversationID, let dependencies, !Task.isCancelled else { return false }
+        if splitPane?.conversationID == id {
+            selectSplitSlot(split.emptySlot)
+            return true
+        }
+        let selection = UUID()
+        splitSelectionID = selection
+        if let splitOpenTicket {
+            router.cancelPanePreparation(for: splitOpenTicket.conversationID, ticket: splitOpenTicket.ticket)
+        }
+        let ticket = router.beginPanePreparation(for: id)
+        splitOpenTicket = (id, ticket)
+        defer {
+            router.cancelPanePreparation(for: id, ticket: ticket)
+            if splitOpenTicket?.ticket == ticket { splitOpenTicket = nil }
+        }
+        do {
+            let history = try await router.historyPreparation.prepare(id: id, store: dependencies.store)
+            let warmOwner = sessions.uncommittedSession(for: id)
+            guard !Task.isCancelled, splitSelectionID == selection,
+                  splitWorkspace?.sourceConversationID == split.sourceConversationID,
+                  splitWorkspace?.secondaryConversationID == split.secondaryConversationID,
+                  router === dependencies.router else { return false }
+            guard history.snapshot.conversation?.lifecycle == .visible
+                    || (history.snapshot.conversation == nil && warmOwner != nil) else {
+                splitOpenError = "无法打开会话，请重试。"
+                return false
+            }
+            let wiring = try ConversationPaneFactory(sessions: sessions).makePane(
+                id: id, initialTimeline: history.timeline, dependencies: dependencies,
+                target: target, snapshot: history.snapshot,
+                onTargetFailure: { [weak self] failure, failedTarget in
+                    self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
+                })
+            guard (warmOwner == nil || wiring.pane.session === warmOwner),
+                  router.registerPreparedPane(wiring.pane, ticket: ticket) else {
+                splitOpenError = "无法打开会话，请重试。"
+                return false
+            }
+            guard sessions.activate(wiring.pane.session, alongside: split.sourceConversationID,
+                                    isRuntimeProtected: router.hasActiveRun(for:)) else {
+                router.unregisterPane(for: id)
+                splitOpenError = "无法打开会话，请重试。"
+                return false
+            }
+            var committed = split
+            guard committed.occupy(id) else { return false }
+            retireSecondaryPane()
+            splitPane = wiring.pane
+            splitActionBridge = wiring.bridge
+            splitWorkspace = committed
+            splitOpenError = nil
+            return true
+        } catch {
+            if !Task.isCancelled, !(error is CancellationError), splitSelectionID == selection {
+                splitOpenError = "无法打开会话，请重试。"
+            }
+            return false
+        }
+    }
+
+    func closeSplit() {
+        cancelSplitSelection()
+        retireSecondaryPane()
+        splitWorkspace = nil
+        splitPreviewOriginSlot = nil
+        splitExistingOtherReturnID = nil
+        previewSurfaceSlot = nil
+        deletedSplitIDs = []
+        splitOpenError = nil
+        sessions.evictIfNeeded(isRuntimeProtected: router.hasActiveRun(for:))
+    }
+
+    private func cancelSplitSelection() {
+        splitSelectionID = UUID()
+        if let splitOpenTicket {
+            router.cancelPanePreparation(for: splitOpenTicket.conversationID, ticket: splitOpenTicket.ticket)
+            self.splitOpenTicket = nil
+        }
+    }
+
+    private func retireSecondaryPane() {
+        if let splitPane {
+            rememberSession(splitPane.session, id: splitPane.conversationID, retainUncommitted: true)
+            router.unregisterPane(for: splitPane.conversationID)
+            sessions.deactivate(splitPane.conversationID)
+        }
+        splitPane = nil
+        splitActionBridge = nil
+    }
+
+    func enterPreview() -> Bool {
+        let originSlot = splitWorkspace?.activeSlot
+        let fromSecondary = originSlot != nil && originSlot == splitWorkspace?.emptySlot
+        guard let selected = fromSecondary ? splitPane : pane,
+              let store = dependencies?.store else { return previewContent.isPresented }
+        guard previewContent.present(session: selected.session, store: store) else { return false }
+        splitSelectionID = UUID()
+        if let splitOpenTicket {
+            router.cancelPanePreparation(for: splitOpenTicket.conversationID,
+                                         ticket: splitOpenTicket.ticket)
+            self.splitOpenTicket = nil
+        }
+        splitPreviewOriginSlot = originSlot
+        previewSurfaceSlot = fromSecondary ? sourceSurfaceSlot.other : sourceSurfaceSlot
+        deletedSplitIDs = []
+        splitExistingOtherReturnID = nil
+        rememberSession(selected.session, id: selected.conversationID, retainUncommitted: true)
+        router.unregisterPane(for: selected.conversationID)
+        if fromSecondary {
+            splitPane = nil
+            splitActionBridge = nil
+        } else {
+            pane = nil
+            actionBridge = nil
+        }
+        return true
+    }
+
+    private func previewOriginIsCurrent() -> Bool {
+        guard let originID = previewContent.originID else { return false }
+        guard let split = splitWorkspace else {
+            return splitPreviewOriginSlot == nil && originID == conversationID
+        }
+        guard let slot = splitPreviewOriginSlot else { return false }
+        return slot == split.sourceSlot
+            ? originID == split.sourceConversationID
+            : originID == split.secondaryConversationID
+    }
+
     func newConversationBrowseWindow() throws -> ConversationBrowseWindow {
-        guard previewContent.isPresented, let store = dependencies?.store else { throw AppTargetFailure.persistenceUnavailable }
-        return try store.conversationNewBrowseWindow(originID: conversationID, uncommittedIDs: sessions.uncommittedIDs)
+        guard previewContent.isPresented, let originID = previewContent.originID,
+              let store = dependencies?.store else { throw AppTargetFailure.persistenceUnavailable }
+        return try store.conversationNewBrowseWindow(originID: originID, uncommittedIDs: sessions.uncommittedIDs)
     }
     func createConversationFromAppSpace(at now: Date = Date()) throws -> String {
-        guard previewContent.isPresented, !previewContent.isPreparing, let cardActions else { throw AppTargetFailure.persistenceUnavailable }
-        let id = try cardActions.create(originID: conversationID, at: now, initialBinding:
+        guard previewContent.isPresented, !previewContent.isPreparing,
+              let originID = previewContent.originID,
+              let cardActions else { throw AppTargetFailure.persistenceUnavailable }
+        let id = try cardActions.create(originID: originID, at: now, initialBinding:
             ConversationInitialBinding(providerInstanceID: target?.providerInstanceID, modelID: target?.modelID))
         refreshRecentConversations()
         return id
@@ -117,8 +303,29 @@ final class AppShellModel {
         guard previewContent.isPresented, !previewContent.isPreparing,
               let cardDeletion else { return false }
         let deleted = await cardDeletion.delete(conversationID: id, stillSelected: stillSelected)
-        if deleted { refreshRecentConversations() }
+        if deleted {
+            detachDeletedSplitPane(id: id)
+            refreshRecentConversations()
+        }
         return deleted
+    }
+
+    private func detachDeletedSplitPane(id: String) {
+        guard let split = splitWorkspace,
+              id == split.sourceConversationID || id == split.secondaryConversationID else { return }
+        deletedSplitIDs.insert(id)
+        cancelSplitSelection()
+        if previewContent.preparationTargetID == id { cancelPreviewReturn() }
+        let affected = pane?.conversationID == id ? pane : splitPane?.conversationID == id ? splitPane : nil
+        if let affected {
+            // The durable row is hidden during Undo. A history-based retention
+            // check would discard precisely the draft Undo still needs.
+            sessions.retain(affected.session, reconstruction: .unavailable)
+            router.unregisterPane(for: id)
+            sessions.deactivate(id)
+        }
+        if pane?.conversationID == id { pane = nil; actionBridge = nil }
+        if splitPane?.conversationID == id { splitPane = nil; splitActionBridge = nil }
     }
 
     func undoAppSpaceConversation(id: String) -> Bool {
@@ -146,17 +353,50 @@ final class AppShellModel {
 
     func preparePreviewReturn(to requestedID: String? = nil) async -> Bool {
         guard previewContent.isPresented, let dependencies,
-              previewContent.originID == conversationID else { return pane != nil }
+              previewOriginIsCurrent(), let originID = previewContent.originID else {
+            return pane != nil || splitPane != nil
+        }
         let session = previewContent.session
-        let originID = conversationID
-        let id = requestedID ?? originID
+        let requested = requestedID ?? originID
+        let existingOtherID: String? = {
+            guard let split = splitWorkspace, let slot = splitPreviewOriginSlot else { return nil }
+            let otherID = slot == split.sourceSlot
+                ? split.secondaryConversationID : split.sourceConversationID
+            return requested == otherID ? otherID : nil
+        }()
+        // A Conversation already open in the other Pane has one live owner.
+        // Restore the Lift origin and activate that owner instead of mounting a duplicate.
+        let id = existingOtherID == nil || !previewRestoresSplit ? requested : originID
         if let prepared = previewContent.prepared {
-            if prepared.pane.conversationID == id { return true }
+            if prepared.pane.conversationID == id {
+                splitExistingOtherReturnID = existingOtherID
+                return true
+            }
             cancelPreviewReturn()
         }
         if previewContent.isPreparing, previewContent.preparationTargetID != id { cancelPreviewReturn() }
         guard !previewContent.isPreparing else { return false }
+        splitExistingOtherReturnID = existingOtherID
         let preparation = previewContent.beginPreparation(targetID: id)
+        if !previewRestoresSplit {
+            let existing = pane?.conversationID == id ? pane : splitPane?.conversationID == id ? splitPane : nil
+            let bridge = pane?.conversationID == id ? actionBridge : splitActionBridge
+            if let existing, let bridge {
+                do {
+                    let lifecycle = try dependencies.store.conversationLifecycle(id: id)
+                    guard lifecycle == .visible || (lifecycle == nil
+                        && existing.session === sessions.uncommittedSession(for: id)) else {
+                        throw PersistenceError.conversationNotFound(id)
+                    }
+                    borrowedPreviewOwner = true
+                    previewContent.ready((bridge: bridge, pane: existing), id: preparation)
+                    return true
+                } catch {
+                    previewContent.failed(preparation)
+                    return false
+                }
+            }
+        }
         // Structural Run/Tool changes may invalidate a read. Text growth is replayed.
         // Retry a finite number of times; failure
         // leaves the Preview and its logical state intact for an explicit retry.
@@ -164,7 +404,7 @@ final class AppShellModel {
             let ticket = router.beginPanePreparation(for: id)
             do {
                 let history = try await router.historyPreparation.prepare(id: id, store: dependencies.store)
-                guard !Task.isCancelled, conversationID == originID,
+                guard !Task.isCancelled, previewOriginIsCurrent(),
                       router === dependencies.router, previewContent.accepts(preparation) else {
                     dependencies.router.cancelPanePreparation(for: id, ticket: ticket)
                     previewContent.cancelPreparation(for: preparation)
@@ -204,31 +444,99 @@ final class AppShellModel {
         return false
     }
 
-    func commitPreviewReturn() -> Bool {
+    func commitPreviewReturn(openingSplitAt newSplitSlot: SplitDropSlot? = nil) -> Bool {
         guard previewContent.isPresented, let prepared = previewContent.prepared,
-              previewContent.originID == conversationID,
+              previewOriginIsCurrent(), let originID = previewContent.originID,
               prepared.pane.conversationID == previewContent.preparationTargetID else { return false }
-        if prepared.pane.conversationID != conversationID {
-            rememberCurrentSession(retainUncommitted: true)
+        let targetID = prepared.pane.conversationID
+        if previewRestoresSplit, let split = splitWorkspace, let slot = splitPreviewOriginSlot {
+            let otherID = slot == split.sourceSlot
+                ? split.secondaryConversationID : split.sourceConversationID
+            guard targetID != otherID else { return false }
+            let selectExistingOther = splitExistingOtherReturnID != nil
+                && splitExistingOtherReturnID == otherID && targetID == originID
+            if targetID != originID, let outgoing = previewContent.session {
+                rememberSession(outgoing, id: originID, retainUncommitted: true)
+            }
+            if let otherID {
+                guard sessions.activate(prepared.pane.session, alongside: otherID,
+                    isRuntimeProtected: router.hasActiveRun(for:)) else { return false }
+            } else {
+                commitSession(prepared.pane.session)
+            }
+            previewHandoffID = targetID
+            if slot == split.sourceSlot {
+                var updated = SplitWorkspaceState(sourceConversationID: targetID,
+                                                  sourceSlot: split.sourceSlot)
+                if let secondaryID = split.secondaryConversationID {
+                    guard updated.occupy(secondaryID) else { return false }
+                }
+                updated.select(selectExistingOther ? split.emptySlot : slot)
+                splitWorkspace = updated
+                conversationID = targetID
+                pane = prepared.pane
+                actionBridge = prepared.bridge
+                sendAvailability = prepared.pane.composer.sendAvailability
+                targetMessage = sendAvailability.message
+            } else {
+                var updated = split
+                guard updated.occupy(targetID) else { return false }
+                if selectExistingOther { updated.select(split.sourceSlot) }
+                splitWorkspace = updated
+                splitPane = prepared.pane
+                splitActionBridge = prepared.bridge
+            }
+            previewContent.finish()
+            splitPreviewOriginSlot = nil
+            splitExistingOtherReturnID = nil
+            borrowedPreviewOwner = false
+            previewSurfaceSlot = nil
+            cardActions?.reset()
+            return true
         }
-        previewHandoffID = prepared.pane.conversationID
-        conversationID = prepared.pane.conversationID
+        if let outgoing = previewContent.session, outgoing.conversationID != targetID,
+           !deletedSplitIDs.contains(outgoing.conversationID) {
+            rememberSession(outgoing, id: outgoing.conversationID, retainUncommitted: true)
+        }
+        for outgoing in [pane, splitPane].compactMap({ $0 }) where outgoing.conversationID != targetID {
+            if !deletedSplitIDs.contains(outgoing.conversationID) {
+                rememberSession(outgoing.session, id: outgoing.conversationID, retainUncommitted: true)
+            }
+            router.unregisterPane(for: outgoing.conversationID)
+        }
+        // Keep the native host which performed Lift, including a secondary host
+        // promoted to Single. Its content owner changes; its animator does not.
+        sourceSurfaceSlot = previewSurfaceSlot ?? sourceSurfaceSlot
+        splitPane = nil
+        splitActionBridge = nil
+        splitWorkspace = newSplitSlot.map { SplitWorkspaceState(sourceConversationID: targetID, sourceSlot: $0) }
+        deletedSplitIDs = []
+        previewHandoffID = targetID
+        conversationID = targetID
         pane = prepared.pane
         actionBridge = prepared.bridge
         commitSession(prepared.pane.session)
         sendAvailability = prepared.pane.composer.sendAvailability
         targetMessage = sendAvailability.message
         previewContent.finish()
+        splitPreviewOriginSlot = nil
+        splitExistingOtherReturnID = nil
+        borrowedPreviewOwner = false
+        previewSurfaceSlot = nil
         cardActions?.reset()
         return true
     }
 
     func cancelPreviewReturn() {
+        splitExistingOtherReturnID = nil
         if previewContent.isPreparing { router.historyPreparation.cancel() }
-        if let prepared = previewContent.prepared {
+        if let prepared = previewContent.prepared, !borrowedPreviewOwner {
             router.unregisterPane(for: prepared.pane.conversationID)
         }
-        if let targetID = previewContent.preparationTargetID { router.cancelPanePreparation(for: targetID) }
+        if let targetID = previewContent.preparationTargetID, !borrowedPreviewOwner {
+            router.cancelPanePreparation(for: targetID)
+        }
+        borrowedPreviewOwner = false
         previewContent.cancelPreparation()
     }
 
@@ -251,6 +559,8 @@ final class AppShellModel {
     @ObservationIgnored private let sessions = ConversationSessionStore()
     @ObservationIgnored private var navigationID = UUID()
     @ObservationIgnored private var openTicket: (conversationID: String, ticket: UUID)?
+    @ObservationIgnored private var splitSelectionID = UUID()
+    @ObservationIgnored private var splitOpenTicket: (conversationID: String, ticket: UUID)?
     @ObservationIgnored private(set) var launchRestorationTask: Task<Void, Never>?
 
     var canSend: Bool {
@@ -301,6 +611,7 @@ final class AppShellModel {
         launchState = .loading
         cancelPreviewReturn()
         previewContent.finish()
+        closeSplit()
         dependencies = nil
         cardActions = nil
         cardDeletion = nil
@@ -334,6 +645,11 @@ final class AppShellModel {
     }
 
     func newConversation() {
+        if splitWorkspace != nil, !previewContent.isPresented {
+            _ = replaceSourceWithNewInSplit()
+            return
+        }
+        closeSplit()
         cardActions?.reset()
         navigationID = UUID()
         recentOpenFailure = nil
@@ -348,6 +664,60 @@ final class AppShellModel {
         conversationID = UUID().uuidString
         installPaneIfReady()
         refreshRecentConversations()
+    }
+
+    @discardableResult
+    private func replaceSourceWithNewInSplit() -> Bool {
+        guard let split = splitWorkspace, split.sourceConversationID == conversationID,
+              let outgoing = pane, let dependencies else { return false }
+        let id = UUID().uuidString
+        do {
+            let wiring = try ConversationPaneFactory(sessions: sessions).makePane(
+                id: id, initialTimeline: ConversationTimelineProjection(conversationID: id, turns: []),
+                dependencies: dependencies, target: target,
+                onTargetFailure: { [weak self] failure, failedTarget in
+                    self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
+                })
+            guard router.registerPane(wiring.pane) else { throw AppTargetFailure.configurationUnavailable }
+            rememberSession(outgoing.session, id: conversationID, retainUncommitted: true)
+            let activated: Bool
+            if let secondaryID = split.secondaryConversationID {
+                activated = sessions.activate(wiring.pane.session, alongside: secondaryID,
+                                              isRuntimeProtected: router.hasActiveRun(for:))
+            } else {
+                sessions.activate(wiring.pane.session, isRuntimeProtected: router.hasActiveRun(for:))
+                activated = true
+            }
+            guard activated else {
+                router.unregisterPane(for: id)
+                throw AppTargetFailure.configurationUnavailable
+            }
+            navigationID = UUID()
+            launchRestorationTask?.cancel()
+            splitSelectionID = UUID()
+            if let splitOpenTicket {
+                router.cancelPanePreparation(for: splitOpenTicket.conversationID,
+                                             ticket: splitOpenTicket.ticket)
+                self.splitOpenTicket = nil
+            }
+            router.unregisterPane(for: conversationID)
+            var updated = SplitWorkspaceState(sourceConversationID: id, sourceSlot: split.sourceSlot)
+            if let secondaryID = split.secondaryConversationID { _ = updated.occupy(secondaryID) }
+            updated.select(split.sourceSlot)
+            splitWorkspace = updated
+            conversationID = id
+            pane = wiring.pane
+            actionBridge = wiring.bridge
+            sendAvailability = wiring.pane.composer.sendAvailability
+            targetMessage = sendAvailability.message
+            cardActions?.reset()
+            recentOpenFailure = nil
+            refreshRecentConversations()
+            return true
+        } catch {
+            splitOpenError = "无法创建会话，请重试。"
+            return false
+        }
     }
 
     func enteredBackground(at date: Date) {
@@ -383,6 +753,7 @@ final class AppShellModel {
             waitForRun: { id in try await runtime.waitForCompletion(runID: id) },
             now: { Date() },
             onFinalized: { [weak self] id in
+                self?.detachDeletedSplitPane(id: id)
                 if self?.previewContent.preparationTargetID == id {
                     self?.cancelPreviewReturn()
                 }
@@ -469,14 +840,19 @@ final class AppShellModel {
     }
 
     private func rememberCurrentSession(retainUncommitted: Bool = false) {
-        guard let session = pane?.session ?? previewContent.session,
-              let store = dependencies?.store else { return }
+        guard let session = pane?.session ?? previewContent.session else { return }
+        rememberSession(session, id: conversationID, retainUncommitted: retainUncommitted)
+    }
+
+    private func rememberSession(_ session: ConversationSession, id: String,
+                                 retainUncommitted: Bool) {
+        guard let store = dependencies?.store else { return }
         do {
-            guard let summary = try store.conversationSummaryWindow(ids: [conversationID]).first else {
-                if retainUncommitted, try store.conversationLifecycle(id: conversationID) == nil {
+            guard let summary = try store.conversationSummaryWindow(ids: [id]).first else {
+                if retainUncommitted, try store.conversationLifecycle(id: id) == nil {
                     sessions.retain(session, reconstruction: .uncommitted)
                 } else {
-                    sessions.remove(conversationID: conversationID)
+                    sessions.remove(conversationID: id)
                 }
                 return
             }
@@ -486,7 +862,7 @@ final class AppShellModel {
             if let instanceID = summary.providerInstanceID, let modelID = summary.modelID {
                 configuration = ConversationComposerConfiguration(providerInstanceID: instanceID, modelID: modelID)
             } else if summary.runProjection == nil,
-                      let binding = try store.conversationInitialBinding(id: conversationID),
+                      let binding = try store.conversationInitialBinding(id: id),
                       let instanceID = binding.providerInstanceID, let modelID = binding.modelID {
                 configuration = ConversationComposerConfiguration(providerInstanceID: instanceID, modelID: modelID)
             } else {
@@ -526,13 +902,30 @@ final class AppShellModel {
     @discardableResult
     func openConversation(id: String) async -> Bool {
         guard let dependencies, !Task.isCancelled else { return false }
+        if let split = splitWorkspace, split.secondaryConversationID == id,
+           let secondary = splitPane, secondary.conversationID == id {
+            do {
+                let lifecycle = try dependencies.store.conversationLifecycle(id: id)
+                guard lifecycle == .visible || (lifecycle == nil
+                    && secondary.session === sessions.uncommittedSession(for: id)) else { return false }
+                selectSplitSlot(split.emptySlot)
+                recentOpenFailure = nil
+                return true
+            } catch {
+                recentOpenFailure = RecentConversationOpenFailure(conversationID: id)
+                return false
+            }
+        }
         if id == conversationID {
             if pane != nil {
                 do {
                     let lifecycle = try dependencies.store.conversationLifecycle(id: id)
                     let visible = lifecycle == .visible || (lifecycle == nil
                         && pane?.session === sessions.uncommittedSession(for: id))
-                    if visible { recentOpenFailure = nil }
+                    if visible {
+                        recentOpenFailure = nil
+                        if let split = splitWorkspace { selectSplitSlot(split.sourceSlot) }
+                    }
                     return visible
                 } catch {
                     recentOpenFailure = RecentConversationOpenFailure(conversationID: id)
@@ -548,6 +941,7 @@ final class AppShellModel {
 
         cancelPreviewReturn()
         let navigation = UUID()
+        let replacingSplit = previewContent.isPresented ? nil : splitWorkspace
         navigationID = navigation
         if let openTicket {
             router.cancelPanePreparation(for: openTicket.conversationID, ticket: openTicket.ticket)
@@ -562,6 +956,8 @@ final class AppShellModel {
             let history = try await router.historyPreparation.prepare(id: id, store: dependencies.store)
             let warmOwner = sessions.uncommittedSession(for: id)
             guard !Task.isCancelled, navigationID == navigation, router === dependencies.router,
+                  replacingSplit == nil || (splitWorkspace?.sourceConversationID == replacingSplit?.sourceConversationID
+                    && splitWorkspace?.secondaryConversationID == replacingSplit?.secondaryConversationID),
                   history.snapshot.conversation?.lifecycle == .visible
                     || (history.snapshot.conversation == nil && warmOwner != nil) else { return false }
             let wiring = try ConversationPaneFactory(sessions: sessions).makePane(
@@ -577,6 +973,15 @@ final class AppShellModel {
             guard (warmOwner == nil || wiring.pane.session === warmOwner),
                   dependencies.router.registerPreparedPane(wiring.pane, ticket: ticket) else { return false }
 
+            if let otherID = replacingSplit?.secondaryConversationID {
+                guard sessions.activate(wiring.pane.session, alongside: otherID,
+                                        isRuntimeProtected: router.hasActiveRun(for:)) else {
+                    router.unregisterPane(for: id)
+                    recentOpenFailure = RecentConversationOpenFailure(conversationID: id)
+                    return false
+                }
+            }
+
             // Keep the outgoing pane intact until the replacement has loaded and registered.
             rememberCurrentSession(retainUncommitted: true)
             cancelPreviewReturn()
@@ -584,10 +989,19 @@ final class AppShellModel {
             cardActions?.reset()
             let outgoingConversationID = conversationID
             if outgoingConversationID != id { router.unregisterPane(for: outgoingConversationID) }
+            if let split = replacingSplit {
+                cancelSplitSelection()
+                var updated = SplitWorkspaceState(sourceConversationID: id, sourceSlot: split.sourceSlot)
+                if let otherID = split.secondaryConversationID { _ = updated.occupy(otherID) }
+                updated.select(split.sourceSlot)
+                splitWorkspace = updated
+            } else {
+                closeSplit()
+            }
             conversationID = id
             actionBridge = wiring.bridge
             pane = wiring.pane
-            commitSession(wiring.pane.session)
+            if replacingSplit?.secondaryConversationID == nil { commitSession(wiring.pane.session) }
             sendAvailability = wiring.pane.composer.sendAvailability
             targetMessage = sendAvailability.message
             recentOpenFailure = nil

@@ -15,6 +15,7 @@ final class AppSpaceBrowseUITests: XCTestCase {
         for index in stride(from: 10, through: 4, by: -1) {
             card.swipeRight()
             guard wait({ card.exists && card.label.contains("Workspace conversation \(index)") }) else {
+                print("BROWSE_NATIVE \(app.otherElements["surface-native-interaction-probe"].value ?? "missing")")
                 XCTFail("Browsing past the initial preview window lost adjacent history \(index); actual Card: \(card.label)")
                 return
             }

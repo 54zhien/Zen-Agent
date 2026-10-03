@@ -6,6 +6,7 @@ struct ConversationPreviewUITestFixture: View {
     @State private var model: AppShellModel
     @State private var positionRequest: UInt64?
     @State private var didOpenHistory = false
+    @State private var hiddenViewportInset: CGFloat = 0
 
     init() {
         do {
@@ -27,6 +28,7 @@ struct ConversationPreviewUITestFixture: View {
 
     var body: some View {
         AppShellRootView(model: model)
+            .padding(.bottom, hiddenViewportInset)
             .task {
                 guard !didOpenHistory else { return }
                 didOpenHistory = true
@@ -41,7 +43,20 @@ struct ConversationPreviewUITestFixture: View {
                     .accessibilityIdentifier("preview-reading-diagnostic")
             }
             .overlay(alignment: .topLeading) {
-                if !model.previewContent.isPresented {
+                if model.previewContent.isPresented, model.splitWorkspace != nil,
+                   model.previewSurfaceSlot != model.sourceSurfaceSlot {
+                    Button("Queue hidden reading position") {
+                        // Force a different mounted viewport without depending on
+                        // the later device-rotation presentation policy.
+                        hiddenViewportInset = 100
+                        model.pane?.restoreAnchorForUITest(TurnAnchor(
+                            runID: "preview-reading-run-12", relativeViewportOffset: 0.2))
+                        positionRequest = model.pane?.scrollRequest?.sequence
+                    }
+                    .accessibilityIdentifier("preview-hidden-reading-position")
+                    .accessibilityValue(model.pane?.scrollRequest == nil ? "settled" : "pending")
+                    .padding(.top, 100)
+                } else if !model.previewContent.isPresented {
                     Button("Position older Turn") {
                         let deep = ProcessInfo.processInfo.environment["ZEN_PREVIEW_DEEP_READING_UI_TEST"] == "1"
                         let runID = "preview-reading-run-\(deep ? 120 : 10)"

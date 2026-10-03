@@ -1,5 +1,16 @@
 import SwiftUI
 
+private struct ConversationBottomNoticeKey: EnvironmentKey {
+    static var defaultValue: AnyView? { nil }
+}
+
+extension EnvironmentValues {
+    var conversationBottomNotice: AnyView? {
+        get { self[ConversationBottomNoticeKey.self] }
+        set { self[ConversationBottomNoticeKey.self] = newValue }
+    }
+}
+
 @MainActor
 struct ConversationPaneView: View {
     let pane: ConversationPaneController
@@ -8,20 +19,27 @@ struct ConversationPaneView: View {
     let maxProviderSteps: Int
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.conversationBottomNotice) private var bottomNotice
     @State private var composerClearance: CGFloat = 62
     private let scrollBridge: ConversationPaneScrollBridge
+    private let onUserFocus: () -> Void
+    private let isActive: Bool
 
     init(
         pane: ConversationPaneController,
         runtime: ConversationRuntime,
         actionBridge: ComposerRuntimeActionBridge,
-        maxProviderSteps: Int
+        maxProviderSteps: Int,
+        isActive: Bool = true,
+        onUserFocus: @escaping () -> Void = {}
     ) {
         self.pane = pane
         self.runtime = runtime
         self.actionBridge = actionBridge
         self.maxProviderSteps = maxProviderSteps
         self.scrollBridge = pane.scrollBridge
+        self.isActive = isActive
+        self.onUserFocus = onUserFocus
     }
 
     var body: some View {
@@ -66,8 +84,10 @@ struct ConversationPaneView: View {
                 },
                 onKeyboardWillChange: {
                     scrollBridge.composerKeyboardWillChange()
-                }
+                },
+                onUserFocus: onUserFocus
             )
+            .opacity(isActive ? 1 : 0.88)
             .id(ObjectIdentifier(pane.composer))
             .accessibilityIdentifier("conversation-pane-composer-\(pane.conversationID)")
         }
@@ -87,6 +107,12 @@ struct ConversationPaneView: View {
             }
         }
         .accessibilityIdentifier("conversation-pane-\(pane.conversationID)")
+        .overlay(alignment: .bottom) {
+            // Workspace notices share this Pane's keyboard-adjusted viewport
+            // and the measured Composer clearance, including its quote shelf.
+            bottomNotice
+                .padding(.bottom, composerClearance + 8)
+        }
         .task {
             do {
                 try await pane.refreshPendingApprovals(using: runtime)

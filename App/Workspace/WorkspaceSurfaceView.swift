@@ -25,6 +25,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
     let content: Content
     private let model: AppShellModel?
     @State private var lift: SurfaceLiftController
+    @State private var secondaryLift = SurfaceLiftController()
     @State private var browse = AppSpaceBrowseController()
     @State private var requestedMenuID: String?
     @ScaledMetric(relativeTo: .body) private var minimumWidth = 220.0
@@ -43,7 +44,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
         guard let model else { return nil }
         return { id, stillSelected in
             await model.deleteAppSpaceConversation(id: id, stillSelected: {
-                model.previewContent.isPresented && lift.state.phase == .card && stillSelected()
+                model.previewContent.isPresented && activeLift.state.phase == .card && stillSelected()
             })
         }
     }
@@ -67,14 +68,57 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         .zIndex(4 - card.depth)
                 }
             }
-            ConversationSurfaceHost(liftController: lift, browseController: model == nil ? nil : browse,
-                                    deleteAction: deleteAction, isDeletionPending: isDeletionPending) {
-                content.environment(\.surfaceLiftController, lift)
-                    .environment(\.surfaceBrowseController, model == nil ? nil : browse)
+            GeometryReader { geometry in
+                let fullFrame = CGRect(origin: .zero, size: geometry.size)
+                ZStack(alignment: .topLeading) {
+                    ForEach(WorkspaceSurfaceSlot.allCases, id: \.self) { slot in
+                        let driver = controller(for: slot)
+                        let frame = driver.retainsAppSpaceViewport ? fullFrame
+                            : splitFrame(in: geometry, slot: logicalSlot(for: slot)) ?? fullFrame
+                        let visible = surfaceIsVisible(slot)
+                        ConversationSurfaceHost(liftController: driver,
+                            browseController: model != nil && slot == (model?.previewSurfaceSlot ?? model?.sourceSurfaceSlot) ? browse : nil,
+                            deleteAction: deleteAction, isDeletionPending: isDeletionPending,
+                            isWorkspaceVisible: visible) {
+                            WorkspaceHostedContent(model: model, slot: slot, browse: browse, content: content)
+                                .environment(\.surfaceLiftController, driver)
+                                .environment(\.surfaceBrowseController, model == nil ? nil : browse)
+                        }
+                        .frame(width: frame.width, height: frame.height)
+                        .position(x: frame.midX, y: frame.midY)
+                        .opacity(visible ? 1 : 0)
+                        .allowsHitTesting(visible)
+                        .accessibilityHidden(!visible)
+                        .zIndex(activeSurfaceSlot == slot ? 10 : 0)
+                    }
+
+                    if let model, let split = model.splitWorkspace,
+                       let emptyFrame = splitFrame(in: geometry, slot: split.emptySlot) {
+                        if model.splitPane == nil, activeSurfaceSlot == nil {
+                            SplitEmptyPanePicker(summaries: model.recentConversations,
+                                occupiedID: split.sourceConversationID,
+                                errorMessage: model.splitOpenError ?? model.recentLoadError,
+                                hasMore: model.recentHasMore,
+                                onLoadMore: model.loadMoreRecentConversations,
+                                onRetry: model.retryRecentConversations,
+                                onOpen: { id in Task { _ = await model.openInSplit(id: id) } },
+                                onNew: { _ = model.createNewInSplit() })
+                                .frame(width: emptyFrame.width, height: emptyFrame.height)
+                                .position(x: emptyFrame.midX, y: emptyFrame.midY)
+                        }
+                        if activeSurfaceSlot == nil {
+                            splitDivider(width: emptyFrame.width) { model.closeSplit() }
+                                .position(x: emptyFrame.midX,
+                                    y: geometry.safeAreaInsets.top + (geometry.size.height
+                                        - geometry.safeAreaInsets.top - geometry.safeAreaInsets.bottom) / 2)
+                        }
+                    }
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height)
             }
             .zIndex(4 - (browse.layout()?.cards.first { $0.item == browse.state.selected }?.depth ?? 0))
-            if lift.splitTargetingVisible, let top = lift.splitTopFrame,
-               let bottom = lift.splitBottomFrame, let guide = lift.splitGuideFrame {
+            if activeLift.splitTargetingVisible, let top = activeLift.splitTopFrame,
+               let bottom = activeLift.splitBottomFrame, let guide = activeLift.splitGuideFrame {
                 splitTargetOverlay(top: top, bottom: bottom, guide: guide)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
@@ -83,14 +127,15 @@ struct WorkspaceSurfaceView<Content: View>: View {
             if let model, model.previewContent.isPresented, !browse.isNewEntry, browse.canEditCurrentMetadata,
                let summary = browse.currentSummary,
                let frame = browse.layout()?.cards.first(where: { $0.item == browse.state.selected })?.frame {
-                AppSpaceCardActionsView(model: model, browse: browse, lift: lift,
+                AppSpaceCardActionsView(model: model, browse: browse, lift: activeLift,
                     summary: summary, requestedID: $requestedMenuID)
                     .position(x: frame.maxX - 24, y: frame.minY + 24)
                     .zIndex(100)
             }
             if let model, let deletion = model.cardDeletion,
+               activeSurfaceSlot != nil || model.pane == nil,
                !deletion.pendingCards.isEmpty || deletion.errorMessage != nil {
-                deletionBanner(model: model, deletion: deletion)
+                WorkspaceDeletionNotice(model: model, deletion: deletion, browse: browse)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .padding(.bottom, 36)
                     .zIndex(200)
@@ -98,7 +143,18 @@ struct WorkspaceSurfaceView<Content: View>: View {
 #if DEBUG
             if ProcessInfo.processInfo.environment["ZEN_SURFACE_LIFT_UI_TEST"] == "1"
                 || ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
-                SurfaceLiftStateProbe(phase: lift.state.phase)
+                SurfaceLiftStateProbe(phase: lift.state.phase,
+                                      identifier: "surface-lift-state-probe")
+                    .frame(width: 1, height: 1)
+                    .allowsHitTesting(false)
+                SurfaceLiftStateProbe(phase: secondaryLift.state.phase,
+                                      identifier: "split-secondary-lift-state-probe")
+                    .frame(width: 1, height: 1)
+                    .allowsHitTesting(false)
+                SurfaceInteractionProbe(identifier: "surface-native-interaction-probe", driver: lift)
+                    .frame(width: 1, height: 1)
+                    .allowsHitTesting(false)
+                SurfaceInteractionProbe(identifier: "split-secondary-native-interaction-probe", driver: secondaryLift)
                     .frame(width: 1, height: 1)
                     .allowsHitTesting(false)
                 SplitDropIntentProbe(slot: lift.lastSplitDropIntent?.slot)
@@ -128,34 +184,20 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     menuRequest.wrappedValue = id
                     return true
                 }
-                lift.configurePreview(
-                    enter: { [weak model, weak browseController] in
-                        guard let model, let browseController, model.enterPreview() else { return false }
-                        browseController.present(originID: model.conversationID, fallback: model.previewContent.summaries)
-                        model.previewContent.releaseSummaryWindow()
-                        return true
-                    },
-                    prepare: { [weak model, weak browseController] in
-                        guard let model, let browseController else { return false }
-                        browseController.cancel()
-                        if browseController.isNewEntry {
-                            do {
-                                let id = try model.createConversationFromAppSpace()
-                                guard browseController.selectCreatedConversation(id: id) else { return false }
-                                model.acknowledgeAppSpaceCreation(id: id)
-                            } catch { return false }
-                        }
-                        return await model.preparePreviewReturn(to: browseController.selectedConversationID)
-                    },
-                    commit: { [weak model] in model?.commitPreviewReturn() ?? false },
-                    cancel: { [weak model] in model?.cancelPreviewReturn() },
-                    isPresented: { [weak model] in model?.previewContent.isPresented ?? false },
-                    label: { [weak model, weak browseController] in
-                        guard let model, let browseController else { return "当前会话" }
-                        return Self.cardLabel(model: model, browse: browseController)
+                for slot in WorkspaceSurfaceSlot.allCases {
+                    let driver = controller(for: slot)
+                    configurePreview(driver, model: model, slot: slot)
+                    driver.configureSplit(onDrop: { [weak model] intent in
+                        model?.acceptsSplitDrop(intent) ?? false
+                    }, onConverged: { [weak model, weak driver] intent in
+                        if model?.commitSplitDrop(intent) != true { _ = driver?.returnToFull() }
                     })
+                }
+                lift.setSplitWorkspacePresented(model.splitWorkspace != nil)
+                secondaryLift.setSplitWorkspacePresented(model.splitWorkspace != nil)
                 if model.previewContent.isPresented {
-                    browse.present(originID: model.conversationID, fallback: model.previewContent.summaries)
+                    browse.present(originID: model.previewContent.originID ?? model.conversationID,
+                                   fallback: model.previewContent.summaries)
                     model.previewContent.releaseSummaryWindow()
                 }
             }
@@ -169,13 +211,96 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 if !model.previewContent.isPreparing { browse.refresh() }
             }
         }
-        .onChange(of: cardLabel) { _, _ in lift.refreshCardAccessibility() }
+        .onChange(of: cardLabel) { _, _ in
+            lift.refreshCardAccessibility()
+            secondaryLift.refreshCardAccessibility()
+        }
         .onChange(of: model?.previewContent.isPresented) { _, presented in
             if presented != true { browse.finish() }
         }
+        .onChange(of: model?.splitWorkspace) { _, split in
+            lift.setSplitWorkspacePresented(split != nil)
+            secondaryLift.setSplitWorkspacePresented(split != nil)
+        }
         .onChange(of: dynamicTypeSize) { _, _ in updateMinimumSize() }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { browse.cancel(); lift.invalidate() }
+            if phase != .active { browse.cancel(); lift.invalidate(); secondaryLift.invalidate() }
+        }
+    }
+
+    private var activeLift: SurfaceLiftController {
+        controller(for: activeSurfaceSlot ?? model?.sourceSurfaceSlot ?? .primary)
+    }
+
+    private func controller(for slot: WorkspaceSurfaceSlot) -> SurfaceLiftController {
+        slot == .primary ? lift : secondaryLift
+    }
+
+    private var activeSurfaceSlot: WorkspaceSurfaceSlot? {
+        if let slot = model?.previewSurfaceSlot { return slot }
+        return WorkspaceSurfaceSlot.allCases.first { controller(for: $0).state.phase != .full }
+    }
+
+    private func logicalSlot(for slot: WorkspaceSurfaceSlot) -> SplitDropSlot? {
+        guard let model, let split = model.splitWorkspace else { return nil }
+        return slot == model.sourceSurfaceSlot ? split.sourceSlot : split.emptySlot
+    }
+
+    private func surfaceIsVisible(_ slot: WorkspaceSurfaceSlot) -> Bool {
+        if let activeSurfaceSlot { return activeSurfaceSlot == slot }
+        guard let model else { return slot == .primary }
+        return slot == model.sourceSurfaceSlot || model.splitPane != nil
+    }
+
+    private func configurePreview(_ controller: SurfaceLiftController,
+                                  model: AppShellModel, slot: WorkspaceSurfaceSlot) {
+        let browseController = browse
+        controller.configurePreview(
+            enter: { [weak model, weak browseController] in
+                guard let model, let browseController else { return false }
+                if let split = model.splitWorkspace {
+                    model.selectSplitSlot(slot == model.sourceSurfaceSlot ? split.sourceSlot : split.emptySlot)
+                } else if slot != model.sourceSurfaceSlot { return false }
+                guard model.enterPreview() else { return false }
+                browseController.present(originID: model.previewContent.originID ?? model.conversationID,
+                                         fallback: model.previewContent.summaries)
+                model.previewContent.releaseSummaryWindow()
+                return true
+            },
+            prepare: { [weak model, weak browseController] in
+                guard let model, let browseController else { return false }
+                browseController.cancel()
+                if browseController.isNewEntry {
+                    do {
+                        let id = try model.createConversationFromAppSpace()
+                        guard browseController.selectCreatedConversation(id: id) else { return false }
+                        model.acknowledgeAppSpaceCreation(id: id)
+                    } catch { return false }
+                }
+                return await model.preparePreviewReturn(to: browseController.selectedConversationID)
+            },
+            commit: { [weak model, weak controller] in
+                model?.commitPreviewReturn(openingSplitAt: controller?.requestedSplitReturnSlot) ?? false
+            },
+            cancel: { [weak model] in
+                guard let model, model.previewContent.isPresented else { return }
+                guard model.previewSurfaceSlot == slot else { return }
+                model.cancelPreviewReturn()
+            },
+            isPresented: { [weak model] in
+                guard let model, model.previewContent.isPresented else { return false }
+                return model.previewSurfaceSlot == slot
+            },
+            label: { [weak model, weak browseController] in
+                guard let model, let browseController else { return "当前会话" }
+                return Self.cardLabel(model: model, browse: browseController)
+            })
+        controller.configureReturnDestination { [weak model, weak controller] size, insets in
+            let destination = controller?.requestedSplitReturnSlot
+                ?? (model?.previewRestoresSplit == true ? model?.splitPreviewOriginSlot : nil)
+            guard let destination else { return CGRect(origin: .zero, size: size) }
+            return SplitTargetingGeometry.preview(slot: destination, progress: 1,
+                size: size, safeArea: insets)?.paneFrame
         }
     }
 
@@ -184,10 +309,32 @@ struct WorkspaceSurfaceView<Content: View>: View {
         return Self.cardLabel(model: model, browse: browse)
     }
 
+    private func splitFrame(in geometry: GeometryProxy, slot: SplitDropSlot?) -> CGRect? {
+        guard let slot else { return nil }
+        let safe = geometry.safeAreaInsets
+        return SplitTargetingGeometry.preview(slot: slot, progress: 1, size: geometry.size,
+            safeArea: UIEdgeInsets(top: safe.top, left: safe.leading,
+                                   bottom: safe.bottom, right: safe.trailing))?.paneFrame
+    }
+
+    private func splitDivider(width: CGFloat, onClose: @escaping () -> Void) -> some View {
+        ZStack {
+            Rectangle().fill(Color.white.opacity(0.20)).frame(height: 2)
+            Capsule().fill(Color.white).frame(width: min(64, width * 0.2), height: 4)
+        }
+        .frame(width: width, height: 28)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onClose)
+        .accessibilityElement()
+        .accessibilityLabel("分屏分隔线")
+        .accessibilityHint("轻点关闭分屏")
+        .accessibilityIdentifier("split-divider")
+    }
+
     private func splitTargetOverlay(top: CGRect, bottom: CGRect, guide: CGRect) -> some View {
         ZStack(alignment: .topLeading) {
-            zone(top, selected: lift.splitTargetSlot == .top)
-            zone(bottom, selected: lift.splitTargetSlot == .bottom)
+            zone(top, selected: activeLift.splitTargetSlot == .top)
+            zone(bottom, selected: activeLift.splitTargetSlot == .bottom)
             Capsule()
                 .fill(Color.white.opacity(0.18))
                 .frame(width: min(64, guide.width * 0.2), height: guide.height)
@@ -202,74 +349,6 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 .fill(Color.white.opacity(selected ? 0.07 : 0.025)))
             .frame(width: frame.width, height: frame.height)
             .position(x: frame.midX, y: frame.midY)
-    }
-
-    private func deletionBanner(model: AppShellModel,
-                                deletion: AppSpaceConversationDeletion) -> some View {
-        VStack(spacing: 6) {
-            if let error = deletion.errorMessage {
-                HStack(spacing: 12) {
-                    Text(error).font(.footnote)
-                    if deletion.needsRecoveryRetry {
-                        Button("重试") { deletion.recoverPending() }
-                            .accessibilityIdentifier("workspace-card-recovery-retry")
-                    } else {
-                        Button("关闭") { deletion.clearError() }
-                    }
-                }
-                .padding(10)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            }
-            if !deletion.pendingCards.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 8) {
-                        ForEach(deletion.pendingCards, id: \.conversationID) { item in
-                            HStack(spacing: 12) {
-                                Text(deletion.needsRecoveryDecision(conversationID: item.conversationID)
-                                    ? "删除待确认" : "会话已删除").font(.footnote)
-                                if deletion.needsRecoveryDecision(conversationID: item.conversationID) {
-                                    Button("保留会话") {
-                                        if model.restoreRecoveredAppSpaceConversation(id: item.conversationID) {
-                                            if browse.isPresented {
-                                                _ = browse.selectRestoredConversation(id: item.conversationID)
-                                            }
-                                            UIAccessibility.post(notification: .announcement,
-                                                argument: "会话已保留")
-                                        }
-                                    }
-                                    .accessibilityIdentifier("workspace-card-restore-\(item.conversationID)")
-                                    Button("确认删除", role: .destructive) {
-                                        _ = model.confirmRecoveredAppSpaceConversationDeletion(id: item.conversationID)
-                                    }
-                                    .accessibilityIdentifier("workspace-card-confirm-delete-\(item.conversationID)")
-                                } else if deletion.canUndo(conversationID: item.conversationID) {
-                                    Button("撤销") {
-                                        if model.undoAppSpaceConversation(id: item.conversationID) {
-                                            if browse.isPresented {
-                                                _ = browse.selectRestoredConversation(id: item.conversationID)
-                                            }
-                                            UIAccessibility.post(notification: .announcement,
-                                                argument: "会话已恢复")
-                                        }
-                                    }
-                                    .accessibilityIdentifier("workspace-card-undo-\(item.conversationID)")
-                                } else {
-                                    Button("重试清理") {
-                                        deletion.retryFinalization(conversationID: item.conversationID)
-                                    }
-                                    .accessibilityIdentifier("workspace-card-cleanup-\(item.conversationID)")
-                                }
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
-                            .background(.regularMaterial, in: Capsule())
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                }
-                .frame(maxHeight: 54)
-            }
-        }
     }
 
     private static func cardLabel(model: AppShellModel, browse: AppSpaceBrowseController) -> String {
@@ -306,20 +385,99 @@ struct WorkspaceSurfaceView<Content: View>: View {
     private func updateMinimumSize() {
         browse.updateMinimumCardSize(CGSize(width: minimumWidth, height: minimumHeight))
         lift.minimumCardSize = CGSize(width: minimumWidth, height: minimumHeight)
+        secondaryLift.minimumCardSize = CGSize(width: minimumWidth, height: minimumHeight)
         lift.invalidate()
+        secondaryLift.invalidate()
+    }
+}
+
+/// The hosting controller installs this root once. Read the observable owner
+/// mapping here so a surviving secondary Surface can become Single in place.
+@MainActor
+private struct WorkspaceHostedContent<Content: View>: View {
+    let model: AppShellModel?
+    let slot: WorkspaceSurfaceSlot
+    let browse: AppSpaceBrowseController
+    let content: Content
+    @Environment(\.surfaceLiftController) private var lift
+
+    var body: some View {
+        Group {
+            if let model {
+                if model.previewContent.isPresented, model.previewSurfaceSlot == slot {
+                    ConversationPreviewView(
+                        summary: browse.isPresented ? browse.currentSummary : model.previewContent.currentSummary,
+                        status: model.appSpaceActionError(for: browse.selectedConversationID).map { .failed($0) }
+                            ?? (browse.isPresented
+                                ? model.previewContent.status(for: browse.selectedConversationID,
+                                    summary: browse.currentSummary, summaryError: browse.errorMessage)
+                                : model.previewContent.status),
+                        isNewEntry: browse.isNewEntry)
+                } else if slot == model.sourceSurfaceSlot {
+                    content
+                } else if model.splitWorkspace != nil {
+                    SplitSecondaryPaneView(model: model)
+                }
+            } else if slot == .primary {
+                content
+            }
+        }
+        // The nested hosting controller builds its own SwiftUI accessibility
+        // tree. Suppress that tree here while preserving the hidden live Pane.
+        .accessibilityHidden(model?.previewContent.isPresented == true
+            && model?.previewSurfaceSlot != slot)
+        .environment(\.conversationBottomNotice, bottomNotice)
+    }
+
+    private var bottomNotice: AnyView? {
+        guard let model, !model.previewContent.isPresented, lift?.state.phase == .full,
+              let deletion = model.cardDeletion,
+              !deletion.pendingCards.isEmpty || deletion.errorMessage != nil else { return nil }
+        let owner: WorkspaceSurfaceSlot
+        if let split = model.splitWorkspace, model.splitPane != nil,
+           split.activeSlot == split.emptySlot {
+            owner = model.sourceSurfaceSlot == .primary ? .secondary : .primary
+        } else {
+            owner = model.sourceSurfaceSlot
+        }
+        guard slot == owner else { return nil }
+        return AnyView(WorkspaceDeletionNotice(model: model, deletion: deletion, browse: browse))
     }
 }
 
 #if DEBUG
+private struct SurfaceInteractionProbe: UIViewRepresentable {
+    let identifier: String
+    let driver: SurfaceLiftController
+    func makeUIView(context: Context) -> SurfaceInteractionProbeView {
+        let view = SurfaceInteractionProbeView()
+        view.isAccessibilityElement = true
+        view.accessibilityIdentifier = identifier
+        view.readValue = { [weak driver] in driver?.nativeInteractionDiagnostic?() ?? "unbound" }
+        return view
+    }
+    func updateUIView(_ uiView: SurfaceInteractionProbeView, context: Context) {}
+}
+
+private final class SurfaceInteractionProbeView: UIView {
+    var readValue: (() -> String)?
+    override var accessibilityValue: String? {
+        get { readValue?() ?? super.accessibilityValue }
+        set { super.accessibilityValue = newValue }
+    }
+}
+
 private struct SurfaceLiftStateProbe: UIViewRepresentable {
     let phase: SurfaceLiftState.Phase
+    let identifier: String
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.isAccessibilityElement = true
-        view.accessibilityIdentifier = "surface-lift-state-probe"
+        view.accessibilityIdentifier = identifier
         return view
     }
     func updateUIView(_ uiView: UIView, context: Context) {
+        uiView.accessibilityIdentifier = identifier
         uiView.accessibilityValue = String(describing: phase)
     }
 }

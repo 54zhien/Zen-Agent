@@ -113,8 +113,17 @@ As of 2026-09-30:
   handoff/animation interruption risks. Their test-first repair passed
   [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36659735487)
   (816 Swift Testing, 20 XCTest, 21 UI), with the exact source/test tree recorded
-  in [the S5-08 record](tasks/s5-08-split-targeting.md). S5-09–16 remain later
-  work. A usable two-Pane Split begins in S5-09.
+  in [the S5-08 record](tasks/s5-08-split-targeting.md).
+- S5-09 Split Container is in progress on stacked draft
+  [PR #26](https://github.com/54zhien/Zen-Agent/pull/26), not merged or accepted.
+  The initial either-Pane Lift checkpoint passed
+  [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36675744955)
+  (826 Swift Testing, 20 XCTest, 28 UI). Independent review found ownership,
+  Return geometry and navigation gaps; compiled regressions reproduced them.
+  Current repairs and a new native Browse transport regression await CI in
+  [the S5-09 review record](tasks/s5-09-review.md). S5-10–16 are authorized next
+  work, in dependency order; the execution plans under `Docs/superpowers/plans/`
+  are plans, not completion evidence.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
   does not establish device memory, performance, input, comfort or VoiceOver acceptance.

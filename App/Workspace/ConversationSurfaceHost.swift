@@ -8,18 +8,21 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var browseController: AppSpaceBrowseController?
     var deleteAction: AppSpaceCardDeletionInteraction.Commit?
     var isDeletionPending: (@MainActor (String) -> Bool)?
+    var isWorkspaceVisible: Bool
     let content: Content
 
     init(request: SurfaceGeometry.Request = .full, liftController: SurfaceLiftController? = nil,
          browseController: AppSpaceBrowseController? = nil,
          deleteAction: AppSpaceCardDeletionInteraction.Commit? = nil,
          isDeletionPending: (@MainActor (String) -> Bool)? = nil,
+         isWorkspaceVisible: Bool = true,
          @ViewBuilder content: () -> Content) {
         self.request = request
         self.liftController = liftController
         self.browseController = browseController
         self.deleteAction = deleteAction
         self.isDeletionPending = isDeletionPending
+        self.isWorkspaceVisible = isWorkspaceVisible
         self.content = content()
     }
 
@@ -28,6 +31,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         liftController?.bind(controller)
         controller.bindBrowse(browseController)
         controller.bindDeletion(deleteAction, isPending: isDeletionPending)
+        controller.setWorkspaceVisible(isWorkspaceVisible)
         return controller
     }
 
@@ -42,6 +46,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         }
         controller.bindBrowse(browseController)
         controller.bindDeletion(deleteAction, isPending: isDeletionPending)
+        controller.setWorkspaceVisible(isWorkspaceVisible)
     }
 
     static func dismantleUIViewController(_ controller: ConversationSurfaceViewController<Content>,
@@ -69,9 +74,42 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 #if DEBUG
     // Tests pause the real animator so a busy simulator cannot skip settlement.
     var liftAnimatorForTesting: UIViewPropertyAnimator? { animator }
+
+    var interactionDiagnostic: String {
+        func editors(in node: UIView) -> [UITextView] {
+            if let editor = node as? UITextView,
+               editor.accessibilityIdentifier == "conversation-composer-input" { return [editor] }
+            return node.subviews.flatMap { editors(in: $0) }
+        }
+        func chain(_ view: UIView?) -> String {
+            var node = view
+            var values: [String] = []
+            while let current = node, values.count < 14 {
+                values.append("\(type(of: current))[hidden=\(current.isHidden),interaction=\(current.isUserInteractionEnabled),alpha=\(current.alpha)]")
+                node = current.superview
+            }
+            return values.joined(separator: ">")
+        }
+        let mounted = editors(in: contentController.view)
+        var fields = ["host=\(ObjectIdentifier(self))", "phase=\(String(describing: liftController?.state.phase))",
+            "visible=\(workspaceVisible)", "root=\(chain(view))",
+            "contentInteraction=\(contentController.view.isUserInteractionEnabled)",
+            "contentAXHidden=\(contentController.view.accessibilityElementsHidden)",
+            "surfaceAX=\(surfaceView.isAccessibilityElement)", "activate=\(surfaceView.onActivate != nil)",
+            "editors=\(mounted.count)", "browse=\(browseInteraction?.diagnostic ?? "none")"]
+        if let editor = mounted.first, let window = view.window {
+            let point = editor.convert(CGPoint(x: editor.bounds.midX, y: editor.bounds.midY), to: window)
+            fields.append("focused=\(editor.isFirstResponder)")
+            fields.append("point=\(point)")
+            fields.append("hit=\(chain(window.hitTest(point, with: nil)))")
+        }
+        return fields.joined(separator: ";")
+    }
 #endif
     private var animationIdentity: UUID?
     private var retainsAnimationMask = false
+    private var workspaceVisible = true
+    private var contentConstraints: [NSLayoutConstraint] = []
 
     init(content: Content, request: SurfaceGeometry.Request = .full) {
         contentController = SurfaceHostingController(rootView: content)
@@ -100,12 +138,13 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         let contentView = contentController.view!
         contentView.translatesAutoresizingMaskIntoConstraints = false
         surfaceView.addSubview(contentView)
-        NSLayoutConstraint.activate([
+        contentConstraints = [
             contentView.leadingAnchor.constraint(equalTo: surfaceView.leadingAnchor),
             contentView.trailingAnchor.constraint(equalTo: surfaceView.trailingAnchor),
             contentView.topAnchor.constraint(equalTo: surfaceView.topAnchor),
             contentView.bottomAnchor.constraint(equalTo: surfaceView.bottomAnchor)
-        ])
+        ]
+        NSLayoutConstraint.activate(contentConstraints)
         contentController.didMove(toParent: self)
     }
 
@@ -116,7 +155,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         let center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
         if surfaceView.bounds != bounds { surfaceView.bounds = bounds }
         if surfaceView.center != center { surfaceView.center = center }
-        contentController.preserveContainerSafeArea(view.safeAreaInsets)
+        if workspaceVisible { contentController.preserveContainerSafeArea(view.safeAreaInsets) }
         // onAppear may restore Card before a usable viewport exists. Notify the
         // first layout too, so that Card's first Return has a resolved Lift target.
         let changed = lastViewport != view.bounds || lastInsets != view.safeAreaInsets
@@ -129,7 +168,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
-        contentController.preserveContainerSafeArea(view.safeAreaInsets)
+        if workspaceVisible { contentController.preserveContainerSafeArea(view.safeAreaInsets) }
     }
 
     @discardableResult
@@ -164,9 +203,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     func setLiftInteraction(_ phase: SurfaceLiftState.Phase, returnAction: @escaping () -> Bool) {
         let frozen = phase == .settling || phase == .card || phase == .split
-        contentController.view.isUserInteractionEnabled = !frozen
-        contentController.view.accessibilityElementsHidden = frozen
-        surfaceView.isAccessibilityElement = frozen
+        contentController.view.isUserInteractionEnabled = workspaceVisible && !frozen
+        contentController.view.accessibilityElementsHidden = !workspaceVisible || frozen
+        surfaceView.isAccessibilityElement = workspaceVisible && frozen
         surfaceView.accessibilityIdentifier = phase == .card ? "workspace-current-card" : nil
         surfaceView.accessibilityLabel = "当前会话"
         let isNew = browseInteraction?.controller.isNewEntry == true
@@ -209,14 +248,16 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func bindBrowse(_ controller: AppSpaceBrowseController?) {
-        guard browseInteraction?.controller !== controller else { return }
+        if let browseInteraction, browseInteraction.controller === controller,
+           browseInteraction.isCurrentOwner { return }
         unbindBrowse()
         guard let controller else { return }
         loadViewIfNeeded()
         browseInteraction = AppSpaceBrowseInteraction(surface: surfaceView, coordinates: view, controller: controller,
             canBrowse: { [weak self, weak controller] in
                 guard let self, let lift = self.liftController else { return false }
-                return controller?.isPresented == true && lift.state.phase == .card
+                return self.browseInteraction?.isCurrentOwner == true
+                    && controller?.isPresented == true && lift.state.phase == .card
                     && !lift.isPreparingReturn && !lift.overlayPresented && !self.hasPresentedOverlay
             }, render: { [weak self, weak controller] card in
                 guard let self, let controller, self.liftController?.state.phase == .card,
@@ -251,6 +292,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             canDelete: { [weak self, weak browse] in
                 guard let self, let browse, let lift = self.liftController else { return false }
                 return browse.isPresented && !browse.interactionSuspended
+                    && self.browseInteraction?.isCurrentOwner == true
                     && browse.state.phase == .idle && browse.canEditCurrentMetadata
                     && lift.state.phase == .card && !lift.isPreparingReturn
                     && !lift.overlayPresented && !self.hasPresentedOverlay
@@ -265,6 +307,40 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     func unbindDeletion() {
         deletionInteraction?.unbind()
         deletionInteraction = nil
+    }
+
+    func setWorkspaceVisible(_ visible: Bool) {
+        loadViewIfNeeded()
+        let contentView = contentController.view!
+        if !visible {
+            // A nested hosting accessibility tree can remain discoverable despite
+            // hidden flags. Retain its owners and native views, but remove the
+            // inactive tree from the window until this Pane is presented again.
+            liftController?.setWorkspaceVisible(false)
+            contentController.suspendsContainerInsets = true
+            workspaceVisible = false
+            if contentView.superview != nil {
+                NSLayoutConstraint.deactivate(contentConstraints)
+                contentView.removeFromSuperview()
+            }
+        } else if contentView.superview == nil {
+            surfaceView.addSubview(contentView)
+            NSLayoutConstraint.activate(contentConstraints)
+            workspaceVisible = true
+            contentController.suspendsContainerInsets = false
+            view.setNeedsLayout()
+            view.layoutIfNeeded()
+            contentController.preserveContainerSafeArea(view.safeAreaInsets)
+            contentView.layoutIfNeeded()
+        } else {
+            workspaceVisible = true
+        }
+        view.isHidden = !visible
+        view.isUserInteractionEnabled = visible
+        view.accessibilityElementsHidden = !visible
+        // Resume after the retained view has its mounted viewport and safe area.
+        liftController?.setWorkspaceVisible(visible)
+        liftController?.refreshCardAccessibility()
     }
 
     var hasPresentedOverlay: Bool {
@@ -293,20 +369,23 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         UIView.performWithoutAnimation { _ = apply(.full, force: true) }
     }
 
-    func captureLiftProgress(target: SurfaceGeometry.Pose) -> Double {
+    func captureLiftProgress(target: SurfaceGeometry.Pose, restingPose: SurfaceGeometry.Pose = .full) -> Double {
         var progress = request.progress
         if animator != nil, let visible = surfaceView.layer.presentation()?.transform {
             let available = CGSize(width: view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right,
                                    height: view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom)
             let candidates: [(magnitude: CGFloat, fraction: CGFloat)] = [
-                (abs((target.scale - 1) * view.bounds.width),
-                 abs(target.scale - 1) > 0.000001 ? (visible.m11 - 1) / (target.scale - 1) : 0),
-                (abs(target.translation.width * available.width),
-                 abs(target.translation.width * available.width) > 0.000001
-                    ? visible.m41 / (target.translation.width * available.width) : 0),
-                (abs(target.translation.height * available.height),
-                 abs(target.translation.height * available.height) > 0.000001
-                    ? visible.m42 / (target.translation.height * available.height) : 0)
+                (abs((target.scale - restingPose.scale) * view.bounds.width),
+                 abs(target.scale - restingPose.scale) > 0.000001
+                    ? (visible.m11 - restingPose.scale) / (target.scale - restingPose.scale) : 0),
+                (abs((target.translation.width - restingPose.translation.width) * available.width),
+                 abs(target.translation.width - restingPose.translation.width) > 0.000001
+                    ? (visible.m41 / available.width - restingPose.translation.width)
+                        / (target.translation.width - restingPose.translation.width) : 0),
+                (abs((target.translation.height - restingPose.translation.height) * available.height),
+                 abs(target.translation.height - restingPose.translation.height) > 0.000001
+                    ? (visible.m42 / available.height - restingPose.translation.height)
+                        / (target.translation.height - restingPose.translation.height) : 0)
             ]
             if let strongest = candidates.max(by: { $0.magnitude < $1.magnitude }),
                strongest.magnitude > 0.000001, strongest.fraction.isFinite {
@@ -315,16 +394,17 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         }
         progress = min(1, max(0, progress))
         cancelLiftAnimation()
-        UIView.performWithoutAnimation { _ = apply(.init(to: target, progress: progress)) }
+        UIView.performWithoutAnimation { _ = apply(.init(from: restingPose, to: target, progress: progress)) }
         return Double(progress)
     }
 
     func animateLift(target: SurfaceGeometry.Pose, from: Double, to: Double,
+                     restingPose: SurfaceGeometry.Pose = .full,
                      animated: Bool, completion: @escaping (Bool) -> Void) {
         cancelLiftAnimation()
-        _ = apply(.init(to: target, progress: CGFloat(from)))
+        _ = apply(.init(from: restingPose, to: target, progress: CGFloat(from)))
         guard animated, !UIAccessibility.isReduceMotionEnabled, abs(to - from) > 0.000001 else {
-            let applied = apply(.init(to: target, progress: CGFloat(to)))
+            let applied = apply(.init(from: restingPose, to: target, progress: CGFloat(to)))
             completion(applied)
             return
         }
@@ -333,7 +413,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         let identity = UUID()
         animationIdentity = identity
         let animation = UIViewPropertyAnimator(duration: 0.28, curve: .easeInOut) { [weak self] in
-            _ = self?.apply(.init(to: target, progress: CGFloat(to)))
+            _ = self?.apply(.init(from: restingPose, to: target, progress: CGFloat(to)))
         }
         animation.isManualHitTestingEnabled = true
         animator = animation
@@ -461,6 +541,7 @@ final class SurfaceClipView: UIView {
 
 @MainActor
 final class SurfaceHostingController<Content: View>: UIHostingController<Content> {
+    var suspendsContainerInsets = false
     private var containerInsets: UIEdgeInsets?
     private var isAdjustingInsets = false
 
@@ -475,7 +556,7 @@ final class SurfaceHostingController<Content: View>: UIHostingController<Content
     }
 
     private func reconcileInsets() {
-        guard let target = containerInsets, !isAdjustingInsets else { return }
+        guard !suspendsContainerInsets, let target = containerInsets, !isAdjustingInsets else { return }
         let current = view.safeAreaInsets
         let added = additionalSafeAreaInsets
         // UIKit recalculates inherited insets from the transformed child's placement.

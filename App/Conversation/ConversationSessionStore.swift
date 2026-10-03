@@ -26,7 +26,7 @@ final class ConversationSessionStore {
     }
 
     private var entries: [String: Entry] = [:]
-    private var activeID: String?
+    private var activeIDs: Set<String> = []
     private var accessOrder: UInt64 = 0
     private let warmLimit: Int
     private let now: () -> Date
@@ -70,24 +70,54 @@ final class ConversationSessionStore {
                 creationOrder: accessOrder, initialConfiguration: session.composer.configuration,
                 reconstruction: reconstruction,
                 lastAccess: date, accessOrder: accessOrder,
-                state: activeID == id ? .active : .warm(lastAccess: date))
+                state: activeIDs.contains(id) ? .active : .warm(lastAccess: date))
         }
     }
 
     /// Called only after the replacement Pane has loaded and registered.
     func activate(_ session: ConversationSession, isRuntimeProtected: (String) -> Bool = { _ in false }) {
-        if let activeID, activeID != session.conversationID, var previous = entries[activeID] {
-            // Only a pristine blank working page can be retired on replacement.
-            // Drafts, changed configuration, anchors and pending submission retain their owner.
-            if case .uncommitted = previous.reconstruction,
-               !isRuntimeProtected(activeID),
-               previous.session.canReconstruct(configuration: previous.initialConfiguration) {
-                entries.removeValue(forKey: activeID)
-            } else {
-                previous.state = .warm(lastAccess: previous.lastAccess)
-                entries[activeID] = previous
-            }
+        for id in activeIDs where id != session.conversationID {
+            demote(id, isRuntimeProtected: isRuntimeProtected)
         }
+        activeIDs = [session.conversationID]
+        promote(session)
+    }
+
+    /// Split keeps the source Session resident while a distinct second Pane is live.
+    @discardableResult
+    func activate(_ session: ConversationSession, alongside sourceID: String,
+                  isRuntimeProtected: (String) -> Bool = { _ in false }) -> Bool {
+        let id = session.conversationID
+        guard id != sourceID, activeIDs.contains(sourceID) else { return false }
+        for other in activeIDs where other != sourceID && other != id {
+            demote(other, isRuntimeProtected: isRuntimeProtected)
+        }
+        activeIDs = [sourceID, id]
+        promote(session)
+        return true
+    }
+
+    func deactivate(_ conversationID: String) {
+        guard activeIDs.remove(conversationID) != nil, var entry = entries[conversationID] else { return }
+        entry.state = .warm(lastAccess: entry.lastAccess)
+        entries[conversationID] = entry
+    }
+
+    private func demote(_ id: String, isRuntimeProtected: (String) -> Bool) {
+        guard var previous = entries[id] else { return }
+        // Only a pristine blank working page can be retired on replacement.
+        // Drafts, changed configuration, anchors and pending submission retain their owner.
+        if case .uncommitted = previous.reconstruction,
+           !isRuntimeProtected(id),
+           previous.session.canReconstruct(configuration: previous.initialConfiguration) {
+            entries.removeValue(forKey: id)
+        } else {
+            previous.state = .warm(lastAccess: previous.lastAccess)
+            entries[id] = previous
+        }
+    }
+
+    private func promote(_ session: ConversationSession) {
         let id = session.conversationID
         var entry = entries[id]
         if entry?.session !== session {
@@ -100,22 +130,21 @@ final class ConversationSessionStore {
         incoming.accessOrder = accessOrder
         incoming.state = .active
         entries[id] = incoming
-        activeID = id
     }
 
     func remove(conversationID: String) {
         entries.removeValue(forKey: conversationID)
-        if activeID == conversationID { activeID = nil }
+        activeIDs.remove(conversationID)
     }
 
     func removeAll() {
         entries.removeAll()
-        activeID = nil
+        activeIDs.removeAll()
     }
 
     func evictIfNeeded(isRuntimeProtected: (String) -> Bool) {
         let candidates = entries.filter { id, entry in
-            guard id != activeID, !isRuntimeProtected(id),
+            guard !activeIDs.contains(id), !isRuntimeProtected(id),
                   case .history(let configuration) = entry.reconstruction else { return false }
             return entry.session.canReconstruct(configuration: configuration)
         }.sorted { $0.value.accessOrder < $1.value.accessOrder }

@@ -6,6 +6,27 @@ import Testing
 @Suite("Conversation session residency")
 @MainActor
 struct ConversationSessionStoreTests {
+    @Test("Split keeps two independent Sessions active under a zero warm budget")
+    func twoSplitOwnersSurviveWarmEviction() {
+        let store = ConversationSessionStore(warmLimit: 0)
+        let source = ConversationSession(conversationID: "source", configuration: nil)
+        let secondary = ConversationSession(conversationID: "secondary", configuration: nil)
+        store.retain(source, reconstruction: .history(configuration: nil))
+        store.activate(source)
+        store.retain(secondary, reconstruction: .history(configuration: nil))
+        #expect(store.activate(secondary, alongside: "source"))
+        store.evictIfNeeded(isRuntimeProtected: { _ in false })
+        #expect(store.state(for: "source") == .active)
+        #expect(store.state(for: "secondary") == .active)
+        #expect(store.session(for: "source") === source)
+        #expect(store.session(for: "secondary") === secondary)
+        source.composer.draft.text = "source draft"
+        secondary.composer.draft.text = "secondary draft"
+        #expect(source.composer.draft.text == "source draft")
+        #expect(secondary.composer.draft.text == "secondary draft")
+        #expect(!store.activate(source, alongside: "source"))
+    }
+
     @Test("reopening changes LRU order even when wall clock timestamps tie")
     func tiedClockUsesCommittedAccessOrder() {
         let store = ConversationSessionStore(warmLimit: 2, now: { Fixtures.epoch })

@@ -15,6 +15,67 @@ private actor SurfaceCommandProbe {
 @Suite("Stable Conversation Surface", .serialized)
 @MainActor
 struct ConversationSurfaceHostTests {
+    @Test("a late old Surface unbind cannot steal the new Surface's Browse transport")
+    func browseTransportSurvivesReversedHostUpdateOrder() throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.createEmptyConversation(id: "transport-older", at: Date(timeIntervalSince1970: 1))
+        try store.createEmptyConversation(id: "transport-current", at: Date(timeIntervalSince1970: 2))
+        let browse = AppSpaceBrowseController(reader: { try store.conversationBrowseWindow(id: $0) })
+        let oldHost = ConversationSurfaceViewController(content: Text("old Pane"))
+        let newHost = ConversationSurfaceViewController(content: Text("new Pane"))
+        oldHost.loadViewIfNeeded()
+        newHost.loadViewIfNeeded()
+        oldHost.view.frame = CGRect(x: 0, y: 0, width: 320, height: 700)
+        newHost.view.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        oldHost.view.layoutIfNeeded()
+        newHost.view.layoutIfNeeded()
+        oldHost.bindBrowse(browse)
+        let lift = SurfaceLiftController()
+        lift.bind(newHost)
+        #expect(lift.arm(SurfaceLiftEligibility()))
+        #expect(lift.drag(upwardDistance: 220, eligibility: SurfaceLiftEligibility()))
+        #expect(lift.end(animated: false)?.destination == .card)
+        newHost.bindBrowse(browse)
+        browse.present(originID: "transport-current")
+        defer { oldHost.unbindBrowse(); newHost.unbindBrowse(); lift.unbind(newHost) }
+
+        oldHost.view.frame.size.height = 600
+        oldHost.view.setNeedsLayout()
+        oldHost.view.layoutIfNeeded()
+        #expect(browse.viewportSize == CGSize(width: 400, height: 800))
+        oldHost.unbindBrowse()
+        let before = newHost.presentation
+        let layout = try #require(browse.layout())
+        #expect(browse.begin())
+        #expect(browse.drag(displacement: 100, travel: Double(layout.travel)))
+        #expect(newHost.presentation != before, "The new native Current must still render Browse updates")
+        #expect(browse.selectedConversationID == "transport-current")
+    }
+
+    @Test("a retained Surface can reclaim the same Browse controller before the departing host unbinds")
+    func browseTransportCanReturnToAnExistingBinding() throws {
+        let browse = AppSpaceBrowseController()
+        let first = ConversationSurfaceViewController(content: Text("first Pane"))
+        let second = ConversationSurfaceViewController(content: Text("second Pane"))
+        first.loadViewIfNeeded()
+        second.loadViewIfNeeded()
+        first.view.frame = CGRect(x: 0, y: 0, width: 320, height: 700)
+        second.view.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        first.bindBrowse(browse)
+        second.bindBrowse(browse)
+        defer { first.unbindBrowse(); second.unbindBrowse() }
+
+        // Representable updates may arrive in either order. The latest binding
+        // is authoritative even when that host still retains its old transport.
+        first.bindBrowse(browse)
+        second.unbindBrowse()
+        let returned = try #require(first.browseInteraction)
+        #expect(returned.isCurrentOwner)
+        returned.updateViewport()
+        #expect(browse.viewportSize == CGSize(width: 320, height: 700))
+        #expect(browse.onChanged != nil)
+    }
+
     @Test("mounted Current exposes a working accessibility Delete action")
     func mountedCardAccessibilityDeleteCommitsCapturedID() async throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
@@ -137,6 +198,25 @@ struct ConversationSurfaceHostTests {
             #expect(pane.composer.draft == draft && pane.liveStore.state == state)
             #expect(reading.mode == readingMode)
         }
+        host.setWorkspaceVisible(false)
+        try await settleLayout(host)
+        #expect(editor.window == nil)
+        #expect(textViews(in: host.view).isEmpty)
+        #expect(host.contentController === child)
+        #expect(child.parent === host)
+        #expect(pane.composer.draft == draft && pane.liveStore.state == state)
+        host.setWorkspaceVisible(false)
+        host.setWorkspaceVisible(true)
+        host.setWorkspaceVisible(true)
+        try await settleLayout(host)
+        #expect(editor.window === window)
+        #expect(textViews(in: host.view).first === editor)
+        #expect(textViews(in: host.view).count == editorCount)
+        #expect(child.view.bounds == originalBounds)
+        #expect(child.view.safeAreaInsets == originalInsets)
+        #expect(editor.selectedRange == editorSelection)
+        #expect(reading.mode == readingMode)
+        #expect(pane.composer.draft == draft && pane.liveStore.state == state)
         #expect(await probe.counts() == [0, 0])
         #expect(await probe.active.runID == "surface-active-run")
     }

@@ -62,7 +62,8 @@ struct NewConversationView: View {
 
     var body: some View {
         Group {
-            if model.previewContent.isPresented {
+            if model.previewContent.isPresented,
+               model.splitWorkspace == nil || model.splitPreviewOriginSlot == model.splitWorkspace?.sourceSlot {
                 ConversationPreviewView(
                     summary: browse?.isPresented == true ? browse?.currentSummary : model.previewContent.currentSummary,
                     status: model.appSpaceActionError(for: browse?.selectedConversationID).map { .failed($0) } ?? (browse?.isPresented == true
@@ -98,7 +99,11 @@ struct NewConversationView: View {
                         pane: pane,
                         runtime: runtime,
                         actionBridge: bridge,
-                        maxProviderSteps: AppShellModel.maxProviderSteps
+                        maxProviderSteps: AppShellModel.maxProviderSteps,
+                        isActive: model.splitWorkspace == nil || model.splitWorkspace?.activeSlot == model.splitWorkspace?.sourceSlot,
+                        onUserFocus: {
+                            if let split = model.splitWorkspace { model.selectSplitSlot(split.sourceSlot) }
+                        }
                     )
                     // Native scroll geometry belongs to this Conversation's Pane.
                     // Async Open must not reuse the outgoing empty page's measurements.
@@ -148,6 +153,20 @@ struct NewConversationView: View {
                             ))
                             .accessibilityLabel("最近会话")
                             .accessibilityIdentifier("new-conversation-recent")
+                        }
+
+                        if model.splitWorkspace == nil {
+                            Menu {
+                                Button("上方分屏") { openAccessibleSplit(.top) }
+                                    .accessibilityIdentifier("split-open-top")
+                                Button("下方分屏") { openAccessibleSplit(.bottom) }
+                                    .accessibilityIdentifier("split-open-bottom")
+                            } label: {
+                                Image(systemName: "rectangle.split.2x1")
+                            }
+                            .accessibilityLabel("分屏")
+                            .accessibilityIdentifier("split-entry")
+                            .disabled(!canOpenAccessibleSplit)
                         }
 
                         Button("配置模型") { isProviderSetupPresented = true }
@@ -280,6 +299,20 @@ struct NewConversationView: View {
             } else if let failure = model.recentOpenFailure, failure.conversationID == id {
                 UIAccessibility.post(notification: .announcement, argument: failure.message)
             }
+        }
+    }
+
+    private var canOpenAccessibleSplit: Bool {
+        guard let pane = model.pane, lift?.state.phase == .full else { return false }
+        return pane.composer.canBeginSurfaceLift(
+            keyboardVisible: pane.composer.draft.presentationState == .editing,
+            stableBottomAnchor: true)
+    }
+
+    private func openAccessibleSplit(_ slot: SplitDropSlot) {
+        guard canOpenAccessibleSplit else { return }
+        withAnimation(.easeOut(duration: 0.12)) {
+            _ = model.commitSplitDrop(SplitDropIntent(conversationID: model.conversationID, slot: slot))
         }
     }
 

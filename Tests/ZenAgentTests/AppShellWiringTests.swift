@@ -20,6 +20,368 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("Return after deleting the opposite Split card keeps the surviving Pane as Single",
+          arguments: [SplitDropSlot.top, .bottom])
+    func splitReturnAfterOtherCardDeletion(originSlot: SplitDropSlot) async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "delete-split-source").insert(db)
+            try Fixtures.conversation(id: "delete-split-secondary").insert(db)
+        }
+        #expect(await fixture.model.openConversation(id: "delete-split-source"))
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: "delete-split-source", slot: .top)))
+        #expect(await fixture.model.openInSplit(id: "delete-split-secondary"))
+        let source = try #require(fixture.model.pane?.session)
+        let secondary = try #require(fixture.model.splitPane?.session)
+        let originID = originSlot == .top ? "delete-split-source" : "delete-split-secondary"
+        let deletedID = originSlot == .top ? "delete-split-secondary" : "delete-split-source"
+        fixture.model.selectSplitSlot(originSlot)
+        #expect(fixture.model.enterPreview())
+        #expect(await fixture.model.deleteAppSpaceConversation(id: deletedID, stillSelected: { true }))
+        #expect(fixture.model.pane?.conversationID != deletedID)
+        #expect(fixture.model.splitPane?.conversationID != deletedID)
+        #expect(await fixture.model.preparePreviewReturn(to: originID))
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.splitWorkspace == nil)
+        #expect(fixture.model.splitPane == nil)
+        #expect(fixture.model.conversationID == originID)
+        #expect(fixture.model.pane?.session === (originSlot == .top ? source : secondary))
+        #expect(fixture.model.undoAppSpaceConversation(id: deletedID))
+        #expect(fixture.model.splitWorkspace == nil)
+        #expect(try fixture.store.conversation(id: deletedID)?.lifecycle == .visible)
+    }
+
+    @Test("deleting the Lift origin then returning to the occupied other card opens its existing owner as Single")
+    func splitDeletedOriginReturnsToExistingOther() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "deleted-lift-origin").insert(db)
+            try Fixtures.conversation(id: "surviving-other").insert(db)
+        }
+        #expect(await fixture.model.openConversation(id: "deleted-lift-origin"))
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: "deleted-lift-origin", slot: .top)))
+        #expect(await fixture.model.openInSplit(id: "surviving-other"))
+        let kept = try #require(fixture.model.splitPane?.session)
+        fixture.model.selectSplitSlot(.top)
+        #expect(fixture.model.enterPreview())
+        #expect(await fixture.model.deleteAppSpaceConversation(id: "deleted-lift-origin", stillSelected: { true }))
+        #expect(await fixture.model.preparePreviewReturn(to: "surviving-other"))
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.splitWorkspace == nil)
+        #expect(fixture.model.conversationID == "surviving-other")
+        #expect(fixture.model.pane?.session === kept)
+    }
+
+    @Test("native Composer focus selects the corresponding Split Pane without sharing drafts")
+    func splitNativeFocusTransfer() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in try Fixtures.conversation(id: "focus-other").insert(db) }
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: fixture.model.conversationID, slot: .top)))
+        #expect(await fixture.model.openInSplit(id: "focus-other"))
+        let source = try #require(fixture.model.pane?.composer)
+        let other = try #require(fixture.model.splitPane?.composer)
+        source.draft.text = "source focus draft"
+        other.draft.text = "other focus draft"
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: AppShellRootView(model: fixture.model))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKeyAndVisible()
+        }
+        func editors(in view: UIView) -> [UITextView] {
+            if let text = view as? UITextView, text.accessibilityIdentifier == "conversation-composer-input" { return [text] }
+            return view.subviews.flatMap { editors(in: $0) }
+        }
+        for _ in 0..<60 where editors(in: host.view).count != 2 { try await Task.sleep(for: .milliseconds(25)) }
+        let mounted = editors(in: host.view)
+        let sourceEditor = try #require(mounted.first { $0.text == "source focus draft" })
+        let otherEditor = try #require(mounted.first { $0.text == "other focus draft" })
+        // Native focus callbacks are synchronous. Do not yield the main actor
+        // between focus and assertions to another suite's temporary key window.
+        window.makeKeyAndVisible()
+        #expect(sourceEditor.becomeFirstResponder())
+        #expect(fixture.model.splitWorkspace?.activeSlot == .top)
+        #expect(sourceEditor.isFirstResponder && !otherEditor.isFirstResponder)
+        #expect(otherEditor.becomeFirstResponder())
+        #expect(fixture.model.splitWorkspace?.activeSlot == .bottom)
+        #expect(otherEditor.isFirstResponder && !sourceEditor.isFirstResponder)
+        #expect(source.draft.text == "source focus draft")
+        #expect(other.draft.text == "other focus draft")
+    }
+
+    @Test("secondary Pane New and Recent replace that Pane while source stays live")
+    func splitSecondaryNavigation() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let source = try #require(fixture.model.pane)
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "secondary-before").insert(db)
+            try Fixtures.conversation(id: "secondary-after").insert(db)
+        }
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: source.conversationID, slot: .top)))
+        #expect(await fixture.model.openInSplit(id: "secondary-before"))
+        let previous = try #require(fixture.model.splitPane?.session)
+        previous.composer.draft.text = "retained secondary draft"
+        #expect(await fixture.model.openInSplit(id: "secondary-after"))
+        #expect(fixture.model.pane === source)
+        #expect(fixture.model.splitPane?.conversationID == "secondary-after")
+        #expect(fixture.model.createNewInSplit())
+        #expect(fixture.model.pane === source)
+        #expect(fixture.model.splitPane?.conversationID != "secondary-after")
+        #expect(fixture.model.splitWorkspace?.activeSlot == .bottom)
+        #expect(previous.composer.draft.text == "retained secondary draft")
+    }
+
+    @Test("source Recent replaces only its Pane when Split is occupied")
+    func splitSourceRecentReplacement() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "recent-kept-other").insert(db)
+            try Fixtures.conversation(id: "recent-new-source").insert(db)
+        }
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: fixture.model.conversationID, slot: .top)))
+        #expect(await fixture.model.openInSplit(id: "recent-kept-other"))
+        let kept = try #require(fixture.model.splitPane)
+        #expect(await fixture.model.openConversation(id: "recent-new-source"))
+        #expect(fixture.model.conversationID == "recent-new-source")
+        #expect(fixture.model.splitPane === kept)
+        #expect(fixture.model.splitWorkspace?.sourceConversationID == "recent-new-source")
+        #expect(fixture.model.splitWorkspace?.activeSlot == .top)
+    }
+
+    @Test("closing Split leaves both actual streaming Runs active and able to complete")
+    func splitClosePreservesBothRuns() async throws {
+        let sourceStream = Stage2StreamBox()
+        let otherStream = Stage2StreamBox()
+        let fixture = try makeFixture(seed: .active, scripts: [
+            .holding(prefix: [.textDelta("source")], box: sourceStream),
+            .holding(prefix: [.textDelta("other")], box: otherStream)
+        ])
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let sourceID = fixture.model.conversationID
+        let sourceBridge = try #require(fixture.model.actionBridge)
+        let sourceRun = try await sourceBridge.start(SendCommand(conversationID: sourceID, text: "source",
+            providerInstanceID: fixture.instanceID, modelID: fixture.modelID,
+            maxProviderSteps: 4, submissionID: "split-source-run"))
+        await sourceStream.waitUntilReady()
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: sourceID, slot: .top)))
+        #expect(fixture.model.createNewInSplit())
+        let otherID = try #require(fixture.model.splitPane?.conversationID)
+        let otherBridge = try #require(fixture.model.splitActionBridge)
+        let otherRun = try await otherBridge.start(SendCommand(conversationID: otherID, text: "other",
+            providerInstanceID: fixture.instanceID, modelID: fixture.modelID,
+            maxProviderSteps: 4, submissionID: "split-other-run"))
+        await otherStream.waitUntilReady()
+        fixture.model.closeSplit()
+        #expect(fixture.model.router.hasActiveRun(for: sourceID))
+        #expect(fixture.model.router.hasActiveRun(for: otherID))
+        #expect(sourceStream.cancellations == 0 && otherStream.cancellations == 0)
+        sourceStream.yieldLate(.finish(.stop))
+        otherStream.yieldLate(.finish(.stop))
+        try await fixture.runtime.waitForCompletion(runID: sourceRun)
+        try await fixture.runtime.waitForCompletion(runID: otherRun)
+        #expect(try fixture.store.run(id: sourceRun)?.state == .completed)
+        #expect(try fixture.store.run(id: otherRun)?.state == .completed)
+        #expect(try fixture.store.conversation(id: otherID)?.lifecycle == .visible)
+    }
+
+    @Test("either occupied Split Pane can visit App Space and Return to the same two owners",
+          arguments: [SplitDropSlot.top, .bottom])
+    func splitAppSpaceRoundTrip(initiatingSlot: SplitDropSlot) async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let sourceID = fixture.model.conversationID
+        let source = try #require(fixture.model.pane?.session)
+        source.composer.draft.text = "source retained"
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "split-return-secondary").insert(db)
+        }
+        let accepted = fixture.model.commitSplitDrop(SplitDropIntent(conversationID: sourceID, slot: .top))
+        #expect(accepted)
+        let opened = await fixture.model.openInSplit(id: "split-return-secondary")
+        #expect(opened)
+        let secondary = try #require(fixture.model.splitPane?.session)
+        secondary.composer.draft.text = "secondary retained"
+        fixture.model.selectSplitSlot(initiatingSlot)
+
+        let entered = fixture.model.enterPreview()
+        #expect(entered)
+        guard entered else { return }
+        let initiatingID = initiatingSlot == .top ? sourceID : "split-return-secondary"
+        #expect(fixture.model.previewContent.originID == initiatingID)
+        #expect(fixture.model.splitWorkspace?.sourceConversationID == sourceID)
+        let prepared = await fixture.model.preparePreviewReturn(to: initiatingID)
+        #expect(prepared)
+        guard prepared else { return }
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.splitWorkspace?.sourceConversationID == sourceID)
+        #expect(fixture.model.splitWorkspace?.secondaryConversationID == "split-return-secondary")
+        #expect(fixture.model.pane?.session === source)
+        #expect(fixture.model.splitPane?.session === secondary)
+        #expect(source.composer.draft.text == "source retained")
+        #expect(secondary.composer.draft.text == "secondary retained")
+    }
+
+    @Test("App Space selection replaces only the initiating Split Pane")
+    func splitAppSpaceSelectedReplacement() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let original = try #require(fixture.model.pane?.session)
+        original.composer.draft.text = "original draft"
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "split-kept-secondary").insert(db)
+            try Fixtures.conversation(id: "split-selected-replacement").insert(db)
+        }
+        let accepted = fixture.model.commitSplitDrop(SplitDropIntent(
+            conversationID: fixture.model.conversationID, slot: .top))
+        #expect(accepted)
+        let opened = await fixture.model.openInSplit(id: "split-kept-secondary")
+        #expect(opened)
+        let kept = try #require(fixture.model.splitPane?.session)
+        kept.composer.draft.text = "kept draft"
+        fixture.model.selectSplitSlot(.top)
+        let entered = fixture.model.enterPreview()
+        #expect(entered)
+        guard entered else { return }
+        let prepared = await fixture.model.preparePreviewReturn(to: "split-selected-replacement")
+        #expect(prepared)
+        guard prepared else { return }
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.conversationID == "split-selected-replacement")
+        #expect(fixture.model.splitWorkspace?.sourceConversationID == "split-selected-replacement")
+        #expect(fixture.model.splitWorkspace?.sourceSlot == .top)
+        #expect(fixture.model.splitWorkspace?.secondaryConversationID == "split-kept-secondary")
+        #expect(fixture.model.splitPane?.session === kept)
+        #expect(kept.composer.draft.text == "kept draft")
+        #expect(original.composer.draft.text == "original draft")
+    }
+
+    @Test("returning to a card already open in the other Split Pane selects that owner")
+    func splitAppSpaceSelectsOccupiedOtherPane() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let sourceID = fixture.model.conversationID
+        let source = try #require(fixture.model.pane?.session)
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "split-occupied-other").insert(db)
+        }
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: sourceID, slot: .top)))
+        #expect(await fixture.model.openInSplit(id: "split-occupied-other"))
+        let other = try #require(fixture.model.splitPane?.session)
+        fixture.model.selectSplitSlot(.top)
+        #expect(fixture.model.enterPreview())
+        #expect(await fixture.model.preparePreviewReturn(to: "split-occupied-other"))
+        #expect(fixture.model.commitPreviewReturn())
+        #expect(fixture.model.splitWorkspace?.activeSlot == .bottom)
+        #expect(fixture.model.pane?.session === source)
+        #expect(fixture.model.splitPane?.session === other)
+        #expect(fixture.model.splitWorkspace?.sourceConversationID == sourceID)
+        #expect(fixture.model.splitWorkspace?.secondaryConversationID == "split-occupied-other")
+    }
+
+    @Test("source Pane New replaces only that Pane and keeps the other live owner")
+    func splitSourceNewPreservesOtherPane() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let oldSourceID = fixture.model.conversationID
+        let oldSource = try #require(fixture.model.pane?.session)
+        oldSource.composer.draft.text = "old source draft"
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "split-new-kept").insert(db)
+        }
+        let accepted = fixture.model.commitSplitDrop(SplitDropIntent(conversationID: oldSourceID, slot: .top))
+        #expect(accepted)
+        let opened = await fixture.model.openInSplit(id: "split-new-kept")
+        #expect(opened)
+        let kept = try #require(fixture.model.splitPane?.session)
+        fixture.model.newConversation()
+        #expect(fixture.model.conversationID != oldSourceID)
+        #expect(fixture.model.splitWorkspace?.sourceConversationID == fixture.model.conversationID)
+        #expect(fixture.model.splitWorkspace?.secondaryConversationID == "split-new-kept")
+        #expect(fixture.model.splitPane?.session === kept)
+        #expect(oldSource.composer.draft.text == "old source draft")
+    }
+
+    @Test("Recent opening the other Split Pane selects its existing owner")
+    func splitRecentSelectsExistingOwner() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let sourceID = fixture.model.conversationID
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "split-recent-other").insert(db)
+        }
+        let accepted = fixture.model.commitSplitDrop(SplitDropIntent(conversationID: sourceID, slot: .top))
+        #expect(accepted)
+        let opened = await fixture.model.openInSplit(id: "split-recent-other")
+        #expect(opened)
+        let other = try #require(fixture.model.splitPane)
+        fixture.model.selectSplitSlot(.top)
+        let selected = await fixture.model.openConversation(id: "split-recent-other")
+        #expect(selected)
+        #expect(fixture.model.conversationID == sourceID)
+        #expect(fixture.model.splitPane === other)
+        #expect(fixture.model.splitWorkspace?.activeSlot == .bottom)
+    }
+
+    @Test("Split keeps two independent Pane owners; closing it preserves the secondary Conversation")
+    func splitOwnersAndClose() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let sourceID = fixture.model.conversationID
+        let source = try #require(fixture.model.pane?.session)
+        source.composer.draft.text = "source draft"
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "split-secondary").insert(db)
+        }
+        let accepted = fixture.model.commitSplitDrop(SplitDropIntent(conversationID: sourceID, slot: .bottom))
+        #expect(accepted)
+        #expect(fixture.model.splitWorkspace?.sourceSlot == .bottom)
+        #expect(fixture.model.splitWorkspace?.emptySlot == .top)
+        let duplicateOpened = await fixture.model.openInSplit(id: sourceID)
+        #expect(!duplicateOpened)
+        let opened = await fixture.model.openInSplit(id: "split-secondary")
+        #expect(opened)
+        let secondary = try #require(fixture.model.splitPane?.session)
+        #expect(secondary !== source)
+        secondary.composer.draft.text = "secondary draft"
+        #expect(fixture.model.pane?.session === source)
+        #expect(fixture.model.splitWorkspace?.secondaryConversationID == "split-secondary")
+        fixture.model.closeSplit()
+        #expect(fixture.model.splitWorkspace == nil)
+        #expect(fixture.model.splitPane == nil)
+        #expect(fixture.model.pane?.session === source)
+        #expect(source.composer.draft.text == "source draft")
+        #expect(try fixture.store.conversation(id: "split-secondary")?.lifecycle == .visible)
+        #expect(await fixture.model.openConversation(id: "split-secondary"))
+        #expect(fixture.model.pane?.session === secondary)
+        #expect(secondary.composer.draft.text == "secondary draft")
+    }
+
+    @Test("a failed Split selection leaves the source and empty Picker owner intact")
+    func failedSplitSelection() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let source = try #require(fixture.model.pane?.session)
+        let accepted = fixture.model.commitSplitDrop(SplitDropIntent(
+            conversationID: fixture.model.conversationID, slot: .top))
+        #expect(accepted)
+        let opened = await fixture.model.openInSplit(id: "missing-split-target")
+        #expect(!opened)
+        #expect(fixture.model.pane?.session === source)
+        #expect(fixture.model.splitPane == nil)
+        #expect(fixture.model.splitWorkspace?.secondaryConversationID == nil)
+        #expect(fixture.model.splitOpenError != nil)
+    }
+
     @Test("finalized Card Delete releases the warm origin and still opens another card")
     func finalizedCardDeleteReleasesOriginSession() async throws {
         let fixture = try makeFixture(seed: .active)
@@ -126,7 +488,7 @@ struct AppShellWiringTests {
         defer { window.isHidden = true; window.rootViewController = nil }
         host.view.layoutIfNeeded()
         func findCard(_ view: UIView) -> SurfaceClipView? {
-            if let card = view as? SurfaceClipView { return card }
+            if let card = view as? SurfaceClipView, card.accessibilityIdentifier == "workspace-current-card" { return card }
             return view.subviews.lazy.compactMap(findCard).first
         }
         for _ in 0..<40 where findCard(host.view)?.accessibilityIdentifier != "workspace-current-card" {
@@ -210,7 +572,7 @@ struct AppShellWiringTests {
         defer { window.isHidden = true; window.rootViewController = nil }
         host.view.layoutIfNeeded()
         func findCard(_ view: UIView) -> SurfaceClipView? {
-            if let card = view as? SurfaceClipView { return card }
+            if let card = view as? SurfaceClipView, card.accessibilityIdentifier == "workspace-current-card" { return card }
             return view.subviews.lazy.compactMap(findCard).first
         }
         for _ in 0..<40 where findCard(host.view)?.accessibilityIdentifier != "workspace-current-card" {
@@ -703,7 +1065,7 @@ struct AppShellWiringTests {
         #expect(driver.drag(upwardDistance: 180, eligibility: SurfaceLiftEligibility()))
         #expect(driver.end(animated: false)?.destination == .card)
         func card(in view: UIView) -> SurfaceClipView? {
-            if let card = view as? SurfaceClipView { return card }
+            if let card = view as? SurfaceClipView, card.accessibilityIdentifier == "workspace-current-card" { return card }
             return view.subviews.lazy.compactMap { card(in: $0) }.first
         }
         let current = try #require(card(in: host.view))

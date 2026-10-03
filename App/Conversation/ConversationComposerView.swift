@@ -8,6 +8,7 @@ struct ConversationComposerView: View {
     private let bridge: ComposerRuntimeActionBridge
     private let onHeightChanged: (CGFloat) -> Void
     private let onKeyboardWillChange: () -> Void
+    private let onUserFocus: () -> Void
     @State private var coordinator: ComposerSendCoordinator
     @State private var runProjection: RunProjection?
     @State private var knownModels: [ModelDescriptor] = []
@@ -18,12 +19,14 @@ struct ConversationComposerView: View {
          bridge: ComposerRuntimeActionBridge, maxProviderSteps: Int,
          coordinator: ComposerSendCoordinator? = nil,
          onHeightChanged: @escaping (CGFloat) -> Void = { _ in },
-         onKeyboardWillChange: @escaping () -> Void = {}) {
+         onKeyboardWillChange: @escaping () -> Void = {},
+         onUserFocus: @escaping () -> Void = {}) {
         self.conversationID = conversationID
         self.controller = controller
         self.bridge = bridge
         self.onHeightChanged = onHeightChanged
         self.onKeyboardWillChange = onKeyboardWillChange
+        self.onUserFocus = onUserFocus
         _coordinator = State(initialValue: coordinator ?? ComposerSendCoordinator(
             conversationID: conversationID, controller: controller,
             configuration: controller.configuration, bridge: bridge,
@@ -110,6 +113,7 @@ struct ConversationComposerView: View {
                     onKeyboardWillChange()
                 }
                 if focused {
+                    onUserFocus()
                     let event: ComposerPresentationEvent = controller.draft.presentationState == .compact
                         ? .compactTapped : .textAreaTapped
                     apply(controller.handle(event))

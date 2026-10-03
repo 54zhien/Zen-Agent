@@ -1,5 +1,11 @@
 import SwiftUI
 
+private struct ConversationTimelineViewport: Equatable {
+    let geometry: ScrollGeometry
+    let workspaceVisible: Bool
+    let workspaceRevision: UInt64
+}
+
 private struct ConversationTimelineTurnMeasurements: Equatable, Sendable {
     var viewportFrames: [String: CGRect] = [:]
     var contentTops: [String: Double] = [:]
@@ -38,6 +44,7 @@ struct ConversationTimelineView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.surfaceLiftController) private var surfaceLift
     @State private var readingGeometryWasSuspended = false
+    @State private var acceptedWorkspaceRevision: UInt64?
     @ScaledMetric(relativeTo: .body) private var betweenTurns = Metrics.betweenTurns
     @ScaledMetric(relativeTo: .body) private var contentInset = Metrics.contentInset
     @State private var selectedApproval: ToolApprovalProjection?
@@ -56,7 +63,7 @@ struct ConversationTimelineView: View {
         ScrollViewReader { proxy in
             timelineContent
                 .onChange(of: materializationRequest) { _, request in
-                    guard let request, case .restoreAnchor(let anchor) = request.action else { return }
+                    guard acceptsScrollRequests, let request, case .restoreAnchor(let anchor) = request.action else { return }
                     var transaction = Transaction()
                     transaction.animation = nil
                     withTransaction(transaction) { proxy.scrollTo(anchor.runID, anchor: .top) }
@@ -70,7 +77,9 @@ struct ConversationTimelineView: View {
     }
 
     private var timelineContent: some View {
-        VStack(spacing: 0) {
+        let workspaceVisible = surfaceLift?.isWorkspaceVisible != false
+        let workspaceRevision = surfaceLift?.workspaceVisibilityRevision ?? 0
+        return VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
                 if !conversationApprovals.isEmpty {
                     Text("需要处理的工具调用")
@@ -147,6 +156,7 @@ struct ConversationTimelineView: View {
             })
             .scrollPosition($scrollPosition, anchor: .top)
             .onPreferenceChange(ConversationTimelineTurnFramesKey.self) { measurement in
+                guard surfaceLift?.isWorkspaceVisible != false else { return }
                 let frames = measurement.viewportFrames
                 turnFrames = frames
                 turnContentTops = measurement.contentTops
@@ -156,7 +166,7 @@ struct ConversationTimelineView: View {
                 if let pending = pendingAppliedScroll, case .restoreAnchor(_) = pending.action {
                     pendingAppliedScroll = nil
                 }
-                if let latestScrollGeometry {
+                if isWorkspaceGeometryReady, let latestScrollGeometry {
                     latestBottomReferenceTurn = bottomVisibleTurn(
                         in: frames,
                         geometry: latestScrollGeometry
@@ -170,10 +180,29 @@ struct ConversationTimelineView: View {
                     applyPendingScrollIfReady()
                 }
             }
-            .onScrollGeometryChange(for: ScrollGeometry.self) { geometry in
-                paneGeometry(from: geometry)
-            } action: { _, geometry in
-                handleScrollGeometryChange(geometry)
+            .onScrollGeometryChange(for: ConversationTimelineViewport.self) { geometry in
+                ConversationTimelineViewport(geometry: paneGeometry(from: geometry),
+                                             workspaceVisible: workspaceVisible,
+                                             workspaceRevision: workspaceRevision)
+            } action: { previous, viewport in
+                // Visibility participates in equality so mounting the same-size
+                // viewport still drains Run updates held while the Pane was hidden.
+                guard viewport.workspaceVisible, surfaceLift?.isWorkspaceVisible != false,
+                      viewport.workspaceRevision == (surfaceLift?.workspaceVisibilityRevision ?? 0),
+                      viewport.geometry.isUsableForPane else {
+                    readingGeometryWasSuspended = true
+                    return
+                }
+                if !previous.workspaceVisible || (viewport.workspaceRevision > 0
+                    && acceptedWorkspaceRevision != viewport.workspaceRevision) {
+                    readingGeometryWasSuspended = true
+                    activeScrollPhase = .idle
+                    pendingAppliedScroll = nil
+                }
+                // No request/phase callback may acknowledge the retained old
+                // viewport before this attachment supplies its first measurement.
+                acceptedWorkspaceRevision = viewport.workspaceRevision
+                handleScrollGeometryChange(viewport.geometry)
             }
             .onScrollPhaseChange { _, phase, context in
                 activeScrollPhase = phase
@@ -198,7 +227,7 @@ struct ConversationTimelineView: View {
                 }
             }
             .onChange(of: surfaceLift?.state.phase) { _, phase in
-                guard phase == .full, let scrollBridge, let latestScrollGeometry else { return }
+                guard phase == .full, acceptsReadingGeometry, let scrollBridge, let latestScrollGeometry else { return }
                 scrollBridge.endHeightChange()
                 pendingAppliedScroll = nil
                 _ = scrollBridge.pane.updateReading(.geometryChanged(geometry: latestScrollGeometry, anchor: nil))
@@ -261,6 +290,7 @@ struct ConversationTimelineView: View {
     }
 
     private func handleScrollGeometryChange(_ geometry: ScrollGeometry) {
+        guard surfaceLift?.isWorkspaceVisible != false else { return }
         let previousGeometry = latestScrollGeometry
         let previousBottomReferenceTurn = latestBottomReferenceTurn
         latestScrollGeometry = geometry
@@ -326,14 +356,20 @@ struct ConversationTimelineView: View {
     private var surfaceLiftPhaseForDiagnostic: SurfaceLiftState.Phase? { surfaceLiftForDiagnostic?.state.phase }
 #endif
 
+    private var isWorkspaceGeometryReady: Bool {
+        guard let surfaceLift else { return true }
+        return surfaceLift.isWorkspaceVisible
+            && acceptedWorkspaceRevision == surfaceLift.workspaceVisibilityRevision
+    }
+
     private var acceptsReadingGeometry: Bool {
-        surfaceLift == nil || surfaceLift?.state.phase == .full
+        isWorkspaceGeometryReady && (surfaceLift == nil || surfaceLift?.state.phase == .full)
     }
 
     private var acceptsScrollRequests: Bool {
         guard let surfaceLift else { return true }
-        return surfaceLift.state.phase == .full
-            || (surfaceLift.state.phase == .settling && surfaceLift.state.pendingSettlement?.destination == .full)
+        return isWorkspaceGeometryReady && (surfaceLift.state.phase == .full
+            || (surfaceLift.state.phase == .settling && surfaceLift.state.pendingSettlement?.destination == .full))
     }
 
     private var isUserDrivenScroll: Bool {
