@@ -83,6 +83,8 @@ final class SplitResizeUITests: XCTestCase {
         let sourceEditor = editor(in: app, containing: "source resize draft")
         XCTAssertTrue(sourceEditor.waitForExistence(timeout: 5))
         dismissKeyboard(in: app, pane: source, editor: sourceEditor)
+        XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source resize draft".utf16.count)
+        XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), 0)
         // The empty resting editor need not be a separate AX text-view node.
         // Tap its real native location, then type through the actual first responder.
         guard let point = editorPoint(secondaryProbe.value as? String) else {
@@ -93,6 +95,9 @@ final class SplitResizeUITests: XCTestCase {
             CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY)).tap()
         expect { (secondaryProbe.value as? String)?.contains(";focused=true;") == true }
         app.typeText("secondary resize draft")
+        printDiagnostics(app, context: "after secondary input")
+        XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source resize draft".utf16.count)
+        XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), "secondary resize draft".utf16.count)
         let secondaryEditor = editor(in: app, containing: "secondary resize draft")
         XCTAssertTrue(secondaryEditor.waitForExistence(timeout: 5))
         dismissKeyboard(in: app, pane: secondary, editor: secondaryEditor)
@@ -106,11 +111,16 @@ final class SplitResizeUITests: XCTestCase {
         XCTAssertLessThan(secondary.frame.height, secondaryBefore.height - 30)
         XCTAssertEqual(source.frame.height + secondary.frame.height,
                        sourceBefore.height + secondaryBefore.height, accuracy: 3)
-        XCTAssertTrue((sourceEditor.value as? String)?.contains("source resize draft") == true)
-        XCTAssertTrue((secondaryEditor.value as? String)?.contains("secondary resize draft") == true)
-        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2)
+        XCTAssertTrue((sourceEditor.value as? String)?.contains("source resize draft") == true
+            || sourceEditor.label.contains("source resize draft"))
+        XCTAssertTrue((secondaryEditor.value as? String)?.contains("secondary resize draft") == true
+            || secondaryEditor.label.contains("secondary resize draft"))
+        XCTAssertTrue((sourceProbe.value as? String)?.contains(";editors=1;") == true)
+        XCTAssertTrue((secondaryProbe.value as? String)?.contains(";editors=1;") == true)
         XCTAssertEqual(editorIdentity(sourceProbe.value as? String), sourceIdentity)
         XCTAssertEqual(editorIdentity(secondaryProbe.value as? String), secondaryIdentity)
+        XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source resize draft".utf16.count)
+        XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), "secondary resize draft".utf16.count)
     }
 
     @MainActor
@@ -133,6 +143,11 @@ final class SplitResizeUITests: XCTestCase {
         diagnostic?.split(separator: ";").first { $0.hasPrefix("editorIdentity=") }.map(String.init)
     }
 
+    private func editorTextLength(_ diagnostic: String?) -> Int? {
+        diagnostic?.split(separator: ";").first { $0.hasPrefix("editorTextLength=") }
+            .flatMap { Int($0.dropFirst("editorTextLength=".count)) }
+    }
+
     private func editorPoint(_ diagnostic: String?) -> CGPoint? {
         guard let field = diagnostic?.split(separator: ";").first(where: { $0.hasPrefix("point=(") }) else { return nil }
         let values = field.dropFirst(7).dropLast().split(separator: ",").compactMap {
@@ -144,8 +159,12 @@ final class SplitResizeUITests: XCTestCase {
 
     @MainActor
     private func editor(in app: XCUIApplication, containing draft: String) -> XCUIElement {
-        app.textViews.matching(NSPredicate(format: "identifier == %@ AND value CONTAINS %@",
-            "conversation-composer-input", draft)).firstMatch
+        // UIKit can expose a clipped UITextView through a paragraph AX element.
+        // Verify the actual user-entered value without assuming its automation type;
+        // the native probes separately assert editor identity and ownership.
+        app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier == %@ AND (value CONTAINS %@ OR label CONTAINS %@)",
+            "conversation-composer-input", draft, draft)).firstMatch
     }
 
     @MainActor

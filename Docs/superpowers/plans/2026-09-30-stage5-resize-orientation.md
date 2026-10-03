@@ -103,6 +103,36 @@
 
 ## Pending product decision
 
+### Cross-owner native completion preflight
+
+Use one observable presentation coordinator shared by both fixed hosting roots;
+it retains the immutable selected Preview descriptor and the existing target
+Pane, never a second Session/Composer/Run. Keep these phases explicit:
+
+| Phase | Origin proxy | Existing target | Receipt / cancellation |
+| --- | --- | --- | --- |
+| Prepared | Selected Preview, original App Space viewport | Hidden | Preparation token, selected ID and arrangement still match |
+| Awaiting target | Preview remains mounted and frozen | Mounted below proxy, input and AX suppressed | Commit once; await actual target window frame and fresh Timeline revision / cleared request |
+| Final segment | Same selected Preview animates to target's actual frame | Mounted, still suppressed | Settlement token rejects late completion; interruption preserves committed selected owner |
+| Restoring origin | Hide native proxy before restoring its logical viewport | Selected live content becomes interactive | Keep descriptor until origin's native container reaches its restored frame; then clear hold and reattach original content if policy shows it |
+
+The final step prevents a stale full-size origin host from momentarily mounting
+its original Conversation during a portrait Split restoration. A hidden host's
+container can still report its window frame even while its content view is
+detached. Bounds-only callbacks are insufficient when a host changes position.
+Before commit, cancellation restores the original Card/Split. After commit,
+cancellation finishes presentation of the already selected owner and uses the
+current device policy to restore/hide the origin. Clear the descriptor on every
+unbind, failed commit and superseding arrangement path; retain the Pane while
+its unowned scroll bridge participates in a receipt. Same-owner Return keeps
+its established viewport-rebase path.
+
+After the target native container reaches the expected final window frame,
+publish one fresh workspace layout revision. Wait for the target Timeline to
+measure that revision and clear its scroll request before beginning the final
+proxy segment. A matching revision measured at an intermediate animated frame
+is not a final-layout receipt.
+
 IME marked-text navigation/focus policy is explicitly unresolved in the Blueprint; the question is already with the owner. Apply that answer consistently when it arrives. It is not permission to force-commit or cancel composition. Ordinary non-composing focus and independent geometry work can proceed.
 
 ## Execution ruling — 2026-10-04

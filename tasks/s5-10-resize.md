@@ -171,3 +171,20 @@ Remove the diagnostic JSON and restore the full suite for the correction gate.
 The full job cap is 40 minutes because prior full CI executed all 35 UI cases
 but exhausted 30 minutes during collection; no retries or loops are added.
 Generation/build and full unit/UI results remain pending.
+
+### Full correction gate and AX query follow-up
+
+Correction c3c2cbad9cc403dcb37f18ecd09327a0fa3385f6 / tree
+72b8d93a900fa8b86cfadf0a08eb309acb27e972 built in push 37156554573
+(job 111301103732). All 849 Swift tests and 20 XCTest tests passed.
+Thirty-five UI cases ran once; 34 passed. The repeated reading-anchor resize
+now passed. The remaining dual-draft case tapped the measured secondary
+editor and verified its actual first-responder state, then failed the draft
+query: XCTest reported legacy TextView versus modern StaticText automation
+type for _AXUITextViewParagraphElement.
+
+Query the user-entered draft by identifier and value/label across AX types,
+while retaining both native editor identity and owner-count assertions.
+Native diagnostics add window frame and UTF16 text length, never text content,
+to distinguish a query failure from lost input. No Composer behavior changes.
+This follow-up still requires a full build and test gate; no GREEN is claimed.

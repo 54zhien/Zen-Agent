@@ -46,3 +46,12 @@ guarded test profiles, all unit tests, the 40 minute full-job cap and both
 new geometry regressions. Apply measured native editor/blank touch locations
 to the rotation tests too. Product implementation still waits for S5-10 full
 GREEN and propagates any further correction before proceeding.
+
+Refreshed test-only 9a943de3a85fa4c8972d36afc400a9ba6cc3b6a8 / tree
+bf753d616fdb125ef56ac6c9ec946dd7d4d4c3d0 built in push 37156852370
+(job 111301913946), passing 849 Swift and 20 XCTest. The two rotation UI
+cases failed four assertions; the landscape presentation case still fails,
+while draft setup exposed the same secondary AX-type query failure as S5-10.
+Propagate the type-agnostic query and host-local native draft-length assertions
+from S5-10 remote 8d8135cee591fe4afeb261190bfa1809595e5c95. This refresh
+remains test-only. The full S5-10 gate is still required before product work.

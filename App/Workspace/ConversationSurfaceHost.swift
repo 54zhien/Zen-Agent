@@ -113,6 +113,8 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             let point = editor.convert(CGPoint(x: editor.bounds.midX, y: editor.bounds.midY), to: window)
             fields.append("editorIdentity=\(ObjectIdentifier(editor))")
             fields.append("focused=\(editor.isFirstResponder)")
+            fields.append("editorFrame=\(editor.convert(editor.bounds, to: window))")
+            fields.append("editorTextLength=\((editor.text ?? "").utf16.count)")
             var ancestor: UIView? = editor
             while let current = ancestor {
                 if let composer = current as? ComposerHostView {

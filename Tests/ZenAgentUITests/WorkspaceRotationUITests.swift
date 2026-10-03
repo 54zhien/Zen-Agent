@@ -15,6 +15,9 @@ final class WorkspaceRotationUITests: XCTestCase {
         XCTAssertTrue(sourceEditor.waitForExistence(timeout: 5))
         dismissKeyboard(app, pane: source, editor: sourceEditor)
         let secondaryProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
+        let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source portrait draft".utf16.count)
+        XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), 0)
         guard let point = editorPoint(secondaryProbe.value as? String) else {
             XCTFail("Secondary native editor geometry must be available")
             return
@@ -23,6 +26,8 @@ final class WorkspaceRotationUITests: XCTestCase {
             CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY)).tap()
         expect { (secondaryProbe.value as? String)?.contains(";focused=true;") == true }
         app.typeText("secondary portrait draft")
+        XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source portrait draft".utf16.count)
+        XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), "secondary portrait draft".utf16.count)
         let secondaryEditor = editor(in: app, containing: "secondary portrait draft")
         XCTAssertTrue(secondaryEditor.waitForExistence(timeout: 5))
         dismissKeyboard(app, pane: secondary, editor: secondaryEditor)
@@ -41,8 +46,12 @@ final class WorkspaceRotationUITests: XCTestCase {
 
         XCUIDevice.shared.orientation = .portrait
         expect { app.textViews.matching(identifier: "conversation-composer-input").count == 2 }
-        XCTAssertEqual(sourceEditor.value as? String, "source portrait draft")
-        XCTAssertEqual(secondaryEditor.value as? String, "secondary portrait draft landscape edit")
+        XCTAssertTrue((sourceEditor.value as? String) == "source portrait draft"
+            || sourceEditor.label == "source portrait draft")
+        let editedSecondary = editor(in: app, containing: "secondary portrait draft landscape edit")
+        XCTAssertTrue(editedSecondary.exists)
+        XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source portrait draft".utf16.count)
+        XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), "secondary portrait draft landscape edit".utf16.count)
         XCTAssertEqual(source.frame.height, sourceHeight, accuracy: 3)
         XCTAssertEqual(secondary.frame.height, secondaryHeight, accuracy: 3)
     }
@@ -112,8 +121,14 @@ final class WorkspaceRotationUITests: XCTestCase {
 
     @MainActor
     private func editor(in app: XCUIApplication, containing draft: String) -> XCUIElement {
-        app.textViews.matching(NSPredicate(format: "identifier == %@ AND value CONTAINS %@",
-            "conversation-composer-input", draft)).firstMatch
+        app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier == %@ AND (value CONTAINS %@ OR label CONTAINS %@)",
+            "conversation-composer-input", draft, draft)).firstMatch
+    }
+
+    private func editorTextLength(_ diagnostic: String?) -> Int? {
+        diagnostic?.split(separator: ";").first { $0.hasPrefix("editorTextLength=") }
+            .flatMap { Int($0.dropFirst("editorTextLength=".count)) }
     }
 
     @MainActor
