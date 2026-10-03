@@ -103,6 +103,9 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
         case .changed:
             _ = controller.drag(displacement: Double(pan.translation(in: reference).x), travel: Double(layout.travel))
         case .ended:
+            // UIKit may deliver the final displacement only with release. Its
+            // velocity can already be zero, so the last changed sample is stale.
+            _ = controller.drag(displacement: Double(pan.translation(in: reference).x), travel: Double(layout.travel))
             settle(velocity: Double(pan.velocity(in: reference).x))
         case .cancelled, .failed: cancel()
         default: break

@@ -7,6 +7,7 @@ import UIKit
 final class SurfaceLiftController {
     private(set) var state = SurfaceLiftState()
     private(set) var isWorkspaceVisible = true
+    private(set) var workspaceVisibilityRevision: UInt64 = 0
     private(set) var overlayPresented = false
     private(set) var retainsAppSpaceViewport = false
     private(set) var splitTargetingVisible = false
@@ -73,6 +74,8 @@ final class SurfaceLiftController {
     }
 
     func setWorkspaceVisible(_ visible: Bool) {
+        guard isWorkspaceVisible != visible else { return }
+        if !visible { workspaceVisibilityRevision &+= 1 }
         isWorkspaceVisible = visible
     }
 

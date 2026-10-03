@@ -19,6 +19,11 @@ private final class SampledBrowsePan: UIPanGestureRecognizer {
 struct AppSpaceBrowseInteractionTests {
     @Test("release displacement is consumed even without a final changed callback")
     func releaseUsesFinalDisplacement() throws {
+        try checkRelease(lastSample: 0.02, release: 0.6, expectedID: "older")
+        try checkRelease(lastSample: 0.6, release: 0.02, expectedID: "current")
+    }
+
+    private func checkRelease(lastSample: CGFloat, release: CGFloat, expectedID: String) throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
         try store.createEmptyConversation(id: "older", at: Date(timeIntervalSince1970: 1))
         try store.createEmptyConversation(id: "current", at: Date(timeIntervalSince1970: 2))
@@ -34,14 +39,14 @@ struct AppSpaceBrowseInteractionTests {
         let pan = SampledBrowsePan()
         let action = NSSelectorFromString("gestureChanged:")
         pan.sampleState = .began
-        pan.displacement = travel * 0.02
+        pan.displacement = travel * lastSample
         _ = input.perform(action, with: pan)
         #expect(browse.state.phase == .dragging)
         pan.sampleState = .ended
-        pan.displacement = travel * 0.6
+        pan.displacement = travel * release
         _ = input.perform(action, with: pan)
         // Reduce Motion may finish synchronously; otherwise inspect the real
         // native animator's admitted destination without waiting on wall time.
-        #expect((browse.state.pendingSettlement?.destination ?? browse.state.selected) == .conversation("older"))
+        #expect((browse.state.pendingSettlement?.destination ?? browse.state.selected) == .conversation(expectedID))
     }
 }

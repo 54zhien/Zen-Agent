@@ -3,6 +3,14 @@ import XCTest
 final class SplitContainerUITests: XCTestCase {
     @MainActor
     func testSecondaryLiftSurvivesDeletingTheOppositePaneAndReturnsToEditableSingle() {
+        // The system's default interruption handler waits out notification
+        // banners, which can consume the real ten-second Undo window.
+        let monitor = addUIInterruptionMonitor(withDescription: "Dismiss simulator notification banner") { banner in
+            guard banner.identifier == "NotificationShortLookView" else { return false }
+            banner.swipeUp()
+            return !banner.exists
+        }
+        defer { removeUIInterruptionMonitor(monitor) }
         let app = launchedOccupiedSplit()
         let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 1)
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
@@ -80,6 +88,8 @@ final class SplitContainerUITests: XCTestCase {
             "PREVIEW_READING_ANCHOR_10")).firstMatch
         XCTAssertTrue(anchor.exists && anchor.isHittable)
         let anchorFrame = anchor.frame
+        let sourcePane = app.descendants(matching: .any)["conversation-pane-preview-ui-11"]
+        let sourceHeight = sourcePane.frame.height
         let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 1)
         XCTAssertTrue(editor.exists)
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
@@ -94,6 +104,24 @@ final class SplitContainerUITests: XCTestCase {
         expect { anchor.exists && anchor.isHittable && (position.value as? String) == "settled" }
         XCTAssertEqual(anchor.frame.minY, anchorFrame.minY, accuracy: 3,
                        "The hidden sibling must retain its reading position through remount")
+
+        let nextStart = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        nextStart.press(forDuration: 0.7, thenDragTo: nextStart.withOffset(CGVector(dx: 0, dy: -220)))
+        expect { (app.otherElements["split-secondary-lift-state-probe"].value as? String) == "card" }
+        let queue = app.buttons["preview-hidden-reading-position"]
+        XCTAssertTrue(queue.exists)
+        queue.tap()
+        XCTAssertEqual(queue.value as? String, "pending", "Hidden Pane cannot acknowledge a queued request")
+        app.descendants(matching: .any)["workspace-current-card"].tap()
+        expect { (app.otherElements["split-secondary-lift-state-probe"].value as? String) == "full" }
+        let requested = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label == %@ OR value == %@", "Assistant response 12",
+            "Assistant response 12")).firstMatch
+        expect { requested.exists && requested.isHittable && (position.value as? String) == "settled" }
+        XCTAssertLessThan(sourcePane.frame.height, sourceHeight - 30)
+        let expectedY = anchorFrame.minY + (sourcePane.frame.height - sourceHeight) * 0.2
+        XCTAssertEqual(requested.frame.minY, expectedY, accuracy: 3,
+                       "The remounted Timeline must apply its queued anchor using the new viewport")
     }
 
     @MainActor

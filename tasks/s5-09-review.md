@@ -232,3 +232,31 @@ without an intermediate changed sample. Production currently consumes only the
 release velocity; this test must produce compiled RED before that correction.
 Bounded DEBUG gesture/viewport logs accompany the intermittent Browse UI path.
 S5-10 drafts remain unpublished and excluded from this candidate.
+
+Source review of local `12cfaaf` found a remaining ordering risk: visibility alone
+can allow a pending scroll request to be acknowledged from the retained old
+viewport before the first remount measurement arrives. The follow-up uses a
+visibility revision and a Timeline-local accepted revision. Geometry and scroll
+requests remain gated until usable geometry for that exact attachment arrives.
+Review found no further concrete production blocker in that correction.
+The native UI regression now queues an anchor while hidden, reduces the fixture
+viewport height, and checks placement in the new viewport on Return; this avoids
+an equal-size round trip masking use of stale geometry. CI evidence is pending.
+
+Candidate `da4c61954a14a277c739257529d59cb9340e0062`, exact tree
+`ec3f49bf5f76b911885e26ca0ec3fe419241a866` (local `12cfaaf`), passed
+XcodeGen/build in CI 36690767767. Native hide/remount identity tests passed;
+837 Swift tests had only the expected final-release issue (Current instead of
+Older). All 20 XCTest tests passed. Both hidden-editor UI regressions, including
+the sibling reading-position check, passed. Across 30 UI tests, one test produced
+two failures because Undo was absent. The timestamped trace shows SpringBoard's
+`NotificationShortLookView` interrupted Return for about seven seconds; Undo was
+queried more than ten seconds after deletion. No test-host restart was detected.
+
+The next candidate consumes final Browse displacement before velocity settlement
+and covers both crossing the threshold at release and returning below it. The
+Undo layout/typing test now dismisses that specific system banner through an
+XCTest interruption monitor, retaining the real ten-second production deadline
+and all existing Undo/typing assertions. The already reviewed current-attachment
+geometry correction joins this candidate; its changed-viewport UI check remains
+pending. S5-09 is not yet accepted.
