@@ -101,3 +101,18 @@ UI logs explicitly read these probes around the failing actions. No input
 text or secrets are logged. An exact, branch-limited resize-diagnostic profile
 runs all unit tests and the five SplitResize UI cases once to locate the fault;
 it is not the complete slice gate. Remove the profile before full GREEN.
+
+Diagnostic head 13ce8fc715e06f80e6c4dd64969be5dd9249d90f / tree
+8fb4c12b9d7e58f1e73d636bebf4424b2f1b8242 compiled in PR 37151688378
+(job 111286746425): 847 Swift and 20 XCTest passed. Three resize UI
+cases passed; the blank tap still failed. The two diagnostic reads failed
+because SwiftUI did not expose the background probes in its accessibility
+tree. That run does not supply the intended tap/receipt evidence.
+
+Read-only source review confirmed an ownership boundary defect: the native
+host installs its root once, so a primitive revision injected outside that
+root remains frozen. The model's final revision then cannot match Timeline's
+ack. Read and inject the observable revision inside WorkspaceHostedContent's
+body instead, retaining its native subtree. Retrieve diagnostic values through
+the already mounted native Surface probe without requiring a background
+accessibility element. The blank-tap cause remains pending measured evidence.

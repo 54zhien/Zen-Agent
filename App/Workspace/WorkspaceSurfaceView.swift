@@ -102,7 +102,6 @@ struct WorkspaceSurfaceView<Content: View>: View {
                                 content: content, contentForSlot: contentForSlot)
                                 .environment(\.surfaceLiftController, driver)
                                 .environment(\.surfaceBrowseController, model == nil ? nil : browse)
-                                .environment(\.workspaceLayoutRevision, model?.workspaceLayoutRevision ?? 0)
                         }
                         .frame(width: frame.width, height: frame.height)
                         .position(x: frame.midX, y: frame.midY)
@@ -472,6 +471,10 @@ private struct WorkspaceHostedContent<Content: View>: View {
         // tree. Suppress that tree here while preserving the hidden live Pane.
         .accessibilityHidden(model?.previewContent.isPresented == true
             && model?.previewSurfaceSlot != slot)
+        // UIKit installs this root once. Read mutable layout state here so
+        // Observation updates the retained subtree instead of freezing a value
+        // captured outside the hosting controller at its first installation.
+        .environment(\.workspaceLayoutRevision, model?.workspaceLayoutRevision ?? 0)
         .environment(\.conversationBottomNotice, bottomNotice)
     }
 

@@ -91,12 +91,18 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             return values.joined(separator: ">")
         }
         let mounted = editors(in: contentController.view)
+        func timelineDiagnostics(in node: UIView) -> [String] {
+            let own = node.accessibilityIdentifier?.hasPrefix("timeline-diagnostic-") == true
+                ? [node.accessibilityValue ?? "no timeline value"] : []
+            return own + node.subviews.flatMap { timelineDiagnostics(in: $0) }
+        }
         var fields = ["host=\(ObjectIdentifier(self))", "phase=\(String(describing: liftController?.state.phase))",
             "visible=\(workspaceVisible)", "root=\(chain(view))",
             "contentInteraction=\(contentController.view.isUserInteractionEnabled)",
             "contentAXHidden=\(contentController.view.accessibilityElementsHidden)",
             "surfaceAX=\(surfaceView.isAccessibilityElement)", "activate=\(surfaceView.onActivate != nil)",
             "editors=\(mounted.count)", "browse=\(browseInteraction?.diagnostic ?? "none")"]
+        fields.append("timeline=\(timelineDiagnostics(in: contentController.view).joined(separator: "|"))")
         if let editor = mounted.first, let window = view.window {
             let point = editor.convert(CGPoint(x: editor.bounds.midX, y: editor.bounds.midY), to: window)
             fields.append("editorIdentity=\(ObjectIdentifier(editor))")

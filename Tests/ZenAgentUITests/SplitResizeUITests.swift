@@ -139,10 +139,9 @@ final class SplitResizeUITests: XCTestCase {
 
     @MainActor
     private func printDiagnostics(_ app: XCUIApplication, context: String) {
-        for id in ["timeline-diagnostic-preview-ui-11", "timeline-diagnostic-preview-ui-10",
-                   "surface-native-interaction-probe", "split-secondary-native-interaction-probe"] {
+        for id in ["surface-native-interaction-probe", "split-secondary-native-interaction-probe"] {
             let probe = app.descendants(matching: .any)[id]
-            print("RESIZE_DIAGNOSTIC \(context) \(id): \(probe.value as? String ?? "missing")")
+            print("RESIZE_DIAGNOSTIC \(context) \(id): \(probe.exists ? probe.value as? String ?? "no value" : "missing")")
         }
     }
 
