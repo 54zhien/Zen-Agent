@@ -17,7 +17,8 @@ struct ConversationPaneScrollBridgeTests {
         bridge.publishViewport(initial, bottomReferenceTurn: (runID: "reference", turnTop: 500))
         let id = UUID()
         var completed = false
-        #expect(bridge.beginDividerResize(id: id, onComplete: { _ in completed = true }))
+        let admitted = bridge.beginDividerResize(id: id, onComplete: { _ in completed = true })
+        #expect(admitted)
         let intermediate = ScrollGeometry(viewportHeight: 300, contentHeight: 1600, offset: 300)
         bridge.continueDividerResize(geometry: intermediate, turnTops: ["reference": 500])
         let request = try #require(pane.scrollRequest)
@@ -41,7 +42,8 @@ struct ConversationPaneScrollBridgeTests {
         bridge.publishViewport(initial, bottomReferenceTurn: (runID: "bottom", turnTop: 500))
         let id = UUID()
         var receipts: [UUID] = []
-        #expect(bridge.beginDividerResize(id: id, onComplete: { receipts.append($0) }))
+        let admitted = bridge.beginDividerResize(id: id, onComplete: { receipts.append($0) })
+        #expect(admitted)
         bridge.endHeightChange()
         bridge.userScrolled(geometry: initial, topVisibleTurn: nil)
         #expect(bridge.hasDividerLease)
@@ -57,7 +59,8 @@ struct ConversationPaneScrollBridgeTests {
         #expect(receipts.isEmpty && bridge.hasDividerLease)
         bridge.acknowledgeDividerResize(revision: 8, geometry: final)
         #expect(receipts == [id] && !bridge.hasDividerLease)
-        #expect(bridge.beginDividerResize(id: UUID(), onComplete: { _ in }))
+        let newerAdmitted = bridge.beginDividerResize(id: UUID(), onComplete: { _ in })
+        #expect(newerAdmitted)
         bridge.invalidateDividerResize(id: id)
         #expect(bridge.hasDividerLease, "A late prior token must not release the newer capture")
     }
