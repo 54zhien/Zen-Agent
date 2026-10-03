@@ -134,3 +134,40 @@ No further production behavior change is made until these boundaries are
 measured. Full GREEN remains pending.
 
 Direct diagnostic d84a85868c8f54641a50d3b773f72bb49a03f8ee / tree f61d21157a62926a268b705e59baa743e8c23e73 in push 37153479357 (job 111292177480) built and passed 847 Swift plus 20 XCTest. The same two resize UI cases failed. Both Pane revisions matched 3; the source lease completed, but the empty secondary awaited target 127 at offset 0. The fixed blank point hit NavigationBarContentView. Capture raw SwiftUI/native content size, offset, insets and container before changing the converter; move the actual touch above the measured Composer rather than the navigation title.
+
+### Measured conversion correction
+
+Raw diagnostic b5f1ebbeff6564569f651d5a8853b484ff06c943 / tree
+f0ccc4d3954fbe2e5e5c845be17fe52a2cd16ecd built in push 37155136930
+(job 111296898657), passing 847 Swift and 20 XCTest. Five resize UI cases
+ran once; three passed and two failed. The measured Timeline-margin touch
+classified blank=true and dismissed the keyboard. The remaining draft test
+then failed a global AX index for the empty resting editor; both native hosts
+still retained their actual editor. Tap the measured native location and
+verify its first responder plus draft value and identity.
+
+The geometry contract is now measured, not inferred from documentation:
+
+- Empty secondary: native bounds height 377, adjusted Insets 116 + 108,
+  content height 56, raw offset -116; SwiftUI container height 153.
+- Source at native bottom: native height 437, adjusted Insets 116 + 74,
+  content height 2042, raw offset 1679; SwiftUI container height 247.
+
+`containerSize` already represents the usable viewport after Insets. Keep it
+and the top-normalized offset, but use contentSize alone for model height.
+The empty maximum becomes 0; the source maximum becomes 1795, exactly its
+observed raw offset plus topInset. Adding Insets to content while comparing
+it against the inset viewport double-counted them. This is consistent with
+Apple's total-scrollable-space definition when both sides use the same
+coordinate convention. Source: https://developer.apple.com/documentation/swiftui/scrollgeometry/contentinsets
+
+Two production-mapper unit regressions preserve these observed fixtures.
+The existing compiled resize and bottom-request RED motivated the correction;
+these new unit regressions have not had a separate test-only CI run. Retain
+fresh revision/geometry/scroll acknowledgements without synthetic success.
+Read-only source review agreed with the measured conversion correction.
+
+Remove the diagnostic JSON and restore the full suite for the correction gate.
+The full job cap is 40 minutes because prior full CI executed all 35 UI cases
+but exhausted 30 minutes during collection; no retries or loops are added.
+Generation/build and full unit/UI results remain pending.

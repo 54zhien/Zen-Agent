@@ -226,7 +226,7 @@ struct ConversationTimelineView: View {
                 }
             }
             .onScrollGeometryChange(for: ConversationTimelineViewport.self) { geometry in
-                ConversationTimelineViewport(geometry: paneGeometry(from: geometry),
+                ConversationTimelineViewport(geometry: Self.paneGeometry(from: geometry),
                                              nativeGeometry: geometry,
                                              workspaceVisible: workspaceVisible,
                                              workspaceRevision: workspaceRevision,
@@ -269,10 +269,10 @@ struct ConversationTimelineView: View {
                 case .tracking, .interacting:
                     pendingAppliedScroll = nil
                     scrollBridge?.userScrolled(
-                        geometry: paneGeometry(from: context.geometry),
+                        geometry: Self.paneGeometry(from: context.geometry),
                         topVisibleTurn: topVisibleTurn(
                             in: turnFrames,
-                            geometry: paneGeometry(from: context.geometry)
+                            geometry: Self.paneGeometry(from: context.geometry)
                         )
                     )
                 case .idle:
@@ -346,14 +346,13 @@ struct ConversationTimelineView: View {
         turnFrames.values.allSatisfy { !$0.contains(location) }
     }
 
-    private func paneGeometry(from geometry: SwiftUI.ScrollGeometry) -> ScrollGeometry {
+    static func paneGeometry(from geometry: SwiftUI.ScrollGeometry) -> ScrollGeometry {
         ScrollGeometry(
             viewportHeight: Double(geometry.containerSize.height),
-            contentHeight: Double(
-                geometry.contentSize.height
-                    + geometry.contentInsets.top
-                    + geometry.contentInsets.bottom
-            ),
+            // SwiftUI's container is already the usable viewport after insets.
+            // Adding insets to content here would count them twice and make the
+            // native bottom (including short/empty content) impossible to ack.
+            contentHeight: Double(geometry.contentSize.height),
             offset: Double(geometry.contentOffset.y + geometry.contentInsets.top)
         )
     }

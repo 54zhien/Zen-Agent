@@ -71,13 +71,27 @@ final class SplitResizeUITests: XCTestCase {
         let app = occupiedSplit()
         let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let secondary = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch
-        let sourceEditor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
-        sourceEditor.tap()
-        sourceEditor.typeText("source resize draft")
+        let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        let secondaryProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
+        let sourceIdentity = editorIdentity(sourceProbe.value as? String)
+        let secondaryIdentity = editorIdentity(secondaryProbe.value as? String)
+        let initialEditor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
+        initialEditor.tap()
+        initialEditor.typeText("source resize draft")
+        let sourceEditor = editor(in: app, containing: "source resize draft")
         dismissKeyboard(in: app, pane: source, editor: sourceEditor)
-        let secondaryEditor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 1)
-        secondaryEditor.tap()
-        secondaryEditor.typeText("secondary resize draft")
+        // The empty resting editor need not be a separate AX text-view node.
+        // Tap its real native location, then type through the actual first responder.
+        guard let point = editorPoint(secondaryProbe.value as? String) else {
+            XCTFail("The secondary Surface must retain its native editor geometry")
+            return
+        }
+        app.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY)).tap()
+        expect { (secondaryProbe.value as? String)?.contains(";focused=true;") == true }
+        app.typeText("secondary resize draft")
+        let secondaryEditor = editor(in: app, containing: "secondary resize draft")
+        XCTAssertTrue(secondaryEditor.waitForExistence(timeout: 5))
         dismissKeyboard(in: app, pane: secondary, editor: secondaryEditor)
 
         let sourceBefore = source.frame
@@ -92,6 +106,8 @@ final class SplitResizeUITests: XCTestCase {
         XCTAssertTrue((sourceEditor.value as? String)?.contains("source resize draft") == true)
         XCTAssertTrue((secondaryEditor.value as? String)?.contains("secondary resize draft") == true)
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2)
+        XCTAssertEqual(editorIdentity(sourceProbe.value as? String), sourceIdentity)
+        XCTAssertEqual(editorIdentity(secondaryProbe.value as? String), secondaryIdentity)
     }
 
     @MainActor
@@ -112,6 +128,21 @@ final class SplitResizeUITests: XCTestCase {
 
     private func editorIdentity(_ diagnostic: String?) -> String? {
         diagnostic?.split(separator: ";").first { $0.hasPrefix("editorIdentity=") }.map(String.init)
+    }
+
+    private func editorPoint(_ diagnostic: String?) -> CGPoint? {
+        guard let field = diagnostic?.split(separator: ";").first(where: { $0.hasPrefix("point=(") }) else { return nil }
+        let values = field.dropFirst(7).dropLast().split(separator: ",").compactMap {
+            Double($0.trimmingCharacters(in: .whitespaces))
+        }
+        guard values.count == 2 else { return nil }
+        return CGPoint(x: values[0], y: values[1])
+    }
+
+    @MainActor
+    private func editor(in app: XCUIApplication, containing draft: String) -> XCUIElement {
+        app.textViews.matching(NSPredicate(format: "identifier == %@ AND value CONTAINS %@",
+            "conversation-composer-input", draft)).firstMatch
     }
 
     @MainActor

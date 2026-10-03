@@ -254,7 +254,9 @@ jobs:
     name: Build and test
     needs: repo-hygiene
     runs-on: macos-26
-    timeout-minutes: 30
+    # A full Stage 5 run executed all 35 UI cases but hit the former 30 minute
+    # ceiling during result collection. This cap adds no retries or test loops.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
