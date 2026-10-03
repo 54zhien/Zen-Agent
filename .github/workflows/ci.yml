@@ -319,22 +319,21 @@ jobs:
           echo "Using simulator $UDID"
           python3 -B .github/scripts/test_stage5_test_profile.py
           TEST_SCOPE=$(python3 -B .github/scripts/stage5_test_profile.py)
-          TEST_ARGS=()
+          TEST_ARGS=(test)
           if [ "$TEST_SCOPE" = "review-red" ]; then
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
-            TEST_ARGS=(-only-testing:ZenAgentTests)
+            TEST_ARGS+=(-only-testing:ZenAgentTests)
           fi
           touch "$RUNNER_TEMP/test-start.marker"
 
           set +e
           set -o pipefail
-          xcodebuild test \
+          xcodebuild "${TEST_ARGS[@]}" \
             -project ZenAgent.xcodeproj \
             -scheme ZenAgent \
             -configuration Debug \
             -destination "id=$UDID" \
             -resultBundlePath "$RUNNER_TEMP/ZenAgentTests.xcresult" \
-            "${TEST_ARGS[@]}" \
             2>&1 | tee "$RUNNER_TEMP/ZenAgentTests.log"
           XCODE_STATUS=${PIPESTATUS[0]}
           set -e

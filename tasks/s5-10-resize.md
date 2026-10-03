@@ -60,3 +60,11 @@ The temporary JSON profile is removed for the full correction gate. Also
 filter unavailable accessibility close actions and instrument native Lift
 readiness so Browse tests wait for actual eligibility without retrying gestures.
 Full generation/build/unit/UI GREEN remains pending.
+
+Full candidate c80660f / tree ee6ef86a6a866123d31eba8b6984928b5a370969
+passed app generation/build in 37146884356, but its full test step failed
+before xcodebuild: macOS Bash 3 treats the empty TEST_ARGS array as unbound
+under nounset. Correct the argument array to always contain the `test`
+subcommand and append only fixed selection flags. This failed script run
+provides no unit/UI result for the corrections. Source review of the fixed
+S5-10 commit found no confirmed P1/P2 blocker.
