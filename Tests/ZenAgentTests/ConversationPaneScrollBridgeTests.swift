@@ -7,6 +7,30 @@ import Foundation
 @MainActor
 struct ConversationPaneScrollBridgeTests {
 
+    @Test("an unmeasured lazy bottom reference cannot complete a new final Divider layout using its older target")
+    func missingLazyTurnCannotAcknowledgeOldTarget() throws {
+        let pane = try makePane(conversationID: "lazy-divider",
+            turns: [ConversationTurn(runID: "reference", items: [.userText("read")])])
+        let bridge = pane.scrollBridge
+        let initial = ScrollGeometry(viewportHeight: 400, contentHeight: 1600, offset: 200)
+        bridge.userScrolled(geometry: initial, topVisibleTurn: (runID: "reference", turnTop: 500))
+        bridge.publishViewport(initial, bottomReferenceTurn: (runID: "reference", turnTop: 500))
+        let id = UUID()
+        var completed = false
+        #expect(bridge.beginDividerResize(id: id, onComplete: { _ in completed = true }))
+        let intermediate = ScrollGeometry(viewportHeight: 300, contentHeight: 1600, offset: 300)
+        bridge.continueDividerResize(geometry: intermediate, turnTops: ["reference": 500])
+        let request = try #require(pane.scrollRequest)
+        _ = pane.updateReading(.programmaticScrolled(geometry: intermediate))
+        pane.markScrollApplied(sequence: request.sequence)
+        bridge.finishDividerResize(id: id, revision: 9)
+        let final = ScrollGeometry(viewportHeight: 180, contentHeight: 1600, offset: 300)
+        bridge.continueDividerResize(geometry: final, turnTops: [:])
+        bridge.acknowledgeDividerResize(revision: 9, geometry: final)
+        #expect(!completed && bridge.hasDividerLease,
+            "A missing current reference must wait for materialization, never use the previous viewport's target")
+    }
+
     @Test("Divider lease outlives idle and deceleration, replaces streaming scroll, and needs the matching final receipt")
     func dividerLeaseRequiresFinalReceipt() throws {
         let pane = try makePane(conversationID: "divider",
