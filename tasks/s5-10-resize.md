@@ -68,3 +68,20 @@ under nounset. Correct the argument array to always contain the `test`
 subcommand and append only fixed selection flags. This failed script run
 provides no unit/UI result for the corrections. Source review of the fixed
 S5-10 commit found no confirmed P1/P2 blocker.
+
+### Full correction gate and repeated resize repair
+
+Full remote c7424eefdf4cc63e0d4fcf115db4b10f07954dde / tree
+06a24e07ad956938d2aab8d0c3e5b630a6c74fe7 built in PR 37147217012
+and push 37147213766. All 846 Swift and 20 XCTest passed. Both full UI
+runs executed 35 tests and reported three failures in two resize tests:
+blank-background keyboard dismissal failed before the draft drag, and a
+second resize was not admitted after the first successful resize.
+No test host restarted. S5-10 remains unverified.
+
+Do not manufacture a new layout revision when the ratio is unchanged.
+The pan's last geometry has already been measured; releasing at that same
+ratio must use its existing revision. Also explicitly make the ScrollView's
+blank rectangle a tap target so the blank-background dismissal gesture can
+receive margin taps. Keep the repeated drag and actual keyboard/draft UI
+assertions in the full correction gate.

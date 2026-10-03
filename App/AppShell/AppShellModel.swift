@@ -40,7 +40,8 @@ final class AppShellModel {
     func refreshWorkspaceLayout() { workspaceLayoutRevision += 1 }
 
     func setSplitRatio(_ ratio: Double) {
-        guard ratio.isFinite, ratio > 0, ratio < 1, splitWorkspace != nil else { return }
+        guard ratio.isFinite, ratio > 0, ratio < 1,
+              let split = splitWorkspace, split.topBottomRatio != ratio else { return }
         splitWorkspace?.setRatio(ratio)
         workspaceLayoutRevision += 1
     }
