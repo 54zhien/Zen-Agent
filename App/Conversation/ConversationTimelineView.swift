@@ -178,6 +178,7 @@ struct ConversationTimelineView: View {
                 Color.clear.frame(height: bottomComposerClearance)
             }
             .coordinateSpace(name: scrollCoordinateSpace)
+            .contentShape(Rectangle())
             .simultaneousGesture(SpatialTapGesture().onEnded { tap in
                 guard Self.isBlankTap(tap.location, turnFrames: turnFrames) else { return }
                 onBlankBackgroundTap()

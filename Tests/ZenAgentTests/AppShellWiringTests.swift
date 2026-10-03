@@ -20,6 +20,19 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("an unchanged final Split ratio retains the layout revision already measured by both Panes")
+    func unchangedSplitRatioKeepsMeasuredRevision() throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: fixture.model.conversationID, slot: .top)))
+        fixture.model.setSplitRatio(0.63)
+        let measured = fixture.model.workspaceLayoutRevision
+        fixture.model.setSplitRatio(0.63)
+        #expect(fixture.model.workspaceLayoutRevision == measured)
+        fixture.model.setSplitRatio(0.55)
+        #expect(fixture.model.workspaceLayoutRevision > measured)
+    }
+
     @Test("New from a Single Card clears its preview physical slot before a subsequent Split")
     func singleCardNewClearsPreviewSurfaceSlot() async throws {
         let fixture = try makeFixture(seed: .active)
