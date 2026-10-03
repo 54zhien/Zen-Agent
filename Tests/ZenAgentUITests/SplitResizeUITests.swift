@@ -96,6 +96,8 @@ final class SplitResizeUITests: XCTestCase {
         expect { (secondaryProbe.value as? String)?.contains(";focused=true;") == true }
         app.typeText("secondary resize draft")
         printDiagnostics(app, context: "after secondary input")
+        XCTAssertTrue(app.descendants(matching: .any)["split-viewport-probe"].exists,
+            "The keyboard-safe Workspace geometry receipt must run in this fixture")
         XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source resize draft".utf16.count)
         XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), "secondary resize draft".utf16.count)
         let nativeFrame = editorFrame(secondaryProbe.value as? String)

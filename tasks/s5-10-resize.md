@@ -251,3 +251,16 @@ during secondary editing, retaining real editor identities and native text lengt
 Run all units plus the five resize UI cases once under resize-diagnostic; that
 diagnostic receipt is not slice acceptance. Remove the profile for the full
 generation/build/unit/UI gate after resolving any measured integration failure.
+
+Correction diagnostic 10ac75b793aef908146cbef629f102bf32f10c1a / tree
+b8053247a1e59fad0290386fd7e6952e69508263 is running in push 37160622113
+(job 111313143913). Source review found one diagnostic defect: the new geometry
+probe checked only the surface-lift fixture flag, while resize launches the
+preview-handoff fixture. Include both flags and assert that this probe exists.
+No additional production geometry change is made.
+
+Remove the diagnostic profile and start the full gate while the narrower run
+finishes. Both candidates share the same production correction, with only DEBUG
+probe admission and its test assertion repaired in the full candidate. Preserve
+both exact-tree receipts; neither is accepted until its actual results arrive.
+No S5-11 product work begins before the full candidate is GREEN.

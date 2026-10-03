@@ -90,7 +90,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 let fullFrame = CGRect(origin: .zero, size: geometry.size)
                 ZStack(alignment: .topLeading) {
 #if DEBUG
-                    if ProcessInfo.processInfo.environment["ZEN_SURFACE_LIFT_UI_TEST"] == "1",
+                    if (ProcessInfo.processInfo.environment["ZEN_SURFACE_LIFT_UI_TEST"] == "1"
+                        || ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1"),
                        let layout = splitGeometry(in: geometry) {
                         SplitViewportProbe(value: "size=\(geometry.size);safeArea=\(geometry.safeAreaInsets);viewport=\(layout.viewport);top=\(layout.top);bottom=\(layout.bottom)")
                             .frame(width: 1, height: 1)
