@@ -85,3 +85,89 @@ ratio must use its existing revision. Also explicitly make the ScrollView's
 blank rectangle a tap target so the blank-background dismissal gesture can
 receive margin taps. Keep the repeated drag and actual keyboard/draft UI
 assertions in the full correction gate.
+
+### Native boundary diagnostic run
+
+Remote c9841a1f045556d7802e2eadb257dd6deacc0948 / tree
+4d5f1d1c7027530e866e97c0ed4ceaf9b3014a2c built successfully.
+Push 37149516942 / job 111280233296 passed all 847 Swift tests and
+20 XCTest, but repeated the same three failures in two resize UI tests.
+PR 37149519510 / job 111280237417 executed the same failing UI cases
+before its 30 minute timeout cancelled final collection. Neither is GREEN.
+
+Ruling: collect DEBUG-only blank tap classification and per-Pane accepted,
+measured, prepared and final layout revisions through accessibility probes.
+UI logs explicitly read these probes around the failing actions. No input
+text or secrets are logged. An exact, branch-limited resize-diagnostic profile
+runs all unit tests and the five SplitResize UI cases once to locate the fault;
+it is not the complete slice gate. Remove the profile before full GREEN.
+
+Diagnostic head 13ce8fc715e06f80e6c4dd64969be5dd9249d90f / tree
+8fb4c12b9d7e58f1e73d636bebf4424b2f1b8242 compiled in PR 37151688378
+(job 111286746425): 847 Swift and 20 XCTest passed. Three resize UI
+cases passed; the blank tap still failed. The two diagnostic reads failed
+because SwiftUI did not expose the background probes in its accessibility
+tree. That run does not supply the intended tap/receipt evidence.
+
+Read-only source review confirmed an ownership boundary defect: the native
+host installs its root once, so a primitive revision injected outside that
+root remains frozen. The model's final revision then cannot match Timeline's
+ack. Read and inject the observable revision inside WorkspaceHostedContent's
+body instead, retaining its native subtree. Retrieve diagnostic values through
+the already mounted native Surface probe without requiring a background
+accessibility element. The blank-tap cause remains pending measured evidence.
+
+Correction 3dd91d7a154e41e3cd3b93a5121afc7e785b7566 / tree
+f8c4b0c941687609ac759203b4aee460a32a9780 compiled in PR 37152568925
+(job 111289307684): 847 Swift and 20 XCTest passed, but the same two
+resize UI cases still failed. The native Surface probe was readable; no
+background diagnostic UIView was mounted in its hierarchy, so it still
+provided no Timeline receipt. The secondary editor center hit a native
+large-title view while the source keyboard was present. This does not prove
+the exact fixed blank-tap coordinate's hit or classification.
+
+Read diagnostic state directly from the existing per-Pane scroll bridge
+through the Surface probe. Record the actually observed, accepted and
+measured revisions at their callbacks, and native ScrollView frames/hits;
+print the XCTest coordinate too. Remove the inaccessible background probe.
+No further production behavior change is made until these boundaries are
+measured. Full GREEN remains pending.
+
+Direct diagnostic d84a85868c8f54641a50d3b773f72bb49a03f8ee / tree f61d21157a62926a268b705e59baa743e8c23e73 in push 37153479357 (job 111292177480) built and passed 847 Swift plus 20 XCTest. The same two resize UI cases failed. Both Pane revisions matched 3; the source lease completed, but the empty secondary awaited target 127 at offset 0. The fixed blank point hit NavigationBarContentView. Capture raw SwiftUI/native content size, offset, insets and container before changing the converter; move the actual touch above the measured Composer rather than the navigation title.
+
+### Measured conversion correction
+
+Raw diagnostic b5f1ebbeff6564569f651d5a8853b484ff06c943 / tree
+f0ccc4d3954fbe2e5e5c845be17fe52a2cd16ecd built in push 37155136930
+(job 111296898657), passing 847 Swift and 20 XCTest. Five resize UI cases
+ran once; three passed and two failed. The measured Timeline-margin touch
+classified blank=true and dismissed the keyboard. The remaining draft test
+then failed a global AX index for the empty resting editor; both native hosts
+still retained their actual editor. Tap the measured native location and
+verify its first responder plus draft value and identity.
+
+The geometry contract is now measured, not inferred from documentation:
+
+- Empty secondary: native bounds height 377, adjusted Insets 116 + 108,
+  content height 56, raw offset -116; SwiftUI container height 153.
+- Source at native bottom: native height 437, adjusted Insets 116 + 74,
+  content height 2042, raw offset 1679; SwiftUI container height 247.
+
+`containerSize` already represents the usable viewport after Insets. Keep it
+and the top-normalized offset, but use contentSize alone for model height.
+The empty maximum becomes 0; the source maximum becomes 1795, exactly its
+observed raw offset plus topInset. Adding Insets to content while comparing
+it against the inset viewport double-counted them. This is consistent with
+Apple's total-scrollable-space definition when both sides use the same
+coordinate convention. Source: https://developer.apple.com/documentation/swiftui/scrollgeometry/contentinsets
+
+Two production-mapper unit regressions preserve these observed fixtures.
+The existing compiled resize and bottom-request RED motivated the correction;
+these new unit regressions have not had a separate test-only CI run. Retain
+fresh revision/geometry/scroll acknowledgements without synthetic success.
+Read-only source review agreed with the measured conversion correction.
+
+Remove the diagnostic JSON and restore the full suite for the correction gate.
+The full job cap is 40 minutes because prior full CI executed all 35 UI cases
+but exhausted 30 minutes during collection; no retries or loops are added.
+Generation/build and full unit/UI results remain pending.

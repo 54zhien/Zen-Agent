@@ -97,6 +97,18 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             "contentAXHidden=\(contentController.view.accessibilityElementsHidden)",
             "surfaceAX=\(surfaceView.isAccessibilityElement)", "activate=\(surfaceView.onActivate != nil)",
             "editors=\(mounted.count)", "browse=\(browseInteraction?.diagnostic ?? "none")"]
+        fields.append("timeline=\(liftController?.workspacePaneDiagnostic?() ?? "unbound")")
+        if let window = view.window {
+            func scrollViews(in node: UIView) -> [UIScrollView] {
+                let own = (node as? UIScrollView).flatMap { $0 is UITextView ? nil : $0 }.map { [$0] } ?? []
+                return own + node.subviews.flatMap { scrollViews(in: $0) }
+            }
+            for scroll in scrollViews(in: contentController.view) {
+                let point = scroll.convert(CGPoint(x: scroll.bounds.minX + scroll.bounds.width * 0.98,
+                    y: scroll.bounds.minY + scroll.bounds.height * 0.25), to: window)
+                fields.append("nativeScroll=\(type(of: scroll));frame=\(scroll.convert(scroll.bounds, to: window));size=\(scroll.contentSize);offset=\(scroll.contentOffset);insets=\(scroll.contentInset);adjustedInsets=\(scroll.adjustedContentInset);marginPoint=\(point);marginHit=\(chain(window.hitTest(point, with: nil)))")
+            }
+        }
         if let editor = mounted.first, let window = view.window {
             let point = editor.convert(CGPoint(x: editor.bounds.midX, y: editor.bounds.midY), to: window)
             fields.append("editorIdentity=\(ObjectIdentifier(editor))")

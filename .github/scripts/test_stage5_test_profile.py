@@ -25,6 +25,13 @@ class ProfileGuardTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 test_scope(profile, "codex/s5-10-divider-resize")
 
+    def test_resize_diagnostics_are_confined_to_the_resize_branch(self):
+        profile = {"mode": "resize-diagnostic"}
+        self.assertEqual(test_scope(profile, "codex/s5-10-divider-resize"), "resize-diagnostic")
+        self.assertEqual(test_scope(profile, "main"), "full")
+        with self.assertRaises(ValueError):
+            test_scope(profile, "codex/s5-11-device-presentation")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -57,10 +57,12 @@ final class SplitResizeUITests: XCTestCase {
         expect { pane.frame.height > initialHeight + 30 }
         expect { anchor.isHittable && abs(pane.frame.maxY - anchor.frame.minY - bottomDistance) < 4 }
         let grownHeight = pane.frame.height
+        printDiagnostics(app, context: "after first resize")
         let movedHandle = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         movedHandle.press(forDuration: 0.15,
                           thenDragTo: movedHandle.withOffset(CGVector(dx: 0, dy: -50)))
         expect { pane.frame.height < grownHeight - 20 }
+        printDiagnostics(app, context: "after second resize")
         XCTAssertEqual(pane.frame.maxY - anchor.frame.minY, bottomDistance, accuracy: 4)
     }
 
@@ -69,14 +71,31 @@ final class SplitResizeUITests: XCTestCase {
         let app = occupiedSplit()
         let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let secondary = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch
-        let sourceEditor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
-        sourceEditor.tap()
-        sourceEditor.typeText("source resize draft")
-        dismissKeyboard(in: app, pane: source)
-        let secondaryEditor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 1)
-        secondaryEditor.tap()
-        secondaryEditor.typeText("secondary resize draft")
-        dismissKeyboard(in: app, pane: secondary)
+        let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        let secondaryProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
+        let sourceIdentity = editorIdentity(sourceProbe.value as? String)
+        let secondaryIdentity = editorIdentity(secondaryProbe.value as? String)
+        XCTAssertNotNil(sourceIdentity, "The source probe must identify its actual native editor")
+        XCTAssertNotNil(secondaryIdentity, "The secondary probe must identify its actual native editor")
+        let initialEditor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
+        initialEditor.tap()
+        initialEditor.typeText("source resize draft")
+        let sourceEditor = editor(in: app, containing: "source resize draft")
+        XCTAssertTrue(sourceEditor.waitForExistence(timeout: 5))
+        dismissKeyboard(in: app, pane: source, editor: sourceEditor)
+        // The empty resting editor need not be a separate AX text-view node.
+        // Tap its real native location, then type through the actual first responder.
+        guard let point = editorPoint(secondaryProbe.value as? String) else {
+            XCTFail("The secondary Surface must retain its native editor geometry")
+            return
+        }
+        app.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY)).tap()
+        expect { (secondaryProbe.value as? String)?.contains(";focused=true;") == true }
+        app.typeText("secondary resize draft")
+        let secondaryEditor = editor(in: app, containing: "secondary resize draft")
+        XCTAssertTrue(secondaryEditor.waitForExistence(timeout: 5))
+        dismissKeyboard(in: app, pane: secondary, editor: secondaryEditor)
 
         let sourceBefore = source.frame
         let secondaryBefore = secondary.frame
@@ -90,6 +109,8 @@ final class SplitResizeUITests: XCTestCase {
         XCTAssertTrue((sourceEditor.value as? String)?.contains("source resize draft") == true)
         XCTAssertTrue((secondaryEditor.value as? String)?.contains("secondary resize draft") == true)
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2)
+        XCTAssertEqual(editorIdentity(sourceProbe.value as? String), sourceIdentity)
+        XCTAssertEqual(editorIdentity(secondaryProbe.value as? String), secondaryIdentity)
     }
 
     @MainActor
@@ -112,6 +133,21 @@ final class SplitResizeUITests: XCTestCase {
         diagnostic?.split(separator: ";").first { $0.hasPrefix("editorIdentity=") }.map(String.init)
     }
 
+    private func editorPoint(_ diagnostic: String?) -> CGPoint? {
+        guard let field = diagnostic?.split(separator: ";").first(where: { $0.hasPrefix("point=(") }) else { return nil }
+        let values = field.dropFirst(7).dropLast().split(separator: ",").compactMap {
+            Double($0.trimmingCharacters(in: .whitespaces))
+        }
+        guard values.count == 2 else { return nil }
+        return CGPoint(x: values[0], y: values[1])
+    }
+
+    @MainActor
+    private func editor(in app: XCUIApplication, containing draft: String) -> XCUIElement {
+        app.textViews.matching(NSPredicate(format: "identifier == %@ AND value CONTAINS %@",
+            "conversation-composer-input", draft)).firstMatch
+    }
+
     @MainActor
     private func occupiedSplit() -> XCUIApplication {
         let app = XCUIApplication()
@@ -129,9 +165,26 @@ final class SplitResizeUITests: XCTestCase {
     }
 
     @MainActor
-    private func dismissKeyboard(in app: XCUIApplication, pane: XCUIElement) {
-        pane.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.25)).tap()
+    private func dismissKeyboard(in app: XCUIApplication, pane: XCUIElement, editor: XCUIElement) {
+        // Pane AX bounds include the large navigation title. Use the Timeline
+        // margin directly above the actual Composer, outside padded Turn content.
+        let blankY = editor.frame.minY - 30
+        XCTAssertGreaterThan(blankY, pane.frame.minY + 120)
+        XCTAssertLessThan(blankY, app.keyboards.firstMatch.frame.minY)
+        let point = app.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: pane.frame.maxX - 8 - app.frame.minX, dy: blankY - app.frame.minY))
+        print("RESIZE_BLANK_POINT pane=\(pane.frame) point=\(point.screenPoint) keyboard=\(app.keyboards.firstMatch.frame)")
+        point.tap()
         expect { !app.keyboards.firstMatch.exists }
+        printDiagnostics(app, context: "after blank tap")
+    }
+
+    @MainActor
+    private func printDiagnostics(_ app: XCUIApplication, context: String) {
+        for id in ["surface-native-interaction-probe", "split-secondary-native-interaction-probe"] {
+            let probe = app.descendants(matching: .any)[id]
+            print("RESIZE_DIAGNOSTIC \(context) \(id): \(probe.exists ? probe.value as? String ?? "no value" : "missing")")
+        }
     }
 
     @MainActor

@@ -9,6 +9,8 @@ def test_scope(profile, branch):
         return "full"
     if profile == {"mode": "orientation-red"} and branch == "codex/s5-11-device-presentation":
         return "orientation-red"
+    if profile == {"mode": "resize-diagnostic"} and branch == "codex/s5-10-divider-resize":
+        return "resize-diagnostic"
     if profile != {"mode": "review-red"}:
         raise ValueError("Stage 5 profile must match an explicit fixed RED mode and branch")
     return "review-red"

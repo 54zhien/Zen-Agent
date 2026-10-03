@@ -28,3 +28,21 @@ logical top/left and bottom/right ownership and separate ratios.
 
 Test-only candidate pending generation/build and compiled behavior. No S5-11
 functionality, GREEN, device acceptance or merge claim.
+
+### Baseline propagation
+
+The first compiled behavior RED is preserved at test-only remote
+f39baf09a01897a74b86d53929d593adf889503a / tree
+0c456f6d6e5b708324d598a8b3e97a2f67179324 in CI 37147321072:
+build, 846 Swift and 20 XCTest passed; two rotation UI cases failed four
+assertions because landscape retained two editors and the wrong presentation.
+This is test evidence, not S5-11 functionality.
+
+Propagate local S5-10 906b76e, remote
+c3c2cbad9cc403dcb37f18ecd09327a0fa3385f6 / tree
+72b8d93a900fa8b86cfadf0a08eb309acb27e972 while its full gate runs.
+This refresh adds no rotation production code. Preserve both exact-branch
+guarded test profiles, all unit tests, the 40 minute full-job cap and both
+new geometry regressions. Apply measured native editor/blank touch locations
+to the rotation tests too. Product implementation still waits for S5-10 full
+GREEN and propagates any further correction before proceeding.
