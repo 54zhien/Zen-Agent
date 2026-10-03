@@ -208,13 +208,11 @@ final class AppShellModel {
     }
 
     func closeSplit() {
-        guard let split = splitWorkspace else { return }
-        closeSplit(keeping: split.sourceSlot)
+        closeSplit(keeping: splitWorkspace?.sourceSlot ?? .top)
     }
 
     func closeSplit(keeping slot: SplitDropSlot) {
-        guard let split = splitWorkspace else { return }
-        if slot != split.sourceSlot {
+        if let split = splitWorkspace, slot != split.sourceSlot {
             guard let survivor = splitPane, let survivorBridge = splitActionBridge else { return }
             if let departing = pane {
                 rememberSession(departing.session, id: departing.conversationID, retainUncommitted: true)
@@ -990,7 +988,8 @@ final class AppShellModel {
             let history = try await router.historyPreparation.prepare(id: id, store: dependencies.store)
             let warmOwner = sessions.uncommittedSession(for: id)
             guard !Task.isCancelled, navigationID == navigation, router === dependencies.router,
-                  replacingSplit == nil || (splitWorkspace?.sourceConversationID == replacingSplit?.sourceConversationID
+                  replacingSplit == nil || (splitWorkspace?.arrangementID == replacingSplit?.arrangementID
+                    && splitWorkspace?.sourceConversationID == replacingSplit?.sourceConversationID
                     && splitWorkspace?.secondaryConversationID == replacingSplit?.secondaryConversationID),
                   history.snapshot.conversation?.lifecycle == .visible
                     || (history.snapshot.conversation == nil && warmOwner != nil) else { return false }
@@ -1023,7 +1022,9 @@ final class AppShellModel {
             cardActions?.reset()
             let outgoingConversationID = conversationID
             if outgoingConversationID != id { router.unregisterPane(for: outgoingConversationID) }
-            if let split = replacingSplit {
+            if replacingSplit != nil, let split = splitWorkspace {
+                // History preparation yields: retain the ratio most recently
+                // measured by this same live arrangement, not its old snapshot.
                 cancelSplitSelection()
                 var updated = SplitWorkspaceState(sourceConversationID: id, sourceSlot: split.sourceSlot, preserving: split)
                 if let otherID = split.secondaryConversationID { _ = updated.occupy(otherID) }

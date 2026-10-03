@@ -45,3 +45,18 @@ waiting for unit RED; it is not acceptance evidence. Test compilation failures i
 37143212009, 37144137510 and 37144774516 are recorded as compilation failures,
 not behavioral RED. The latter app build passed; its test needed `try` on the
 throwing runtime projection.
+
+### Review RED receipt and correction candidate
+
+Remote 816c0f9ccfb6418e8cb99cbc3a0ae170604cbf6b / tree
+14575a185a571afe2be9b66661ee1baa785edcd7 compiled in 37146073242
+(job 111270190792). Exactly three behavioral issues among 846 Swift tests:
+stale lazy receipt completed, source Recent reset 0.63 to 0.55, and Single
+Card New retained `.primary` preview slot. All 20 XCTest passed; no UI tests
+were selected for that review-RED run. The correction pairs a measured target
+with its layout revision, materializes a missing retained Turn, preserves the
+current arrangement ratio, and restores no-Split presentation cleanup.
+The temporary JSON profile is removed for the full correction gate. Also
+filter unavailable accessibility close actions and instrument native Lift
+readiness so Browse tests wait for actual eligibility without retrying gestures.
+Full generation/build/unit/UI GREEN remains pending.

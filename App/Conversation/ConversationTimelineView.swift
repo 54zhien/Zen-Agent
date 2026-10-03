@@ -7,6 +7,12 @@ private struct ConversationTimelineViewport: Equatable {
     let layoutRevision: UInt64
 }
 
+private struct DividerTurnMaterialization: Equatable {
+    let leaseID: UUID
+    let revision: UInt64
+    let runID: String
+}
+
 private struct ConversationTimelineTurnMeasurements: Equatable, Sendable {
     var viewportFrames: [String: CGRect] = [:]
     var contentTops: [String: Double] = [:]
@@ -62,6 +68,7 @@ struct ConversationTimelineView: View {
     @State private var turnContentTops: [String: Double] = [:]
     @State private var materializingSequence: UInt64?
     @State private var materializationRequest: ConversationPaneScrollRequest?
+    @State private var dividerMaterialization: DividerTurnMaterialization?
     @State private var latestBottomReferenceTurn: (runID: String, turnTop: Double)?
     @State private var activeScrollPhase: ScrollPhase = .idle
     @State private var pendingAppliedScroll: ConversationPaneScrollRequest?
@@ -74,6 +81,14 @@ struct ConversationTimelineView: View {
                     var transaction = Transaction()
                     transaction.animation = nil
                     withTransaction(transaction) { proxy.scrollTo(anchor.runID, anchor: .top) }
+                }
+                .onChange(of: dividerMaterialization) { _, request in
+                    guard acceptsReadingGeometry, let request,
+                          scrollBridge?.dividerLeaseID == request.leaseID,
+                          layoutRevision == request.revision else { return }
+                    var transaction = Transaction()
+                    transaction.animation = nil
+                    withTransaction(transaction) { proxy.scrollTo(request.runID, anchor: .bottom) }
                 }
 #if DEBUG
                 .onChange(of: scrollBridge?.pane.previewReadingBootstrapForUITest) { _, runID in
@@ -279,6 +294,7 @@ struct ConversationTimelineView: View {
                 if let latestScrollGeometry { repairDividerPosition(latestScrollGeometry) }
             }
             .onChange(of: scrollBridge?.dividerLeaseID) { _, _ in
+                dividerMaterialization = nil
                 if let latestScrollGeometry { repairDividerPosition(latestScrollGeometry) }
             }
             .onAppear {
@@ -407,7 +423,17 @@ struct ConversationTimelineView: View {
     private func repairDividerPosition(_ geometry: ScrollGeometry) {
         guard acceptsReadingGeometry, let scrollBridge, scrollBridge.hasDividerLease,
               acceptedLayoutRevision == layoutRevision, measuredLayoutRevision == layoutRevision else { return }
-        scrollBridge.continueDividerResize(geometry: geometry, turnTops: turnContentTops)
+        scrollBridge.continueDividerResize(geometry: geometry, turnTops: turnContentTops, revision: layoutRevision)
+        if let runID = scrollBridge.dividerReferenceTurnID, turnContentTops[runID] == nil,
+           let leaseID = scrollBridge.dividerLeaseID,
+           projection.turns.contains(where: { $0.runID == runID }) {
+            // Lazy children may leave layout while the viewport is changing.
+            // Bring the retained reference into layout before precise repair.
+            dividerMaterialization = DividerTurnMaterialization(leaseID: leaseID,
+                revision: layoutRevision, runID: runID)
+            return
+        }
+        dividerMaterialization = nil
         acknowledgeAppliedScrollIfReady(geometry)
         applyPendingScrollIfReady()
         scrollBridge.acknowledgeDividerResize(revision: layoutRevision, geometry: geometry)

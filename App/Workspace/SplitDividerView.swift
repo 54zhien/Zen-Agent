@@ -31,10 +31,14 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
     var configuration: SplitDividerView? {
         didSet {
             accessibilityValue = configuration.map { "上方 \(Int($0.ratio * 100))%，下方 \(Int((1 - $0.ratio) * 100))%" }
-            accessibilityCustomActions = [
-                UIAccessibilityCustomAction(name: "关闭上方窗格", target: self, selector: #selector(closeTop)),
-                UIAccessibilityCustomAction(name: "关闭下方窗格", target: self, selector: #selector(closeBottom))
-            ]
+            var actions: [UIAccessibilityCustomAction] = []
+            if configuration?.canCloseTop == true {
+                actions.append(UIAccessibilityCustomAction(name: "关闭上方窗格", target: self, selector: #selector(closeTop)))
+            }
+            if configuration?.canCloseBottom == true {
+                actions.append(UIAccessibilityCustomAction(name: "关闭下方窗格", target: self, selector: #selector(closeBottom)))
+            }
+            accessibilityCustomActions = actions
             if oldValue?.closeIntent != configuration?.closeIntent, configuration?.closeIntent != nil {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }

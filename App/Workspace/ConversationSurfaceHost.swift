@@ -101,6 +101,14 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             let point = editor.convert(CGPoint(x: editor.bounds.midX, y: editor.bounds.midY), to: window)
             fields.append("editorIdentity=\(ObjectIdentifier(editor))")
             fields.append("focused=\(editor.isFirstResponder)")
+            var ancestor: UIView? = editor
+            while let current = ancestor {
+                if let composer = current as? ComposerHostView {
+                    fields.append(composer.liftReadinessDiagnostic)
+                    break
+                }
+                ancestor = current.superview
+            }
             fields.append("point=\(point)")
             fields.append("hit=\(chain(window.hitTest(point, with: nil)))")
         }

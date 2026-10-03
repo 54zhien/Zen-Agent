@@ -27,8 +27,16 @@ final class ConversationPaneScrollBridge {
     @ObservationIgnored private var snapshot: (geometry: ScrollGeometry, bottom: (runID: String, turnTop: Double)?)?
     @ObservationIgnored private var dividerCompletion: (@MainActor (UUID) -> Void)?
     @ObservationIgnored private var lastDividerTarget: Double?
+    @ObservationIgnored private var preparedDividerRevision: UInt64?
 
     var hasDividerLease: Bool { dividerLeaseID != nil }
+
+    var dividerReferenceTurnID: String? {
+        guard hasDividerLease else { return nil }
+        if composerHeightChangeActive, let captured = composerReadingPixelOffset { return captured.runID }
+        if case .followingBottom = pane.readingPosition.mode { return nil }
+        return dividerAnchor?.runID
+    }
 
     func publishViewport(_ geometry: ScrollGeometry, bottomReferenceTurn: (runID: String, turnTop: Double)?) {
         guard geometry.isUsableForPane else { return }
@@ -46,6 +54,7 @@ final class ConversationPaneScrollBridge {
         dividerFinalRevision = nil
         dividerCompletion = onComplete
         lastDividerTarget = nil
+        preparedDividerRevision = nil
         return true
     }
 
@@ -54,10 +63,14 @@ final class ConversationPaneScrollBridge {
         dividerFinalRevision = revision
     }
 
-    func continueDividerResize(geometry: ScrollGeometry, turnTops: [String: Double]) {
+    func continueDividerResize(geometry: ScrollGeometry, turnTops: [String: Double], revision: UInt64 = 0) {
         guard hasDividerLease, geometry.isUsableForPane else { return }
-        if composerHeightChangeActive, let captured = composerReadingPixelOffset,
-           let turnTop = turnTops[captured.runID] {
+        // Each completion needs a target prepared from this layout's reference,
+        // even when its numerical offset happens to equal an older target.
+        preparedDividerRevision = nil
+        if composerHeightChangeActive, let captured = composerReadingPixelOffset {
+            guard let turnTop = turnTops[captured.runID], turnTop.isFinite else { return }
+            preparedDividerRevision = revision
             let target = min(max(0, geometry.contentHeight - geometry.viewportHeight), max(0, turnTop - captured.points))
             let anchor = TurnAnchor(runID: captured.runID, relativeViewportOffset: captured.points / geometry.viewportHeight)
             if lastDividerTarget == target, pane.scrollRequest?.action == .restoreAnchor(anchor) { return }
@@ -69,7 +82,6 @@ final class ConversationPaneScrollBridge {
             return
         }
         let top = dividerAnchor.flatMap { turnTops[$0.runID] }
-        if dividerAnchor != nil, top == nil { return }
         let target: Double
         if case .followingBottom = pane.readingPosition.mode {
             target = max(0, geometry.contentHeight - geometry.viewportHeight)
@@ -78,6 +90,7 @@ final class ConversationPaneScrollBridge {
                     turnTop: top, contentHeight: geometry.contentHeight, viewportHeight: geometry.viewportHeight) {
             target = min(max(0, geometry.contentHeight - geometry.viewportHeight), max(0, restored))
         } else { return }
+        preparedDividerRevision = revision
         // A scroll callback at the same target must not continuously enqueue a
         // fresh sequence; the final native acknowledgement owns completion.
         if lastDividerTarget == target,
@@ -89,7 +102,7 @@ final class ConversationPaneScrollBridge {
     }
 
     func acknowledgeDividerResize(revision: UInt64, geometry: ScrollGeometry) {
-        guard let id = dividerLeaseID, dividerFinalRevision == revision,
+        guard let id = dividerLeaseID, dividerFinalRevision == revision, preparedDividerRevision == revision,
               pane.scrollRequest == nil, let target = lastDividerTarget,
               abs(geometry.offset - target) <= 0.5 else { return }
         let completion = dividerCompletion
@@ -104,6 +117,7 @@ final class ConversationPaneScrollBridge {
         dividerAnchor = nil
         dividerCompletion = nil
         lastDividerTarget = nil
+        preparedDividerRevision = nil
     }
 
     init(pane: ConversationPaneController) {
