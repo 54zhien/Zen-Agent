@@ -4,6 +4,19 @@ import UIKit
 
 @Suite("Split Workspace ownership")
 struct SplitWorkspaceStateTests {
+    @Test("the measured keyboard-safe Workspace and raw window converge on one viewport")
+    func keyboardSafeViewportHasOneInsetOwner() throws {
+        let raw = try #require(SplitWorkspaceGeometry(size: CGSize(width: 402, height: 874),
+            safeArea: UIEdgeInsets(top: 0, left: 0, bottom: 335, right: 0), ratio: 0.5))
+        let proposed = try #require(SplitWorkspaceGeometry(
+            viewport: CGRect(x: 0, y: 0, width: 402, height: 539), ratio: 0.5))
+        #expect(proposed.viewport == raw.viewport)
+        #expect(proposed.top == raw.top && proposed.bottom == raw.bottom)
+        #expect(proposed.top.height == 269.5 && proposed.bottom.height == 269.5)
+        #expect(SplitWorkspaceGeometry(viewport: .null, ratio: 0.5) == nil)
+        #expect(SplitWorkspaceGeometry(viewport: .zero, ratio: 0.5) == nil)
+    }
+
     @Test("ratio geometry stays finite, shares one safe viewport, and survives source replacement")
     func ratioGeometryAndReplacement() throws {
         var split = SplitWorkspaceState(sourceConversationID: "source", sourceSlot: .top)

@@ -284,3 +284,33 @@ the superseded full candidate 1d157c51a73c0cc0ffd24cf0bd68b788271adf16 /
 tree 04512e55d561bb4ab302bd111e88b2a6d3cd46a5 has no acceptance receipt.
 Let each new diagnostic finish before publishing the full gate, given the
 workflow cancellation rule. Preserve all partial/cancelled receipts explicitly.
+
+### Measured GeometryProxy inset ownership
+
+Diagnostic ebea1d614ec9c377b2a7d69681142536209b7808 / tree
+0f9d280eafa8ae0141b558caf3fb1990b8463e94 completed in push 37161417438
+(job 111315566635): generation/build, all 851 Swift and 20 XCTest passed;
+four of five resize UI cases passed, including repeated reading resize.
+The dual-draft case failed actual native readability/admission, not an AX query.
+
+The probe resolves the source-review risk: root size was (402, 539), already
+reduced from keyboard-hidden height 874, while GeometryProxy still reported
+keyboard bottom Insets 335. Applying those Insets again produced viewport 204
+and 102 pt slots. Both native Timelines became zero height; the blocked blank
+tap left source focused, so subsequent text correctly went to source rather
+than the inaccessible secondary. This is one duplicate-inset geometry defect.
+
+Give Split geometry an explicit usable-viewport initializer. Workspace passes
+its already-proposed rectangle directly; callers starting from raw window size
+retain the existing size/Insets initializer. One measured fixture compares raw
+874 minus335 with proposed539 and verifies identical 269.5 pt Pane frames.
+The native UI probe also requires viewport dimensions to equal the proposed
+Workspace size while the keyboard is shown. No hard-coded keyboard height enters
+production. The new unit fixture accompanies the compiled UI RED above; it has
+not had a separate test-only run.
+
+The readable-line comparison permits 0.01 pt numeric rounding: native height
+21.25 differed from UIFont.lineHeight 21.250000000000004. Zero and 1 pt inputs
+remain failures. Actual readable rectangles, blank callbacks, correct draft
+lengths and retained native identities stay required. Run the narrow diagnostic
+to completion, then remove its profile and obtain the full slice gate.

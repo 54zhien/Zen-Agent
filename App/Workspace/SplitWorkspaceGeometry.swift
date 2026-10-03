@@ -12,7 +12,14 @@ struct SplitWorkspaceGeometry {
               [safeArea.top, safeArea.left, safeArea.bottom, safeArea.right].allSatisfy({ $0.isFinite })
         else { return nil }
         let rect = CGRect(origin: .zero, size: size).inset(by: safeArea)
-        guard rect.width > 0, rect.height > 0 else { return nil }
+        self.init(viewport: rect, ratio: ratio)
+    }
+
+    init?(viewport rect: CGRect, ratio: Double) {
+        guard ratio.isFinite, ratio > 0, ratio < 1,
+              rect.size.width > 0, rect.size.height > 0,
+              [rect.origin.x, rect.origin.y, rect.size.width, rect.size.height,
+               rect.maxX, rect.maxY].allSatisfy({ $0.isFinite }) else { return nil }
         viewport = rect
         let height = rect.height * ratio
         top = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: height)

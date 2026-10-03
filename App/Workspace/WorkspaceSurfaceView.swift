@@ -361,10 +361,11 @@ struct WorkspaceSurfaceView<Content: View>: View {
 
     private func splitGeometry(in geometry: GeometryProxy) -> SplitWorkspaceGeometry? {
         guard let split = model?.splitWorkspace else { return nil }
-        let safe = geometry.safeAreaInsets
-        return SplitWorkspaceGeometry(size: geometry.size,
-            safeArea: UIEdgeInsets(top: safe.top, left: safe.leading,
-                                   bottom: safe.bottom, right: safe.trailing), ratio: split.topBottomRatio)
+        // Workspace ignores container regions; its proposed size already avoids
+        // the keyboard. GeometryProxy can still report that keyboard's Insets,
+        // so applying them again would shrink both Panes a second time.
+        return SplitWorkspaceGeometry(viewport: CGRect(origin: .zero, size: geometry.size),
+            ratio: split.topBottomRatio)
     }
 
     private func divider(model: AppShellModel, split: SplitWorkspaceState,
