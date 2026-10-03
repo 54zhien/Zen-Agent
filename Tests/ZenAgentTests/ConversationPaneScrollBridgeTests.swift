@@ -1,10 +1,42 @@
 import Testing
+import Foundation
 
 @testable import ZenAgent
 
 @Suite("Reusable conversation pane scroll bridge")
 @MainActor
 struct ConversationPaneScrollBridgeTests {
+
+    @Test("Divider lease outlives idle and deceleration, replaces streaming scroll, and needs the matching final receipt")
+    func dividerLeaseRequiresFinalReceipt() throws {
+        let pane = try makePane(conversationID: "divider",
+            turns: [ConversationTurn(runID: "bottom", items: [.userText("read")])])
+        let bridge = pane.scrollBridge
+        let initial = ScrollGeometry(viewportHeight: 400, contentHeight: 1600, offset: 200)
+        bridge.userScrolled(geometry: initial, topVisibleTurn: (runID: "top", turnTop: 100))
+        bridge.publishViewport(initial, bottomReferenceTurn: (runID: "bottom", turnTop: 500))
+        let id = UUID()
+        var receipts: [UUID] = []
+        #expect(bridge.beginDividerResize(id: id, onComplete: { receipts.append($0) }))
+        bridge.endHeightChange()
+        bridge.userScrolled(geometry: initial, topVisibleTurn: nil)
+        #expect(bridge.hasDividerLease)
+        let final = ScrollGeometry(viewportHeight: 300, contentHeight: 1650, offset: 300)
+        bridge.continueDividerResize(geometry: final, turnTops: ["bottom": 500])
+        let request = try #require(pane.scrollRequest)
+        bridge.finishDividerResize(id: id, revision: 8)
+        bridge.acknowledgeDividerResize(revision: 8, geometry: final)
+        #expect(receipts.isEmpty)
+        _ = pane.updateReading(.programmaticScrolled(geometry: final))
+        pane.markScrollApplied(sequence: request.sequence)
+        bridge.acknowledgeDividerResize(revision: 7, geometry: final)
+        #expect(receipts.isEmpty && bridge.hasDividerLease)
+        bridge.acknowledgeDividerResize(revision: 8, geometry: final)
+        #expect(receipts == [id] && !bridge.hasDividerLease)
+        #expect(bridge.beginDividerResize(id: UUID(), onComplete: { _ in }))
+        bridge.invalidateDividerResize(id: id)
+        #expect(bridge.hasDividerLease, "A late prior token must not release the newer capture")
+    }
 
     @Test
     func readingPaneQueuesAnchorRestoreWhileOtherPaneFollowsBottom() throws {

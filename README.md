@@ -114,16 +114,19 @@ As of 2026-09-30:
   [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36659735487)
   (816 Swift Testing, 20 XCTest, 21 UI), with the exact source/test tree recorded
   in [the S5-08 record](tasks/s5-08-split-targeting.md).
-- S5-09 Split Container is in progress on stacked draft
-  [PR #26](https://github.com/54zhien/Zen-Agent/pull/26), not merged or accepted.
-  The initial either-Pane Lift checkpoint passed
-  [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36675744955)
-  (826 Swift Testing, 20 XCTest, 28 UI). Independent review found ownership,
-  Return geometry and navigation gaps; compiled regressions reproduced them.
-  Current repairs and a new native Browse transport regression await CI in
-  [the S5-09 review record](tasks/s5-09-review.md). S5-10–16 are authorized next
-  work, in dependency order; the execution plans under `Docs/superpowers/plans/`
-  are plans, not completion evidence.
+- S5-09 Split Container is implemented on stacked draft
+  [PR #26](https://github.com/54zhien/Zen-Agent/pull/26), unmerged.
+  Current exact tree `1d66027b2b4875245ffc492e011f6128798c3ab0` passed
+  [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/37139550698)
+  (837 Swift Testing, 20 XCTest, 30 UI), including hidden-source restoration
+  against a changed native viewport. Parallel PR CI had an intermittent older
+  initial-Lift admission failure; it remains recorded in the PR and slice record.
+- S5-10 Divider resize/closure is in progress on stacked draft
+  [PR #27](https://github.com/54zhien/Zen-Agent/pull/27). Compiled behavioral RED
+  [CI](https://github.com/54zhien/Zen-Agent/actions/runs/37139764904) reproduced
+  the wrong bottom reference identity, static Handle and accidental line close.
+  Its first implementation candidate requires fresh macOS CI; see
+  [the slice record](tasks/s5-10-resize.md). S5-11–16 remain authorized in order.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
   does not establish device memory, performance, input, comfort or VoiceOver acceptance.

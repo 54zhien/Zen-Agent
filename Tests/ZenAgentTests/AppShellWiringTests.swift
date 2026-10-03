@@ -20,6 +20,37 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("promoting the secondary physical Surface retains its actual native editor")
+    func closeSourceRetainsNativeSecondaryEditor() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in try Fixtures.conversation(id: "native-survivor").insert(db) }
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: fixture.model.conversationID, slot: .top)))
+        #expect(await fixture.model.openInSplit(id: "native-survivor"))
+        let survivor = try #require(fixture.model.splitPane)
+        survivor.composer.draft.text = "native survivor draft"
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: AppShellRootView(model: fixture.model))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        func editors(in view: UIView) -> [UITextView] {
+            if let text = view as? UITextView, text.accessibilityIdentifier == "conversation-composer-input" { return [text] }
+            return view.subviews.flatMap { editors(in: $0) }
+        }
+        for _ in 0..<60 where editors(in: host.view).count != 2 { try await Task.sleep(for: .milliseconds(25)) }
+        // Keep the original alive: allocator address reuse cannot fake identity.
+        let original = try #require(editors(in: host.view).first { $0.text == "native survivor draft" })
+        fixture.model.closeSplit(keeping: .bottom)
+        for _ in 0..<60 where editors(in: host.view).count != 1 { try await Task.sleep(for: .milliseconds(25)) }
+        #expect(editors(in: host.view).count == 1)
+        let mounted = try #require(editors(in: host.view).first)
+        #expect(mounted === original)
+        #expect(fixture.model.pane === survivor)
+        #expect(mounted.text == "native survivor draft")
+    }
     @Test("Return after deleting the opposite Split card keeps the surviving Pane as Single",
           arguments: [SplitDropSlot.top, .bottom])
     func splitReturnAfterOtherCardDeletion(originSlot: SplitDropSlot) async throws {
@@ -158,8 +189,9 @@ struct AppShellWiringTests {
         #expect(fixture.model.splitWorkspace?.activeSlot == .top)
     }
 
-    @Test("closing Split leaves both actual streaming Runs active and able to complete")
-    func splitClosePreservesBothRuns() async throws {
+    @Test("closing either Split Pane leaves both actual streaming Runs active and able to complete",
+          arguments: [SplitDropSlot.top, .bottom])
+    func splitClosePreservesBothRuns(keeping: SplitDropSlot) async throws {
         let sourceStream = Stage2StreamBox()
         let otherStream = Stage2StreamBox()
         let fixture = try makeFixture(seed: .active, scripts: [
@@ -181,7 +213,12 @@ struct AppShellWiringTests {
             providerInstanceID: fixture.instanceID, modelID: fixture.modelID,
             maxProviderSteps: 4, submissionID: "split-other-run"))
         await otherStream.waitUntilReady()
-        fixture.model.closeSplit()
+        let survivor = try #require(keeping == .top ? fixture.model.pane : fixture.model.splitPane)
+        let survivorBridge = keeping == .top ? fixture.model.actionBridge : fixture.model.splitActionBridge
+        fixture.model.closeSplit(keeping: keeping)
+        #expect(fixture.model.pane === survivor)
+        #expect(fixture.model.actionBridge === survivorBridge)
+        #expect(fixture.model.sourceSurfaceSlot == (keeping == .top ? .primary : .secondary))
         #expect(fixture.model.router.hasActiveRun(for: sourceID))
         #expect(fixture.model.router.hasActiveRun(for: otherID))
         #expect(sourceStream.cancellations == 0 && otherStream.cancellations == 0)

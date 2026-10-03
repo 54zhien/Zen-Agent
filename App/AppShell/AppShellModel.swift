@@ -35,6 +35,15 @@ final class AppShellModel {
     private(set) var launchState: AppShellLaunchState = .notStarted
     private(set) var conversationID = UUID().uuidString
     private(set) var splitWorkspace: SplitWorkspaceState?
+    private(set) var workspaceLayoutRevision: UInt64 = 0
+
+    func refreshWorkspaceLayout() { workspaceLayoutRevision += 1 }
+
+    func setSplitRatio(_ ratio: Double) {
+        guard ratio.isFinite, ratio > 0, ratio < 1, splitWorkspace != nil else { return }
+        splitWorkspace?.setRatio(ratio)
+        workspaceLayoutRevision += 1
+    }
     private(set) var splitPane: ConversationPaneController?
     private(set) var splitActionBridge: ComposerRuntimeActionBridge?
     private(set) var splitOpenError: String?
@@ -181,7 +190,8 @@ final class AppShellModel {
                 splitOpenError = "无法打开会话，请重试。"
                 return false
             }
-            var committed = split
+            guard var committed = splitWorkspace,
+                  committed.arrangementID == split.arrangementID else { return false }
             guard committed.occupy(id) else { return false }
             retireSecondaryPane()
             splitPane = wiring.pane
@@ -198,14 +208,38 @@ final class AppShellModel {
     }
 
     func closeSplit() {
+        guard let split = splitWorkspace else { return }
+        closeSplit(keeping: split.sourceSlot)
+    }
+
+    func closeSplit(keeping slot: SplitDropSlot) {
+        guard let split = splitWorkspace else { return }
+        if slot != split.sourceSlot {
+            guard let survivor = splitPane, let survivorBridge = splitActionBridge else { return }
+            if let departing = pane {
+                rememberSession(departing.session, id: departing.conversationID, retainUncommitted: true)
+                router.unregisterPane(for: departing.conversationID)
+                sessions.deactivate(departing.conversationID)
+            }
+            pane = survivor
+            actionBridge = survivorBridge
+            conversationID = survivor.conversationID
+            sourceSurfaceSlot = sourceSurfaceSlot == .primary ? .secondary : .primary
+            splitPane = nil
+            splitActionBridge = nil
+            sendAvailability = survivor.composer.sendAvailability
+            targetMessage = sendAvailability.message
+        } else {
+            retireSecondaryPane()
+        }
         cancelSplitSelection()
-        retireSecondaryPane()
         splitWorkspace = nil
         splitPreviewOriginSlot = nil
         splitExistingOtherReturnID = nil
         previewSurfaceSlot = nil
         deletedSplitIDs = []
         splitOpenError = nil
+        workspaceLayoutRevision += 1
         sessions.evictIfNeeded(isRuntimeProtected: router.hasActiveRun(for:))
     }
 
@@ -467,7 +501,7 @@ final class AppShellModel {
             previewHandoffID = targetID
             if slot == split.sourceSlot {
                 var updated = SplitWorkspaceState(sourceConversationID: targetID,
-                                                  sourceSlot: split.sourceSlot)
+                                                  sourceSlot: split.sourceSlot, preserving: split)
                 if let secondaryID = split.secondaryConversationID {
                     guard updated.occupy(secondaryID) else { return false }
                 }
@@ -701,7 +735,7 @@ final class AppShellModel {
                 self.splitOpenTicket = nil
             }
             router.unregisterPane(for: conversationID)
-            var updated = SplitWorkspaceState(sourceConversationID: id, sourceSlot: split.sourceSlot)
+            var updated = SplitWorkspaceState(sourceConversationID: id, sourceSlot: split.sourceSlot, preserving: split)
             if let secondaryID = split.secondaryConversationID { _ = updated.occupy(secondaryID) }
             updated.select(split.sourceSlot)
             splitWorkspace = updated
@@ -991,7 +1025,7 @@ final class AppShellModel {
             if outgoingConversationID != id { router.unregisterPane(for: outgoingConversationID) }
             if let split = replacingSplit {
                 cancelSplitSelection()
-                var updated = SplitWorkspaceState(sourceConversationID: id, sourceSlot: split.sourceSlot)
+                var updated = SplitWorkspaceState(sourceConversationID: id, sourceSlot: split.sourceSlot, preserving: split)
                 if let otherID = split.secondaryConversationID { _ = updated.occupy(otherID) }
                 updated.select(split.sourceSlot)
                 splitWorkspace = updated
