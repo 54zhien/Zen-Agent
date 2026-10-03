@@ -323,6 +323,9 @@ jobs:
           if [ "$TEST_SCOPE" = "review-red" ]; then
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
             TEST_ARGS=(-only-testing:ZenAgentTests)
+          elif [ "$TEST_SCOPE" = "orientation-red" ]; then
+            echo "::notice::S5-11 test-only RED: app build, complete unit target and WorkspaceRotationUITests; full prior-slice gate is separate."
+            TEST_ARGS=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/WorkspaceRotationUITests)
           fi
           touch "$RUNNER_TEMP/test-start.marker"
 
