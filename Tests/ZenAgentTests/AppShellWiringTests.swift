@@ -20,6 +20,20 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("New from a Single Card clears its preview physical slot before a subsequent Split")
+    func singleCardNewClearsPreviewSurfaceSlot() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in try Fixtures.conversation(id: "single-card-new").insert(db) }
+        #expect(await fixture.model.openConversation(id: "single-card-new"))
+        #expect(fixture.model.enterPreview())
+        #expect(fixture.model.previewSurfaceSlot == .primary)
+        fixture.model.newConversation()
+        #expect(!fixture.model.previewContent.isPresented)
+        #expect(fixture.model.previewSurfaceSlot == nil,
+            "Single cleanup must clear the Card's owner too; a stale active slot suppresses the Split picker")
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: fixture.model.conversationID, slot: .top)))
+    }
     @Test("source Recent preserves a ratio changed while its history read is suspended")
     func sourceRecentKeepsConcurrentResizeRatio() async throws {
         let fixture = try makeFixture(seed: .active)
