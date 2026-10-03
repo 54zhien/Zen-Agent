@@ -164,8 +164,10 @@ final class SplitResizeUITests: XCTestCase {
     }
 
     private func editorLineHeight(_ diagnostic: String?) -> CGFloat? {
-        diagnostic?.split(separator: ";").first { $0.hasPrefix("editorLineHeight=") }
-            .flatMap { Double($0.dropFirst("editorLineHeight=".count)) }.map(CGFloat.init)
+        guard let field = diagnostic?.split(separator: ";").first(where: {
+            $0.hasPrefix("editorLineHeight=")
+        }), let value = Double(field.dropFirst("editorLineHeight=".count)) else { return nil }
+        return CGFloat(value)
     }
 
     private func editorPoint(_ diagnostic: String?) -> CGPoint? {

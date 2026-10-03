@@ -211,3 +211,10 @@ and actual font line height without logging text. The correction must retain
 one editor and respect the native keyboard region, preserving Split ratios
 and both draft/reading owners. Full generation/build/unit/UI GREEN remains
 required before S5-11 product work.
+
+Test-only candidate 6177fd609ffc7d691a2335420a33d6a8f96cd194 / tree
+2a700ef75a9df09c56ed140e74be491e2c0dee2c generated and built the app,
+but PR 37159749888 (job 111310580273) failed compiling the UI diagnostic's
+chained optional CGFloat conversion. The new unit regressions did not run.
+Replace that parser with explicit typed steps, retaining the same assertions;
+this is a compile repair, not behavioral RED or a product correction.
