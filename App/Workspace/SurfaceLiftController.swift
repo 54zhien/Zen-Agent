@@ -34,6 +34,7 @@ final class SurfaceLiftController {
     @ObservationIgnored private var detach: (() -> Void)?
 #if DEBUG
     @ObservationIgnored var nativeInteractionDiagnostic: (() -> String)?
+    @ObservationIgnored var workspacePaneDiagnostic: (() -> String)?
 #endif
 
     @ObservationIgnored private var enterPreview: (() -> Bool)?

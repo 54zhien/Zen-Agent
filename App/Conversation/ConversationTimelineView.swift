@@ -72,9 +72,6 @@ struct ConversationTimelineView: View {
     @State private var latestBottomReferenceTurn: (runID: String, turnTop: Double)?
     @State private var activeScrollPhase: ScrollPhase = .idle
     @State private var pendingAppliedScroll: ConversationPaneScrollRequest?
-#if DEBUG
-    @State private var lastBlankTapDiagnostic = "none"
-#endif
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -184,18 +181,14 @@ struct ConversationTimelineView: View {
             .contentShape(Rectangle())
             .simultaneousGesture(SpatialTapGesture().onEnded { tap in
 #if DEBUG
-                lastBlankTapDiagnostic = "point=\(tap.location);blank=\(Self.isBlankTap(tap.location, turnFrames: turnFrames));frames=\(turnFrames.values)"
+                scrollBridge?.blankTapDiagnostic = "point=\(tap.location);blank=\(Self.isBlankTap(tap.location, turnFrames: turnFrames));frames=\(turnFrames.values)"
 #endif
                 guard Self.isBlankTap(tap.location, turnFrames: turnFrames) else { return }
                 onBlankBackgroundTap()
             })
 #if DEBUG
-            .background(alignment: .topLeading) {
-                if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
-                    TimelineDiagnosticProbe(identifier: "timeline-diagnostic-\(projection.conversationID)",
-                        value: "revision=\(layoutRevision);accepted=\(String(describing: acceptedLayoutRevision));measured=\(String(describing: measuredLayoutRevision));tap=\(lastBlankTapDiagnostic);\(scrollBridge?.dividerDiagnostic ?? "no bridge")")
-                        .frame(width: 1, height: 1).allowsHitTesting(false)
-                }
+            .onChange(of: layoutRevision, initial: true) { _, revision in
+                scrollBridge?.observedLayoutDiagnostic = String(revision)
             }
 #endif
             .scrollPosition($scrollPosition, anchor: .top)
@@ -437,6 +430,9 @@ struct ConversationTimelineView: View {
     }
 
     private func repairDividerPosition(_ geometry: ScrollGeometry) {
+#if DEBUG
+        scrollBridge?.timelineReceiptDiagnostic = "revision=\(layoutRevision);accepted=\(String(describing: acceptedLayoutRevision));measured=\(String(describing: measuredLayoutRevision));ready=\(acceptsReadingGeometry);viewport=\(geometry.viewportHeight)"
+#endif
         guard acceptsReadingGeometry, let scrollBridge, scrollBridge.hasDividerLease,
               acceptedLayoutRevision == layoutRevision, measuredLayoutRevision == layoutRevision else { return }
         scrollBridge.continueDividerResize(geometry: geometry, turnTops: turnContentTops, revision: layoutRevision)

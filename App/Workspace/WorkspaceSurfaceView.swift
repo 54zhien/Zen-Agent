@@ -204,6 +204,13 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 for slot in WorkspaceSurfaceSlot.allCases {
                     let driver = controller(for: slot)
                     configurePreview(driver, model: model, slot: slot)
+#if DEBUG
+                    driver.workspacePaneDiagnostic = { [weak model] in
+                        guard let model else { return "released owner" }
+                        let pane = slot == model.sourceSurfaceSlot ? model.pane : model.splitPane
+                        return "modelRevision=\(model.workspaceLayoutRevision);\(pane?.scrollBridge.dividerDiagnostic ?? "no pane")"
+                    }
+#endif
                     driver.configureSplit(onDrop: { [weak model] intent in
                         model?.acceptsSplitDrop(intent) ?? false
                     }, onConverged: { [weak model, weak driver] intent in

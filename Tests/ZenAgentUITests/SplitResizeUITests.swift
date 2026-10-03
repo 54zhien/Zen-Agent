@@ -132,7 +132,9 @@ final class SplitResizeUITests: XCTestCase {
 
     @MainActor
     private func dismissKeyboard(in app: XCUIApplication, pane: XCUIElement) {
-        pane.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.25)).tap()
+        let point = pane.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.25))
+        print("RESIZE_BLANK_POINT pane=\(pane.frame) point=\(point.screenPoint) keyboard=\(app.keyboards.firstMatch.frame)")
+        point.tap()
         expect { !app.keyboards.firstMatch.exists }
         printDiagnostics(app, context: "after blank tap")
     }

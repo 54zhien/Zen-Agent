@@ -116,3 +116,19 @@ ack. Read and inject the observable revision inside WorkspaceHostedContent's
 body instead, retaining its native subtree. Retrieve diagnostic values through
 the already mounted native Surface probe without requiring a background
 accessibility element. The blank-tap cause remains pending measured evidence.
+
+Correction 3dd91d7a154e41e3cd3b93a5121afc7e785b7566 / tree
+f8c4b0c941687609ac759203b4aee460a32a9780 compiled in PR 37152568925
+(job 111289307684): 847 Swift and 20 XCTest passed, but the same two
+resize UI cases still failed. The native Surface probe was readable; no
+background diagnostic UIView was mounted in its hierarchy, so it still
+provided no Timeline receipt. The secondary editor center hit a native
+large-title view while the source keyboard was present. This does not prove
+the exact fixed blank-tap coordinate's hit or classification.
+
+Read diagnostic state directly from the existing per-Pane scroll bridge
+through the Surface probe. Record the actually observed, accepted and
+measured revisions at their callbacks, and native ScrollView frames/hits;
+print the XCTest coordinate too. Remove the inaccessible background probe.
+No further production behavior change is made until these boundaries are
+measured. Full GREEN remains pending.
