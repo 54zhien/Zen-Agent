@@ -20,6 +20,61 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("source Recent preserves a ratio changed while its history read is suspended")
+    func sourceRecentKeepsConcurrentResizeRatio() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "ratio-kept-other").insert(db)
+            try Fixtures.conversation(id: "ratio-replacement").insert(db)
+        }
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: fixture.model.conversationID, slot: .top)))
+        #expect(await fixture.model.openInSplit(id: "ratio-kept-other"))
+        fixture.model.setSplitRatio(0.55)
+        let other = try #require(fixture.model.splitPane)
+        let gate = PreviewReadGate()
+        defer {
+            gate.release()
+            try? fixture.store.database.read { $0.trace(nil) }
+            #expect(!gate.timedOut)
+        }
+        try fixture.store.database.read { db in
+            db.trace { event in
+                if case .statement(let statement) = event,
+                   statement.sql.lowercased().contains("agentrun") { gate.blockOnce() }
+            }
+        }
+        let opening = Task { await fixture.model.openConversation(id: "ratio-replacement") }
+        for _ in 0..<200 where !gate.hasBlocked { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(gate.hasBlocked)
+        fixture.model.setSplitRatio(0.63)
+        gate.release()
+        #expect(await opening.value)
+        #expect(fixture.model.splitWorkspace?.topBottomRatio == 0.63)
+        #expect(fixture.model.splitPane === other)
+    }
+
+    @Test("cancelled Divider drag rolls back only its original live arrangement")
+    func dividerCancellationKeepsOwners() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: fixture.model.conversationID, slot: .top)))
+        #expect(fixture.model.createNewInSplit())
+        let source = try #require(fixture.model.pane)
+        let other = try #require(fixture.model.splitPane)
+        let geometry = ScrollGeometry(viewportHeight: 400, contentHeight: 1600, offset: 1200)
+        for pane in [source, other] { pane.scrollBridge.publishViewport(geometry, bottomReferenceTurn: nil) }
+        let resize = SplitResizeController()
+        #expect(resize.begin(model: fixture.model, minimumRatio: 0.25))
+        resize.update(model: fixture.model, displacement: 80, viewportHeight: 800)
+        #expect(fixture.model.splitWorkspace?.topBottomRatio == 0.6)
+        resize.finish(model: fixture.model, cancelled: true)
+        #expect(fixture.model.splitWorkspace?.topBottomRatio == 0.5)
+        #expect(fixture.model.pane === source && fixture.model.splitPane === other)
+        #expect(source.scrollBridge.hasDividerLease && other.scrollBridge.hasDividerLease)
+        resize.invalidate()
+        #expect(!source.scrollBridge.hasDividerLease && !other.scrollBridge.hasDividerLease)
+    }
     @Test("promoting the secondary physical Surface retains its actual native editor")
     func closeSourceRetainsNativeSecondaryEditor() async throws {
         let fixture = try makeFixture(seed: .active)
