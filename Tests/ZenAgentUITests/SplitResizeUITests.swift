@@ -75,10 +75,13 @@ final class SplitResizeUITests: XCTestCase {
         let secondaryProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
         let sourceIdentity = editorIdentity(sourceProbe.value as? String)
         let secondaryIdentity = editorIdentity(secondaryProbe.value as? String)
+        XCTAssertNotNil(sourceIdentity, "The source probe must identify its actual native editor")
+        XCTAssertNotNil(secondaryIdentity, "The secondary probe must identify its actual native editor")
         let initialEditor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
         initialEditor.tap()
         initialEditor.typeText("source resize draft")
         let sourceEditor = editor(in: app, containing: "source resize draft")
+        XCTAssertTrue(sourceEditor.waitForExistence(timeout: 5))
         dismissKeyboard(in: app, pane: source, editor: sourceEditor)
         // The empty resting editor need not be a separate AX text-view node.
         // Tap its real native location, then type through the actual first responder.
