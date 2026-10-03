@@ -85,3 +85,21 @@ input are suppressed. Resume must expose that same editable target owner.
 The fixed orientation-red scope includes these three UI cases and all units.
 The pause seam is not implemented yet: compiled behavior RED is required before
 that handoff correction. No S5-11 GREEN or device/axis acceptance is claimed.
+
+### Completed three-case RED and usable-viewport propagation
+
+Remote 650779105060604cb6c0a5319a65767a9120954e / tree
+65a93603bb41396ad3e74eee98569cde58ee4194 completed push 37161580922
+(job 111315963146). Generation/build, 851 Swift tests in 127 suites and
+20 XCTest passed. All three UI cases failed six assertions: the Return
+receipt pause seam is absent, landscape still exposes the old two-Pane
+presentation, and landscape editing cannot acquire the intended sole owner.
+These are compiled behavior RED receipts, not product acceptance.
+
+Propagate S5-10 local 2b3b180 / remote
+b26101fbd3888d268f04be7f6e07e56ad71558ca / tree
+4c0da19b46249a5d8668804e0c1f6743de47721a. The measured keyboard defect
+was a second subtraction of Insets from the already-proposed Workspace size;
+this baseline uses the explicit usable-viewport geometry contract. Retain
+orientation-red and the fixed three-case scope. No S5-11 product work starts
+until S5-10's full gate passes.

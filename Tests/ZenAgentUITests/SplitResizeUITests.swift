@@ -98,18 +98,21 @@ final class SplitResizeUITests: XCTestCase {
         printDiagnostics(app, context: "after secondary input")
         XCTAssertTrue(app.descendants(matching: .any)["split-viewport-probe"].exists,
             "The keyboard-safe Workspace geometry receipt must run in this fixture")
+        XCTAssertTrue(viewportUsesProposedSize(app.descendants(matching: .any)["split-viewport-probe"].value as? String),
+            "Split must use the actual proposed size without subtracting the keyboard twice")
         XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source resize draft".utf16.count)
         XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), "secondary resize draft".utf16.count)
         let nativeFrame = editorFrame(secondaryProbe.value as? String)
         let lineHeight = editorLineHeight(secondaryProbe.value as? String)
         XCTAssertNotNil(nativeFrame)
         XCTAssertNotNil(lineHeight)
-        XCTAssertGreaterThanOrEqual(nativeFrame?.height ?? 0, lineHeight ?? 1,
+        // UIKit frame rounding may differ from font.lineHeight by a floating-point ULP.
+        XCTAssertGreaterThanOrEqual((nativeFrame?.height ?? 0) + 0.01, lineHeight ?? 1,
             "The focused native editor must expose at least one readable line")
-        XCTAssertGreaterThanOrEqual(timelineHeight(sourceProbe.value as? String) ?? 0,
+        XCTAssertGreaterThanOrEqual((timelineHeight(sourceProbe.value as? String) ?? 0) + 0.01,
             editorLineHeight(sourceProbe.value as? String) ?? 1,
             "The inactive Pane must remain readable while the other Pane edits")
-        XCTAssertGreaterThanOrEqual(timelineHeight(secondaryProbe.value as? String) ?? 0,
+        XCTAssertGreaterThanOrEqual((timelineHeight(secondaryProbe.value as? String) ?? 0) + 0.01,
             lineHeight ?? 1, "The editing Pane must retain a readable Timeline viewport")
         let secondaryEditor = editor(in: app, containing: "secondary resize draft")
         XCTAssertTrue(secondaryEditor.waitForExistence(timeout: 5))
@@ -196,6 +199,21 @@ final class SplitResizeUITests: XCTestCase {
         }
         guard values.count == 4 else { return nil }
         return CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
+    }
+
+    private func viewportUsesProposedSize(_ diagnostic: String?) -> Bool {
+        func values(_ prefix: String) -> [Double] {
+            guard let field = diagnostic?.split(separator: ";").first(where: {
+                $0.hasPrefix(prefix)
+            }) else { return [] }
+            return field.dropFirst(prefix.count).dropLast().split(separator: ",").compactMap {
+                Double($0.trimmingCharacters(in: .whitespaces))
+            }
+        }
+        let size = values("size=(")
+        let viewport = values("viewport=(")
+        guard size.count == 2, viewport.count == 4 else { return false }
+        return abs(size[0] - viewport[2]) < 0.01 && abs(size[1] - viewport[3]) < 0.01
     }
 
     private func editorPoint(_ diagnostic: String?) -> CGPoint? {
