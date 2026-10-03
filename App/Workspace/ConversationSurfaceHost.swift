@@ -99,6 +99,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             "editors=\(mounted.count)", "browse=\(browseInteraction?.diagnostic ?? "none")"]
         if let editor = mounted.first, let window = view.window {
             let point = editor.convert(CGPoint(x: editor.bounds.midX, y: editor.bounds.midY), to: window)
+            fields.append("editorIdentity=\(ObjectIdentifier(editor))")
             fields.append("focused=\(editor.isFirstResponder)")
             fields.append("point=\(point)")
             fields.append("hit=\(chain(window.hitTest(point, with: nil)))")
