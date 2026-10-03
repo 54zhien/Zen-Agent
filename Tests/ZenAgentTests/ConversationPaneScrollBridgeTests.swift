@@ -1,10 +1,80 @@
 import Testing
+import Foundation
 
 @testable import ZenAgent
 
 @Suite("Reusable conversation pane scroll bridge")
 @MainActor
 struct ConversationPaneScrollBridgeTests {
+
+    @Test("an unmeasured lazy bottom reference cannot complete a new final Divider layout using its older target")
+    func missingLazyTurnCannotAcknowledgeOldTarget() throws {
+        let pane = try makePane(conversationID: "lazy-divider",
+            turns: [ConversationTurn(runID: "reference", items: [.userText("read")])])
+        let bridge = pane.scrollBridge
+        let initial = ScrollGeometry(viewportHeight: 400, contentHeight: 1600, offset: 200)
+        bridge.userScrolled(geometry: initial, topVisibleTurn: (runID: "reference", turnTop: 500))
+        bridge.publishViewport(initial, bottomReferenceTurn: (runID: "reference", turnTop: 500))
+        let id = UUID()
+        var completed = false
+        let admitted = bridge.beginDividerResize(id: id, onComplete: { _ in completed = true })
+        #expect(admitted)
+        let intermediate = ScrollGeometry(viewportHeight: 300, contentHeight: 1600, offset: 300)
+        bridge.continueDividerResize(geometry: intermediate, turnTops: ["reference": 500])
+        let request = try #require(pane.scrollRequest)
+        _ = pane.updateReading(.programmaticScrolled(geometry: intermediate))
+        pane.markScrollApplied(sequence: request.sequence)
+        bridge.finishDividerResize(id: id, revision: 9)
+        let final = ScrollGeometry(viewportHeight: 180, contentHeight: 1600, offset: 300)
+        bridge.continueDividerResize(geometry: final, turnTops: [:], revision: 9)
+        bridge.acknowledgeDividerResize(revision: 9, geometry: final)
+        #expect(!completed && bridge.hasDividerLease,
+            "A missing current reference must wait for materialization, never use the previous viewport's target")
+        #expect(bridge.dividerReferenceTurnID == "reference")
+        bridge.continueDividerResize(geometry: final, turnTops: ["reference": 500], revision: 9)
+        bridge.acknowledgeDividerResize(revision: 9, geometry: final)
+        #expect(!completed && bridge.hasDividerLease)
+        let repaired = ScrollGeometry(viewportHeight: 180, contentHeight: 1600, offset: 420)
+        let finalRequest = try #require(pane.scrollRequest)
+        #expect(finalRequest.action == .maintainBottomEdge(targetOffset: 420))
+        _ = pane.updateReading(.programmaticScrolled(geometry: repaired))
+        pane.markScrollApplied(sequence: finalRequest.sequence)
+        bridge.acknowledgeDividerResize(revision: 9, geometry: repaired)
+        #expect(completed && !bridge.hasDividerLease)
+    }
+
+    @Test("Divider lease outlives idle and deceleration, replaces streaming scroll, and needs the matching final receipt")
+    func dividerLeaseRequiresFinalReceipt() throws {
+        let pane = try makePane(conversationID: "divider",
+            turns: [ConversationTurn(runID: "bottom", items: [.userText("read")])])
+        let bridge = pane.scrollBridge
+        let initial = ScrollGeometry(viewportHeight: 400, contentHeight: 1600, offset: 200)
+        bridge.userScrolled(geometry: initial, topVisibleTurn: (runID: "top", turnTop: 100))
+        bridge.publishViewport(initial, bottomReferenceTurn: (runID: "bottom", turnTop: 500))
+        let id = UUID()
+        var receipts: [UUID] = []
+        let admitted = bridge.beginDividerResize(id: id, onComplete: { receipts.append($0) })
+        #expect(admitted)
+        bridge.endHeightChange()
+        bridge.userScrolled(geometry: initial, topVisibleTurn: nil)
+        #expect(bridge.hasDividerLease)
+        let final = ScrollGeometry(viewportHeight: 300, contentHeight: 1650, offset: 300)
+        bridge.continueDividerResize(geometry: final, turnTops: ["bottom": 500], revision: 8)
+        let request = try #require(pane.scrollRequest)
+        bridge.finishDividerResize(id: id, revision: 8)
+        bridge.acknowledgeDividerResize(revision: 8, geometry: final)
+        #expect(receipts.isEmpty)
+        _ = pane.updateReading(.programmaticScrolled(geometry: final))
+        pane.markScrollApplied(sequence: request.sequence)
+        bridge.acknowledgeDividerResize(revision: 7, geometry: final)
+        #expect(receipts.isEmpty && bridge.hasDividerLease)
+        bridge.acknowledgeDividerResize(revision: 8, geometry: final)
+        #expect(receipts == [id] && !bridge.hasDividerLease)
+        let newerAdmitted = bridge.beginDividerResize(id: UUID(), onComplete: { _ in })
+        #expect(newerAdmitted)
+        bridge.invalidateDividerResize(id: id)
+        #expect(bridge.hasDividerLease, "A late prior token must not release the newer capture")
+    }
 
     @Test
     func readingPaneQueuesAnchorRestoreWhileOtherPaneFollowsBottom() throws {

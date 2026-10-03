@@ -19,7 +19,7 @@
 - 横屏期间的新消息、新 Run、模型选择归属于可见 Pane；另一 Pane 不变。
 - iPad 不自动根据旋转替用户切轴；top maps to left and bottom maps to right when the user changes axis.
 - App Space keeps its card stack in iPhone landscape.
-- All work remains on stacked, unmerged branches. Full macOS generation/build/tests precede the next slice. Physical-device gates remain open.
+- All work remains on stacked, unmerged branches. Full macOS generation/build/tests precede production work in the next slice. Physical-device gates remain open.
 
 ## Review Focus
 
@@ -44,8 +44,28 @@
 - Geometry produces both Pane frames and a Divider frame from size, safe area and ratio. Pane and Divider frames share the same safe viewport.
 - Native Lift/Return destinations consume that same measured viewport. Do not assume a window's safe insets and a nested `GeometryProxy` report identical values; the integration check compares the actual mounted Pane frame with the transition destination.
 
-- [ ] Add a production-root UI regression: open an occupied Split, drag the Divider Handle, assert both editor frames change in opposite directions while IDs and drafts remain. The initial static Divider must fail this behavior test after compiling.
+**Resize transaction ownership (source review):**
+- Workspace owns the gesture transaction, original arrangement/ratio and stable window-coordinate displacement. Each Timeline owns its actual latest ScrollGeometry and measured bottom reference Turn; begin intent reaches each bridge/Timeline independently, never a shared synthetic anchor.
+- A Divider token/lease owns its captures through release/cancel, including programmatic scroll idle and prior deceleration. Keyboard/Composer changes retain their separate capture semantics. Native UIPan cancellation, scene interruption and replacement/close paths all release the same lease.
+- Bind the transaction to both Conversation IDs and the original Split arrangement. Cancellation restores the original ratio only while that arrangement still exists; a late callback cannot write it into a replacement Split. Keep captures until rollback geometry has been consumed, then release them.
+- Hold safe Pane lifetime during any deferred geometry completion: bridges hold `unowned` Pane references. Close, model replacement, context-menu and accessibility actions must invalidate the old transaction before retiring its owner, or retain that owner until guarded callbacks finish.
+- Changing viewport bounds also invalidates Lift geometry. That does not end the separate Divider transaction. Admit Divider input only with both hosts Full, and share the saved ratio with all Split Return destination calculations.
+- The Handle owns a native pan recognizer and explicit native close menu/actions; the broad Divider line does not claim taps/drags. Continuous close promotes the survivor's existing physical host and Pane/Session, rather than remounting its Composer in the other host.
+- A stable physical host alone is insufficient for close-source: `WorkspaceHostedContent` currently switches a secondary live `SplitSecondaryPaneView` into the generic source `NewConversationView` on promotion, which can replace its native editor/scroll subtree. Give both physical slots the same live-content structure with role-dependent actions before relying on continuous closure. Keep launch/no-Pane content separate. Verify the actual native editor identity across close, in addition to retained Pane/Composer objects and draft text.
+
+- Completion protocol (read-only source review): Timeline publishes usable geometry, its measured bottom reference, Turn-frame generation and layout revision to its own bridge. Divider captures both participants synchronously before ratio mutation. Finishing/cancellation carries a final layout revision through both the ScrollGeometry transform and Turn-frame preference payloads, including an explicit empty-timeline measurement. A Pane receipt includes lease ID, arrangement ID, Pane ID, final revision and applied scroll sequence; emit it only after current-revision geometry/frames exist and the final bottom-edge request reaches its target and clears via `markScrollApplied`. Release participants independently on those receipts, then finish the Workspace transaction after all required acks. Streaming after an ack is post-capture work, so a live Run cannot starve completion. The disappearing Pane's lease is invalidated before retirement; the survivor remains captured through expansion. Ordinary idle/keyboard captures never release the outer Divider token.
+
+- Divider implementation preflight: attach native pan and context-menu interactions only to the narrow Handle view; the broad line remains non-interactive. Measure pan translation in the window, since the Handle itself moves as ratio updates. Gesture begin captures the arrangement identity, original ratio and retained Pane owners; every update/finish checks the same arrangement before mutation. Accessibility adjustment clamps to usable Pane sizes and never enters drag-to-close; explicit close actions retain their distinct semantics. Scene cancellation restores the captured ratio before releasing reading captures after the final measured geometry.
+
+- Shared live-content design: parameterize the existing `NewConversationView` by physical Surface slot, resolve its current source/secondary Pane and bridge internally, and keep one NavigationStack with `.id(pane.conversationID)` at the same subtree level. AppShellRoot supplies the same view type to both stable hosts. Preserve the generic no-model Workspace/test-harness initializer; generic fixture content must not silently become the product screen. Role-dependent New/Recent/title/configuration actions stay inside the shared view, and the identity-change observer follows that slot's actual Conversation ID, so source promotion with unchanged ID does not reset Lift or remount content.
+
+- Native continuity evidence: extend the existing DEBUG native interaction probe with the actual editor `ObjectIdentifier`; close UI regressions compare that value on the survivor's original physical host before/after closure. Add the probe field as test scaffolding when publishing S5-10 RED, not as a replacement for the actual frame/draft assertions. Later model ownership tests additionally assert the survivor Pane/bridge/session identity and both active Run registrations.
+
+- [ ] Add a production-root UI regression: open an occupied Split, drag the Divider Handle, assert one mounted Pane grows while the other shrinks and IDs/drafts remain. Measure Pane frames: the bottom Pane's editor can correctly stay at the same screen bottom. The initial static Divider must fail this behavior test after compiling.
 - [ ] Add resize regressions for both reading and following-latest modes, independently seeded Pane anchors, and two streaming Runs. Assert the bottom reference Turn retains its logical distance from the viewport bottom through repeated height changes; do not merely test the ratio formula.
+- [ ] Check the real Timeline integration across programmatic scroll idle callbacks and token-driven content height changes. The current bridge captures a bottom anchor, but Timeline ends its height-change capture on scroll idle; a Divider gesture must retain one resize transaction until release/cancel, with keyboard/Composer changes retaining their separate semantics.
+- [ ] Exercise starting Divider resize while a Pane's prior scroll is still decelerating. Timeline currently checks `isUserDrivenScroll` before viewport changes, so resize geometry can reach `userScrolled` and clear the captured bottom anchor. Explicit Divider ownership must take precedence for its duration. Token-driven content-height changes must reapply that same capture even when no further Turn-frame preference arrives.
+- [ ] Cover different top/bottom reference Turns: `paneHeightChanged` currently derives an offset from the bottom reference but keeps the previous top anchor's Run ID. Verify that a subsequent token update restores the same position, then correct the identity/offset pair after compiled RED.
 - [ ] Publish the test-only tree; record compiled behavioral RED from full macOS CI.
 - [ ] Implement Handle-only drag admission, continuous ratio projection, weak snaps at `1/3`, `1/2`, `2/3`, and distinct rubber-band / close-intent phases. Treat minimum sizes and distance bands as device-calibration values derived from available geometry, Dynamic Type and Composer clearance, not fixed product invariants.
 - [ ] Implement explicit release-to-close of the smaller Pane and native expansion of the survivor. Cancellation restores the pre-drag arrangement. Runtime registrations and warm Session state outlive a closed Pane.
@@ -68,6 +88,7 @@
 
 - [ ] Add a production iPhone UI test: focus one Pane, dismiss its keyboard, rotate landscape, assert one visible editor belonging to that Pane; edit its draft, rotate portrait, assert two original IDs, saved ratio and only that Pane's updated draft.
 - [ ] Add Card rotation UI coverage: current selection survives portrait→landscape→portrait and Return still targets its original logical Pane/Conversation.
+- [ ] In landscape App Space, also select the already occupied opposite Conversation and Return. The visible live content must belong to that selected existing owner; restoring portrait retains both original logical slots and their states. Inspect the native late-handoff mapping so it cannot briefly install the initiating Conversation under the opposite card.
 - [ ] Publish compiled behavioral RED before changing the device presentation policy.
 - [ ] Implement landscapeSingle by changing frame/visibility while retaining both Pane owners. Route visible New/Recent/model/Send actions through that Pane's existing bridge. Rotation back restores axis/ratio and each Session's own reading state.
 - [ ] Implement iPad axis selection from long press on the Divider Handle with a native direction menu. Map logical top→left and bottom→right, restore the selected axis's saved ratio, and animate the existing hosts continuously.
@@ -77,3 +98,15 @@
 ## Pending product decision
 
 IME marked-text navigation/focus policy is explicitly unresolved in the Blueprint; the question is already with the owner. Apply that answer consistently when it arrives. It is not permission to force-commit or cancel composition. Ordinary non-composing focus and independent geometry work can proceed.
+
+## Execution ruling — 2026-10-04
+
+Ruling: permit test-only S5-10 CI to run alongside the final S5-09 test-query
+repair CI. S5-09 source already passed build, 837 Swift and 20 XCTest twice;
+29 existing UI tests passed and the only failure was an ambiguous newly added
+query. No S5-10 product implementation begins until S5-09 is green. The S5-10
+test tree includes the same repaired S5-09 regression and adds only tests,
+DEBUG identity instrumentation and this ledger. Cost if wrong: any further
+S5-09 repair is applied to the S5-10 baseline before production work, and CI
+receipts are kept tied to their own exact trees. This reduces duplicated
+waiting without weakening either acceptance gate.

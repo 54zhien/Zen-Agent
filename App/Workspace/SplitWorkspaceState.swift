@@ -1,13 +1,25 @@
+import Foundation
+
 struct SplitWorkspaceState: Equatable {
+    let arrangementID: UUID
     let sourceConversationID: String
     let sourceSlot: SplitDropSlot
     private(set) var secondaryConversationID: String?
     private(set) var activeSlot: SplitDropSlot
+    private(set) var topBottomRatio: Double
 
-    init(sourceConversationID: String, sourceSlot: SplitDropSlot) {
+    init(sourceConversationID: String, sourceSlot: SplitDropSlot,
+         preserving previous: SplitWorkspaceState? = nil) {
+        arrangementID = previous?.arrangementID ?? UUID()
+        topBottomRatio = previous?.topBottomRatio ?? 0.5
         self.sourceConversationID = sourceConversationID
         self.sourceSlot = sourceSlot
         activeSlot = sourceSlot
+    }
+
+    mutating func setRatio(_ ratio: Double) {
+        guard ratio.isFinite, ratio > 0, ratio < 1 else { return }
+        topBottomRatio = ratio
     }
 
     var emptySlot: SplitDropSlot { sourceSlot == .top ? .bottom : .top }

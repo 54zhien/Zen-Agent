@@ -20,6 +20,119 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("an unchanged final Split ratio retains the layout revision already measured by both Panes")
+    func unchangedSplitRatioKeepsMeasuredRevision() throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: fixture.model.conversationID, slot: .top)))
+        fixture.model.setSplitRatio(0.63)
+        let measured = fixture.model.workspaceLayoutRevision
+        fixture.model.setSplitRatio(0.63)
+        #expect(fixture.model.workspaceLayoutRevision == measured)
+        fixture.model.setSplitRatio(0.55)
+        #expect(fixture.model.workspaceLayoutRevision > measured)
+    }
+
+    @Test("New from a Single Card clears its preview physical slot before a subsequent Split")
+    func singleCardNewClearsPreviewSurfaceSlot() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in try Fixtures.conversation(id: "single-card-new").insert(db) }
+        #expect(await fixture.model.openConversation(id: "single-card-new"))
+        #expect(fixture.model.enterPreview())
+        #expect(fixture.model.previewSurfaceSlot == .primary)
+        fixture.model.newConversation()
+        #expect(!fixture.model.previewContent.isPresented)
+        #expect(fixture.model.previewSurfaceSlot == nil,
+            "Single cleanup must clear the Card's owner too; a stale active slot suppresses the Split picker")
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: fixture.model.conversationID, slot: .top)))
+    }
+    @Test("source Recent preserves a ratio changed while its history read is suspended")
+    func sourceRecentKeepsConcurrentResizeRatio() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "ratio-kept-other").insert(db)
+            try Fixtures.conversation(id: "ratio-replacement").insert(db)
+        }
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: fixture.model.conversationID, slot: .top)))
+        #expect(await fixture.model.openInSplit(id: "ratio-kept-other"))
+        fixture.model.setSplitRatio(0.55)
+        let other = try #require(fixture.model.splitPane)
+        let gate = PreviewReadGate()
+        defer {
+            gate.release()
+            try? fixture.store.database.read { $0.trace(nil) }
+            #expect(!gate.timedOut)
+        }
+        try fixture.store.database.read { db in
+            db.trace { event in
+                if case .statement(let statement) = event,
+                   statement.sql.lowercased().contains("agentrun") { gate.blockOnce() }
+            }
+        }
+        let opening = Task { await fixture.model.openConversation(id: "ratio-replacement") }
+        for _ in 0..<200 where !gate.hasBlocked { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(gate.hasBlocked)
+        fixture.model.setSplitRatio(0.63)
+        gate.release()
+        #expect(await opening.value)
+        #expect(fixture.model.splitWorkspace?.topBottomRatio == 0.63)
+        #expect(fixture.model.splitPane === other)
+    }
+
+    @Test("cancelled Divider drag rolls back only its original live arrangement")
+    func dividerCancellationKeepsOwners() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: fixture.model.conversationID, slot: .top)))
+        #expect(fixture.model.createNewInSplit())
+        let source = try #require(fixture.model.pane)
+        let other = try #require(fixture.model.splitPane)
+        let geometry = ScrollGeometry(viewportHeight: 400, contentHeight: 1600, offset: 1200)
+        for pane in [source, other] { pane.scrollBridge.publishViewport(geometry, bottomReferenceTurn: nil) }
+        let resize = SplitResizeController()
+        #expect(resize.begin(model: fixture.model, minimumRatio: 0.25))
+        resize.update(model: fixture.model, displacement: 80, viewportHeight: 800)
+        #expect(fixture.model.splitWorkspace?.topBottomRatio == 0.6)
+        resize.finish(model: fixture.model, cancelled: true)
+        #expect(fixture.model.splitWorkspace?.topBottomRatio == 0.5)
+        #expect(fixture.model.pane === source && fixture.model.splitPane === other)
+        #expect(source.scrollBridge.hasDividerLease && other.scrollBridge.hasDividerLease)
+        resize.invalidate()
+        #expect(!source.scrollBridge.hasDividerLease && !other.scrollBridge.hasDividerLease)
+    }
+    @Test("promoting the secondary physical Surface retains its actual native editor")
+    func closeSourceRetainsNativeSecondaryEditor() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        try fixture.store.database.write { db in try Fixtures.conversation(id: "native-survivor").insert(db) }
+        #expect(fixture.model.commitSplitDrop(SplitDropIntent(conversationID: fixture.model.conversationID, slot: .top)))
+        #expect(await fixture.model.openInSplit(id: "native-survivor"))
+        let survivor = try #require(fixture.model.splitPane)
+        survivor.composer.draft.text = "native survivor draft"
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: AppShellRootView(model: fixture.model))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        func editors(in view: UIView) -> [UITextView] {
+            if let text = view as? UITextView, text.accessibilityIdentifier == "conversation-composer-input" { return [text] }
+            return view.subviews.flatMap { editors(in: $0) }
+        }
+        for _ in 0..<60 where editors(in: host.view).count != 2 { try await Task.sleep(for: .milliseconds(25)) }
+        // Keep the original alive: allocator address reuse cannot fake identity.
+        let original = try #require(editors(in: host.view).first { $0.text == "native survivor draft" })
+        fixture.model.closeSplit(keeping: .bottom)
+        for _ in 0..<60 where editors(in: host.view).count != 1 { try await Task.sleep(for: .milliseconds(25)) }
+        #expect(editors(in: host.view).count == 1)
+        let mounted = try #require(editors(in: host.view).first)
+        #expect(mounted === original)
+        #expect(fixture.model.pane === survivor)
+        #expect(mounted.text == "native survivor draft")
+    }
     @Test("Return after deleting the opposite Split card keeps the surviving Pane as Single",
           arguments: [SplitDropSlot.top, .bottom])
     func splitReturnAfterOtherCardDeletion(originSlot: SplitDropSlot) async throws {
@@ -158,8 +271,9 @@ struct AppShellWiringTests {
         #expect(fixture.model.splitWorkspace?.activeSlot == .top)
     }
 
-    @Test("closing Split leaves both actual streaming Runs active and able to complete")
-    func splitClosePreservesBothRuns() async throws {
+    @Test("closing either Split Pane leaves both actual streaming Runs active and able to complete",
+          arguments: [SplitDropSlot.top, .bottom])
+    func splitClosePreservesBothRuns(keeping: SplitDropSlot) async throws {
         let sourceStream = Stage2StreamBox()
         let otherStream = Stage2StreamBox()
         let fixture = try makeFixture(seed: .active, scripts: [
@@ -181,7 +295,15 @@ struct AppShellWiringTests {
             providerInstanceID: fixture.instanceID, modelID: fixture.modelID,
             maxProviderSteps: 4, submissionID: "split-other-run"))
         await otherStream.waitUntilReady()
-        fixture.model.closeSplit()
+        let survivor = try #require(keeping == .top ? fixture.model.pane : fixture.model.splitPane)
+        let survivorScrollBridge = survivor.scrollBridge
+        fixture.model.closeSplit(keeping: keeping)
+        #expect(fixture.model.pane === survivor)
+        #expect(fixture.model.pane?.scrollBridge === survivorScrollBridge)
+        let promotedBridge = try #require(fixture.model.actionBridge)
+        let promotedRun = try await promotedBridge.projection(survivor.conversationID)
+        #expect(promotedRun?.runID == (keeping == .top ? sourceRun : otherRun))
+        #expect(fixture.model.sourceSurfaceSlot == (keeping == .top ? .primary : .secondary))
         #expect(fixture.model.router.hasActiveRun(for: sourceID))
         #expect(fixture.model.router.hasActiveRun(for: otherID))
         #expect(sourceStream.cancellations == 0 && otherStream.cancellations == 0)

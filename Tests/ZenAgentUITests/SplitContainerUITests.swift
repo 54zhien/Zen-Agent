@@ -212,7 +212,11 @@ final class SplitContainerUITests: XCTestCase {
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2)
         let divider = app.descendants(matching: .any)["split-divider"]
         XCTAssertTrue(divider.waitForExistence(timeout: 10))
-        divider.tap()
+        divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.8)
+        let closeTop = app.buttons["关闭上方窗格"]
+        XCTAssertTrue(closeTop.waitForExistence(timeout: 5))
+        closeTop.tap()
+        expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
         XCTAssertTrue(source.exists)
         XCTAssertFalse(app.descendants(matching: .any)["split-secondary-pane"].exists)
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)

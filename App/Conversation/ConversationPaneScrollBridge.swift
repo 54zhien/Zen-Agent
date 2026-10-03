@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 extension ScrollGeometry {
     var isUsableForPane: Bool {
@@ -12,6 +13,7 @@ extension ScrollGeometry {
 }
 
 @MainActor
+@Observable
 final class ConversationPaneScrollBridge {
     unowned let pane: ConversationPaneController
     private(set) var isHeightChangeActive = false
@@ -19,6 +21,114 @@ final class ConversationPaneScrollBridge {
     private var composerHeightChangeActive = false
     private var composerReadingPixelOffset: (runID: String, points: Double)?
     private var heightChangeStartReadingPixelOffset: (runID: String, points: Double)?
+    private(set) var dividerLeaseID: UUID?
+    private(set) var dividerFinalRevision: UInt64?
+    @ObservationIgnored private var dividerAnchor: BottomTurnAnchor?
+    @ObservationIgnored private var snapshot: (geometry: ScrollGeometry, bottom: (runID: String, turnTop: Double)?)?
+    @ObservationIgnored private var dividerCompletion: (@MainActor (UUID) -> Void)?
+    @ObservationIgnored private var lastDividerTarget: Double?
+    @ObservationIgnored private var preparedDividerRevision: UInt64?
+
+    var hasDividerLease: Bool { dividerLeaseID != nil }
+
+#if DEBUG
+    @ObservationIgnored var timelineReceiptDiagnostic = "unmeasured"
+    @ObservationIgnored var blankTapDiagnostic = "none"
+    @ObservationIgnored var observedLayoutDiagnostic = "unobserved"
+    @ObservationIgnored var nativeGeometryDiagnostic = "unmeasured"
+    var dividerDiagnostic: String {
+        "\(timelineReceiptDiagnostic);geometry=\(nativeGeometryDiagnostic);observed=\(observedLayoutDiagnostic);blankTap=\(blankTapDiagnostic);lease=\(hasDividerLease);final=\(String(describing: dividerFinalRevision));prepared=\(String(describing: preparedDividerRevision));target=\(String(describing: lastDividerTarget));offset=\(String(describing: snapshot?.geometry.offset));request=\(String(describing: pane.scrollRequest));mode=\(String(describing: pane.readingPosition.mode))"
+    }
+#endif
+
+    var dividerReferenceTurnID: String? {
+        guard hasDividerLease else { return nil }
+        if composerHeightChangeActive, let captured = composerReadingPixelOffset { return captured.runID }
+        if case .followingBottom = pane.readingPosition.mode { return nil }
+        return dividerAnchor?.runID
+    }
+
+    func publishViewport(_ geometry: ScrollGeometry, bottomReferenceTurn: (runID: String, turnTop: Double)?) {
+        guard geometry.isUsableForPane else { return }
+        snapshot = (geometry, bottomReferenceTurn)
+    }
+
+    func beginDividerResize(id: UUID, onComplete: @escaping @MainActor (UUID) -> Void) -> Bool {
+        guard !hasDividerLease, let snapshot else { return false }
+        dividerAnchor = snapshot.bottom.flatMap {
+            AnchorResolver.captureBottomAnchor(runID: $0.runID, turnTop: $0.turnTop, geometry: snapshot.geometry)
+        }
+        if case .reading = pane.readingPosition.mode, dividerAnchor == nil { return false }
+        endHeightChange()
+        dividerLeaseID = id
+        dividerFinalRevision = nil
+        dividerCompletion = onComplete
+        lastDividerTarget = nil
+        preparedDividerRevision = nil
+        return true
+    }
+
+    func finishDividerResize(id: UUID, revision: UInt64) {
+        guard dividerLeaseID == id else { return }
+        dividerFinalRevision = revision
+    }
+
+    func continueDividerResize(geometry: ScrollGeometry, turnTops: [String: Double], revision: UInt64 = 0) {
+        guard hasDividerLease, geometry.isUsableForPane else { return }
+        // Each completion needs a target prepared from this layout's reference,
+        // even when its numerical offset happens to equal an older target.
+        preparedDividerRevision = nil
+        if composerHeightChangeActive, let captured = composerReadingPixelOffset {
+            guard let turnTop = turnTops[captured.runID], turnTop.isFinite else { return }
+            preparedDividerRevision = revision
+            let target = min(max(0, geometry.contentHeight - geometry.viewportHeight), max(0, turnTop - captured.points))
+            let anchor = TurnAnchor(runID: captured.runID, relativeViewportOffset: captured.points / geometry.viewportHeight)
+            if lastDividerTarget == target, pane.scrollRequest?.action == .restoreAnchor(anchor) { return }
+            if lastDividerTarget == target,
+               pane.scrollRequest == nil && abs(geometry.offset - target) <= 0.5 { return }
+            lastDividerTarget = target
+            _ = pane.updateReading(.composerHeightChanged(geometry: geometry,
+                anchor: anchor))
+            return
+        }
+        let top = dividerAnchor.flatMap { turnTops[$0.runID] }
+        let target: Double
+        if case .followingBottom = pane.readingPosition.mode {
+            target = max(0, geometry.contentHeight - geometry.viewportHeight)
+        } else if let dividerAnchor, let top,
+                  let restored = AnchorResolver.restoreTargetFromBottomAnchor(anchor: dividerAnchor,
+                    turnTop: top, contentHeight: geometry.contentHeight, viewportHeight: geometry.viewportHeight) {
+            target = min(max(0, geometry.contentHeight - geometry.viewportHeight), max(0, restored))
+        } else { return }
+        preparedDividerRevision = revision
+        // A scroll callback at the same target must not continuously enqueue a
+        // fresh sequence; the final native acknowledgement owns completion.
+        if lastDividerTarget == target,
+           pane.scrollRequest?.action == .maintainBottomEdge(targetOffset: target) { return }
+        if lastDividerTarget == target, pane.scrollRequest == nil,
+           abs(geometry.offset - target) <= 0.5 { return }
+        lastDividerTarget = target
+        _ = pane.updateReading(.paneHeightChanged(geometry: geometry, anchor: dividerAnchor, turnTop: top))
+    }
+
+    func acknowledgeDividerResize(revision: UInt64, geometry: ScrollGeometry) {
+        guard let id = dividerLeaseID, dividerFinalRevision == revision, preparedDividerRevision == revision,
+              pane.scrollRequest == nil, let target = lastDividerTarget,
+              abs(geometry.offset - target) <= 0.5 else { return }
+        let completion = dividerCompletion
+        invalidateDividerResize(id: id)
+        completion?(id)
+    }
+
+    func invalidateDividerResize(id: UUID) {
+        guard dividerLeaseID == id else { return }
+        dividerLeaseID = nil
+        dividerFinalRevision = nil
+        dividerAnchor = nil
+        dividerCompletion = nil
+        lastDividerTarget = nil
+        preparedDividerRevision = nil
+    }
 
     init(pane: ConversationPaneController) {
         self.pane = pane
@@ -28,6 +138,7 @@ final class ConversationPaneScrollBridge {
         geometry: ScrollGeometry,
         topVisibleTurn: (runID: String, turnTop: Double)?
     ) {
+        guard !hasDividerLease else { return }
         endHeightChange()
         let anchor = topVisibleTurn.flatMap { turn -> TurnAnchor? in
             guard geometry.isUsableForPane,
@@ -114,6 +225,10 @@ final class ConversationPaneScrollBridge {
 
     private func markComposerHeightChange() {
         composerHeightChangeActive = true
+        if hasDividerLease {
+            composerReadingPixelOffset = snapshot.flatMap { readingPixelOffset(for: $0.geometry) }
+            return
+        }
         guard isHeightChangeActive else { return }
         composerReadingPixelOffset = heightChangeStartReadingPixelOffset
         bottomEdgeAnchor = nil

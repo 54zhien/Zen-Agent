@@ -279,3 +279,16 @@ behavior is unchanged; the changed-viewport portion still needs successful CI.
 Independent read-only review of `12cfaaf..7606d83` found no concrete blocker
 and confirmed the release crossing/retreat regression and current-revision
 geometry gate. Subsequent slice drafts remain unpublished.
+
+## Final S5-09 candidate — 2026-10-04
+
+Remote `08e950abf55d895f502fec2139262343275783f4`, exact tree
+`1d66027b2b4875245ffc492e011f6128798c3ab0` (local `95b854e`).
+37139550698 passed XcodeGen/build, 837 Swift Testing, 20 XCTest and all
+30 UI tests. The strengthened changed-viewport restoration passed. Final
+read-only cumulative review found no concrete remaining blocker.
+
+Parallel PR 37139554202 passed build/units and that new regression, but
+an older Browse UI test's initial Lift never entered Card. This intermittent
+admission failure remains explicit, rather than being called a second GREEN.
+Draft PR #26 remains unmerged; physical-device gates remain open.

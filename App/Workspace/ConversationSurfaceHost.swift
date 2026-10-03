@@ -97,9 +97,41 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             "contentAXHidden=\(contentController.view.accessibilityElementsHidden)",
             "surfaceAX=\(surfaceView.isAccessibilityElement)", "activate=\(surfaceView.onActivate != nil)",
             "editors=\(mounted.count)", "browse=\(browseInteraction?.diagnostic ?? "none")"]
+        fields.append("timeline=\(liftController?.workspacePaneDiagnostic?() ?? "unbound")")
+        if let window = view.window {
+            func scrollViews(in node: UIView) -> [UIScrollView] {
+                let own = (node as? UIScrollView).flatMap { $0 is UITextView ? nil : $0 }.map { [$0] } ?? []
+                return own + node.subviews.flatMap { scrollViews(in: $0) }
+            }
+            for (index, scroll) in scrollViews(in: contentController.view).enumerated() {
+                if index == 0 {
+                    let insets = scroll.adjustedContentInset
+                    let readable = CGRect(x: scroll.bounds.minX + insets.left,
+                        y: scroll.bounds.minY + insets.top,
+                        width: max(0, scroll.bounds.width - insets.left - insets.right),
+                        height: max(0, scroll.bounds.height - insets.top - insets.bottom))
+                    fields.append("timelineVisibleFrame=\(scroll.convert(readable, to: window))")
+                }
+                let point = scroll.convert(CGPoint(x: scroll.bounds.minX + scroll.bounds.width * 0.98,
+                    y: scroll.bounds.minY + scroll.bounds.height * 0.25), to: window)
+                fields.append("nativeScroll=\(type(of: scroll));frame=\(scroll.convert(scroll.bounds, to: window));size=\(scroll.contentSize);offset=\(scroll.contentOffset);insets=\(scroll.contentInset);adjustedInsets=\(scroll.adjustedContentInset);marginPoint=\(point);marginHit=\(chain(window.hitTest(point, with: nil)))")
+            }
+        }
         if let editor = mounted.first, let window = view.window {
             let point = editor.convert(CGPoint(x: editor.bounds.midX, y: editor.bounds.midY), to: window)
+            fields.append("editorIdentity=\(ObjectIdentifier(editor))")
             fields.append("focused=\(editor.isFirstResponder)")
+            fields.append("editorFrame=\(editor.convert(editor.bounds, to: window))")
+            fields.append("editorTextLength=\((editor.text ?? "").utf16.count)")
+            fields.append("editorLineHeight=\(editor.font?.lineHeight ?? 0)")
+            var ancestor: UIView? = editor
+            while let current = ancestor {
+                if let composer = current as? ComposerHostView {
+                    fields.append(composer.liftReadinessDiagnostic)
+                    break
+                }
+                ancestor = current.superview
+            }
             fields.append("point=\(point)")
             fields.append("hit=\(chain(window.hitTest(point, with: nil)))")
         }

@@ -9,7 +9,15 @@ private struct SurfaceBrowseControllerKey: EnvironmentKey {
     static let defaultValue: AppSpaceBrowseController? = nil
 }
 
+private struct WorkspaceLayoutRevisionKey: EnvironmentKey {
+    static let defaultValue: UInt64 = 0
+}
+
 extension EnvironmentValues {
+    var workspaceLayoutRevision: UInt64 {
+        get { self[WorkspaceLayoutRevisionKey.self] }
+        set { self[WorkspaceLayoutRevisionKey.self] = newValue }
+    }
     var surfaceLiftController: SurfaceLiftController? {
         get { self[SurfaceLiftControllerKey.self] }
         set { self[SurfaceLiftControllerKey.self] = newValue }
@@ -23,11 +31,13 @@ extension EnvironmentValues {
 @MainActor
 struct WorkspaceSurfaceView<Content: View>: View {
     let content: Content
+    private let contentForSlot: ((WorkspaceSurfaceSlot) -> Content)?
     private let model: AppShellModel?
     @State private var lift: SurfaceLiftController
     @State private var secondaryLift = SurfaceLiftController()
     @State private var browse = AppSpaceBrowseController()
     @State private var requestedMenuID: String?
+    @State private var resize = SplitResizeController()
     @ScaledMetric(relativeTo: .body) private var minimumWidth = 220.0
     @ScaledMetric(relativeTo: .body) private var minimumHeight = 300.0
     @Environment(\.scenePhase) private var scenePhase
@@ -38,6 +48,14 @@ struct WorkspaceSurfaceView<Content: View>: View {
         _lift = State(initialValue: liftController)
         self.model = model
         self.content = content()
+        contentForSlot = nil
+    }
+
+    init(model: AppShellModel, @ViewBuilder contentForSlot: @escaping (WorkspaceSurfaceSlot) -> Content) {
+        _lift = State(initialValue: SurfaceLiftController())
+        self.model = model
+        self.contentForSlot = contentForSlot
+        content = contentForSlot(.primary)
     }
 
     private var deleteAction: AppSpaceCardDeletionInteraction.Commit? {
@@ -71,6 +89,15 @@ struct WorkspaceSurfaceView<Content: View>: View {
             GeometryReader { geometry in
                 let fullFrame = CGRect(origin: .zero, size: geometry.size)
                 ZStack(alignment: .topLeading) {
+#if DEBUG
+                    if (ProcessInfo.processInfo.environment["ZEN_SURFACE_LIFT_UI_TEST"] == "1"
+                        || ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1"),
+                       let layout = splitGeometry(in: geometry) {
+                        SplitViewportProbe(value: "size=\(geometry.size);safeArea=\(geometry.safeAreaInsets);viewport=\(layout.viewport);top=\(layout.top);bottom=\(layout.bottom)")
+                            .frame(width: 1, height: 1)
+                            .allowsHitTesting(false)
+                    }
+#endif
                     ForEach(WorkspaceSurfaceSlot.allCases, id: \.self) { slot in
                         let driver = controller(for: slot)
                         let frame = driver.retainsAppSpaceViewport ? fullFrame
@@ -80,7 +107,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                             browseController: model != nil && slot == (model?.previewSurfaceSlot ?? model?.sourceSurfaceSlot) ? browse : nil,
                             deleteAction: deleteAction, isDeletionPending: isDeletionPending,
                             isWorkspaceVisible: visible) {
-                            WorkspaceHostedContent(model: model, slot: slot, browse: browse, content: content)
+                            WorkspaceHostedContent(model: model, slot: slot, browse: browse,
+                                content: content, contentForSlot: contentForSlot)
                                 .environment(\.surfaceLiftController, driver)
                                 .environment(\.surfaceBrowseController, model == nil ? nil : browse)
                         }
@@ -106,11 +134,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
                                 .frame(width: emptyFrame.width, height: emptyFrame.height)
                                 .position(x: emptyFrame.midX, y: emptyFrame.midY)
                         }
-                        if activeSurfaceSlot == nil {
-                            splitDivider(width: emptyFrame.width) { model.closeSplit() }
-                                .position(x: emptyFrame.midX,
-                                    y: geometry.safeAreaInsets.top + (geometry.size.height
-                                        - geometry.safeAreaInsets.top - geometry.safeAreaInsets.bottom) / 2)
+                        if activeSurfaceSlot == nil, let layout = splitGeometry(in: geometry) {
+                            divider(model: model, split: split, layout: layout)
+                                .position(x: layout.divider.midX, y: layout.divider.midY)
                         }
                     }
                 }
@@ -163,7 +189,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
             }
 #endif
         }
-        .ignoresSafeArea()
+        // Split shares the keyboard-safe viewport; each retained Composer's
+        // native keyboard guide still owns its controls inside that Pane.
+        .ignoresSafeArea(.container)
         .onAppear {
             if let model {
                 let browseController = browse
@@ -187,6 +215,13 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 for slot in WorkspaceSurfaceSlot.allCases {
                     let driver = controller(for: slot)
                     configurePreview(driver, model: model, slot: slot)
+#if DEBUG
+                    driver.workspacePaneDiagnostic = { [weak model] in
+                        guard let model else { return "released owner" }
+                        let pane = slot == model.sourceSurfaceSlot ? model.pane : model.splitPane
+                        return "modelRevision=\(model.workspaceLayoutRevision);\(pane?.scrollBridge.dividerDiagnostic ?? "no pane")"
+                    }
+#endif
                     driver.configureSplit(onDrop: { [weak model] intent in
                         model?.acceptsSplitDrop(intent) ?? false
                     }, onConverged: { [weak model, weak driver] intent in
@@ -219,12 +254,22 @@ struct WorkspaceSurfaceView<Content: View>: View {
             if presented != true { browse.finish() }
         }
         .onChange(of: model?.splitWorkspace) { _, split in
+            if resize.isActive, let model, !resize.matches(model),
+               split != nil || !resize.isClosing { resize.invalidate() }
             lift.setSplitWorkspacePresented(split != nil)
             secondaryLift.setSplitWorkspacePresented(split != nil)
         }
+        .onChange(of: resize.isActive) { _, active in
+            lift.workspaceResizeActive = active
+            secondaryLift.workspaceResizeActive = active
+        }
+        .onDisappear { resize.invalidate() }
         .onChange(of: dynamicTypeSize) { _, _ in updateMinimumSize() }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { browse.cancel(); lift.invalidate(); secondaryLift.invalidate() }
+            if phase != .active {
+                if resize.isActive, !resize.isClosing, let model { resize.finish(model: model, cancelled: true) }
+                browse.cancel(); lift.invalidate(); secondaryLift.invalidate()
+            }
         }
     }
 
@@ -299,8 +344,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
             let destination = controller?.requestedSplitReturnSlot
                 ?? (model?.previewRestoresSplit == true ? model?.splitPreviewOriginSlot : nil)
             guard let destination else { return CGRect(origin: .zero, size: size) }
-            return SplitTargetingGeometry.preview(slot: destination, progress: 1,
-                size: size, safeArea: insets)?.paneFrame
+            return SplitWorkspaceGeometry(size: size, safeArea: insets,
+                ratio: model?.splitWorkspace?.topBottomRatio ?? 0.5)?.frame(for: destination)
         }
     }
 
@@ -311,23 +356,39 @@ struct WorkspaceSurfaceView<Content: View>: View {
 
     private func splitFrame(in geometry: GeometryProxy, slot: SplitDropSlot?) -> CGRect? {
         guard let slot else { return nil }
-        let safe = geometry.safeAreaInsets
-        return SplitTargetingGeometry.preview(slot: slot, progress: 1, size: geometry.size,
-            safeArea: UIEdgeInsets(top: safe.top, left: safe.leading,
-                                   bottom: safe.bottom, right: safe.trailing))?.paneFrame
+        return splitGeometry(in: geometry)?.frame(for: slot)
     }
 
-    private func splitDivider(width: CGFloat, onClose: @escaping () -> Void) -> some View {
-        ZStack {
+    private func splitGeometry(in geometry: GeometryProxy) -> SplitWorkspaceGeometry? {
+        guard let split = model?.splitWorkspace else { return nil }
+        // Workspace ignores container regions; its proposed size already avoids
+        // the keyboard. GeometryProxy can still report that keyboard's Insets,
+        // so applying them again would shrink both Panes a second time.
+        return SplitWorkspaceGeometry(viewport: CGRect(origin: .zero, size: geometry.size),
+            ratio: split.topBottomRatio)
+    }
+
+    private func divider(model: AppShellModel, split: SplitWorkspaceState,
+                         layout: SplitWorkspaceGeometry) -> some View {
+        let minimum = SplitWorkspaceGeometry.minimumRatio(height: layout.viewport.height,
+            preferredMinimum: max(180, minimumHeight * 0.65))
+        return ZStack {
             Rectangle().fill(Color.white.opacity(0.20)).frame(height: 2)
-            Capsule().fill(Color.white).frame(width: min(64, width * 0.2), height: 4)
+                .allowsHitTesting(false)
+            SplitDividerView(ratio: split.topBottomRatio, closeIntent: resize.closeIntent,
+                canCloseTop: split.sourceSlot == .bottom || split.secondaryConversationID != nil,
+                canCloseBottom: split.sourceSlot == .top || split.secondaryConversationID != nil,
+                onBegin: { activeSurfaceSlot == nil && resize.begin(model: model, minimumRatio: minimum) },
+                onMove: { displacement in
+                    resize.update(model: model, displacement: displacement, viewportHeight: layout.viewport.height)
+                },
+                onEnd: { cancelled in resize.finish(model: model, cancelled: cancelled) },
+                onClose: { slot in resize.close(model: model, keeping: slot == .top ? .bottom : .top) },
+                onAdjust: { increment in resize.adjust(model: model, increment: increment, minimumRatio: minimum) })
+                .frame(width: min(64, layout.viewport.width * 0.2), height: 28)
         }
-        .frame(width: width, height: 28)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onClose)
-        .accessibilityElement()
-        .accessibilityLabel("分屏分隔线")
-        .accessibilityHint("轻点关闭分屏")
+        .frame(width: layout.viewport.width, height: 28)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("split-divider")
     }
 
@@ -399,6 +460,7 @@ private struct WorkspaceHostedContent<Content: View>: View {
     let slot: WorkspaceSurfaceSlot
     let browse: AppSpaceBrowseController
     let content: Content
+    let contentForSlot: ((WorkspaceSurfaceSlot) -> Content)?
     @Environment(\.surfaceLiftController) private var lift
 
     var body: some View {
@@ -413,6 +475,8 @@ private struct WorkspaceHostedContent<Content: View>: View {
                                     summary: browse.currentSummary, summaryError: browse.errorMessage)
                                 : model.previewContent.status),
                         isNewEntry: browse.isNewEntry)
+                } else if let contentForSlot {
+                    contentForSlot(slot)
                 } else if slot == model.sourceSurfaceSlot {
                     content
                 } else if model.splitWorkspace != nil {
@@ -426,6 +490,10 @@ private struct WorkspaceHostedContent<Content: View>: View {
         // tree. Suppress that tree here while preserving the hidden live Pane.
         .accessibilityHidden(model?.previewContent.isPresented == true
             && model?.previewSurfaceSlot != slot)
+        // UIKit installs this root once. Read mutable layout state here so
+        // Observation updates the retained subtree instead of freezing a value
+        // captured outside the hosting controller at its first installation.
+        .environment(\.workspaceLayoutRevision, model?.workspaceLayoutRevision ?? 0)
         .environment(\.conversationBottomNotice, bottomNotice)
     }
 
@@ -457,6 +525,19 @@ private struct SurfaceInteractionProbe: UIViewRepresentable {
         return view
     }
     func updateUIView(_ uiView: SurfaceInteractionProbeView, context: Context) {}
+}
+
+private struct SplitViewportProbe: UIViewRepresentable {
+    let value: String
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isAccessibilityElement = true
+        view.accessibilityIdentifier = "split-viewport-probe"
+        return view
+    }
+    func updateUIView(_ uiView: UIView, context: Context) {
+        uiView.accessibilityValue = value
+    }
 }
 
 private final class SurfaceInteractionProbeView: UIView {

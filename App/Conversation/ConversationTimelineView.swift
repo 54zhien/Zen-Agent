@@ -2,13 +2,22 @@ import SwiftUI
 
 private struct ConversationTimelineViewport: Equatable {
     let geometry: ScrollGeometry
+    let nativeGeometry: SwiftUI.ScrollGeometry
     let workspaceVisible: Bool
     let workspaceRevision: UInt64
+    let layoutRevision: UInt64
+}
+
+private struct DividerTurnMaterialization: Equatable {
+    let leaseID: UUID
+    let revision: UInt64
+    let runID: String
 }
 
 private struct ConversationTimelineTurnMeasurements: Equatable, Sendable {
     var viewportFrames: [String: CGRect] = [:]
     var contentTops: [String: Double] = [:]
+    var layoutRevision: UInt64 = 0
 }
 
 private struct ConversationTimelineTurnFramesKey: PreferenceKey {
@@ -17,6 +26,8 @@ private struct ConversationTimelineTurnFramesKey: PreferenceKey {
     static func reduce(value: inout ConversationTimelineTurnMeasurements,
                        nextValue: () -> ConversationTimelineTurnMeasurements) {
         let next = nextValue()
+        if next.layoutRevision > value.layoutRevision { value = next; return }
+        guard next.layoutRevision == value.layoutRevision else { return }
         value.viewportFrames.merge(next.viewportFrames, uniquingKeysWith: { _, latest in latest })
         value.contentTops.merge(next.contentTops, uniquingKeysWith: { _, latest in latest })
     }
@@ -43,8 +54,11 @@ struct ConversationTimelineView: View {
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.surfaceLiftController) private var surfaceLift
+    @Environment(\.workspaceLayoutRevision) private var layoutRevision
     @State private var readingGeometryWasSuspended = false
     @State private var acceptedWorkspaceRevision: UInt64?
+    @State private var measuredLayoutRevision: UInt64?
+    @State private var acceptedLayoutRevision: UInt64?
     @ScaledMetric(relativeTo: .body) private var betweenTurns = Metrics.betweenTurns
     @ScaledMetric(relativeTo: .body) private var contentInset = Metrics.contentInset
     @State private var selectedApproval: ToolApprovalProjection?
@@ -55,6 +69,7 @@ struct ConversationTimelineView: View {
     @State private var turnContentTops: [String: Double] = [:]
     @State private var materializingSequence: UInt64?
     @State private var materializationRequest: ConversationPaneScrollRequest?
+    @State private var dividerMaterialization: DividerTurnMaterialization?
     @State private var latestBottomReferenceTurn: (runID: String, turnTop: Double)?
     @State private var activeScrollPhase: ScrollPhase = .idle
     @State private var pendingAppliedScroll: ConversationPaneScrollRequest?
@@ -67,6 +82,14 @@ struct ConversationTimelineView: View {
                     var transaction = Transaction()
                     transaction.animation = nil
                     withTransaction(transaction) { proxy.scrollTo(anchor.runID, anchor: .top) }
+                }
+                .onChange(of: dividerMaterialization) { _, request in
+                    guard acceptsReadingGeometry, let request,
+                          scrollBridge?.dividerLeaseID == request.leaseID,
+                          layoutRevision == request.revision else { return }
+                    var transaction = Transaction()
+                    transaction.animation = nil
+                    withTransaction(transaction) { proxy.scrollTo(request.runID, anchor: .bottom) }
                 }
 #if DEBUG
                 .onChange(of: scrollBridge?.pane.previewReadingBootstrapForUITest) { _, runID in
@@ -133,7 +156,8 @@ struct ConversationTimelineView: View {
                                     key: ConversationTimelineTurnFramesKey.self,
                                     value: ConversationTimelineTurnMeasurements(
                                         viewportFrames: [turn.runID: geometry.frame(in: .named(scrollCoordinateSpace))],
-                                        contentTops: [turn.runID: Double(geometry.frame(in: .named(contentCoordinateSpace)).minY)]
+                                        contentTops: [turn.runID: Double(geometry.frame(in: .named(contentCoordinateSpace)).minY)],
+                                        layoutRevision: layoutRevision
                                     )
                                 )
                             }
@@ -145,18 +169,34 @@ struct ConversationTimelineView: View {
                 .padding(.vertical, betweenTurns)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .coordinateSpace(name: contentCoordinateSpace)
+                .background {
+                    // Empty timelines also need a final layout receipt.
+                    Color.clear.preference(key: ConversationTimelineTurnFramesKey.self,
+                        value: ConversationTimelineTurnMeasurements(layoutRevision: layoutRevision))
+                }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear.frame(height: bottomComposerClearance)
             }
             .coordinateSpace(name: scrollCoordinateSpace)
+            .contentShape(Rectangle())
             .simultaneousGesture(SpatialTapGesture().onEnded { tap in
+#if DEBUG
+                scrollBridge?.blankTapDiagnostic = "point=\(tap.location);blank=\(Self.isBlankTap(tap.location, turnFrames: turnFrames));frames=\(turnFrames.values)"
+#endif
                 guard Self.isBlankTap(tap.location, turnFrames: turnFrames) else { return }
                 onBlankBackgroundTap()
             })
+#if DEBUG
+            .onChange(of: layoutRevision, initial: true) { _, revision in
+                scrollBridge?.observedLayoutDiagnostic = String(revision)
+            }
+#endif
             .scrollPosition($scrollPosition, anchor: .top)
             .onPreferenceChange(ConversationTimelineTurnFramesKey.self) { measurement in
                 guard surfaceLift?.isWorkspaceVisible != false else { return }
+                guard measurement.layoutRevision == layoutRevision else { return }
+                measuredLayoutRevision = measurement.layoutRevision
                 let frames = measurement.viewportFrames
                 turnFrames = frames
                 turnContentTops = measurement.contentTops
@@ -171,6 +211,11 @@ struct ConversationTimelineView: View {
                         in: frames,
                         geometry: latestScrollGeometry
                     )
+                    publishDividerViewport(latestScrollGeometry)
+                    if scrollBridge?.hasDividerLease == true {
+                        repairDividerPosition(latestScrollGeometry)
+                        return
+                    }
                     if acceptsReadingGeometry, scrollBridge?.isHeightChangeActive == true {
                         scrollBridge?.continueHeightChange(
                             geometry: latestScrollGeometry,
@@ -181,14 +226,20 @@ struct ConversationTimelineView: View {
                 }
             }
             .onScrollGeometryChange(for: ConversationTimelineViewport.self) { geometry in
-                ConversationTimelineViewport(geometry: paneGeometry(from: geometry),
+                ConversationTimelineViewport(geometry: Self.paneGeometry(from: geometry),
+                                             nativeGeometry: geometry,
                                              workspaceVisible: workspaceVisible,
-                                             workspaceRevision: workspaceRevision)
+                                             workspaceRevision: workspaceRevision,
+                                             layoutRevision: layoutRevision)
             } action: { previous, viewport in
+#if DEBUG
+                scrollBridge?.nativeGeometryDiagnostic = "offset=\(viewport.nativeGeometry.contentOffset);content=\(viewport.nativeGeometry.contentSize);insets=\(viewport.nativeGeometry.contentInsets);container=\(viewport.nativeGeometry.containerSize);visible=\(viewport.nativeGeometry.visibleRect)"
+#endif
                 // Visibility participates in equality so mounting the same-size
                 // viewport still drains Run updates held while the Pane was hidden.
                 guard viewport.workspaceVisible, surfaceLift?.isWorkspaceVisible != false,
                       viewport.workspaceRevision == (surfaceLift?.workspaceVisibilityRevision ?? 0),
+                      viewport.layoutRevision == layoutRevision,
                       viewport.geometry.isUsableForPane else {
                     readingGeometryWasSuspended = true
                     return
@@ -202,19 +253,26 @@ struct ConversationTimelineView: View {
                 // No request/phase callback may acknowledge the retained old
                 // viewport before this attachment supplies its first measurement.
                 acceptedWorkspaceRevision = viewport.workspaceRevision
+                if acceptedLayoutRevision != viewport.layoutRevision { pendingAppliedScroll = nil }
+                acceptedLayoutRevision = viewport.layoutRevision
                 handleScrollGeometryChange(viewport.geometry)
             }
             .onScrollPhaseChange { _, phase, context in
                 activeScrollPhase = phase
                 guard acceptsReadingGeometry else { return }
+                if scrollBridge?.hasDividerLease == true {
+                    if phase == .idle { scrollBridge?.endHeightChange() }
+                    if let latestScrollGeometry { repairDividerPosition(latestScrollGeometry) }
+                    return
+                }
                 switch phase {
                 case .tracking, .interacting:
                     pendingAppliedScroll = nil
                     scrollBridge?.userScrolled(
-                        geometry: paneGeometry(from: context.geometry),
+                        geometry: Self.paneGeometry(from: context.geometry),
                         topVisibleTurn: topVisibleTurn(
                             in: turnFrames,
-                            geometry: paneGeometry(from: context.geometry)
+                            geometry: Self.paneGeometry(from: context.geometry)
                         )
                     )
                 case .idle:
@@ -240,7 +298,18 @@ struct ConversationTimelineView: View {
                     materializationRequest = nil
                     return
                 }
-                applyScrollRequest(request)
+                if scrollBridge?.hasDividerLease == true, let latestScrollGeometry {
+                    repairDividerPosition(latestScrollGeometry)
+                } else {
+                    applyScrollRequest(request)
+                }
+            }
+            .onChange(of: scrollBridge?.dividerFinalRevision) { _, _ in
+                if let latestScrollGeometry { repairDividerPosition(latestScrollGeometry) }
+            }
+            .onChange(of: scrollBridge?.dividerLeaseID) { _, _ in
+                dividerMaterialization = nil
+                if let latestScrollGeometry { repairDividerPosition(latestScrollGeometry) }
             }
             .onAppear {
                 if selectedApproval == nil {
@@ -277,14 +346,13 @@ struct ConversationTimelineView: View {
         turnFrames.values.allSatisfy { !$0.contains(location) }
     }
 
-    private func paneGeometry(from geometry: SwiftUI.ScrollGeometry) -> ScrollGeometry {
+    static func paneGeometry(from geometry: SwiftUI.ScrollGeometry) -> ScrollGeometry {
         ScrollGeometry(
             viewportHeight: Double(geometry.containerSize.height),
-            contentHeight: Double(
-                geometry.contentSize.height
-                    + geometry.contentInsets.top
-                    + geometry.contentInsets.bottom
-            ),
+            // SwiftUI's container is already the usable viewport after insets.
+            // Adding insets to content here would count them twice and make the
+            // native bottom (including short/empty content) impossible to ack.
+            contentHeight: Double(geometry.contentSize.height),
             offset: Double(geometry.contentOffset.y + geometry.contentInsets.top)
         )
     }
@@ -306,6 +374,11 @@ struct ConversationTimelineView: View {
         // Session anchor until Full and ignore its transient predecessor viewport.
         guard acceptsReadingGeometry else {
             readingGeometryWasSuspended = true
+            return
+        }
+        publishDividerViewport(geometry)
+        if scrollBridge.hasDividerLease {
+            repairDividerPosition(geometry)
             return
         }
         if readingGeometryWasSuspended {
@@ -347,8 +420,39 @@ struct ConversationTimelineView: View {
         }
 
         latestBottomReferenceTurn = bottomVisibleTurn(in: turnFrames, geometry: geometry)
+        publishDividerViewport(geometry)
         acknowledgeAppliedScrollIfReady(geometry)
         applyPendingScrollIfReady()
+    }
+
+    private func publishDividerViewport(_ geometry: ScrollGeometry) {
+        guard acceptsReadingGeometry else { return }
+        let bottom = latestBottomReferenceTurn.map { reference in
+            (runID: reference.runID, turnTop: turnContentTops[reference.runID] ?? reference.turnTop)
+        }
+        scrollBridge?.publishViewport(geometry, bottomReferenceTurn: bottom)
+    }
+
+    private func repairDividerPosition(_ geometry: ScrollGeometry) {
+#if DEBUG
+        scrollBridge?.timelineReceiptDiagnostic = "revision=\(layoutRevision);accepted=\(String(describing: acceptedLayoutRevision));measured=\(String(describing: measuredLayoutRevision));ready=\(acceptsReadingGeometry);viewport=\(geometry.viewportHeight)"
+#endif
+        guard acceptsReadingGeometry, let scrollBridge, scrollBridge.hasDividerLease,
+              acceptedLayoutRevision == layoutRevision, measuredLayoutRevision == layoutRevision else { return }
+        scrollBridge.continueDividerResize(geometry: geometry, turnTops: turnContentTops, revision: layoutRevision)
+        if let runID = scrollBridge.dividerReferenceTurnID, turnContentTops[runID] == nil,
+           let leaseID = scrollBridge.dividerLeaseID,
+           projection.turns.contains(where: { $0.runID == runID }) {
+            // Lazy children may leave layout while the viewport is changing.
+            // Bring the retained reference into layout before precise repair.
+            dividerMaterialization = DividerTurnMaterialization(leaseID: leaseID,
+                revision: layoutRevision, runID: runID)
+            return
+        }
+        dividerMaterialization = nil
+        acknowledgeAppliedScrollIfReady(geometry)
+        applyPendingScrollIfReady()
+        scrollBridge.acknowledgeDividerResize(revision: layoutRevision, geometry: geometry)
     }
 
 #if DEBUG
@@ -443,7 +547,8 @@ struct ConversationTimelineView: View {
     private func applyScrollRequest(_ request: ConversationPaneScrollRequest) {
         guard acceptsScrollRequests, let scrollBridge,
               scrollBridge.pane.scrollRequest?.sequence == request.sequence,
-              !isUserDrivenScroll,
+              (!isUserDrivenScroll || scrollBridge.hasDividerLease),
+              (!scrollBridge.hasDividerLease || (acceptedLayoutRevision == layoutRevision && measuredLayoutRevision == layoutRevision)),
               pendingAppliedScroll?.sequence != request.sequence,
               let geometry = latestScrollGeometry
         else { return }

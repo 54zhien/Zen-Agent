@@ -8,6 +8,11 @@ final class AppSpaceBrowseUITests: XCTestCase {
         app.launch()
         let editor = app.textViews["conversation-composer-input"]
         XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        let readiness = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        guard wait({ (readiness.value as? String)?.contains("liftReady=true") == true }) else {
+            XCTFail("Native Lift never became ready: \(readiness.value ?? "missing")")
+            return
+        }
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
         let card = app.descendants(matching: .any)["workspace-current-card"]
@@ -40,6 +45,11 @@ final class AppSpaceBrowseUITests: XCTestCase {
         app.launch()
         let editor = app.textViews["conversation-composer-input"]
         XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        let readiness = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        guard wait({ (readiness.value as? String)?.contains("liftReady=true") == true }) else {
+            XCTFail("Native Lift never became ready: \(readiness.value ?? "missing")")
+            return
+        }
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
         let card = app.descendants(matching: .any)["workspace-current-card"]

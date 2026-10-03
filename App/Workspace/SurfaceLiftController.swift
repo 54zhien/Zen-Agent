@@ -9,6 +9,7 @@ final class SurfaceLiftController {
     private(set) var isWorkspaceVisible = true
     private(set) var workspaceVisibilityRevision: UInt64 = 0
     private(set) var overlayPresented = false
+    var workspaceResizeActive = false
     private(set) var retainsAppSpaceViewport = false
     private(set) var splitTargetingVisible = false
     private(set) var splitTargetSlot: SplitDropSlot?
@@ -33,6 +34,7 @@ final class SurfaceLiftController {
     @ObservationIgnored private var detach: (() -> Void)?
 #if DEBUG
     @ObservationIgnored var nativeInteractionDiagnostic: (() -> String)?
+    @ObservationIgnored var workspacePaneDiagnostic: (() -> String)?
 #endif
 
     @ObservationIgnored private var enterPreview: (() -> Bool)?
@@ -293,7 +295,7 @@ final class SurfaceLiftController {
     private func guarded(_ input: SurfaceLiftEligibility) -> SurfaceLiftEligibility {
         var result = input
         result.selectionActive = result.selectionActive || hasSelection
-        result.overlayPresented = result.overlayPresented || overlayPresented || (presentedOverlay?() ?? true)
+        result.overlayPresented = result.overlayPresented || overlayPresented || workspaceResizeActive || (presentedOverlay?() ?? true)
         return result
     }
     func canArm(_ input: SurfaceLiftEligibility) -> Bool {

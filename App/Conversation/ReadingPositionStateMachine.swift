@@ -206,7 +206,7 @@ struct ReadingPositionStateMachine: Sendable {
                 }
 
                 let updatedAnchor = TurnAnchor(
-                    runID: currentAnchor.runID,
+                    runID: anchor.runID,
                     relativeViewportOffset: updatedRelativeViewportOffset
                 )
                 transition = (

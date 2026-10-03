@@ -198,6 +198,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         return surface
     }
 
+#if DEBUG
+    var liftReadinessDiagnostic: String {
+        "\(liftInteraction.readinessDiagnostic);composerBounds=\(bounds);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState)"
+    }
+#endif
+
     var keyboardGap: CGFloat {
         keyboardLayoutGuide.layoutFrame.minY - surface.frame.maxY
     }

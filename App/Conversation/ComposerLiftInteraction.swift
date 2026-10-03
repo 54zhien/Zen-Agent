@@ -50,6 +50,13 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
 
     var isInstalled: Bool { configuration != nil }
 
+#if DEBUG
+    var isReadyForUITesting: Bool { configuration?.driver.canArm(input) == true }
+    var readinessDiagnostic: String {
+        "liftReady=\(isReadyForUITesting);eligibility=\(input);gesture=\(recognizer.state.rawValue)"
+    }
+#endif
+
     private var input: SurfaceLiftEligibility {
         configuration?.eligibility(nativeInput()) ?? nativeInput()
     }

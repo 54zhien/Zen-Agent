@@ -14,10 +14,10 @@ struct AppShellRootView: View {
                 ProgressView("正在打开会话数据")
                     .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
             case .ready:
-                WorkspaceSurfaceView(model: model) {
-                    NewConversationView(model: model)
-                }
-                .ignoresSafeArea()
+                WorkspaceSurfaceView(model: model, contentForSlot: { slot in
+                    NewConversationView(model: model, surfaceSlot: slot)
+                })
+                .ignoresSafeArea(.container)
             case .failed(let failure):
                 VStack(spacing: 16) {
                     Text(failure.title)
@@ -53,6 +53,16 @@ struct AppShellRootView: View {
 @MainActor
 struct NewConversationView: View {
     let model: AppShellModel
+    var surfaceSlot: WorkspaceSurfaceSlot = .primary
+
+    private var isSource: Bool { surfaceSlot == model.sourceSurfaceSlot }
+    private var presentedPane: ConversationPaneController? { isSource ? model.pane : model.splitPane }
+    private var presentedBridge: ComposerRuntimeActionBridge? { isSource ? model.actionBridge : model.splitActionBridge }
+    private var presentedID: String { presentedPane?.conversationID ?? model.conversationID }
+    private var logicalSlot: SplitDropSlot? {
+        guard let split = model.splitWorkspace else { return nil }
+        return isSource ? split.sourceSlot : split.emptySlot
+    }
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var isProviderSetupPresented = false
     @State private var isRecentConversationsPresented = false
@@ -63,7 +73,7 @@ struct NewConversationView: View {
     var body: some View {
         Group {
             if model.previewContent.isPresented,
-               model.splitWorkspace == nil || model.splitPreviewOriginSlot == model.splitWorkspace?.sourceSlot {
+               model.previewSurfaceSlot == surfaceSlot {
                 ConversationPreviewView(
                     summary: browse?.isPresented == true ? browse?.currentSummary : model.previewContent.currentSummary,
                     status: model.appSpaceActionError(for: browse?.selectedConversationID).map { .failed($0) } ?? (browse?.isPresented == true
@@ -75,11 +85,12 @@ struct NewConversationView: View {
                 fullContent
             }
         }
-        .onChange(of: model.conversationID) { _, _ in
+        .accessibilityIdentifier(isSource ? "workspace-source-pane" : "split-secondary-pane")
+        .onChange(of: presentedID) { _, _ in
             // Selected Full commits at the existing late handoff. Cancelling here
             // would interrupt the second segment of that same Surface.
             if lift?.state.phase == .settling, lift?.state.pendingSettlement?.destination == .full,
-               model.previewHandoffID == model.conversationID { return }
+               model.previewHandoffID == presentedID { return }
             lift?.resetForConversationChange()
         }
         .onChange(of: model.previewContent.isPresented) { _, presented in
@@ -92,17 +103,17 @@ struct NewConversationView: View {
     private var fullContent: some View {
         NavigationStack {
             Group {
-                if let pane = model.pane,
-                   let bridge = model.actionBridge,
+                if let pane = presentedPane,
+                   let bridge = presentedBridge,
                    let runtime = model.runtimeForPresentation {
                     ConversationPaneView(
                         pane: pane,
                         runtime: runtime,
                         actionBridge: bridge,
                         maxProviderSteps: AppShellModel.maxProviderSteps,
-                        isActive: model.splitWorkspace == nil || model.splitWorkspace?.activeSlot == model.splitWorkspace?.sourceSlot,
+                        isActive: model.splitWorkspace == nil || model.splitWorkspace?.activeSlot == logicalSlot,
                         onUserFocus: {
-                            if let split = model.splitWorkspace { model.selectSplitSlot(split.sourceSlot) }
+                            if let logicalSlot { model.selectSplitSlot(logicalSlot) }
                         }
                     )
                     // Native scroll geometry belongs to this Conversation's Pane.
@@ -133,7 +144,10 @@ struct NewConversationView: View {
             .navigationTitle("新会话")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("新会话") { model.newConversation() }
+                    Button("新会话") {
+                        if isSource { model.newConversation() } else { _ = model.createNewInSplit() }
+                    }
+                    .accessibilityIdentifier(isSource ? "new-conversation-new" : "split-secondary-new")
                         .font(Typography.font(
                             for: .interfaceBody,
                             dynamicTypeSize: dynamicTypeSize
@@ -152,7 +166,7 @@ struct NewConversationView: View {
                                 dynamicTypeSize: dynamicTypeSize
                             ))
                             .accessibilityLabel("最近会话")
-                            .accessibilityIdentifier("new-conversation-recent")
+                            .accessibilityIdentifier(isSource ? "new-conversation-recent" : "split-secondary-recent")
                         }
 
                         if model.splitWorkspace == nil {
@@ -192,7 +206,7 @@ struct NewConversationView: View {
                     .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
                     .padding()
                     .background(.regularMaterial)
-                } else if let message = model.router.recoveryMessage(for: model.conversationID) {
+                } else if let message = model.router.recoveryMessage(for: presentedID) {
                     HStack(spacing: 12) {
                         Text(message)
                             .font(Typography.font(
@@ -202,7 +216,7 @@ struct NewConversationView: View {
                         Button("重试加载") {
                             historyAction?.cancel()
                             historyAction = Task {
-                                _ = await model.router.retryTimelineLoad(for: model.conversationID)
+                                _ = await model.router.retryTimelineLoad(for: presentedID)
                             }
                         }
                         .font(Typography.font(
@@ -245,7 +259,7 @@ struct NewConversationView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityIdentifier("recent-conversation-\(conversation.id)")
+                        .accessibilityIdentifier(isSource ? "recent-conversation-\(conversation.id)" : "split-recent-\(conversation.id)")
                     }
                     if let error = model.recentLoadError {
                         VStack(alignment: .leading, spacing: 8) {
@@ -292,7 +306,8 @@ struct NewConversationView: View {
     private func openRecentConversation(id: String) {
         historyAction?.cancel()
         historyAction = Task {
-            let opened = await model.openConversation(id: id)
+            let opened = isSource || id == model.conversationID
+                ? await model.openConversation(id: id) : await model.openInSplit(id: id)
             guard !Task.isCancelled, isRecentConversationsPresented else { return }
             if opened {
                 isRecentConversationsPresented = false
