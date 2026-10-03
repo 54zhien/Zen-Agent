@@ -106,7 +106,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             for scroll in scrollViews(in: contentController.view) {
                 let point = scroll.convert(CGPoint(x: scroll.bounds.minX + scroll.bounds.width * 0.98,
                     y: scroll.bounds.minY + scroll.bounds.height * 0.25), to: window)
-                fields.append("nativeScroll=\(type(of: scroll));frame=\(scroll.convert(scroll.bounds, to: window));marginPoint=\(point);marginHit=\(chain(window.hitTest(point, with: nil)))")
+                fields.append("nativeScroll=\(type(of: scroll));frame=\(scroll.convert(scroll.bounds, to: window));size=\(scroll.contentSize);offset=\(scroll.contentOffset);insets=\(scroll.contentInset);adjustedInsets=\(scroll.adjustedContentInset);marginPoint=\(point);marginHit=\(chain(window.hitTest(point, with: nil)))")
             }
         }
         if let editor = mounted.first, let window = view.window {

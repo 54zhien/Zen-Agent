@@ -74,11 +74,11 @@ final class SplitResizeUITests: XCTestCase {
         let sourceEditor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
         sourceEditor.tap()
         sourceEditor.typeText("source resize draft")
-        dismissKeyboard(in: app, pane: source)
+        dismissKeyboard(in: app, pane: source, editor: sourceEditor)
         let secondaryEditor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 1)
         secondaryEditor.tap()
         secondaryEditor.typeText("secondary resize draft")
-        dismissKeyboard(in: app, pane: secondary)
+        dismissKeyboard(in: app, pane: secondary, editor: secondaryEditor)
 
         let sourceBefore = source.frame
         let secondaryBefore = secondary.frame
@@ -131,8 +131,14 @@ final class SplitResizeUITests: XCTestCase {
     }
 
     @MainActor
-    private func dismissKeyboard(in app: XCUIApplication, pane: XCUIElement) {
-        let point = pane.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.25))
+    private func dismissKeyboard(in app: XCUIApplication, pane: XCUIElement, editor: XCUIElement) {
+        // Pane AX bounds include the large navigation title. Use the Timeline
+        // margin directly above the actual Composer, outside padded Turn content.
+        let blankY = editor.frame.minY - 30
+        XCTAssertGreaterThan(blankY, pane.frame.minY + 120)
+        XCTAssertLessThan(blankY, app.keyboards.firstMatch.frame.minY)
+        let point = app.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: pane.frame.maxX - 8 - app.frame.minX, dy: blankY - app.frame.minY))
         print("RESIZE_BLANK_POINT pane=\(pane.frame) point=\(point.screenPoint) keyboard=\(app.keyboards.firstMatch.frame)")
         point.tap()
         expect { !app.keyboards.firstMatch.exists }

@@ -35,8 +35,9 @@ final class ConversationPaneScrollBridge {
     @ObservationIgnored var timelineReceiptDiagnostic = "unmeasured"
     @ObservationIgnored var blankTapDiagnostic = "none"
     @ObservationIgnored var observedLayoutDiagnostic = "unobserved"
+    @ObservationIgnored var nativeGeometryDiagnostic = "unmeasured"
     var dividerDiagnostic: String {
-        "\(timelineReceiptDiagnostic);observed=\(observedLayoutDiagnostic);blankTap=\(blankTapDiagnostic);lease=\(hasDividerLease);final=\(String(describing: dividerFinalRevision));prepared=\(String(describing: preparedDividerRevision));target=\(String(describing: lastDividerTarget));offset=\(String(describing: snapshot?.geometry.offset));request=\(String(describing: pane.scrollRequest));mode=\(String(describing: pane.readingPosition.mode))"
+        "\(timelineReceiptDiagnostic);geometry=\(nativeGeometryDiagnostic);observed=\(observedLayoutDiagnostic);blankTap=\(blankTapDiagnostic);lease=\(hasDividerLease);final=\(String(describing: dividerFinalRevision));prepared=\(String(describing: preparedDividerRevision));target=\(String(describing: lastDividerTarget));offset=\(String(describing: snapshot?.geometry.offset));request=\(String(describing: pane.scrollRequest));mode=\(String(describing: pane.readingPosition.mode))"
     }
 #endif
 

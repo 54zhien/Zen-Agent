@@ -132,3 +132,5 @@ measured revisions at their callbacks, and native ScrollView frames/hits;
 print the XCTest coordinate too. Remove the inaccessible background probe.
 No further production behavior change is made until these boundaries are
 measured. Full GREEN remains pending.
+
+Direct diagnostic d84a85868c8f54641a50d3b773f72bb49a03f8ee / tree f61d21157a62926a268b705e59baa743e8c23e73 in push 37153479357 (job 111292177480) built and passed 847 Swift plus 20 XCTest. The same two resize UI cases failed. Both Pane revisions matched 3; the source lease completed, but the empty secondary awaited target 127 at offset 0. The fixed blank point hit NavigationBarContentView. Capture raw SwiftUI/native content size, offset, insets and container before changing the converter; move the actual touch above the measured Composer rather than the navigation title.

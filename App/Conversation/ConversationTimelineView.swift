@@ -2,6 +2,7 @@ import SwiftUI
 
 private struct ConversationTimelineViewport: Equatable {
     let geometry: ScrollGeometry
+    let nativeGeometry: SwiftUI.ScrollGeometry
     let workspaceVisible: Bool
     let workspaceRevision: UInt64
     let layoutRevision: UInt64
@@ -226,10 +227,14 @@ struct ConversationTimelineView: View {
             }
             .onScrollGeometryChange(for: ConversationTimelineViewport.self) { geometry in
                 ConversationTimelineViewport(geometry: paneGeometry(from: geometry),
+                                             nativeGeometry: geometry,
                                              workspaceVisible: workspaceVisible,
                                              workspaceRevision: workspaceRevision,
                                              layoutRevision: layoutRevision)
             } action: { previous, viewport in
+#if DEBUG
+                scrollBridge?.nativeGeometryDiagnostic = "offset=\(viewport.nativeGeometry.contentOffset);content=\(viewport.nativeGeometry.contentSize);insets=\(viewport.nativeGeometry.contentInsets);container=\(viewport.nativeGeometry.containerSize);visible=\(viewport.nativeGeometry.visibleRect)"
+#endif
                 // Visibility participates in equality so mounting the same-size
                 // viewport still drains Run updates held while the Pane was hidden.
                 guard viewport.workspaceVisible, surfaceLift?.isWorkspaceVisible != false,
