@@ -88,7 +88,9 @@ final class SplitContainerUITests: XCTestCase {
             "PREVIEW_READING_ANCHOR_10")).firstMatch
         XCTAssertTrue(anchor.exists && anchor.isHittable)
         let anchorFrame = anchor.frame
-        let sourcePane = app.descendants(matching: .any)["conversation-pane-preview-ui-11"]
+        // SwiftUI propagates the Pane identifier to its timeline and Composer
+        // accessibility siblings. Measure the native timeline viewport explicitly.
+        let sourcePane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let sourceHeight = sourcePane.frame.height
         let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 1)
         XCTAssertTrue(editor.exists)

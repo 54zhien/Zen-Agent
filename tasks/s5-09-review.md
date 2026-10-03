@@ -260,3 +260,22 @@ XCTest interruption monitor, retaining the real ten-second production deadline
 and all existing Undo/typing assertions. The already reviewed current-attachment
 geometry correction joins this candidate; its changed-viewport UI check remains
 pending. S5-09 is not yet accepted.
+
+### 2026-10-04 exact-tree repair verification
+
+Candidate `71e76de7e99c2c8f156b42b0616e658c39169b7c` / tree
+`535c59cddd73ab995bfc99c3b19be46e81aa5ef6` passed generation/build,
+837 Swift Testing tests in 124 suites and 20 XCTest unit tests in both
+push CI 37137948804 and PR CI 37137951724. Both 30-test UI runs had one
+failure in the strengthened hidden-reading test before its new viewport
+roundtrip: the all-element Pane query matched both a ScrollView and an Other
+because SwiftUI propagates the identifier. The remaining 29 UI tests passed,
+including Browse and editable Single with the real Undo timeout. No test-host
+restart was reported.
+
+The query now explicitly measures the native timeline ScrollView, preserving
+all queued-request, viewport-height and actual Turn-position assertions. Source
+behavior is unchanged; the changed-viewport portion still needs successful CI.
+Independent read-only review of `12cfaaf..7606d83` found no concrete blocker
+and confirmed the release crossing/retreat regression and current-revision
+geometry gate. Subsequent slice drafts remain unpublished.
