@@ -188,3 +188,26 @@ while retaining both native editor identity and owner-count assertions.
 Native diagnostics add window frame and UTF16 text length, never text content,
 to distinguish a query failure from lost input. No Composer behavior changes.
 This follow-up still requires a full build and test gate; no GREEN is claimed.
+
+### Measured small-Pane editing defect
+
+Follow-up 8d8135cee591fe4afeb261190bfa1809595e5c95 / tree
+d9f992f8d988bca3d04537f268e5986682512496 built in push 37158048864
+(job 111305511104). All 849 Swift and 20 XCTest passed; 35 UI cases ran
+once, with two assertions failing in the same dual-draft case.
+
+The host-local measurements refute a query-only explanation. After typing,
+source retained 19 characters and secondary received its own 22 characters
+with focused=true, but its native editor frame was (28, 527, 346, 1).
+Its Timeline container height was zero. The input and reading viewport were
+actually clipped away while the keyboard occupied the lower fixed Pane.
+Do not replace this failure with a looser content query.
+
+Publish constrained-height geometry regressions plus a native readable-line
+assertion before correcting production geometry. The explicit review-red
+profile runs all units for this RED receipt; it is not the full slice gate.
+Diagnostic fields record the Composer bounds/keyboard guide/surface/viewport
+and actual font line height without logging text. The correction must retain
+one editor and respect the native keyboard region, preserving Split ratios
+and both draft/reading owners. Full generation/build/unit/UI GREEN remains
+required before S5-11 product work.

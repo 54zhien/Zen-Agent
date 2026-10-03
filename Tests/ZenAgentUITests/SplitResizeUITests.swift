@@ -98,6 +98,12 @@ final class SplitResizeUITests: XCTestCase {
         printDiagnostics(app, context: "after secondary input")
         XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source resize draft".utf16.count)
         XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), "secondary resize draft".utf16.count)
+        let nativeFrame = editorFrame(secondaryProbe.value as? String)
+        let lineHeight = editorLineHeight(secondaryProbe.value as? String)
+        XCTAssertNotNil(nativeFrame)
+        XCTAssertNotNil(lineHeight)
+        XCTAssertGreaterThanOrEqual(nativeFrame?.height ?? 0, lineHeight ?? 1,
+            "The focused native editor must expose at least one readable line")
         let secondaryEditor = editor(in: app, containing: "secondary resize draft")
         XCTAssertTrue(secondaryEditor.waitForExistence(timeout: 5))
         dismissKeyboard(in: app, pane: secondary, editor: secondaryEditor)
@@ -146,6 +152,20 @@ final class SplitResizeUITests: XCTestCase {
     private func editorTextLength(_ diagnostic: String?) -> Int? {
         diagnostic?.split(separator: ";").first { $0.hasPrefix("editorTextLength=") }
             .flatMap { Int($0.dropFirst("editorTextLength=".count)) }
+    }
+
+    private func editorFrame(_ diagnostic: String?) -> CGRect? {
+        guard let field = diagnostic?.split(separator: ";").first(where: { $0.hasPrefix("editorFrame=(") }) else { return nil }
+        let values = field.dropFirst("editorFrame=(".count).dropLast().split(separator: ",").compactMap {
+            Double($0.trimmingCharacters(in: .whitespaces))
+        }
+        guard values.count == 4 else { return nil }
+        return CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
+    }
+
+    private func editorLineHeight(_ diagnostic: String?) -> CGFloat? {
+        diagnostic?.split(separator: ";").first { $0.hasPrefix("editorLineHeight=") }
+            .flatMap { Double($0.dropFirst("editorLineHeight=".count)) }.map(CGFloat.init)
     }
 
     private func editorPoint(_ diagnostic: String?) -> CGPoint? {

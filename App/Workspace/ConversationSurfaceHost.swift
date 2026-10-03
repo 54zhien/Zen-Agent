@@ -115,6 +115,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             fields.append("focused=\(editor.isFirstResponder)")
             fields.append("editorFrame=\(editor.convert(editor.bounds, to: window))")
             fields.append("editorTextLength=\((editor.text ?? "").utf16.count)")
+            fields.append("editorLineHeight=\(editor.font?.lineHeight ?? 0)")
             var ancestor: UIView? = editor
             while let current = ancestor {
                 if let composer = current as? ComposerHostView {
