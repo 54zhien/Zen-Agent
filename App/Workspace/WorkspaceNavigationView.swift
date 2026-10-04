@@ -6,6 +6,7 @@ struct WorkspaceNavigationView<Content: View>: View {
     let state: WorkspaceNavigationState
     let context: () -> WorkspaceSidebarNativeContext?
     let spatiallyAvailable: Bool
+    let windowInsets: EdgeInsets
     let content: Content
     let model: AppShellModel?
     let captureFocus: () -> ComposerOverlayFocus?
@@ -15,26 +16,30 @@ struct WorkspaceNavigationView<Content: View>: View {
 
     init(state: WorkspaceNavigationState, model: AppShellModel? = nil,
          captureFocus: @escaping () -> ComposerOverlayFocus? = { nil }, spatiallyAvailable: Bool,
+         windowInsets: EdgeInsets = EdgeInsets(),
          context: @escaping () -> WorkspaceSidebarNativeContext?, @ViewBuilder content: () -> Content) {
         self.state = state
         self.model = model; self.captureFocus = captureFocus
         self.spatiallyAvailable = spatiallyAvailable
+        self.windowInsets = windowInsets
         self.context = context
         self.content = content()
     }
 
     var body: some View {
         GeometryReader { geometry in
-            let travel = min(geometry.size.width, 60 + geometry.safeAreaInsets.leading)
+            // The full viewport deliberately ignores container safe areas. Use
+            // the actual scene Window insets for controls, not this reader's zeroes.
+            let travel = min(geometry.size.width, 60 + windowInsets.leading)
             ZStack(alignment: .leading) {
                 if state.progress > 0 {
                     SidebarRailView(availableRoutes: overlays != nil && !state.isDragging && state.settlementID == nil ? [.search] : [],
                         onSelect: { route in
                             overlays?.enter(route, eligible: context()?.allowsOpening == true, captureFocus: captureFocus)
                         })
-                        .padding(.leading, geometry.safeAreaInsets.leading)
-                        .padding(.top, geometry.safeAreaInsets.top)
-                        .padding(.bottom, geometry.safeAreaInsets.bottom)
+                        .padding(.leading, windowInsets.leading)
+                        .padding(.top, windowInsets.top)
+                        .padding(.bottom, windowInsets.bottom)
                         .frame(width: travel, height: geometry.size.height)
                         .background(Color(white: 0.035))
                 }
@@ -54,7 +59,7 @@ struct WorkspaceNavigationView<Content: View>: View {
                     }
                 if state.overlay == .search, let overlays {
                     ConversationSearchView(model: overlays.search, onClose: overlays.close, onSelect: overlays.select)
-                        .padding(.top, geometry.safeAreaInsets.top)
+                        .padding(.top, windowInsets.top)
                         .transition(.opacity).zIndex(100)
                 }
             }

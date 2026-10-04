@@ -86,9 +86,14 @@ final class ConversationSearchUITests: XCTestCase {
         edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
         let search = app.buttons["sidebar-search"]
         guard search.waitForExistence(timeout: 5),
-              search.wait(for: \.isEnabled, toEqual: true, timeout: 5),
-              search.wait(for: \.isHittable, toEqual: true, timeout: 5) else {
+              search.wait(for: \.isEnabled, toEqual: true, timeout: 5) else {
             XCTFail("Sidebar Search destination is unavailable")
+            return false
+        }
+        XCTAssertGreaterThanOrEqual(search.frame.minY, app.statusBars.firstMatch.frame.maxY,
+            "Search must be below the scene status bar")
+        guard search.wait(for: \.isHittable, toEqual: true, timeout: 5) else {
+            XCTFail("Sidebar Search destination is not hittable")
             return false
         }
         search.tap()

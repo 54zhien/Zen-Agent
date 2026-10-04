@@ -56,6 +56,13 @@ struct WorkspaceSurfaceView<Content: View>: View {
     @State private var resize = SplitResizeController()
     @State private var layoutState = WorkspaceLayoutState()
     private var layoutContext: WorkspaceLayoutContext? { layoutState.context }
+    private var navigationInsets: EdgeInsets {
+        let insets = layoutContext?.windowSafeAreaInsets ?? .zero
+        return EdgeInsets(top: insets.top,
+            leading: layoutDirection == .rightToLeft ? insets.right : insets.left,
+            bottom: insets.bottom,
+            trailing: layoutDirection == .rightToLeft ? insets.left : insets.right)
+    }
     @State private var returnPresentation = WorkspaceReturnPresentation()
     @State private var navigation = WorkspaceNavigationState()
     @Environment(\.layoutDirection) private var layoutDirection
@@ -96,6 +103,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
     var body: some View {
         WorkspaceNavigationView(state: navigation, model: model, captureFocus: captureOverlayFocus,
                                 spatiallyAvailable: sidebarSpatiallyAvailable,
+                                windowInsets: navigationInsets,
                                 context: sidebarContext) {
         ZStack(alignment: .topLeading) {
             Color.clear
@@ -134,7 +142,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
                             isWorkspaceVisible: visible, isInputSuppressed: suppressed,
                             isReturnProxyHidden: returnPresentation.hidesOrigin(slot),
                             sidebarOffset: slot == model?.sourceSurfaceSlot
-                                ? CGFloat(navigation.progress) * min(geometry.size.width, 60 + geometry.safeAreaInsets.leading)
+                                ? CGFloat(navigation.progress) * min(geometry.size.width, 60 + navigationInsets.leading)
                                     * (layoutDirection == .rightToLeft ? -1 : 1) : 0,
                             sidebarSettlement: slot == model?.sourceSurfaceSlot ? navigation.settlementID : nil,
                             onSidebarSettled: navigation.completeSettlement,

@@ -121,9 +121,10 @@ compiled in PR37183488294 and push37183485523. Both phones passed886 Swift
 in136 suites and20 XCTest, including the real second-WAL stale-deletion and
 native-focus unit regressions. The two Search UI cases in each run still failed
 before overlay entry. Raw AX receipts distinguish this from the initial RED:
-Search was enabled, but its hittable wait failed. The untranslated full-screen
-SurfaceHitView used super.hitTest when no Card activation existed and consumed
-the exposed empty Rail strip. Keep the assertions; do not tap by forced coordinates.
+Search was enabled, but its hittable wait failed. Inspection found that the
+untranslated full-screen SurfaceHitView could consume the exposed empty Rail
+strip. This was a concrete native defect, not yet the complete UI diagnosis.
+Keep the assertions; do not tap by forced coordinates.
 
 Add a real UIWindow/child-controller hierarchy regression with an underlying
 UIButton. Ordinary Full hit testing now rejects points outside the Surface's
@@ -135,3 +136,22 @@ pending. PR actual Pad111380593291 passed130.947s; push111380590388 failed
 Phone111380593292 /111380590431 each had2 UI failures and no restart/retry.
 Source review of the initial21-file implementation found no P1/P2 blocker;
 actual UI nevertheless found this missing native hit-routing boundary.
+
+## Window safe-area correction after retained hit-test GREEN
+
+Remote f59f382d37691846b928b938a70b1caa1ec4e3ad / tree
+fa85ed1f86326267fdeb37e815299e228f3e7c36 built in PR37184413977 and
+push37184411320. Both phones passed887 Swift /136 suites and20 XCTest,
+including the new real native hit-test regression, but Search UI still failed
+its unchanged native hittability gate. Both actual Pad jobs passed.
+The downloaded PR xcresult video shows Search at the very top of the display,
+overlapping the status bar. The full-viewport GeometryReader deliberately ignores
+container safe areas and therefore provides zero control Insets. Native strip
+pass-through alone cannot fix the status-bar activation region.
+
+The existing WorkspaceLayoutObserver now reports the actual UIWindow.safeAreaInsets.
+Navigation controls and their Surface translation share that source; retained
+host bounds, Lift transform and keyboard layout remain independently owned.
+Search UI additionally asserts its button is below the scene status bar before
+the existing real hittability/tap gate. This correction still needs compiled
+targeted and full gates; no forced hit point, retries or weaker assertions.
