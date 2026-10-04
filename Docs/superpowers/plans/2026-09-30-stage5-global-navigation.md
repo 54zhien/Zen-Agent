@@ -32,7 +32,7 @@
 ## Task 1: S5-12 Sidebar admission and retained Surface
 
 **Files:**
-- Create `App/Workspace/WorkspaceNavigationState.swift` and `App/Workspace/SidebarRailView.swift`.
+- Create `App/Workspace/WorkspaceNavigationState.swift`, `App/Workspace/SidebarRailView.swift`, `App/Workspace/WorkspaceNavigationView.swift` and `App/Workspace/WorkspaceSidebarInteraction.swift`.
 - Modify `App/Workspace/WorkspaceSurfaceView.swift` and its native Surface host/gesture boundary.
 - Tests: `Tests/ZenAgentTests/WorkspaceNavigationStateTests.swift`, `Tests/ZenAgentUITests/SidebarUITests.swift`.
 
@@ -46,6 +46,42 @@
 - [ ] Expose an equivalent “打开侧边栏” accessibility action on the stable Full Surface; cancel interrupted edge drags to the last stable state.
 - [ ] Establish the typed overlay route consumed by the following tasks. A destination is selectable only once its real feature handler exists; do not route to an empty or no-op page during intermediate draft work.
 - [ ] Verify rapid edge reversal, background interruption, Full-to-Card arbitration and retained draft/reading/Run ownership. Pass full CI, review, and record exact evidence.
+
+### S5-12 source preflight
+
+- `WorkspaceSurfaceView` already composes physical hosts, Browse, Return and
+  divider presentation. Keep Rail/overlay composition in a navigation wrapper
+  and UIWindow recognizer lifecycle in a focused native interaction adapter;
+  Root supplies live spatial admission and retains the shared navigation state.
+- Full Surface native `surfaceView` is not an accessibility element while its
+  hosted descendants are accessible. Put the named Sidebar action on a containing
+  SwiftUI accessibility group without replacing Timeline/Composer descendants.
+- `SurfaceLiftController.hasSelection` covers Timeline selection; the native
+  Composer must additionally check nonempty `selectedTextRange`, marked text,
+  quote drag and keyboard transition. Do not reuse `allowsLift` as Sidebar
+  eligibility: it excludes all editing, which Sidebar's approved rules do not.
+- Opening/closing the Rail translates the existing full-width native host;
+  neither operation remounts content, suppresses input nor resigns focus. Future
+  overlay focus handoff is a separate route transaction.
+- Preserve the untranslated container safe Insets during Rail translation.
+  Outer native bounds alone do not prove the SwiftUI reading width stayed fixed;
+  the landscape UI draft checks actual inner Timeline and editor widths too.
+  The Rail's own Lift blocker is separate from external overlay admission so
+  opening it does not immediately invalidate its own close/reverse gesture.
+- Overlay entry keeps the physical host and Session, but composes native input/AX
+  suppression with Workspace visibility. Read the shared navigation reference
+  inside the once-installed hosting root, so hidden geometry/streaming updates
+  follow the existing hidden-Pane policy. Capture native focus before entry;
+  an exit without selection restores it only for the same retained owner after
+  input is reenabled. A successful Search replacement opens its target Resting.
+- Install and remove the screen-edge recognizer at the actual UIWindow boundary;
+  admission checks the live Workspace owner/Full state and native presented
+  controllers. A native reverse pan and shifted-Surface tap close the Rail.
+  Interrupted drag restores its last stable state, while inactive scene or lost
+  owner closes it. Disabled feature destinations remain disabled until wired.
+- UI drafts use actual native Timeline containment/blank classification and
+  native Lift readiness. Keep them untracked during S5-11 gate verification;
+  publish the compiled UI RED only after that preceding full gate is green.
 
 ## Task 2: S5-13 title Search
 
@@ -81,13 +117,22 @@
 - `FileWorkspaceItem` projects asset ID, current version ID, display name, media type, byte count and availability; it contains no binary payload.
 - `FilesWorkspaceModel.importFile(at: URL) async` consumes system-picker URLs, scopes access for the entire copy and calls `ManagedFileStore.ingest(fileAt:displayName:mediaType:in:)` off the UI actor.
 - `FilesWorkspaceModel.removeAsset(id: String) async` asks the AppShell/Session owner for a removal lease covering attachments in every retained Session (both Panes, warm drafts and send snapshots awaiting acceptance). Serialize acquisition/removal against attach/send acceptance; the Files view must not independently inspect only the current Composer. Durable Message references protect accepted submissions. Referenced assets stay intact and return a readable reason.
-- Under the existing managed-file operation lock, atomically remove unreferenced metadata in the database, then clean up only blobs no longer referenced. A crash or cleanup failure may leave recoverable orphan bytes; database and filesystem do not share a transaction, and referenced bytes must never be removed first.
+- Acquire a tokenized removal reservation synchronously from the Session owner after scanning every retained draft and pending send snapshot. Keep the database deletion in a short off-main transaction, rechecking durable references and retaining FK rejection. Release the reservation after that transaction, then run orphan cleanup off-main under the existing managed-file operation lock and its fresh global fingerprint query. Never wait for that lock on MainActor: ingestion holds it while copying bytes. A crash or cleanup failure may leave recoverable orphan bytes; database and filesystem do not share a transaction, and referenced bytes must never be removed first.
+- The current production has no attachment-add or current-version-advance entry point. Any attachment selection enabled by this slice must revalidate asset/version and reservation in the same MainActor mutation that appends the reference; any production version advance must share the managed-file operation lock with cleanup. Do not introduce an unguarded asynchronous append or enable unsupported Send attachment capability. Accepted sends gain durable Message references before their coordinator releases the pending snapshot.
 - Preview/export use a verified immutable version URL, never a stale external bookmark or a rewritten history attachment.
 
 - Ownership preflight: production `ConversationPaneView` injects the coordinator already retained by `ConversationSession.sendCoordinator`; the Composer view keeps that same instance in `@State`. Its pending attachment snapshot is private, and the Composer's weak coordinator pointer exists only under DEBUG. Reuse the existing Session owner: expose a read-only pending-reference query on the coordinator, combine it with draft references in the Session, and enumerate all retained Sessions at the store boundary. Do not introduce a second submission owner or use the DEBUG pointer. Cover changing a draft after `beginSend`, navigating it warm, and attempting removal before acceptance; acceptance/rejection remains the only matching-snapshot release authority.
 
 - [ ] Add compiled UI RED for a real Files overlay reached from Sidebar, a Files list and an import entry; closing returns to the same Conversation and draft.
 - [ ] Add service tests using temporary directories: import bytes, list the created version, verify digest, cancel mid-copy, force database failure, preserve duplicate-content blobs, reject unsafe paths, and report missing/corrupt bytes without deleting metadata.
+- Cancellation preflight: ingestion checks cancellation during its copy loop but
+  the subsequent `inspectBlob` hash loop currently does not. A prepared regression
+  uses the existing protectedAfterWrite observer to pause the real worker after
+  copy, cancel it, then release it into verification. It asserts CancellationError,
+  no version metadata and no published blob. This uses existing production APIs;
+  publish it for compiled behavioral RED with Files, not with the orientation slice.
+  Add cancellation checks during verification and before the metadata commit;
+  an already committed import is a successful asset, not a partial file to erase.
 - [ ] Implement a single-level Workspace and system Document Picker only for import/export. Preserve existing backup/protection rules and stable IDs; don't copy binary data into Message text.
 - [ ] Add immutable preview/export and guarded cleanup. Test a file shared by two Messages/Conversations, an old referenced version after currentVersion advances, a secondary Pane draft, a warm draft and a send awaiting acceptance; all referenced bytes survive removal attempts and Conversation deletion. Exercise real preview/export controls, picker cancellation and exported-byte identity.
 - [ ] Keep Workspace presence separate from Agent read permission. Existing Composer attachment/capability gates change only when the complete native selection→version reference→send path is wired and proven; a Files list alone cannot enable attachment Send.

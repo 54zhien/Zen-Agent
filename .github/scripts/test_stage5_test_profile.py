@@ -16,6 +16,15 @@ class ProfileGuardTests(unittest.TestCase):
     def test_orientation_red_selects_its_fixed_test_scope(self):
         self.assertEqual(test_scope({"mode": "orientation-red"}, "codex/s5-11-device-presentation"), "orientation-red")
 
+    def test_sidebar_red_is_fixed_to_its_slice_branch(self):
+        profile = {"mode": "sidebar-red"}
+        self.assertEqual(test_scope(profile, "codex/s5-12-sidebar"), "sidebar-red")
+        self.assertEqual(test_scope(profile, "main"), "full")
+        self.assertEqual(test_scope(None, "codex/s5-12-sidebar"), "full")
+        for branch in ["codex/s5-11-device-presentation", "codex/s5-13-search"]:
+            with self.assertRaises(ValueError):
+                test_scope(profile, branch)
+
     def test_orientation_profile_cannot_select_other_slice_tests(self):
         with self.assertRaises(ValueError):
             test_scope({"mode": "orientation-red"}, "codex/s5-10-divider-resize")

@@ -25,12 +25,17 @@ Blueprint  ──defines intent──▶  Zen-Agent
 
 ```
 Zen-Agent-Blueprint @ 99d30b815651fe987bab9f88e269a84a89318625
+Owner-approved Stage 5 supplement @ e6d8c5f9919a83672bea670bc7e49339e5f5373c
 ```
 
 This is a snapshot of the design state this work started from, not a permanent
 version pin. Update it when the blueprint changes in a way that affects
-implementation. Any design decision this repository makes that contradicts the
-baseline is recorded in `Docs/ADR/`.
+implementation. The Stage 5 supplement is
+[Blueprint PR #5](https://github.com/54zhien/Zen-Agent-Blueprint/pull/5), still
+draft/open/unmerged; it records the owner's Split Lift/Return, landscape and
+Sidebar rulings. Design conflicts are resolved upstream in the Blueprint and
+its `Design/ADR/`; engineering/tooling trade-offs belong to this repository's
+`Docs/ADR/`.
 
 ## Status
 
@@ -126,11 +131,14 @@ As of 2026-09-30:
   `ba0268272439a59eb0f3fa43bd46618b34a89746` passed
   [CI](https://github.com/54zhien/Zen-Agent/actions/runs/37163392220)
   (852 Swift Testing, 20 XCTest, 35 UI); see [the slice record](tasks/s5-10-resize.md).
-- S5-11 device presentation is in progress on stacked draft
-  [PR #28](https://github.com/54zhien/Zen-Agent/pull/28). The propagated S5-10
-  baseline built and reproduced all three rotation/Return UI regressions.
-  Product corrections require full iPhone CI and the actual iPad axis test.
-  S5-12–16 remain authorized in order.
+- S5-11 device presentation passed its full source gate on stacked draft
+  [PR #28](https://github.com/54zhien/Zen-Agent/pull/28), unmerged. Exact tree
+  `96300c087a4d272d77b55c947336bcd9447b98a2` passed push37169724633 and
+  PR37169727362: generation/build,861 Swift Testing,20 XCTest,39 iPhone UI
+  (one expected Pad-only skip), plus one actual iPad axis test in each run.
+  See [the slice record](tasks/s5-11-rotation.md) for retained failed evidence.
+- S5-12 Sidebar is entering compiled behavior RED; S5-13–16 remain authorized
+  in order. No Sidebar implementation or full-stage completion is claimed yet.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
   does not establish device memory, performance, input, comfort or VoiceOver acceptance.
