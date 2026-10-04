@@ -44,9 +44,12 @@ final class FilesWorkspaceUITests: XCTestCase {
             NSPredicate(format: "label IN %@", ["Close", "关闭", "Cancel", "取消"])).firstMatch
         XCTAssertTrue(close.waitForExistence(timeout: 5))
         XCTAssertFalse(close.frame.isEmpty)
+        print("FILES_EXPORT_BEFORE_CANCEL frame=\(close.frame) hittable=\(close.isHittable) picker=\(exportPicker.frame)")
+        print("FILES_EXPORT_AX \(app.debugDescription)")
         // XCTest computes {-1,-1} for this native AX Other's semantic tap.
         // Exercise its actual visible control, then require real dismissal.
         close.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        print("FILES_EXPORT_AFTER_CANCEL picker=\(exportPicker.exists) closeHittable=\(app.buttons["files-workspace-close"].isHittable)")
         expect { !exportPicker.exists }
         let workspaceClose = app.buttons["files-workspace-close"]
         XCTAssertTrue(workspaceClose.wait(for: \.isHittable, toEqual: true, timeout: 5))

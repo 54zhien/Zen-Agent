@@ -17,10 +17,14 @@ struct FilesWorkspaceModelTests {
         let descriptor = try await Task.detached {
             try files.ingest(data: bytes, displayName: "cleanup.txt", in: store)
         }.value
+        let retainedBytes = Data("still referenced version bytes".utf8)
+        let retained = try await Task.detached {
+            try files.ingest(data: retainedBytes, displayName: "retained.txt", in: store)
+        }.value
         let blob = try files.blobURL(forFingerprint: descriptor.fingerprint)
         let model = FilesWorkspaceModel(store: store, files: files, sessions: ConversationSessionStore())
         await model.refresh()
-        #expect(model.items.map(\.id) == [descriptor.assetID])
+        #expect(Set(model.items.map(\.id)) == [descriptor.assetID, retained.assetID])
         manager.refuseRemoval(of: blob)
 
         await model.removeAsset(id: descriptor.assetID)
@@ -29,13 +33,17 @@ struct FilesWorkspaceModelTests {
         #expect(try store.fileAsset(id: descriptor.assetID) == nil)
         #expect(try store.fileAssetVersion(id: descriptor.versionID) == nil)
         #expect(try Data(contentsOf: blob) == bytes)
-        #expect(model.items.isEmpty)
+        #expect(model.items.map(\.id) == [retained.assetID])
         #expect(model.errorMessage?.contains("已从目录移除") == true)
+        #expect(model.cleanupPending)
         #expect(!model.isWorking)
         manager.refuseRemoval(of: nil)
-        let removed = try await Task.detached { try files.removeUnreferencedBlobs(in: store) }.value
-        #expect(removed == [descriptor.fingerprint])
+        await model.retryOrphanCleanup()
+        #expect(!model.cleanupPending && model.errorMessage == nil)
         #expect(!FileManager.default.fileExists(atPath: blob.path))
+        let retainedBlob = try files.blobURL(forFingerprint: retained.fingerprint)
+        #expect(try store.fileAssetVersion(id: retained.versionID) != nil)
+        #expect(try Data(contentsOf: retainedBlob) == retainedBytes)
     }
 
     @Test("the actual catalog import copies off the presentation actor")

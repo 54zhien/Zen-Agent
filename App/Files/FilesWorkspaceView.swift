@@ -58,6 +58,10 @@ struct FilesWorkspaceView: View {
                     .buttonStyle(.borderless).disabled(model.isWorking)
                 }
                 if model.isLoading || model.isWorking { ProgressView() }
+                if model.cleanupPending {
+                    Button("重试清理残留字节") { Task { await model.retryOrphanCleanup() } }
+                        .disabled(model.isWorking).accessibilityIdentifier("files-retry-cleanup")
+                }
                 if let error = model.errorMessage {
                     Text(error).foregroundStyle(.secondary).accessibilityIdentifier("files-workspace-error")
                     Button("重新读取目录") { Task { await model.refresh(clearError: true) } }

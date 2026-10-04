@@ -18,6 +18,7 @@ enum ManagedFileStoreError: Error, Equatable, Sendable {
     case corruptBlob(String)
     case cleanupConfirmationFailed(String)
     case cleanupFailed(String)
+    case assetRemovedCleanupPending
 }
 
 enum ProtectionRequirement: Equatable, Sendable {
@@ -313,7 +314,8 @@ final class ManagedFileStore: @unchecked Sendable {
             try checkCancellation()
             guard try store.removeFileAssetIfUnreferenced(id: id, checkCancellation: checkCancellation) else { return false }
             // Once metadata commits, finish fresh-reference cleanup despite cancellation.
-            _ = try removeUnreferencedBlobsLocked(in: store)
+            do { _ = try removeUnreferencedBlobsLocked(in: store) }
+            catch { throw ManagedFileStoreError.assetRemovedCleanupPending }
             return true
         }
     }

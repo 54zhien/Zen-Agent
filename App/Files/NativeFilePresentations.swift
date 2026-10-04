@@ -43,6 +43,11 @@ struct NativeFilePicker: UIViewControllerRepresentable {
             if let url = urls.first { onPick(url) } else { onCancel() }
         }
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+#if DEBUG
+            if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
+                print("FILES_NATIVE_PICKER_CANCEL received finished=\(finished)")
+            }
+#endif
             guard !finished else { return }
             finished = true; onCancel()
         }

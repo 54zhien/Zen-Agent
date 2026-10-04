@@ -9,12 +9,14 @@ final class FilesWorkspaceModel {
         case imported
         case removed(Bool)
         case presentation(ManagedFilePresentation)
+        case cleaned
     }
 
     private(set) var items: [FileWorkspaceItem] = []
     private(set) var isLoading = false
     private(set) var isWorking = false
     private(set) var errorMessage: String?
+    private(set) var cleanupPending = false
     var hasMore: Bool { cursor != nil }
     @ObservationIgnored private let store: PersistenceStore
     @ObservationIgnored private let files: ManagedFileStore
@@ -92,8 +94,21 @@ final class FilesWorkspaceModel {
         }
         if case .some(.removed(let removed)) = result {
             if !removed { errorMessage = "文件仍被会话、草稿或待提交附件使用，无法删除。" }
-            await refresh()
         }
+        // The metadata transaction can commit before byte cleanup fails.
+        // Reload authoritative rows even when the worker reports that failure.
+        await refresh()
+    }
+
+    func retryOrphanCleanup() async {
+        let files = files, store = store
+        let result = await perform { signal in
+            try await Self.detached(signal: signal) {
+                _ = try files.removeUnreferencedBlobs(in: store)
+                return .cleaned
+            }
+        }
+        if case .some(.cleaned) = result { cleanupPending = false }
     }
 
     func preparePresentation(id: String) async -> ManagedFilePresentation? {
@@ -130,7 +145,10 @@ final class FilesWorkspaceModel {
             return result
         } catch {
             guard active, operationID == id, !Task.isCancelled, !(error is CancellationError) else { return nil }
-            if case ManagedFileStoreError.missingBlob = error {
+            if case ManagedFileStoreError.assetRemovedCleanupPending = error {
+                cleanupPending = true
+                errorMessage = "文件已从目录移除，残留字节尚未清理。可重试清理。"
+            } else if case ManagedFileStoreError.missingBlob = error {
                 errorMessage = "文件字节已缺失，目录记录已保留。"
             } else if case ManagedFileStoreError.corruptBlob = error {
                 errorMessage = "文件校验失败，目录记录已保留。"

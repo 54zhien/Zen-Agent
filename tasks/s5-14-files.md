@@ -307,3 +307,27 @@ compiled behavioral RED and native export dismissal receipt; the preceding full
 candidate is superseded by this concrete review finding and is not GREEN.
 No production repair before the compiled behavioral receipt. Afterwards restore
 the complete source gate before Settings.
+
+## Compiled cleanup RED and scoped repair
+
+Push37204609305 /phone111443393359 compiled and ran912 Swift Testing in141
+suites76.199s. Only the new committed-removal case reported two unit issues:
+stale model.items and missing explicit committed-removal feedback. Actual
+metadata/version deletion, cleanup refusal, retained bytes and subsequent
+fresh-reference cleanup all passed.20 XCTest passed; one test-run start.
+PR actual Pad111443424481 passed87.243s, one real test. Native export coordinate
+input still did not dismiss the picker, so that path remains under investigation;
+its stronger disappearance/hittability assertions exposed five downstream failures.
+
+Repair wraps only the cleanup error after actual metadata commit as a safe
+assetRemovedCleanupPending condition. Removal always reloads authoritative rows.
+The Files model preserves pending cleanup and provides an explicit off-actor
+retry through existing removeUnreferencedBlobs; its real worker still drains
+before isWorking/ownership is released. The model regression also retains another
+actual FileAssetVersion and verifies model retry deletes only the orphan, leaves
+referenced bytes intact, and clears pending state only after complete success.
+
+Native export receives additional test-only AX/frame and actual cancellation
+callback diagnostics, with input and assertions unchanged. No speculative picker
+production repair or native-dismissal success claim. Targeted native and complete
+source gates remain required before Settings.
