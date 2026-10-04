@@ -67,6 +67,14 @@ one newly mounted editor. A DEBUG diagnostic reads these actual owners. Keep
 the existing native remount and reading-frame tests; do not retain hidden Full
 editors or change Runtime/SessionStore ownership to satisfy the mistaken test.
 
+Native-switch candidatec009e260/tree4b383e09 passed app build but both actualPad
+jobs111555982911/111555987210 failed UI test compilation:4 missing explicit
+self captures in escaping expectation closures at SettingsUITests44/81/82.
+Runs37243238022/37243239839 and guard37243239823 are retained. This is a
+test-source compiler error, not another behavioral RED or a product result.
+The next candidate adds only those4 self qualifiers; all assertions and
+native-switch production source stay intact. macOS gates must run again.
+
 ## Approved bounded design and device limits
 
 This authorized slice follows the Settings full code gate. Production work began

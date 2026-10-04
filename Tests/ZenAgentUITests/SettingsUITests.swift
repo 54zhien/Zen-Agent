@@ -41,7 +41,7 @@ final class SettingsUITests: XCTestCase {
             return
         }
         app.buttons["settings-close"].tap()
-        expect { nativeEditorIdentity(probe) == identity && warmOwnerIdentities(probe) == warmOwners }
+        expect { self.nativeEditorIdentity(probe) == identity && self.warmOwnerIdentities(probe) == warmOwners }
 
         let inkProbe = app.descendants(matching: .any)["app-space-ink-probe"]
         for enabled in [false, true] {
@@ -78,8 +78,8 @@ final class SettingsUITests: XCTestCase {
                 ink.tap()
                 expect { ink.value as? String == "1" }
                 app.buttons["settings-close"].tap()
-                expect { nativeEditorIdentity(probe) == returnedEditor
-                    && warmOwnerIdentities(probe) == warmOwners }
+                expect { self.nativeEditorIdentity(probe) == returnedEditor
+                    && self.warmOwnerIdentities(probe) == warmOwners }
             }
         }
     }
