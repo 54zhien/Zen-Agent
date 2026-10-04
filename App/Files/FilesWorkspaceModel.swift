@@ -18,6 +18,9 @@ final class FilesWorkspaceModel {
     private(set) var errorMessage: String?
     private(set) var cleanupPending = false
     var hasMore: Bool { cursor != nil }
+#if DEBUG
+    var nativeOwnerDiagnostic: String { "owner=\(ObjectIdentifier(self));active=\(active)" }
+#endif
     @ObservationIgnored private let store: PersistenceStore
     @ObservationIgnored private let files: ManagedFileStore
     @ObservationIgnored private let sessions: ConversationSessionStore

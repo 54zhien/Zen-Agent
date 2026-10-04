@@ -374,3 +374,30 @@ Apple: https://developer.apple.com/documentation/xcuiautomation/xcuicoordinate/s
 
 The targeted native candidate and subsequent complete Stage5 suite must pass on
 their exact trees before Settings production begins.
+
+## UIKit presenter experiment result and style diagnostic
+
+Remote6210e695ba2976a937ad5dc31533c360455972a7 /tree
+6e1649ce9de0bc8a4fa3a274646928fc19f174fa compiled. PR phone111449938378
+passed912 Swift/141 suites79.477s and20 XCTest; actual import/focus passed40.687s.
+Push111449920109 passed912/141100.679s and20 XCTest; import/focus passed52.655s.
+One Swift test-run start, no host restart. Both export cases failed actual Cancel
+and retained-owner restoration. Its AX Other frame/hittability was identical to
+before. The real remote More Button occupies exactly that reported Cancel frame;
+remote Save is a distinct native Button. Direct UIKit presentation did not fix it.
+
+Both real Pad cases passed with stable app-coordinate endpoints: PR111449938350
+96.614s and push111449920030109.718s, each one actual test, zero failure/skip.
+Both recorded an85.5pt horizontal width change, real Pan, same handle/editor
+identities and preserved independent ratios. Earlier failed input receipts remain.
+
+Next diagnostic tests the actual document picker's inherited modal style under a
+DEBUG-only UI-test flag: overFullScreen retains the presenting views, unlike
+fullScreen, so it avoids intentionally removing the retained Workspace hierarchy.
+The same actual native Cancel input and all dismissal/focus assertions remain.
+This flag is an experiment, not a production fix or sufficient full-gate evidence.
+Remove it and publish the accepted production behavior before any source closure.
+Explicit native screenshots and xcresulttool attachment export on failed runs
+provide rendered evidence; the export step is diagnostic and cannot change a
+failing build/test into success. Its current CLI help is printed in the real CI.
+Apple: https://developer.apple.com/documentation/uikit/uimodalpresentationstyle/overfullscreen

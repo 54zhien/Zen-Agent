@@ -6,6 +6,7 @@ final class FilesWorkspaceUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launchEnvironment["ZEN_FILES_PREVIEW_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_DOCUMENT_PICKER_STYLE_UI_TEST"] = "1"
         app.launch()
         XCTAssertTrue(app.buttons["split-entry"].waitForExistence(timeout: 15))
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
@@ -22,6 +23,9 @@ final class FilesWorkspaceUITests: XCTestCase {
         files.tap()
         let preview = app.buttons["files-preview-managed-preview-fixture"]
         XCTAssertTrue(preview.waitForExistence(timeout: 10))
+        let ownerProbe = app.descendants(matching: .any)["files-native-owner-probe"]
+        let originalOwner = ownerProbe.value as? String
+        XCTAssertTrue(originalOwner?.contains("active=true") == true)
         preview.tap()
         let text = "Managed native preview/export fixture"
         expect {
@@ -46,13 +50,24 @@ final class FilesWorkspaceUITests: XCTestCase {
         XCTAssertFalse(close.frame.isEmpty)
         print("FILES_EXPORT_BEFORE_CANCEL frame=\(close.frame) hittable=\(close.isHittable) picker=\(exportPicker.frame)")
         print("FILES_EXPORT_AX \(app.debugDescription)")
+        let before = XCTAttachment(screenshot: app.screenshot())
+        before.name = "Native export before Cancel"
+        before.lifetime = .keepAlways
+        add(before)
         // XCTest computes {-1,-1} for this native AX Other's semantic tap.
         // Exercise its actual visible control, then require real dismissal.
         close.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         print("FILES_EXPORT_AFTER_CANCEL picker=\(exportPicker.exists) closeHittable=\(app.buttons["files-workspace-close"].isHittable)")
+        let after = XCTAttachment(screenshot: app.screenshot())
+        after.name = "Native export after Cancel"
+        after.lifetime = .keepAlways
+        add(after)
         expect { !exportPicker.exists }
         let workspaceClose = app.buttons["files-workspace-close"]
         XCTAssertTrue(workspaceClose.wait(for: \.isHittable, toEqual: true, timeout: 5))
+        XCTAssertEqual(ownerProbe.value as? String, originalOwner,
+                       "Native presentation must retain the same active Files owner")
+        XCTAssertTrue(export.isEnabled && export.isHittable)
         workspaceClose.tap()
         expect { !app.descendants(matching: .any)["files-workspace"].exists }
         expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
@@ -63,6 +78,7 @@ final class FilesWorkspaceUITests: XCTestCase {
     func testFilesImportOpensTheSystemPickerAndCloseRestoresTheDraft() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_DOCUMENT_PICKER_STYLE_UI_TEST"] = "1"
         app.launch()
         XCTAssertTrue(app.buttons["split-entry"].waitForExistence(timeout: 15))
         let editor = app.textViews["conversation-composer-input"]

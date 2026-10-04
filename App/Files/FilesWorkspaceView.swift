@@ -77,6 +77,13 @@ struct FilesWorkspaceView: View {
         .background(Color(uiColor: .systemBackground))
         .accessibilityElement(children: .contain).accessibilityIdentifier("files-workspace")
         .task { await model.refresh() }
+#if DEBUG
+        .background(alignment: .topLeading) {
+            if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
+                FilesPresentationProbe(model: model).frame(width: 1, height: 1)
+            }
+        }
+#endif
         .background {
             if let item = presentation {
                 switch item.kind {
@@ -138,3 +145,28 @@ struct FilesWorkspaceView: View {
         return item.mediaType.map { size + " · " + $0 } ?? size
     }
 }
+
+#if DEBUG
+@MainActor
+private struct FilesPresentationProbe: UIViewRepresentable {
+    let model: FilesWorkspaceModel
+    func makeUIView(context: Context) -> ProbeView { ProbeView(model: model) }
+    func updateUIView(_ view: ProbeView, context: Context) {}
+
+    final class ProbeView: UIView {
+        private weak var model: FilesWorkspaceModel?
+        init(model: FilesWorkspaceModel) {
+            self.model = model
+            super.init(frame: .zero)
+            isUserInteractionEnabled = false
+            isAccessibilityElement = true
+            accessibilityIdentifier = "files-native-owner-probe"
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
+        override var accessibilityValue: String? {
+            get { model?.nativeOwnerDiagnostic }
+            set {}
+        }
+    }
+}
+#endif
