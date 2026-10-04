@@ -57,6 +57,13 @@ struct AppAssembly {
         let provider: any ModelProvider
         let runtime: ConversationRuntime
         let router: RunEventRouter
+        let managedFiles: ManagedFileStore?
+
+        init(store: PersistenceStore, credentials: any CredentialStoring, provider: any ModelProvider,
+             runtime: ConversationRuntime, router: RunEventRouter, managedFiles: ManagedFileStore? = nil) {
+            self.store = store; self.credentials = credentials; self.provider = provider
+            self.runtime = runtime; self.router = router; self.managedFiles = managedFiles
+        }
     }
 
     static func assemble(router: RunEventRouter) throws -> Dependencies {
@@ -87,19 +94,22 @@ struct AppAssembly {
         let transport = LiveHTTPTransport.make()
         let provider = DeepSeekProvider(transport: transport)
         let toolRegistry = ToolRegistry.empty
+        let managedFiles = try ManagedFileStore.applicationDefault()
         let runtime = makeRuntime(
             store: store,
             provider: provider,
             credentials: credentials,
             router: router,
-            toolRegistry: toolRegistry
+            toolRegistry: toolRegistry,
+            managedFiles: managedFiles
         )
         return Dependencies(
             store: store,
             credentials: credentials,
             provider: provider,
             runtime: runtime,
-            router: router
+            router: router,
+            managedFiles: managedFiles
         )
     }
 
@@ -108,7 +118,8 @@ struct AppAssembly {
         provider: any ModelProvider,
         credentials: any CredentialStoring,
         router: RunEventRouter,
-        toolRegistry: ToolRegistry
+        toolRegistry: ToolRegistry,
+        managedFiles: ManagedFileStore? = nil
     ) -> ConversationRuntime {
         ConversationRuntime(
             store: store,
@@ -123,7 +134,8 @@ struct AppAssembly {
                     conversationID: conversationID
                 )
             },
-            toolRegistry: toolRegistry
+            toolRegistry: toolRegistry,
+            managedFileStore: managedFiles
         )
     }
 

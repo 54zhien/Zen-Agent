@@ -31,6 +31,12 @@ enum AppShellLaunchState: Equatable {
 @Observable
 final class AppShellModel {
     var workspaceStore: PersistenceStore? { dependencies?.store }
+    var workspaceFilesAvailable: Bool { dependencies?.managedFiles != nil }
+
+    func makeFilesWorkspaceModel() -> FilesWorkspaceModel? {
+        guard let dependencies, let files = dependencies.managedFiles else { return nil }
+        return FilesWorkspaceModel(store: dependencies.store, files: files, sessions: sessions)
+    }
     static let defaultInstanceIDKey = "zen.w1.defaultTarget.v1.instanceID"
     static let defaultModelIDKey = "zen.w1.defaultTarget.v1.modelID"
     static let maxProviderSteps = 4

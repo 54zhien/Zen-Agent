@@ -3019,7 +3019,8 @@ struct AppShellWiringTests {
         createInstance: Bool = true,
         setDefault: Bool = true,
         scripts: [Stage2ProviderScript] = [.events([])],
-        store suppliedStore: PersistenceStore? = nil
+        store suppliedStore: PersistenceStore? = nil,
+        managedFiles: ManagedFileStore? = nil
     ) throws -> ShellFixture {
         let store = try suppliedStore ?? PersistenceStore(database: ZenDatabase.inMemory())
         let backend = InMemorySecretBackend()
@@ -3070,14 +3071,16 @@ struct AppShellWiringTests {
             provider: provider,
             credentials: credentials,
             router: router,
-            toolRegistry: .empty
+            toolRegistry: .empty,
+            managedFiles: managedFiles
         )
         let dependencies = AppAssembly.Dependencies(
             store: store,
             credentials: credentials,
             provider: provider,
             runtime: runtime,
-            router: router
+            router: router,
+            managedFiles: managedFiles
         )
         let suite = "ZenAgentTests.AppShell.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

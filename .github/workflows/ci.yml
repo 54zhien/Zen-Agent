@@ -384,6 +384,9 @@ jobs:
           elif [ "$TEST_SCOPE" = "search-red" ]; then
             echo "::notice::S5-13 Search behavior RED/regressions: complete unit target and native Search UI; full product gate remains required."
             TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/ConversationSearchUITests)
+          elif [ "$TEST_SCOPE" = "files-red" ]; then
+            echo "::notice::S5-14 Files behavior RED/regressions: complete unit target and native Files UI; full product gate remains required."
+            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/FilesWorkspaceUITests)
           elif [ "$TEST_SCOPE" = "resize-diagnostic" ]; then
             echo "::notice::Stage 5 resize diagnostics: all unit tests and SplitResize UI; full slice gate remains required."
             TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SplitResizeUITests)
@@ -739,6 +742,20 @@ jobs:
 
           cat "$SUMMARY"
 
+      - name: Export native failure attachments
+        if: failure()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          xcrun xcresulttool export attachments --help
+          if [ -d "$RUNNER_TEMP/ZenAgentTests.xcresult" ]; then
+            xcrun xcresulttool export attachments \
+              --path "$RUNNER_TEMP/ZenAgentTests.xcresult" \
+              --output-path "$RUNNER_TEMP/native-ui-attachments" \
+              2>&1 | tee "$RUNNER_TEMP/native-ui-attachments.log"
+          fi
+
       - name: Upload test results on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -747,6 +764,8 @@ jobs:
           path: |
             ${{ runner.temp }}/ZenAgentTests.xcresult
             ${{ runner.temp }}/ZenAgentTests.log
+            ${{ runner.temp }}/native-ui-attachments
+            ${{ runner.temp }}/native-ui-attachments.log
             ${{ runner.temp }}/test-start.marker
             ${{ runner.temp }}/xcresult-console.log
             ${{ runner.temp }}/xcresult-console.stderr

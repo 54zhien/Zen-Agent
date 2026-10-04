@@ -1,8 +1,9 @@
-# S5-13 Search — preparation record
+# S5-13 Search — source gate and retained development evidence
 
 The owner authorized all remaining Stage 5 code before whole-stage review and
-device testing. This slice follows the completed S5-12 full code gate; no
-Search production source has been published yet.
+device testing. This slice follows the completed S5-12 full code gate. The full
+Search source gate is closed; the preparation and failed receipts below remain
+as development evidence.
 
 ## Intent and source boundaries
 
@@ -385,3 +386,26 @@ risk check for normal keyboard dismissal, Sidebar, Split and Return. A second
 identical targeted-only run is not a prerequisite for that required broader gate.
 Full generation/build/unit/all phone UI/actual Pad evidence is still mandatory
 before Files production. Physical-device acceptance remains separate.
+
+## Full Search source gate — 2026-10-04
+
+Remote `6a217da90153e04a5e0120195610aaae95ab9a35`, exact tree
+`81dfd8c48e3cb17a453749432fc0f6272bbdcb24`, has no temporary test profile.
+Both full CI runs completed successfully, including hygiene, XcodeGen and build:
+
+- Push37195522196, phone111416481443:20 XCTest passed;894 Swift Testing in136
+  suites passed92.340s;48 phone UI passed1166.194s, one expected Pad-only skip
+  and zero failures. Both native Search paths passed, including plain exit50.980s.
+  Actual Pad111416481405 executed one axis case, zero failures85.765s.
+- PR37195524247, phone111416495087:20 XCTest passed;894 Swift/136 suites
+  passed94.867s;48 phone UI passed1149.045s, one expected Pad-only skip and zero
+  failures. Plain exit passed37.104s. Actual Pad111416495100 executed one axis
+  case, zero failures109.600s.
+
+Each phone has exactly one Swift test-run start and no host restart. The real
+hosting dismantle receipt, actual responder/identity/draft, normal keyboard
+dismissal, Sidebar, Split, Return and rotation all pass. Read-only review found
+no outstanding P1/P2 for the native query ownership and lifecycle correction.
+Earlier RED and failures are preserved; none are relabeled as successful runs.
+PR #30 remains draft/open/unmerged. Files may now follow this completed source
+gate; whole-stage review and physical-device acceptance remain open.

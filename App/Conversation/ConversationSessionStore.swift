@@ -27,6 +27,7 @@ final class ConversationSessionStore {
 
     private var entries: [String: Entry] = [:]
     private var activeIDs: Set<String> = []
+    private var fileRemovalReservations: [String: UUID] = [:]
     private var accessOrder: UInt64 = 0
     private let warmLimit: Int
     private let now: () -> Date
@@ -38,6 +39,32 @@ final class ConversationSessionStore {
 
     func session(for conversationID: String) -> ConversationSession? {
         entries[conversationID]?.session
+    }
+
+    var protectedFileAssetIDs: Set<String> {
+        Set(entries.values.flatMap { $0.session.protectedFileAssetIDs })
+    }
+
+    func isFileRemovalReserved(assetID: String) -> Bool {
+        fileRemovalReservations[assetID] != nil
+    }
+
+    /// Future attachment producers must check this reservation before appending
+    /// a version reference on this same actor. The current UI has no such producer.
+    func withFileRemovalReservation(assetID: String,
+        operation: @Sendable () async throws -> Bool
+    ) async throws -> Bool {
+        guard fileRemovalReservations[assetID] == nil,
+              !protectedFileAssetIDs.contains(assetID) else { return false }
+        let token = UUID()
+        fileRemovalReservations[assetID] = token
+        defer {
+            if fileRemovalReservations[assetID] == token {
+                fileRemovalReservations.removeValue(forKey: assetID)
+            }
+        }
+        // Await the real writer's drain even when the caller has been cancelled.
+        return try await operation()
     }
 
     var uncommittedIDs: [String] {

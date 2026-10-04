@@ -33,7 +33,7 @@ struct WorkspaceNavigationView<Content: View>: View {
             let travel = min(geometry.size.width, 60 + windowInsets.leading)
             ZStack(alignment: .leading) {
                 if state.progress > 0 {
-                    SidebarRailView(availableRoutes: overlays != nil && !state.isDragging && state.settlementID == nil ? [.search] : [],
+                    SidebarRailView(availableRoutes: !state.isDragging && state.settlementID == nil ? overlays?.availableRoutes ?? [] : [],
                         onSelect: { route in
                             overlays?.enter(route, eligible: context()?.allowsOpening == true, captureFocus: captureFocus)
                         })
@@ -64,6 +64,12 @@ struct WorkspaceNavigationView<Content: View>: View {
                 if state.overlay == .search, let overlays, let id = state.overlayID {
                     ConversationSearchView(model: overlays.search, onClose: { overlays.close(expectedID: id) },
                         onSelect: { id in _ = overlays.select(id) })
+                        .id(id)
+                        .padding(.top, windowInsets.top)
+                        .transition(.opacity).zIndex(100)
+                }
+                if state.overlay == .files, let overlays, let catalog = overlays.files, let id = state.overlayID {
+                    FilesWorkspaceView(model: catalog, onClose: { overlays.close(expectedID: id) })
                         .id(id)
                         .padding(.top, windowInsets.top)
                         .transition(.opacity).zIndex(100)

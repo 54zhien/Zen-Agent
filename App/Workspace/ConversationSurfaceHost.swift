@@ -110,6 +110,10 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     // Tests pause the real animator so a busy simulator cannot skip settlement.
     var liftAnimatorForTesting: UIViewPropertyAnimator? { animator }
 
+    var visibilityDiagnostic: String {
+        "visible=\(workspaceVisible),hidden=\(view.isHidden),axHidden=\(contentController.view.accessibilityElementsHidden),suppressed=\(inputSuppressed),proxyHidden=\(returnProxyHidden)"
+    }
+
     var interactionDiagnostic: String {
         func editors(in node: UIView) -> [UITextView] {
             if let editor = node as? UITextView,

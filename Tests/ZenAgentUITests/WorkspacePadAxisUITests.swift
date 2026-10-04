@@ -43,8 +43,18 @@ final class WorkspacePadAxisUITests: XCTestCase {
         XCTAssertEqual(source.frame.height, other.frame.height, accuracy: 3)
         let widthBefore = source.frame.width
         let handle = app.descendants(matching: .any)["split-divider-handle"]
-        let start = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        start.press(forDuration: 0.15, thenDragTo: start.withOffset(CGVector(dx: 100, dy: 0)),
+        let handleFrame = handle.frame
+        let viewport = app.frame
+        // XCUICoordinate is relative to a live element. The divider moves during
+        // this gesture, so anchor both endpoints to the stable app viewport.
+        let start = app.coordinate(withNormalizedOffset: CGVector(
+            dx: (handleFrame.midX - viewport.minX) / viewport.width,
+            dy: (handleFrame.midY - viewport.minY) / viewport.height))
+        let end = app.coordinate(withNormalizedOffset: CGVector(
+            dx: (handleFrame.midX + 100 - viewport.minX) / viewport.width,
+            dy: (handleFrame.midY - viewport.minY) / viewport.height))
+        print("PAD_DRAG_START screen=\(start.screenPoint) end=\(end.screenPoint) anchor=app handle=\(handle.frame) value=\(String(describing: handle.value))")
+        start.press(forDuration: 0.15, thenDragTo: end,
             withVelocity: .slow, thenHoldForDuration: 0)
         print("PAD_RESIZE beforeWidth=\(widthBefore) source=\(source.frame) other=\(other.frame) handle=\(handle.frame) value=\(String(describing: handle.value))")
         print("PAD_SOURCE \(String(describing: sourceProbe.value))")

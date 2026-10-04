@@ -41,6 +41,10 @@ final class ComposerSendCoordinator {
     @ObservationIgnored private var pendingAttachmentsSnapshot: [AttachmentReference]?
     @ObservationIgnored private var latestProjection: RunProjection?
 
+    var pendingFileAssetIDs: Set<String> {
+        Set((pendingAttachmentsSnapshot ?? []).map(\.id))
+    }
+
     init(
         conversationID: String,
         controller: ComposerController,

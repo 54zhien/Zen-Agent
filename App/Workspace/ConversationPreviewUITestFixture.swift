@@ -7,19 +7,27 @@ struct ConversationPreviewUITestFixture: View {
     @State private var positionRequest: UInt64?
     @State private var didOpenHistory = false
     @State private var hiddenViewportInset: CGFloat = 0
+    private let files: ManagedFileStore
+    private let store: PersistenceStore
 
     init() {
         do {
             let store = try ConversationPreviewUITestSeed.makeStore()
+            self.store = store
+            let files = ManagedFileStore(applicationSupportRoot: FileManager.default.temporaryDirectory
+                .appendingPathComponent("PreviewFiles-\(UUID())", isDirectory: true),
+                protectionRequirement: .bestEffort)
+            self.files = files
             let credentials = CredentialStore(secrets: KeychainSecretBackend(), metadataRepository: store)
             let provider = FakeProvider()
             let router = RunEventRouter()
             let runtime = AppAssembly.makeRuntime(store: store, provider: provider,
-                credentials: credentials, router: router, toolRegistry: .empty)
+                credentials: credentials, router: router, toolRegistry: .empty, managedFiles: files)
             let defaults = UserDefaults(suiteName: "ZenAgent.PreviewHandoffUITest")!
             defaults.removePersistentDomain(forName: "ZenAgent.PreviewHandoffUITest")
             let model = AppShellModel(dependencies: AppAssembly.Dependencies(store: store,
-                credentials: credentials, provider: provider, runtime: runtime, router: router), userDefaults: defaults)
+                credentials: credentials, provider: provider, runtime: runtime, router: router,
+                managedFiles: files), userDefaults: defaults)
             _model = State(initialValue: model)
         } catch {
             fatalError("Preview fixture could not assemble: \(error)")
@@ -32,6 +40,26 @@ struct ConversationPreviewUITestFixture: View {
             .task {
                 guard !didOpenHistory else { return }
                 didOpenHistory = true
+                if ProcessInfo.processInfo.environment["ZEN_FILES_PREVIEW_UI_TEST"] == "1" {
+                    let files = files, store = store
+                    do {
+                        try await Task.detached {
+                            let copy = try files.ingest(data: Data("Managed native preview/export fixture".utf8),
+                                displayName: "managed-preview.txt", mediaType: "text/plain", in: store)
+                            let now = Date()
+                            try store.createFileAsset(FileAssetRecord(id: "managed-preview-fixture",
+                                displayName: copy.displayName, currentVersionID: "managed-preview-version",
+                                origin: .imported, createdAt: now, updatedAt: now), initialVersion: FileAssetVersionRecord(
+                                    id: "managed-preview-version", assetID: "managed-preview-fixture",
+                                    contentFingerprint: copy.fingerprint, byteCount: copy.byteCount,
+                                    mediaType: copy.mediaType, createdAt: now))
+                            _ = try files.removeUnreferencedAsset(id: copy.assetID, in: store, protectedAssetIDs: [])
+                        }.value
+                    } catch {
+                        if !Task.isCancelled { fatalError("Managed preview fixture could not seed") }
+                        return
+                    }
+                }
                 guard await model.openConversation(id: "preview-ui-11") else {
                     if !Task.isCancelled { fatalError("Preview history fixture could not open") }
                     return
