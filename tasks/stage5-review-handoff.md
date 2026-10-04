@@ -7,25 +7,26 @@ Stage 5 code first, then a whole-stage review, then physical-device testing.
 ## 当前续接点 — 本次恢复开发
 
 实际 checkout 为 `C:\Users\Azusa\.codex\worktrees\s5-history-handoff\Zen-Agent`，
-当前分支 `codex/s5-15-settings`。Files 已在远程 `c9f6e2aa2e5e989c62cd7abe920f74815743c826`、
+当前分支 `codex/s5-16-visuals`。Files 已在远程 `c9f6e2aa2e5e989c62cd7abe920f74815743c826`、
 tree `c66db812610c4f84c2dc0c141a58492d067fbc5f` 关闭完整代码 gate：
 push37222392865、PR37222395611、guard37222395686 全通过；两边912 Swift/141 suites、
 20 XCTest、50 phone UI（一个预期Pad-only skip）、实际Pad零失败。详见Files记录顶部。
 PR31 draft/open/unmerged；主checkout/main仍干净且没有推送。用户要求继续交接中的
 剩余任务，按 Settings → Visuals → 整体review推进，不merge/main push/IPA；实机待用户。
-Settings 已在 draft PR32 实现。针对性源码 remote48cc9424/tree83e2786d 通过
-push37232428766、PR37232432060、guard37232432125：两边930 Swift/147 suites、
-20 XCTest、三个实际Settings UI和实际Pad零失败。原生Configure/首次Send、Soul保存、
-focused Close返回同一Composer/draft/keyboard、账号冲突和缓存lease均通过。
-临时profile已移除，FULL69a0058c/tree56584ea8的push37233520294全通过：930 Swift、
-20 XCTest、53 phone UI（一个预期skip）、实际Pad；guard通过。PR37233523586通过
-units、实际Pad、51 UI和一个预期skip，但40分钟job上限在最后旋转测试中将其取消；
-不是第二个GREEN。下一候选仅将完整build/test job上限改为45分钟并补记录，所有
-测试、断言、skip和无重试策略保持；等新的两侧FULL后才进入Visuals。
+Settings draft PR32 的 FULL 已在 remote2d501a6be6a39ee1194a3302c1e5241e23771fb8、
+tree437d5de40a08affbb25dd341db8d9dc9e519a3f5、local4025b41 关闭。
+push37236474441、PR37236477630、guard37236477646通过：两边930 Swift/147 suites、
+20 XCTest、53 phone UI（一个预期Pad-only skip）零失败、实际Pad均通过。
+Swift92.918s/91.798s、UI1406.042s/1783.797s、Pad68.517s/122.107s；
+各一次test-run启动，无host restart/retry。原生Configure/首次Send、Soul保存、
+focused Close同一Composer/draft/keyboard、账号冲突、缓存lease与Files取消均通过。
+先前FULL69a0058c的push通过，PR因40分钟上限在最后旋转测试中取消，保留为未完成；
+45分钟上限只提供有界时间余量，测试、断言、skip与无重试策略未变。
 Settings初始行为RED、首次候选、焦点回调/场景快照/目录hint/重复Close定位失败与
 修复证据完整保留在s5-15记录和外部settings-ci-receipts.json。窄范围静态复核无新的
-Critical/Important，不能替代最终fresh整阶段review。只剩CurrentCardEdge/Motion两份
-Visuals untracked草稿；缺符号编译失败不算行为RED。备份保留，不覆盖新源码。
+Critical/Important，不能替代最终fresh整阶段review。Visuals首批只发布现有API的原生
+描边回归和实际Settings/Appearance控件回归，等待macOS编译与行为RED后才实现。
+Motion新类型草稿仍排除；缺符号编译失败不算行为RED。备份保留，不覆盖新源码。
 本地设计HEAD476562c与批准补充分支远程e6d8c5f源码tree一致；Blueprint PR5未合并。
 下面的旧交接内容保留为历史，旧Files开放状态不代表当前结论。
 
@@ -145,14 +146,14 @@ Publisher 使用 Git Data API、逐文件 raw-byte base64、exact local tree 比
 | S5-06 New / Pin / Rename | PR #23, `tasks/s5-06-new-pin-rename.md` | Head `56c8425dd72c818529b4d2f9a2c5617a89049000`, tree `8ce365e715b9e4c2bbe1ddb3062e2ccabff1d1cb`; exact-head PR CI 36598142908 / push 36598136739 successful |
 | S5-07 Delete / Undo | PR #24, `tasks/s5-07-delete-undo.md` | Head `a58dc925509a7dcf2e45838cd8a27dd3e11c133d`, tree `d9871431c53bcba128529ec8bc5169a05d66bdf8`; exact-head PR CI 36629976053 / push 36629970608 successful |
 | S5-08 Split targeting | PR #25, `tasks/s5-08-split-targeting.md` | Head `f419a9755ae3e48f687c684523c46c6562c9c37e`, tree `67b899c9ebc1cc2400459e8b35576bf0df3f6abd`; exact-head PR CI 36661218548 / push 36661214158 successful |
-| S5-09 Split container | PR #26, `tasks/s5-09-review.md` | Head `08e950abf55d895f502fec2139262343275783f4`, tree `1d66027b2b4875245ffc492e011f6128798c3ab0`; CI 37139550698 passed 837 Swift / 20 XCTest / 30 UI |
+| S5-09 Split container | PR #26, `tasks/s5-09-review.md` | Head `08e950abf55d895f502fec2139262343275783f4`, tree `1d66027b2b4875245ffc492e011f6128798c3ab0`; push37139550698 passed837 Swift/20 XCTest/30 UI. Parallel PR37139554202 failed an older Browse test's initial Lift admission; retained explicitly, not a second GREEN. Subsequent cumulative FULL gates pass that path |
 | S5-10 Resize / close | PR #27, `tasks/s5-10-resize.md` | `332d2a55416b6a6e03822556274db070db557319` / tree `ba0268272439a59eb0f3fa43bd46618b34a89746`, push37163392220 and PR37163394761 passed the full source gate: XcodeGen/build,852 Swift /20 XCTest /35 UI, no host restart/retry |
 | S5-11 Rotation / iPad axis | PR #28, `tasks/s5-11-rotation.md` | `ad10ca848a3f1d1d3ba7058643ac0f7e0f53dab5` / tree `96300c087a4d272d77b55c947336bcd9447b98a2`, full push37169724633 and PR37169727362 passed generation/build,861 Swift /20 XCTest /39 phone UI (one expected Pad-only skip), plus one actual Pad case in each run; no retry/host restart. Historical failures remain recorded |
 | S5-12 Sidebar | PR #29, `tasks/s5-12-sidebar.md` | Behavioral RED and historical failures retained. Scene-root edge remote `b6ba4473b23bbd738f5c02ce414df893eba2af9a` /tree `e4e713dd7176ad601c93d40e1a3f6b1011007d04` passed both targeted phone gates:873 Swift/132 suites,20 XCTest,all7 Sidebar UI. PR actual Pad passed; push Pad app launch timed out before axis execution. Full profile restored in local `d89aa12` /remote `9218e8c7fc9e5a11baa53bafda4787fb962768c0` /tree `6c1b9095f933b111590025a6d0aadd9a6bfe3bd1`. PR37180642485 /push37180640443 both passed full generation/build,873 Swift/132 suites,20 XCTest,46 phone UI (one expected Pad-only skip,zero failures), plus one actual Pad axis case each. No retry/test-host restart. Full Sidebar code gate closed |
 | S5-13 Search | PR #30, tasks/s5-13-search.md | Remote6a217da90153e04a5e0120195610aaae95ab9a35 /tree81dfd8c48e3cb17a453749432fc0f6272bbdcb24 passed full push37195522196 and PR37195524247: generation/build,894 Swift/136 suites,20 XCTest,48 phone UI with one expected Pad-only skip and zero failures, plus actual Pad axis once each. Native teardown/keyboard/identity/draft and all Workspace regressions pass; no host restart/retry. Full Search source gate closed |
-| S5-14 Files | PR #31, tasks/s5-14-files.md | Remotec738ed3da7d107ea8906d59d21a98a13eb0b39af /tree94a1c6db6b3428c0e6150bd45ce13cf1040fd50f: full PR37209436556 passed generation/build,912 Swift/141 suites,20 XCTest,50 phone UI (one expected Pad-only skip), actual Pad11145750168195.815s. Same-source push37209433472 passed units,export and actual Pad11145749466286.698s, but import cancellation fails (five downstream assertions). Cleanup repair unit GREEN both; export real Back→Browse→Cancel GREEN both. Full gate remains open |
-| S5-15 Settings | Global navigation plan Task4; tasks/s5-15-settings.md | Uncompiled preparation only; no Settings production source. Six-group IA/account/Soul/native-focus/storage/default/New ownership preflight documented |
-| S5-16 Ink / motion / highlight | Visual reinforcement plan; tasks/s5-16-visuals.md | Uncompiled preparation only; no renderer/current-edge production source. Follows Settings full gate |
+| S5-14 Files | PR #31, tasks/s5-14-files.md | Remotec9f6e2aa2e5e989c62cd7abe920f74815743c826/treec66db812610c4f84c2dc0c141a58492d067fbc5f: complete push37222392865,PR37222395611,guard37222395686 passed generation/build,912 Swift/141 suites,20 XCTest,50 phone UI with one expected Pad-only skip and zero failures,actual Pad both. Actual native import/export cancellation returns original editor/draft/focus. No host restart/retry; historical failures retained |
+| S5-15 Settings | PR #32, tasks/s5-15-settings.md | Remote2d501a6be6a39ee1194a3302c1e5241e23771fb8/tree437d5de40a08affbb25dd341db8d9dc9e519a3f5: full push37236474441,PR37236477630,guard37236477646 passed XcodeGen/build,930 Swift/147 suites,20 XCTest,53 phone UI with one expected skip and zero failures,actual Pad both. No restart/retry; code gate closed. Prior40min incomplete PR retained |
+| S5-16 Ink / motion / highlight | Visual reinforcement plan; tasks/s5-16-visuals.md | Branchcodex/s5-16-visuals starts from closed Settings. Existing-API native edge and actual Appearance/Ink UI RED publication pending. No renderer/edge implementation yet; new Motion type draft excluded |
 
 As checked from GitHub on 2026-10-04, PR #22/#23 are Ready/open/unmerged;
 PR #24–31 are draft/open/unmerged (Files candidate is still under validation). Earlier duplicate source runs marked

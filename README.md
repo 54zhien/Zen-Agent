@@ -163,12 +163,13 @@ As of 2026-10-05:
   guard37232432125: XcodeGen/build,930 Swift/147 suites,20 XCTest,three actual
   Settings UI paths and actual Pad in both runs. Native Configure/first Send,
   Soul save/focused Close, fresh-cache leases and account/default scope passed.
-  Profile-free FULL69a0058c passed push37233520294 (930 Swift,20 XCTest,
-  53 phone UI with one expected skip,actual Pad). PR37233523586 passed units,
-  actual Pad and51 UI cases but hit the40-minute job cap in its last rotation
-  case; it is incomplete. The next FULL candidate gives this job45 minutes,
-  preserving all tests and no retries. The source gate remains pending;
-  S5-16 Visuals follows it. See
+  Profile-free FULL2d501a6b/tree437d5de4 closed the Settings code gate:
+  push37236474441,PR37236477630 and guard37236477646 passed930 Swift,
+  20 XCTest,53 phone UI with one expected skip and zero failures,actual Pad
+  in both runs; no host restart/retry. Prior PR37233523586's40-minute timeout
+  remains recorded; the accepted bounded45-minute cap preserves all tests.
+  S5-16 Visuals now starts with existing-API native edge and Ink-controls RED;
+  no effect production source has been published yet. See
   [the current resume handoff](tasks/stage5-review-handoff.md).
   Full-stage and physical acceptance remain open.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
