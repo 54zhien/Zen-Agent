@@ -16,10 +16,14 @@ struct SettingsStorageTests {
         let files = ManagedFileStore(applicationSupportRoot: root,
             protectionRequirement: .bestEffort, presentationCacheRoot: cache)
         let data = Data("retained managed fixture".utf8)
-        let asset = try files.ingest(data: data, displayName: "retained.txt", mediaType: "text/plain", in: store)
+        let asset = try diagnosed("managed ingest", files: files) {
+            try files.ingest(data: data, displayName: "retained.txt", mediaType: "text/plain", in: store)
+        }
         let attachment = SendAttachment(assetID: asset.assetID, versionID: asset.versionID,
             fingerprint: asset.fingerprint, kind: .file, displayName: asset.displayName)
-        let copy = try files.makePresentationCopy(for: attachment, in: store)
+        let copy = try diagnosed("native presentation copy", files: files) {
+            try files.makePresentationCopy(for: attachment, in: store)
+        }
         let model = SettingsStorageModel(store: store, files: files)
         await model.refresh()
         #expect(model.footprint?.managedBytes == Int64(data.count))
@@ -34,5 +38,18 @@ struct SettingsStorageTests {
         #expect(model.footprint?.cacheBytes == Int64(data.count))
         #expect(model.errorMessage == nil)
         withExtendedLifetime(copy) {}
+    }
+
+    private func diagnosed<T>(_ stage: String, files: ManagedFileStore,
+                              operation: () throws -> T) throws -> T {
+        do { return try operation() }
+        catch {
+            let configured = files.presentationCacheRoot
+            let resolved = configured.resolvingSymlinksInPath().standardizedFileURL
+            let expected = configured.deletingLastPathComponent().resolvingSymlinksInPath()
+                .appendingPathComponent(configured.lastPathComponent, isDirectory: true).standardizedFileURL
+            Issue.record("\(stage): \(error); cache=\(configured.absoluteString); resolved=\(resolved.absoluteString); expected=\(expected.absoluteString); equal=\(resolved == expected); pathsEqual=\(resolved.path == expected.path)")
+            throw error
+        }
     }
 }

@@ -386,9 +386,15 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     private func canConfigureNew(_ id: String) -> Bool {
+#if DEBUG
+        navigation.recordNative("New Settings scene=\(scenePhase);newOwner=\(model?.currentSettingsNewID == id);pane=\(model?.pane != nil);full=\(activeSurfaceSlot == nil);resize=\(resize.isActive);return=\(returnPresentation.phase != nil)")
+#endif
         guard scenePhase == .active, let model, model.currentSettingsNewID == id, let pane = model.pane,
               activeSurfaceSlot == nil, !resize.isActive, returnPresentation.phase == nil,
               let native = controller(for: model.sourceSurfaceSlot).sidebarNativeContext?() else { return false }
+#if DEBUG
+        navigation.recordNative("New Settings native=\(native.allowsOpening);marked=\(pane.composer.isComposing);selection=\(pane.composer.isSelectionHandleDragging);quote=\(pane.composer.quoteDragPhase)")
+#endif
         return native.allowsOpening && !pane.composer.isComposing && !pane.composer.isSelectionHandleDragging
             && pane.composer.quoteDragPhase == .idle
     }

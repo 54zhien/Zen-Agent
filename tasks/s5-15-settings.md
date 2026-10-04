@@ -75,6 +75,16 @@ the existing Files path-validation preconditions. Production path guards stay
 intact. Restore settings-red for all units and all three native Settings UI cases;
 results remain pending, and this profile cannot close the FULL gate.
 
+Acknowledgement repair remote2b7a325e/tree f5ee2210,PR37229232350 compiled:
+20 XCTest passed;930 Swift/147 suites in89.023s retained only Storage's
+invalidManagedPath. All focus regressions passed. Both native Soul UI paths
+passed (resting40.929s/focused32.357s), including original editor identity,
+draft and keyboard restoration. Startup Configure did not present Settings;
+the later missing Providers element is a consequence, not a separate diagnosis.
+Actual Pad111515257623 passed in80.823s; guard passed. Add bounded existing
+native admission diagnostics and stage-specific Storage URL diagnostics before
+any further production repair. No skip, weakened assertions or larger timeout.
+
 Blueprint navigation section16, the Prompt/Soul baseline and development plan
 define grouped Settings: models/services, appearance, Agent, files/storage,
 data/privacy and About. Agent lives only under Settings; Soul is currently live.

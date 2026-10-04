@@ -62,9 +62,15 @@ final class SettingsUITests: XCTestCase {
         editor.typeText("first Send keeps its original draft")
         let unavailableSend = app.buttons["conversation-composer-send"]
         XCTAssertFalse(unavailableSend.exists && unavailableSend.isEnabled)
+        let admissionProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        print("New Settings before Configure: \(admissionProbe.value as? String ?? "missing probe")")
         configure.tap()
         let settings = app.descendants(matching: .any)["settings-page"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        guard settings.waitForExistence(timeout: 5) else {
+            print("New Settings after Configure: \(admissionProbe.value as? String ?? "missing probe")")
+            XCTFail("Configure did not present Settings for its uncommitted New owner")
+            return
+        }
         app.buttons["settings-providers"].tap()
         app.buttons["settings-provider-add"].tap()
         let key = app.secureTextFields["DeepSeek API Key"]
