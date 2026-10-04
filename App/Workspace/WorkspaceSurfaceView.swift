@@ -159,7 +159,10 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         }
                         .frame(width: frame.width, height: frame.height)
                         .position(x: frame.midX, y: frame.midY)
-                        .opacity(visible ? 1 : 0)
+                        // Native visibility detaches inactive content and clears
+                        // its hidden gate before restoring the retained responder.
+                        // A second SwiftUI opacity gate updates afterward and can
+                        // leave that responder waiting with no new native callback.
                         .allowsHitTesting(visible && !suppressed)
                         .accessibilityHidden(!visible || suppressed)
                         .zIndex(activeSurfaceSlot == slot ? 10 : 0)

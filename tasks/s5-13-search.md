@@ -230,3 +230,27 @@ receipts to the existing consume path and print them after its bounded focus wai
 This diagnoses input, editor mount/visibility, ancestor, Window/scene, presented
 controller and actual becomeFirstResponder failure without bypassing a guard.
 Targeted/full GREEN remain pending; Files production has not started.
+
+## Exact native visibility diagnosis and correction
+
+Diagnostics-only remote aafa5928f34c46411f498ebab00adee378b282a2 /tree
+5e4cdbe394b73d33186dcb3454a6773908ef8fbf, push CI37189688294:
+XcodeGen/build passed;889 Swift tests/136 suites passed108.510s and20 XCTest
+passed. Result selection UI passed53.798s. Plain exit failed50.301s with3
+assertion failures. Both the immediate and settled receipts identify the last
+blocking guard as hiddenAncestor:UIKitPlatformViewHost wrapping the native
+ConversationSurfaceHost. At the settled receipt that ancestor is actually
+visible, but no native callback has retried the valid pending token. The actual
+editor has input permission, is visible, remains in its Window and can focus.
+This disproves the unconfirmed Search first-responder-decline hypothesis.
+
+WorkspaceSurfaceView applies SwiftUI opacity(visible ? 1 : 0) after the native
+setWorkspaceVisible update. The native controller already owns the hidden gate
+and detaches inactive content. Remove the redundant SwiftUI opacity gate;
+retain native visibility, input/AX admission and physical Session/editor owners.
+The existing plain-exit UI case remains the actual failing regression; no delay,
+forced editor tap, new editor or keyboard geometry relaxation is added.
+
+Push actual Pad passed111.663s. PR actual Pad failed133.393s with one bounded
+waiter assertion; it is retained as a failure, not silently retried or called a
+pass. The correction still needs targeted and full build/unit/UI/Pad receipts.
