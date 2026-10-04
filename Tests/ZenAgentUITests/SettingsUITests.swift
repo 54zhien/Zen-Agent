@@ -63,7 +63,6 @@ final class SettingsUITests: XCTestCase {
         let unavailableSend = app.buttons["conversation-composer-send"]
         XCTAssertFalse(unavailableSend.exists && unavailableSend.isEnabled)
         let admissionProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
-        print("New Settings before Configure: \(admissionProbe.value as? String ?? "missing probe")")
         configure.tap()
         let settings = app.descendants(matching: .any)["settings-page"]
         guard settings.waitForExistence(timeout: 5) else {

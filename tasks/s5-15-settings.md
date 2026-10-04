@@ -3,6 +3,30 @@
 This authorized slice follows the Files full code gate. Formal Settings
 production source is published on draft PR32; the FULL source gate remains open.
 
+## Current candidate: targeted GREEN, FULL pending
+
+Localf18cade0a37f206a3eaf781d808b49418934d419,
+remote48cc942446f5ea7671c4df025f6544148f914898,
+tree83e2786d488e9fef35393450220be9683b7b1d6b passed both targeted runs:
+push37232428766/phone111524809898 and PR37232432060/phone111524815352.
+Both generated/built,passed20 XCTest and930 Swift/147 suites (103.125s/
+103.198s),three actual native Settings UI paths (106.435s/115.985s) with zero
+failures. Startup Configure -> actual Provider Save -> child native dismissal ->
+outer Close -> original draft -> first Send passed39.547s/42.315s. Resting Soul
+Save/Close passed35.602s/40.665s; focused Soul Close restored the same Composer,
+draft and keyboard in31.287s/33.004s. Both actual Pad111524809911/
+111524815363 and guard37232432125 passed. No host restart/retry.
+
+Read-only narrow review of the live native-scene admission, canonical cache path
+repair and owned Provider Close identity found no Critical/Important. It was
+static evidence, not final whole-stage review or device acceptance.
+
+This candidate removes the temporary profile and routine successful-Startup
+diagnostic print, retaining failure diagnostics and all behavioral assertions.
+Run complete push/PR generation/build/unit/UI/actual Pad plus guard before
+closing the source gate or starting Visuals. FULL is pending; physical-device
+IME, VoiceOver, memory/comfort and distribution/font-rights acceptance stay open.
+
 Files FULL is now closed on remote `c9f6e2a`,tree `c66db812`,push37222392865
 and PR37222395611. Branch `codex/s5-15-settings` starts from that source.
 First publication adds only existing-API credential provisioning regressions

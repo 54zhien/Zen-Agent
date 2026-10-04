@@ -13,9 +13,15 @@ push37222392865、PR37222395611、guard37222395686 全通过；两边912 Swift/1
 20 XCTest、50 phone UI（一个预期Pad-only skip）、实际Pad零失败。详见Files记录顶部。
 PR31 draft/open/unmerged；主checkout/main仍干净且没有推送。用户要求继续交接中的
 剩余任务，按 Settings → Visuals → 整体review推进，不merge/main push/IPA；实机待用户。
-Settings 首次发布仅包含现有API凭据回归、两个Sidebar Settings UI用例与限定分支的
-临时测试范围。其他新Settings/Motion API草稿保留，缺符号编译失败不算行为RED。
-新增 Storage/Menu 草稿亦保留；最新八份备份为交接目录 continued-preparation-drafts.zip。
+Settings 已在 draft PR32 实现。针对性源码 remote48cc9424/tree83e2786d 通过
+push37232428766、PR37232432060、guard37232432125：两边930 Swift/147 suites、
+20 XCTest、三个实际Settings UI和实际Pad零失败。原生Configure/首次Send、Soul保存、
+focused Close返回同一Composer/draft/keyboard、账号冲突和缓存lease均通过。
+临时profile现已移除，完整FULL候选等待push/PR/guard与Pad；尚不进入Visuals。
+Settings初始行为RED、首次候选、焦点回调/场景快照/目录hint/重复Close定位失败与
+修复证据完整保留在s5-15记录和外部settings-ci-receipts.json。窄范围静态复核无新的
+Critical/Important，不能替代最终fresh整阶段review。只剩CurrentCardEdge/Motion两份
+Visuals untracked草稿；缺符号编译失败不算行为RED。备份保留，不覆盖新源码。
 本地设计HEAD476562c与批准补充分支远程e6d8c5f源码tree一致；Blueprint PR5未合并。
 下面的旧交接内容保留为历史，旧Files开放状态不代表当前结论。
 

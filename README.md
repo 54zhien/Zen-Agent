@@ -157,16 +157,21 @@ As of 2026-10-05:
   PR37222395611 and guard37222395686: XcodeGen/build,912 Swift/141 suites,
   20 XCTest,50 phone UI (one expected Pad-only skip),actual Pad in both runs.
   Native import/export cancellation preserves the original editor/draft/focus;
-  no test-host restart/retry. S5-15 Settings begins with existing-API behavior RED.
-  S5-16 Visuals follows the Settings FULL gate. See
+  no test-host restart/retry. S5-15 Settings is implemented on stacked draft
+  [PR #32](https://github.com/54zhien/Zen-Agent/pull/32), unmerged. Targeted
+  remote48cc9424/tree83e2786d passed push37232428766,PR37232432060 and
+  guard37232432125: XcodeGen/build,930 Swift/147 suites,20 XCTest,three actual
+  Settings UI paths and actual Pad in both runs. Native Configure/first Send,
+  Soul save/focused Close, fresh-cache leases and account/default scope passed.
+  Temporary profile is removed in the FULL candidate; the complete source gate
+  remains pending. S5-16 Visuals follows that FULL gate. See
   [the current resume handoff](tasks/stage5-review-handoff.md).
   Full-stage and physical acceptance remain open.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
   does not establish device memory, performance, input, comfort or VoiceOver acceptance.
-- Formal Settings IA and
-  `Settings → Agent → Soul` belong to later Stage 5 slices; Memory, Skills, MCP and
-  Subagent remain later stages.
+- Formal Settings IA and `Settings → Agent → Soul` are implemented in S5-15;
+  its full source gate is pending. Memory, Skills, MCP and Subagent remain later stages.
 
 The [Stage 5 entry record](tasks/stage5-entry.md) records the integrated baseline,
 CI evidence, remaining device checks, and design decisions needed by later slices.
