@@ -3,6 +3,14 @@
 This authorized slice follows the Files full code gate. Formal Settings
 production source has not been published yet.
 
+Files FULL is now closed on remote `c9f6e2a`,tree `c66db812`,push37222392865
+and PR37222395611. Branch `codex/s5-15-settings` starts from that source.
+First publication adds only existing-API credential provisioning regressions
+and two actual Sidebar Settings UI cases. No new Settings API draft is included.
+The branch-fixed settings-red profile runs all unit tests and Settings UI;
+compilation and behavioral failures must be observed before production changes.
+This targeted profile is not the complete Settings source gate.
+
 Blueprint navigation section16, the Prompt/Soul baseline and development plan
 define grouped Settings: models/services, appearance, Agent, files/storage,
 data/privacy and About. Agent lives only under Settings; Soul is currently live.

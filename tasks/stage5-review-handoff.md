@@ -4,7 +4,23 @@ This record is being assembled during implementation. It is not a Stage 5
 closure or physical-device acceptance record. The owner requested all remaining
 Stage 5 code first, then a whole-stage review, then physical-device testing.
 
-## 新对话先读这一节
+## 当前续接点 — 本次恢复开发
+
+实际 checkout 为 `C:\Users\Azusa\.codex\worktrees\s5-history-handoff\Zen-Agent`，
+当前分支 `codex/s5-15-settings`。Files 已在远程 `c9f6e2aa2e5e989c62cd7abe920f74815743c826`、
+tree `c66db812610c4f84c2dc0c141a58492d067fbc5f` 关闭完整代码 gate：
+push37222392865、PR37222395611、guard37222395686 全通过；两边912 Swift/141 suites、
+20 XCTest、50 phone UI（一个预期Pad-only skip）、实际Pad零失败。详见Files记录顶部。
+PR31 draft/open/unmerged；主checkout/main仍干净且没有推送。用户要求继续交接中的
+剩余任务，按 Settings → Visuals → 整体review推进，不merge/main push/IPA；实机待用户。
+Settings 首次发布仅包含现有API凭据回归、两个Sidebar Settings UI用例与限定分支的
+临时测试范围。其他新Settings/Motion API草稿保留，缺符号编译失败不算行为RED。
+新增 Storage/Menu 草稿亦保留；最新八份备份为交接目录 continued-preparation-drafts.zip。
+本地设计HEAD476562c与批准补充分支远程e6d8c5f源码tree一致；Blueprint PR5未合并。
+下面的旧交接内容保留为历史，旧Files开放状态不代表当前结论。
+
+## 历史交接快照 — 已由上节替代
+
 
 用户本次只要求核对任务记录和交接，开发停在 Files 完整 gate；不继续实现
 Settings。此前授权仍为完成所有剩余 Stage5，然后用户整体 review，再实机测试。

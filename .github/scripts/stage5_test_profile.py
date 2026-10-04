@@ -15,6 +15,8 @@ def test_scope(profile, branch):
         return "search-red"
     if profile == {"mode": "files-red"} and branch == "codex/s5-14-files":
         return "files-red"
+    if profile == {"mode": "settings-red"} and branch == "codex/s5-15-settings":
+        return "settings-red"
     if profile == {"mode": "resize-diagnostic"} and branch == "codex/s5-10-divider-resize":
         return "resize-diagnostic"
     if profile != {"mode": "review-red"}:

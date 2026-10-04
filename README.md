@@ -150,16 +150,16 @@ As of 2026-10-05:
   PR37195524247: generation/build,894 Swift Testing,20 XCTest,48 phone UI
   (one expected Pad-only skip), plus one actual Pad axis case in each run.
   Native query teardown preserves the original responder; no host restart/retry.
-  S5-14 Files has compiled behavioral RED on stacked draft
-  [PR #31](https://github.com/54zhien/Zen-Agent/pull/31). Its complete Workspace
-  candidate at remote `c738ed3da7d107ea8906d59d21a98a13eb0b39af`, tree
-  `94a1c6db6b3428c0e6150bd45ce13cf1040fd50f`, passed full PR37209436556
-  (912 Swift/141 suites,20 XCTest,50 phone UI with one expected Pad-only skip,
-  plus one actual Pad case). Same-source push37209433472 passed unit tests,
-  native export and actual Pad, but import cancellation failed; the full Files
-  gate remains open. See [the current resume handoff](tasks/stage5-review-handoff.md)
-  before using older task snapshots.
-  S5-15–16 remain authorized after that full gate, in order.
+  S5-14 Files passed its complete source gate on stacked draft
+  [PR #31](https://github.com/54zhien/Zen-Agent/pull/31), unmerged. Remote
+  `c9f6e2aa2e5e989c62cd7abe920f74815743c826`, tree
+  `c66db812610c4f84c2dc0c141a58492d067fbc5f`, passed push37222392865,
+  PR37222395611 and guard37222395686: XcodeGen/build,912 Swift/141 suites,
+  20 XCTest,50 phone UI (one expected Pad-only skip),actual Pad in both runs.
+  Native import/export cancellation preserves the original editor/draft/focus;
+  no test-host restart/retry. S5-15 Settings begins with existing-API behavior RED.
+  S5-16 Visuals follows the Settings FULL gate. See
+  [the current resume handoff](tasks/stage5-review-handoff.md).
   Full-stage and physical acceptance remain open.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order

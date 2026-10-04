@@ -54,6 +54,18 @@ class ProfileGuardTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             test_scope({"mode": "files-red", "args": ["-skip-testing:ZenAgentTests"]}, "codex/s5-14-files")
 
+    def test_settings_red_is_fixed_to_its_slice_branch(self):
+        profile = {"mode": "settings-red"}
+        self.assertEqual(test_scope(profile, "codex/s5-15-settings"), "settings-red")
+        for branch in ["main", "feature/settings"]:
+            self.assertEqual(test_scope(profile, branch), "full")
+        self.assertEqual(test_scope(None, "codex/s5-15-settings"), "full")
+        for branch in ["codex/s5-14-files", "codex/s5-16-visuals"]:
+            with self.assertRaises(ValueError):
+                test_scope(profile, branch)
+        with self.assertRaises(ValueError):
+            test_scope({"mode": "settings-red", "args": ["-skip-testing:ZenAgentTests"]}, "codex/s5-15-settings")
+
     def test_resize_diagnostics_are_confined_to_the_resize_branch(self):
         profile = {"mode": "resize-diagnostic"}
         self.assertEqual(test_scope(profile, "codex/s5-10-divider-resize"), "resize-diagnostic")
