@@ -86,9 +86,13 @@ struct ComposerOverlayFocusTests {
         await drain { query.text == state.query }
         #expect(query.text == state.query)
         #expect(editor.isFirstResponder)
+        #expect(query.onText != nil)
         state.showsSearch = false
-        await drain { query.window == nil }
-        #expect(query.window == nil && editor.isFirstResponder)
+        // SwiftUI may retain an outgoing UIKit view in its Window after
+        // dismantle. The production callback is cleared only by dismantle,
+        // so it proves the lifecycle event independently of view retirement.
+        await drain { root.view.layoutIfNeeded(); return query.onText == nil }
+        #expect(query.onText == nil && editor.isFirstResponder)
         #expect(composer.editor === editor && editor.text == "same draft")
         #expect(releases == 1)
     }

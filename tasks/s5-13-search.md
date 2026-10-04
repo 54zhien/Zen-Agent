@@ -356,3 +356,32 @@ through their outgoing fade. Cover missing actual delegate acknowledgement,
 replacement's fresh close, stale field callbacks, and old overlay-id close.
 New Files asynchronous callbacks must also capture their presentation id; the
 coordinator's no-argument compatibility call is not Files routing evidence.
+## Native-owner correction receipt — only fixture retirement assumption fails
+
+Remotea0a49942361b86a37533caf55f8fc442db1a612a /tree
+2972e72befe5c9457a8940c9f07d0ab44d7a7da6 completed both targeted gates.
+PR37194517456 /phone111413505325:20 XCTest passed;894 Swift/136 suites
+failed100.101s with only1 issue: hosting query.window was still non-nil after
+its outgoing transition. The keyboard-hide protection, real query editing,
+end-before-restore, query update, pending-close replacement and stale overlay-id
+cases passed. Search UI passed60.578s and34.893s (zero failures95.472s).
+Push37194515408 /phone111413596721:20 XCTest passed;894/136 failed105.123s
+with that same1 issue. Search UI passed60.063s and35.500s (zero failures95.562s).
+Both have one Swift test start and no restart/retry. PR actual Pad passed70.504s;
+push actual Pad also passed. The whole targeted result remains failed.
+
+Repair the fixture's overconstrained lifecycle premise, not product focus.
+SwiftUI can retain an outgoing native view in the Window after dismantle.
+Assert the real production dismantle receipt instead: onText must be non-nil
+before removal and is cleared only by SearchQueryInput.dismantleUIView. Drive
+actual hosting layout and wait for that callback clearing, while retaining
+original editor.isFirstResponder, identity and exact draft assertions. The real
+Workspace UI continues to require that Search input disappears; no UI gate is
+relaxed and no product behavior changes in this follow-up.
+
+Restore the full profile now. All required production Search/native-owner paths
+passed their targeted tests; the full Workspace gate is the concrete remaining
+risk check for normal keyboard dismissal, Sidebar, Split and Return. A second
+identical targeted-only run is not a prerequisite for that required broader gate.
+Full generation/build/unit/all phone UI/actual Pad evidence is still mandatory
+before Files production. Physical-device acceptance remains separate.
