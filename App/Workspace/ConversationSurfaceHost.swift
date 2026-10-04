@@ -506,6 +506,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         view.isHidden = !visible
         view.isUserInteractionEnabled = visible
         view.accessibilityElementsHidden = !visible
+        // didMoveToWindow/layout run while the retained host is still hidden.
+        // Recheck the queued responder after that final visibility gate opens.
+        if visible { findComposer(in: contentView)?.consumeOverlayFocusIfReady() }
         // Resume after the retained view has its mounted viewport and safe area.
         liftController?.setWorkspaceVisible(visible)
         liftController?.refreshCardAccessibility()

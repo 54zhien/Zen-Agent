@@ -143,8 +143,10 @@ As of 2026-10-04:
   PR37180642485: generation/build,873 Swift Testing,20 XCTest,46 phone UI
   (one expected Pad-only skip), plus one actual Pad axis case in each run.
   No retry/host restart; earlier failed evidence remains in the slice record.
-  S5-13 Search begins with a test-only native UI behavior RED; S5-14–16 remain
-  authorized in order. Search production behavior is not yet implemented.
+  S5-13 Search is implemented, with compiled unit gates and reachable native
+  Search UI. Plain-exit responder restoration and native keyboard geometry
+  corrections are undergoing targeted CI; the full Search gate is not closed.
+  S5-14–16 remain authorized in order after each preceding full gate.
   Full-stage and physical acceptance remain open.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order

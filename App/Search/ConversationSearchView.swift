@@ -73,6 +73,9 @@ struct ConversationSearchView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: .systemBackground))
+#if DEBUG
+        .background(SearchKeyboardProbe().ignoresSafeArea(.keyboard, edges: .bottom))
+#endif
         .task { focused = true }
         .task(id: model.query) { await model.refresh() }
         .onDisappear { model.invalidate() }

@@ -24,6 +24,7 @@ final class ConversationSearchUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         app.buttons["conversation-search-close"].tap()
         expect { editor.exists }
+        print("SEARCH_EXIT_NATIVE \(probe.value as? String ?? "missing")")
         expect { (probe.value as? String)?.contains("focused=true;") == true }
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         XCTAssertEqual(editorIdentity(probe.value as? String), identity)
@@ -52,7 +53,14 @@ final class ConversationSearchUITests: XCTestCase {
             return
         }
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
-        XCTAssertLessThan(abs(input.frame.maxY - app.keyboards.firstMatch.frame.minY), 28)
+        let geometry = app.descendants(matching: .any)["search-native-keyboard-geometry"]
+        expect { (self.keyboardFrame(geometry.value as? String)?.height ?? 0) > 0 }
+        guard let keyboard = keyboardFrame(geometry.value as? String), keyboard.height > 0 else {
+            XCTFail("Missing actual native keyboard occlusion geometry")
+            return
+        }
+        print("SEARCH_KEYBOARD_FRAME input=\(input.frame);AX=\(app.keyboards.firstMatch.frame);native=\(keyboard)")
+        XCTAssertLessThan(abs(input.frame.maxY - keyboard.minY), 28)
         app.buttons["conversation-search-close"].tap()
         expect { !input.exists }
         XCTAssertTrue((editor.value as? String)?.contains("draft retained through Search") == true)
@@ -109,6 +117,14 @@ final class ConversationSearchUITests: XCTestCase {
 
     private func editorIdentity(_ diagnostic: String?) -> String? {
         diagnostic?.split(separator: ";").first { $0.hasPrefix("editorIdentity=") }.map(String.init)
+    }
+
+    private func keyboardFrame(_ diagnostic: String?) -> CGRect? {
+        guard let fields = diagnostic?.split(separator: ";"),
+              let top = fields.first(where: { $0.hasPrefix("top=") }).flatMap({ Double($0.dropFirst(4)) }),
+              let height = fields.first(where: { $0.hasPrefix("height=") }).flatMap({ Double($0.dropFirst(7)) }),
+              top.isFinite, height.isFinite else { return nil }
+        return CGRect(x: 0, y: top, width: 0, height: height)
     }
 
     @MainActor

@@ -1,10 +1,45 @@
 import Testing
 import UIKit
+import SwiftUI
 @testable import ZenAgent
 
 @Suite("Native overlay responder restoration")
 @MainActor
 struct ComposerOverlayFocusTests {
+    @Test(arguments: [true, false])
+    func retainedSurfaceMountRestoresAfterItsVisibilityGateOpens(inputBeforeMount: Bool) throws {
+        let (window, composer) = installedHost()
+        let surface = ConversationSurfaceViewController(content: Text("retained content"))
+        window.rootViewController = surface
+        surface.view.layoutIfNeeded()
+        composer.frame = surface.contentController.view.bounds
+        surface.contentController.view.addSubview(composer)
+        composer.layoutIfNeeded()
+        defer { composer.editor.resignFirstResponder(); window.isHidden = true; window.rootViewController = nil }
+        let editor = composer.editor
+        #expect(editor.becomeFirstResponder())
+        let token = try #require(composer.captureOverlayFocus(ownerIsCurrent: { true }))
+        composer.setWorkspaceInputSuppressed(true)
+        surface.setWorkspaceVisible(false)
+        token.restore()
+        if inputBeforeMount {
+            // The bridge can reopen input before its retained parent remounts.
+            composer.setWorkspaceInputSuppressed(false)
+            composer.requestFocus(false)
+            composer.consumeOverlayFocusIfReady()
+            #expect(!editor.isFirstResponder)
+            surface.setWorkspaceVisible(true)
+        } else {
+            surface.setWorkspaceVisible(true)
+            #expect(!editor.isFirstResponder)
+            composer.setWorkspaceInputSuppressed(false)
+            composer.requestFocus(false)
+            composer.consumeOverlayFocusIfReady()
+        }
+        #expect(editor.isFirstResponder)
+        #expect(composer.editor === editor && editor.text == "same draft")
+    }
+
     @Test func restorationWaitsForInputAndKeepsTheActualEditor() throws {
         let (window, host) = installedHost()
         defer { host.editor.resignFirstResponder(); window.isHidden = true; window.rootViewController = nil }

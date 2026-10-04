@@ -265,7 +265,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
 #if DEBUG
     var liftReadinessDiagnostic: String {
-        "\(liftInteraction.readinessDiagnostic);composerBounds=\(bounds);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState)"
+        "\(liftInteraction.readinessDiagnostic);composerBounds=\(bounds);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false)"
     }
 #endif
 

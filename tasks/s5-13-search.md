@@ -181,3 +181,29 @@ settled, finite-width Rail precedence over that content layer. Drag/settlement
 composition and the overlay's higher layer remain unchanged. Continue to use the
 actual enabled/hittable/button tap and native focus/draft tests; log the observed
 button frame for future triage. Targeted GREEN and the full gate remain pending.
+
+## Reachable Search and retained responder correction
+
+Remote f46a267aa8a828b7ce6b3725c01aa5466adafb84 /tree
+ccb06f28f61c56f6c4f301f409b8daf59b667f0c built in PR37186895810
+and push37186892661. Phone111390700067 /111390663097 each passed888
+Swift/136 suites plus20 XCTest and ran2 Search UI cases with4 failures.
+Their actual enabled/hittable/tap gates now passed; result activation and
+Resting were reached. Both actual Pad111390700034 /111390663065 passed.
+No test-host restart/retry was used.
+
+One UI assertion measured52pt from TextField AX to Keyboard AX instead of the
+actual visible keyboard boundary. The downloaded xcresult video shows the input
+bar adjacent to the visible keyboard and a prediction region above the keys.
+Retain the28pt limit and actual keyboard presence requirement, but compare
+against a DEBUG same-window UIKit keyboard-layout-guide receipt, logging both
+AX and native frames. Product Search layout is unchanged; the new receipt must
+confirm the geometry before this assertion can pass.
+
+Plain exit also failed native focus/keyboard restoration. Source review found a
+real readiness race: reattaching the retained content runs Composer mounting and
+layout while its outer host is still hidden; clearing that hidden gate did not
+retry the queued token. Recheck the same queued capability after native host
+visibility opens; the existing bridge retries after input reopens. A composed
+Window/Surface regression covers both event orders, same editor and same draft.
+Targeted and full compiled GREEN remain pending.
