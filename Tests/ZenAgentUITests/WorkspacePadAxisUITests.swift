@@ -15,7 +15,12 @@ final class WorkspacePadAxisUITests: XCTestCase {
         let entry = app.buttons["split-entry"]
         XCTAssertTrue(entry.waitForExistence(timeout: 15))
         entry.tap()
-        app.buttons["split-open-top"].tap()
+        let splitAction = app.buttons["split-open-top"]
+        guard splitAction.waitForExistence(timeout: 10) else {
+            XCTFail("Split menu did not become available after opening it")
+            return
+        }
+        splitAction.tap()
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()
@@ -23,8 +28,8 @@ final class WorkspacePadAxisUITests: XCTestCase {
         let other = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch
         // Each AX request can block independently on a busy simulator. Observe
         // these stable prerequisites separately before starting the next input.
-        expect { source.exists }
-        expect { other.exists }
+        XCTAssertTrue(source.waitForExistence(timeout: 10))
+        XCTAssertTrue(other.waitForExistence(timeout: 10))
         expect { app.frame.width > app.frame.height }
         let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         let otherProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]

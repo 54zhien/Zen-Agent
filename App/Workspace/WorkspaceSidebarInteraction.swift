@@ -45,6 +45,15 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     private let reverse = UIPanGestureRecognizer()
     private let closeTap = UITapGestureRecognizer()
     private weak var attachedWindow: UIWindow?
+    private struct WindowGeometry: Equatable {
+        let bounds: CGRect
+        let orientation: UIInterfaceOrientation
+        init(_ window: UIWindow) {
+            bounds = window.bounds
+            orientation = window.windowScene?.effectiveGeometry.interfaceOrientation ?? .unknown
+        }
+    }
+    private var attachedGeometry: WindowGeometry?
     private var state: WorkspaceNavigationState?
     private var readContext: (() -> WorkspaceSidebarNativeContext?)?
     private var travel: CGFloat = 60
@@ -87,7 +96,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             edgeTouchOrigin = nil
             edge.edges = edges
         }
-        if window !== attachedWindow { attach() }
+        attach()
         if edgeTouchOwner != nil, !sameOwner(edgeTouchOwner) {
             edgeTouchOwner = nil; edgeTouchOrigin = nil
         }
@@ -98,22 +107,29 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     }
 
     override func didMoveToWindow() { super.didMoveToWindow(); attach() }
+    override func layoutSubviews() { super.layoutSubviews(); attach() }
     private func attach() {
-        guard window !== attachedWindow else { return }
+        let geometry = window.map(WindowGeometry.init)
+        guard window !== attachedWindow || geometry != attachedGeometry else { return }
         detach()
         guard let window else { return }
         attachedWindow = window
+        attachedGeometry = geometry
         for recognizer in [edge, reverse, closeTap] { window.addGestureRecognizer(recognizer) }
+        // Screen-edge recognition must be attached against the current scene
+        // geometry. Keyboard-shortened anchor bounds do not change this snapshot.
+        record("attach bounds=\(window.bounds),orientation=\(geometry?.orientation.rawValue ?? 0),edge=\(edge.edges.rawValue)")
     }
     func detach() {
         for recognizer in [edge, reverse, closeTap] { attachedWindow?.removeGestureRecognizer(recognizer) }
         attachedWindow = nil
+        attachedGeometry = nil
         captured = nil
         capturedGestureID = nil
         tapOwner = nil
         edgeTouchOwner = nil
         edgeTouchOrigin = nil
-        state?.reset()
+        if let state, state.blocksLift || state.isOpen { state.reset() }
     }
 
     private func sameOwner(_ captured: Owner?) -> Bool {

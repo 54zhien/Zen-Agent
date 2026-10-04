@@ -5,6 +5,37 @@ import Testing
 @Suite("Sidebar native close admission")
 @MainActor
 struct WorkspaceSidebarInteractionTests {
+    @Test func windowGeometryChangeCancelsRailButAnchorKeyboardChangeDoesNot() throws {
+        let state = WorkspaceNavigationState()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        let interaction = WorkspaceSidebarInteraction(frame: window.bounds)
+        window.addSubview(interaction)
+        defer { interaction.detach() }
+        let host = NSObject(), pane = NSObject()
+        func configure() {
+            interaction.configure(state: state, travel: 60, isRightToLeft: false) {
+                WorkspaceSidebarNativeContext(hostID: ObjectIdentifier(host), paneID: ObjectIdentifier(pane),
+                    window: window, allowsOpening: true)
+            }
+        }
+        configure()
+        let owned = window.gestureRecognizers?.filter { $0.delegate === interaction } ?? []
+        #expect(owned.count == 3)
+        #expect(state.openSidebar(eligible: true))
+        state.completeSettlement(try #require(state.settlementID))
+        interaction.frame.size.height = 450
+        interaction.setNeedsLayout(); interaction.layoutIfNeeded()
+        configure()
+        #expect(state.isOpen)
+        window.bounds = CGRect(x: 0, y: 0, width: 800, height: 400)
+        interaction.frame = window.bounds
+        interaction.setNeedsLayout(); interaction.layoutIfNeeded()
+        configure()
+        #expect(!state.isOpen && state.progress == 0 && state.settlementID == nil)
+        let reattached = window.gestureRecognizers?.filter { $0.delegate === interaction } ?? []
+        #expect(Set(reattached.map(ObjectIdentifier.init)) == Set(owned.map(ObjectIdentifier.init)))
+    }
+
     @Test func priorityBelongsOnlyToAnEligibleEdgeOrTheOpenSurfaceTap() throws {
         let state = WorkspaceNavigationState()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))

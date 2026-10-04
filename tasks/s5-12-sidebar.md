@@ -212,3 +212,35 @@ alignment is an observation, not a claim about UIKit's undocumented cutoff.
 Current edge orientation documentation states that edges are relative to the
 current interface orientation; no manual coordinate rotation or edge remapping
 is introduced: https://developer.apple.com/documentation/uikit/uiscreenedgepangesturerecognizer/edges
+
+### Current geometry lifecycle correction
+
+Remote9a99901385ea9bbfcd32282ea9912b743c3b3169 / tree
+b211745f364bfac5ac4426a1510d222a5b2a7e08 targeted PR37177952963 /
+phone111364457555 and push37177951403 / phone111364449306 passed
+872 Swift tests/132 suites and20 XCTest. Both completed seven Sidebar UI cases:
+five passed; both independent landscape orientations failed only the opening
+assertion. Moving outside the observed sensor corridor did not resolve it, so
+the corridor alone is not the demonstrated cause. No native begin or priority
+query appears at either clear-edge point. Prior failed observations remain.
+
+Push actual Pad111364449267 passed110.570s with85.5pt Pan. PR actual
+Pad111364457509 failed its initial source.exists expectation; the first AX call
+took about9 seconds with internal lookup retries within the10-second predicate
+deadline. Later axis/resize/ratio/editor checks passed, with actual81pt Pan.
+Initial owner existence now uses XCTest's dedicated waitForExistence with the
+same10-second bound and assertions; no added application retry or larger wait.
+API: https://developer.apple.com/documentation/xcuiautomation/xcuielement/waitforexistence(timeout:)
+
+The native gesture adapter previously retained its initial Window attachment
+across scene geometry changes. The next correction snapshots actual Window
+bounds and scene.effectiveGeometry.interfaceOrientation and reattaches the owned
+recognizers when those change. It clears captured touch/gesture ownership and
+cancels old navigation. Anchor-only keyboard resizing preserves attachment.
+A real UIWindow/anchor geometry regression checks cancellation, keyboard
+preservation and retained recognizer identities. DEBUG attachment receipts show
+the actual geometry. This lifecycle correction still requires actual landscape
+UI results; it does not assert an undocumented UIKit caching guarantee.
+Scene API: https://developer.apple.com/documentation/uikit/uiwindowscene/effectivegeometry
+
+The iPad test also awaits the actual Split menu item (10 seconds) before tapping it; absence fails at that prerequisite rather than issuing input against a missing AX element.
