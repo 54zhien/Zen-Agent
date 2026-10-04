@@ -254,3 +254,12 @@ forced editor tap, new editor or keyboard geometry relaxation is added.
 Push actual Pad passed111.663s. PR actual Pad failed133.393s with one bounded
 waiter assertion; it is retained as a failure, not silently retried or called a
 pass. The correction still needs targeted and full build/unit/UI/Pad receipts.
+Verification ruling: restore the full profile immediately for this correction.
+The one-line visibility-owner change crosses all physical Surface paths, so the
+required full phone and actual Pad gate is the concrete remaining verification.
+It includes both unchanged Search cases plus Sidebar/Split/Return regressions.
+A separate targeted-only pass is not a prerequisite for that broader required
+gate. The intermediate1f7e41f publication is superseded if still running; it is
+not claimed as a passing gate. No test expectation or cancellation gate is relaxed.
+Read-only review confirms every surfaceIsVisible path supplies native visibility;
+Return proxy visibility remains owned by its existing native controller.
