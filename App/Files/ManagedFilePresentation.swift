@@ -51,7 +51,7 @@ extension ManagedFileStore {
                 FilePresentationCache.safeName(attachment.displayName), isDirectory: false)
             var retained = false
             defer { if !retained { try? FileManager.default.removeItem(at: folder) } }
-            guard folder.resolvingSymlinksInPath().standardizedFileURL == folder,
+            guard folder.resolvingSymlinksInPath().standardizedFileURL.path == folder.standardizedFileURL.path,
                   (try? folder.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else {
                 throw ManagedFileStoreError.invalidManagedPath
             }
@@ -118,7 +118,9 @@ private enum FilePresentationCache {
     static func validatedRoot(_ configured: URL) throws -> URL {
         let expected = configured.deletingLastPathComponent().resolvingSymlinksInPath()
             .appendingPathComponent(configured.lastPathComponent, isDirectory: true).standardizedFileURL
-        guard configured.resolvingSymlinksInPath().standardizedFileURL == expected,
+        // A not-yet-created directory loses its trailing-slash URL hint when
+        // resolving. Compare canonical paths; still reject actual redirection.
+        guard configured.resolvingSymlinksInPath().standardizedFileURL.path == expected.path,
               (try? configured.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else {
             throw ManagedFileStoreError.invalidManagedPath
         }

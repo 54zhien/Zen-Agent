@@ -85,6 +85,27 @@ Actual Pad111515257623 passed in80.823s; guard passed. Add bounded existing
 native admission diagnostics and stage-specific Storage URL diagnostics before
 any further production repair. No skip, weakened assertions or larger timeout.
 
+Exact diagnostics remote5b72772e/tree155c275b, push37230396925 and
+PR37230401012 compiled and reproduced both refusals. Swift930/147 retained
+only the Storage error plus its diagnostic issue (push91.093s/PR95.614s).
+In both native Startup paths the action read scene=inactive while newOwner,
+pane and Full were true, resize/Return false, and the native probe allowed input.
+The callback installed during initial appearance retained that environment;
+New admission now checks the actual owned native Window's scene activationState
+at action time. It still requires foregroundActive and every original owner,
+IME, selection and spatial condition. Apple current activationState documentation
+was read; no global UIApplication scene or bypass of native eligibility.
+
+Storage's ingest passed; native-copy validation refused a fresh namespace because
+resolved URL dropped the nonexistent-directory trailing slash while expected URL
+kept it: equal=false,pathsEqual=true. Root and fresh UUID folder checks now compare
+their standardized resolved paths; explicit symlink rejection and owned-cache
+checks remain. Existing cache-redirection regressions must continue passing.
+Both Soul UI paths still passed. PR actual Pad passed; push Pad failed width
+assertion line62 after a non-admitted drag (pan=0,ratio50%,91.430s). Preserve the
+failure, do not assign an unverified cause, and require complete candidate Pad
+success. Corrective source still awaits real CI; FULL remains OPEN.
+
 Blueprint navigation section16, the Prompt/Soul baseline and development plan
 define grouped Settings: models/services, appearance, Agent, files/storage,
 data/privacy and About. Agent lives only under Settings; Soul is currently live.

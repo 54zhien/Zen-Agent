@@ -389,11 +389,14 @@ struct WorkspaceSurfaceView<Content: View>: View {
 #if DEBUG
         navigation.recordNative("New Settings scene=\(scenePhase);newOwner=\(model?.currentSettingsNewID == id);pane=\(model?.pane != nil);full=\(activeSurfaceSlot == nil);resize=\(resize.isActive);return=\(returnPresentation.phase != nil)")
 #endif
-        guard scenePhase == .active, let model, model.currentSettingsNewID == id, let pane = model.pane,
+        guard let model, model.currentSettingsNewID == id, let pane = model.pane,
               activeSurfaceSlot == nil, !resize.isActive, returnPresentation.phase == nil,
-              let native = controller(for: model.sourceSurfaceSlot).sidebarNativeContext?() else { return false }
+              let native = controller(for: model.sourceSurfaceSlot).sidebarNativeContext?(),
+              native.window.windowScene?.activationState == .foregroundActive else { return false }
+        // This action survives the initial SwiftUI installation. Read the
+        // owning native scene now rather than that closure's initial environment.
 #if DEBUG
-        navigation.recordNative("New Settings native=\(native.allowsOpening);marked=\(pane.composer.isComposing);selection=\(pane.composer.isSelectionHandleDragging);quote=\(pane.composer.quoteDragPhase)")
+        navigation.recordNative("New Settings nativeScene=\(String(describing: native.window.windowScene?.activationState));native=\(native.allowsOpening);marked=\(pane.composer.isComposing);selection=\(pane.composer.isSelectionHandleDragging);quote=\(pane.composer.quoteDragPhase)")
 #endif
         return native.allowsOpening && !pane.composer.isComposing && !pane.composer.isSelectionHandleDragging
             && pane.composer.quoteDragPhase == .idle
