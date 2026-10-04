@@ -39,7 +39,7 @@ its `Design/ADR/`; engineering/tooling trade-offs belong to this repository's
 
 ## Status
 
-As of 2026-10-04:
+As of 2026-10-05:
 
 - Stage 0 and Stage 1 are closed; Stage 2 Runtime and Tool boundaries are on `main`.
 - Stage 3 W1 wires the real App shell and text send/history. PR #12 added the
@@ -152,7 +152,13 @@ As of 2026-10-04:
   Native query teardown preserves the original responder; no host restart/retry.
   S5-14 Files has compiled behavioral RED on stacked draft
   [PR #31](https://github.com/54zhien/Zen-Agent/pull/31). Its complete Workspace
-  candidate is entering native regression CI; the full Files gate remains open.
+  candidate at remote `c738ed3da7d107ea8906d59d21a98a13eb0b39af`, tree
+  `94a1c6db6b3428c0e6150bd45ce13cf1040fd50f`, passed full PR37209436556
+  (912 Swift/141 suites,20 XCTest,50 phone UI with one expected Pad-only skip,
+  plus one actual Pad case). Same-source push37209433472 passed unit tests,
+  native export and actual Pad, but import cancellation failed; the full Files
+  gate remains open. See [the current resume handoff](tasks/stage5-review-handoff.md)
+  before using older task snapshots.
   S5-15–16 remain authorized after that full gate, in order.
   Full-stage and physical acceptance remain open.
 - The owner subsequently directed all Stage 5 physical acceptance to take place

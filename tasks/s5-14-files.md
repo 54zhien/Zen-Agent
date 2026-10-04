@@ -4,6 +4,45 @@ This authorized slice follows the completed Search full code gate. The Files
 Workspace source gate is still open. The implementation candidate follows the
 compiled existing-API behavioral RED recorded below.
 
+## Current resume point — 2026-10-05
+
+Remote `c738ed3da7d107ea8906d59d21a98a13eb0b39af`, tree
+`94a1c6db6b3428c0e6150bd45ce13cf1040fd50f`, local source commit `490177e`.
+PR31 is draft/open/unmerged, based on Search PR30. The temporary test profile
+and DEBUG modal-style flag are absent. This is the complete production path.
+
+| Actual full run | Phone job | Receipt | Actual Pad job |
+| --- | --- | --- | --- |
+| PR37209436556 | 111457501665 | generation/build,20 XCTest,912 Swift/141 suites90.478s;50 UI,one expected Pad-only skip,zero failures1330.718s | 111457501681:one actual case95.815s,zero failure/skip |
+| push37209433472 | 111457494687 | generation/build,20 XCTest,912 Swift/141 suites78.202s;50 UI,one expected Pad-only skip,five assertions in import cancellation1147.437s;export passed41.384s | 111457494662:one actual case86.698s,zero failure/skip |
+
+Each phone has one actual Swift test-run start and no test-host restart/retry.
+PR import passed48.613s, export passed55.923s. In both exports, actual Back
+returned from On My iPhone to Browse, then a hittable native Cancel was tapped;
+actual disappearance, retained active Files owner and Composer restoration passed.
+
+Push import fails at `cancelNativePicker`: no hittable Cancel/Back is returned.
+The exported failure screenshot was viewed: Recents is stable, with a visible
+native X beside More. Its AX hierarchy includes Other Cancel at
+(291.3,92,36.7,36), so this is a visible-control/AX-hit disagreement, distinct
+from the earlier hidden export Cancel overlapping More. Its cause remains
+unresolved; do not call it a product dismissal bug or a timing flake without
+verification. Five downstream assertions follow the undismissed import picker.
+
+Artifact11306088955 (xcresult,expires2026-10-11) belongs to that failing push.
+Rendered screenshot and AX text were copied to the durable handoff folder:
+`C:\Users\Azusa\Documents\Codex\stage5-handoff-2026-10-05`.
+First inspect `import-visible-close-ax-mismatch.png` and `import-failure-ax.txt`.
+No skip, fabricated app Cancel, weakened disappearance/focus assertion or blind
+rerun is permitted. Repair only after evidence, then pass full source gates.
+
+The metadata-commit/catalog cleanup repair is unit GREEN in both latest runs.
+Its genuine RED and prior failed native experiments remain below. Settings and
+Visuals are preparation only; do not publish production before the preceding
+full source gate. Read `stage5-review-handoff.md` for all workspace/ownership
+and unfinished-work instructions. Later documentation checkpoints have no new
+Swift changes and must not be presented as newly tested source trees.
+
 Blueprint navigation section15 and data sections6–7 require a real single-level
 catalog, native import, immutable preview/export and guarded removal. Workspace
 presence does not authorize Agent reading or enable incomplete attachment Send.

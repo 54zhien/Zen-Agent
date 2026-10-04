@@ -117,8 +117,21 @@ final class FilesWorkspaceUITests: XCTestCase {
         // Rendered CI screenshots show that the hidden AX Other's stale frame
         // overlaps More. Never synthesize input at that non-hittable frame.
         for _ in 0..<6 {
+            // The picker root exists before its remote navigation controls can
+            // accept input. Wait for an actual native action, not just that root.
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                let actions = picker.buttons.matching(labels).allElementsBoundByIndex
+                    + picker.otherElements.matching(labels).allElementsBoundByIndex
+                return actions.contains { $0.isHittable }
+                    || (picker.buttons["BackButton"].exists && picker.buttons["BackButton"].isHittable)
+            }, object: nil)
+            let readiness = XCTWaiter.wait(for: [ready], timeout: 5)
+            print("FILES_NATIVE_ACTION_READY result=\(readiness.rawValue)")
             let buttons = picker.buttons.matching(labels).allElementsBoundByIndex
             let others = picker.otherElements.matching(labels).allElementsBoundByIndex
+            for action in buttons + others {
+                print("FILES_NATIVE_CANCEL_CANDIDATE frame=\(action.frame) hittable=\(action.isHittable) type=\(action.elementType.rawValue)")
+            }
             if let cancel = (buttons + others).first(where: { $0.isHittable }) {
                 let before = XCTAttachment(screenshot: app.screenshot())
                 before.name = "Native picker visible Cancel"
@@ -135,6 +148,10 @@ final class FilesWorkspaceUITests: XCTestCase {
                 failure.name = "Native picker without visible cancellation"
                 failure.lifetime = .keepAlways
                 add(failure)
+                let hierarchy = XCTAttachment(string: app.debugDescription)
+                hierarchy.name = "Native picker cancellation accessibility hierarchy"
+                hierarchy.lifetime = .keepAlways
+                add(hierarchy)
                 return
             }
             print("FILES_NATIVE_BROWSE_BACK label=\(back.label) frame=\(back.frame)")
