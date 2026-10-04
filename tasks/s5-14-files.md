@@ -29,12 +29,35 @@ files were excluded from publication.
 
 Next diagnostic checks an existing action's nonempty frame is within the app
 viewport before querying its hit point, retaining the actual native input.
-Before each navigation query it attaches the full AX hierarchy, and prints
-the candidate frame before hittability so an early XCTest failure retains
-the geometry. The existing files-red profile runs the real Files cases plus
+Before each readiness wait it attaches the full AX hierarchy. The separate
+candidate frame print precedes its later hit query, but not the readiness
+predicate's query; an early failure relies on the prior AX attachment for
+geometry. The existing files-red profile runs the real Files cases plus
 all unit tests; it is temporary diagnostic scope, never a complete source gate.
 Apple defines isHittable as a computed hit point, independently of existence:
 https://developer.apple.com/documentation/xcuiautomation/xcuielement/ishittable
+
+The first geometry diagnostic remote `c602c54`/tree `ffe725b` failed UI-test
+compilation for two missing explicit self references inside the escaping
+predicate closure; no native case ran. Local `e767f7e`, remote
+`e4051b5a7de9f2435ce0374a7ef91c82a7ab8cbf`, tree
+`3b6f3039f4ff176326d9ce54affaaff528ba6b38`, corrects only those references.
+Independent read-only review found no behavior blocker. In-bounds geometry
+cannot guarantee a computable hit point, and rejecting a partially offscreen
+action can cause a false failure; neither limitation grants a passing result.
+Settings/Visual drafts remain untracked and excluded from this source candidate.
+
+Both corrected diagnostics passed on that exact tree: PR `37221327707`, phone
+`111492128740`,20 XCTest,912 Swift/141 suites88.716s;import42.251s and
+export46.371s. Push `37221323423`, phone `111492129104`,20 XCTest,912/141
+74.906s;import54.886s and export61.058s. Each executes both real Files cases
+without failures. Actual Pad PR `111492128421`113.449s and push
+`111492129053`111.228s each passed the one native axis case without skips.
+The existing workflow's test-host guards passed. The native export receipt
+shows Back to Browse and then the real Button at(20,92,36,36), with the stale
+AX Other still non-hittable. These successes do not independently establish
+the prior activation-point failure's cause. The temporary profile is now
+removed for the complete source gate; Settings production still waits for it.
 
 Independent read-only review of `70bf0f0..da848f5` found no blocking change.
 Ruling: retain the native-action readiness experiment pending actual CI evidence;
@@ -45,7 +68,7 @@ sixth Back. This was present in the base and is outside the current Recents case
 Review declined to establish timing cause or CI results; both remain empirical
 questions. Settings/Visual implementation was outside that review.
 
-Remote `c738ed3da7d107ea8906d59d21a98a13eb0b39af`, tree
+Historical full candidate: remote `c738ed3da7d107ea8906d59d21a98a13eb0b39af`, tree
 `94a1c6db6b3428c0e6150bd45ce13cf1040fd50f`, local source commit `490177e`.
 PR31 is draft/open/unmerged, based on Search PR30. The temporary test profile
 and DEBUG modal-style flag are absent. This is the complete production path.
