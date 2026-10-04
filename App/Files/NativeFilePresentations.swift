@@ -78,8 +78,12 @@ struct NativeFilePreview: UIViewControllerRepresentable {
         func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
             copy.url as NSURL
         }
-        func previewController(_ controller: QLPreviewController,
+        nonisolated func previewController(_ controller: QLPreviewController,
                                editingModeFor previewItem: any QLPreviewItem) -> QLPreviewItemEditingMode { .disabled }
-        func previewControllerDidDismiss(_ controller: QLPreviewController) { onClose() }
+        nonisolated func previewControllerDidDismiss(_ controller: QLPreviewController) {
+            // Quick Look's delegate requirement is nonisolated in this SDK. Only
+            // the captured presentation owner may close its MainActor overlay.
+            Task { @MainActor [weak self] in self?.onClose() }
+        }
     }
 }

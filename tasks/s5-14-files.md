@@ -217,3 +217,17 @@ Local YAML and ten profile guards passed. The managed build-settings guard could
 not execute locally because Ruby is unavailable; its real CI result remains required.
 PR31 stays draft and unmerged. External provider completion, device comfort,
 VoiceOver and memory acceptance follow the owner's whole-stage review.
+
+
+## First production compilation receipt
+
+The e6222c5 /tree39b2375 candidate failed PR phone111431964899 during app build:
+QLPreviewControllerDelegate's SDK requirements are nonisolated, while the
+Coordinator's editing and dismissal implementations inherited MainActor. No
+behavioral GREEN is claimed. The repair keeps the constant disabled editing
+response nonisolated, and explicitly hops the dismissal callback onto MainActor
+without transferring the native controller or weakening global concurrency checks.
+Swift's primary migration guidance explains nonisolated protocol requirements:
+https://www.swift.org/migration/documentation/swift-6-concurrency-migration-guide/commonproblems/
+The callback still captures the presentation ID through the existing close guard.
+Actual compilation, unit/native UI and full gates remain pending.
