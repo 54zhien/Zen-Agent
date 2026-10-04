@@ -12,7 +12,7 @@ struct FilesImportCancellationTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
         let cancellation = FileImportCancellationReceipt()
-        let start = DispatchSemaphore(value: 0)
+        let start = AsyncStream<Void>.makeStream()
         let files = ManagedFileStore(applicationSupportRoot: root,
             protectionRequirement: .bestEffort, temporaryFileObserver: { _, phase in
                 guard phase == .protectedAfterWrite else { return }
@@ -20,11 +20,13 @@ struct FilesImportCancellationTests {
             })
         let bytes = Data(repeating: 0x35, count: 192 * 1024)
         let importTask = Task.detached {
-            start.wait()
+            var starts = start.stream.makeAsyncIterator()
+            guard await starts.next() != nil else { throw CancellationError() }
             return try files.ingest(data: bytes, displayName: "cancelled.txt", in: store)
         }
         cancellation.bind(importTask)
-        start.signal()
+        start.continuation.yield(())
+        start.continuation.finish()
         var cancelled = false
         do { _ = try await importTask.value }
         catch is CancellationError { cancelled = true }

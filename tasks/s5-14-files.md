@@ -141,3 +141,18 @@ handoff and no asset/version commit. Its pre-call signal does not prove GRDB
 queue admission; implementation review must separately confirm that cancellation
 checks run inside the same writer transaction, before any insert and before
 commit. No stronger queue-wait evidence is claimed.
+
+## Initial Files test build failure — not behavioral RED
+
+Remote9bb7aa5cb0b231af5632dec996b0e1f217cfa6a0 /tree
+7b4288291b03f89760adf5aa4c84788f73325c1f published the test-only candidate.
+Push37197419656 phone111422065597 and actual Pad111422065604 both failed
+test compilation: FilesImportCancellationTests line23 called semaphore.wait
+directly in an async Task body, forbidden by the current Swift6 SDK. No test-run
+start or behavioral assertion receipt exists; this is not behavioral RED.
+
+Replace that startup latch with a buffered AsyncStream event. Bind the actual
+Task to the cancellation receipt before yielding its startup event; the worker
+awaits that event asynchronously, then copies through the unchanged production
+ingest path. The synchronous after-copy observer still cancels the same actual
+Task. No production Files change accompanies this test compilation repair.
