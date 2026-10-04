@@ -11,6 +11,31 @@ The branch-fixed settings-red profile runs all unit tests and Settings UI;
 compilation and behavioral failures must be observed before production changes.
 This targeted profile is not the complete Settings source gate.
 
+## Compiled behavioral RED and first implementation
+
+Local `909458e`,remote `d7f243c648deafc66f1efe2be17aa69889462b42`,
+tree `155d1c05a3b96e9bfacfcb6f6a7b6929c2e6e165`,draft PR32 targets Files.
+Push37225526901 / phone111504293120 and PR37225544000 / phone111504345019
+both generated and built the app and test targets, passed20 XCTest, and ran915
+Swift/142 suites. Each had precisely one Swift issue: failed fresh metadata
+publication leaves generation1 secret bytes. Published and unreadable metadata
+retention regressions passed. Both actual Settings UI cases failed because the
+Sidebar destination is disabled (2 tests/2 failures); no missing-symbol RED.
+Push Swift92.871s/UI60.144s; PR Swift71.329s/UI41.338s. Each retained exactly one
+Swift test-run start and no host restart. Logs are retained in the handoff folder.
+Push actual Pad111504293156 passed; PR Pad111504345002 failed an axis-menu
+readiness expectation at the existing helper line83 (185.818s). This independent
+failure is retained and must be resolved or pass on the complete candidate before
+a source gate can close; it is not erased or assigned an unproven cause.
+
+Implementation starts only after the PR's compiled behavioral failures were
+observed; the same-source push finished with matching failures during that work.
+Adds formal Settings models/pages and native responder ownership; captured New
+initialization, future-default scope, account CAS, immutable Soul version/disable,
+real storage/lease behavior and persisted menu preferences use existing owners.
+The full third Startup/New UI case is now wired to an empty real AppShell fixture.
+Production and new-API tests remain unverified until actual candidate CI.
+
 Blueprint navigation section16, the Prompt/Soul baseline and development plan
 define grouped Settings: models/services, appearance, Agent, files/storage,
 data/privacy and About. Agent lives only under Settings; Soul is currently live.

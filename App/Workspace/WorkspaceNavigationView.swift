@@ -10,16 +10,19 @@ struct WorkspaceNavigationView<Content: View>: View {
     let content: Content
     let model: AppShellModel?
     let captureFocus: () -> ComposerOverlayFocus?
+    let canConfigureNew: (String) -> Bool
     @State private var overlays: WorkspaceOverlayCoordinator?
     @Environment(\.layoutDirection) private var direction
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(state: WorkspaceNavigationState, model: AppShellModel? = nil,
-         captureFocus: @escaping () -> ComposerOverlayFocus? = { nil }, spatiallyAvailable: Bool,
+         captureFocus: @escaping () -> ComposerOverlayFocus? = { nil },
+         canConfigureNew: @escaping (String) -> Bool = { _ in false }, spatiallyAvailable: Bool,
          windowInsets: EdgeInsets = EdgeInsets(),
          context: @escaping () -> WorkspaceSidebarNativeContext?, @ViewBuilder content: () -> Content) {
         self.state = state
         self.model = model; self.captureFocus = captureFocus
+        self.canConfigureNew = canConfigureNew
         self.spatiallyAvailable = spatiallyAvailable
         self.windowInsets = windowInsets
         self.context = context
@@ -74,6 +77,12 @@ struct WorkspaceNavigationView<Content: View>: View {
                         .padding(.top, windowInsets.top)
                         .transition(.opacity).zIndex(100)
                 }
+                if state.overlay == .settings, let overlays, let settings = overlays.settings, let id = state.overlayID {
+                    SettingsWorkspaceView(model: settings, onClose: { overlays.close(expectedID: id) },
+                        onFiles: { overlays.openFilesFromSettings(expectedID: id) })
+                        .id(id).padding(.top, windowInsets.top)
+                        .transition(.opacity).zIndex(100)
+                }
             }
             .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: state.overlay)
             .background(Color(white: 0.035))
@@ -86,7 +95,10 @@ struct WorkspaceNavigationView<Content: View>: View {
                 overlays = WorkspaceOverlayCoordinator(store: store, shell: model, navigation: state)
             }
             state.onReset = { [weak overlays] in overlays?.reset() }
+            state.onConfigureNew = { [weak overlays] id in
+                overlays?.enterNewSettings(id: id, eligible: canConfigureNew(id), captureFocus: captureFocus)
+            }
         }
-        .onDisappear { overlays?.reset(); state.onReset = nil }
+        .onDisappear { overlays?.reset(); state.onReset = nil; state.onConfigureNew = nil }
     }
 }

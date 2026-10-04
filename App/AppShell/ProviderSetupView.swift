@@ -318,6 +318,7 @@ final class ProviderSetupModel {
 @MainActor
 struct ProviderSetupView: View {
     @Bindable var model: ProviderSetupModel
+    var settingsFocus: SettingsInputFocus? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.dismiss) private var dismiss
 
@@ -339,9 +340,14 @@ struct ProviderSetupView: View {
                 }
 
                 Section("API Key") {
-                    SecureField("DeepSeek API Key", text: $model.apiKey)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
+                    if let settingsFocus {
+                        SettingsTextField(text: $model.apiKey, title: "DeepSeek API Key", focus: settingsFocus,
+                            secure: true, identifier: "DeepSeek API Key")
+                    } else {
+                        SecureField("DeepSeek API Key", text: $model.apiKey)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
                 }
 
                 Section("保存状态") {
@@ -354,7 +360,7 @@ struct ProviderSetupView: View {
                     Button(model.isComplete ? "配置完成" : "保存配置") {
                         _ = model.save()
                     }
-                    .disabled(model.isSaving || model.isComplete || model.models.isEmpty)
+                    .disabled(model.isSaving || model.isComplete || model.models.isEmpty || settingsFocus?.hasMarkedText == true)
                     if model.canAbandonAndCreateNew {
                         Button("放弃本次并新建", role: .destructive) {
                             model.startNewAttempt()
@@ -366,9 +372,13 @@ struct ProviderSetupView: View {
             .navigationTitle("配置模型")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") { dismiss() }
+                    Button("关闭") {
+                        if let settingsFocus { settingsFocus.release { dismiss() } }
+                        else { dismiss() }
+                    }.disabled(settingsFocus?.hasMarkedText == true)
                 }
             }
         }
+        .onDisappear { model.apiKey = "" }
     }
 }

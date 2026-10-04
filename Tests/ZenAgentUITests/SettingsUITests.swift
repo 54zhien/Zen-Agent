@@ -50,6 +50,43 @@ final class SettingsUITests: XCTestCase {
     }
 
     @MainActor
+    func testEmptyStartupConfiguresItsNewOwnerThroughSettingsAndCommitsOnlyOnSend() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_NEW_CONFIGURE_UI_TEST"] = "1"
+        app.launch()
+        let configure = app.buttons["new-conversation-configure"]
+        XCTAssertTrue(configure.waitForExistence(timeout: 15))
+        let editor = app.textViews["conversation-composer-input"]
+        editor.tap()
+        editor.typeText("first Send keeps its original draft")
+        XCTAssertFalse(app.buttons["conversation-composer-send"].isEnabled)
+        configure.tap()
+        let settings = app.descendants(matching: .any)["settings-page"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        app.buttons["settings-providers"].tap()
+        app.buttons["settings-provider-add"].tap()
+        let key = app.secureTextFields["DeepSeek API Key"]
+        XCTAssertTrue(key.waitForExistence(timeout: 5))
+        key.tap()
+        key.typeText("settings-ui-fixture-key")
+        app.buttons["保存配置"].tap()
+        XCTAssertTrue(app.staticTexts["配置完成"].waitForExistence(timeout: 5))
+        app.buttons["关闭"].tap()
+        app.buttons["settings-close"].tap()
+        expect { !settings.exists }
+        XCTAssertTrue(configure.exists, "configuration alone must not commit the New Conversation")
+        XCTAssertTrue((editor.value as? String)?.contains("first Send keeps its original draft") == true)
+        let send = app.buttons["conversation-composer-send"]
+        XCTAssertTrue(send.wait(for: \.isEnabled, toEqual: true, timeout: 5))
+        send.tap()
+        expect { !configure.exists }
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+    }
+
+    @MainActor
     func testSettingsReachesSoulAndClosingRestoresTheConversationDraft() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"

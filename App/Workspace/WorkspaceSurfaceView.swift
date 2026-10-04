@@ -102,6 +102,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
 
     var body: some View {
         WorkspaceNavigationView(state: navigation, model: model, captureFocus: captureOverlayFocus,
+                                canConfigureNew: canConfigureNew,
                                 spatiallyAvailable: sidebarSpatiallyAvailable,
                                 windowInsets: navigationInsets,
                                 context: sidebarContext) {
@@ -382,6 +383,14 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 && !pane.composer.isComposing && !pane.composer.isSelectionHandleDragging
                 && pane.composer.quoteDragPhase == .idle,
             allowsClosing: native.allowsClosing, surfaceView: native.surfaceView)
+    }
+
+    private func canConfigureNew(_ id: String) -> Bool {
+        guard scenePhase == .active, let model, model.currentSettingsNewID == id, let pane = model.pane,
+              activeSurfaceSlot == nil, !resize.isActive, returnPresentation.phase == nil,
+              let native = controller(for: model.sourceSurfaceSlot).sidebarNativeContext?() else { return false }
+        return native.allowsOpening && !pane.composer.isComposing && !pane.composer.isSelectionHandleDragging
+            && pane.composer.quoteDragPhase == .idle
     }
 
     private func captureOverlayFocus() -> ComposerOverlayFocus? {
@@ -689,6 +698,8 @@ private struct WorkspaceHostedContent<Content: View>: View {
             && model?.previewSurfaceSlot != slot))
         .environment(\.workspaceInputSuppressed, navigation.overlay != nil || returnPresentation.suppressesTarget(slot))
         .environment(\.workspaceNavigation, navigation)
+        .environment(\.modelMenuPreferences, model?.modelMenus)
+        .preferredColorScheme(model?.appearance.appearance.colorScheme)
         // UIKit installs this root once. Read mutable layout state here so
         // Observation updates the retained subtree instead of freezing a value
         // captured outside the hosting controller at its first installation.

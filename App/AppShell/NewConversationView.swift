@@ -35,6 +35,7 @@ struct AppShellRootView: View {
         .task {
             model.assembleIfNeeded()
         }
+        .preferredColorScheme(model.appearance.appearance.colorScheme)
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background:
@@ -69,6 +70,7 @@ struct NewConversationView: View {
     @State private var historyAction: Task<Void, Never>?
     @Environment(\.surfaceLiftController) private var lift
     @Environment(\.surfaceBrowseController) private var browse
+    @Environment(\.workspaceNavigation) private var workspaceNavigation
 
     var body: some View {
         Group {
@@ -133,7 +135,7 @@ struct NewConversationView: View {
                                 dynamicTypeSize: dynamicTypeSize
                             ))
                     } actions: {
-                        Button("配置模型") { isProviderSetupPresented = true }
+                        Button("配置模型") { configureNew() }
                             .font(Typography.font(
                                 for: .interfaceBody,
                                 dynamicTypeSize: dynamicTypeSize
@@ -184,12 +186,14 @@ struct NewConversationView: View {
                             .disabled(!canOpenAccessibleSplit)
                         }
 
-                        Button("配置模型") { isProviderSetupPresented = true }
-                            .font(Typography.font(
-                                for: .interfaceBody,
-                                dynamicTypeSize: dynamicTypeSize
-                            ))
-                            .accessibilityIdentifier("new-conversation-configure")
+                        if isSource, model.currentSettingsNewID == presentedID {
+                            Button("配置模型") { configureNew() }
+                                .font(Typography.font(
+                                    for: .interfaceBody,
+                                    dynamicTypeSize: dynamicTypeSize
+                                ))
+                                .accessibilityIdentifier("new-conversation-configure")
+                        }
                     }
                 }
             }
@@ -302,6 +306,11 @@ struct NewConversationView: View {
         }
         .onDisappear { historyAction?.cancel(); historyAction = nil }
 
+    }
+
+    private func configureNew() {
+        if let workspaceNavigation { workspaceNavigation.onConfigureNew?(presentedID) }
+        else { isProviderSetupPresented = true }
     }
 
     private func openRecentConversation(id: String) {
