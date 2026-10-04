@@ -11,6 +11,7 @@ struct WorkspaceNavigationView<Content: View>: View {
     let captureFocus: () -> ComposerOverlayFocus?
     @State private var overlays: WorkspaceOverlayCoordinator?
     @Environment(\.layoutDirection) private var direction
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(state: WorkspaceNavigationState, model: AppShellModel? = nil,
          captureFocus: @escaping () -> ComposerOverlayFocus? = { nil }, spatiallyAvailable: Bool,
@@ -57,6 +58,7 @@ struct WorkspaceNavigationView<Content: View>: View {
                         .transition(.opacity).zIndex(100)
                 }
             }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: state.overlay)
             .background(Color(white: 0.035))
             .background(WorkspaceSidebarGestureBridge(state: state, travel: travel,
                 isRightToLeft: direction == .rightToLeft, context: context))

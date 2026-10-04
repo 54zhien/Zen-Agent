@@ -113,3 +113,25 @@ owner invalidation; warm-target Resting/drafts and a second WAL connection that
 commits deletion during the actual history snapshot. Only the live Full Single
 Recent toolbar entry is removed; New and Split retain their existing entry.
 Targeted compiled GREEN and full source gates are still pending.
+
+## First compiled implementation result and native Rail correction
+
+Remote28173228b76654d944d939a358297d2f8d434eb9 /tree74a4c855d84e9b095b250a46a980b8df3316323d
+compiled in PR37183488294 and push37183485523. Both phones passed886 Swift
+in136 suites and20 XCTest, including the real second-WAL stale-deletion and
+native-focus unit regressions. The two Search UI cases in each run still failed
+before overlay entry. Raw AX receipts distinguish this from the initial RED:
+Search was enabled, but its hittable wait failed. The untranslated full-screen
+SurfaceHitView used super.hitTest when no Card activation existed and consumed
+the exposed empty Rail strip. Keep the assertions; do not tap by forced coordinates.
+
+Add a real UIWindow/child-controller hierarchy regression with an underlying
+UIButton. Ordinary Full hit testing now rejects points outside the Surface's
+actual visible translated bounds; interior/closed Full and existing Card crop
+routing remain covered. Search also gains the specified route fade (static for
+Reduce Motion) and a bounded actual summary thumbnail. Compiled UI GREEN remains
+pending. PR actual Pad111380593291 passed130.947s; push111380590388 failed
+70.626s because Xcode application launch timed out before axis execution.
+Phone111380593292 /111380590431 each had2 UI failures and no restart/retry.
+Source review of the initial21-file implementation found no P1/P2 blocker;
+actual UI nevertheless found this missing native hit-routing boundary.

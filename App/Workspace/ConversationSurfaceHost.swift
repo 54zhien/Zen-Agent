@@ -632,7 +632,11 @@ private final class SurfaceHitView: UIView {
     weak var surfaceView: SurfaceClipView?
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard let surfaceView, surfaceView.onActivate != nil else {
+        guard let surfaceView else { return nil }
+        if surfaceView.onActivate == nil {
+            // The retained controller still fills the viewport after Sidebar
+            // translation. Its empty strip must pass through to the Rail below.
+            guard surfaceView.point(inside: surfaceView.visiblePoint(fromParent: point), with: event) else { return nil }
             return super.hitTest(point, with: event)
         }
         guard isUserInteractionEnabled, !isHidden, alpha > 0.01,

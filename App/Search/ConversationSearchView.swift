@@ -21,13 +21,10 @@ struct ConversationSearchView: View {
                     Button { onSelect(summary.id) } label: {
                         HStack(alignment: .top, spacing: 16) {
                             // Metadata projection only; never instantiate a live Pane.
-                            VStack(alignment: .leading, spacing: 4) {
-                                RoundedRectangle(cornerRadius: 1).frame(height: 2)
-                                RoundedRectangle(cornerRadius: 1).frame(height: 2).padding(.trailing, 10)
-                                RoundedRectangle(cornerRadius: 1).frame(height: 2).padding(.trailing, 5)
-                            }
-                            .foregroundStyle(.secondary.opacity(0.3))
-                            .padding(9).frame(width: 44, height: 58)
+                            Text(summary.excerpt.isEmpty ? summary.title : String(summary.excerpt.prefix(100)))
+                            .font(.system(size: 6)).lineLimit(5)
+                            .foregroundStyle(.secondary)
+                            .padding(7).frame(width: 44, height: 58, alignment: .topLeading)
                             .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
                             .accessibilityHidden(true)
                             VStack(alignment: .leading, spacing: 5) {
