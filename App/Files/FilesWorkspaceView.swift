@@ -77,17 +77,26 @@ struct FilesWorkspaceView: View {
         .background(Color(uiColor: .systemBackground))
         .accessibilityElement(children: .contain).accessibilityIdentifier("files-workspace")
         .task { await model.refresh() }
-        .sheet(item: $presentation) { item in
-            switch item.kind {
-            case .importFile:
-                NativeFilePicker(mode: .importFile, onPick: { url in
-                    if closePresentation(id: item.id) { Task { await model.importFile(at: url) } }
-                }, onCancel: { _ = closePresentation(id: item.id) })
-            case .preview(let copy):
+        .background {
+            if let item = presentation {
+                switch item.kind {
+                case .importFile:
+                    NativeFilePicker(mode: .importFile, onPick: { url in
+                        if closePresentation(id: item.id) { Task { await model.importFile(at: url) } }
+                    }, onCancel: { _ = closePresentation(id: item.id) })
+                        .frame(width: 1, height: 1).id(item.id)
+                case .export(let copy):
+                    NativeFilePicker(mode: .export(copy), onPick: { _ in _ = closePresentation(id: item.id) },
+                        onCancel: { _ = closePresentation(id: item.id) })
+                        .frame(width: 1, height: 1).id(item.id)
+                case .preview:
+                    EmptyView()
+                }
+            }
+        }
+        .sheet(item: previewPresentation) { item in
+            if case .preview(let copy) = item.kind {
                 NativeFilePreview(copy: copy, onClose: { _ = closePresentation(id: item.id) })
-            case .export(let copy):
-                NativeFilePicker(mode: .export(copy), onPick: { _ in _ = closePresentation(id: item.id) },
-                    onCancel: { _ = closePresentation(id: item.id) })
             }
         }
         .confirmationDialog("删除文件？", isPresented: Binding(
@@ -99,6 +108,16 @@ struct FilesWorkspaceView: View {
                 }
             }
         } message: { Text("被会话、草稿或待提交附件引用的文件会保留。") }
+    }
+
+    private var previewPresentation: Binding<Presentation?> {
+        Binding(get: {
+            guard let item = presentation, case .preview = item.kind else { return nil }
+            return item
+        }, set: { value in
+            guard value == nil, let item = presentation, case .preview = item.kind else { return }
+            _ = closePresentation(id: item.id)
+        })
     }
 
     private func present(_ item: FileWorkspaceItem, export: Bool) {

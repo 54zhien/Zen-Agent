@@ -12,35 +12,75 @@ struct NativeFilePicker: UIViewControllerRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(mode: mode, onPick: onPick, onCancel: onCancel) }
 
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let controller: UIDocumentPickerViewController
-        switch mode {
-        case .importFile:
-            controller = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
-            controller.allowsMultipleSelection = false
-        case .export(let copy):
-            controller = UIDocumentPickerViewController(forExporting: [copy.url], asCopy: true)
-            controller.view.accessibilityIdentifier = "files-native-export"
-        }
-        controller.delegate = context.coordinator
-        return controller
+    func makeUIViewController(context: Context) -> Presenter {
+        Presenter(coordinator: context.coordinator)
     }
 
-    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+    func updateUIViewController(_ controller: Presenter, context: Context) {}
 
-    final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        // The native picker retains its immutable export source until its actual dismissal.
+    static func dismantleUIViewController(_ controller: Presenter, coordinator: Coordinator) {
+        coordinator.invalidate()
+    }
+
+    final class Presenter: UIViewController {
+        private let coordinator: Coordinator
+        init(coordinator: Coordinator) {
+            self.coordinator = coordinator
+            super.init(nibName: nil, bundle: nil)
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
+        override func loadView() {
+            view = UIView()
+            view.backgroundColor = .clear
+            view.isUserInteractionEnabled = false
+        }
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            coordinator.present(from: self)
+        }
+    }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
+        // This owner survives native dismissal and retains the immutable export
+        // source even when the Files overlay is removed during presentation.
         let mode: Mode
         let onPick: (URL) -> Void
         let onCancel: () -> Void
+        private var picker: UIDocumentPickerViewController?
+        private var started = false
+        private var isPresenting = false
         private var finished = false
+        private var invalidated = false
         init(mode: Mode, onPick: @escaping (URL) -> Void, onCancel: @escaping () -> Void) {
             self.mode = mode; self.onPick = onPick; self.onCancel = onCancel
         }
+
+        func present(from presenter: UIViewController) {
+            guard !started, !finished, presenter.view.window != nil else { return }
+            started = true
+            let controller: UIDocumentPickerViewController
+            switch mode {
+            case .importFile:
+                controller = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+                controller.allowsMultipleSelection = false
+                controller.view.accessibilityIdentifier = "files-native-import"
+            case .export(let copy):
+                controller = UIDocumentPickerViewController(forExporting: [copy.url], asCopy: true)
+                controller.view.accessibilityIdentifier = "files-native-export"
+            }
+            controller.delegate = self
+            picker = controller
+            // A document picker owns its native remote browser and bar geometry.
+            // Present it as a UIKit modal, rather than embedding it as sheet content.
+            isPresenting = true
+            presenter.present(controller, animated: true) { [self] in
+                isPresenting = false
+                if invalidated { dismissInvalidatedPicker() }
+            }
+            controller.presentationController?.delegate = self
+        }
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            guard !finished else { return }
-            finished = true
-            if let url = urls.first { onPick(url) } else { onCancel() }
+            finish(controller, url: urls.first)
         }
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
 #if DEBUG
@@ -48,8 +88,45 @@ struct NativeFilePicker: UIViewControllerRepresentable {
                 print("FILES_NATIVE_PICKER_CANCEL received finished=\(finished)")
             }
 #endif
+            finish(controller, url: nil)
+        }
+        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+            guard let picker, presentationController.presentedViewController === picker else { return }
+            finish(picker, url: nil)
+        }
+
+        private func finish(_ controller: UIDocumentPickerViewController, url: URL?) {
+            guard !finished, picker === controller else { return }
+            finished = true
+            let complete = { [self] in
+                picker = nil
+                guard !invalidated else { return }
+                if let url { onPick(url) } else { onCancel() }
+            }
+            if controller.presentingViewController != nil {
+                controller.dismiss(animated: true, completion: complete)
+            } else {
+                complete()
+            }
+        }
+
+        func invalidate() {
+            invalidated = true
             guard !finished else { return }
-            finished = true; onCancel()
+            finished = true
+            // Dismantling during the presentation animation must wait for its
+            // completion before dismissing and releasing the copy's lease.
+            guard !isPresenting else { return }
+            dismissInvalidatedPicker()
+        }
+
+        private func dismissInvalidatedPicker() {
+            guard let picker else { return }
+            if picker.presentingViewController != nil {
+                picker.dismiss(animated: false) { [self] in self.picker = nil }
+            } else {
+                self.picker = nil
+            }
         }
     }
 }

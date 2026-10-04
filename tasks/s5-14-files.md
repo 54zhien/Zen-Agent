@@ -331,3 +331,46 @@ Native export receives additional test-only AX/frame and actual cancellation
 callback diagnostics, with input and assertions unchanged. No speculative picker
 production repair or native-dismissal success claim. Targeted native and complete
 source gates remain required before Settings.
+
+## Cleanup GREEN and native presentation investigation
+
+Remote531dc11debb2172262e134445f7324cd0a45905f /tree
+562b5486daf7d74ad2425188bc06556e998d6de5 passed all912 Swift Testing in141
+suites in PR phone11144650953794.855s and push11144650441092.843s;
+20 XCTest passed in each, one Swift test-run start and no host restart.
+The committed-removal/refusing-FileManager regression now passes, including
+catalog refresh, explicit pending cleanup, real retry and retained referenced bytes.
+
+Native export failed in both phones. Before input, Cancel was an AX Other at
+(263.7,92,36,36), not hittable; tapping its reported center left the actual picker
+visible and Files Close covered. No documentPickerWasCancelled receipt appeared.
+The preceding decoded native AX evidence shows that same coordinate opens the
+remote file browser's More menu; import Cancel was sometimes only1pt wide.
+This rules out treating the earlier element-type query repair as a dismissal fix.
+
+Test the concrete presentation hypothesis: the current picker is embedded directly
+as SwiftUI sheet content, while Apple's current UIKit example presents the actual
+UIDocumentPickerViewController with present(_:animated:completion:).
+Replace only that adapter with a conditional background Presenter bound to the
+existing presentation UUID. Keep Quick Look's sheet. Coordinator retains the
+immutable export source, coalesces delegate/interactive cancellation, and publishes
+the captured result only after actual native dismissal. Dismantle invalidates
+callbacks and retains the owner through presentation/dismissal completion.
+Read-only lifecycle review found no P1/P2; actual compilation and native behavior
+remain pending. Files UI input and its complete dismissal/restoration assertions
+are unchanged for this presentation experiment.
+Apple: https://developer.apple.com/documentation/uikit/providing-access-to-directories
+
+Actual Pad push111446504479 passed86.556s. PR111446509517 failed only its
+greater-than50pt resize assertion: actual Pan began, ended normally and applied39pt,
+with both native hosts visible, the same handle and released input leases.
+The drag's two XCUICoordinates reference the moving divider; XCTest resolves that
+element repeatedly while synthesizing input. Apple's coordinate documentation
+explicitly says locations depend dynamically on the referenced element's frame.
+Anchor the same100pt input to the stable app viewport using the captured handle
+center, retaining velocity, duration and all ratio/identity/restoration assertions.
+This is a test-input hypothesis, not a production gesture fix or Pad GREEN claim.
+Apple: https://developer.apple.com/documentation/xcuiautomation/xcuicoordinate/screenpoint
+
+The targeted native candidate and subsequent complete Stage5 suite must pass on
+their exact trees before Settings production begins.
