@@ -143,10 +143,14 @@ As of 2026-10-04:
   PR37180642485: generation/build,873 Swift Testing,20 XCTest,46 phone UI
   (one expected Pad-only skip), plus one actual Pad axis case in each run.
   No retry/host restart; earlier failed evidence remains in the slice record.
-  S5-13 Search is implemented, with compiled unit gates and reachable native
-  Search UI. Plain-exit responder restoration and native keyboard geometry
-  corrections are undergoing targeted CI; the full Search gate is not closed.
-  S5-14–16 remain authorized in order after each preceding full gate.
+  S5-13 Search passed its full source gate on stacked draft
+  [PR #30](https://github.com/54zhien/Zen-Agent/pull/30), unmerged. Remote
+  `6a217da90153e04a5e0120195610aaae95ab9a35`, tree
+  `81dfd8c48e3cb17a453749432fc0f6272bbdcb24`, passed push37195522196 and
+  PR37195524247: generation/build,894 Swift Testing,20 XCTest,48 phone UI
+  (one expected Pad-only skip), plus one actual Pad axis case in each run.
+  Native query teardown preserves the original responder; no host restart/retry.
+  S5-14 Files behavior RED is next; S5-15–16 remain authorized in order.
   Full-stage and physical acceptance remain open.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
