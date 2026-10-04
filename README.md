@@ -121,12 +121,16 @@ As of 2026-09-30:
   (837 Swift Testing, 20 XCTest, 30 UI), including hidden-source restoration
   against a changed native viewport. Parallel PR CI had an intermittent older
   initial-Lift admission failure; it remains recorded in the PR and slice record.
-- S5-10 Divider resize/closure is in progress on stacked draft
-  [PR #27](https://github.com/54zhien/Zen-Agent/pull/27). Compiled behavioral RED
-  [CI](https://github.com/54zhien/Zen-Agent/actions/runs/37139764904) reproduced
-  the wrong bottom reference identity, static Handle and accidental line close.
-  Its first implementation candidate requires fresh macOS CI; see
-  [the slice record](tasks/s5-10-resize.md). S5-11–16 remain authorized in order.
+- S5-10 Divider resize/closure passed its full source gate on stacked draft
+  [PR #27](https://github.com/54zhien/Zen-Agent/pull/27), unmerged. Exact tree
+  `ba0268272439a59eb0f3fa43bd46618b34a89746` passed
+  [CI](https://github.com/54zhien/Zen-Agent/actions/runs/37163392220)
+  (852 Swift Testing, 20 XCTest, 35 UI); see [the slice record](tasks/s5-10-resize.md).
+- S5-11 device presentation is in progress on stacked draft
+  [PR #28](https://github.com/54zhien/Zen-Agent/pull/28). The propagated S5-10
+  baseline built and reproduced all three rotation/Return UI regressions.
+  Product corrections require full iPhone CI and the actual iPad axis test.
+  S5-12–16 remain authorized in order.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
   does not establish device memory, performance, input, comfort or VoiceOver acceptance.

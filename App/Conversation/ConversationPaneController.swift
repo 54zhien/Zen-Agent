@@ -82,6 +82,10 @@ final class ConversationPaneController {
         return bridge
     }
 
+    func restoreInterruptedLayout(_ original: ReadingMode) {
+        enqueue(readingPosition.restoreInterruptedLayout(original))
+    }
+
     @discardableResult
     func consume(_ event: AgentEvent, in ownerConversationID: String) throws -> Set<String> {
         guard ownerConversationID == conversationID else { return [] }

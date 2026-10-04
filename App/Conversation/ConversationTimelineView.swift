@@ -223,6 +223,7 @@ struct ConversationTimelineView: View {
                         )
                     }
                     applyPendingScrollIfReady()
+                    publishReturnLayoutIfReady(latestScrollGeometry)
                 }
             }
             .onScrollGeometryChange(for: ConversationTimelineViewport.self) { geometry in
@@ -423,6 +424,17 @@ struct ConversationTimelineView: View {
         publishDividerViewport(geometry)
         acknowledgeAppliedScrollIfReady(geometry)
         applyPendingScrollIfReady()
+        publishReturnLayoutIfReady(geometry)
+    }
+
+    private func publishReturnLayoutIfReady(_ geometry: ScrollGeometry) {
+#if DEBUG
+        scrollBridge?.timelineReceiptDiagnostic = "revision=\(layoutRevision);accepted=\(String(describing: acceptedLayoutRevision));measured=\(String(describing: measuredLayoutRevision));ready=\(acceptsReadingGeometry);viewport=\(geometry.viewportHeight)"
+#endif
+        guard acceptsReadingGeometry, acceptedLayoutRevision == layoutRevision,
+              measuredLayoutRevision == layoutRevision, pendingAppliedScroll == nil else { return }
+        scrollBridge?.publishReturnLayout(revision: layoutRevision,
+            visibilityRevision: surfaceLift?.workspaceVisibilityRevision ?? 0, geometry: geometry)
     }
 
     private func publishDividerViewport(_ geometry: ScrollGeometry) {
@@ -617,6 +629,7 @@ struct ConversationTimelineView: View {
         pendingAppliedScroll = nil
         _ = scrollBridge.pane.updateReading(.programmaticScrolled(geometry: geometry))
         scrollBridge.pane.markScrollApplied(sequence: request.sequence)
+        publishReturnLayoutIfReady(geometry)
 #if DEBUG
         if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1",
            case .reading(let anchor, _) = scrollBridge.pane.readingPosition.mode {

@@ -15,6 +15,8 @@ final class SplitResizeController {
     @ObservationIgnored private var pending: Set<String> = []
     @ObservationIgnored private var rawRatio = 0.5
     @ObservationIgnored private var minimum = 0.2
+    @ObservationIgnored private var axisAnimationID: UUID?
+    @ObservationIgnored private var destinationAxis: SplitWorkspaceAxis?
 
     func begin(model: AppShellModel, minimumRatio: Double) -> Bool {
         guard !isActive, let split = model.splitWorkspace, !model.previewContent.isPresented,
@@ -36,16 +38,16 @@ final class SplitResizeController {
         participants = panes
         pending = Set(panes.map(\.conversationID))
         minimum = minimumRatio
-        rawRatio = split.topBottomRatio
+        rawRatio = split.activeRatio
         closeIntent = nil
         isActive = true
         return true
     }
 
     func update(model: AppShellModel, displacement: Double, viewportHeight: Double) {
-        guard matches(model), let arrangement, viewportHeight.isFinite, viewportHeight > 0,
+        guard axisAnimationID == nil, matches(model), let arrangement, viewportHeight.isFinite, viewportHeight > 0,
               displacement.isFinite else { return }
-        rawRatio = arrangement.topBottomRatio + displacement / viewportHeight
+        rawRatio = arrangement.activeRatio + displacement / viewportHeight
         let candidate: SplitDropSlot? = rawRatio < minimum * 0.55 ? .top
             : (rawRatio > 1 - minimum * 0.55 ? .bottom : nil)
         // An empty picker cannot be promoted into a Single Conversation.
@@ -61,13 +63,33 @@ final class SplitResizeController {
             close(model: model, keeping: closeIntent == .top ? .bottom : .top)
             return
         }
-        model.setSplitRatio(cancelled ? arrangement.topBottomRatio
-            : SplitWorkspaceGeometry.snappedRatio(rawRatio, minimum: minimum))
+        if cancelled {
+            axisAnimationID = nil
+            destinationAxis = nil
+            model.restoreSplitConfiguration(arrangement)
+        } else {
+            model.setSplitRatio(SplitWorkspaceGeometry.snappedRatio(rawRatio, minimum: minimum))
+        }
         finishParticipants(revision: model.workspaceLayoutRevision)
     }
 
+    func changeAxis(model: AppShellModel, to axis: SplitWorkspaceAxis) {
+        guard model.splitWorkspace?.axis != axis, begin(model: model, minimumRatio: 0.2), let id = token else { return }
+        let animation = UUID()
+        axisAnimationID = animation
+        destinationAxis = axis
+        withAnimation(.easeOut(duration: 0.18), completionCriteria: .removed) {
+            model.setSplitAxis(axis)
+        } completion: { [weak self, weak model] in
+            guard let self, self.token == id, self.axisAnimationID == animation else { return }
+            guard let model, self.matches(model), model.splitWorkspace?.axis == axis else { self.invalidate(); return }
+            model.refreshWorkspaceLayout()
+            self.finishParticipants(revision: model.workspaceLayoutRevision)
+        }
+    }
+
     func close(model: AppShellModel, keeping slot: SplitDropSlot) {
-        guard let split = model.splitWorkspace else { return }
+        guard axisAnimationID == nil, let split = model.splitWorkspace else { return }
         if !isActive, !begin(model: model, minimumRatio: 0.2) { return }
         guard matches(model), let id = token,
               let survivor = slot == split.sourceSlot ? model.pane : model.splitPane else { invalidate(); return }
@@ -95,7 +117,7 @@ final class SplitResizeController {
     func adjust(model: AppShellModel, increment: Bool, minimumRatio: Double) {
         guard begin(model: model, minimumRatio: minimumRatio), let arrangement else { return }
         rawRatio = min(1 - minimumRatio, max(minimumRatio,
-            arrangement.topBottomRatio + (increment ? 0.05 : -0.05)))
+            arrangement.activeRatio + (increment ? 0.05 : -0.05)))
         model.setSplitRatio(rawRatio)
         finish(model: model, cancelled: false)
     }
@@ -105,10 +127,20 @@ final class SplitResizeController {
         return current.arrangementID == arrangement.arrangementID
             && current.sourceConversationID == arrangement.sourceConversationID
             && current.secondaryConversationID == arrangement.secondaryConversationID
+            && (current.axis == arrangement.axis || current.axis == destinationAxis)
     }
 
     func invalidate() {
         if let token { participants.forEach { $0.scrollBridge.invalidateDividerResize(id: token) } }
+        clear()
+    }
+
+    func cancelForPresentationChange(model: AppShellModel) {
+        guard let token else { return }
+        if matches(model), let arrangement { model.restoreSplitConfiguration(arrangement) }
+        // A hidden Pane cannot produce a final receipt. Cancel its lease and
+        // enqueue ordinary restoration for its next measured presentation.
+        participants.forEach { $0.scrollBridge.cancelDividerForPresentationChange(id: token) }
         clear()
     }
 
@@ -126,5 +158,7 @@ final class SplitResizeController {
         closeIntent = nil
         isActive = false
         isClosing = false
+        axisAnimationID = nil
+        destinationAxis = nil
     }
 }

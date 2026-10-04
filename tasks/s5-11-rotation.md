@@ -103,3 +103,45 @@ was a second subtraction of Insets from the already-proposed Workspace size;
 this baseline uses the explicit usable-viewport geometry contract. Retain
 orientation-red and the fixed three-case scope. No S5-11 product work starts
 until S5-10's full gate passes.
+
+The propagated usable-viewport RED completed at remote
+b2acb4f0c5910e604eb1bf3d88770df7408ca0fa / tree
+99c5e50e24f0b42facd4fa25c6b66fa4026472df, push37162846369
+(job111319706978). XcodeGen/build,852 Swift tests in127 suites and20
+XCTest passed. Three UI cases failed eight assertions. Portrait draft and
+keyboard admission now pass; the editing case reaches the actual landscape
+one-editor/owner assertions before failing. The occupied Return still lacks
+the receipt pause seam. This refreshed behavior RED uses the corrected S5-10
+geometry and authorizes those product corrections only after the full gate.
+
+Local baseline also merges S5-10 full candidate332d2a55416b6a6e03822556274db070db557319
+/ treeba0268272439a59eb0f3fa43bd46618b34a89746. Keep orientation-red during
+test-only propagation; remove it for S5-11 product acceptance. S5-10 full
+CI37163392220 / PR37163394761 is pending.
+
+S5-10 full source gate is now GREEN: remote332d2a55416b6a6e03822556274db070db557319
+/ treeba0268272439a59eb0f3fa43bd46618b34a89746, push37163392220,
+job111321329410 passed XcodeGen/build,852 Swift in127 suites,20 XCTest
+and all35 UI tests. Source review found no remaining production blocker.
+S5-11 product implementation may now proceed on that propagated baseline.
+
+### Product candidate — full gate required
+
+Implement window-context device policy, retained physical Pane hosts, iPad
+axis selection and independent ratios. The cross-owner Return coordinator
+retains an immutable selected Preview and strong target Pane through native
+host/window/frame and fresh Timeline layout/scroll receipts. Measurement keeps
+the native editor attached but hides its input/AX nodes; the origin proxy is
+hidden synchronously before resetting the transform. Token, topology, owner and
+window changes cancel stale work. The DEBUG receipt pause follows those real
+receipts and does not supply them.
+
+Rotation cancels any active divider lease, restores the start reading anchor
+without discarding new content, and queues ordinary measured restoration for a
+hidden Pane. This additional cancellation regression accompanies the product
+candidate; it has not had a separate compiled RED run.
+
+Remove orientation-red for full iPhone acceptance. Add an actual iPad simulator
+job for native axis switching/resize and retained editor identity; its test must
+execute without skip or host restart. Local YAML parsing, profile guard7 and
+git diff --check pass. No S5-11 build/acceptance is claimed before CI returns.

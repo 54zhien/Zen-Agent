@@ -314,3 +314,32 @@ The readable-line comparison permits 0.01 pt numeric rounding: native height
 remain failures. Actual readable rectangles, blank callbacks, correct draft
 lengths and retained native identities stay required. Run the narrow diagnostic
 to completion, then remove its profile and obtain the full slice gate.
+
+### Usable-viewport diagnostic GREEN; full gate pending
+
+Remote b26101fbd3888d268f04be7f6e07e56ad71558ca / tree
+4c0da19b46249a5d8668804e0c1f6743de47721a completed push 37162388589
+(job 111318355392): XcodeGen/build, 852 Swift tests in 127 suites,
+20 XCTest and all five resize UI cases passed. This is a diagnostic receipt,
+not the full slice gate. Source review found no additional production blocker.
+
+Native keyboard-up evidence: Workspace proposed size402x539 is also its
+usable viewport, yielding approximately269.5 pt slots. Source/secondary
+readable Timeline heights are54.4/79.3 pt when source edits and79.7/54.1 pt
+when secondary edits. Both native editor heights are21.25 pt, with source
+draft length19 and secondary22. Both blank touches are admitted by the real
+Timeline callback, dismiss the keyboard, and preserve their independent drafts.
+Repeated resize preserves the reading reference and completes both leases.
+
+Remove the diagnostic profile and run the entire unit/UI gate on the next
+candidate. Keep production unchanged. Let this full run finish before another
+S5-10 publication; S5-11 product implementation remains gated on that result.
+
+### Full source gate GREEN
+
+Remote332d2a55416b6a6e03822556274db070db557319 / tree
+ba0268272439a59eb0f3fa43bd46618b34a89746 passed push37163392220
+(build111321329410) and PR37163394761. XcodeGen/app build,852 Swift tests
+in127 suites,20 XCTest and all35 UI passed without test-host restart/retry.
+The source review has no remaining production blocker. S5-11 starts from this
+verified source baseline; physical acceptance remains deferred to whole-stage review.

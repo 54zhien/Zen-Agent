@@ -101,9 +101,34 @@
 - [ ] Adapt App Space minimum card dimensions and distances to actual landscape safe height. Keep bounded predecessor projection, selected identity and New's rightmost ordering.
 - [ ] Verify iPad policy and native host geometry for both axes, iPhone UI rotation, rotated cancellation, and independent Run/model state. Pass full macOS CI and review before Sidebar implementation.
 
+Native iPad acceptance requires an actual iPad Simulator CI destination. The
+full iPhone job continues to run all unit/UI tests; the iPad-only regression
+explicitly skips there. Add a separate focused iPad job at this slice, with
+XcodeGen/build and one non-retried native axis/ratio/editor-identity test. A
+phone skip or pure geometry formula is not an iPad interaction receipt. Keep
+both jobs as required code evidence for the final Stage 5 stack. Physical iPad
+comfort and performance remain deferred to the owner's device testing.
+
+
 ## Pending product decision
 
 ### Cross-owner native completion preflight
+
+Before implementing the occupied-other handoff, verify a third native host
+state: attached for layout and Timeline receipts, with input and AX suppressed.
+S5-09 showed ancestor hidden/interaction/AX flags alone could leave the nested
+SwiftUI AX tree visible. Add a paused-native regression that measures attachment,
+Timeline receipt, no target editor in AX, and later restoration of the same
+editor identity. Do not weaken the expectation to accept two exposed editors.
+If ordinary suppression is insufficient, first measure the descendant/hosting
+boundary; do not infer success from the host's flags.
+
+Resolve the selected-owner destination before the first Return animation
+segment. Preparing an occupied-other Card intentionally prepares the origin
+Pane; it cannot identify the selected physical target. Capture the selected
+ID and its logical/physical owner before preparation and commit. The first
+segment must head toward that target or hold the original Card until the
+actual target geometry is available.
 
 Use one observable presentation coordinator shared by both fixed hosting roots;
 it retains the immutable selected Preview descriptor and the existing target
@@ -132,6 +157,47 @@ publish one fresh workspace layout revision. Wait for the target Timeline to
 measure that revision and clear its scroll request before beginning the final
 proxy segment. A matching revision measured at an intermediate animated frame
 is not a final-layout receipt.
+
+Native suppression preflight: the target cannot use the existing hidden-host
+mode, because that mode removes its live child from the window and prevents
+measurement. Add an attached, non-interactive presentation mode. Observe its
+input/accessibility state inside the once-installed SwiftUI hosting root and
+apply native input/accessibility suppression to its existing Composer bridge.
+Do not infer suppression from parent flags: S5-09 proved nested hosting trees
+can remain discoverable. The paused Return UI regression must see zero Composer
+AX nodes while the target probe reports the same mounted native editor identity.
+
+Expose a production layout receipt from the Timeline/scroll bridge only when
+accepted and measured layout revisions match, geometry is usable and the Pane's
+scroll request has cleared. The coordinator requests a fresh revision only
+after the native target frame matches its final window-coordinate destination.
+Keep callbacks tokenized and recheck the actual frame when consuming the
+Timeline receipt. DEBUG diagnostics may report this receipt, never create it.
+
+The attached target keeps its Lift phase Full so the Timeline can measure.
+Store suppression independently and compose it into every native interaction
+refresh; a later Card accessibility refresh must not re-enable the target.
+Native layout receipts carry both host and window identities. Timeline receipts
+also carry the workspace visibility revision so a detach/reattach invalidates
+an older receipt. Return owns its own token, distinct from Divider captures and
+the origin-only pendingViewportReturn handoff. Retain the target Pane throughout
+receipt, animation and explicit cancellation, because its bridge is unowned.
+
+The paused native probe checks both Composer and Timeline AX absence. The
+selected proxy keeps the Current Card's immutable label and accessible identity
+while the driver is settling; that identity currently exists only in Card phase.
+This does not make the mounted target interactive. At completion hide the proxy
+synchronously in UIKit before resetting its transform or changing its parent
+viewport; a deferred SwiftUI opacity update cannot establish that ordering.
+Native hidden-view layout is documented by Apple (`UIView.isHidden`), but that
+does not establish SwiftUI Timeline receipts or nested accessibility behavior.
+The mounted production-root regression must establish those integration facts.
+
+Keep device orientation independent of the keyboard-safe Split proposal:
+read full window/scene dimensions from a native Workspace geometry observer.
+That observer also provides the actual root frame for Return; embedded roots
+must not inherit an assumed window origin. Size/Insets and already-proposed
+viewport geometry remain explicit separate contracts.
 
 IME marked-text navigation/focus policy is explicitly unresolved in the Blueprint; the question is already with the owner. Apply that answer consistently when it arrives. It is not permission to force-commit or cancel composition. Ordinary non-composing focus and independent geometry work can proceed.
 

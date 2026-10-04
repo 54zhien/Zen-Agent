@@ -58,6 +58,24 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var lastReportedClearance: CGFloat = -1
     private weak var textCarrier: UIView?
     private var liftInteraction: ComposerLiftInteraction!
+    private var workspaceInputSuppressed = false
+
+    func setWorkspaceInputSuppressed(_ suppressed: Bool) {
+        workspaceInputSuppressed = suppressed
+        isUserInteractionEnabled = !suppressed
+        accessibilityElementsHidden = suppressed
+        // An attached hosting tree can bypass ancestor AX flags. Suppress the
+        // actual native editor too, while retaining its identity and layout.
+        editor.isHidden = suppressed
+        editor.isAccessibilityElement = !suppressed
+        editor.accessibilityElementsHidden = suppressed
+        plus.accessibilityElementsHidden = suppressed
+        primary.accessibilityElementsHidden = suppressed
+        plus.isAccessibilityElement = !suppressed
+        primary.isAccessibilityElement = !suppressed
+        errorLabel.accessibilityElementsHidden = suppressed
+        if suppressed, editor.markedTextRange == nil { editor.resignFirstResponder() }
+    }
 
     override init(frame: CGRect) {
         let effect = UIGlassEffect(style: .regular)
@@ -300,6 +318,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     func requestFocus(_ focused: Bool) {
+        guard !workspaceInputSuppressed else { return }
         if focused {
             if !editor.isFirstResponder { editor.becomeFirstResponder() }
         } else if editor.markedTextRange == nil, editor.isFirstResponder {

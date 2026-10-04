@@ -24,10 +24,28 @@ final class ConversationPaneScrollBridge {
     private(set) var dividerLeaseID: UUID?
     private(set) var dividerFinalRevision: UInt64?
     @ObservationIgnored private var dividerAnchor: BottomTurnAnchor?
+    @ObservationIgnored private var dividerStartMode: ReadingMode?
     @ObservationIgnored private var snapshot: (geometry: ScrollGeometry, bottom: (runID: String, turnTop: Double)?)?
     @ObservationIgnored private var dividerCompletion: (@MainActor (UUID) -> Void)?
     @ObservationIgnored private var lastDividerTarget: Double?
     @ObservationIgnored private var preparedDividerRevision: UInt64?
+    @ObservationIgnored private var returnLayout: (id: UUID, revision: UInt64, visibility: UInt64,
+        completion: @MainActor (UUID) -> Void)?
+
+    func awaitReturnLayout(id: UUID, revision: UInt64, visibilityRevision: UInt64,
+                           completion: @escaping @MainActor (UUID) -> Void) {
+        returnLayout = (id, revision, visibilityRevision, completion)
+    }
+
+    func cancelReturnLayout(id: UUID) { if returnLayout?.id == id { returnLayout = nil } }
+
+    func publishReturnLayout(revision: UInt64, visibilityRevision: UInt64, geometry: ScrollGeometry) {
+        guard let waiting = returnLayout, waiting.revision == revision,
+              waiting.visibility == visibilityRevision, geometry.isUsableForPane,
+              pane.scrollRequest == nil else { return }
+        returnLayout = nil
+        waiting.completion(waiting.id)
+    }
 
     var hasDividerLease: Bool { dividerLeaseID != nil }
 
@@ -60,6 +78,7 @@ final class ConversationPaneScrollBridge {
         }
         if case .reading = pane.readingPosition.mode, dividerAnchor == nil { return false }
         endHeightChange()
+        dividerStartMode = pane.readingPosition.mode
         dividerLeaseID = id
         dividerFinalRevision = nil
         dividerCompletion = onComplete
@@ -128,6 +147,15 @@ final class ConversationPaneScrollBridge {
         dividerCompletion = nil
         lastDividerTarget = nil
         preparedDividerRevision = nil
+        dividerStartMode = nil
+    }
+
+    func cancelDividerForPresentationChange(id: UUID) {
+        guard dividerLeaseID == id else { return }
+        let original = dividerStartMode
+        invalidateDividerResize(id: id)
+        endHeightChange()
+        if let original { pane.restoreInterruptedLayout(original) }
     }
 
     init(pane: ConversationPaneController) {

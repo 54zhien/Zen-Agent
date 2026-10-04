@@ -39,6 +39,8 @@ final class WorkspaceReturnReceiptUITests: XCTestCase {
         XCTAssertTrue(card.exists && card.label.contains("Workspace conversation 11"))
         XCTAssertEqual(app.descendants(matching: .any)
             .matching(identifier: "conversation-composer-input").count, 0)
+        XCTAssertFalse(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch.exists,
+            "The attached target's Timeline must also remain outside accessibility until convergence")
         let receipt = try XCTUnwrap(targetProbe.value as? String)
         XCTAssertTrue(receipt.contains(";visible=true;"))
         XCTAssertTrue(receipt.contains(";editors=1;"))

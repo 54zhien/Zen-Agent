@@ -41,9 +41,23 @@ final class AppShellModel {
 
     func setSplitRatio(_ ratio: Double) {
         guard ratio.isFinite, ratio > 0, ratio < 1,
-              let split = splitWorkspace, split.topBottomRatio != ratio else { return }
+              let split = splitWorkspace, split.activeRatio != ratio else { return }
         splitWorkspace?.setRatio(ratio)
         workspaceLayoutRevision += 1
+    }
+
+    func setSplitAxis(_ axis: SplitWorkspaceAxis) {
+        guard splitWorkspace?.axis != axis, splitWorkspace != nil else { return }
+        splitWorkspace?.selectAxis(axis)
+        refreshWorkspaceLayout()
+    }
+
+    func restoreSplitConfiguration(_ captured: SplitWorkspaceState) {
+        guard splitWorkspace?.arrangementID == captured.arrangementID,
+              splitWorkspace?.sourceConversationID == captured.sourceConversationID,
+              splitWorkspace?.secondaryConversationID == captured.secondaryConversationID else { return }
+        splitWorkspace?.restoreLayout(from: captured)
+        refreshWorkspaceLayout()
     }
     private(set) var splitPane: ConversationPaneController?
     private(set) var splitActionBridge: ComposerRuntimeActionBridge?
