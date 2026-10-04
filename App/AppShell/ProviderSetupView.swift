@@ -376,6 +376,7 @@ struct ProviderSetupView: View {
                         if let settingsFocus { settingsFocus.release { dismiss() } }
                         else { dismiss() }
                     }.disabled(settingsFocus?.hasMarkedText == true)
+                        .accessibilityIdentifier("provider-setup-close")
                 }
             }
         }

@@ -79,8 +79,13 @@ final class SettingsUITests: XCTestCase {
         key.typeText("settings-ui-fixture-key")
         app.buttons["保存配置"].tap()
         XCTAssertTrue(app.staticTexts["配置完成"].waitForExistence(timeout: 5))
-        app.buttons["关闭"].tap()
-        app.buttons["settings-close"].tap()
+        let setupClose = app.buttons["provider-setup-close"]
+        XCTAssertTrue(setupClose.waitForExistence(timeout: 5))
+        setupClose.tap()
+        expect { !setupClose.exists }
+        let settingsClose = app.buttons["settings-close"]
+        XCTAssertTrue(settingsClose.wait(for: \.isEnabled, toEqual: true, timeout: 5))
+        settingsClose.tap()
         expect { !settings.exists }
         XCTAssertTrue(configure.exists, "configuration alone must not commit the New Conversation")
         XCTAssertTrue((editor.value as? String)?.contains("first Send keeps its original draft") == true)

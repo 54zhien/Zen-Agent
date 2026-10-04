@@ -106,6 +106,17 @@ assertion line62 after a non-admitted drag (pan=0,ratio50%,91.430s). Preserve th
 failure, do not assign an unverified cause, and require complete candidate Pad
 success. Corrective source still awaits real CI; FULL remains OPEN.
 
+Corrective remote0d266e89/tree76910258,push37231562201/phone111522167063
+generated and built,passed20 XCTest and all930 Swift/147 suites in75.078s.
+Fresh-cache ownership/measurement and all focus/scope/account/Soul regressions
+are green. Startup now enters formal Settings and completes actual provider Save;
+the next test step ambiguously queried two native buttons labeled Close (outer
+Settings and nested Provider creation). Give the actual Provider Close its own
+accessibility identity, wait for that native control to disappear, then await the
+outer control's enabled state. Preserve original draft/unique Composer/first-Send
+assertions. Both Soul paths passed33.649s/29.205s; push actual Pad passed. FULL
+remains OPEN until the entire Startup path and complete source gate pass.
+
 Blueprint navigation section16, the Prompt/Soul baseline and development plan
 define grouped Settings: models/services, appearance, Agent, files/storage,
 data/privacy and About. Agent lives only under Settings; Soul is currently live.
