@@ -881,7 +881,7 @@ final class AppShellModel {
         }
     }
 
-    private var isCurrentConversationVisible: Bool {
+    var isCurrentConversationVisible: Bool {
         guard let store = dependencies?.store else { return false }
         return (try? store.conversationLifecycle(id: conversationID)) == .visible
     }

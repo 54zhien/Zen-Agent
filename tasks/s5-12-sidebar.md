@@ -47,3 +47,33 @@ publication is based on that gate. Pending XcodeGen/build and compiled UI RED.
 No Sidebar feature or device acceptance claimed. Keep future Search/Files/Settings
 drafts out of this test-only publication. Record exact predecessor/head/tree and
 actual CI results here before claiming this slice complete.
+
+### Compiled behavior RED and first implementation
+
+Local68ab381 / remotee9134cde4ff0dc45e4e0859b82325a7e5ae47d1f /
+treedcadcd9569af07b8bfc5554cf5f69b93a558985c built in both runs.
+PR37171367578 / phone111344835099 passed861 Swift/129 suites and20 XCTest;
+five Sidebar UI cases ran: three positive cases failed7 assertions, while Card
+and interior/Split rejection passed. Push37171347675 / phone111344820697
+also built, passed units and reproduced the same7 assertions, with3 additional
+Card Lift observations failing. Preserve that additional failure; it is not
+evidence of a Sidebar defect in the unchanged production baseline. Both actual
+Pad jobs111344835084 and111344820689 passed. No retry/host restart.
+
+The first implementation uses a persistent Surface center offset, independent
+of Lift's transform and unchanged native host bounds/safe-area container. One
+Window transport snapshots native host/Pane/window identity, uses raw current
+Composer input and consumes reverse/tap close without invoking explicit focus
+changes. A shared navigation reference blocks Lift and Timeline blank-exit
+until matching native settlement completion; stale completions cannot release
+a newer transition. Inactive scene, owner/topology/window changes close it.
+Dynamic accessibility actions preserve independent Timeline/Composer children.
+Destinations remain disabled until their real feature routes are wired.
+
+Apple's dynamic action builder was checked against current primary docs:
+https://developer.apple.com/documentation/swiftui/view/accessibilityactions(_:)
+Cancellation alone does not establish SwiftUI gesture arbitration. An added
+focused tap-close UI case retains keyboard/editor identity, then requires the
+normal blank dismissal to work again after the Rail closes.
+Remove the fixed RED profile for this product's full build/unit/UI gate.
+Local checks are not a macOS build or a completed Sidebar gate.

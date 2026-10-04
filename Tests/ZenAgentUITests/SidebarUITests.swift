@@ -3,6 +3,34 @@ import UIKit
 
 final class SidebarUITests: XCTestCase {
     @MainActor
+    func testShiftedBlankTapClosesRailRetainingFocusAndLaterBlankTapDismissesNormally() {
+        let app = launch()
+        let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        let editor = app.textViews["conversation-composer-input"]
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        editor.tap()
+        editor.typeText("focused tap close")
+        expect { app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("keyboardTransitioning: false") == true }
+        let identity = editorIdentity(probe.value as? String)
+        let originalX = pane.frame.minX
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
+        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        let rail = app.descendants(matching: .any)["sidebar-rail"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 5))
+        pane.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.3)).tap()
+        expect { !rail.exists && abs(pane.frame.minX - originalX) < 2 }
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertTrue((probe.value as? String)?.contains("focused=true;") == true)
+        XCTAssertEqual(editorIdentity(probe.value as? String), identity)
+        XCTAssertTrue(editor.exists)
+        XCTAssertTrue(pane.exists)
+        app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
+        XCTAssertEqual(editorIdentity(probe.value as? String), identity)
+        XCTAssertTrue((editor.value as? String)?.contains("focused tap close") == true)
+    }
+
+    @MainActor
     func testLandscapeRailPreservesTheInnerTimelineAndEditorWidths() {
         let app = launch()
         XCUIDevice.shared.orientation = .landscapeLeft

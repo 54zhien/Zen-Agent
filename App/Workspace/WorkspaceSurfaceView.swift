@@ -17,7 +17,15 @@ private struct WorkspaceInputSuppressedKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct WorkspaceNavigationKey: EnvironmentKey {
+    static let defaultValue: WorkspaceNavigationState? = nil
+}
+
 extension EnvironmentValues {
+    var workspaceNavigation: WorkspaceNavigationState? {
+        get { self[WorkspaceNavigationKey.self] }
+        set { self[WorkspaceNavigationKey.self] = newValue }
+    }
     var workspaceInputSuppressed: Bool {
         get { self[WorkspaceInputSuppressedKey.self] }
         set { self[WorkspaceInputSuppressedKey.self] = newValue }
@@ -49,6 +57,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
     @State private var layoutState = WorkspaceLayoutState()
     private var layoutContext: WorkspaceLayoutContext? { layoutState.context }
     @State private var returnPresentation = WorkspaceReturnPresentation()
+    @State private var navigation = WorkspaceNavigationState()
+    @Environment(\.layoutDirection) private var layoutDirection
     @ScaledMetric(relativeTo: .body) private var minimumWidth = 220.0
     @ScaledMetric(relativeTo: .body) private var minimumHeight = 300.0
     @Environment(\.scenePhase) private var scenePhase
@@ -84,8 +94,10 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     var body: some View {
+        WorkspaceNavigationView(state: navigation, spatiallyAvailable: sidebarSpatiallyAvailable,
+                                context: sidebarContext) {
         ZStack(alignment: .topLeading) {
-            Color(white: 0.035)
+            Color.clear
             if model?.previewContent.isPresented == true, let layout = browse.layout() {
                 ForEach(layout.cards.filter { $0.item != browse.state.selected }
                     .map { browse.deletionProjection($0, in: layout) }, id: \.item) { card in
@@ -120,13 +132,19 @@ struct WorkspaceSurfaceView<Content: View>: View {
                             deleteAction: deleteAction, isDeletionPending: isDeletionPending,
                             isWorkspaceVisible: visible, isInputSuppressed: suppressed,
                             isReturnProxyHidden: returnPresentation.hidesOrigin(slot),
+                            sidebarOffset: slot == model?.sourceSurfaceSlot
+                                ? CGFloat(navigation.progress) * min(geometry.size.width, 60 + geometry.safeAreaInsets.leading)
+                                    * (layoutDirection == .rightToLeft ? -1 : 1) : 0,
+                            sidebarSettlement: slot == model?.sourceSurfaceSlot ? navigation.settlementID : nil,
+                            onSidebarSettled: navigation.completeSettlement,
                             onNativeLayout: { [weak model] receipt in
                                 guard let model else { return }
                                 returnPresentation.nativeLayout(receipt, slot: slot, currentContext: layoutContext,
                                     model: model, visibilityRevision: driver.workspaceVisibilityRevision)
                             }) {
                             WorkspaceHostedContent(model: model, slot: slot, browse: browse,
-                                returnPresentation: returnPresentation, content: content, contentForSlot: contentForSlot)
+                                returnPresentation: returnPresentation, navigation: navigation,
+                                content: content, contentForSlot: contentForSlot)
                                 .environment(\.surfaceLiftController, driver)
                                 .environment(\.surfaceBrowseController, model == nil ? nil : browse)
                         }
@@ -164,6 +182,10 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     if let previous = layoutContext, let model,
                        context.requiresResizeCancellation(from: previous) {
                         resize.cancelForPresentationChange(model: model)
+                    }
+                    if let previous = layoutContext,
+                       previous.windowID != context.windowID || previous.windowSize != context.windowSize {
+                        navigation.reset()
                     }
                     // The first observer report establishes the coordinate
                     // baseline; it is not an interruption of an existing one.
@@ -229,6 +251,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
             }
 #endif
         }
+        }
         // Split shares the keyboard-safe viewport; each retained Composer's
         // native keyboard guide still owns its controls inside that Pane.
         .ignoresSafeArea(.container)
@@ -254,6 +277,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 }
                 for slot in WorkspaceSurfaceSlot.allCases {
                     let driver = controller(for: slot)
+                    driver.workspaceNavigation = navigation
                     configurePreview(driver, model: model, slot: slot)
 #if DEBUG
                     driver.workspacePaneDiagnostic = { [weak model] in
@@ -313,14 +337,36 @@ struct WorkspaceSurfaceView<Content: View>: View {
             lift.workspaceResizeActive = active
             secondaryLift.workspaceResizeActive = active
         }
-        .onDisappear { resize.invalidate(); returnPresentation.abort() }
+        .onChange(of: sidebarSpatiallyAvailable) { _, available in
+            if !available { navigation.reset() }
+        }
+        .onChange(of: model?.pane.map(ObjectIdentifier.init)) { _, _ in navigation.reset() }
+        .onDisappear { navigation.reset(); resize.invalidate(); returnPresentation.abort() }
         .onChange(of: dynamicTypeSize) { _, _ in updateMinimumSize() }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
+                navigation.reset()
                 if resize.isActive, !resize.isClosing, let model { resize.cancelForPresentationChange(model: model) }
                 browse.cancel(); lift.invalidate(); secondaryLift.invalidate()
             }
         }
+    }
+
+    private var sidebarSpatiallyAvailable: Bool {
+        guard let model else { return false }
+        // First accepted Send creates the durable Conversation without replacing
+        // its Pane. Observe publication so the accessibility action can appear.
+        _ = model.persistedTurnCount
+        return scenePhase == .active && model.pane != nil && model.isCurrentConversationVisible
+            && model.splitWorkspace == nil && !model.previewContent.isPresented
+            && activeSurfaceSlot == nil && !resize.isActive && returnPresentation.phase == nil
+    }
+
+    private func sidebarContext() -> WorkspaceSidebarNativeContext? {
+        guard sidebarSpatiallyAvailable, let model, let pane = model.pane,
+              let native = controller(for: model.sourceSurfaceSlot).sidebarNativeContext?() else { return nil }
+        return WorkspaceSidebarNativeContext(hostID: native.hostID, paneID: ObjectIdentifier(pane),
+            window: native.window, allowsOpening: native.allowsOpening)
     }
 
     private var activeLift: SurfaceLiftController {
@@ -580,6 +626,7 @@ private struct WorkspaceHostedContent<Content: View>: View {
     let slot: WorkspaceSurfaceSlot
     let browse: AppSpaceBrowseController
     let returnPresentation: WorkspaceReturnPresentation
+    let navigation: WorkspaceNavigationState
     let content: Content
     let contentForSlot: ((WorkspaceSurfaceSlot) -> Content)?
     @Environment(\.surfaceLiftController) private var lift
@@ -614,6 +661,7 @@ private struct WorkspaceHostedContent<Content: View>: View {
         .accessibilityHidden(returnPresentation.suppressesTarget(slot) || (model?.previewContent.isPresented == true
             && model?.previewSurfaceSlot != slot))
         .environment(\.workspaceInputSuppressed, returnPresentation.suppressesTarget(slot))
+        .environment(\.workspaceNavigation, navigation)
         // UIKit installs this root once. Read mutable layout state here so
         // Observation updates the retained subtree instead of freezing a value
         // captured outside the hosting controller at its first installation.

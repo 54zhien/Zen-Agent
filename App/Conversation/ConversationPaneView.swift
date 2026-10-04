@@ -20,6 +20,7 @@ struct ConversationPaneView: View {
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.conversationBottomNotice) private var bottomNotice
+    @Environment(\.workspaceNavigation) private var navigation
     @State private var composerClearance: CGFloat = 62
     private let scrollBridge: ConversationPaneScrollBridge
     private let onUserFocus: () -> Void
@@ -61,7 +62,8 @@ struct ConversationPaneView: View {
                     _ = pane.composer.handle(.selectionHandleDragChanged(isDragging))
                 },
                 onBlankBackgroundTap: {
-                    guard pane.composer.draft.presentationState == .editing,
+                    guard navigation?.blocksLift != true,
+                          pane.composer.draft.presentationState == .editing,
                           pane.composer.quoteDragPhase == .idle,
                           !pane.composer.isSelectionHandleDragging else { return }
                     _ = pane.composer.handle(.conversationBackgroundTapped)
