@@ -84,3 +84,14 @@ push37172447636 and PR37172450208: the raw selection check separated the
 unary `!` from its operand. No behavior result follows from those jobs. Correct
 the exact lexical error. Also avoid assigning the unchanged native edge setting
 during the recognizer's own Pan; only reconfigure it when layout direction changes.
+
+Follow-up local9744bce / remote73d9e3bd709350764fa609fba250aed966d8b395 /
+tree6ca748c64a372266dcc92cbb5986f8360c34ca6e failed build in push37172621243
+and PR37172624063: the UIView adapter's gestureRecognizerShouldBegin overrides
+UIView's existing method and requires `override`. Correct that declaration.
+Read-only review separately found P2: selection after opening can make native
+opening eligibility false and wrongly block reverse/tap close. Add a delegate
+admission regression first, using an unchanged owner/window and deterministic
+closing velocity; this policy test is not a physical gesture receipt. Publish it
+for compiled unit RED before changing the close predicate. Retain full UI gating
+after the correction and keep both compile failures visible.

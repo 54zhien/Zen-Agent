@@ -7,7 +7,7 @@ import Testing
 @MainActor
 struct SidebarSurfaceTests {
     @Test func nativeLayoutRetainsNavigationCenterWithoutChangingLiftTransformOrHostBounds() {
-        let host = ConversationSurfaceViewController(content: Text("Retained content"))
+        let host = ConversationSurfaceViewController(content: Text("Retained content"), request: .full)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 800, height: 400))
         window.rootViewController = host
         window.isHidden = false

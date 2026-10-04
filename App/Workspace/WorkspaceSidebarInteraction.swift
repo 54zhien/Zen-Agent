@@ -106,7 +106,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         return distance >= travel
     }
 
-    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let state, let current = readContext?(), current.window === attachedWindow,
               current.allowsOpening, !state.isDragging, state.settlementID == nil else { return false }
         if gestureRecognizer === closeTap { return state.isOpen }
