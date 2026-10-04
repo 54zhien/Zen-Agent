@@ -36,8 +36,18 @@ final class SidebarUITests: XCTestCase {
 
     @MainActor
     func testLandscapeRailPreservesTheInnerTimelineAndEditorWidths() {
+        assertLandscapeRail(orientation: .landscapeLeft)
+    }
+
+    @MainActor
+    func testOppositeLandscapeRailPreservesTheInnerTimelineAndEditorWidths() {
+        assertLandscapeRail(orientation: .landscapeRight)
+    }
+
+    @MainActor
+    private func assertLandscapeRail(orientation: UIDeviceOrientation) {
         let app = launch()
-        XCUIDevice.shared.orientation = .landscapeLeft
+        XCUIDevice.shared.orientation = orientation
         defer { XCUIDevice.shared.orientation = .portrait }
         let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
@@ -52,7 +62,9 @@ final class SidebarUITests: XCTestCase {
         let editorWidth = editor.frame.width
         let identity = editorIdentity(probe.value as? String)
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.4))
+        // The failure recording places the former mid-edge point in the
+        // landscape sensor corridor. Start on the unobstructed screen edge.
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.25))
         edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
         let rail = app.descendants(matching: .any)["sidebar-rail"]
         receipt("landscape-open", probe)

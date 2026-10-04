@@ -53,6 +53,8 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     private var captured: Owner?
     private var capturedGestureID: UUID?
     private var tapOwner: Owner?
+    private var edgeTouchOwner: Owner?
+    private var edgeTouchOrigin: CGPoint?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -81,9 +83,14 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             for recognizer in [edge, reverse, closeTap] { attachedWindow?.removeGestureRecognizer(recognizer) }
             attachedWindow = nil
             captured = nil
+            edgeTouchOwner = nil
+            edgeTouchOrigin = nil
             edge.edges = edges
         }
         if window !== attachedWindow { attach() }
+        if edgeTouchOwner != nil, !sameOwner(edgeTouchOwner) {
+            edgeTouchOwner = nil; edgeTouchOrigin = nil
+        }
         if captured != nil, !sameOwner(captured) {
             if state.gestureID == capturedGestureID { state.reset() }
             captured = nil; capturedGestureID = nil
@@ -104,6 +111,8 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         captured = nil
         capturedGestureID = nil
         tapOwner = nil
+        edgeTouchOwner = nil
+        edgeTouchOrigin = nil
         state?.reset()
     }
 
@@ -124,13 +133,25 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if gestureRecognizer === edge { edgeTouchOwner = nil; edgeTouchOrigin = nil }
         guard let window = attachedWindow, let current = readContext?(), current.window === window,
               convert(bounds, to: window).contains(touch.location(in: window)) else {
             record("recv \(kind(gestureRecognizer)) rejected context=\(readContext?() != nil),anchor=\(bounds),window=\(window === attachedWindow)")
             return false
         }
         record("recv \(kind(gestureRecognizer)) opening=\(current.allowsOpening),closing=\(current.allowsClosing),point=\(touch.location(in: window)),anchor=\(convert(bounds, to: window))")
-        if gestureRecognizer === edge { return state?.isOpen == false && current.allowsOpening }
+        if gestureRecognizer === edge {
+            let eligible = state?.isOpen == false && current.allowsOpening
+            let x = touch.location(in: window).x
+            let distance = sign > 0 ? x - window.bounds.minX : window.bounds.maxX - x
+            // Limit failure priority to this touch's leading Rail strip. The
+            // system screen-edge recognizer still decides its actual edge radius.
+            if eligible, distance >= 0, distance <= travel {
+                edgeTouchOwner = (current.hostID, current.paneID, ObjectIdentifier(window))
+                edgeTouchOrigin = touch.location(in: window)
+            }
+            return eligible
+        }
         guard state?.isOpen == true, current.allowsClosing,
               let surface = current.surfaceView, let hit = touch.view,
               hit === surface || hit.isDescendant(of: surface) else {
@@ -183,6 +204,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             // UIKit's dynamic failure requirement gives the admitted edge gesture
             // priority over content recognizers, including landscape safe-area hosts.
             admitted = !state.isOpen && current.allowsOpening
+                && sameOwner(edgeTouchOwner)
                 && otherView.isDescendant(of: current.window)
         } else if gestureRecognizer === closeTap, let surface = current.surfaceView {
             // A shifted Surface tap restores navigation before its Timeline or
@@ -190,13 +212,18 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             admitted = state.isOpen && current.allowsClosing
                 && (otherView === surface || otherView.isDescendant(of: surface))
         } else { admitted = false }
-        record("priority \(kind(gestureRecognizer)) over \(String(describing: type(of: otherGestureRecognizer)))=\(admitted)")
+        record("priority \(kind(gestureRecognizer)) over \(String(describing: type(of: otherGestureRecognizer)))=\(admitted),edgeOrigin=\(String(describing: edgeTouchOrigin)),edgeOwner=\(sameOwner(edgeTouchOwner))")
         return admitted
     }
 
     @objc private func changed(_ recognizer: UIGestureRecognizer) {
         guard let state else { return }
         record("callback \(kind(recognizer)) state=\(recognizer.state.rawValue)")
+        if recognizer === edge,
+           recognizer.state == .ended || recognizer.state == .cancelled || recognizer.state == .failed {
+            edgeTouchOwner = nil
+            edgeTouchOrigin = nil
+        }
         if recognizer === closeTap {
             if recognizer.state == .ended, sameOwner(tapOwner), readContext?()?.allowsClosing == true {
                 state.closeSidebar()

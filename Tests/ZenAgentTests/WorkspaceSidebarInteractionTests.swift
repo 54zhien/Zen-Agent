@@ -21,15 +21,21 @@ struct WorkspaceSidebarInteractionTests {
             WorkspaceSidebarNativeContext(hostID: ObjectIdentifier(host), paneID: ObjectIdentifier(pane),
                 window: window, allowsOpening: eligible, surfaceView: surface)
         }
-        let edge = try #require(window.gestureRecognizers?.first { $0 is UIScreenEdgePanGestureRecognizer })
-        let tap = try #require(window.gestureRecognizers?.first { $0 is UITapGestureRecognizer })
+        let edge = try #require(window.gestureRecognizers?.first {
+            $0 is UIScreenEdgePanGestureRecognizer && $0.delegate === interaction
+        })
+        let tap = try #require(window.gestureRecognizers?.first {
+            $0 is UITapGestureRecognizer && $0.delegate === interaction
+        })
         let contentTap = UITapGestureRecognizer(); content.addGestureRecognizer(contentTap)
         let railTap = UITapGestureRecognizer(); rail.addGestureRecognizer(railTap)
         let systemEdge = UIScreenEdgePanGestureRecognizer(); content.addGestureRecognizer(systemEdge)
         func priority(_ owned: UIGestureRecognizer, _ other: UIGestureRecognizer) -> Bool {
             owned.delegate?.gestureRecognizer?(owned, shouldBeRequiredToFailBy: other) ?? false
         }
-        #expect(priority(edge, contentTap))
+        // A live Full host alone is insufficient: priority requires an actual
+        // leading touch admitted by the Window transport, exercised in UI tests.
+        #expect(!priority(edge, contentTap))
         #expect(!priority(tap, contentTap))
         #expect(!priority(edge, systemEdge))
         eligible = false

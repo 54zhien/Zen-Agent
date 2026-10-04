@@ -177,3 +177,38 @@ reverse failure dependency remains. A native delegate-policy regression checks
 these bounds; actual UI remains the behavioral gate. Tap admission is also
 recorded explicitly to distinguish owner rejection from recognition competition.
 Current Apple reference: https://developer.apple.com/documentation/uikit/uigesturerecognizerdelegate
+
+### Tap arbitration receipt and unobstructed landscape edge
+
+Remotef1e08f3997cf780ade06f44dda321cd872110a5b / tree
+9176c7f3140060000c6c637ff81e1666e74eebd5 targeted PR37176997449 /
+phone111361619775 and push37176995492 / phone111361612248 built and ran
+872 Swift tests/132 suites with one issue: the new policy fixture selected
+UIWindow's built-in keyboard-dismissal tap rather than this module's tap.
+The fixture now selects recognizers whose delegate is the interaction owner.
+20 XCTest passed. Both runs' two Surface-tap UI cases now pass with actual
+tap ended callbacks, retained focus/draft and a later normal blank dismissal.
+Stable editing/reverse and both negative cases pass. Only the landscape opening
+assertion remains in the six Sidebar UI cases; no failed expectation is erased.
+
+PR actual Pad111361619935 passed100.981s, actual Pan72pt. Push actual
+Pad111361612042 failed to find split-open-top after the toolbar tap, before
+any axis behavior. Earlier app launch/AX delays remain observations, not a
+blanket infrastructure classification. Edge failure priority is now additionally
+gated by this touch's actual leading-window origin and same host/Pane/window,
+within the Rail travel corridor. UIScreenEdgePan still owns its native edge
+activation radius; this is a bound on priority, not a new recognition threshold.
+New touches, owner/window changes and terminal callbacks clear the candidate.
+
+The PR failure xcresult artifact11292859584 was downloaded and its landscape
+screen recording inspected. Its sensor island aligns with the former edge
+touch's vertical region (window point1,160.67). Native traces show neither an
+edge begin nor priority queries there; attributing that to content competition
+alone was unsupported. The next UI choreography starts at the unobstructed
+leading edge at25% height and separately exercises the opposite landscape
+orientation. It retains the same110pt drag, native width/editor identity checks
+and real tap-close assertions; it adds no retry or larger timeout. The sensor
+alignment is an observation, not a claim about UIKit's undocumented cutoff.
+Current edge orientation documentation states that edges are relative to the
+current interface orientation; no manual coordinate rotation or edge remapping
+is introduced: https://developer.apple.com/documentation/uikit/uiscreenedgepangesturerecognizer/edges
