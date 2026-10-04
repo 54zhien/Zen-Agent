@@ -287,3 +287,35 @@ app-launch timeout. Prepare each chosen simulator with simctl bootstatus before
 the single xcodebuild test call; print current CLI help, retain all retry/restart
 and skip checks, and verify the real command in CI. Recreate the fixed Search
 profile for this narrow diagnosis; final full profile remains required.
+## Native Search responder handoff — candidate correction
+
+Diagnostics-only remote68da769280405f750248ff3ce45778c054d533ce /tree
+59a80d3a6ce4fe6a610ac8bebf2da8eb6159bba7 completed:
+PR37192410854 /phone111407221290 passed889 Swift/136 suites85.379s and20 XCTest.
+Result UI passed57.156s; plain exit failed51.579s with3 unchanged assertions.
+Push37192407493 /phone111407208603 passed889/136 in78.501s and20 XCTest;
+result UI passed58.856s, plain exit failed45.994s with3 unchanged assertions.
+PR Pad111407221216 passed100.643s; push Pad111407208608 passed78.274s.
+Current simctl bootstatus CLI help/readiness completed before each single test.
+
+Both traces are queue -> restoreAttempt -> didBeginEditing -> restoreSucceeded
+-> didEndEditing -> keyboardDidHide. Neither bridgeRestingResign nor
+suppressionResign appears. Thus neither a stale bridge false nor keyboardDidHide
+initiates this particular revocation. Search's scene-level declarative focus
+cleanup after its close is the remaining source-supported ownership candidate;
+the trace alone does not identify the UIKit caller of didEndEditing.
+
+Replace Search's FocusState input with its own native UITextField boundary.
+Close waits for that field's real didEndEditing acknowledgement before dismiss
+and retained-Composer restore; an unfocused field completes immediately once.
+Outgoing updates and dismantle resign only that query field, never the Window.
+Keep the existing plain-exit UI RED unchanged. Add an actual UIWindow and
+UIHostingController integration test covering query editing, end-before-restore,
+representable update during the outgoing fade, dismantle, and original responder,
+identity and draft preservation. This candidate is not yet a passing result.
+
+Add a separate existing-API native regression for a global software-keyboard
+hide while the actual Composer remains first responder. Current Host behavior
+is preserved for this behavioral RED; do not infer focus loss from visibility
+or call the keyboard notification the cause of the observed earlier trace.
+New regression APIs accompany production, not a missing-symbol RED publication.

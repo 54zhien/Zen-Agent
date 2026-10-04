@@ -1,11 +1,90 @@
 import Testing
 import UIKit
 import SwiftUI
+import Observation
 @testable import ZenAgent
 
 @Suite("Native overlay responder restoration")
 @MainActor
 struct ComposerOverlayFocusTests {
+    @Test("a keyboard hide notification cannot revoke a different live native responder")
+    func unrelatedKeyboardHidePreservesTheActualEditingOwner() {
+        var focusEvents: [Bool] = []
+        let (window, host) = installedHost(state: .editing, onFocus: { focusEvents.append($0) })
+        defer { host.editor.resignFirstResponder(); window.isHidden = true; window.rootViewController = nil }
+        #expect(host.editor.becomeFirstResponder())
+        focusEvents.removeAll()
+        NotificationCenter.default.post(name: UIResponder.keyboardDidHideNotification,
+                                        object: window.screen)
+        #expect(host.editor.isFirstResponder)
+        #expect(focusEvents.isEmpty, "software keyboard visibility is not the actual responder's focus")
+    }
+
+    @Test("Search ends its own editing before restore; hosting updates and teardown keep the responder")
+    func searchHostingTeardownCannotRevokeTheRetainedComposer() async throws {
+        let (window, composer) = installedHost()
+        let state = SearchFocusHostingState()
+        let focus = SearchQueryFocus()
+        let root = UIHostingController(rootView: SearchFocusHostingView(state: state, focus: focus))
+        window.rootViewController = root
+        root.view.layoutIfNeeded()
+        composer.frame = root.view.bounds
+        root.view.addSubview(composer)
+        composer.layoutIfNeeded()
+        defer { composer.editor.resignFirstResponder(); window.isHidden = true; window.rootViewController = nil }
+        let editor = composer.editor
+        #expect(editor.becomeFirstResponder())
+        let token = try #require(composer.captureOverlayFocus(ownerIsCurrent: { true }))
+        composer.setWorkspaceInputSuppressed(true)
+        state.showsSearch = true
+        await drain { self.findSearchField(in: root.view)?.isFirstResponder == true }
+        let query = try #require(findSearchField(in: root.view))
+        #expect(query.isFirstResponder)
+        query.text = "native query edit"
+        query.sendActions(for: .editingChanged)
+        #expect(state.query == "native query edit")
+        var releases = 0
+        focus.release {
+            #expect(!query.isFirstResponder, "native query didEnd must precede restore")
+            releases += 1
+            composer.setWorkspaceInputSuppressed(false)
+            token.restore()
+        }
+        #expect(releases == 1 && editor.isFirstResponder)
+        // Keep the outgoing view mounted for a real representable update, as
+        // happens during the overlay fade, then let SwiftUI dismantle it.
+        state.query = "query update during the outgoing fade"
+        await drain { query.text == state.query }
+        #expect(editor.isFirstResponder)
+        state.showsSearch = false
+        await drain { query.window == nil }
+        #expect(query.window == nil && editor.isFirstResponder)
+        #expect(composer.editor === editor && editor.text == "same draft")
+        #expect(releases == 1)
+    }
+
+    @Test("an unfocused Search closes immediately and only once")
+    func unfocusedQueryDoesNotWaitForAnEditingCallback() {
+        let focus = SearchQueryFocus()
+        let query = SearchQueryTextField(focus: focus)
+        var closes = 0
+        focus.release { closes += 1 }
+        focus.release { closes += 1 }
+        focus.detach(query)
+        #expect(closes == 1 && !query.isFirstResponder)
+    }
+
+    private func findSearchField(in view: UIView) -> SearchQueryTextField? {
+        if let query = view as? SearchQueryTextField { return query }
+        return view.subviews.lazy.compactMap { findSearchField(in: $0) }.first
+    }
+
+    private func drain(until condition: () -> Bool) async {
+        for _ in 0..<30 where !condition() {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
     @Test(arguments: [true, false])
     func retainedSurfaceMountRestoresAfterItsVisibilityGateOpens(inputBeforeMount: Bool) throws {
         let (window, composer) = installedHost()
@@ -73,19 +152,43 @@ struct ComposerOverlayFocusTests {
         #expect(!host.editor.isFirstResponder)
     }
 
-    private func installedHost() -> (UIWindow, ComposerHostView) {
+    private func installedHost(state: ComposerPresentationState = .resting,
+                               onFocus: @escaping (Bool) -> Void = { _ in }) -> (UIWindow, ComposerHostView) {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let root = UIViewController()
         window.rootViewController = root; window.makeKeyAndVisible()
         let host = ComposerHostView(frame: root.view.bounds)
         root.view.addSubview(host)
-        host.configure(.init(text: "same draft", selection: .init(range: 0..<0), state: .resting,
+        host.configure(.init(text: "same draft", selection: .init(range: 0..<0), state: state,
             collapseProgress: .expanded, font: .systemFont(ofSize: 16), showsPlus: false,
             primary: .send(enabled: false), models: [], selectedModelID: nil, errorMessage: nil,
             references: [], onRemoveQuote: { _ in }, onAcceptQuote: { _ in }, onQuotePhase: { _ in },
-            onText: { _, _, _ in }, onFocus: { _ in }, onSend: {}, onStop: {}, onModel: { _ in },
+            onText: { _, _, _ in }, onFocus: onFocus, onSend: {}, onStop: {}, onModel: { _ in },
             onHeightChanged: { _ in }))
         host.layoutIfNeeded()
         return (window, host)
+    }
+}
+
+@MainActor
+@Observable
+private final class SearchFocusHostingState {
+    var showsSearch = false
+    var query = ""
+}
+
+@MainActor
+private struct SearchFocusHostingView: View {
+    @Bindable var state: SearchFocusHostingState
+    let focus: SearchQueryFocus
+
+    var body: some View {
+        if state.showsSearch {
+            SearchQueryInput(text: state.query, font: .systemFont(ofSize: 16), focus: focus,
+                             onText: { state.query = $0 })
+                .frame(width: 300, height: 44)
+        } else {
+            Color.clear
+        }
     }
 }

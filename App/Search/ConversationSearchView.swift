@@ -5,7 +5,7 @@ struct ConversationSearchView: View {
     @Bindable var model: ConversationSearchModel
     let onClose: () -> Void
     let onSelect: (String) -> Void
-    @FocusState private var focused: Bool
+    @State private var inputFocus = SearchQueryFocus()
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -58,12 +58,14 @@ struct ConversationSearchView: View {
         .scrollDismissesKeyboard(.never)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack(spacing: 8) {
-                TextField("搜索会话标题", text: $model.query)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .focused($focused).submitLabel(.search)
+                SearchQueryInput(text: model.query,
+                    font: Typography.uiFont(for: .interfaceBody, compatibleWith: UITraitCollection(
+                        preferredContentSizeCategory: Typography.contentSizeCategory(for: dynamicTypeSize))),
+                    focus: inputFocus, onText: { model.query = $0 })
+                    .frame(maxWidth: .infinity)
                     .padding(12).background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
                     .accessibilityIdentifier("conversation-search-input")
-                Button { focused = false; onClose() } label: {
+                Button { inputFocus.release(then: onClose) } label: {
                     Image(systemName: "xmark").frame(width: 44, height: 44)
                 }
                 .accessibilityLabel("退出搜索").accessibilityIdentifier("conversation-search-close")
@@ -76,7 +78,6 @@ struct ConversationSearchView: View {
 #if DEBUG
         .background(SearchKeyboardProbe().ignoresSafeArea(.keyboard, edges: .bottom))
 #endif
-        .task { focused = true }
         .task(id: model.query) { await model.refresh() }
         .onDisappear { model.invalidate() }
     }
