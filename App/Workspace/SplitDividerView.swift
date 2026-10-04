@@ -14,6 +14,7 @@ struct SplitDividerView: UIViewRepresentable {
     let onAdjust: (Bool) -> Void
     var axis: SplitWorkspaceAxis = .topBottom
     var onAxis: ((SplitWorkspaceAxis) -> Void)? = nil
+    var resizeDiagnostic: (() -> String)? = nil
 
     func makeUIView(context: Context) -> SplitDividerHandle {
         let view = SplitDividerHandle()
@@ -48,6 +49,11 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
                 actions.append(UIAccessibilityCustomAction(name: "左右分屏", target: self, selector: #selector(horizontalAxis)))
             }
             accessibilityCustomActions = actions
+#if DEBUG
+            if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
+                accessibilityValue = (accessibilityValue ?? "") + ";pan=\(pan.state.rawValue);admitted=\(panAdmitted);last=\(lastPanDiagnostic);resize=\(configuration?.resizeDiagnostic?() ?? "none")"
+            }
+#endif
             if oldValue?.closeIntent != configuration?.closeIntent, configuration?.closeIntent != nil {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }
@@ -57,6 +63,10 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
     }
     private let handle = UIView()
     private var panAdmitted = false
+#if DEBUG
+    private var lastPanDiagnostic = "none"
+    private var lastBeginAdmitted = false
+#endif
     private lazy var pan = UIPanGestureRecognizer(target: self, action: #selector(panned))
 
     override init(frame: CGRect) {
@@ -88,6 +98,9 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
         switch recognizer.state {
         case .began:
             panAdmitted = configuration.onBegin()
+#if DEBUG
+            lastBeginAdmitted = panAdmitted
+#endif
             if panAdmitted { configuration.onMove(displacement(recognizer)) }
         case .changed:
             if panAdmitted { configuration.onMove(displacement(recognizer)) }
@@ -101,6 +114,12 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
             cancelPan()
         default: break
         }
+#if DEBUG
+        lastPanDiagnostic = "state=\(recognizer.state.rawValue),begin=\(lastBeginAdmitted),admitted=\(panAdmitted),translation=\(displacement(recognizer))"
+        if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
+            accessibilityValue = "ratio=\(configuration.ratio);axis=\(configuration.axis);\(lastPanDiagnostic);resize=\(configuration.resizeDiagnostic?() ?? "none")"
+        }
+#endif
     }
 
     private func displacement(_ pan: UIPanGestureRecognizer) -> Double {

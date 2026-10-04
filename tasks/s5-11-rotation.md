@@ -145,3 +145,52 @@ Remove orientation-red for full iPhone acceptance. Add an actual iPad simulator
 job for native axis switching/resize and retained editor identity; its test must
 execute without skip or host restart. Local YAML parsing, profile guard7 and
 git diff --check pass. No S5-11 build/acceptance is claimed before CI returns.
+
+### First product build and source review
+
+Local86a044d / remotecd3b67d971ca47e73ebe7cabecc9ce1783a12ce5 /
+tree277ecf4aabf8716a1ae947eda733cb0a18fcef48 passed macOS XcodeGen
+and app build in push37166208777 (build111329523429); full tests are pending.
+Source review identified one P2: an embedded Workspace can resize inside the
+same UIWindow. Include its actual frame in resize cancellation. The local fix
+and same-window regression passed re-review. Also make stale visibility receipts
+explicitly invalidate their waiter into selected-owner restoration; this is a
+defensive cancellation edge, not a confirmed normal-flow failure. Its unit test
+asserts no successful stale receipt and no later reuse. These tests accompany
+the product correction rather than a separate compiled RED.
+
+Actual iPad PR37166210919 / job111329535395 ran one axis test without skip
+or retry and passed. Parallel push job111329523414 ran the same test and failed
+one width-growth assertion after the first LR drag; axis switches, ratio returns
+and retained editor identities passed. The predicate short-circuits before lease
+queries, so this does not establish a lease defect. Source review found no
+controller defect explaining unchanged width. Keep that failure visible and add
+DEBUG-only native pan admission/displacement/axis/ratio/controller diagnostics
+plus both native Pane probes for the next candidate. Do not weaken the assertion,
+add sleeps/retries, or claim S5-11 acceptance from one passing iPad job.
+
+Both full phone jobs completed with XcodeGen/build and20 XCTest passing.
+Push37166208777 / job111329523429 ran859 Swift in129 suites with2 issues
+in the native snap-interruption Return case;39 UI ran with1 Pad skip and1
+failure at landscape blank keyboard dismissal. PR37166210919 /
+job111329535366 repeated those2 Swift issues;39 UI had1 Pad skip and3
+failures (same landscape dismissal, an older Browse neighbor gesture and an
+older Composer Chinese-input observation). Neither run restarted the test host.
+The cross-owner native/Timeline Return receipt pause and landscape Card Return
+passed in both jobs. Retain all failures; no S5-11 full gate is closed.
+
+Source inspection identifies an initialization edge: the first native Workspace
+context report can arrive after Current Card is already accessible and Return
+preparation has begun. That first report establishes a baseline and must not be
+treated as a changed context. Split preparation requires that baseline before
+capturing its device destination; Single retains its existing raw-window fallback.
+The native snap test now waits for actual Full settlement with a bounded deadline
+instead of assuming800 ms is sufficient, retaining all late-snap/owner/transform
+assertions. This is not a retry.
+
+Rotation blank-touch diagnostics use the actual measured readable Timeline
+rectangle, including native Insets. The previous landscape point was x866
+on an874 pt screen and did not establish that it lay in the Timeline rather
+than the safe-area margin. Require a native viewport, point containment, actual
+blank classification and actual keyboard dismissal; preserve draft/owner checks.
+The next full run must verify these facts and the embedded cancellation fix.

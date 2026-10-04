@@ -30,18 +30,24 @@ final class ConversationPaneScrollBridge {
     @ObservationIgnored private var lastDividerTarget: Double?
     @ObservationIgnored private var preparedDividerRevision: UInt64?
     @ObservationIgnored private var returnLayout: (id: UUID, revision: UInt64, visibility: UInt64,
-        completion: @MainActor (UUID) -> Void)?
+        completion: @MainActor (UUID) -> Void, invalidation: @MainActor (UUID) -> Void)?
 
     func awaitReturnLayout(id: UUID, revision: UInt64, visibilityRevision: UInt64,
+                           onInvalidation: @escaping @MainActor (UUID) -> Void,
                            completion: @escaping @MainActor (UUID) -> Void) {
-        returnLayout = (id, revision, visibilityRevision, completion)
+        returnLayout = (id, revision, visibilityRevision, completion, onInvalidation)
     }
 
     func cancelReturnLayout(id: UUID) { if returnLayout?.id == id { returnLayout = nil } }
 
     func publishReturnLayout(revision: UInt64, visibilityRevision: UInt64, geometry: ScrollGeometry) {
-        guard let waiting = returnLayout, waiting.revision == revision,
-              waiting.visibility == visibilityRevision, geometry.isUsableForPane,
+        guard let waiting = returnLayout else { return }
+        guard waiting.visibility == visibilityRevision else {
+            returnLayout = nil
+            waiting.invalidation(waiting.id)
+            return
+        }
+        guard waiting.revision == revision, geometry.isUsableForPane,
               pane.scrollRequest == nil else { return }
         returnLayout = nil
         waiting.completion(waiting.id)

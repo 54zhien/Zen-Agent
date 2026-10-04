@@ -22,6 +22,11 @@ struct WorkspaceLayoutContext: Equatable {
     /// The already-proposed usable Workspace rectangle, in window coordinates.
     let frame: CGRect
     let isPad: Bool
+
+    func requiresResizeCancellation(from previous: Self) -> Bool {
+        windowID != previous.windowID || windowSize != previous.windowSize
+            || frame != previous.frame || isPad != previous.isPad
+    }
 }
 
 @MainActor

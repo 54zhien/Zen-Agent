@@ -35,6 +35,9 @@ final class WorkspacePadAxisUITests: XCTestCase {
         let handle = app.descendants(matching: .any)["split-divider-handle"]
         let start = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.15, thenDragTo: start.withOffset(CGVector(dx: 100, dy: 0)))
+        print("PAD_RESIZE beforeWidth=\(widthBefore) source=\(source.frame) other=\(other.frame) handle=\(handle.frame) value=\(String(describing: handle.value))")
+        print("PAD_SOURCE \(String(describing: sourceProbe.value))")
+        print("PAD_OTHER \(String(describing: otherProbe.value))")
         expect { source.frame.width > widthBefore + 50 && self.leasesReleased(sourceProbe, otherProbe) }
         let horizontalWidth = source.frame.width
         selectAxis("上下分屏", in: app)

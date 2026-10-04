@@ -129,7 +129,10 @@ final class WorkspaceReturnPresentation {
         let revision = model.workspaceLayoutRevision + 1
         requestedRevision = revision
         targetPane.scrollBridge.awaitReturnLayout(id: token, revision: revision,
-            visibilityRevision: visibilityRevision) { [weak self] id in
+            visibilityRevision: visibilityRevision, onInvalidation: { [weak self] id in
+                guard let self, self.token == id, self.phase == .awaitingTarget else { return }
+                self.interruptOrigin?()
+            }) { [weak self] id in
                 guard let self, self.token == id, self.phase == .awaitingTarget,
                       let actual = self.targetReceipt, let expected = self.targetFrame,
                       actual.hostID == self.targetHostID, actual.windowID == self.context?.windowID,

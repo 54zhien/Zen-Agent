@@ -4,6 +4,24 @@ import Foundation
 
 @Suite("Split resize reading continuity")
 struct SplitResizeReadingTests {
+    @Test("a changed visibility revision invalidates Return without publishing a successful receipt")
+    @MainActor
+    func reattachmentInvalidatesTheReturnWaiter() throws {
+        let pane = try ConversationPaneController(conversationID: "return",
+            initialTimeline: ConversationTimelineProjection(conversationID: "return", turns: []),
+            configuration: nil, coalescer: StreamingCoalescer(interval: .milliseconds(0)))
+        let id = UUID()
+        var completed = false
+        var invalidated = false
+        pane.scrollBridge.awaitReturnLayout(id: id, revision: 3, visibilityRevision: 1,
+            onInvalidation: { invalidated = $0 == id }, completion: { _ in completed = true })
+        let geometry = ScrollGeometry(viewportHeight: 400, contentHeight: 400, offset: 0)
+        pane.scrollBridge.publishReturnLayout(revision: 3, visibilityRevision: 2, geometry: geometry)
+        #expect(invalidated && !completed)
+        pane.scrollBridge.publishReturnLayout(revision: 3, visibilityRevision: 1, geometry: geometry)
+        #expect(!completed)
+    }
+
     @Test("rotation cancels the divider lease and restores the start anchor while retaining new content")
     @MainActor
     func presentationCancellationRestoresWithoutClaimingAReceipt() throws {

@@ -162,10 +162,12 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 .background(WorkspaceLayoutObserver { context in
                     guard layoutContext != context else { return }
                     if let previous = layoutContext, let model,
-                       previous.windowSize != context.windowSize || previous.windowID != context.windowID {
+                       context.requiresResizeCancellation(from: previous) {
                         resize.cancelForPresentationChange(model: model)
                     }
-                    if returnPresentation.phase != nil {
+                    // The first observer report establishes the coordinate
+                    // baseline; it is not an interruption of an existing one.
+                    if layoutContext != nil, returnPresentation.phase != nil {
                         controller(for: returnPresentation.plan?.originSlot ?? .primary).invalidate()
                     }
                     layoutState.context = context
@@ -390,6 +392,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 }
                 let selectedID = browseController.selectedConversationID
                 let split = model.previewRestoresSplit ? model.splitWorkspace : nil
+                guard split == nil || layout.context != nil else { return false }
                 let policy = WorkspaceDevicePresentation.resolve(isPad: layout.context?.isPad ?? false,
                     size: layout.context?.windowSize ?? .zero, split: split)
                 let plan = WorkspaceReturnPlan.resolve(split: split, sourceSurfaceSlot: model.sourceSurfaceSlot,
@@ -491,13 +494,22 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 onClose: { slot in resize.close(model: model, keeping: slot == .top ? .bottom : .top) },
                 onAdjust: { increment in resize.adjust(model: model, increment: increment, minimumRatio: minimum) },
                 axis: split.axis,
-                onAxis: layoutContext?.isPad == true ? { axis in resize.changeAxis(model: model, to: axis) } : nil)
+                onAxis: layoutContext?.isPad == true ? { axis in resize.changeAxis(model: model, to: axis) } : nil,
+                resizeDiagnostic: resizeDiagnostic)
                 .frame(width: horizontal ? 28 : min(64, layout.viewport.width * 0.2),
                        height: horizontal ? min(64, layout.viewport.height * 0.2) : 28)
         }
         .frame(width: layout.divider.width, height: layout.divider.height)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("split-divider")
+    }
+
+    private var resizeDiagnostic: (() -> String)? {
+#if DEBUG
+        return { resize.diagnostic + ";surface=\(String(describing: activeSurfaceSlot))" }
+#else
+        return nil
+#endif
     }
 
     private func splitTargetOverlay(top: CGRect, bottom: CGRect, guide: CGRect) -> some View {

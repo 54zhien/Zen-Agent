@@ -17,6 +17,11 @@ final class SplitResizeController {
     @ObservationIgnored private var minimum = 0.2
     @ObservationIgnored private var axisAnimationID: UUID?
     @ObservationIgnored private var destinationAxis: SplitWorkspaceAxis?
+#if DEBUG
+    var diagnostic: String {
+        "active=\(isActive),axisAnimation=\(String(describing: axisAnimationID)),rawRatio=\(rawRatio),pending=\(pending.sorted())"
+    }
+#endif
 
     func begin(model: AppShellModel, minimumRatio: Double) -> Bool {
         guard !isActive, let split = model.splitWorkspace, !model.previewContent.isPresented,

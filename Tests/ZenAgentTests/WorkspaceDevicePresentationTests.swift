@@ -4,6 +4,15 @@ import Testing
 
 @Suite("Workspace device presentation")
 struct WorkspaceDevicePresentationTests {
+    @Test func embeddedViewportChangeCancelsResizeWithoutChangingWindowBounds() {
+        let window = NSObject()
+        let before = WorkspaceLayoutContext(windowID: ObjectIdentifier(window),
+            windowSize: CGSize(width: 1200, height: 800), frame: CGRect(x: 0, y: 0, width: 1200, height: 800), isPad: true)
+        let after = WorkspaceLayoutContext(windowID: before.windowID,
+            windowSize: before.windowSize, frame: CGRect(x: 0, y: 0, width: 800, height: 800), isPad: true)
+        #expect(after.requiresResizeCancellation(from: before))
+        #expect(!before.requiresResizeCancellation(from: before))
+    }
     @Test func landscapePhoneUsesOnlyTheUserActiveLogicalPane() {
         var split = SplitWorkspaceState(sourceConversationID: "source", sourceSlot: .bottom)
         _ = split.occupy("other")

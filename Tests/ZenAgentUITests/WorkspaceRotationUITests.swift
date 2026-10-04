@@ -8,14 +8,14 @@ final class WorkspaceRotationUITests: XCTestCase {
         let app = occupiedSplit()
         let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let secondary = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch
+        let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        let secondaryProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
         let initialEditor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
         initialEditor.tap()
         initialEditor.typeText("source portrait draft")
         let sourceEditor = editor(in: app, containing: "source portrait draft")
         XCTAssertTrue(sourceEditor.waitForExistence(timeout: 5))
-        dismissKeyboard(app, pane: source, editor: sourceEditor)
-        let secondaryProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
-        let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        dismissKeyboard(app, pane: source, editor: sourceEditor, probe: sourceProbe)
         XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source portrait draft".utf16.count)
         XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), 0)
         guard let point = editorPoint(secondaryProbe.value as? String) else {
@@ -34,7 +34,7 @@ final class WorkspaceRotationUITests: XCTestCase {
         XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), "secondary portrait draft".utf16.count)
         let secondaryEditor = editor(in: app, containing: "secondary portrait draft")
         XCTAssertTrue(secondaryEditor.waitForExistence(timeout: 5))
-        dismissKeyboard(app, pane: secondary, editor: secondaryEditor)
+        dismissKeyboard(app, pane: secondary, editor: secondaryEditor, probe: secondaryProbe)
         let sourceHeight = source.frame.height
         let secondaryHeight = secondary.frame.height
 
@@ -46,7 +46,7 @@ final class WorkspaceRotationUITests: XCTestCase {
         XCTAssertFalse(source.exists)
         landscapeEditor.tap()
         landscapeEditor.typeText(" landscape edit")
-        dismissKeyboard(app, pane: secondary, editor: landscapeEditor)
+        dismissKeyboard(app, pane: secondary, editor: landscapeEditor, probe: secondaryProbe)
 
         XCUIDevice.shared.orientation = .portrait
         expect { app.textViews.matching(identifier: "conversation-composer-input").count == 2 }
@@ -107,13 +107,32 @@ final class WorkspaceRotationUITests: XCTestCase {
     }
 
     @MainActor
-    private func dismissKeyboard(_ app: XCUIApplication, pane: XCUIElement, editor: XCUIElement) {
-        let blankY = editor.frame.minY - 30
-        XCTAssertGreaterThan(blankY, pane.frame.minY)
-        XCTAssertLessThan(blankY, app.keyboards.firstMatch.frame.minY)
+    private func dismissKeyboard(_ app: XCUIApplication, pane: XCUIElement, editor: XCUIElement, probe: XCUIElement) {
+        guard let readable = timelineFrame(probe.value as? String), readable.height > 0 else {
+            XCTFail("Editing requires a measured native Timeline viewport")
+            return
+        }
+        let point = CGPoint(x: readable.maxX - 8,
+            y: min(readable.maxY - 8, max(readable.minY + 8, editor.frame.minY - 30)))
+        XCTAssertTrue(readable.contains(point))
+        XCTAssertTrue(pane.frame.contains(point))
+        XCTAssertLessThan(point.y, app.keyboards.firstMatch.frame.minY)
+        print("ROTATION_BLANK point=\(point) readable=\(readable) before=\(String(describing: probe.value))")
         app.coordinate(withNormalizedOffset: .zero).withOffset(
-            CGVector(dx: pane.frame.maxX - 8 - app.frame.minX, dy: blankY - app.frame.minY)).tap()
+            CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY)).tap()
         expect { !app.keyboards.firstMatch.exists }
+        XCTAssertTrue((probe.value as? String)?.contains(";blank=true;") == true,
+            "The actual Timeline must classify this touch as blank background")
+        print("ROTATION_BLANK after=\(String(describing: probe.value))")
+    }
+
+    private func timelineFrame(_ diagnostic: String?) -> CGRect? {
+        guard let field = diagnostic?.split(separator: ";").first(where: { $0.hasPrefix("timelineVisibleFrame=(") }) else { return nil }
+        let values = field.dropFirst("timelineVisibleFrame=(".count).dropLast().split(separator: ",").compactMap {
+            Double($0.trimmingCharacters(in: .whitespaces))
+        }
+        guard values.count == 4 else { return nil }
+        return CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
     }
 
     private func editorPoint(_ diagnostic: String?) -> CGPoint? {
