@@ -1,7 +1,7 @@
-# S5-15 Settings — preparation record
+# S5-15 Settings — implementation and validation record
 
 This authorized slice follows the Files full code gate. Formal Settings
-production source has not been published yet.
+production source is published on draft PR32; the FULL source gate remains open.
 
 Files FULL is now closed on remote `c9f6e2a`,tree `c66db812`,push37222392865
 and PR37222395611. Branch `codex/s5-15-settings` starts from that source.
@@ -61,6 +61,19 @@ field rejection, cancellation and a presentation with no owned field. These use
 real UITextField values with controlled delegate-event ordering; they are not
 on-device timing evidence. Publish the existing review-red unit profile before
 changing that production branch, then restore Settings UI scope and FULL later.
+
+Focused acknowledgement RED: local1b7b01a/remote f4dd014f,tree ef10ace2,
+push37228420730/phone111512829300 generated and built, passed20 XCTest, then
+ran930 Swift/147 suites in77.146s. The two acknowledgement tests recorded three
+expected issues; the no-owned-field case passed. Storage still refused its custom
+fixture path (four total issues); the semantic caret regression passed. Actual
+Pad111512829205 passed. Production release now retains the pending callback when
+the owned field's native flag has cleared and waits for matching didEndEditing;
+cancel still clears that callback. The storage fixture now creates its dedicated
+cache directory before presentation and resolves the temporary parent, matching
+the existing Files path-validation preconditions. Production path guards stay
+intact. Restore settings-red for all units and all three native Settings UI cases;
+results remain pending, and this profile cannot close the FULL gate.
 
 Blueprint navigation section16, the Prompt/Soul baseline and development plan
 define grouped Settings: models/services, appearance, Agent, files/storage,

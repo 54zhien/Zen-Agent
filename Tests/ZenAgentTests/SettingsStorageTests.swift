@@ -7,11 +7,14 @@ import Testing
 struct SettingsStorageTests {
     @Test("clear cache preserves a leased native copy and the immutable managed bytes")
     func cacheCleanupPreservesTheActiveCopyAndManagedAsset() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
+        let cache = root.appendingPathComponent("Cache", isDirectory: true)
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
         let files = ManagedFileStore(applicationSupportRoot: root,
-            protectionRequirement: .bestEffort, presentationCacheRoot: root.appendingPathComponent("Cache", isDirectory: true))
+            protectionRequirement: .bestEffort, presentationCacheRoot: cache)
         let data = Data("retained managed fixture".utf8)
         let asset = try files.ingest(data: data, displayName: "retained.txt", mediaType: "text/plain", in: store)
         let attachment = SendAttachment(assetID: asset.assetID, versionID: asset.versionID,

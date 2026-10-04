@@ -29,8 +29,11 @@ final class SettingsInputFocus {
     func release(then callback: @escaping () -> Void) {
         guard !isClosing, !isCancelled, !hasMarkedText else { return }
         isClosing = true
-        guard let responder, responder.isFirstResponder else { callback(); return }
+        guard let responder else { callback(); return }
         completion = callback
+        // The flag clears before didEndEditing. Only this presentation's
+        // matching delegate acknowledgement can restore the Composer.
+        guard responder.isFirstResponder else { return }
         if !responder.resignFirstResponder() {
             completion = nil; isClosing = false
         }
