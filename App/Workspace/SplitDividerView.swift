@@ -51,7 +51,7 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
             accessibilityCustomActions = actions
 #if DEBUG
             if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
-                accessibilityValue = (accessibilityValue ?? "") + ";pan=\(pan.state.rawValue);admitted=\(panAdmitted);last=\(lastPanDiagnostic);resize=\(configuration?.resizeDiagnostic?() ?? "none")"
+                accessibilityValue = (super.accessibilityValue ?? "") + ";pan=\(pan.state.rawValue);admitted=\(panAdmitted);last=\(lastPanDiagnostic);resize=\(configuration?.resizeDiagnostic?() ?? "none")"
             }
 #endif
             if oldValue?.closeIntent != configuration?.closeIntent, configuration?.closeIntent != nil {
@@ -66,6 +66,23 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
 #if DEBUG
     private var lastPanDiagnostic = "none"
     private var lastBeginAdmitted = false
+    private var menuVisible = false
+    private var menuGeneration: UInt64 = 0
+
+    override var accessibilityValue: String? {
+        get {
+            guard ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" else {
+                return super.accessibilityValue
+            }
+            let point = CGPoint(x: bounds.midX, y: bounds.midY)
+            let hit = window?.hitTest(convert(point, to: window), with: nil)
+            let ownsHit = hit === self || hit?.isDescendant(of: self) == true
+            let ready = window != nil && !menuVisible && ownsHit
+            return (super.accessibilityValue ?? "")
+                + ";dividerReady=\(ready);menuVisible=\(menuVisible);centerHit=\(hit.map { String(describing: type(of: $0)) } ?? "nil")"
+        }
+        set { super.accessibilityValue = newValue }
+    }
 #endif
     private lazy var pan = UIPanGestureRecognizer(target: self, action: #selector(panned))
 
@@ -164,4 +181,26 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
             return UIMenu(children: actions)
         }
     }
+
+#if DEBUG
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                willDisplayMenuFor configuration: UIContextMenuConfiguration,
+                                animator: (any UIContextMenuInteractionAnimating)?) {
+        menuGeneration &+= 1
+        menuVisible = true
+    }
+
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                willEndFor configuration: UIContextMenuConfiguration,
+                                animator: (any UIContextMenuInteractionAnimating)?) {
+        let generation = menuGeneration
+        // The action can change axis before UIKit removes the menu's hit layer.
+        // Tests observe the real completion and hit target instead of sleeping.
+        let finished = { [weak self] in
+            guard let self, self.menuGeneration == generation else { return }
+            self.menuVisible = false
+        }
+        if let animator { animator.addCompletion(finished) } else { finished() }
+    }
+#endif
 }

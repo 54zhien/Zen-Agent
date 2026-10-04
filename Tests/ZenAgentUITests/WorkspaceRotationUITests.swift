@@ -118,9 +118,14 @@ final class WorkspaceRotationUITests: XCTestCase {
         XCTAssertTrue(pane.frame.contains(point))
         XCTAssertLessThan(point.y, app.keyboards.firstMatch.frame.minY)
         print("ROTATION_BLANK point=\(point) readable=\(readable) before=\(String(describing: probe.value))")
+        guard let previous = blankTapSequence(probe.value as? String) else {
+            XCTFail("Expected an actual Timeline tap sequence")
+            return
+        }
         app.coordinate(withNormalizedOffset: .zero).withOffset(
             CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY)).tap()
-        expect { !app.keyboards.firstMatch.exists }
+        expect { !app.keyboards.firstMatch.exists
+            && (self.blankTapSequence(probe.value as? String) ?? previous) > previous }
         XCTAssertTrue((probe.value as? String)?.contains(";blank=true;") == true,
             "The actual Timeline must classify this touch as blank background")
         print("ROTATION_BLANK after=\(String(describing: probe.value))")
@@ -133,6 +138,11 @@ final class WorkspaceRotationUITests: XCTestCase {
         }
         guard values.count == 4 else { return nil }
         return CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
+    }
+
+    private func blankTapSequence(_ diagnostic: String?) -> UInt64? {
+        diagnostic?.split(separator: ";").first { $0.hasPrefix("blankTapSequence=") }
+            .flatMap { UInt64($0.dropFirst("blankTapSequence=".count)) }
     }
 
     private func editorPoint(_ diagnostic: String?) -> CGPoint? {

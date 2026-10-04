@@ -56,6 +56,8 @@ final class WorkspacePadAxisUITests: XCTestCase {
         let action = app.buttons[title]
         XCTAssertTrue(action.waitForExistence(timeout: 5))
         action.tap()
+        expect { (handle.value as? String)?.contains(";dividerReady=true;") == true }
+        print("PAD_AXIS_READY \(String(describing: handle.value))")
     }
 
     private func editorIdentity(_ diagnostic: String?) -> String? {

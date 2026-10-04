@@ -128,15 +128,20 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             for (index, scroll) in scrollViews(in: contentController.view).enumerated() {
                 if index == 0 {
                     let insets = scroll.adjustedContentInset
-                    let readable = CGRect(x: scroll.bounds.minX + insets.left,
+                    // SwiftUI can place horizontal safe-area padding in its
+                    // content while UIScrollView reports zero adjusted Insets.
+                    // These are overlapping exclusions, not additive padding.
+                    let left = max(insets.left, scroll.safeAreaInsets.left)
+                    let right = max(insets.right, scroll.safeAreaInsets.right)
+                    let readable = CGRect(x: scroll.bounds.minX + left,
                         y: scroll.bounds.minY + insets.top,
-                        width: max(0, scroll.bounds.width - insets.left - insets.right),
+                        width: max(0, scroll.bounds.width - left - right),
                         height: max(0, scroll.bounds.height - insets.top - insets.bottom))
                     fields.append("timelineVisibleFrame=\(scroll.convert(readable, to: window))")
                 }
                 let point = scroll.convert(CGPoint(x: scroll.bounds.minX + scroll.bounds.width * 0.98,
                     y: scroll.bounds.minY + scroll.bounds.height * 0.25), to: window)
-                fields.append("nativeScroll=\(type(of: scroll));frame=\(scroll.convert(scroll.bounds, to: window));size=\(scroll.contentSize);offset=\(scroll.contentOffset);insets=\(scroll.contentInset);adjustedInsets=\(scroll.adjustedContentInset);marginPoint=\(point);marginHit=\(chain(window.hitTest(point, with: nil)))")
+                fields.append("nativeScroll=\(type(of: scroll));frame=\(scroll.convert(scroll.bounds, to: window));size=\(scroll.contentSize);offset=\(scroll.contentOffset);insets=\(scroll.contentInset);adjustedInsets=\(scroll.adjustedContentInset);safeInsets=\(scroll.safeAreaInsets);marginPoint=\(point);marginHit=\(chain(window.hitTest(point, with: nil)))")
             }
         }
         if let editor = mounted.first, let window = view.window {

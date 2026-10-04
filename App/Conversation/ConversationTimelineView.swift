@@ -182,7 +182,10 @@ struct ConversationTimelineView: View {
             .contentShape(Rectangle())
             .simultaneousGesture(SpatialTapGesture().onEnded { tap in
 #if DEBUG
-                scrollBridge?.blankTapDiagnostic = "point=\(tap.location);blank=\(Self.isBlankTap(tap.location, turnFrames: turnFrames));frames=\(turnFrames.values)"
+                if let scrollBridge {
+                    scrollBridge.blankTapSequence &+= 1
+                    scrollBridge.blankTapDiagnostic = "point=\(tap.location);blank=\(Self.isBlankTap(tap.location, turnFrames: turnFrames));frames=\(turnFrames.values)"
+                }
 #endif
                 guard Self.isBlankTap(tap.location, turnFrames: turnFrames) else { return }
                 onBlankBackgroundTap()

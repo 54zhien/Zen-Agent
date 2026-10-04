@@ -194,3 +194,46 @@ on an874 pt screen and did not establish that it lay in the Timeline rather
 than the safe-area margin. Require a native viewport, point containment, actual
 blank classification and actual keyboard dismissal; preserve draft/owner checks.
 The next full run must verify these facts and the embedded cancellation fix.
+
+### Follow-up actual Pad evidence
+
+Local5f7f721 / remoted40fd17532a580901bbc560acbb0bdda86563385 /
+treee651c3d13605dcecb75a0cee88156b01f4174613 passed the push iPad
+job111336038978 (CI37168368758): one test, zero failures/skips/retries,
+124.488 seconds. Its actual Pan delivered76.5 pt and changed source width
+from688 to764.5; both axis ratios and native editor identities survived.
+PR37168371168 / Pad111336043761 failed the same first-drag width assertion.
+The new diagnostic reports last=none: the native Pan received no callback,
+with ratio0.5, resize inactive, axisAnimation nil and both Timeline leases
+released. This rules out a ratio update rejected by an active resize lease in
+that run. It does not yet prove which UIKit layer consumed the touch.
+
+The next candidate adds DEBUG-only menu display/end-completion tracking and a
+live native center hit-test diagnostic. After choosing an axis, the test must
+observe UIKit menu completion and the divider owning the actual center hit
+before starting its drag. No fixed sleep, retry, fake callback or weaker width
+assertion is added. Keep a failed readiness assertion visible if the native
+divider remains inaccessible.
+
+Current Apple delegate/animator signatures were verified against primary docs:
+https://developer.apple.com/documentation/uikit/uicontextmenuinteractiondelegate/contextmenuinteraction(_:willendfor:animator:)
+https://developer.apple.com/documentation/uikit/uicontextmenuinteractionanimating/addcompletion(_:)
+
+Both d40 phone jobs completed: push37168368758 / build111336038947 and
+PR37168371168 / build111336043756 passed XcodeGen/build,20 XCTest,
+861 Swift in129 suites, with no restart/retry. Native snap Return now passes.
+Both ran39 UI with1 expected Pad skip and only1 failure, the landscape blank
+keyboard dismissal. Older Browse and Chinese-input checks passed in both runs.
+Cross-owner Return receipts and landscape Card Return also passed again.
+
+The native ScrollView frame is874 pt wide while its SwiftUI content/container
+is750 pt. Horizontal adjusted Insets are zero: the previous probe therefore
+included the horizontal safe-area margins, and the x866 tap did not deliver a
+new Timeline callback. Its old portrait blank=true diagnostic remained present;
+it cannot prove a later landscape touch. The next candidate clips the DEBUG
+readable probe by the larger of actual native horizontal safe Insets and
+adjusted Insets, reporting both. It adds an actual raw-tap sequence counter,
+incremented only by the existing Timeline gesture callback. The test requires
+a fresh increment and real keyboard dismissal, then verifies blank classification.
+This changes diagnostics/test coordinates, not production layout or tap policy.
+S5-11 remains open until this candidate's full phone and actual Pad CI pass.
