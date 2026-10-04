@@ -26,6 +26,7 @@ final class ConversationSearchUITests: XCTestCase {
         expect { editor.exists }
         print("SEARCH_EXIT_NATIVE \(probe.value as? String ?? "missing")")
         expect { (probe.value as? String)?.contains("focused=true;") == true }
+        print("SEARCH_EXIT_NATIVE_SETTLED \(probe.value as? String ?? "missing")")
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         XCTAssertEqual(editorIdentity(probe.value as? String), identity)
         XCTAssertTrue((editor.value as? String)?.contains("focused Search draft") == true)

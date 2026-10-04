@@ -207,3 +207,26 @@ retry the queued token. Recheck the same queued capability after native host
 visibility opens; the existing bridge retries after input reopens. A composed
 Window/Surface regression covers both event orders, same editor and same draft.
 Targeted and full compiled GREEN remain pending.
+
+## Native keyboard GREEN; focus-token gate diagnostic
+
+Remote f6cf3e7070dfef8b16e10d32f4de0324636b621a /tree
+0ebe7ee61d2b252f3ff2a78d69d2f61bd3a014a7 built in PR37188330393
+and push37188328173. Phones111395028655 /111395035226 both passed889
+Swift/136 suites plus20 XCTest, including both composed native gate order cases.
+Both actual Pad111395028634 /111395035240 passed. No restart/retry.
+
+Result-activation UI passed in both phones. Native receipt was identical:
+input maxY531, UIKit keyboard top539 (8pt gap), AX keyboard top583.
+This confirms the44pt AX measurement difference while retaining the28pt
+requirement and the unchanged Search layout.
+
+Plain exit still failed in both (2 UI cases,3 assertions failed each). The native
+receipt shows the same retained editor with a pending, valid restoration token
+and visible/interactable ancestors. The native visibility race unit regression
+passed but does not resolve every end-to-end readiness condition. Do not infer
+that the existing editor must be replaced. Add exact early-return/last-become
+receipts to the existing consume path and print them after its bounded focus wait.
+This diagnoses input, editor mount/visibility, ancestor, Window/scene, presented
+controller and actual becomeFirstResponder failure without bypassing a guard.
+Targeted/full GREEN remain pending; Files production has not started.

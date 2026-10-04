@@ -60,6 +60,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var liftInteraction: ComposerLiftInteraction!
     private var workspaceInputSuppressed = false
     private var overlayFocus: ComposerOverlayFocus?
+    private var overlayFocusReason = "none"
 
     func captureOverlayFocus(ownerIsCurrent: @escaping () -> Bool) -> ComposerOverlayFocus? {
         guard !workspaceInputSuppressed, editor.isFirstResponder, editor.markedTextRange == nil,
@@ -80,29 +81,42 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     func consumeOverlayFocusIfReady() {
         guard let token = overlayFocus else { return }
+        overlayFocusReason = "invalidOwner"
         guard token.isValid else { token.cancel(); return }
-        guard !workspaceInputSuppressed, let window, editor.window === window,
-              bounds.width > 0, bounds.height > 0, editor.bounds.width > 0,
-              !editor.isHidden, isUserInteractionEnabled else { return }
-        guard token.window === window,
-              window.windowScene.map({ $0.activationState == .foregroundActive }) ?? true else {
+        overlayFocusReason = "inputSuppressed"
+        guard !workspaceInputSuppressed else { return }
+        overlayFocusReason = "unmounted"
+        guard let window else { return }
+        overlayFocusReason = "editorWindow"
+        guard editor.window === window else { return }
+        overlayFocusReason = "emptyBounds"
+        guard bounds.width > 0, bounds.height > 0, editor.bounds.width > 0 else { return }
+        overlayFocusReason = "editorHidden"
+        guard !editor.isHidden else { return }
+        overlayFocusReason = "interactionDisabled"
+        guard isUserInteractionEnabled else { return }
+        overlayFocusReason = "windowOrSceneChanged"
+        guard token.window === window, window.windowScene.map({ $0.activationState == .foregroundActive }) ?? true else {
             token.cancel(); return
         }
         var node: UIView? = self
         while let current = node {
+            overlayFocusReason = "hiddenAncestor:\(type(of: current))"
             guard !current.isHidden, current.alpha > 0 else { return }
             node = current.superview
         }
         var responder: UIResponder? = self
         while let current = responder {
             if let controller = current as? UIViewController, controller.presentedViewController != nil {
+                overlayFocusReason = "presentedController"
                 token.cancel(); return
             }
             responder = current.next
         }
         // UIKit's didBeginEditing callback restores the logical Editing state.
         // Run after the bridge's ordinary focus application, or a fresh layout.
-        if editor.becomeFirstResponder() { overlayFocus = nil }
+        overlayFocusReason = "responderDeclined"
+        if editor.becomeFirstResponder() { overlayFocusReason = "restored"; overlayFocus = nil }
     }
 
     func setWorkspaceInputSuppressed(_ suppressed: Bool) {
@@ -265,7 +279,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
 #if DEBUG
     var liftReadinessDiagnostic: String {
-        "\(liftInteraction.readinessDiagnostic);composerBounds=\(bounds);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false)"
+        "\(liftInteraction.readinessDiagnostic);composerBounds=\(bounds);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder)"
     }
 #endif
 
