@@ -77,3 +77,10 @@ focused tap-close UI case retains keyboard/editor identity, then requires the
 normal blank dismissal to work again after the Rail closes.
 Remove the fixed RED profile for this product's full build/unit/UI gate.
 Local checks are not a macOS build or a completed Sidebar gate.
+
+First product local54f6694 / remote092b5ebb68b3a502060355542c4174166729e516 /
+tree7c43813096e8b4b552a29ee05887c2292f873b6b failed compilation in
+push37172447636 and PR37172450208: the raw selection check separated the
+unary `!` from its operand. No behavior result follows from those jobs. Correct
+the exact lexical error. Also avoid assigning the unchanged native edge setting
+during the recognizer's own Pan; only reconfigure it when layout direction changes.

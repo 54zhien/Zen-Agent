@@ -63,7 +63,14 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         self.readContext = context
         self.travel = max(1, travel)
         self.sign = isRightToLeft ? -1 : 1
-        edge.edges = isRightToLeft ? .right : .left
+        let edges: UIRectEdge = isRightToLeft ? .right : .left
+        if edge.edges != edges {
+            // Do not reset a recognizer's edge configuration during its own Pan.
+            for recognizer in [edge, reverse, closeTap] { attachedWindow?.removeGestureRecognizer(recognizer) }
+            attachedWindow = nil
+            captured = nil
+            edge.edges = edges
+        }
         if window !== attachedWindow { attach() }
         if captured != nil, !sameOwner() { state.reset(); captured = nil }
     }

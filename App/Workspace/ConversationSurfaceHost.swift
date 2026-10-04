@@ -270,7 +270,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         }
         guard !hasNavigation(contentController), let composer = findComposer(contentController.view) else { return false }
         var input = composer.nativeLiftInput
-        input.selectionActive = composer.editor.selectedTextRange.map { ! $0.isEmpty } ?? false
+        input.selectionActive = composer.editor.selectedTextRange.map { !$0.isEmpty } ?? false
         return WorkspaceSidebarEligibility.allowsNativeInput(input)
     }
 
