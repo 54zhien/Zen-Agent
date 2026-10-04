@@ -5,32 +5,55 @@ import UIKit
 /// A scene-wide declarative focus cleanup can otherwise run after that handoff.
 @MainActor
 final class SearchQueryFocus {
+    private enum Phase: Equatable { case active, releasing, released, cancelled }
     private weak var field: SearchQueryTextField?
-    private(set) var released = false
+    private var phase = Phase.active
+    var released: Bool { phase != .active }
     private var releaseCompletion: (() -> Void)?
 
-    func attach(_ field: SearchQueryTextField) { self.field = field }
+    func attach(_ field: SearchQueryTextField) {
+        releaseCompletion = nil
+        // Replacement cancels the old unacknowledged request, but the same
+        // still-open presentation must permit a fresh Close. A completed or
+        // cancelled presentation cannot reacquire focus during its fade.
+        if phase == .releasing { phase = .active }
+        self.field = field
+    }
 
     func release(then completion: @escaping () -> Void) {
-        guard !released else { return }
-        released = true
-        guard let field, field.isFirstResponder else { completion(); return }
+        guard phase == .active else { return }
+        phase = .releasing
+        guard let field, field.isFirstResponder else {
+            phase = .released
+            completion()
+            return
+        }
         releaseCompletion = completion
         if !field.resignFirstResponder() {
             releaseCompletion = nil
-            released = false
+            phase = .active
         }
     }
 
     func didEndEditing(_ field: SearchQueryTextField) {
         guard self.field === field, let completion = releaseCompletion else { return }
         releaseCompletion = nil
+        phase = .released
         completion()
     }
 
     func detach(_ field: SearchQueryTextField) {
+        if self.field === field {
+            releaseCompletion = nil
+            if phase == .releasing { phase = .active }
+            self.field = nil
+        }
         field.resignFirstResponder()
-        if self.field === field { self.field = nil }
+    }
+
+    func cancel() {
+        phase = .cancelled
+        releaseCompletion = nil
     }
 }
 
@@ -96,7 +119,8 @@ final class SearchQueryTextField: UITextField, UITextFieldDelegate {
     private func requestInitialFocusIfReady() {
         guard !focus.released, !requestedInitialFocus, window != nil,
               bounds.width > 0, bounds.height > 0 else { return }
-        requestedInitialFocus = becomeFirstResponder()
+        requestedInitialFocus = true
+        if !becomeFirstResponder() { requestedInitialFocus = false }
     }
 
     @objc private func textChanged() { onText?(text ?? "") }

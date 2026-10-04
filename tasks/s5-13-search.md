@@ -319,3 +319,40 @@ hide while the actual Composer remains first responder. Current Host behavior
 is preserved for this behavioral RED; do not infer focus loss from visibility
 or call the keyboard notification the cause of the observed earlier trace.
 New regression APIs accompany production, not a missing-symbol RED publication.
+## Native query receipt and separate keyboard-owner RED
+
+Candidate remoteceb873a67974be02f1afbad48752327245ef4055 /tree
+ de4f37dafed63efa841c61450a7f1974257dd27e built in both phone/Pad jobs.
+Push37193601502 /phone111410769664:20 XCTest passed,892 Swift/136 suites
+failed88.394s with2 issues. The native keyboard-hide regression recorded
+focusEvents=[false] while the actual editor remained first responder (behavioral
+RED). The hosting integration fixture did not mount its query input; this is a
+fixture failure, not evidence of a missing input in the actual app.
+Both Search UI cases passed: result61.299s, plain exit49.023s,zero failures.
+Native exit keeps the same editor focused=true, Editing, with actual keyboard.
+Actual input-keyboard gap remains8pt. Push actual Pad passed72.260s.
+PR37193603795 /phone111410770102:20 XCTest passed,892/136 failed93.024s with
+the same2 issues. Both Search cases passed58.524s and34.827s,zero UI failures.
+The whole candidate gate is failed, not GREEN. Both phones have one Swift test
+start and no test-host restart; no retry or assertion relaxation was introduced.
+
+Fix the confirmed separate owner bug: keyboardDidHide may clear logical focus
+only after this editor has actually lost native first-responder ownership.
+Real didEndEditing remains authoritative; hardware/other-editor keyboard hiding
+cannot revoke a currently valid editor. Full dismissal/Sidebar/Split gates remain
+required to verify this distinction.
+
+Repair hosting fixture containment: keep Composer under its ordinary parent
+UIViewController and mount Search's actual hosting controller as a child/sibling.
+Mount the query from the initial hosting root; use actual native become/responders
+for the handoff, and require the subsequent SwiftUI update to really occur.
+The end-to-end UI already verifies automatic Search entry focus and actual close.
+
+Read-only review follow-up: cancel pending query callbacks on disappearance or
+detach, bind close to a unique overlay presentation id, and prevent an old
+acknowledgement from dismissing a reopened Search. Same-presentation replacement
+rearms an unacknowledged close; completed/cancelled presentations stay terminal
+through their outgoing fade. Cover missing actual delegate acknowledgement,
+replacement's fresh close, stale field callbacks, and old overlay-id close.
+New Files asynchronous callbacks must also capture their presentation id; the
+coordinator's no-argument compatibility call is not Files routing evidence.

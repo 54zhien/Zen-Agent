@@ -61,9 +61,10 @@ struct WorkspaceNavigationView<Content: View>: View {
                             Button("关闭侧边栏") { state.closeSidebar() }
                         }
                     }
-                if state.overlay == .search, let overlays {
-                    ConversationSearchView(model: overlays.search, onClose: overlays.close,
+                if state.overlay == .search, let overlays, let id = state.overlayID {
+                    ConversationSearchView(model: overlays.search, onClose: { overlays.close(expectedID: id) },
                         onSelect: { id in _ = overlays.select(id) })
+                        .id(id)
                         .padding(.top, windowInsets.top)
                         .transition(.opacity).zIndex(100)
                 }

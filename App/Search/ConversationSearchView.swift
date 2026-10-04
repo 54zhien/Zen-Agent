@@ -79,7 +79,7 @@ struct ConversationSearchView: View {
         .background(SearchKeyboardProbe().ignoresSafeArea(.keyboard, edges: .bottom))
 #endif
         .task(id: model.query) { await model.refresh() }
-        .onDisappear { model.invalidate() }
+        .onDisappear { inputFocus.cancel(); model.invalidate() }
     }
 
     private func highlightedTitle(_ title: String) -> Text {

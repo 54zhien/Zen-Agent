@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 
 @MainActor
@@ -21,8 +22,9 @@ final class WorkspaceOverlayCoordinator {
         search.query = ""
     }
 
-    func close() {
-        guard navigation?.overlay != nil else { return }
+    func close(expectedID: UUID? = nil) {
+        guard navigation?.overlay != nil,
+              expectedID == nil || navigation?.overlayID == expectedID else { return }
         search.invalidate()
         navigation?.dismissOverlay()
         focus?.restore()

@@ -7,6 +7,35 @@ import Observation
 @Suite("Native overlay responder restoration")
 @MainActor
 struct ComposerOverlayFocusTests {
+    @Test("teardown cancels an unacknowledged close before another field can deliver it")
+    func teardownCancelsPendingQueryClose() {
+        let (window, _) = installedHost()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        let focus = SearchQueryFocus()
+        let query = SearchQueryTextField(focus: focus)
+        query.frame = CGRect(x: 20, y: 100, width: 300, height: 44)
+        window.rootViewController?.view.addSubview(query)
+        #expect(query.becomeFirstResponder())
+        // Exercise a genuinely missing UIKit delegate receipt, rather than
+        // inserting a fake delayed close into the production focus owner.
+        query.delegate = nil
+        var closes = 0
+        focus.release { closes += 1 }
+        #expect(!query.isFirstResponder && closes == 0)
+        focus.detach(query)
+        let replacement = SearchQueryTextField(focus: focus)
+        replacement.frame = query.frame
+        window.rootViewController?.view.addSubview(replacement)
+        #expect(replacement.becomeFirstResponder())
+        var replacementCloses = 0
+        focus.release { replacementCloses += 1 }
+        #expect(replacementCloses == 1 && !replacement.isFirstResponder)
+        query.delegate = query
+        #expect(query.becomeFirstResponder())
+        query.resignFirstResponder()
+        #expect(closes == 0 && replacementCloses == 1)
+    }
+
     @Test("a keyboard hide notification cannot revoke a different live native responder")
     func unrelatedKeyboardHidePreservesTheActualEditingOwner() {
         var focusEvents: [Bool] = []
@@ -25,21 +54,21 @@ struct ComposerOverlayFocusTests {
         let (window, composer) = installedHost()
         let state = SearchFocusHostingState()
         let focus = SearchQueryFocus()
+        let parent = try #require(window.rootViewController)
         let root = UIHostingController(rootView: SearchFocusHostingView(state: state, focus: focus))
-        window.rootViewController = root
+        parent.addChild(root)
+        root.view.frame = parent.view.bounds
+        parent.view.insertSubview(root.view, at: 0)
+        root.didMove(toParent: parent)
         root.view.layoutIfNeeded()
-        composer.frame = root.view.bounds
-        root.view.addSubview(composer)
-        composer.layoutIfNeeded()
         defer { composer.editor.resignFirstResponder(); window.isHidden = true; window.rootViewController = nil }
         let editor = composer.editor
         #expect(editor.becomeFirstResponder())
         let token = try #require(composer.captureOverlayFocus(ownerIsCurrent: { true }))
         composer.setWorkspaceInputSuppressed(true)
-        state.showsSearch = true
-        await drain { self.findSearchField(in: root.view)?.isFirstResponder == true }
+        await drain { self.findSearchField(in: root.view) != nil }
         let query = try #require(findSearchField(in: root.view))
-        #expect(query.isFirstResponder)
+        #expect(query.becomeFirstResponder())
         query.text = "native query edit"
         query.sendActions(for: .editingChanged)
         #expect(state.query == "native query edit")
@@ -55,6 +84,7 @@ struct ComposerOverlayFocusTests {
         // happens during the overlay fade, then let SwiftUI dismantle it.
         state.query = "query update during the outgoing fade"
         await drain { query.text == state.query }
+        #expect(query.text == state.query)
         #expect(editor.isFirstResponder)
         state.showsSearch = false
         await drain { query.window == nil }
@@ -173,7 +203,7 @@ struct ComposerOverlayFocusTests {
 @MainActor
 @Observable
 private final class SearchFocusHostingState {
-    var showsSearch = false
+    var showsSearch = true
     var query = ""
 }
 

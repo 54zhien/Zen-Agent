@@ -6,6 +6,31 @@ import GRDB
 @Suite("Search activation scope")
 @MainActor
 struct SearchActivationTests {
+    @Test("an old input close acknowledgement cannot dismiss a newer Search presentation")
+    func staleCloseCannotDismissAReopenedOverlay() async throws {
+        let fixture = try AppShellWiringTests().makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        await fixture.model.launchRestorationTask?.value
+        let navigation = WorkspaceNavigationState()
+        let overlays = WorkspaceOverlayCoordinator(store: fixture.store, shell: fixture.model,
+                                                    navigation: navigation)
+        #expect(navigation.openSidebar(eligible: true))
+        navigation.completeSettlement(try #require(navigation.settlementID))
+        overlays.enter(.search, eligible: true, captureFocus: { nil })
+        let firstID = try #require(navigation.overlayID)
+        overlays.reset()
+        navigation.reset()
+        #expect(navigation.openSidebar(eligible: true))
+        navigation.completeSettlement(try #require(navigation.settlementID))
+        overlays.enter(.search, eligible: true, captureFocus: { nil })
+        let newID = try #require(navigation.overlayID)
+        #expect(newID != firstID)
+        overlays.close(expectedID: firstID)
+        #expect(navigation.overlay == .search && navigation.overlayID == newID)
+        overlays.close(expectedID: newID)
+        #expect(navigation.overlay == nil && navigation.overlayID == nil)
+    }
+
     @Test("Search entry, read, exit and result activation keep the actual outgoing stream alive")
     func searchNavigationPreservesAnActualStreamingRun() async throws {
         let stream = Stage2StreamBox()
