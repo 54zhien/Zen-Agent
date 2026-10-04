@@ -3,7 +3,29 @@
 This authorized slice follows the Files full code gate. Formal Settings
 production source is published on draft PR32; the FULL source gate remains open.
 
-## Current candidate: targeted GREEN, FULL pending
+## Current candidate: FULL timeout headroom, gate pending
+
+FULL local55dcae5ed1126feb57a5bfe64e3a504d02e9f357,
+remote69a0058c50e75dda96b0e2d08e20a6f65aa802e9,
+tree56584ea826c17d11e296e89bca1c5e90bbec5779:
+push37233520294 passed XcodeGen/build,20 XCTest,930 Swift/147 suites
+(93.142s),53 phone UI with one expected Pad-only skip and zero failures
+(1425.838s),actual Pad111528016335 (80.490s) and guard37233523575.
+PR37233523586 passed generation/build,20 XCTest,930 Swift/147 suites
+(108.414s) and actual Pad111528031388 (116.595s). It started all53 phone
+UI cases, completed51 with zero failures and one expected skip, then the
+40-minute job cap cancelled the final native rotation test while it was typing
+the real landscape draft. GitHub's annotation explicitly reports maximum
+execution time exceeded; no UI assertion failure precedes cancellation.
+This incomplete PR run is not GREEN. No host restart/retry was observed.
+
+The next candidate only raises the complete build/test job cap from40 to45
+minutes and records this evidence. It removes no tests, adds no retries/skips,
+and changes no production behavior. Repeat both FULL runs/actual Pad/guard
+before closing Settings or starting Visuals. Raw logs remain in the durable
+handoff folder. Physical-device acceptance remains open.
+
+## Previous targeted GREEN
 
 Localf18cade0a37f206a3eaf781d808b49418934d419,
 remote48cc942446f5ea7671c4df025f6544148f914898,

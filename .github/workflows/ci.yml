@@ -302,9 +302,10 @@ jobs:
     name: Build and test
     needs: repo-hygiene
     runs-on: macos-26
-    # A full Stage 5 run executed all 35 UI cases but hit the former 30 minute
-    # ceiling during result collection. This cap adds no retries or test loops.
-    timeout-minutes: 40
+    # Settings FULL PR37233523586 passed units and 51 of 53 UI cases (one
+    # Pad-only skip), then hit 40 minutes in the last native rotation case.
+    # Keep the complete suite; bounded headroom adds no retries or test loops.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 

@@ -17,7 +17,11 @@ Settings 已在 draft PR32 实现。针对性源码 remote48cc9424/tree83e2786d 
 push37232428766、PR37232432060、guard37232432125：两边930 Swift/147 suites、
 20 XCTest、三个实际Settings UI和实际Pad零失败。原生Configure/首次Send、Soul保存、
 focused Close返回同一Composer/draft/keyboard、账号冲突和缓存lease均通过。
-临时profile现已移除，完整FULL候选等待push/PR/guard与Pad；尚不进入Visuals。
+临时profile已移除，FULL69a0058c/tree56584ea8的push37233520294全通过：930 Swift、
+20 XCTest、53 phone UI（一个预期skip）、实际Pad；guard通过。PR37233523586通过
+units、实际Pad、51 UI和一个预期skip，但40分钟job上限在最后旋转测试中将其取消；
+不是第二个GREEN。下一候选仅将完整build/test job上限改为45分钟并补记录，所有
+测试、断言、skip和无重试策略保持；等新的两侧FULL后才进入Visuals。
 Settings初始行为RED、首次候选、焦点回调/场景快照/目录hint/重复Close定位失败与
 修复证据完整保留在s5-15记录和外部settings-ci-receipts.json。窄范围静态复核无新的
 Critical/Important，不能替代最终fresh整阶段review。只剩CurrentCardEdge/Motion两份
