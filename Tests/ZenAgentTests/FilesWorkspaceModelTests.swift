@@ -23,10 +23,15 @@ struct FilesWorkspaceModelTests {
         let item = try #require(model.items.first)
         #expect(item.displayName == "source.txt" && item.byteCount == Int64(bytes.count))
         let version = try #require(try store.fileAssetVersion(id: item.versionID))
-        let url = try files.verifiedBlobURL(for: SendAttachment(assetID: item.id,
+        let attachment = SendAttachment(assetID: item.id,
             versionID: item.versionID, fingerprint: version.contentFingerprint, kind: .file,
-            displayName: item.displayName), in: store)
-        #expect(try Data(contentsOf: url) == bytes)
+            displayName: item.displayName)
+        // A parallel held-import test owns the process-wide file lock while
+        // awaiting cancellation on MainActor. Verification must not block it.
+        let actual = try await Task.detached {
+            try files.withVerifiedBlob(for: attachment, in: store) { try Data(contentsOf: $0) }
+        }.value
+        #expect(actual == bytes)
     }
 
     @Test("closing during a real held import cancels its bytes and metadata publication")

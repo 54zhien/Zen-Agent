@@ -231,3 +231,17 @@ Swift's primary migration guidance explains nonisolated protocol requirements:
 https://www.swift.org/migration/documentation/swift-6-concurrency-migration-guide/commonproblems/
 The callback still captures the presentation ID through the existing close guard.
 Actual compilation, unit/native UI and full gates remain pending.
+
+
+## Parallel fixture ownership follow-up
+
+Delegate repair ce8bf9a /tree99e69c compiled the app. PR actual Pad
+111432602953 passed its real axis case89.784s, zero failures/skip; phone
+unit/Files UI was still executing when the next fixture repair was published.
+Source inspection found a concrete test deadlock risk: the import-success model
+test synchronously verified its blob on MainActor while the parallel held-import
+test could own the global file lock awaiting MainActor cancellation. The success
+test now verifies and reads the same actual managed bytes in a detached task
+under withVerifiedBlob. Assertions and production operations are unchanged.
+This source finding is not a claimed runtime failure trace or GREEN receipt.
+Both native runs and the full gate must complete on the repaired tree.
