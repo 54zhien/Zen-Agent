@@ -17,6 +17,30 @@ final class ManagedFilePresentation: @unchecked Sendable {
 }
 
 extension ManagedFileStore {
+    func presentationCacheByteCount() throws -> Int64 {
+        try withFileOperation {
+            let root = try FilePresentationCache.validatedRoot(presentationCacheRoot)
+            guard FileManager.default.fileExists(atPath: root.path) else { return 0 }
+            var total: Int64 = 0
+            let folders = try FileManager.default.contentsOfDirectory(at: root,
+                includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            for folder in folders where FilePresentationCache.isOwnedFolder(folder, in: root) {
+                let children = try FileManager.default.contentsOfDirectory(at: folder,
+                    includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+                for child in children {
+                    let values = try child.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+                    guard values.isRegularFile == true, values.isSymbolicLink != true,
+                          child.resolvingSymlinksInPath().standardizedFileURL == child.standardizedFileURL,
+                          let size = values.fileSize else { continue }
+                    let addition = total.addingReportingOverflow(Int64(size))
+                    guard !addition.overflow else { throw ManagedFileStoreError.byteCountOverflow }
+                    total = addition.partialValue
+                }
+            }
+            return total
+        }
+    }
+
     func makePresentationCopy(for attachment: SendAttachment,
                               in store: PersistenceStore) throws -> ManagedFilePresentation {
         try withVerifiedBlob(for: attachment, in: store) { source in
@@ -27,7 +51,7 @@ extension ManagedFileStore {
                 FilePresentationCache.safeName(attachment.displayName), isDirectory: false)
             var retained = false
             defer { if !retained { try? FileManager.default.removeItem(at: folder) } }
-            guard folder.resolvingSymlinksInPath().standardizedFileURL == folder,
+            guard folder.resolvingSymlinksInPath().standardizedFileURL.path == folder.standardizedFileURL.path,
                   (try? folder.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else {
                 throw ManagedFileStoreError.invalidManagedPath
             }
@@ -94,7 +118,9 @@ private enum FilePresentationCache {
     static func validatedRoot(_ configured: URL) throws -> URL {
         let expected = configured.deletingLastPathComponent().resolvingSymlinksInPath()
             .appendingPathComponent(configured.lastPathComponent, isDirectory: true).standardizedFileURL
-        guard configured.resolvingSymlinksInPath().standardizedFileURL == expected,
+        // A not-yet-created directory loses its trailing-slash URL hint when
+        // resolving. Compare canonical paths; still reject actual redirection.
+        guard configured.resolvingSymlinksInPath().standardizedFileURL.path == expected.path,
               (try? configured.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else {
             throw ManagedFileStoreError.invalidManagedPath
         }

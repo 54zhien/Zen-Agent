@@ -100,8 +100,8 @@ struct ProviderSetupTests {
         #expect(setup.state == .complete)
     }
 
-    @Test("metadataWriteFailureRetainsSecretAndResumesSameAttempt")
-    func metadataWriteFailureRetainsSecretAndResumesSameAttempt() throws {
+    @Test("metadataWriteFailureCleansUnpublishedSecretAndResumesSameAttempt")
+    func metadataWriteFailureCleansUnpublishedSecretAndResumesSameAttempt() throws {
         let environment = try makeEnvironment()
         defer { environment.defaults.removePersistentDomain(forName: environment.defaultsSuite) }
         let setup = environment.makeSetup()
@@ -123,7 +123,7 @@ struct ProviderSetupTests {
         #expect(setup.credentialReference == reference)
         #expect(try environment.store.providerInstance(id: instanceID) != nil)
         #expect(try environment.credentials.metadata(for: reference) == nil)
-        #expect(environment.secretBackend.storedSecret(for: reference, generation: 1) == key)
+        #expect(environment.secretBackend.storedSecret(for: reference, generation: 1) == nil)
         #expect(environment.defaults.string(forKey: AppShellModel.defaultInstanceIDKey) == nil)
         #expect(!makeShell(environment).canSend)
 

@@ -189,7 +189,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         surface.addSubview(viewport)
         editor.delegate = self
         editor.backgroundColor = .clear
-        editor.tintColor = .black
+        editor.tintColor = .label
+        editor.textColor = .label
         editor.textContainerInset = .zero
         editor.textContainer.lineFragmentPadding = 0
         editor.adjustsFontForContentSizeCategory = true
@@ -212,8 +213,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
                 UIImage.SymbolConfiguration(pointSize: 13, weight: .medium),
                 forImageIn: .normal
             )
-            button.tintColor = .white
-            button.backgroundColor = .black
+            button.tintColor = .systemBackground
+            button.backgroundColor = .label
             button.cornerConfiguration = .capsule()
             surface.addSubview(button)
         }

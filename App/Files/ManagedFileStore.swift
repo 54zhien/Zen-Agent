@@ -58,6 +58,20 @@ final class ManagedFileStore: @unchecked Sendable {
     let protectionRequirement: ProtectionRequirement
     let presentationCacheRoot: URL
 
+    func managedByteCount() throws -> Int64 {
+        try withFileOperation {
+            var total: Int64 = 0
+            for file in try enumeratedBlobFiles() where !file.isTemporary {
+                let attributes = try FileManager.default.attributesOfItem(atPath: file.url.path)
+                guard let size = attributes[.size] as? NSNumber else { throw ManagedFileStoreError.invalidSourceURL }
+                let addition = total.addingReportingOverflow(size.int64Value)
+                guard !addition.overflow else { throw ManagedFileStoreError.byteCountOverflow }
+                total = addition.partialValue
+            }
+            return total
+        }
+    }
+
     private let fileManager: FileManager
     private let makeIdentifier: @Sendable () -> String
     private let temporaryFileObserver: (@Sendable (URL, ManagedFileTemporaryFilePhase) -> Void)?

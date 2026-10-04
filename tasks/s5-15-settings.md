@@ -1,7 +1,167 @@
-# S5-15 Settings — preparation record
+# S5-15 Settings — implementation and validation record
 
 This authorized slice follows the Files full code gate. Formal Settings
-production source has not been published yet.
+production source is published on draft PR32; the FULL source gate remains open.
+
+## Current candidate: FULL timeout headroom, gate pending
+
+FULL local55dcae5ed1126feb57a5bfe64e3a504d02e9f357,
+remote69a0058c50e75dda96b0e2d08e20a6f65aa802e9,
+tree56584ea826c17d11e296e89bca1c5e90bbec5779:
+push37233520294 passed XcodeGen/build,20 XCTest,930 Swift/147 suites
+(93.142s),53 phone UI with one expected Pad-only skip and zero failures
+(1425.838s),actual Pad111528016335 (80.490s) and guard37233523575.
+PR37233523586 passed generation/build,20 XCTest,930 Swift/147 suites
+(108.414s) and actual Pad111528031388 (116.595s). It started all53 phone
+UI cases, completed51 with zero failures and one expected skip, then the
+40-minute job cap cancelled the final native rotation test while it was typing
+the real landscape draft. GitHub's annotation explicitly reports maximum
+execution time exceeded; no UI assertion failure precedes cancellation.
+This incomplete PR run is not GREEN. No host restart/retry was observed.
+
+The next candidate only raises the complete build/test job cap from40 to45
+minutes and records this evidence. It removes no tests, adds no retries/skips,
+and changes no production behavior. Repeat both FULL runs/actual Pad/guard
+before closing Settings or starting Visuals. Raw logs remain in the durable
+handoff folder. Physical-device acceptance remains open.
+
+## Previous targeted GREEN
+
+Localf18cade0a37f206a3eaf781d808b49418934d419,
+remote48cc942446f5ea7671c4df025f6544148f914898,
+tree83e2786d488e9fef35393450220be9683b7b1d6b passed both targeted runs:
+push37232428766/phone111524809898 and PR37232432060/phone111524815352.
+Both generated/built,passed20 XCTest and930 Swift/147 suites (103.125s/
+103.198s),three actual native Settings UI paths (106.435s/115.985s) with zero
+failures. Startup Configure -> actual Provider Save -> child native dismissal ->
+outer Close -> original draft -> first Send passed39.547s/42.315s. Resting Soul
+Save/Close passed35.602s/40.665s; focused Soul Close restored the same Composer,
+draft and keyboard in31.287s/33.004s. Both actual Pad111524809911/
+111524815363 and guard37232432125 passed. No host restart/retry.
+
+Read-only narrow review of the live native-scene admission, canonical cache path
+repair and owned Provider Close identity found no Critical/Important. It was
+static evidence, not final whole-stage review or device acceptance.
+
+This candidate removes the temporary profile and routine successful-Startup
+diagnostic print, retaining failure diagnostics and all behavioral assertions.
+Run complete push/PR generation/build/unit/UI/actual Pad plus guard before
+closing the source gate or starting Visuals. FULL is pending; physical-device
+IME, VoiceOver, memory/comfort and distribution/font-rights acceptance stay open.
+
+Files FULL is now closed on remote `c9f6e2a`,tree `c66db812`,push37222392865
+and PR37222395611. Branch `codex/s5-15-settings` starts from that source.
+First publication adds only existing-API credential provisioning regressions
+and two actual Sidebar Settings UI cases. No new Settings API draft is included.
+The branch-fixed settings-red profile runs all unit tests and Settings UI;
+compilation and behavioral failures must be observed before production changes.
+This targeted profile is not the complete Settings source gate.
+
+## Compiled behavioral RED and first implementation
+
+Local `909458e`,remote `d7f243c648deafc66f1efe2be17aa69889462b42`,
+tree `155d1c05a3b96e9bfacfcb6f6a7b6929c2e6e165`,draft PR32 targets Files.
+Push37225526901 / phone111504293120 and PR37225544000 / phone111504345019
+both generated and built the app and test targets, passed20 XCTest, and ran915
+Swift/142 suites. Each had precisely one Swift issue: failed fresh metadata
+publication leaves generation1 secret bytes. Published and unreadable metadata
+retention regressions passed. Both actual Settings UI cases failed because the
+Sidebar destination is disabled (2 tests/2 failures); no missing-symbol RED.
+Push Swift92.871s/UI60.144s; PR Swift71.329s/UI41.338s. Each retained exactly one
+Swift test-run start and no host restart. Logs are retained in the handoff folder.
+Push actual Pad111504293156 passed; PR Pad111504345002 failed an axis-menu
+readiness expectation at the existing helper line83 (185.818s). This independent
+failure is retained and must be resolved or pass on the complete candidate before
+a source gate can close; it is not erased or assigned an unproven cause.
+
+Implementation starts only after the PR's compiled behavioral failures were
+observed; the same-source push finished with matching failures during that work.
+Adds formal Settings models/pages and native responder ownership; captured New
+initialization, future-default scope, account CAS, immutable Soul version/disable,
+real storage/lease behavior and persisted menu preferences use existing owners.
+The full third Startup/New UI case is now wired to an empty real AppShell fixture.
+Production and new-API tests remain unverified until actual candidate CI.
+
+### First candidate feedback and focused acknowledgement RED
+
+Local46c7def/remotea6d95a0e/treef63f83d5 compiled in both targeted runs.
+Push37227274903 and PR37227279248 generated/built and ran927 Swift/146 suites.
+Two issues were retained: the old caret test still expected literal black rather
+than the authorized semantic label color; the new Storage fixture's Cache URL
+omitted its directory hint and was refused by the existing managed-path guard.
+All other unit cases, including credential compensation, account CAS/ownership,
+Soul disable/version conflicts and future-New scope, passed. Actual Pad passed
+in both runs. Three UI cases failed: Startup queried an absent Send button although
+unconfigured Composer policy hides it; both Soul paths reached the native input
+but the pushed page lacked the root's Close toolbar. No completed gate is claimed.
+
+Correct the fixture/obsolete expectation and preserve Startup's unavailable-Send
+assertion as absent-or-disabled, then require actual enabled Send after configuration.
+Every Settings destination now publishes the same overlay-owned native Close
+toolbar; there is still one responder/close owner. No picker or native input skip.
+
+Read-only review found a separate acknowledgement gap: a tracked Settings field
+with a cleared first-responder flag closed before its matching didEndEditing.
+Three model-event regressions exercise pending matching acknowledgement, foreign
+field rejection, cancellation and a presentation with no owned field. These use
+real UITextField values with controlled delegate-event ordering; they are not
+on-device timing evidence. Publish the existing review-red unit profile before
+changing that production branch, then restore Settings UI scope and FULL later.
+
+Focused acknowledgement RED: local1b7b01a/remote f4dd014f,tree ef10ace2,
+push37228420730/phone111512829300 generated and built, passed20 XCTest, then
+ran930 Swift/147 suites in77.146s. The two acknowledgement tests recorded three
+expected issues; the no-owned-field case passed. Storage still refused its custom
+fixture path (four total issues); the semantic caret regression passed. Actual
+Pad111512829205 passed. Production release now retains the pending callback when
+the owned field's native flag has cleared and waits for matching didEndEditing;
+cancel still clears that callback. The storage fixture now creates its dedicated
+cache directory before presentation and resolves the temporary parent, matching
+the existing Files path-validation preconditions. Production path guards stay
+intact. Restore settings-red for all units and all three native Settings UI cases;
+results remain pending, and this profile cannot close the FULL gate.
+
+Acknowledgement repair remote2b7a325e/tree f5ee2210,PR37229232350 compiled:
+20 XCTest passed;930 Swift/147 suites in89.023s retained only Storage's
+invalidManagedPath. All focus regressions passed. Both native Soul UI paths
+passed (resting40.929s/focused32.357s), including original editor identity,
+draft and keyboard restoration. Startup Configure did not present Settings;
+the later missing Providers element is a consequence, not a separate diagnosis.
+Actual Pad111515257623 passed in80.823s; guard passed. Add bounded existing
+native admission diagnostics and stage-specific Storage URL diagnostics before
+any further production repair. No skip, weakened assertions or larger timeout.
+
+Exact diagnostics remote5b72772e/tree155c275b, push37230396925 and
+PR37230401012 compiled and reproduced both refusals. Swift930/147 retained
+only the Storage error plus its diagnostic issue (push91.093s/PR95.614s).
+In both native Startup paths the action read scene=inactive while newOwner,
+pane and Full were true, resize/Return false, and the native probe allowed input.
+The callback installed during initial appearance retained that environment;
+New admission now checks the actual owned native Window's scene activationState
+at action time. It still requires foregroundActive and every original owner,
+IME, selection and spatial condition. Apple current activationState documentation
+was read; no global UIApplication scene or bypass of native eligibility.
+
+Storage's ingest passed; native-copy validation refused a fresh namespace because
+resolved URL dropped the nonexistent-directory trailing slash while expected URL
+kept it: equal=false,pathsEqual=true. Root and fresh UUID folder checks now compare
+their standardized resolved paths; explicit symlink rejection and owned-cache
+checks remain. Existing cache-redirection regressions must continue passing.
+Both Soul UI paths still passed. PR actual Pad passed; push Pad failed width
+assertion line62 after a non-admitted drag (pan=0,ratio50%,91.430s). Preserve the
+failure, do not assign an unverified cause, and require complete candidate Pad
+success. Corrective source still awaits real CI; FULL remains OPEN.
+
+Corrective remote0d266e89/tree76910258,push37231562201/phone111522167063
+generated and built,passed20 XCTest and all930 Swift/147 suites in75.078s.
+Fresh-cache ownership/measurement and all focus/scope/account/Soul regressions
+are green. Startup now enters formal Settings and completes actual provider Save;
+the next test step ambiguously queried two native buttons labeled Close (outer
+Settings and nested Provider creation). Give the actual Provider Close its own
+accessibility identity, wait for that native control to disappear, then await the
+outer control's enabled state. Preserve original draft/unique Composer/first-Send
+assertions. Both Soul paths passed33.649s/29.205s; push actual Pad passed. FULL
+remains OPEN until the entire Startup path and complete source gate pass.
 
 Blueprint navigation section16, the Prompt/Soul baseline and development plan
 define grouped Settings: models/services, appearance, Agent, files/storage,

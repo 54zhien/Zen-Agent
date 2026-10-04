@@ -14,6 +14,7 @@ struct ConversationComposerView: View {
     @State private var knownModels: [ModelDescriptor] = []
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.surfaceLiftController) private var lift
+    @Environment(\.modelMenuPreferences) private var menuPreferences
 
     init(conversationID: String, controller: ComposerController,
          bridge: ComposerRuntimeActionBridge, maxProviderSteps: Int,
@@ -60,7 +61,8 @@ struct ConversationComposerView: View {
 
     private var modelsForSelectedInstance: [ModelDescriptor] {
         guard let instanceID = controller.configuration?.providerInstanceID else { return [] }
-        return knownModels.filter { $0.providerInstanceID == instanceID }
+        let canonical = knownModels.filter { $0.providerInstanceID == instanceID }
+        return menuPreferences?.visibleModels(canonical) ?? canonical
     }
 
     private var isSendable: Bool {

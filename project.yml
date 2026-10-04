@@ -49,6 +49,8 @@ targets:
       # `UIAppFonts` entries below correct rather than merely convenient.
       - path: Resources/Fonts
         buildPhase: resources
+      - path: Resources/Licenses
+        buildPhase: resources
     dependencies:
       # The production persistence layer. Confined to App/Persistence/ and enforced
       # by the CI hygiene job. See Docs/ADR/0001.

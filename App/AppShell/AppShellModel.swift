@@ -32,6 +32,36 @@ enum AppShellLaunchState: Equatable {
 final class AppShellModel {
     var workspaceStore: PersistenceStore? { dependencies?.store }
     var workspaceFilesAvailable: Bool { dependencies?.managedFiles != nil }
+    let appearance: AppearanceSettings
+    let modelMenus: ModelMenuPreferences
+
+    var currentSettingsNewID: String? {
+        guard let dependencies, let pane, pane.conversationID == conversationID,
+              splitWorkspace == nil, !previewContent.isPresented else { return nil }
+        _ = pane.hasPublishedTurn
+        do { return try dependencies.store.conversationLifecycle(id: conversationID) == nil ? conversationID : nil }
+        catch { return nil }
+    }
+
+    func makeSettingsModel(configureNewID: String? = nil) -> SettingsWorkspaceModel? {
+        guard let dependencies else { return nil }
+        return SettingsWorkspaceModel(store: dependencies.store, credentials: dependencies.credentials,
+            provider: dependencies.provider, defaults: userDefaults, appearance: appearance, menus: modelMenus,
+            files: dependencies.managedFiles, onDefault: { [weak self] target, initializeCapturedNew in
+                guard let self else { return }
+                self.target = target
+                // Updating the future-New cache never reinstalls an existing Pane.
+                guard initializeCapturedNew, let configureNewID,
+                      self.currentSettingsNewID == configureNewID, let pane = self.pane,
+                      pane.composer.configuration == nil else { return }
+                pane.composer.configuration = ConversationComposerConfiguration(
+                    providerInstanceID: target.providerInstanceID, modelID: target.modelID)
+                pane.composer.sendAvailability = ConversationPaneFactory.availability(
+                    for: pane.composer.configuration, in: dependencies)
+                self.sendAvailability = pane.composer.sendAvailability
+                self.targetMessage = self.sendAvailability.message
+            })
+    }
 
     func makeFilesWorkspaceModel() -> FilesWorkspaceModel? {
         guard let dependencies, let files = dependencies.managedFiles else { return nil }
@@ -634,6 +664,8 @@ final class AppShellModel {
 
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
+        appearance = AppearanceSettings(defaults: userDefaults)
+        modelMenus = ModelMenuPreferences(defaults: userDefaults)
         self.router = RunEventRouter()
     }
 
@@ -642,6 +674,8 @@ final class AppShellModel {
         userDefaults: UserDefaults
     ) {
         self.userDefaults = userDefaults
+        appearance = AppearanceSettings(defaults: userDefaults)
+        modelMenus = ModelMenuPreferences(defaults: userDefaults)
         self.dependencies = dependencies
         self.cardActions = AppSpaceConversationActions(store: dependencies.store)
         self.router = dependencies.router

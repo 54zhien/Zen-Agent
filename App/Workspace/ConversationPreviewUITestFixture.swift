@@ -12,7 +12,9 @@ struct ConversationPreviewUITestFixture: View {
 
     init() {
         do {
-            let store = try ConversationPreviewUITestSeed.makeStore()
+            let store = ProcessInfo.processInfo.environment["ZEN_NEW_CONFIGURE_UI_TEST"] == "1"
+                ? PersistenceStore(database: try ZenDatabase.inMemory())
+                : try ConversationPreviewUITestSeed.makeStore()
             self.store = store
             let files = ManagedFileStore(applicationSupportRoot: FileManager.default.temporaryDirectory
                 .appendingPathComponent("PreviewFiles-\(UUID())", isDirectory: true),
@@ -40,6 +42,7 @@ struct ConversationPreviewUITestFixture: View {
             .task {
                 guard !didOpenHistory else { return }
                 didOpenHistory = true
+                if ProcessInfo.processInfo.environment["ZEN_NEW_CONFIGURE_UI_TEST"] == "1" { return }
                 if ProcessInfo.processInfo.environment["ZEN_FILES_PREVIEW_UI_TEST"] == "1" {
                     let files = files, store = store
                     do {

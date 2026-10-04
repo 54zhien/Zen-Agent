@@ -150,23 +150,32 @@ As of 2026-10-05:
   PR37195524247: generation/build,894 Swift Testing,20 XCTest,48 phone UI
   (one expected Pad-only skip), plus one actual Pad axis case in each run.
   Native query teardown preserves the original responder; no host restart/retry.
-  S5-14 Files has compiled behavioral RED on stacked draft
-  [PR #31](https://github.com/54zhien/Zen-Agent/pull/31). Its complete Workspace
-  candidate at remote `c738ed3da7d107ea8906d59d21a98a13eb0b39af`, tree
-  `94a1c6db6b3428c0e6150bd45ce13cf1040fd50f`, passed full PR37209436556
-  (912 Swift/141 suites,20 XCTest,50 phone UI with one expected Pad-only skip,
-  plus one actual Pad case). Same-source push37209433472 passed unit tests,
-  native export and actual Pad, but import cancellation failed; the full Files
-  gate remains open. See [the current resume handoff](tasks/stage5-review-handoff.md)
-  before using older task snapshots.
-  S5-15–16 remain authorized after that full gate, in order.
+  S5-14 Files passed its complete source gate on stacked draft
+  [PR #31](https://github.com/54zhien/Zen-Agent/pull/31), unmerged. Remote
+  `c9f6e2aa2e5e989c62cd7abe920f74815743c826`, tree
+  `c66db812610c4f84c2dc0c141a58492d067fbc5f`, passed push37222392865,
+  PR37222395611 and guard37222395686: XcodeGen/build,912 Swift/141 suites,
+  20 XCTest,50 phone UI (one expected Pad-only skip),actual Pad in both runs.
+  Native import/export cancellation preserves the original editor/draft/focus;
+  no test-host restart/retry. S5-15 Settings is implemented on stacked draft
+  [PR #32](https://github.com/54zhien/Zen-Agent/pull/32), unmerged. Targeted
+  remote48cc9424/tree83e2786d passed push37232428766,PR37232432060 and
+  guard37232432125: XcodeGen/build,930 Swift/147 suites,20 XCTest,three actual
+  Settings UI paths and actual Pad in both runs. Native Configure/first Send,
+  Soul save/focused Close, fresh-cache leases and account/default scope passed.
+  Profile-free FULL69a0058c passed push37233520294 (930 Swift,20 XCTest,
+  53 phone UI with one expected skip,actual Pad). PR37233523586 passed units,
+  actual Pad and51 UI cases but hit the40-minute job cap in its last rotation
+  case; it is incomplete. The next FULL candidate gives this job45 minutes,
+  preserving all tests and no retries. The source gate remains pending;
+  S5-16 Visuals follows it. See
+  [the current resume handoff](tasks/stage5-review-handoff.md).
   Full-stage and physical acceptance remain open.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
   does not establish device memory, performance, input, comfort or VoiceOver acceptance.
-- Formal Settings IA and
-  `Settings → Agent → Soul` belong to later Stage 5 slices; Memory, Skills, MCP and
-  Subagent remain later stages.
+- Formal Settings IA and `Settings → Agent → Soul` are implemented in S5-15;
+  its full source gate is pending. Memory, Skills, MCP and Subagent remain later stages.
 
 The [Stage 5 entry record](tasks/stage5-entry.md) records the integrated baseline,
 CI evidence, remaining device checks, and design decisions needed by later slices.

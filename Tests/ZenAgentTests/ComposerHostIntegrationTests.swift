@@ -61,7 +61,7 @@ struct ComposerHostIntegrationTests {
             host.editor.caretRect(for: host.editor.beginningOfDocument), to: viewport
         )
         #expect(host.placeholder.text == "说点什么吧")
-        #expect(host.editor.tintColor == .black)
+        #expect(host.editor.tintColor == .label)
         #expect(host.placeholder.frame.minX > caret.maxX)
         #expect(host.placeholder.frame.minX - caret.maxX <= 2)
         #expect(abs(host.placeholder.frame.midY - caret.midY) < 2)

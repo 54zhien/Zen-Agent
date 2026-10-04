@@ -4,7 +4,33 @@ This record is being assembled during implementation. It is not a Stage 5
 closure or physical-device acceptance record. The owner requested all remaining
 Stage 5 code first, then a whole-stage review, then physical-device testing.
 
-## 新对话先读这一节
+## 当前续接点 — 本次恢复开发
+
+实际 checkout 为 `C:\Users\Azusa\.codex\worktrees\s5-history-handoff\Zen-Agent`，
+当前分支 `codex/s5-15-settings`。Files 已在远程 `c9f6e2aa2e5e989c62cd7abe920f74815743c826`、
+tree `c66db812610c4f84c2dc0c141a58492d067fbc5f` 关闭完整代码 gate：
+push37222392865、PR37222395611、guard37222395686 全通过；两边912 Swift/141 suites、
+20 XCTest、50 phone UI（一个预期Pad-only skip）、实际Pad零失败。详见Files记录顶部。
+PR31 draft/open/unmerged；主checkout/main仍干净且没有推送。用户要求继续交接中的
+剩余任务，按 Settings → Visuals → 整体review推进，不merge/main push/IPA；实机待用户。
+Settings 已在 draft PR32 实现。针对性源码 remote48cc9424/tree83e2786d 通过
+push37232428766、PR37232432060、guard37232432125：两边930 Swift/147 suites、
+20 XCTest、三个实际Settings UI和实际Pad零失败。原生Configure/首次Send、Soul保存、
+focused Close返回同一Composer/draft/keyboard、账号冲突和缓存lease均通过。
+临时profile已移除，FULL69a0058c/tree56584ea8的push37233520294全通过：930 Swift、
+20 XCTest、53 phone UI（一个预期skip）、实际Pad；guard通过。PR37233523586通过
+units、实际Pad、51 UI和一个预期skip，但40分钟job上限在最后旋转测试中将其取消；
+不是第二个GREEN。下一候选仅将完整build/test job上限改为45分钟并补记录，所有
+测试、断言、skip和无重试策略保持；等新的两侧FULL后才进入Visuals。
+Settings初始行为RED、首次候选、焦点回调/场景快照/目录hint/重复Close定位失败与
+修复证据完整保留在s5-15记录和外部settings-ci-receipts.json。窄范围静态复核无新的
+Critical/Important，不能替代最终fresh整阶段review。只剩CurrentCardEdge/Motion两份
+Visuals untracked草稿；缺符号编译失败不算行为RED。备份保留，不覆盖新源码。
+本地设计HEAD476562c与批准补充分支远程e6d8c5f源码tree一致；Blueprint PR5未合并。
+下面的旧交接内容保留为历史，旧Files开放状态不代表当前结论。
+
+## 历史交接快照 — 已由上节替代
+
 
 用户本次只要求核对任务记录和交接，开发停在 Files 完整 gate；不继续实现
 Settings。此前授权仍为完成所有剩余 Stage5，然后用户整体 review，再实机测试。

@@ -15,6 +15,7 @@ enum WorkspaceSidebarEligibility {
 @Observable
 final class WorkspaceNavigationState {
     @ObservationIgnored var onReset: (() -> Void)?
+    @ObservationIgnored var onConfigureNew: ((String) -> Void)?
     private(set) var progress = 0.0
     private(set) var isOpen = false
     private(set) var isDragging = false
@@ -86,6 +87,20 @@ final class WorkspaceNavigationState {
     }
 
     func completeSettlement(_ id: UUID) { if settlementID == id { settlementID = nil } }
+    @discardableResult
+    func presentNewSettings(eligible: Bool) -> Bool {
+        guard eligible, !isOpen, progress == 0, !isDragging, settlementID == nil, overlay == nil else { return false }
+        overlay = .settings; overlayID = UUID()
+        return true
+    }
+
+    @discardableResult
+    func replaceSettingsWithFiles(expectedID: UUID) -> Bool {
+        guard overlay == .settings, overlayID == expectedID else { return false }
+        overlay = .files; overlayID = UUID()
+        return true
+    }
+
     func dismissOverlay() { overlay = nil; overlayID = nil }
     func reset() { onReset?(); closeSidebar(); dismissOverlay(); settlementID = nil }
 }

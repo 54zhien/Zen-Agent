@@ -1,10 +1,24 @@
 # S5-14 Files — implementation and retained evidence
 
 This authorized slice follows the completed Search full code gate. The Files
-Workspace source gate is still open. The implementation candidate follows the
+Workspace source gate is closed on the exact candidate recorded below. It follows the
 compiled existing-API behavioral RED recorded below.
 
 ## Current resume point — 2026-10-05
+
+### Complete source gate — CLOSED
+
+Local `ba49df1`, remote `c9f6e2aa2e5e989c62cd7abe920f74815743c826`,
+tree `c66db812610c4f84c2dc0c141a58492d067fbc5f`, removes the diagnostic
+profile and passes both complete runs, without test-host restart/retry.
+Push `37222392865`: XcodeGen/build;20 XCTest;912 Swift/141 suites90.438s;
+50 phone UI1419.710s,one expected Pad-only skip,zero failures;
+native import59.000s/export67.718s;actual Pad101.192s,zero failure/skip.
+PR `37222395611`: XcodeGen/build;20 XCTest;912 Swift/141 suites103.990s;
+50 phone UI1252.935s,one expected Pad-only skip,zero failures;
+native import42.511s/export52.834s;actual Pad101.906s,zero failure/skip.
+PR guard `37222395686` also passed. PR31 stays draft/open/unmerged.
+Settings may now start. Physical-device acceptance remains open.
 
 ### Resumed native-input experiment
 

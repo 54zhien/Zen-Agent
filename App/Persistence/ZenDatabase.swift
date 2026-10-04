@@ -23,9 +23,11 @@ import GRDB
 /// is immutable and `DatabaseQueue` is itself `Sendable`.
 final class ZenDatabase: Sendable {
     private let dbQueue: DatabaseQueue
+    let persistentPath: String?
 
-    private init(dbQueue: DatabaseQueue) {
+    private init(dbQueue: DatabaseQueue, persistentPath: String? = nil) {
         self.dbQueue = dbQueue
+        self.persistentPath = persistentPath
     }
 
     /// Opens (or creates) a store at `path` and brings its schema up to date.
@@ -49,7 +51,7 @@ final class ZenDatabase: Sendable {
 
         let queue = try DatabaseQueue(path: path, configuration: configuration)
         try migrator.migrate(queue)
-        return ZenDatabase(dbQueue: queue)
+        return ZenDatabase(dbQueue: queue, persistentPath: path)
     }
 
     /// A throwaway store that never touches disk. For tests.
