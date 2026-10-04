@@ -11,6 +11,8 @@ def test_scope(profile, branch):
         return "orientation-red"
     if profile == {"mode": "sidebar-red"} and branch == "codex/s5-12-sidebar":
         return "sidebar-red"
+    if profile == {"mode": "search-red"} and branch == "codex/s5-13-search":
+        return "search-red"
     if profile == {"mode": "resize-diagnostic"} and branch == "codex/s5-10-divider-resize":
         return "resize-diagnostic"
     if profile != {"mode": "review-red"}:

@@ -138,12 +138,15 @@ As of 2026-10-04:
   (one expected Pad-only skip), plus one actual iPad axis test in each run.
   See [the slice record](tasks/s5-11-rotation.md) for retained failed evidence.
 - S5-12 Sidebar is on stacked draft [PR #29](https://github.com/54zhien/Zen-Agent/pull/29).
-  Initial behavior RED compiled and reproduced the missing Rail. Product source
-  and review corrections passed both targeted phone gates on tree
-  `e4e713dd7176ad601c93d40e1a3f6b1011007d04`: generation/build,873 Swift
-  Testing,20 XCTest and7 Sidebar UI, including both landscape directions.
-  PR iPad passed; push iPad could not launch the app. The temporary test profile
-  is removed for the pending full gate. S5-13–16 remain authorized in order.
+  Its full source gate passed on tree `6c1b9095f933b111590025a6d0aadd9a6bfe3bd1`,
+  remote `9218e8c7fc9e5a11baa53bafda4787fb962768c0`, push37180640443 and
+  PR37180642485: generation/build,873 Swift Testing,20 XCTest,46 phone UI
+  (one expected Pad-only skip), plus one actual Pad axis case in each run.
+  No retry/host restart; earlier failed evidence remains in the slice record.
+  S5-13 Search is implemented, with compiled unit gates and reachable native
+  Search UI. Plain-exit responder restoration and native keyboard geometry
+  corrections are undergoing targeted CI; the full Search gate is not closed.
+  S5-14–16 remain authorized in order after each preceding full gate.
   Full-stage and physical acceptance remain open.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order

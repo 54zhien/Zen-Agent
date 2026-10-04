@@ -22,6 +22,7 @@ struct WorkspaceLayoutContext: Equatable {
     /// The already-proposed usable Workspace rectangle, in window coordinates.
     let frame: CGRect
     let isPad: Bool
+    var windowSafeAreaInsets: UIEdgeInsets = .zero
 
     func requiresResizeCancellation(from previous: Self) -> Bool {
         windowID != previous.windowID || windowSize != previous.windowSize
@@ -64,7 +65,8 @@ final class WorkspaceLayoutObserverView: UIView {
             guard let self, self.generation == ticket, let window = self.window,
                   self.bounds.width > 0, self.bounds.height > 0 else { return }
             self.report?(WorkspaceLayoutContext(windowID: ObjectIdentifier(window), windowSize: window.bounds.size,
-                frame: self.convert(self.bounds, to: window), isPad: self.traitCollection.userInterfaceIdiom == .pad))
+                frame: self.convert(self.bounds, to: window), isPad: self.traitCollection.userInterfaceIdiom == .pad,
+                windowSafeAreaInsets: window.safeAreaInsets))
         }
     }
 }

@@ -3014,7 +3014,7 @@ struct AppShellWiringTests {
         #expect(try fixture.store.conversation(id: created)?.userActiveAt == Fixtures.epoch)
     }
 
-    private func makeFixture(
+    func makeFixture(
         seed: ShellCredentialSeed,
         createInstance: Bool = true,
         setDefault: Bool = true,
@@ -3207,7 +3207,7 @@ struct AppShellWiringTests {
     }
 }
 
-private struct ShellFixture {
+struct ShellFixture {
     let store: PersistenceStore
     let credentials: CredentialStore
     let backend: InMemorySecretBackend

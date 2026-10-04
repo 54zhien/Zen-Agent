@@ -56,6 +56,13 @@ struct WorkspaceSurfaceView<Content: View>: View {
     @State private var resize = SplitResizeController()
     @State private var layoutState = WorkspaceLayoutState()
     private var layoutContext: WorkspaceLayoutContext? { layoutState.context }
+    private var navigationInsets: EdgeInsets {
+        let insets = layoutContext?.windowSafeAreaInsets ?? .zero
+        return EdgeInsets(top: insets.top,
+            leading: layoutDirection == .rightToLeft ? insets.right : insets.left,
+            bottom: insets.bottom,
+            trailing: layoutDirection == .rightToLeft ? insets.left : insets.right)
+    }
     @State private var returnPresentation = WorkspaceReturnPresentation()
     @State private var navigation = WorkspaceNavigationState()
     @Environment(\.layoutDirection) private var layoutDirection
@@ -94,7 +101,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     var body: some View {
-        WorkspaceNavigationView(state: navigation, spatiallyAvailable: sidebarSpatiallyAvailable,
+        WorkspaceNavigationView(state: navigation, model: model, captureFocus: captureOverlayFocus,
+                                spatiallyAvailable: sidebarSpatiallyAvailable,
+                                windowInsets: navigationInsets,
                                 context: sidebarContext) {
         ZStack(alignment: .topLeading) {
             Color.clear
@@ -133,7 +142,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
                             isWorkspaceVisible: visible, isInputSuppressed: suppressed,
                             isReturnProxyHidden: returnPresentation.hidesOrigin(slot),
                             sidebarOffset: slot == model?.sourceSurfaceSlot
-                                ? CGFloat(navigation.progress) * min(geometry.size.width, 60 + geometry.safeAreaInsets.leading)
+                                ? CGFloat(navigation.progress) * min(geometry.size.width, 60 + navigationInsets.leading)
                                     * (layoutDirection == .rightToLeft ? -1 : 1) : 0,
                             sidebarSettlement: slot == model?.sourceSurfaceSlot ? navigation.settlementID : nil,
                             onSidebarSettled: navigation.completeSettlement,
@@ -150,7 +159,10 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         }
                         .frame(width: frame.width, height: frame.height)
                         .position(x: frame.midX, y: frame.midY)
-                        .opacity(visible ? 1 : 0)
+                        // Native visibility detaches inactive content and clears
+                        // its hidden gate before restoring the retained responder.
+                        // A second SwiftUI opacity gate updates afterward and can
+                        // leave that responder waiting with no new native callback.
                         .allowsHitTesting(visible && !suppressed)
                         .accessibilityHidden(!visible || suppressed)
                         .zIndex(activeSurfaceSlot == slot ? 10 : 0)
@@ -372,6 +384,17 @@ struct WorkspaceSurfaceView<Content: View>: View {
             allowsClosing: native.allowsClosing, surfaceView: native.surfaceView)
     }
 
+    private func captureOverlayFocus() -> ComposerOverlayFocus? {
+        guard let model, let pane = model.pane else { return nil }
+        let driver = controller(for: model.sourceSurfaceSlot)
+        let host = driver.nativeHostIdentity
+        return driver.captureOverlayFocus? { [weak model, weak pane, weak driver] in
+            guard let model, let pane, let driver else { return false }
+            return model.pane === pane && driver.nativeHostIdentity == host
+                && model.splitWorkspace == nil && !model.previewContent.isPresented
+        }
+    }
+
     private var activeLift: SurfaceLiftController {
         controller(for: activeSurfaceSlot ?? model?.sourceSurfaceSlot ?? .primary)
     }
@@ -394,6 +417,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     private func surfaceIsVisible(_ slot: WorkspaceSurfaceSlot) -> Bool {
+        if navigation.overlay != nil { return false }
         if returnPresentation.hidesOrigin(slot) { return false }
         if returnPresentation.measuresTarget(slot) { return true }
         if let activeSurfaceSlot { return activeSurfaceSlot == slot }
@@ -661,9 +685,9 @@ private struct WorkspaceHostedContent<Content: View>: View {
         }
         // The nested hosting controller builds its own SwiftUI accessibility
         // tree. Suppress that tree here while preserving the hidden live Pane.
-        .accessibilityHidden(returnPresentation.suppressesTarget(slot) || (model?.previewContent.isPresented == true
+        .accessibilityHidden(navigation.overlay != nil || returnPresentation.suppressesTarget(slot) || (model?.previewContent.isPresented == true
             && model?.previewSurfaceSlot != slot))
-        .environment(\.workspaceInputSuppressed, returnPresentation.suppressesTarget(slot))
+        .environment(\.workspaceInputSuppressed, navigation.overlay != nil || returnPresentation.suppressesTarget(slot))
         .environment(\.workspaceNavigation, navigation)
         // UIKit installs this root once. Read mutable layout state here so
         // Observation updates the retained subtree instead of freezing a value

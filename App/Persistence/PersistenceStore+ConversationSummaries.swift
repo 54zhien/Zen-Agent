@@ -163,7 +163,7 @@ extension PersistenceStore {
         }
     }
 
-    private func summaryRows(in db: Database, predicate: String, limit: Int,
+    func summaryRows(in db: Database, predicate: String, limit: Int,
                              arguments: StatementArguments, reversed: Bool = false) throws -> [ConversationSummary] {
         let order = reversed ? "pinned ASC, userActiveAt ASC, id DESC" : "pinned DESC, userActiveAt DESC, id ASC"
         let resultOrder = reversed ? "c.pinned ASC, c.userActiveAt ASC, c.id DESC" : "c.pinned DESC, c.userActiveAt DESC, c.id ASC"
@@ -205,14 +205,7 @@ extension PersistenceStore {
         LEFT JOIN providerInstance pi ON pi.id = CASE WHEN json_valid(r.requestConfigSeed)
             THEN json_extract(r.requestConfigSeed, '$.providerInstanceID') END
         LEFT JOIN messagePart u ON u.id = (
-            SELECT p.id FROM message m JOIN messagePart p ON p.messageID = m.id
-            WHERE m.conversationID = c.id AND m.role = 'user' AND p.kind = 'text'
-              AND CASE WHEN NOT json_valid(p.payload) THEN 1
-                       WHEN json_type(p.payload, '$.text') IS NOT 'text' THEN 1
-                       ELSE length(trim(json_extract(p.payload, '$.text'),
-                         char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,
-                              8198,8199,8200,8201,8202,8232,8233,8239,8287,12288))) > 0 END
-            ORDER BY m.sequence ASC, m.id ASC, p.sequence ASC, p.id ASC LIMIT 1
+            \(Self.firstSummaryTextPartIDSQL(conversationID: "c.id"))
         )
         LEFT JOIN messagePart l ON l.id = (
             SELECT p.id FROM message m JOIN messagePart p ON p.messageID = m.id
@@ -240,12 +233,9 @@ extension PersistenceStore {
             }
             let stored: String = row["storedTitle"]
             let prompt: String? = row["firstPrompt"]
-            let normalized = Self.summaryText(stored)
-            let fallback = Self.summaryText(prompt ?? "")
-            let title = normalized.isEmpty ? (fallback.isEmpty ? "未命名会话" : fallback) : normalized
             let providerID: String? = row["providerInstanceID"]
             let modelID: String? = row["modelID"]
-            return ConversationSummary(id: row["id"], title: Self.summaryClip(title, limit: 56),
+            return ConversationSummary(id: row["id"], title: Self.summaryTitle(stored: stored, prompt: prompt),
                 excerpt: Self.summaryClip(Self.summaryText(row["excerpt"] as String? ?? ""), limit: 320),
                 pinned: row["pinned"], userActiveAt: row["userActiveAt"],
                 contentUnavailable: runMetadataUnavailable || (row["firstUnavailable"] as Int) != 0
@@ -255,7 +245,27 @@ extension PersistenceStore {
         }
     }
 
-    private static func summaryText(_ text: String) -> String {
+    static func firstSummaryTextPartIDSQL(conversationID: String) -> String {
+        // Only callers supply the fixed SQL identifier; user input is always bound.
+        """
+        SELECT p.id FROM message m JOIN messagePart p ON p.messageID = m.id
+        WHERE m.conversationID = \(conversationID) AND m.role = 'user' AND p.kind = 'text'
+          AND CASE WHEN NOT json_valid(p.payload) THEN 1
+                   WHEN json_type(p.payload, '$.text') IS NOT 'text' THEN 1
+                   ELSE length(trim(json_extract(p.payload, '$.text'),
+                     char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,
+                          8198,8199,8200,8201,8202,8232,8233,8239,8287,12288))) > 0 END
+        ORDER BY m.sequence ASC, m.id ASC, p.sequence ASC, p.id ASC LIMIT 1
+        """
+    }
+
+    static func summaryTitle(stored: String, prompt: String?) -> String {
+        let manual = summaryText(stored)
+        let fallback = summaryText(prompt ?? "")
+        return summaryClip(manual.isEmpty ? (fallback.isEmpty ? "未命名会话" : fallback) : manual, limit: 56)
+    }
+
+    static func summaryText(_ text: String) -> String {
         text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 

@@ -136,6 +136,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         fields.append("sidebarCanOpen=\(liftController?.sidebarNativeContext?()?.allowsOpening ?? false)")
         fields.append("timeline=\(liftController?.workspacePaneDiagnostic?() ?? "unbound")")
         if let window = view.window {
+            fields.append("windowSafeTop=\(window.safeAreaInsets.top)")
             fields.append("hostFrame=\(view.convert(view.bounds, to: window))")
             func scrollViews(in node: UIView) -> [UIScrollView] {
                 let own = (node as? UIScrollView).flatMap { $0 is UITextView ? nil : $0 }.map { [$0] } ?? []
@@ -261,19 +262,25 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     var allowsSidebarInput: Bool {
         guard allowsSidebarClosing else { return false }
-        func findComposer(_ node: UIView) -> ComposerHostView? {
-            if let composer = node as? ComposerHostView { return composer }
-            for child in node.subviews { if let composer = findComposer(child) { return composer } }
-            return nil
-        }
         func hasNavigation(_ controller: UIViewController) -> Bool {
             if let navigation = controller as? UINavigationController, navigation.viewControllers.count > 1 { return true }
             return controller.children.contains { hasNavigation($0) }
         }
-        guard !hasNavigation(contentController), let composer = findComposer(contentController.view) else { return false }
+        guard !hasNavigation(contentController), let composer = findComposer(in: contentController.view) else { return false }
         var input = composer.nativeSidebarInput
         input.selectionActive = composer.editor.selectedTextRange.map { !$0.isEmpty } ?? false
         return WorkspaceSidebarEligibility.allowsNativeInput(input)
+    }
+
+    private func findComposer(in node: UIView) -> ComposerHostView? {
+        if let composer = node as? ComposerHostView { return composer }
+        for child in node.subviews { if let composer = findComposer(in: child) { return composer } }
+        return nil
+    }
+
+    func captureOverlayFocus(ownerIsCurrent: @escaping () -> Bool) -> ComposerOverlayFocus? {
+        guard allowsSidebarInput else { return nil }
+        return findComposer(in: contentController.view)?.captureOverlayFocus(ownerIsCurrent: ownerIsCurrent)
     }
 
     var allowsSidebarClosing: Bool {
@@ -499,6 +506,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         view.isHidden = !visible
         view.isUserInteractionEnabled = visible
         view.accessibilityElementsHidden = !visible
+        // didMoveToWindow/layout run while the retained host is still hidden.
+        // Recheck the queued responder after that final visibility gate opens.
+        if visible { findComposer(in: contentView)?.consumeOverlayFocusIfReady() }
         // Resume after the retained view has its mounted viewport and safe area.
         liftController?.setWorkspaceVisible(visible)
         liftController?.refreshCardAccessibility()
@@ -626,7 +636,11 @@ private final class SurfaceHitView: UIView {
     weak var surfaceView: SurfaceClipView?
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard let surfaceView, surfaceView.onActivate != nil else {
+        guard let surfaceView else { return nil }
+        if surfaceView.onActivate == nil {
+            // The retained controller still fills the viewport after Sidebar
+            // translation. Its empty strip must pass through to the Rail below.
+            guard surfaceView.point(inside: surfaceView.visiblePoint(fromParent: point), with: event) else { return nil }
             return super.hitTest(point, with: event)
         }
         guard isUserInteractionEnabled, !isHidden, alpha > 0.01,
