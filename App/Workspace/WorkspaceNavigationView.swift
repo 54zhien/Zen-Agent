@@ -45,7 +45,7 @@ struct WorkspaceNavigationView<Content: View>: View {
                         // The retained content still occupies the full viewport
                         // in SwiftUI. Once exposed and settled, Rail controls must
                         // precede that transparent hit region within this strip.
-                        .zIndex(state.isOpen && state.settlementID == nil ? 1 : 0)
+                        .zIndex(state.isOpen && !state.isDragging && state.settlementID == nil ? 1 : 0)
                 }
                 content
                     .frame(width: geometry.size.width, height: geometry.size.height)
