@@ -36,6 +36,32 @@ real storage/lease behavior and persisted menu preferences use existing owners.
 The full third Startup/New UI case is now wired to an empty real AppShell fixture.
 Production and new-API tests remain unverified until actual candidate CI.
 
+### First candidate feedback and focused acknowledgement RED
+
+Local46c7def/remotea6d95a0e/treef63f83d5 compiled in both targeted runs.
+Push37227274903 and PR37227279248 generated/built and ran927 Swift/146 suites.
+Two issues were retained: the old caret test still expected literal black rather
+than the authorized semantic label color; the new Storage fixture's Cache URL
+omitted its directory hint and was refused by the existing managed-path guard.
+All other unit cases, including credential compensation, account CAS/ownership,
+Soul disable/version conflicts and future-New scope, passed. Actual Pad passed
+in both runs. Three UI cases failed: Startup queried an absent Send button although
+unconfigured Composer policy hides it; both Soul paths reached the native input
+but the pushed page lacked the root's Close toolbar. No completed gate is claimed.
+
+Correct the fixture/obsolete expectation and preserve Startup's unavailable-Send
+assertion as absent-or-disabled, then require actual enabled Send after configuration.
+Every Settings destination now publishes the same overlay-owned native Close
+toolbar; there is still one responder/close owner. No picker or native input skip.
+
+Read-only review found a separate acknowledgement gap: a tracked Settings field
+with a cleared first-responder flag closed before its matching didEndEditing.
+Three model-event regressions exercise pending matching acknowledgement, foreign
+field rejection, cancellation and a presentation with no owned field. These use
+real UITextField values with controlled delegate-event ordering; they are not
+on-device timing evidence. Publish the existing review-red unit profile before
+changing that production branch, then restore Settings UI scope and FULL later.
+
 Blueprint navigation section16, the Prompt/Soul baseline and development plan
 define grouped Settings: models/services, appearance, Agent, files/storage,
 data/privacy and About. Agent lives only under Settings; Soul is currently live.

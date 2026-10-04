@@ -31,7 +31,7 @@ struct SettingsStorageView: View {
                 if let status = model.statusMessage { Text(status) }
                 if let error = model.errorMessage { Text(error).foregroundStyle(.red) }
             } else { Text("文件存储服务当前不可用。") }
-        }.navigationTitle("存储").task { await model?.refresh() }
+        }.navigationTitle("存储").settingsCloseToolbar().task { await model?.refresh() }
     }
     private func bytes(_ value: Int64) -> String { ByteCountFormatter.string(fromByteCount: value, countStyle: .file) }
 }
@@ -49,7 +49,7 @@ struct SettingsPrivacyView: View {
             Section("临时副本") {
                 Text("预览与导出使用临时副本。清理缓存不会删除会话、Soul 或托管文件。")
             }
-        }.navigationTitle("数据与隐私")
+        }.navigationTitle("数据与隐私").settingsCloseToolbar()
     }
 }
 
@@ -67,7 +67,7 @@ struct SettingsAboutView: View {
                 Text("Anthropic Sans 的应用嵌入与发行许可尚未确认。当前字体清单保留此发行限制。")
                     .foregroundStyle(.secondary)
             }
-        }.navigationTitle("关于")
+        }.navigationTitle("关于").settingsCloseToolbar()
     }
 }
 
@@ -77,7 +77,7 @@ private struct BundledNoticeView: View {
     var body: some View {
         ScrollView {
             Text(notice).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding()
-        }.navigationTitle(title)
+        }.navigationTitle(title).settingsCloseToolbar()
     }
     private var notice: String {
         guard let url = Bundle.main.url(forResource: resource, withExtension: "txt"),

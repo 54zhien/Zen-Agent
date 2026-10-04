@@ -48,15 +48,11 @@ struct SettingsWorkspaceView: View {
                 }
             }
             .navigationTitle("设置")
+            .settingsCloseToolbar()
         }
         .accessibilityIdentifier("settings-page")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("关闭") { focus.release(then: onClose) }
-                    .disabled(isSetupPresented || focus.hasMarkedText || focus.isClosing)
-                    .accessibilityIdentifier("settings-close")
-            }
-        }
+        .environment(\.settingsCloseControl, SettingsCloseControl(focus: focus,
+            blocked: isSetupPresented, close: onClose))
         .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
         .preferredColorScheme(model.appearance.appearance.colorScheme)
         .task { await model.load() }
@@ -92,7 +88,7 @@ private struct SettingsAgentView: View {
         Form {
             NavigationLink { SoulSettingsView(model: model, focus: focus) }
                 label: { Text("Soul") }.accessibilityIdentifier("settings-soul")
-        }.navigationTitle("Agent")
+        }.navigationTitle("Agent").settingsCloseToolbar()
     }
 }
 
@@ -128,6 +124,7 @@ private struct SoulSettingsView: View {
             }
         }
         .navigationTitle("Soul")
+        .settingsCloseToolbar()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("保存") { Task { await model.save() } }
@@ -152,6 +149,6 @@ private struct SettingsAppearanceView: View {
                 Text(reduceMotion ? "已跟随系统减少动态效果" : "动态效果跟随系统设置")
                     .foregroundStyle(.secondary)
             }
-        }.navigationTitle("外观")
+        }.navigationTitle("外观").settingsCloseToolbar()
     }
 }

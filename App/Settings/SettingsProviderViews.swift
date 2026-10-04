@@ -22,7 +22,7 @@ struct SettingsAccountsView: View {
                 }
                 Button("添加 Provider") { onAdd() }.accessibilityIdentifier("settings-provider-add")
             } footer: { Text("凭据保存在 Keychain。资料保存与重认证不改变正在运行的请求。") }
-        }.navigationTitle("Providers 与账户")
+        }.navigationTitle("Providers 与账户").settingsCloseToolbar()
     }
 }
 
@@ -48,7 +48,7 @@ private struct SettingsAccountView: View {
             }
             if let status = model.statusMessage { Section { Text(status) } }
             if let error = model.errorMessage { Section { Text(error).foregroundStyle(.red) } }
-        }.navigationTitle("账户")
+        }.navigationTitle("账户").settingsCloseToolbar()
     }
 }
 
@@ -86,7 +86,7 @@ struct SettingsModelsView: View {
                 }
             }
             if let error = model.errorMessage { Section { Text(error).foregroundStyle(.red) } }
-        }.navigationTitle("模型").toolbar { EditButton() }
+        }.navigationTitle("模型").settingsCloseToolbar().toolbar { EditButton() }
     }
 
     private func capabilitySummary(_ descriptor: ModelDescriptor) -> String {

@@ -60,7 +60,8 @@ final class SettingsUITests: XCTestCase {
         let editor = app.textViews["conversation-composer-input"]
         editor.tap()
         editor.typeText("first Send keeps its original draft")
-        XCTAssertFalse(app.buttons["conversation-composer-send"].isEnabled)
+        let unavailableSend = app.buttons["conversation-composer-send"]
+        XCTAssertFalse(unavailableSend.exists && unavailableSend.isEnabled)
         configure.tap()
         let settings = app.descendants(matching: .any)["settings-page"]
         XCTAssertTrue(settings.waitForExistence(timeout: 5))
@@ -78,6 +79,7 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(configure.exists, "configuration alone must not commit the New Conversation")
         XCTAssertTrue((editor.value as? String)?.contains("first Send keeps its original draft") == true)
         let send = app.buttons["conversation-composer-send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 5))
         XCTAssertTrue(send.wait(for: \.isEnabled, toEqual: true, timeout: 5))
         send.tap()
         expect { !configure.exists }
