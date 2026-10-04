@@ -6,6 +6,45 @@ compiled existing-API behavioral RED recorded below.
 
 ## Current resume point — 2026-10-05
 
+### Resumed native-input experiment
+
+Local `da848f5`, remote `f3ca493752b79ac23df31318014387ee030c1518`,
+tree `a0d0216f83725dbcb574f64d814a8ab28626a8c6`, adds a bounded wait for
+an actual hittable native Cancel/Close or Browse Back action. Picker-root
+existence alone does not establish that remote controls accept input. No
+production picker code, coordinate fallback, synthetic dismissal, skip or
+post-cancellation assertion changed. Failed attempts now retain the current
+candidate frames/hit state and an AX attachment as well as the screenshot.
+This is an experiment, not a confirmed explanation of the previous failure.
+
+Complete PR `37217605095` passed: XcodeGen/build,20 XCTest,912 Swift/141
+suites88.183s;50 phone UI with one expected Pad-only skip and zero failures
+1242.594s;actual Pad case110.826s,zero failure/skip. Push `37217602290`
+was cancelled at the40-minute phone job limit. It had passed912 Swift/141
+suites120.580s,import/focus66.075s and actual Pad110.122s, but export failed
+after native Browse Back: XCTest reported an invalid activation point while
+querying the new Cancel Button. This is a real test failure, not merely timeout.
+No complete push gate is claimed. The untracked Settings/Visual preparation
+files were excluded from publication.
+
+Next diagnostic checks an existing action's nonempty frame is within the app
+viewport before querying its hit point, retaining the actual native input.
+Before each navigation query it attaches the full AX hierarchy, and prints
+the candidate frame before hittability so an early XCTest failure retains
+the geometry. The existing files-red profile runs the real Files cases plus
+all unit tests; it is temporary diagnostic scope, never a complete source gate.
+Apple defines isHittable as a computed hit point, independently of existence:
+https://developer.apple.com/documentation/xcuiautomation/xcuielement/ishittable
+
+Independent read-only review of `70bf0f0..da848f5` found no blocking change.
+Ruling: retain the native-action readiness experiment pending actual CI evidence;
+its failure still fails the test and retains all restoration assertions. Cost if
+wrong: another failed native gate with evidence, rather than false acceptance.
+Deferred minor: the existing six-Back loop does not check Cancel again after its
+sixth Back. This was present in the base and is outside the current Recents case.
+Review declined to establish timing cause or CI results; both remain empirical
+questions. Settings/Visual implementation was outside that review.
+
 Remote `c738ed3da7d107ea8906d59d21a98a13eb0b39af`, tree
 `94a1c6db6b3428c0e6150bd45ce13cf1040fd50f`, local source commit `490177e`.
 PR31 is draft/open/unmerged, based on Search PR30. The temporary test profile
