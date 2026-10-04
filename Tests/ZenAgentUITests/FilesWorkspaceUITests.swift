@@ -126,8 +126,8 @@ final class FilesWorkspaceUITests: XCTestCase {
             let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 let actions = picker.buttons.matching(labels).allElementsBoundByIndex
                     + picker.otherElements.matching(labels).allElementsBoundByIndex
-                return actions.contains { nativeActionIsHittable($0, in: app) }
-                    || nativeActionIsHittable(picker.buttons["BackButton"], in: app)
+                return actions.contains { self.nativeActionIsHittable($0, in: app) }
+                    || self.nativeActionIsHittable(picker.buttons["BackButton"], in: app)
             }, object: nil)
             let readiness = XCTWaiter.wait(for: [ready], timeout: 5)
             print("FILES_NATIVE_ACTION_READY result=\(readiness.rawValue)")
