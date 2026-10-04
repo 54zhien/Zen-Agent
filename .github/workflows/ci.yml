@@ -377,6 +377,9 @@ jobs:
           elif [ "$TEST_SCOPE" = "sidebar-red" ]; then
             echo "::notice::S5-12 targeted Sidebar regression/diagnostics: complete unit target and native Sidebar UI; full product gate remains required."
             TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SidebarUITests)
+          elif [ "$TEST_SCOPE" = "search-red" ]; then
+            echo "::notice::S5-13 Search behavior RED/regressions: complete unit target and native Search UI; full product gate remains required."
+            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/ConversationSearchUITests)
           elif [ "$TEST_SCOPE" = "resize-diagnostic" ]; then
             echo "::notice::Stage 5 resize diagnostics: all unit tests and SplitResize UI; full slice gate remains required."
             TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SplitResizeUITests)

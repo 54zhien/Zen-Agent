@@ -287,3 +287,23 @@ not a passed test or an observed axis behavior regression.
 The temporary Sidebar profile is now removed. The next publication runs the
 complete product unit/UI targets and the dedicated actual Pad job. This record
 does not close S5-12 until that full gate has a real completed result.
+
+### Full code gate — passed; physical acceptance open
+
+Local `d89aa12` /remote `9218e8c7fc9e5a11baa53bafda4787fb962768c0` /
+tree `6c1b9095f933b111590025a6d0aadd9a6bfe3bd1` has no temporary test profile.
+PR37180642485/phone111372446239 and push37180640443/phone111372360937
+both passed hygiene, XcodeGen generation, app build,873 Swift tests/132 suites,
+20 XCTest and46 phone UI cases with one expected Pad-only skip and zero failures.
+All seven Sidebar and39 previous product cases passed. Each log has one Swift
+Testing run start; neither test host restarted and no test retry was used.
+
+Both dedicated actual Pad cases passed: PR111372446286,153.133s,Pan85.5pt;
+push111372360985,179.639s,Pan81pt. Native width changed beyond50pt; separate
+axes/ratios and both editor identities/leases were retained.
+
+This closes the S5-12 code gate and permits S5-13 in dependency order. PR#29 is
+still draft/open/unmerged on S5-11; no main merge, IPA or physical acceptance is
+included. Device edge/system navigation, VoiceOver and comfort remain for the
+owner's later pass. This closure is carried by the subsequent Search test-only
+publication; the exact tested predecessor tree above remains the build receipt.

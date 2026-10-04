@@ -29,6 +29,15 @@ class ProfileGuardTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             test_scope({"mode": "orientation-red"}, "codex/s5-10-divider-resize")
 
+    def test_search_red_is_fixed_to_its_slice_branch(self):
+        profile = {"mode": "search-red"}
+        self.assertEqual(test_scope(profile, "codex/s5-13-search"), "search-red")
+        self.assertEqual(test_scope(profile, "main"), "full")
+        self.assertEqual(test_scope(None, "codex/s5-13-search"), "full")
+        for branch in ["codex/s5-12-sidebar", "codex/s5-14-files"]:
+            with self.assertRaises(ValueError):
+                test_scope(profile, branch)
+
     def test_unknown_modes_and_arbitrary_arguments_are_rejected(self):
         for profile in [{"mode": "skip"}, {"mode": "review-red", "args": ["-skip-testing:ZenAgentTests"]}, {}]:
             with self.assertRaises(ValueError):
