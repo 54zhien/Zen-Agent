@@ -289,3 +289,21 @@ and the native Composer return. No control/assertion is skipped or app-owned
 picker dismissal introduced. Remove files-red now so the repaired candidate
 runs all Stage5 units/UI plus the separate actual Pad gate. All results remain
 pending on this new tree; Settings production is still waiting for the full gate.
+
+## Review P2: post-commit cleanup state — existing API regression
+
+Read-only review found that removeUnreferencedAsset commits metadata removal,
+then throws if orphan enumeration/deletion fails. FilesWorkspaceModel refreshes
+only a successful .removed result, leaving an already-deleted row on screen.
+Add an existing-API regression using the actual FileManager injection: ingest
+actual bytes off actor, load the catalog, refuse only that blob's deletion,
+then run the actual model removal. Require real metadata/version deletion,
+retained bytes and a recorded cleanup refusal, but an empty refreshed catalog
+and explicit committed-removal feedback. Unblock cleanup and verify the existing
+fresh-reference orphan operation subsequently removes exactly those bytes.
+
+Only tests/record/profile change in this candidate. Restore files-red for a
+compiled behavioral RED and native export dismissal receipt; the preceding full
+candidate is superseded by this concrete review finding and is not GREEN.
+No production repair before the compiled behavioral receipt. Afterwards restore
+the complete source gate before Settings.
