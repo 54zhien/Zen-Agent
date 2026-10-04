@@ -157,13 +157,41 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         record("shouldBegin \(kind(gestureRecognizer)) raw=\(gestureRecognizer.state.rawValue)")
         guard let state, let current = readContext?(), current.window === attachedWindow,
               !state.isDragging, state.settlementID == nil else { return false }
-        if gestureRecognizer === closeTap { return state.isOpen && current.allowsClosing && sameOwner(tapOwner) }
+        if gestureRecognizer === closeTap {
+            let admitted = state.isOpen && current.allowsClosing && sameOwner(tapOwner)
+            record("tap begin admitted=\(admitted),sameOwner=\(sameOwner(tapOwner))")
+            return admitted
+        }
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
         let velocity = pan.velocity(in: current.window)
         record("velocity \(kind(gestureRecognizer)) \(velocity),opening=\(current.allowsOpening),closing=\(current.allowsClosing)")
         guard velocity.x.isFinite, velocity.y.isFinite, abs(velocity.x) > abs(velocity.y) * 1.1 else { return false }
         return gestureRecognizer === edge ? (!state.isOpen && current.allowsOpening && velocity.x * sign > 0)
             : (state.isOpen && current.allowsClosing && velocity.x * sign < 0)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard otherGestureRecognizer !== edge, otherGestureRecognizer !== reverse,
+              otherGestureRecognizer !== closeTap,
+              !(otherGestureRecognizer is UIScreenEdgePanGestureRecognizer),
+              let state, !state.isDragging, state.settlementID == nil,
+              let current = readContext?(), current.window === attachedWindow,
+              let otherView = otherGestureRecognizer.view, otherView.window === current.window else { return false }
+        let admitted: Bool
+        if gestureRecognizer === edge {
+            // UIKit's dynamic failure requirement gives the admitted edge gesture
+            // priority over content recognizers, including landscape safe-area hosts.
+            admitted = !state.isOpen && current.allowsOpening
+                && otherView.isDescendant(of: current.window)
+        } else if gestureRecognizer === closeTap, let surface = current.surfaceView {
+            // A shifted Surface tap restores navigation before its Timeline or
+            // editor can interpret the same touch. Rail controls stay outside it.
+            admitted = state.isOpen && current.allowsClosing
+                && (otherView === surface || otherView.isDescendant(of: surface))
+        } else { admitted = false }
+        record("priority \(kind(gestureRecognizer)) over \(String(describing: type(of: otherGestureRecognizer)))=\(admitted)")
+        return admitted
     }
 
     @objc private func changed(_ recognizer: UIGestureRecognizer) {

@@ -152,3 +152,28 @@ both stable phases. Bounded DEBUG native touch/gesture receipts and native
 opening readiness observations diagnose the remaining landscape/tap failures.
 The fixed sidebar-red profile temporarily selects all units and Sidebar UI;
 another complete product run is still required before S5-13.
+
+### Stable editing receipt and remaining gesture arbitration
+
+Remote402d957c6d8a951982f651b90c2ee0d395dc78ec / tree
+6e578d2e56bb9c770b380b1411c6dd9ac6c120a8 targeted PR37176177904 /
+phone111359151630 and push37176175330 / phone111359148606 passed
+XcodeGen/build,871 Swift tests/132 suites and20 XCTest. Both native stable-phase
+cases passed. The actual stable-editing edge/reverse UI case now passed in both
+runs; both negative Sidebar cases passed. Six assertions remain in three UI
+cases: landscape opening and two Surface-tap close cases, with later normal
+keyboard dismissal blocked because the failed close leaves the Rail open.
+Actual Pad111359151672(PR)/111359148603(push) both passed, observing81pt
+and85.5pt Pan respectively. These targeted runs do not close the full gate.
+
+Both phone traces admit the landscape edge at(1,160.67) inside an actual
+(0,0,874,402) anchor with native opening=true, but show no begin callback.
+Both shifted-tap traces pass Surface ancestry and reach shouldBegin without an
+ended callback. The next correction uses UIKit's dynamic failure dependency
+to prioritize an eligible edge over content recognizers and an open-Surface
+tap over recognizers within that Surface. Own reverse/edge/tap recognizers,
+other native screen-edge gestures and Rail controls are excluded. Existing
+reverse failure dependency remains. A native delegate-policy regression checks
+these bounds; actual UI remains the behavioral gate. Tap admission is also
+recorded explicitly to distinguish owner rejection from recognition competition.
+Current Apple reference: https://developer.apple.com/documentation/uikit/uigesturerecognizerdelegate

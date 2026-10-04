@@ -5,6 +5,45 @@ import Testing
 @Suite("Sidebar native close admission")
 @MainActor
 struct WorkspaceSidebarInteractionTests {
+    @Test func priorityBelongsOnlyToAnEligibleEdgeOrTheOpenSurfaceTap() throws {
+        let state = WorkspaceNavigationState()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        let surface = UIView(frame: window.bounds)
+        let content = UIView(frame: surface.bounds)
+        let rail = UIView(frame: CGRect(x: 0, y: 0, width: 60, height: 800))
+        window.addSubview(surface); surface.addSubview(content); window.addSubview(rail)
+        let interaction = WorkspaceSidebarInteraction(frame: window.bounds)
+        window.addSubview(interaction)
+        defer { interaction.detach() }
+        let host = NSObject(), pane = NSObject()
+        var eligible = true
+        interaction.configure(state: state, travel: 60, isRightToLeft: false) {
+            WorkspaceSidebarNativeContext(hostID: ObjectIdentifier(host), paneID: ObjectIdentifier(pane),
+                window: window, allowsOpening: eligible, surfaceView: surface)
+        }
+        let edge = try #require(window.gestureRecognizers?.first { $0 is UIScreenEdgePanGestureRecognizer })
+        let tap = try #require(window.gestureRecognizers?.first { $0 is UITapGestureRecognizer })
+        let contentTap = UITapGestureRecognizer(); content.addGestureRecognizer(contentTap)
+        let railTap = UITapGestureRecognizer(); rail.addGestureRecognizer(railTap)
+        let systemEdge = UIScreenEdgePanGestureRecognizer(); content.addGestureRecognizer(systemEdge)
+        func priority(_ owned: UIGestureRecognizer, _ other: UIGestureRecognizer) -> Bool {
+            owned.delegate?.gestureRecognizer?(owned, shouldBeRequiredToFailBy: other) ?? false
+        }
+        #expect(priority(edge, contentTap))
+        #expect(!priority(tap, contentTap))
+        #expect(!priority(edge, systemEdge))
+        eligible = false
+        #expect(!priority(edge, contentTap))
+        #expect(state.openSidebar(eligible: true))
+        state.completeSettlement(try #require(state.settlementID))
+        #expect(priority(tap, contentTap))
+        #expect(!priority(tap, railTap))
+        #expect(!priority(edge, contentTap))
+        #expect(!priority(tap, edge))
+        state.closeSidebar()
+        #expect(!priority(tap, contentTap))
+    }
+
     @Test func closingPanDoesNotRequireTheInputsThatOriginallyAllowedOpening() throws {
         let state = WorkspaceNavigationState()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
