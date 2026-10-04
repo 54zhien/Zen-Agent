@@ -14,6 +14,7 @@ enum WorkspaceSidebarEligibility {
 @MainActor
 @Observable
 final class WorkspaceNavigationState {
+    @ObservationIgnored var onReset: (() -> Void)?
     private(set) var progress = 0.0
     private(set) var isOpen = false
     private(set) var isDragging = false
@@ -84,5 +85,5 @@ final class WorkspaceNavigationState {
 
     func completeSettlement(_ id: UUID) { if settlementID == id { settlementID = nil } }
     func dismissOverlay() { overlay = nil }
-    func reset() { closeSidebar(); overlay = nil; settlementID = nil }
+    func reset() { onReset?(); closeSidebar(); overlay = nil; settlementID = nil }
 }

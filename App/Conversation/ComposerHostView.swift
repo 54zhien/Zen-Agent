@@ -59,6 +59,51 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private weak var textCarrier: UIView?
     private var liftInteraction: ComposerLiftInteraction!
     private var workspaceInputSuppressed = false
+    private var overlayFocus: ComposerOverlayFocus?
+
+    func captureOverlayFocus(ownerIsCurrent: @escaping () -> Bool) -> ComposerOverlayFocus? {
+        guard !workspaceInputSuppressed, editor.isFirstResponder, editor.markedTextRange == nil,
+              let window else { return nil }
+        return ComposerOverlayFocus(host: self, window: window, ownerIsCurrent: ownerIsCurrent)
+    }
+
+    func queueOverlayFocus(_ token: ComposerOverlayFocus) {
+        overlayFocus?.cancel()
+        overlayFocus = token
+        setNeedsLayout()
+        consumeOverlayFocusIfReady()
+    }
+
+    func cancelOverlayFocus(_ token: ComposerOverlayFocus) {
+        if overlayFocus === token { overlayFocus = nil }
+    }
+
+    func consumeOverlayFocusIfReady() {
+        guard let token = overlayFocus else { return }
+        guard token.isValid else { token.cancel(); return }
+        guard !workspaceInputSuppressed, let window, editor.window === window,
+              bounds.width > 0, bounds.height > 0, editor.bounds.width > 0,
+              !editor.isHidden, isUserInteractionEnabled else { return }
+        guard token.window === window,
+              window.windowScene.map({ $0.activationState == .foregroundActive }) ?? true else {
+            token.cancel(); return
+        }
+        var node: UIView? = self
+        while let current = node {
+            guard !current.isHidden, current.alpha > 0 else { return }
+            node = current.superview
+        }
+        var responder: UIResponder? = self
+        while let current = responder {
+            if let controller = current as? UIViewController, controller.presentedViewController != nil {
+                token.cancel(); return
+            }
+            responder = current.next
+        }
+        // UIKit's didBeginEditing callback restores the logical Editing state.
+        // Run after the bridge's ordinary focus application, or a fresh layout.
+        if editor.becomeFirstResponder() { overlayFocus = nil }
+    }
 
     func setWorkspaceInputSuppressed(_ suppressed: Bool) {
         workspaceInputSuppressed = suppressed
@@ -179,6 +224,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        consumeOverlayFocusIfReady()
         guard let shelfController else { return }
         if window != nil {
             attachShelf(shelfController)
@@ -192,6 +238,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         super.layoutSubviews()
         updateGeometryProbe()
         liftInteraction.checkReadiness()
+        consumeOverlayFocusIfReady()
         guard bounds.width > 0, bounds.width != lastHostWidth else { return }
         lastHostWidth = bounds.width
         render(animated: false)

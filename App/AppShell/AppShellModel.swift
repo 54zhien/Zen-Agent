@@ -6,6 +6,8 @@ struct AppExecutionTarget: Equatable, Sendable {
     let modelID: ModelID
 }
 
+enum ConversationOpenPresentation: Equatable { case preserved, resting }
+
 struct RecentConversationSummary: Identifiable, Equatable, Sendable {
     let id: String
     let title: String
@@ -28,6 +30,7 @@ enum AppShellLaunchState: Equatable {
 @MainActor
 @Observable
 final class AppShellModel {
+    var workspaceStore: PersistenceStore? { dependencies?.store }
     static let defaultInstanceIDKey = "zen.w1.defaultTarget.v1.instanceID"
     static let defaultModelIDKey = "zen.w1.defaultTarget.v1.modelID"
     static let maxProviderSteps = 4
@@ -947,8 +950,9 @@ final class AppShellModel {
     }
 
     @discardableResult
-    func openConversation(id: String) async -> Bool {
+    func openConversation(id: String, presentation: ConversationOpenPresentation = .preserved) async -> Bool {
         guard let dependencies, !Task.isCancelled else { return false }
+        if presentation == .resting, pane?.composer.isComposing == true { return false }
         if let split = splitWorkspace, split.secondaryConversationID == id,
            let secondary = splitPane, secondary.conversationID == id {
             do {
@@ -956,6 +960,7 @@ final class AppShellModel {
                 guard lifecycle == .visible || (lifecycle == nil
                     && secondary.session === sessions.uncommittedSession(for: id)) else { return false }
                 selectSplitSlot(split.emptySlot)
+                if presentation == .resting { secondary.composer.draft.presentationState = .resting }
                 recentOpenFailure = nil
                 return true
             } catch {
@@ -970,6 +975,7 @@ final class AppShellModel {
                     let visible = lifecycle == .visible || (lifecycle == nil
                         && pane?.session === sessions.uncommittedSession(for: id))
                     if visible {
+                        if presentation == .resting { pane?.composer.draft.presentationState = .resting }
                         recentOpenFailure = nil
                         if let split = splitWorkspace { selectSplitSlot(split.sourceSlot) }
                     }
@@ -1018,7 +1024,12 @@ final class AppShellModel {
                     self?.targetBecameUnavailable(failure, for: failedTarget, conversationID: id)
                 }
             )
-            guard (warmOwner == nil || wiring.pane.session === warmOwner),
+            // History was read asynchronously. Recheck durable visibility at
+            // registration, after synchronous wiring has resolved its bindings.
+            let lifecycle = try dependencies.store.conversationLifecycle(id: id)
+            guard lifecycle == .visible || (lifecycle == nil && warmOwner != nil),
+                  presentation != .resting || !wiring.pane.composer.isComposing,
+                  (warmOwner == nil || wiring.pane.session === warmOwner),
                   dependencies.router.registerPreparedPane(wiring.pane, ticket: ticket) else { return false }
 
             if let otherID = replacingSplit?.secondaryConversationID {
@@ -1031,6 +1042,7 @@ final class AppShellModel {
             }
 
             // Keep the outgoing pane intact until the replacement has loaded and registered.
+            if presentation == .resting { wiring.pane.composer.draft.presentationState = .resting }
             rememberCurrentSession(retainUncommitted: true)
             cancelPreviewReturn()
             previewContent.finish()

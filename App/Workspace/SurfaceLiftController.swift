@@ -14,6 +14,7 @@ final class SurfaceLiftController {
     var workspaceNavigationActive: Bool { workspaceNavigation?.blocksLift == true }
     @ObservationIgnored var sidebarNativeContext: (() -> (hostID: ObjectIdentifier, window: UIWindow,
         allowsOpening: Bool, allowsClosing: Bool, surfaceView: UIView)?)?
+    @ObservationIgnored var captureOverlayFocus: ((@escaping () -> Bool) -> ComposerOverlayFocus?)?
     private(set) var heldReturnCardLabel: String?
     var nativeHostIdentity: ObjectIdentifier? { hostID }
     private(set) var retainsAppSpaceViewport = false
@@ -133,6 +134,7 @@ final class SurfaceLiftController {
         host.loadViewIfNeeded()
         hostID = ObjectIdentifier(host)
         host.liftController = self
+        captureOverlayFocus = { [weak host] valid in host?.captureOverlayFocus(ownerIsCurrent: valid) }
         sidebarNativeContext = { [weak self, weak host] in
             guard let self, let host, let window = host.view.window else { return nil }
             return (ObjectIdentifier(host), window, self.state.phase == .full && self.isWorkspaceVisible
@@ -334,6 +336,7 @@ final class SurfaceLiftController {
         host.liftController = nil
         hostID = nil
         sidebarNativeContext = nil
+        captureOverlayFocus = nil
         resolveTarget = nil
         resolveReturnPose = nil
         captureHostFrame = nil

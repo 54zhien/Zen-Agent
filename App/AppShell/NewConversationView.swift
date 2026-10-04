@@ -155,7 +155,8 @@ struct NewConversationView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 16) {
-                        if !model.recentConversations.isEmpty || model.recentLoadError != nil {
+                        if (model.splitWorkspace != nil || !model.isCurrentConversationVisible)
+                            && (!model.recentConversations.isEmpty || model.recentLoadError != nil) {
                             Button {
                                 isRecentConversationsPresented = true
                             } label: {

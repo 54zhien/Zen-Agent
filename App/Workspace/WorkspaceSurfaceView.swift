@@ -94,7 +94,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     var body: some View {
-        WorkspaceNavigationView(state: navigation, spatiallyAvailable: sidebarSpatiallyAvailable,
+        WorkspaceNavigationView(state: navigation, model: model, captureFocus: captureOverlayFocus,
+                                spatiallyAvailable: sidebarSpatiallyAvailable,
                                 context: sidebarContext) {
         ZStack(alignment: .topLeading) {
             Color.clear
@@ -372,6 +373,17 @@ struct WorkspaceSurfaceView<Content: View>: View {
             allowsClosing: native.allowsClosing, surfaceView: native.surfaceView)
     }
 
+    private func captureOverlayFocus() -> ComposerOverlayFocus? {
+        guard let model, let pane = model.pane else { return nil }
+        let driver = controller(for: model.sourceSurfaceSlot)
+        let host = driver.nativeHostIdentity
+        return driver.captureOverlayFocus? { [weak model, weak pane, weak driver] in
+            guard let model, let pane, let driver else { return false }
+            return model.pane === pane && driver.nativeHostIdentity == host
+                && model.splitWorkspace == nil && !model.previewContent.isPresented
+        }
+    }
+
     private var activeLift: SurfaceLiftController {
         controller(for: activeSurfaceSlot ?? model?.sourceSurfaceSlot ?? .primary)
     }
@@ -394,6 +406,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     private func surfaceIsVisible(_ slot: WorkspaceSurfaceSlot) -> Bool {
+        if navigation.overlay != nil { return false }
         if returnPresentation.hidesOrigin(slot) { return false }
         if returnPresentation.measuresTarget(slot) { return true }
         if let activeSurfaceSlot { return activeSurfaceSlot == slot }
@@ -661,9 +674,9 @@ private struct WorkspaceHostedContent<Content: View>: View {
         }
         // The nested hosting controller builds its own SwiftUI accessibility
         // tree. Suppress that tree here while preserving the hidden live Pane.
-        .accessibilityHidden(returnPresentation.suppressesTarget(slot) || (model?.previewContent.isPresented == true
+        .accessibilityHidden(navigation.overlay != nil || returnPresentation.suppressesTarget(slot) || (model?.previewContent.isPresented == true
             && model?.previewSurfaceSlot != slot))
-        .environment(\.workspaceInputSuppressed, returnPresentation.suppressesTarget(slot))
+        .environment(\.workspaceInputSuppressed, navigation.overlay != nil || returnPresentation.suppressesTarget(slot))
         .environment(\.workspaceNavigation, navigation)
         // UIKit installs this root once. Read mutable layout state here so
         // Observation updates the retained subtree instead of freezing a value

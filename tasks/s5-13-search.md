@@ -85,3 +85,31 @@ The initial publication adds the fixed profile and two actual Search UI tests,
 with no Search production source or future-API unit files. Compiled behavior
 RED is pending; do not claim Search implementation or completion from these
 test drafts or local Python checks.
+
+## Compiled behavior RED and first implementation
+
+Test-only remote bbe818a5c4745dcce881a1a7cb359b3e8508cac7 / tree
+949232cda900fac663f701e7f9afe1c85405ad9a compiled in push37182466455
+and PR37182479638. Both phones passed873 Swift/132 suites and20 XCTest;
+both actual Search UI cases failed only `Sidebar Search destination is
+unavailable` (two assertions/two cases). Actual Pad axis passed in both runs.
+No missing-symbol compile failure, retry or host restart. Phone jobs are
+111377645856 /111377694343; Pad111377645852 /111377694304.
+
+The first implementation shares summary title/first-text semantics with a pure
+literal SQL function, filters before bounded keyset LIMIT and runs reads through
+GRDB's async owner. Query generation owns and cancels debounce/read/selection
+workers. WorkspaceOverlayCoordinator owns overlay focus and selection lifetime;
+retained native input/AX visibility follows the observed navigation reference.
+Plain exit queues the actual editor responder and waits for mounting, input,
+layout, same owner/window and active scene. Successful Search applies Resting
+inside existing Open before publishing the Pane. A fresh lifecycle read after
+history/wiring rejects deletion committed during a stale WAL snapshot.
+
+Regressions accompany implementation: literal SQL-like characters, Unicode and
+bounded fallback/manual titles,120-row paging/deleted states; controlled late
+reads, cancellation and pending selection; real native responder identity and
+owner invalidation; warm-target Resting/drafts and a second WAL connection that
+commits deletion during the actual history snapshot. Only the live Full Single
+Recent toolbar entry is removed; New and Split retain their existing entry.
+Targeted compiled GREEN and full source gates are still pending.

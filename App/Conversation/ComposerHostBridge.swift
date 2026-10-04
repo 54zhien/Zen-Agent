@@ -18,5 +18,6 @@ struct ComposerHostBridge: UIViewRepresentable {
         uiView.configure(configuration)
         uiView.setWorkspaceInputSuppressed(suppressed)
         if !suppressed { uiView.requestFocus(focused) }
+        uiView.consumeOverlayFocusIfReady()
     }
 }

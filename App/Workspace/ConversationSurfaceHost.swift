@@ -261,19 +261,25 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     var allowsSidebarInput: Bool {
         guard allowsSidebarClosing else { return false }
-        func findComposer(_ node: UIView) -> ComposerHostView? {
-            if let composer = node as? ComposerHostView { return composer }
-            for child in node.subviews { if let composer = findComposer(child) { return composer } }
-            return nil
-        }
         func hasNavigation(_ controller: UIViewController) -> Bool {
             if let navigation = controller as? UINavigationController, navigation.viewControllers.count > 1 { return true }
             return controller.children.contains { hasNavigation($0) }
         }
-        guard !hasNavigation(contentController), let composer = findComposer(contentController.view) else { return false }
+        guard !hasNavigation(contentController), let composer = findComposer(in: contentController.view) else { return false }
         var input = composer.nativeSidebarInput
         input.selectionActive = composer.editor.selectedTextRange.map { !$0.isEmpty } ?? false
         return WorkspaceSidebarEligibility.allowsNativeInput(input)
+    }
+
+    private func findComposer(in node: UIView) -> ComposerHostView? {
+        if let composer = node as? ComposerHostView { return composer }
+        for child in node.subviews { if let composer = findComposer(in: child) { return composer } }
+        return nil
+    }
+
+    func captureOverlayFocus(ownerIsCurrent: @escaping () -> Bool) -> ComposerOverlayFocus? {
+        guard allowsSidebarInput else { return nil }
+        return findComposer(in: contentController.view)?.captureOverlayFocus(ownerIsCurrent: ownerIsCurrent)
     }
 
     var allowsSidebarClosing: Bool {
