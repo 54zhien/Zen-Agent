@@ -122,3 +122,33 @@ Full product CI remains required after removing review-red.
 First-Send navigation availability now observes a one-way published-Turn flag
 on the existing Pane, updated only when a persisted Timeline is installed. Root
 does not subscribe to live token state to refresh its accessibility actions.
+
+### Full-product observation on the close correction
+
+Locald144d7a / remote59dba50b9c1c3e50084465cfbd69ff60f8ff24d7 /
+tree6eb743c658b3dfc9b4befa719b595ac8b1b8cac4 passed generation/build,
+870 Swift tests/132 suites and20 XCTest in PR37174200703 / phone111353318751
+and push37174198078 / phone111353307980. Both complete phone runs executed
+45 UI cases with1 expected Pad-only skip and8 assertions in4 Sidebar positive
+cases; prior UI cases passed. This is not a completed Sidebar gate.
+
+PR actual Pad111353318723 passed103.295s: real Pan85.5pt, width688→773.5.
+Push Pad111353307992 failed initial owner/orientation readiness and the
+width assertion after real Pan29.5pt (width688→717.5), with earlier Simulator
+service-hub interruptions also recorded. Source review found no direct Sidebar
+touch admission in Split: nil context rejects each recognizer. Keep the failed
+assertions. The next test choreography observes stable prerequisites and each
+owner lease separately; the same100pt drag uses slow XCTest delivery while the
+>50pt width assertion and all ratio/identity/geometry checks remain. No retries,
+sleep-based readiness or higher timeout. Reviewed without a weakened assertion.
+Apple API: https://developer.apple.com/documentation/xcuiautomation/xcuicoordinate/press(forduration:thendragto:withvelocity:thenholdforduration:)
+
+The native cause of stable-editing admission was identified: Lift's native
+settled phase deliberately requires resting, so Sidebar could never accept a
+stable editing Composer. Sidebar now uses its own phase predicate (resting or
+editing), sharing the actual geometry/composition/keyboard inputs while keeping
+Lift's resting-only predicate. An existing-API native host regression covers
+both stable phases. Bounded DEBUG native touch/gesture receipts and native
+opening readiness observations diagnose the remaining landscape/tap failures.
+The fixed sidebar-red profile temporarily selects all units and Sidebar UI;
+another complete product run is still required before S5-13.

@@ -227,8 +227,16 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     var nativeLiftInput: SurfaceLiftEligibility {
+        nativeInput(settledPhase: motion.phase == .resting)
+    }
+
+    var nativeSidebarInput: SurfaceLiftEligibility {
+        nativeInput(settledPhase: motion.phase == .resting || motion.phase == .editing)
+    }
+
+    private func nativeInput(settledPhase: Bool) -> SurfaceLiftEligibility {
         let displayed = surface.layer.presentation()?.frame ?? surface.frame
-        let settled = motion.phase == .resting && window != nil && surface.bounds.width > 0
+        let settled = settledPhase && window != nil && surface.bounds.width > 0
             && surface.bounds.height > 0 && abs(displayed.minY - surface.frame.minY) <= 0.5
             && abs(displayed.width - surface.frame.width) <= 0.5
             && abs(keyboardGap + bottomConstraint.constant) <= 0.5

@@ -132,6 +132,8 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             "contentAXHidden=\(contentController.view.accessibilityElementsHidden)",
             "surfaceAX=\(surfaceView.isAccessibilityElement)", "activate=\(surfaceView.onActivate != nil)",
             "editors=\(mounted.count)", "browse=\(browseInteraction?.diagnostic ?? "none")"]
+        fields.append("sidebar=\(liftController?.workspaceNavigation?.nativeDiagnostic ?? "unbound")")
+        fields.append("sidebarCanOpen=\(liftController?.sidebarNativeContext?()?.allowsOpening ?? false)")
         fields.append("timeline=\(liftController?.workspacePaneDiagnostic?() ?? "unbound")")
         if let window = view.window {
             fields.append("hostFrame=\(view.convert(view.bounds, to: window))")
@@ -269,7 +271,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             return controller.children.contains { hasNavigation($0) }
         }
         guard !hasNavigation(contentController), let composer = findComposer(contentController.view) else { return false }
-        var input = composer.nativeLiftInput
+        var input = composer.nativeSidebarInput
         input.selectionActive = composer.editor.selectedTextRange.map { !$0.isEmpty } ?? false
         return WorkspaceSidebarEligibility.allowsNativeInput(input)
     }

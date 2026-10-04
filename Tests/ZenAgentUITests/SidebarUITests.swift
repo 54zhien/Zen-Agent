@@ -14,12 +14,15 @@ final class SidebarUITests: XCTestCase {
             && (probe.value as? String)?.contains("keyboardTransitioning: false") == true }
         let identity = editorIdentity(probe.value as? String)
         let originalX = pane.frame.minX
+        expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
         edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
         let rail = app.descendants(matching: .any)["sidebar-rail"]
+        receipt("focused-open", probe)
         XCTAssertTrue(rail.waitForExistence(timeout: 5))
         guard let blank = app.workspaceTimelineBlankPoint(pane: pane, editor: editor, preferLeading: true) else { return }
         app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: blank.x, dy: blank.y)).tap()
+        receipt("focused-close", probe)
         expect { !rail.exists && abs(pane.frame.minX - originalX) < 2 }
         XCTAssertTrue(app.keyboards.firstMatch.exists)
         XCTAssertTrue((probe.value as? String)?.contains("focused=true;") == true)
@@ -48,15 +51,18 @@ final class SidebarUITests: XCTestCase {
         let paneWidth = pane.frame.width
         let editorWidth = editor.frame.width
         let identity = editorIdentity(probe.value as? String)
+        expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.4))
         edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
         let rail = app.descendants(matching: .any)["sidebar-rail"]
+        receipt("landscape-open", probe)
         XCTAssertTrue(rail.waitForExistence(timeout: 5))
         XCTAssertEqual(pane.frame.width, paneWidth, accuracy: 2)
         XCTAssertEqual(timelineContainerWidth(probe.value as? String) ?? 0, timelineWidth, accuracy: 2)
         XCTAssertEqual(editor.frame.width, editorWidth, accuracy: 2)
         XCTAssertEqual(editorIdentity(probe.value as? String), identity)
         pane.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        receipt("landscape-close", probe)
         expect { !rail.exists }
         XCTAssertEqual(timelineContainerWidth(probe.value as? String) ?? 0, timelineWidth, accuracy: 2)
     }
@@ -75,9 +81,11 @@ final class SidebarUITests: XCTestCase {
         XCTAssertNotNil(identity)
         let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let before = pane.frame
+        expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
         edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
         let rail = app.descendants(matching: .any)["sidebar-rail"]
+        receipt("editing-open", probe)
         XCTAssertTrue(rail.waitForExistence(timeout: 5))
         XCTAssertTrue(app.keyboards.firstMatch.exists)
         XCTAssertEqual(pane.frame.width, before.width, accuracy: 2)
@@ -85,6 +93,7 @@ final class SidebarUITests: XCTestCase {
         XCTAssertTrue((probe.value as? String)?.contains("focused=true;") == true)
         let closeStart = pane.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
         closeStart.press(forDuration: 0.05, thenDragTo: closeStart.withOffset(CGVector(dx: -110, dy: 0)))
+        receipt("editing-reverse-close", probe)
         expect { !rail.exists }
         XCTAssertEqual(pane.frame.minX, before.minX, accuracy: 2)
         XCTAssertEqual(editorIdentity(probe.value as? String), identity)
@@ -101,9 +110,12 @@ final class SidebarUITests: XCTestCase {
         editor.typeText("retained sidebar draft")
         app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
         let before = pane.frame
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.5))
         edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
         let rail = app.descendants(matching: .any)["sidebar-rail"]
+        receipt("resting-open", probe)
         XCTAssertTrue(rail.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["sidebar-search"].exists)
         XCTAssertTrue(app.buttons["sidebar-files"].exists)
@@ -112,6 +124,7 @@ final class SidebarUITests: XCTestCase {
         XCTAssertEqual(pane.frame.width, before.width, accuracy: 2)
         XCTAssertFalse(app.buttons["sidebar-open"].exists)
         pane.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.3)).tap()
+        receipt("resting-close", probe)
         expect { !rail.exists }
         XCTAssertEqual(pane.frame.minX, before.minX, accuracy: 2)
         XCTAssertTrue((editor.value as? String)?.contains("retained sidebar draft") == true)
@@ -148,6 +161,14 @@ final class SidebarUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["sidebar-rail"].exists)
         XCTAssertTrue(card.exists)
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
+    }
+
+    @MainActor
+    private func receipt(_ label: String, _ probe: XCUIElement) {
+        let value = probe.value as? String ?? "missing"
+        let begin = value.range(of: ";sidebar=")?.upperBound ?? value.startIndex
+        let end = value.range(of: ";timeline=", range: begin..<value.endIndex)?.lowerBound ?? value.endIndex
+        print("SIDEBAR_RECEIPT \(label) \(value[begin..<end])")
     }
 
     @MainActor

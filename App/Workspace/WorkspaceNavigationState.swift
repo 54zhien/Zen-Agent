@@ -20,6 +20,16 @@ final class WorkspaceNavigationState {
     private(set) var overlay: WorkspaceOverlayRoute?
     private(set) var settlementID: UUID?
     private(set) var gestureID: UUID?
+#if DEBUG
+    @ObservationIgnored private var nativeEvents: [String] = []
+    var nativeDiagnostic: String {
+        "open=\(isOpen),progress=\(progress),drag=\(isDragging),settlement=\(String(describing: settlementID));events=\(nativeEvents.joined(separator: " | "))"
+    }
+    func recordNative(_ event: String) {
+        nativeEvents.append(event)
+        if nativeEvents.count > 12 { nativeEvents.removeFirst(nativeEvents.count - 12) }
+    }
+#endif
     var blocksLift: Bool { isDragging || progress > 0 || settlementID != nil || overlay != nil }
 
     @discardableResult

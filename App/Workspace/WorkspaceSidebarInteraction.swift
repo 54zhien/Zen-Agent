@@ -113,13 +113,30 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             && captured.window == ObjectIdentifier(current.window)
     }
 
+    private func record(_ message: @autoclosure () -> String) {
+#if DEBUG
+        state?.recordNative(message())
+#endif
+    }
+
+    private func kind(_ gesture: UIGestureRecognizer) -> String {
+        gesture === edge ? "edge" : gesture === reverse ? "reverse" : "tap"
+    }
+
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard let window = attachedWindow, let current = readContext?(), current.window === window,
-              convert(bounds, to: window).contains(touch.location(in: window)) else { return false }
+              convert(bounds, to: window).contains(touch.location(in: window)) else {
+            record("recv \(kind(gestureRecognizer)) rejected context=\(readContext?() != nil),anchor=\(bounds),window=\(window === attachedWindow)")
+            return false
+        }
+        record("recv \(kind(gestureRecognizer)) opening=\(current.allowsOpening),closing=\(current.allowsClosing),point=\(touch.location(in: window)),anchor=\(convert(bounds, to: window))")
         if gestureRecognizer === edge { return state?.isOpen == false && current.allowsOpening }
         guard state?.isOpen == true, current.allowsClosing,
               let surface = current.surfaceView, let hit = touch.view,
-              hit === surface || hit.isDescendant(of: surface) else { return false }
+              hit === surface || hit.isDescendant(of: surface) else {
+            record("recv close rejected surface ancestry hit=\(touch.view.map { String(describing: type(of: $0)) } ?? "nil")")
+            return false
+        }
         if gestureRecognizer === reverse {
             var node: UIView? = hit
             while let view = node {
@@ -137,11 +154,13 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     }
 
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        record("shouldBegin \(kind(gestureRecognizer)) raw=\(gestureRecognizer.state.rawValue)")
         guard let state, let current = readContext?(), current.window === attachedWindow,
               !state.isDragging, state.settlementID == nil else { return false }
         if gestureRecognizer === closeTap { return state.isOpen && current.allowsClosing && sameOwner(tapOwner) }
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
         let velocity = pan.velocity(in: current.window)
+        record("velocity \(kind(gestureRecognizer)) \(velocity),opening=\(current.allowsOpening),closing=\(current.allowsClosing)")
         guard velocity.x.isFinite, velocity.y.isFinite, abs(velocity.x) > abs(velocity.y) * 1.1 else { return false }
         return gestureRecognizer === edge ? (!state.isOpen && current.allowsOpening && velocity.x * sign > 0)
             : (state.isOpen && current.allowsClosing && velocity.x * sign < 0)
@@ -149,6 +168,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
 
     @objc private func changed(_ recognizer: UIGestureRecognizer) {
         guard let state else { return }
+        record("callback \(kind(recognizer)) state=\(recognizer.state.rawValue)")
         if recognizer === closeTap {
             if recognizer.state == .ended, sameOwner(tapOwner), readContext?()?.allowsClosing == true {
                 state.closeSidebar()
