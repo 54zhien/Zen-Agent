@@ -61,6 +61,9 @@
 
 - [ ] Add compiled UI RED for Sidebar Search: keyboard appears, input/exit control sits above it, results show a thumbnail/title row, a tap opens the target, and exit without selection restores the original draft.
 - [ ] Add persistence regressions for Chinese and ASCII titles, literal `%`, `_` and backslash, empty/whitespace query, pending/finalized deletion, stable paging, and query replacement during a slow read.
+- [ ] Keep fallback matching bounded to the actual provisional title. Existing summary projection normalizes Unicode whitespace and clips to 56 characters after a bounded first-prompt read; searching the entire first Message would silently become body search. Reuse a shared title derivation so returned title, keyword matching and highlight agree. Cover a keyword beyond the derived title, malformed/whitespace-only first parts, and a manual title overriding the fallback.
+- Search SQL preflight: the repository pins GRDB 7.11.1. Keep Unicode display-title derivation and literal match semantics shared between SQL filtering and row projection. GRDB supports a pure DatabaseFunction registered on the read connection; use parameterized query input and bounded 512-character first-prompt input before the 56-character display-title clip. Return only a bounded keyset page, never all Conversation rows to a Swift filter. A full title scan remains possible without a search index; this does not authorize a schema/index migration or full-body matching. Verify the pinned API before implementation.
+
 - [ ] Implement bounded parameterized title matching, lightweight thumbnail/title rows with match highlighting, debounce/cancellation, loading/error/retry and load-more. Do not instantiate live history Panes for result thumbnails.
 - [ ] Connect successful result activation to the existing Pane replacement transaction. Keep an active outgoing Run alive; failed/stale loads keep Search and the original owner intact.
 - [ ] Remove the explicitly temporary Single Recent entry only from a live Full Pane once Search is reachable. Retain Recent on the no-Pane New Conversation screen and per-Pane Recent in Split. Test no-Pane → Recent → existing Conversation → Sidebar/Search.
@@ -80,6 +83,8 @@
 - `FilesWorkspaceModel.removeAsset(id: String) async` asks the AppShell/Session owner for a removal lease covering attachments in every retained Session (both Panes, warm drafts and send snapshots awaiting acceptance). Serialize acquisition/removal against attach/send acceptance; the Files view must not independently inspect only the current Composer. Durable Message references protect accepted submissions. Referenced assets stay intact and return a readable reason.
 - Under the existing managed-file operation lock, atomically remove unreferenced metadata in the database, then clean up only blobs no longer referenced. A crash or cleanup failure may leave recoverable orphan bytes; database and filesystem do not share a transaction, and referenced bytes must never be removed first.
 - Preview/export use a verified immutable version URL, never a stale external bookmark or a rewritten history attachment.
+
+- Ownership preflight: production `ConversationPaneView` injects the coordinator already retained by `ConversationSession.sendCoordinator`; the Composer view keeps that same instance in `@State`. Its pending attachment snapshot is private, and the Composer's weak coordinator pointer exists only under DEBUG. Reuse the existing Session owner: expose a read-only pending-reference query on the coordinator, combine it with draft references in the Session, and enumerate all retained Sessions at the store boundary. Do not introduce a second submission owner or use the DEBUG pointer. Cover changing a draft after `beginSend`, navigating it warm, and attempting removal before acceptance; acceptance/rejection remains the only matching-snapshot release authority.
 
 - [ ] Add compiled UI RED for a real Files overlay reached from Sidebar, a Files list and an import entry; closing returns to the same Conversation and draft.
 - [ ] Add service tests using temporary directories: import bytes, list the created version, verify digest, cancel mid-copy, force database failure, preserve duplicate-content blobs, reject unsafe paths, and report missing/corrupt bytes without deleting metadata.
@@ -105,11 +110,27 @@
 - [ ] Add compiled UI RED for Sidebar→Settings and close restoration, grouped navigation, and Settings→Agent→Soul. No standalone Sidebar Agent entry is introduced.
 - [ ] Build groups: 模型与服务, 外观, Agent, 文件与存储, 数据与隐私, 关于. Wire Providers & Accounts / Models to real stores, Appearance to root appearance, Soul to versioned persistence, Files to the real Workspace, and Storage/About/privacy to truthful current data and bundled licenses.
 - [ ] Show only supported Agent configuration: Soul is live; Memory/Skills/MCP/tools/subagents/environment editing follows their Runtime stages. Do not introduce empty switches or imply that placeholder settings affect requests.
-- [ ] Verify saving a new global model default leaves both existing Pane configurations unchanged and changes only future Conversations. Verify Soul edits preserve old Conversation binding and frozen Run snapshots, including edit conflicts. Implement and test the enable toggle only after the owner resolves its scope; the pre-existing global storage toggle is not a product decision.
+- [ ] Verify saving a new global model default leaves both existing Pane configurations unchanged and changes only future Conversations. Verify Soul edits preserve old Conversation binding and frozen Run snapshots, including edit conflicts. Implement and test global Soul enablement from the explicitly verified Prompt/Soul Blueprint: disabling pauses effective injection, keeps versions and existing bindings, and creates no automatic binding for Conversations created while disabled. Existing frozen Run snapshots remain unchanged.
 - [ ] Storage cleanup may remove only reconstructible cache/derived files. Conversation/managed-asset deletion is a separate explicit destructive flow; do not implement “clear cache” by clearing Session drafts or Application Support.
 - [ ] Verify secret values never enter settings summaries, diagnostics or exports. About shows actual version/build and licenses; unsupported export/import capabilities stay absent.
 - [ ] Pass full CI and review all overlay restoration, scope and credential boundaries before S5-16.
 
 ## Decisions awaiting the owner
 
-Async questions cover marked-text navigation/focus, light-mode Ink and the scope of disabling Soul. Do not silently commit/cancel composition, invent a Sidebar workaround or treat the existing global Soul storage toggle as approval for global product semantics. Work independent of those decisions continues in order.
+The earlier optional Soul-scope question is resolved for implementation by the explicit current Blueprint baseline, not by inference from SQL: global disable pauses injection while preserving bindings and snapshots. Marked-text navigation/focus and light-mode Ink remain optional owner preferences. Do not silently commit/cancel composition, invent a Sidebar workaround or treat the existing global Soul storage toggle as approval for global product semantics. Work independent of those decisions continues in order.
+
+## Preflight rulings — 2026-10-04
+
+Ruling: follow the existing explicit global Soul enablement baseline while the
+owner has not requested a replacement policy. The current Prompt/Soul note
+labels version semantics as product invariants and explicitly says global
+disable pauses injection, keeps versions/bindings and does not bind Conversations
+created while disabled. Frozen Run snapshots retain their own authority.
+The earlier question arose from confusing version immutability with enablement
+scope; SQL alone did not settle it. Cost if the owner chooses future-only later:
+change the enablement policy and its scope tests, preserving historical records.
+
+GRDB DatabaseFunction API was checked at the repository's exact v7.11.1 tag:
+https://github.com/groue/GRDB.swift/blob/v7.11.1/GRDB/Core/DatabaseFunction.swift
+Read-connection registration is explicitly shown by upstream; no database-schema
+mutation is needed for a shared pure display-title/match function.

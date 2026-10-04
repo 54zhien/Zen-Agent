@@ -89,13 +89,115 @@
 - [ ] Add a production iPhone UI test: focus one Pane, dismiss its keyboard, rotate landscape, assert one visible editor belonging to that Pane; edit its draft, rotate portrait, assert two original IDs, saved ratio and only that Pane's updated draft.
 - [ ] Add Card rotation UI coverage: current selection survives portrait→landscape→portrait and Return still targets its original logical Pane/Conversation.
 - [ ] In landscape App Space, also select the already occupied opposite Conversation and Return. The visible live content must belong to that selected existing owner; restoring portrait retains both original logical slots and their states. Inspect the native late-handoff mapping so it cannot briefly install the initiating Conversation under the opposite card.
+- Return preflight review: keep the physical Card origin distinct from the selected existing logical Pane and its stable physical live host. The present Return animator stays bound to its Lift-origin host, so changing only its destination rectangle can briefly install the initiating Pane under the opposite selected Card after commit. Prepare an explicit Return presentation plan before handoff; reveal the selected owner and keep the initiating host Preview-only until its exit completes. Add deterministic plan/phase-owner coverage, because the final-state UI assertion alone cannot observe this intermediate mismatch. Preserve original Pane-to-host mappings.
+
+- Cross-owner Return implementation boundary: prepare a Workspace-owned presentation plan from initiating physical slot, selected existing logical owner, device presentation and destination. Keep the origin's actual Preview host at its App Space viewport through the final native animation when the selected owner is the other physical host. At commit, mount only that other owner's existing live host behind the matching preview destination; retain the selected Preview descriptor in the Workspace presentation state until convergence. Do not rebase/install the initiating editor under the selected Card. On convergence hide the proxy host before clearing its held Preview, then restore its own logical slot (or keep it hidden in landscape). Cancellation clears only the presentation hold; a committed logical selection remains with its selected owner. No snapshot replacement or duplicate editor is required. Generic/no-model host fixtures keep the normal Return path. Cover prepared/handoff/completion plan ownership and paused native final-segment behavior, not only final UI state.
+
+- Cross-owner completion protocol: completion must not depend on the origin shrinking. The origin remains a full App Space proxy, so its old pendingViewportReturn callback cannot prove that the destination live host is mounted. Keep drawing visibility separate from input/accessibility visibility: mount the selected live host behind the proxy, suppress its editor and accessibility until convergence, and retain an immutable selected Preview descriptor before commit clears Browse. Resume only after the target host supplies its actual window frame in a native layout receipt and the target Timeline supplies current revision/visibility geometry plus applied-scroll completion. Use the measured native target frame for the final destination rather than assuming Window safe insets equal the nested GeometryProxy. Tokenize preparation, target receipts and cancellation; hide the native proxy before clearing its descriptor. Animation interruption after logical commit retains the selected owner. The final UI tests cannot prove that no wrong owner was briefly shown; add a paused native final-segment assertion.
+
 - [ ] Publish compiled behavioral RED before changing the device presentation policy.
 - [ ] Implement landscapeSingle by changing frame/visibility while retaining both Pane owners. Route visible New/Recent/model/Send actions through that Pane's existing bridge. Rotation back restores axis/ratio and each Session's own reading state.
 - [ ] Implement iPad axis selection from long press on the Divider Handle with a native direction menu. Map logical top→left and bottom→right, restore the selected axis's saved ratio, and animate the existing hosts continuously.
 - [ ] Adapt App Space minimum card dimensions and distances to actual landscape safe height. Keep bounded predecessor projection, selected identity and New's rightmost ordering.
 - [ ] Verify iPad policy and native host geometry for both axes, iPhone UI rotation, rotated cancellation, and independent Run/model state. Pass full macOS CI and review before Sidebar implementation.
 
+Native iPad acceptance requires an actual iPad Simulator CI destination. The
+full iPhone job continues to run all unit/UI tests; the iPad-only regression
+explicitly skips there. Add a separate focused iPad job at this slice, with
+XcodeGen/build and one non-retried native axis/ratio/editor-identity test. A
+phone skip or pure geometry formula is not an iPad interaction receipt. Keep
+both jobs as required code evidence for the final Stage 5 stack. Physical iPad
+comfort and performance remain deferred to the owner's device testing.
+
+
 ## Pending product decision
+
+### Cross-owner native completion preflight
+
+Before implementing the occupied-other handoff, verify a third native host
+state: attached for layout and Timeline receipts, with input and AX suppressed.
+S5-09 showed ancestor hidden/interaction/AX flags alone could leave the nested
+SwiftUI AX tree visible. Add a paused-native regression that measures attachment,
+Timeline receipt, no target editor in AX, and later restoration of the same
+editor identity. Do not weaken the expectation to accept two exposed editors.
+If ordinary suppression is insufficient, first measure the descendant/hosting
+boundary; do not infer success from the host's flags.
+
+Resolve the selected-owner destination before the first Return animation
+segment. Preparing an occupied-other Card intentionally prepares the origin
+Pane; it cannot identify the selected physical target. Capture the selected
+ID and its logical/physical owner before preparation and commit. The first
+segment must head toward that target or hold the original Card until the
+actual target geometry is available.
+
+Use one observable presentation coordinator shared by both fixed hosting roots;
+it retains the immutable selected Preview descriptor and the existing target
+Pane, never a second Session/Composer/Run. Keep these phases explicit:
+
+| Phase | Origin proxy | Existing target | Receipt / cancellation |
+| --- | --- | --- | --- |
+| Prepared | Selected Preview, original App Space viewport | Hidden | Preparation token, selected ID and arrangement still match |
+| Awaiting target | Preview remains mounted and frozen | Mounted below proxy, input and AX suppressed | Commit once; await actual target window frame and fresh Timeline revision / cleared request |
+| Final segment | Same selected Preview animates to target's actual frame | Mounted, still suppressed | Settlement token rejects late completion; interruption preserves committed selected owner |
+| Restoring origin | Hide native proxy before restoring its logical viewport | Selected live content becomes interactive | Keep descriptor until origin's native container reaches its restored frame; then clear hold and reattach original content if policy shows it |
+
+The final step prevents a stale full-size origin host from momentarily mounting
+its original Conversation during a portrait Split restoration. A hidden host's
+container can still report its window frame even while its content view is
+detached. Bounds-only callbacks are insufficient when a host changes position.
+Before commit, cancellation restores the original Card/Split. After commit,
+cancellation finishes presentation of the already selected owner and uses the
+current device policy to restore/hide the origin. Clear the descriptor on every
+unbind, failed commit and superseding arrangement path; retain the Pane while
+its unowned scroll bridge participates in a receipt. Same-owner Return keeps
+its established viewport-rebase path.
+
+After the target native container reaches the expected final window frame,
+publish one fresh workspace layout revision. Wait for the target Timeline to
+measure that revision and clear its scroll request before beginning the final
+proxy segment. A matching revision measured at an intermediate animated frame
+is not a final-layout receipt.
+
+Native suppression preflight: the target cannot use the existing hidden-host
+mode, because that mode removes its live child from the window and prevents
+measurement. Add an attached, non-interactive presentation mode. Observe its
+input/accessibility state inside the once-installed SwiftUI hosting root and
+apply native input/accessibility suppression to its existing Composer bridge.
+Do not infer suppression from parent flags: S5-09 proved nested hosting trees
+can remain discoverable. The paused Return UI regression must see zero Composer
+AX nodes while the target probe reports the same mounted native editor identity.
+
+Expose a production layout receipt from the Timeline/scroll bridge only when
+accepted and measured layout revisions match, geometry is usable and the Pane's
+scroll request has cleared. The coordinator requests a fresh revision only
+after the native target frame matches its final window-coordinate destination.
+Keep callbacks tokenized and recheck the actual frame when consuming the
+Timeline receipt. DEBUG diagnostics may report this receipt, never create it.
+
+The attached target keeps its Lift phase Full so the Timeline can measure.
+Store suppression independently and compose it into every native interaction
+refresh; a later Card accessibility refresh must not re-enable the target.
+Native layout receipts carry both host and window identities. Timeline receipts
+also carry the workspace visibility revision so a detach/reattach invalidates
+an older receipt. Return owns its own token, distinct from Divider captures and
+the origin-only pendingViewportReturn handoff. Retain the target Pane throughout
+receipt, animation and explicit cancellation, because its bridge is unowned.
+
+The paused native probe checks both Composer and Timeline AX absence. The
+selected proxy keeps the Current Card's immutable label and accessible identity
+while the driver is settling; that identity currently exists only in Card phase.
+This does not make the mounted target interactive. At completion hide the proxy
+synchronously in UIKit before resetting its transform or changing its parent
+viewport; a deferred SwiftUI opacity update cannot establish that ordering.
+Native hidden-view layout is documented by Apple (`UIView.isHidden`), but that
+does not establish SwiftUI Timeline receipts or nested accessibility behavior.
+The mounted production-root regression must establish those integration facts.
+
+Keep device orientation independent of the keyboard-safe Split proposal:
+read full window/scene dimensions from a native Workspace geometry observer.
+That observer also provides the actual root frame for Return; embedded roots
+must not inherit an assumed window origin. Size/Insets and already-proposed
+viewport geometry remain explicit separate contracts.
 
 IME marked-text navigation/focus policy is explicitly unresolved in the Blueprint; the question is already with the owner. Apply that answer consistently when it arrives. It is not permission to force-commit or cancel composition. Ordinary non-composing focus and independent geometry work can proceed.
 

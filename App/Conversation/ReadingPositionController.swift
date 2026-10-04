@@ -31,6 +31,19 @@ final class ReadingPositionController {
         NewContentIndicator.isVisible(mode: mode)
     }
 
+    /// A cancelled layout restores its start anchor without discarding content
+    /// that arrived while the layout was changing.
+    func restoreInterruptedLayout(_ original: ReadingMode) -> ScrollAction {
+        switch original {
+        case .followingBottom: return .scrollToBottom
+        case .reading(let anchor, _):
+            let pending: Set<String>
+            if case .reading(_, let current) = mode { pending = current } else { pending = [] }
+            mode = .reading(anchor: anchor, pendingTurns: pending)
+            return .restoreAnchor(anchor)
+        }
+    }
+
     var newContentCount: Int {
         NewContentIndicator.count(mode: mode)
     }

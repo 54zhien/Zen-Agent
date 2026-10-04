@@ -24,20 +24,45 @@ final class ConversationPaneScrollBridge {
     private(set) var dividerLeaseID: UUID?
     private(set) var dividerFinalRevision: UInt64?
     @ObservationIgnored private var dividerAnchor: BottomTurnAnchor?
+    @ObservationIgnored private var dividerStartMode: ReadingMode?
     @ObservationIgnored private var snapshot: (geometry: ScrollGeometry, bottom: (runID: String, turnTop: Double)?)?
     @ObservationIgnored private var dividerCompletion: (@MainActor (UUID) -> Void)?
     @ObservationIgnored private var lastDividerTarget: Double?
     @ObservationIgnored private var preparedDividerRevision: UInt64?
+    @ObservationIgnored private var returnLayout: (id: UUID, revision: UInt64, visibility: UInt64,
+        completion: @MainActor (UUID) -> Void, invalidation: @MainActor (UUID) -> Void)?
+
+    func awaitReturnLayout(id: UUID, revision: UInt64, visibilityRevision: UInt64,
+                           onInvalidation: @escaping @MainActor (UUID) -> Void,
+                           completion: @escaping @MainActor (UUID) -> Void) {
+        returnLayout = (id, revision, visibilityRevision, completion, onInvalidation)
+    }
+
+    func cancelReturnLayout(id: UUID) { if returnLayout?.id == id { returnLayout = nil } }
+
+    func publishReturnLayout(revision: UInt64, visibilityRevision: UInt64, geometry: ScrollGeometry) {
+        guard let waiting = returnLayout else { return }
+        guard waiting.visibility == visibilityRevision else {
+            returnLayout = nil
+            waiting.invalidation(waiting.id)
+            return
+        }
+        guard waiting.revision == revision, geometry.isUsableForPane,
+              pane.scrollRequest == nil else { return }
+        returnLayout = nil
+        waiting.completion(waiting.id)
+    }
 
     var hasDividerLease: Bool { dividerLeaseID != nil }
 
 #if DEBUG
     @ObservationIgnored var timelineReceiptDiagnostic = "unmeasured"
     @ObservationIgnored var blankTapDiagnostic = "none"
+    @ObservationIgnored var blankTapSequence: UInt64 = 0
     @ObservationIgnored var observedLayoutDiagnostic = "unobserved"
     @ObservationIgnored var nativeGeometryDiagnostic = "unmeasured"
     var dividerDiagnostic: String {
-        "\(timelineReceiptDiagnostic);geometry=\(nativeGeometryDiagnostic);observed=\(observedLayoutDiagnostic);blankTap=\(blankTapDiagnostic);lease=\(hasDividerLease);final=\(String(describing: dividerFinalRevision));prepared=\(String(describing: preparedDividerRevision));target=\(String(describing: lastDividerTarget));offset=\(String(describing: snapshot?.geometry.offset));request=\(String(describing: pane.scrollRequest));mode=\(String(describing: pane.readingPosition.mode))"
+        "\(timelineReceiptDiagnostic);geometry=\(nativeGeometryDiagnostic);observed=\(observedLayoutDiagnostic);blankTapSequence=\(blankTapSequence);blankTap=\(blankTapDiagnostic);lease=\(hasDividerLease);final=\(String(describing: dividerFinalRevision));prepared=\(String(describing: preparedDividerRevision));target=\(String(describing: lastDividerTarget));offset=\(String(describing: snapshot?.geometry.offset));request=\(String(describing: pane.scrollRequest));mode=\(String(describing: pane.readingPosition.mode))"
     }
 #endif
 
@@ -60,6 +85,7 @@ final class ConversationPaneScrollBridge {
         }
         if case .reading = pane.readingPosition.mode, dividerAnchor == nil { return false }
         endHeightChange()
+        dividerStartMode = pane.readingPosition.mode
         dividerLeaseID = id
         dividerFinalRevision = nil
         dividerCompletion = onComplete
@@ -128,6 +154,15 @@ final class ConversationPaneScrollBridge {
         dividerCompletion = nil
         lastDividerTarget = nil
         preparedDividerRevision = nil
+        dividerStartMode = nil
+    }
+
+    func cancelDividerForPresentationChange(id: UUID) {
+        guard dividerLeaseID == id else { return }
+        let original = dividerStartMode
+        invalidateDividerResize(id: id)
+        endHeightChange()
+        if let original { pane.restoreInterruptedLayout(original) }
     }
 
     init(pane: ConversationPaneController) {

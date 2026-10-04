@@ -9,6 +9,9 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var deleteAction: AppSpaceCardDeletionInteraction.Commit?
     var isDeletionPending: (@MainActor (String) -> Bool)?
     var isWorkspaceVisible: Bool
+    var isInputSuppressed: Bool
+    var isReturnProxyHidden: Bool
+    var onNativeLayout: ((WorkspaceNativeLayoutReceipt?) -> Void)?
     let content: Content
 
     init(request: SurfaceGeometry.Request = .full, liftController: SurfaceLiftController? = nil,
@@ -16,6 +19,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
          deleteAction: AppSpaceCardDeletionInteraction.Commit? = nil,
          isDeletionPending: (@MainActor (String) -> Bool)? = nil,
          isWorkspaceVisible: Bool = true,
+         isInputSuppressed: Bool = false, isReturnProxyHidden: Bool = false,
+         onNativeLayout: ((WorkspaceNativeLayoutReceipt?) -> Void)? = nil,
          @ViewBuilder content: () -> Content) {
         self.request = request
         self.liftController = liftController
@@ -23,6 +28,9 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         self.deleteAction = deleteAction
         self.isDeletionPending = isDeletionPending
         self.isWorkspaceVisible = isWorkspaceVisible
+        self.isInputSuppressed = isInputSuppressed
+        self.isReturnProxyHidden = isReturnProxyHidden
+        self.onNativeLayout = onNativeLayout
         self.content = content()
     }
 
@@ -31,6 +39,9 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         liftController?.bind(controller)
         controller.bindBrowse(browseController)
         controller.bindDeletion(deleteAction, isPending: isDeletionPending)
+        controller.onNativeLayout = onNativeLayout
+        controller.setInputSuppressed(isInputSuppressed)
+        controller.setReturnProxyHidden(isReturnProxyHidden)
         controller.setWorkspaceVisible(isWorkspaceVisible)
         return controller
     }
@@ -46,11 +57,17 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         }
         controller.bindBrowse(browseController)
         controller.bindDeletion(deleteAction, isPending: isDeletionPending)
+        controller.onNativeLayout = onNativeLayout
+        controller.setInputSuppressed(isInputSuppressed)
+        controller.setReturnProxyHidden(isReturnProxyHidden)
         controller.setWorkspaceVisible(isWorkspaceVisible)
+        controller.scheduleNativeLayoutReceipt()
     }
 
     static func dismantleUIViewController(_ controller: ConversationSurfaceViewController<Content>,
                                          coordinator: Void) {
+        controller.onNativeLayout?(nil)
+        controller.onNativeLayout = nil
         controller.unbindDeletion()
         controller.unbindBrowse()
         controller.liftController?.unbind(controller)
@@ -67,6 +84,10 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private(set) var browseInteraction: AppSpaceBrowseInteraction?
     private(set) var deletionInteraction: AppSpaceCardDeletionInteraction?
     var onViewportChanged: (() -> Void)?
+    var onNativeLayout: ((WorkspaceNativeLayoutReceipt?) -> Void)?
+    private var layoutReceiptGeneration: UInt64 = 0
+    private var inputSuppressed = false
+    private var returnProxyHidden = false
     private var lastViewport: CGRect?
     private var lastInsets: UIEdgeInsets?
     private let cropMask = UIView()
@@ -99,6 +120,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             "editors=\(mounted.count)", "browse=\(browseInteraction?.diagnostic ?? "none")"]
         fields.append("timeline=\(liftController?.workspacePaneDiagnostic?() ?? "unbound")")
         if let window = view.window {
+            fields.append("hostFrame=\(view.convert(view.bounds, to: window))")
             func scrollViews(in node: UIView) -> [UIScrollView] {
                 let own = (node as? UIScrollView).flatMap { $0 is UITextView ? nil : $0 }.map { [$0] } ?? []
                 return own + node.subviews.flatMap { scrollViews(in: $0) }
@@ -106,15 +128,20 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             for (index, scroll) in scrollViews(in: contentController.view).enumerated() {
                 if index == 0 {
                     let insets = scroll.adjustedContentInset
-                    let readable = CGRect(x: scroll.bounds.minX + insets.left,
+                    // SwiftUI can place horizontal safe-area padding in its
+                    // content while UIScrollView reports zero adjusted Insets.
+                    // These are overlapping exclusions, not additive padding.
+                    let left = max(insets.left, scroll.safeAreaInsets.left)
+                    let right = max(insets.right, scroll.safeAreaInsets.right)
+                    let readable = CGRect(x: scroll.bounds.minX + left,
                         y: scroll.bounds.minY + insets.top,
-                        width: max(0, scroll.bounds.width - insets.left - insets.right),
+                        width: max(0, scroll.bounds.width - left - right),
                         height: max(0, scroll.bounds.height - insets.top - insets.bottom))
                     fields.append("timelineVisibleFrame=\(scroll.convert(readable, to: window))")
                 }
                 let point = scroll.convert(CGPoint(x: scroll.bounds.minX + scroll.bounds.width * 0.98,
                     y: scroll.bounds.minY + scroll.bounds.height * 0.25), to: window)
-                fields.append("nativeScroll=\(type(of: scroll));frame=\(scroll.convert(scroll.bounds, to: window));size=\(scroll.contentSize);offset=\(scroll.contentOffset);insets=\(scroll.contentInset);adjustedInsets=\(scroll.adjustedContentInset);marginPoint=\(point);marginHit=\(chain(window.hitTest(point, with: nil)))")
+                fields.append("nativeScroll=\(type(of: scroll));frame=\(scroll.convert(scroll.bounds, to: window));size=\(scroll.contentSize);offset=\(scroll.contentOffset);insets=\(scroll.contentInset);adjustedInsets=\(scroll.adjustedContentInset);safeInsets=\(scroll.safeAreaInsets);marginPoint=\(point);marginHit=\(chain(window.hitTest(point, with: nil)))")
             }
         }
         if let editor = mounted.first, let window = view.window {
@@ -196,6 +223,29 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         if changed { onViewportChanged?() }
         browseInteraction?.updateViewport()
         _ = apply(request)
+        scheduleNativeLayoutReceipt()
+    }
+
+    func scheduleNativeLayoutReceipt() {
+        guard onNativeLayout != nil else { return }
+        layoutReceiptGeneration &+= 1
+        let generation = layoutReceiptGeneration
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, self.layoutReceiptGeneration == generation, let window = self.view.window else { return }
+            self.onNativeLayout?(WorkspaceNativeLayoutReceipt(hostID: ObjectIdentifier(self),
+                windowID: ObjectIdentifier(window), frame: self.view.convert(self.view.bounds, to: window)))
+        }
+    }
+
+    func setInputSuppressed(_ suppressed: Bool) {
+        inputSuppressed = suppressed
+        liftController?.refreshCardAccessibility()
+    }
+
+    func setReturnProxyHidden(_ hidden: Bool) {
+        returnProxyHidden = hidden
+        surfaceView.isHidden = hidden
     }
 
     override func viewSafeAreaInsetsDidChange() {
@@ -235,10 +285,10 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     func setLiftInteraction(_ phase: SurfaceLiftState.Phase, returnAction: @escaping () -> Bool) {
         let frozen = phase == .settling || phase == .card || phase == .split
-        contentController.view.isUserInteractionEnabled = workspaceVisible && !frozen
-        contentController.view.accessibilityElementsHidden = !workspaceVisible || frozen
-        surfaceView.isAccessibilityElement = workspaceVisible && frozen
-        surfaceView.accessibilityIdentifier = phase == .card ? "workspace-current-card" : nil
+        contentController.view.isUserInteractionEnabled = workspaceVisible && !frozen && !inputSuppressed && !returnProxyHidden
+        contentController.view.accessibilityElementsHidden = !workspaceVisible || frozen || inputSuppressed || returnProxyHidden
+        surfaceView.isAccessibilityElement = workspaceVisible && frozen && !inputSuppressed && !returnProxyHidden
+        surfaceView.accessibilityIdentifier = phase == .card || liftController?.heldReturnCardLabel != nil ? "workspace-current-card" : nil
         surfaceView.accessibilityLabel = "当前会话"
         let isNew = browseInteraction?.controller.isNewEntry == true
         surfaceView.accessibilityHint = isNew ? "轻点创建新对话" : "轻点返回会话"

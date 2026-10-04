@@ -10,6 +10,8 @@ final class SurfaceLiftController {
     private(set) var workspaceVisibilityRevision: UInt64 = 0
     private(set) var overlayPresented = false
     var workspaceResizeActive = false
+    private(set) var heldReturnCardLabel: String?
+    var nativeHostIdentity: ObjectIdentifier? { hostID }
     private(set) var retainsAppSpaceViewport = false
     private(set) var splitTargetingVisible = false
     private(set) var splitTargetSlot: SplitDropSlot?
@@ -53,6 +55,9 @@ final class SurfaceLiftController {
     @ObservationIgnored private var captureHostFrame: (() -> CGRect?)?
     @ObservationIgnored private var resolveReturnPose: (() -> SurfaceGeometry.Pose?)?
     @ObservationIgnored private var returnDestination: ((CGSize, UIEdgeInsets) -> CGRect?)?
+    @ObservationIgnored private var externalReturn: ((@escaping (CGRect, @escaping (Bool) -> Void) -> Void) -> Bool?)?
+    @ObservationIgnored private var cancelExternalReturn: (() -> Void)?
+    @ObservationIgnored private var hideReturnProxy: (() -> Void)?
     @ObservationIgnored private var splitTargeting = SplitTargetingState()
     @ObservationIgnored private var splitPreviewPose: SurfaceGeometry.Pose?
     @ObservationIgnored private var splitFinalPose: SurfaceGeometry.Pose?
@@ -88,6 +93,19 @@ final class SurfaceLiftController {
     func configureReturnDestination(_ resolver: @escaping (CGSize, UIEdgeInsets) -> CGRect?) {
         returnDestination = resolver
     }
+
+    func configureExternalReturn(begin: @escaping (@escaping (CGRect, @escaping (Bool) -> Void) -> Void) -> Bool?,
+                                 cancel: @escaping () -> Void) {
+        externalReturn = begin
+        cancelExternalReturn = cancel
+    }
+
+    func setHeldReturnCardLabel(_ label: String?) {
+        heldReturnCardLabel = label
+        refreshCardAccessibility()
+    }
+
+    func hideNativeReturnProxy() { hideReturnProxy?() }
 
     func configurePreview(enter: @escaping () -> Bool, prepare: @escaping () async -> Bool,
                           commit: @escaping () -> Bool, cancel: @escaping () -> Void,
@@ -125,6 +143,7 @@ final class SurfaceLiftController {
             guard let host, let window = host.view.window else { return nil }
             return host.view.convert(host.view.bounds, to: window)
         }
+        hideReturnProxy = { [weak host] in host?.setReturnProxyHidden(true) }
         resolveReturnPose = { [weak self, weak host] in
             guard let self, let host, let window = host.view.window else { return nil }
             let destination = self.returnDestination?(window.bounds.size, window.safeAreaInsets)
@@ -165,7 +184,7 @@ final class SurfaceLiftController {
         }
         interaction = { [weak self, weak host] phase in
             host?.setLiftInteraction(phase) { [weak self] in self?.returnToFull() ?? false }
-            host?.surfaceView.accessibilityLabel = self?.cardLabel?() ?? "当前会话"
+            host?.surfaceView.accessibilityLabel = self?.heldReturnCardLabel ?? self?.cardLabel?() ?? "当前会话"
         }
         presentedOverlay = { [weak host] in host?.hasPresentedOverlay ?? true }
         animate = { [weak self, weak host] settlement, animated in
@@ -195,6 +214,32 @@ final class SurfaceLiftController {
                 guard let self, let host, self.hostID == binding,
                       self.state.pendingSettlement == settlement else { return }
                 if handoff {
+                    if finished, let accepted = self.externalReturn?({ [weak self, weak host] destination, completion in
+                        guard let self, let host, let window = host.view.window, self.hostID == binding,
+                              self.state.pendingSettlement == settlement,
+                              let resting = SurfaceLiftGeometry.targetPose(size: host.view.bounds.size,
+                                safeArea: host.view.safeAreaInsets, card: host.view.convert(destination, from: window),
+                                cornerRadius: 0, constrainedToSafeArea: false) else { completion(false); return }
+                        self.returnNeedsHandoff = false
+                        host.animateLift(target: target, from: endpoint, to: 0, restingPose: resting,
+                            animated: animated) { [weak self, weak host] finished in
+                            guard let self, let host, self.hostID == binding,
+                                  self.state.pendingSettlement == settlement else { completion(false); return }
+                            // Hide synchronously: resetting to Full and restoring
+                            // the origin viewport must never reveal the wrong owner.
+                            host.setReturnProxyHidden(true)
+                            self.retainsAppSpaceViewport = false
+                            _ = self.state.complete(settlement, finished: finished)
+                            self.returnRestingPose = nil
+                            self.requestedSplitReturnSlot = nil
+                            self.updatePresentation()
+                            completion(finished)
+                            host.scheduleNativeLayoutReceipt()
+                        }
+                    }) {
+                        if !accepted { self.invalidate() }
+                        return
+                    }
                     if finished, self.retainsAppSpaceViewport, let window = host.view.window {
                         let frame = host.surfaceView.convert(host.surfaceView.visibleRect ?? host.surfaceView.bounds,
                                                              to: window)
@@ -278,6 +323,7 @@ final class SurfaceLiftController {
         resolveTarget = nil
         resolveReturnPose = nil
         captureHostFrame = nil
+        hideReturnProxy = nil
         present = nil
         presentSplit = nil
         splitSample = nil
@@ -403,6 +449,7 @@ final class SurfaceLiftController {
     }
 
     private func cancelReturn() {
+        cancelExternalReturn?()
         pendingViewportReturn = nil
         committingViewportReturn = false
         returnRestingPose = nil

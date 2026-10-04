@@ -12,6 +12,9 @@ struct SplitDividerView: UIViewRepresentable {
     let onEnd: (Bool) -> Void
     let onClose: (SplitDropSlot) -> Void
     let onAdjust: (Bool) -> Void
+    var axis: SplitWorkspaceAxis = .topBottom
+    var onAxis: ((SplitWorkspaceAxis) -> Void)? = nil
+    var resizeDiagnostic: (() -> String)? = nil
 
     func makeUIView(context: Context) -> SplitDividerHandle {
         let view = SplitDividerHandle()
@@ -30,23 +33,57 @@ struct SplitDividerView: UIViewRepresentable {
 final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
     var configuration: SplitDividerView? {
         didSet {
-            accessibilityValue = configuration.map { "上方 \(Int($0.ratio * 100))%，下方 \(Int((1 - $0.ratio) * 100))%" }
+            accessibilityValue = configuration.map {
+                $0.axis == .topBottom ? "上方 \(Int($0.ratio * 100))%，下方 \(Int((1 - $0.ratio) * 100))%"
+                    : "左侧 \(Int($0.ratio * 100))%，右侧 \(Int((1 - $0.ratio) * 100))%"
+            }
             var actions: [UIAccessibilityCustomAction] = []
             if configuration?.canCloseTop == true {
-                actions.append(UIAccessibilityCustomAction(name: "关闭上方窗格", target: self, selector: #selector(closeTop)))
+                actions.append(UIAccessibilityCustomAction(name: configuration?.axis == .leftRight ? "关闭左侧窗格" : "关闭上方窗格", target: self, selector: #selector(closeTop)))
             }
             if configuration?.canCloseBottom == true {
-                actions.append(UIAccessibilityCustomAction(name: "关闭下方窗格", target: self, selector: #selector(closeBottom)))
+                actions.append(UIAccessibilityCustomAction(name: configuration?.axis == .leftRight ? "关闭右侧窗格" : "关闭下方窗格", target: self, selector: #selector(closeBottom)))
+            }
+            if configuration?.onAxis != nil {
+                actions.append(UIAccessibilityCustomAction(name: "上下分屏", target: self, selector: #selector(verticalAxis)))
+                actions.append(UIAccessibilityCustomAction(name: "左右分屏", target: self, selector: #selector(horizontalAxis)))
             }
             accessibilityCustomActions = actions
+#if DEBUG
+            if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
+                accessibilityValue = (super.accessibilityValue ?? "") + ";pan=\(pan.state.rawValue);admitted=\(panAdmitted);last=\(lastPanDiagnostic);resize=\(configuration?.resizeDiagnostic?() ?? "none")"
+            }
+#endif
             if oldValue?.closeIntent != configuration?.closeIntent, configuration?.closeIntent != nil {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }
             handle.backgroundColor = configuration?.closeIntent == nil ? .white : .systemOrange
+            setNeedsLayout()
         }
     }
     private let handle = UIView()
     private var panAdmitted = false
+#if DEBUG
+    private var lastPanDiagnostic = "none"
+    private var lastBeginAdmitted = false
+    private var menuVisible = false
+    private var menuGeneration: UInt64 = 0
+
+    override var accessibilityValue: String? {
+        get {
+            guard ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" else {
+                return super.accessibilityValue
+            }
+            let point = CGPoint(x: bounds.midX, y: bounds.midY)
+            let hit = window?.hitTest(convert(point, to: window), with: nil)
+            let ownsHit = hit === self || hit?.isDescendant(of: self) == true
+            let ready = window != nil && !menuVisible && ownsHit
+            return (super.accessibilityValue ?? "")
+                + ";dividerReady=\(ready);menuVisible=\(menuVisible);centerHit=\(hit.map { String(describing: type(of: $0)) } ?? "nil")"
+        }
+        set { super.accessibilityValue = newValue }
+    }
+#endif
     private lazy var pan = UIPanGestureRecognizer(target: self, action: #selector(panned))
 
     override init(frame: CGRect) {
@@ -68,7 +105,9 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        handle.frame = CGRect(x: 0, y: (bounds.height - 4) / 2, width: bounds.width, height: 4)
+        handle.frame = configuration?.axis == .leftRight
+            ? CGRect(x: (bounds.width - 4) / 2, y: 0, width: 4, height: bounds.height)
+            : CGRect(x: 0, y: (bounds.height - 4) / 2, width: bounds.width, height: 4)
     }
 
     @objc private func panned(_ recognizer: UIPanGestureRecognizer) {
@@ -76,12 +115,15 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
         switch recognizer.state {
         case .began:
             panAdmitted = configuration.onBegin()
-            if panAdmitted { configuration.onMove(Double(recognizer.translation(in: window).y)) }
+#if DEBUG
+            lastBeginAdmitted = panAdmitted
+#endif
+            if panAdmitted { configuration.onMove(displacement(recognizer)) }
         case .changed:
-            if panAdmitted { configuration.onMove(Double(recognizer.translation(in: window).y)) }
+            if panAdmitted { configuration.onMove(displacement(recognizer)) }
         case .ended:
             if panAdmitted {
-                configuration.onMove(Double(recognizer.translation(in: window).y))
+                configuration.onMove(displacement(recognizer))
                 panAdmitted = false
                 configuration.onEnd(false)
             }
@@ -89,7 +131,20 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
             cancelPan()
         default: break
         }
+#if DEBUG
+        lastPanDiagnostic = "state=\(recognizer.state.rawValue),begin=\(lastBeginAdmitted),admitted=\(panAdmitted),translation=\(displacement(recognizer))"
+        if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
+            accessibilityValue = "ratio=\(configuration.ratio);axis=\(configuration.axis);\(lastPanDiagnostic);resize=\(configuration.resizeDiagnostic?() ?? "none")"
+        }
+#endif
     }
+
+    private func displacement(_ pan: UIPanGestureRecognizer) -> Double {
+        let value = pan.translation(in: window)
+        return Double(configuration?.axis == .leftRight ? value.x : value.y)
+    }
+    @objc private func verticalAxis() -> Bool { configuration?.onAxis?(.topBottom); return configuration?.onAxis != nil }
+    @objc private func horizontalAxis() -> Bool { configuration?.onAxis?(.leftRight); return configuration?.onAxis != nil }
 
     func cancelPan() {
         guard panAdmitted else { return }
@@ -115,10 +170,37 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
                                 configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
         UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             guard let self else { return UIMenu(children: []) }
-            return UIMenu(children: [
-                UIAction(title: "关闭上方窗格", attributes: self.configuration?.canCloseTop == true ? [] : [.disabled]) { [weak self] _ in _ = self?.closeTop() },
-                UIAction(title: "关闭下方窗格", attributes: self.configuration?.canCloseBottom == true ? [] : [.disabled]) { [weak self] _ in _ = self?.closeBottom() }
-            ])
+            var actions: [UIMenuElement] = [
+                UIAction(title: self.configuration?.axis == .leftRight ? "关闭左侧窗格" : "关闭上方窗格", attributes: self.configuration?.canCloseTop == true ? [] : [.disabled]) { [weak self] _ in _ = self?.closeTop() },
+                UIAction(title: self.configuration?.axis == .leftRight ? "关闭右侧窗格" : "关闭下方窗格", attributes: self.configuration?.canCloseBottom == true ? [] : [.disabled]) { [weak self] _ in _ = self?.closeBottom() }
+            ]
+            if self.configuration?.onAxis != nil {
+                actions += [UIAction(title: "上下分屏", state: self.configuration?.axis == .topBottom ? .on : .off) { [weak self] _ in _ = self?.verticalAxis() },
+                            UIAction(title: "左右分屏", state: self.configuration?.axis == .leftRight ? .on : .off) { [weak self] _ in _ = self?.horizontalAxis() }]
+            }
+            return UIMenu(children: actions)
         }
     }
+
+#if DEBUG
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                willDisplayMenuFor configuration: UIContextMenuConfiguration,
+                                animator: (any UIContextMenuInteractionAnimating)?) {
+        menuGeneration &+= 1
+        menuVisible = true
+    }
+
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                willEndFor configuration: UIContextMenuConfiguration,
+                                animator: (any UIContextMenuInteractionAnimating)?) {
+        let generation = menuGeneration
+        // The action can change axis before UIKit removes the menu's hit layer.
+        // Tests observe the real completion and hit target instead of sleeping.
+        let finished = { [weak self] in
+            guard let self, self.menuGeneration == generation else { return }
+            self.menuVisible = false
+        }
+        if let animator { animator.addCompletion(finished) } else { finished() }
+    }
+#endif
 }

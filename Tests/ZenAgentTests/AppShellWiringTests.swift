@@ -639,7 +639,15 @@ struct AppShellWiringTests {
         #expect(native.animatorForTesting == nil)
         #expect(!native.controller.complete(pending, finished: true))
         #expect(native.controller.state.selected == .conversation("snap-interrupt-1"))
-        try await Task.sleep(for: .milliseconds(800))
+        if returnToFull {
+            for _ in 0..<80 where lift.state.phase != .full || fixture.model.previewContent.isPresented {
+                try await Task.sleep(for: .milliseconds(25))
+            }
+            #expect(lift.state.phase == .full)
+            #expect(!fixture.model.previewContent.isPresented)
+        } else {
+            try await Task.sleep(for: .milliseconds(800))
+        }
         #expect(fixture.model.conversationID == "snap-interrupt-1")
         #expect(card.alpha == 1)
         if returnToFull {

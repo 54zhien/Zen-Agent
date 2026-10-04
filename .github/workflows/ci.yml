@@ -24,6 +24,52 @@ permissions:
 
 jobs:
 
+  pad-workspace:
+    name: iPad workspace axis
+    needs: repo-hygiene
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Cache Swift Package Manager
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
+      - name: Run native iPad axis regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available | grep -E '^\s+iPad' | head -n 1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          test -n "$UDID"
+          xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent \
+            -configuration Debug -destination "id=$UDID" \
+            -only-testing:ZenAgentUITests/WorkspacePadAxisUITests \
+            -resultBundlePath "$RUNNER_TEMP/PadWorkspace.xcresult" \
+            2>&1 | tee "$RUNNER_TEMP/PadWorkspace.log"
+          if grep -Fq 'Restarting after unexpected exit, crash, or test timeout' "$RUNNER_TEMP/PadWorkspace.log"; then
+            echo '::error::iPad test host restarted'
+            exit 1
+          fi
+          if grep -Eiq 'Test Case .*WorkspacePadAxisUITests.*skipped' "$RUNNER_TEMP/PadWorkspace.log"; then
+            echo '::error::iPad regression was skipped'
+            exit 1
+          fi
+      - name: Upload iPad failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pad-workspace-failure
+          path: |
+            ${{ runner.temp }}/PadWorkspace.xcresult
+            ${{ runner.temp }}/PadWorkspace.log
+          retention-days: 7
+
   # -------------------------------------------------------------------------
   # Cheap, fast, and verifies two of Stage 0's completion criteria directly:
   #   - .xcodeproj is generated, not committed
@@ -325,6 +371,9 @@ jobs:
           if [ "$TEST_SCOPE" = "review-red" ]; then
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
             TEST_ARGS+=(-only-testing:ZenAgentTests)
+          elif [ "$TEST_SCOPE" = "orientation-red" ]; then
+            echo "::notice::S5-11 test-only RED: app build, complete unit target, rotation and cross-owner Return receipts; full prior-slice gate is separate."
+            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/WorkspaceRotationUITests -only-testing:ZenAgentUITests/WorkspaceReturnReceiptUITests)
           elif [ "$TEST_SCOPE" = "resize-diagnostic" ]; then
             echo "::notice::Stage 5 resize diagnostics: all unit tests and SplitResize UI; full slice gate remains required."
             TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SplitResizeUITests)

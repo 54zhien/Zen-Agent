@@ -6,25 +6,32 @@ struct SplitWorkspaceGeometry {
     let bottom: CGRect
     let divider: CGRect
 
-    init?(size: CGSize, safeArea: UIEdgeInsets, ratio: Double) {
+    init?(size: CGSize, safeArea: UIEdgeInsets, ratio: Double, axis: SplitWorkspaceAxis = .topBottom) {
         guard size.width.isFinite, size.height.isFinite, ratio.isFinite,
               ratio > 0, ratio < 1,
               [safeArea.top, safeArea.left, safeArea.bottom, safeArea.right].allSatisfy({ $0.isFinite })
         else { return nil }
         let rect = CGRect(origin: .zero, size: size).inset(by: safeArea)
-        self.init(viewport: rect, ratio: ratio)
+        self.init(viewport: rect, ratio: ratio, axis: axis)
     }
 
-    init?(viewport rect: CGRect, ratio: Double) {
+    init?(viewport rect: CGRect, ratio: Double, axis: SplitWorkspaceAxis = .topBottom) {
         guard ratio.isFinite, ratio > 0, ratio < 1,
               rect.size.width > 0, rect.size.height > 0,
               [rect.origin.x, rect.origin.y, rect.size.width, rect.size.height,
                rect.maxX, rect.maxY].allSatisfy({ $0.isFinite }) else { return nil }
         viewport = rect
-        let height = rect.height * ratio
-        top = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: height)
-        bottom = CGRect(x: rect.minX, y: top.maxY, width: rect.width, height: rect.height - height)
-        divider = CGRect(x: rect.minX, y: top.maxY - 14, width: rect.width, height: 28)
+        if axis == .topBottom {
+            let height = rect.height * ratio
+            top = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: height)
+            bottom = CGRect(x: rect.minX, y: top.maxY, width: rect.width, height: rect.height - height)
+            divider = CGRect(x: rect.minX, y: top.maxY - 14, width: rect.width, height: 28)
+        } else {
+            let width = rect.width * ratio
+            top = CGRect(x: rect.minX, y: rect.minY, width: width, height: rect.height)
+            bottom = CGRect(x: top.maxX, y: rect.minY, width: rect.width - width, height: rect.height)
+            divider = CGRect(x: top.maxX - 14, y: rect.minY, width: 28, height: rect.height)
+        }
     }
 
     func frame(for slot: SplitDropSlot) -> CGRect { slot == .top ? top : bottom }

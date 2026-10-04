@@ -13,6 +13,13 @@ class ProfileGuardTests(unittest.TestCase):
     def test_only_explicit_review_red_can_select_unit_tests(self):
         self.assertEqual(test_scope({"mode": "review-red"}, "codex/s5-10-divider-resize"), "review-red")
 
+    def test_orientation_red_selects_its_fixed_test_scope(self):
+        self.assertEqual(test_scope({"mode": "orientation-red"}, "codex/s5-11-device-presentation"), "orientation-red")
+
+    def test_orientation_profile_cannot_select_other_slice_tests(self):
+        with self.assertRaises(ValueError):
+            test_scope({"mode": "orientation-red"}, "codex/s5-10-divider-resize")
+
     def test_unknown_modes_and_arbitrary_arguments_are_rejected(self):
         for profile in [{"mode": "skip"}, {"mode": "review-red", "args": ["-skip-testing:ZenAgentTests"]}, {}]:
             with self.assertRaises(ValueError):

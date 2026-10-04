@@ -334,3 +334,12 @@ Repeated resize preserves the reading reference and completes both leases.
 Remove the diagnostic profile and run the entire unit/UI gate on the next
 candidate. Keep production unchanged. Let this full run finish before another
 S5-10 publication; S5-11 product implementation remains gated on that result.
+
+### Full source gate GREEN
+
+Remote332d2a55416b6a6e03822556274db070db557319 / tree
+ba0268272439a59eb0f3fa43bd46618b34a89746 passed push37163392220
+(build111321329410) and PR37163394761. XcodeGen/app build,852 Swift tests
+in127 suites,20 XCTest and all35 UI passed without test-host restart/retry.
+The source review has no remaining production blocker. S5-11 starts from this
+verified source baseline; physical acceptance remains deferred to whole-stage review.

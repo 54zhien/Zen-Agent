@@ -1,8 +1,53 @@
 import Testing
+import Foundation
 @testable import ZenAgent
 
 @Suite("Split resize reading continuity")
 struct SplitResizeReadingTests {
+    @Test("a changed visibility revision invalidates Return without publishing a successful receipt")
+    @MainActor
+    func reattachmentInvalidatesTheReturnWaiter() throws {
+        let pane = try ConversationPaneController(conversationID: "return",
+            initialTimeline: ConversationTimelineProjection(conversationID: "return", turns: []),
+            configuration: nil, coalescer: StreamingCoalescer(interval: .milliseconds(0)))
+        let id = UUID()
+        var completed = false
+        var invalidated = false
+        pane.scrollBridge.awaitReturnLayout(id: id, revision: 3, visibilityRevision: 1,
+            onInvalidation: { invalidated = $0 == id }, completion: { _ in completed = true })
+        let geometry = ScrollGeometry(viewportHeight: 400, contentHeight: 400, offset: 0)
+        pane.scrollBridge.publishReturnLayout(revision: 3, visibilityRevision: 2, geometry: geometry)
+        #expect(invalidated && !completed)
+        pane.scrollBridge.publishReturnLayout(revision: 3, visibilityRevision: 1, geometry: geometry)
+        #expect(!completed)
+    }
+
+    @Test("rotation cancels the divider lease and restores the start anchor while retaining new content")
+    @MainActor
+    func presentationCancellationRestoresWithoutClaimingAReceipt() throws {
+        let pane = try ConversationPaneController(conversationID: "rotation",
+            initialTimeline: ConversationTimelineProjection(conversationID: "rotation", turns: []),
+            configuration: nil, coalescer: StreamingCoalescer(interval: .milliseconds(0)))
+        let original = ScrollGeometry(viewportHeight: 400, contentHeight: 1800, offset: 200)
+        pane.scrollBridge.userScrolled(geometry: original, topVisibleTurn: ("old", 100))
+        let initialMode = pane.readingPosition.mode
+        pane.scrollBridge.publishViewport(original, bottomReferenceTurn: ("bottom", 500))
+        let id = UUID()
+        var acknowledged = false
+        #expect(pane.scrollBridge.beginDividerResize(id: id) { _ in acknowledged = true })
+        pane.scrollBridge.continueDividerResize(
+            geometry: ScrollGeometry(viewportHeight: 300, contentHeight: 1800, offset: 200),
+            turnTops: ["bottom": 500], revision: 2)
+        _ = pane.updateReading(.contentChanged(changedRunIDs: ["streaming"]))
+        pane.scrollBridge.cancelDividerForPresentationChange(id: id)
+        #expect(!acknowledged)
+        #expect(!pane.scrollBridge.hasDividerLease)
+        if case .reading(let anchor, _) = initialMode {
+            #expect(pane.scrollRequest?.action == .restoreAnchor(anchor))
+            #expect(pane.readingPosition.mode == .reading(anchor: anchor, pendingTurns: ["streaming"]))
+        } else { Issue.record("fixture must start in reading mode") }
+    }
+
     @Test("two streaming Panes keep independent reading and following-bottom positions through repeated resize")
     @MainActor
     func twoStreamingPanesPreserveTheirOwnBottomReferences() throws {
