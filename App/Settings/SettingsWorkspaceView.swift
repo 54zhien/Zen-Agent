@@ -147,16 +147,8 @@ private struct SettingsAppearanceView: View {
                     ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
                 }
                 .accessibilityIdentifier("settings-appearance-picker")
-                HStack {
-                    Text("App Space 墨染").accessibilityHidden(true)
-                    Spacer()
-                    // Give the native switch its own bounds; a Form-wide AX row
-                    // otherwise reports a center point outside the interactive control.
-                    Toggle("App Space 墨染", isOn: $model.inkEnabled)
-                        .labelsHidden()
-                        .accessibilityLabel("App Space 墨染")
-                        .accessibilityIdentifier("settings-ink-enabled")
-                }
+                Toggle("App Space 墨染", isOn: $model.inkEnabled)
+                    .accessibilityIdentifier("settings-ink-enabled")
                 Slider(value: $model.inkIntensity, in: 0...1) { Text("墨染强度") }
                     .disabled(!model.inkEnabled)
                     .accessibilityIdentifier("settings-ink-intensity")

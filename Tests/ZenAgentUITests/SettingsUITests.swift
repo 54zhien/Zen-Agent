@@ -19,9 +19,19 @@ final class SettingsUITests: XCTestCase {
         let warmOwners = warmOwnerIdentities(probe)
         XCTAssertEqual(warmOwners.count, 3)
         guard openAppearance(in: app) else { return }
-        let ink = app.switches["settings-ink-enabled"].firstMatch
-        guard ink.waitForExistence(timeout: 5) else {
+        let inkRow = app.switches["settings-ink-enabled"].firstMatch
+        guard inkRow.waitForExistence(timeout: 5) else {
             XCTFail("The existing Appearance page must expose its functional Ink switch")
+            return
+        }
+        // The iOS Form AX wrapper covers the row, with a real native Switch child.
+        // Its row-center point misses that child; activate the actual control.
+        let ink = inkRow.descendants(matching: .switch).firstMatch
+        guard ink.waitForExistence(timeout: 5), ink.isHittable,
+              ink.frame.width > 0, ink.frame.width < inkRow.frame.width,
+              inkRow.frame.contains(ink.frame) else {
+            print("Ink row/control hierarchy: \(inkRow.debugDescription)")
+            XCTFail("The Ink row must contain its real hittable native switch")
             return
         }
         let picker = app.buttons["settings-appearance-picker"].firstMatch

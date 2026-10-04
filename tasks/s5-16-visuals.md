@@ -75,6 +75,22 @@ test-source compiler error, not another behavioral RED or a product result.
 The next candidate adds only those4 self qualifiers; all assertions and
 native-switch production source stay intact. macOS gates must run again.
 
+Explicit-capture candidate893cd1ff/treee7dd784b passed push37243724437 build,
+942Swift/151suites81.922s,20XCTest,actualPad103.838s and guard37243726990.
+Original3SettingsUI passed; new Ink case stopped at its actual switch-off
+assertion,4UI/1failure154.433s. PR37243726991 completed942Swift/151suites
+95.199s,20XCTest and actualPad97.611s; Soul resting/focused UI passed. Its Ink
+case had the same switch-off failure. Startup additionally failed3 assertions:
+after actual Save, configurationComplete was absent, then Send was absent.
+4UI/4failures222.301s. Save failure remains under native artifact11318991136
+investigation; do not assign an unproven cause or report the PR GREEN.
+Native AX dump in the push log identifies the precise hierarchy:
+outer Switch idsettings-ink-enabled frame16,261.3,370,58 contains a native
+Switch child frame309,276.3,63,28, value1. The HStack/labelsHidden attempt did
+not change the Form wrapper's bounds. Revert that unnecessary product layout
+and query/tap the real descendant Switch with positive, contained, hittable
+bounds. No coordinate substitute, direct preference mutation or fake activation.
+
 ## Approved bounded design and device limits
 
 This authorized slice follows the Settings full code gate. Production work began
