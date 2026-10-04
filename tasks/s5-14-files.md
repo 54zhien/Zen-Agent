@@ -245,3 +245,25 @@ test now verifies and reads the same actual managed bytes in a detached task
 under withVerifiedBlob. Assertions and production operations are unchanged.
 This source finding is not a claimed runtime failure trace or GREEN receipt.
 Both native runs and the full gate must complete on the repaired tree.
+
+## Native Files and Pad receipt on e9fcbb0 / tree54ace7c
+
+PR37201667292 phone111434611596 passed20 XCTest and911 Swift Testing
+in141 suites77.331s. Push37201664506 phone111434578595 passed the same
+unit counts84.411s. Each had one Swift test start and no host restart.
+Files import cancellation and original native editor restoration passed in both.
+Actual Quick Look displayed the managed text and closed through native Done.
+Native export appeared, but its cancellation query failed twice per phone run.
+Decoded actual xcresult AX hierarchy shows Cancel is an Other element rather
+than Button. The corrected query uses that native subtree and also requires
+its actual Save button. Remove the duplicate SwiftUI export identifier; the
+UIKit picker retains the identifier. No export behavior is changed.
+
+Actual Pad PR111434611517 failed only horizontal resizing; push111434578716
+also observed transient source AX absence after axis selection. PR diagnostics
+show both native hosts visible, no input lease, and a hittable divider, but no
+UIPan callback and unchanged50 percent ratio. No production cause is established.
+Add bounded DEBUG diagnostics for handle identity, received native touches,
+actual XCTest screen point, live overlay/preview and both native host visibility
+flags. Keep gesture configuration, drag coordinates and all assertions unchanged.
+The candidate is not GREEN; Files full gate remains open.

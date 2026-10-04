@@ -44,6 +44,7 @@ final class WorkspacePadAxisUITests: XCTestCase {
         let widthBefore = source.frame.width
         let handle = app.descendants(matching: .any)["split-divider-handle"]
         let start = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        print("PAD_DRAG_START screen=\(start.screenPoint) handle=\(handle.frame) value=\(String(describing: handle.value))")
         start.press(forDuration: 0.15, thenDragTo: start.withOffset(CGVector(dx: 100, dy: 0)),
             withVelocity: .slow, thenHoldForDuration: 0)
         print("PAD_RESIZE beforeWidth=\(widthBefore) source=\(source.frame) other=\(other.frame) handle=\(handle.frame) value=\(String(describing: handle.value))")

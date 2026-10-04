@@ -84,7 +84,6 @@ struct FilesWorkspaceView: View {
             case .export(let copy):
                 NativeFilePicker(mode: .export(copy), onPick: { _ in _ = closePresentation(id: item.id) },
                     onCancel: { _ = closePresentation(id: item.id) })
-                    .accessibilityElement(children: .contain).accessibilityIdentifier("files-native-export")
             }
         }
         .confirmationDialog("删除文件？", isPresented: Binding(

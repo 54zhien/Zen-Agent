@@ -36,7 +36,12 @@ final class FilesWorkspaceUITests: XCTestCase {
         export.tap()
         let exportPicker = app.descendants(matching: .any)["files-native-export"]
         XCTAssertTrue(exportPicker.waitForExistence(timeout: 10), "Export must present the native document picker")
-        let close = app.buttons.matching(NSPredicate(format: "label IN %@", ["Close", "关闭", "Cancel", "取消"])).firstMatch
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label IN %@", ["Save", "保存"])).firstMatch
+            .waitForExistence(timeout: 5), "The actual export picker must offer saving the managed copy")
+        // This SDK reports the native export Cancel item as AX Other. Use the
+        // observed native subtree, without inventing an app-owned dismissal.
+        let close = exportPicker.descendants(matching: .any).matching(
+            NSPredicate(format: "label IN %@", ["Close", "关闭", "Cancel", "取消"])).firstMatch
         XCTAssertTrue(close.waitForExistence(timeout: 5))
         close.tap()
         XCTAssertTrue(app.buttons["files-workspace-close"].waitForExistence(timeout: 5))

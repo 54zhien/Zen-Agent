@@ -41,6 +41,7 @@ final class SurfaceLiftController {
     @ObservationIgnored private var detach: (() -> Void)?
 #if DEBUG
     @ObservationIgnored var nativeInteractionDiagnostic: (() -> String)?
+    @ObservationIgnored var nativeVisibilityDiagnostic: (() -> String)?
     @ObservationIgnored var workspacePaneDiagnostic: (() -> String)?
 #endif
 
@@ -146,6 +147,7 @@ final class SurfaceLiftController {
         }
 #if DEBUG
         nativeInteractionDiagnostic = { [weak host] in host?.interactionDiagnostic ?? "host released" }
+        nativeVisibilityDiagnostic = { [weak host] in host?.visibilityDiagnostic ?? "host released" }
 #endif
         detach = { [weak host] in host?.onViewportChanged = nil; host?.liftController = nil }
         host.onViewportChanged = { [weak self] in
@@ -352,6 +354,7 @@ final class SurfaceLiftController {
         detach = nil
 #if DEBUG
         nativeInteractionDiagnostic = nil
+        nativeVisibilityDiagnostic = nil
 #endif
     }
 

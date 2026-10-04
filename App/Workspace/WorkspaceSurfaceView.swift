@@ -579,7 +579,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
 
     private var resizeDiagnostic: (() -> String)? {
 #if DEBUG
-        return { resize.diagnostic + ";surface=\(String(describing: activeSurfaceSlot))" }
+        return { resize.diagnostic + ";surface=\(String(describing: activeSurfaceSlot));overlay=\(String(describing: navigation.overlay));preview=\(model?.previewContent.isPresented == true);source=[\(lift.nativeVisibilityDiagnostic?() ?? "unbound")];other=[\(secondaryLift.nativeVisibilityDiagnostic?() ?? "unbound")]" }
 #else
         return nil
 #endif

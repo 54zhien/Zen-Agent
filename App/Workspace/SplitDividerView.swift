@@ -68,6 +68,30 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
     private var lastBeginAdmitted = false
     private var menuVisible = false
     private var menuGeneration: UInt64 = 0
+    private var touchDiagnostic = "none"
+
+    private func recordTouch(_ phase: String, _ touches: Set<UITouch>) {
+        guard ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1",
+              let touch = touches.first else { return }
+        let point = touch.location(in: window)
+        let hit = window?.hitTest(point, with: nil)
+        touchDiagnostic = "\(phase),point=\(point),hit=\(hit.map { String(describing: type(of: $0)) } ?? "nil")"
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        recordTouch("began", touches)
+        super.touchesBegan(touches, with: event)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        recordTouch("ended", touches)
+        super.touchesEnded(touches, with: event)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        recordTouch("cancelled", touches)
+        super.touchesCancelled(touches, with: event)
+    }
 
     override var accessibilityValue: String? {
         get {
@@ -79,7 +103,7 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
             let ownsHit = hit === self || hit?.isDescendant(of: self) == true
             let ready = window != nil && !menuVisible && ownsHit
             return (super.accessibilityValue ?? "")
-                + ";dividerReady=\(ready);menuVisible=\(menuVisible);centerHit=\(hit.map { String(describing: type(of: $0)) } ?? "nil")"
+                + ";dividerReady=\(ready);menuVisible=\(menuVisible);centerHit=\(hit.map { String(describing: type(of: $0)) } ?? "nil");handleIdentity=\(ObjectIdentifier(self));panEnabled=\(pan.isEnabled);touch=\(touchDiagnostic);liveResize=\(configuration?.resizeDiagnostic?() ?? "none")"
         }
         set { super.accessibilityValue = newValue }
     }
