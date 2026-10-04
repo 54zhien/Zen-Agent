@@ -47,6 +47,8 @@ jobs:
           set -euo pipefail
           UDID=$(xcrun simctl list devices available | grep -E '^\s+iPad' | head -n 1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
           test -n "$UDID"
+          xcrun simctl help bootstatus
+          xcrun simctl bootstatus "$UDID" -b
           xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent \
             -configuration Debug -destination "id=$UDID" \
             -only-testing:ZenAgentUITests/WorkspacePadAxisUITests \
@@ -365,6 +367,8 @@ jobs:
             exit 1
           fi
           echo "Using simulator $UDID"
+          xcrun simctl help bootstatus
+          xcrun simctl bootstatus "$UDID" -b
           python3 -B .github/scripts/test_stage5_test_profile.py
           TEST_SCOPE=$(python3 -B .github/scripts/stage5_test_profile.py)
           TEST_ARGS=(test)

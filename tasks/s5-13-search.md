@@ -263,3 +263,27 @@ gate. The intermediate1f7e41f publication is superseded if still running; it is
 not claimed as a passing gate. No test expectation or cancellation gate is relaxed.
 Read-only review confirms every surfaceIsVisible path supplies native visibility;
 Return proxy visibility remains owned by its existing native controller.
+## Full visibility correction receipt — focus is subsequently revoked
+
+Full-profile remote4f6bb23457b150b066e0e8c367f3b17b82add239 /tree
+e74d5cd9662e297ad7d81cf15474454b030909a0 completed both phone gates:
+PR37190500300 /phone111401532852 passed generation/build,889 Swift/136 suites
+90.719s and20 XCTest.48 UI with one expected Pad-only skip had3 failures in
+1223.299s, all in plain Search exit. Result activation passed49.270s.
+Push37190498183 /phone111401535960 passed889/136 in93.561s plus20 XCTest;
+48 UI/one expected skip/3 failures1142.033s, again only plain Search exit.
+Result activation passed51.526s. Other phone UI paths passed.
+
+Both native exit receipts now show overlayFocusReason=restored, token consumed,
+but actual focused=false and logical Resting. The hidden wrapper correction
+therefore removed the first blocker, and a subsequent native or bridge event
+revokes the successful restoration. This is not proof of one specific revoker.
+Add bounded DEBUG-only native event receipts for restore/begin/end editing,
+bridge Resting resignation, suppression resignation and keyboardDidHide; preserve
+all focus behavior and both UI expectations until the exact event is observed.
+
+Push Pad passed124.056s. PR Pad failed91.667s before axis execution, with an Xcode
+app-launch timeout. Prepare each chosen simulator with simctl bootstatus before
+the single xcodebuild test call; print current CLI help, retain all retry/restart
+and skip checks, and verify the real command in CI. Recreate the fixed Search
+profile for this narrow diagnosis; final full profile remains required.

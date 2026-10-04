@@ -61,6 +61,17 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var workspaceInputSuppressed = false
     private var overlayFocus: ComposerOverlayFocus?
     private var overlayFocusReason = "none"
+#if DEBUG
+    private var overlayFocusEvents: [String] = []
+#endif
+
+    private func recordOverlayFocusEvent(_ event: String) {
+#if DEBUG
+        guard overlayFocus != nil || overlayFocusReason == "restored" else { return }
+        overlayFocusEvents.append("\(event)[focused=\(editor.isFirstResponder),state=\(currentState),suppressed=\(workspaceInputSuppressed),guide=\(keyboardLayoutGuide.layoutFrame)]")
+        if overlayFocusEvents.count > 16 { overlayFocusEvents.removeFirst(overlayFocusEvents.count - 16) }
+#endif
+    }
 
     func captureOverlayFocus(ownerIsCurrent: @escaping () -> Bool) -> ComposerOverlayFocus? {
         guard !workspaceInputSuppressed, editor.isFirstResponder, editor.markedTextRange == nil,
@@ -71,6 +82,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     func queueOverlayFocus(_ token: ComposerOverlayFocus) {
         overlayFocus?.cancel()
         overlayFocus = token
+#if DEBUG
+        overlayFocusEvents.removeAll()
+#endif
+        recordOverlayFocusEvent("queue")
         setNeedsLayout()
         consumeOverlayFocusIfReady()
     }
@@ -116,7 +131,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         // UIKit's didBeginEditing callback restores the logical Editing state.
         // Run after the bridge's ordinary focus application, or a fresh layout.
         overlayFocusReason = "responderDeclined"
-        if editor.becomeFirstResponder() { overlayFocusReason = "restored"; overlayFocus = nil }
+        recordOverlayFocusEvent("restoreAttempt")
+        if editor.becomeFirstResponder() {
+            overlayFocusReason = "restored"
+            recordOverlayFocusEvent("restoreSucceeded")
+            overlayFocus = nil
+        }
     }
 
     func setWorkspaceInputSuppressed(_ suppressed: Bool) {
@@ -133,7 +153,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         plus.isAccessibilityElement = !suppressed
         primary.isAccessibilityElement = !suppressed
         errorLabel.accessibilityElementsHidden = suppressed
-        if suppressed, editor.markedTextRange == nil { editor.resignFirstResponder() }
+        if suppressed, editor.markedTextRange == nil {
+            if editor.isFirstResponder { recordOverlayFocusEvent("suppressionResign") }
+            editor.resignFirstResponder()
+        }
     }
 
     override init(frame: CGRect) {
@@ -279,7 +302,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
 #if DEBUG
     var liftReadinessDiagnostic: String {
-        "\(liftInteraction.readinessDiagnostic);composerBounds=\(bounds);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder)"
+        "\(liftInteraction.readinessDiagnostic);composerBounds=\(bounds);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder);overlayFocusEvents=\(overlayFocusEvents.joined(separator: " | "))"
     }
 #endif
 
@@ -391,6 +414,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         if focused {
             if !editor.isFirstResponder { editor.becomeFirstResponder() }
         } else if editor.markedTextRange == nil, editor.isFirstResponder {
+            recordOverlayFocusEvent("bridgeRestingResign")
             editor.resignFirstResponder()
         }
     }
@@ -630,16 +654,21 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     @objc private func keyboardDidHide(_ notification: Notification) {
         guard window != nil else { return }
+        recordOverlayFocusEvent("keyboardDidHide")
         if currentState == .editing { configuration?.onFocus(false) }
         keyboardTransitionOwned = false
     }
 
     func textViewDidBeginEditing(_ textView: UITextView) {
+        recordOverlayFocusEvent("didBeginEditing")
         liftInteraction.checkReadiness()
         keyboardTransitionOwned = true
         configuration?.onFocus(true)
     }
-    func textViewDidEndEditing(_ textView: UITextView) { configuration?.onFocus(false) }
+    func textViewDidEndEditing(_ textView: UITextView) {
+        recordOverlayFocusEvent("didEndEditing")
+        configuration?.onFocus(false)
+    }
     func textViewDidChange(_ textView: UITextView) { reportEditor() }
     func textViewDidChangeSelection(_ textView: UITextView) { reportEditor() }
 
