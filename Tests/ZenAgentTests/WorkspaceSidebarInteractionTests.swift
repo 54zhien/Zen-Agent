@@ -8,9 +8,14 @@ struct WorkspaceSidebarInteractionTests {
     @Test func windowGeometryChangeCancelsRailButAnchorKeyboardChangeDoesNot() throws {
         let state = WorkspaceNavigationState()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        let root = UIViewController()
+        window.rootViewController = root
+        root.loadViewIfNeeded()
+        root.view.frame = window.bounds
+        window.isHidden = false
         let interaction = WorkspaceSidebarInteraction(frame: window.bounds)
-        window.addSubview(interaction)
-        defer { interaction.detach() }
+        root.view.addSubview(interaction)
+        defer { interaction.detach(); interaction.removeFromSuperview(); window.isHidden = true }
         let host = NSObject(), pane = NSObject()
         func configure() {
             interaction.configure(state: state, travel: 60, isRightToLeft: false) {
@@ -19,8 +24,14 @@ struct WorkspaceSidebarInteractionTests {
             }
         }
         configure()
-        let owned = window.gestureRecognizers?.filter { $0.delegate === interaction } ?? []
+        func ownedRecognizers() -> [UIGestureRecognizer] {
+            ((window.gestureRecognizers ?? []) + (root.view.gestureRecognizers ?? []))
+                .filter { $0.delegate === interaction }
+        }
+        let owned = ownedRecognizers()
         #expect(owned.count == 3)
+        #expect(owned.first { $0 is UIScreenEdgePanGestureRecognizer }?.view === root.view)
+        #expect(owned.filter { !($0 is UIScreenEdgePanGestureRecognizer) }.allSatisfy { $0.view === window })
         #expect(state.openSidebar(eligible: true))
         state.completeSettlement(try #require(state.settlementID))
         interaction.frame.size.height = 450
@@ -28,11 +39,12 @@ struct WorkspaceSidebarInteractionTests {
         configure()
         #expect(state.isOpen)
         window.bounds = CGRect(x: 0, y: 0, width: 800, height: 400)
+        root.view.frame = window.bounds
         interaction.frame = window.bounds
         interaction.setNeedsLayout(); interaction.layoutIfNeeded()
         configure()
         #expect(!state.isOpen && state.progress == 0 && state.settlementID == nil)
-        let reattached = window.gestureRecognizers?.filter { $0.delegate === interaction } ?? []
+        let reattached = ownedRecognizers()
         #expect(Set(reattached.map(ObjectIdentifier.init)) == Set(owned.map(ObjectIdentifier.init)))
     }
 
@@ -45,7 +57,7 @@ struct WorkspaceSidebarInteractionTests {
         window.addSubview(surface); surface.addSubview(content); window.addSubview(rail)
         let interaction = WorkspaceSidebarInteraction(frame: window.bounds)
         window.addSubview(interaction)
-        defer { interaction.detach() }
+        defer { interaction.detach(); interaction.removeFromSuperview() }
         let host = NSObject(), pane = NSObject()
         var eligible = true
         interaction.configure(state: state, travel: 60, isRightToLeft: false) {

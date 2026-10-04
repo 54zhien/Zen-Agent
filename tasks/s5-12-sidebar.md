@@ -244,3 +244,25 @@ UI results; it does not assert an undocumented UIKit caching guarantee.
 Scene API: https://developer.apple.com/documentation/uikit/uiwindowscene/effectivegeometry
 
 The iPad test also awaits the actual Split menu item (10 seconds) before tapping it; absence fails at that prerequisite rather than issuing input against a missing AX element.
+
+### Scene root edge transport — candidate, not a completed gate
+
+Remote `65bc329793dd040449f921a85ca0a2b1d9b059a5`, exact tree
+`1e3758147cb958fde67b8dabd6c7c9572a1e422c`, PR CI37179082216:
+generation/build,873 Swift tests/132 suites and20 XCTest passed. Push
+CI37179080333/phone111367791714 independently passed the same units. Seven Sidebar
+UI cases still failed only the two landscape openings. Actual native receipts
+show reattachment at874×402 and effective interface orientations3/4 before
+admitted touches atx1,y100; neither produced an edge begin/callback. This rules
+out missing reattachment as a sufficient explanation. Both actual iPad jobs
+passed (PR111367809254:88.396s; push111367791665:125.919s), actual Pan85.5pt.
+
+Next bounded correction attaches the native screen-edge recognizer to the
+mounted scene root content view rather than UIWindow. Window/Pane identity,
+admission and movement measurements remain authoritative; the independently
+passing reverse/tap transports stay on Window. Lifecycle tracks root identity
+and bounds alongside actual scene geometry and removes each recognizer from
+its own attachment. The native unit regression verifies these attachments,
+keyboard-only preservation, real bounds-change cancellation and identity reuse.
+The two landscape behavior tests remain unchanged. This is a candidate to
+verify, not a claim that Apple's recognizer has a platform defect.
