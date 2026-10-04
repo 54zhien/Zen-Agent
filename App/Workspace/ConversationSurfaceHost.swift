@@ -131,6 +131,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         }
         let mounted = editors(in: contentController.view)
         var fields = ["host=\(ObjectIdentifier(self))", "phase=\(String(describing: liftController?.state.phase))",
+            "edgeVisible=\(surfaceView.currentEdgeVisible)",
             "visible=\(workspaceVisible)", "root=\(chain(view))",
             "contentInteraction=\(contentController.view.isUserInteractionEnabled)",
             "contentAXHidden=\(contentController.view.accessibilityElementsHidden)",
@@ -374,6 +375,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func setLiftInteraction(_ phase: SurfaceLiftState.Phase, returnAction: @escaping () -> Bool) {
+        surfaceView.setCurrentEdgeVisible(phase == .card)
         let frozen = phase == .settling || phase == .card || phase == .split
         contentController.view.isUserInteractionEnabled = workspaceVisible && !frozen && !inputSuppressed && !returnProxyHidden
         contentController.view.accessibilityElementsHidden = !workspaceVisible || frozen || inputSuppressed || returnProxyHidden
@@ -659,10 +661,95 @@ private final class SurfaceHitView: UIView {
 
 @MainActor
 final class SurfaceClipView: UIView {
-    var visibleRect: CGRect?
+    var visibleRect: CGRect? { didSet { updateCurrentEdge(replacesPresentation: true) } }
     var onActivate: (() -> Bool)?
     private var touchOrigin: CGPoint?
     private var touchMoved = false
+    private let currentEdge = CAShapeLayer()
+    private var edgeRequested = false
+    private var edgeRect = CGRect.null
+    private var edgeRadius: CGFloat = -1
+    private static let edgeAnimationKey = "zen-current-edge-crop"
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        currentEdge.name = "zen-current-card-edge"
+        currentEdge.fillColor = nil
+        currentEdge.lineWidth = 0.75
+        currentEdge.zPosition = 1
+        currentEdge.isHidden = true
+        layer.addSublayer(currentEdge)
+        updateEdgeColor()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) {
+            (view: SurfaceClipView, _: UITraitCollection) in view.updateEdgeColor()
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    var currentEdgeVisible: Bool { !currentEdge.isHidden && currentEdge.opacity > 0 }
+
+    func setCurrentEdgeVisible(_ visible: Bool) {
+        edgeRequested = visible
+        updateCurrentEdge()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateCurrentEdge()
+    }
+
+    private func updateEdgeColor() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        currentEdge.strokeColor = UIColor.label.resolvedColor(with: traitCollection)
+            .withAlphaComponent(0.14).cgColor
+        CATransaction.commit()
+    }
+
+    private func updateCurrentEdge(replacesPresentation: Bool = false) {
+        let rect = visibleRect ?? bounds
+        let radius = mask?.layer.cornerRadius ?? layer.cornerRadius
+        let show = edgeRequested && radius > 0 && rect.width > 0 && rect.height > 0
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        currentEdge.frame = bounds
+        currentEdge.isHidden = !show
+        guard show else {
+            currentEdge.removeAnimation(forKey: Self.edgeAnimationKey)
+            edgeRect = .null
+            edgeRadius = -1
+            CATransaction.commit()
+            return
+        }
+        let duration = UIView.inheritedAnimationDuration
+        if replacesPresentation && duration == 0 {
+            currentEdge.removeAnimation(forKey: Self.edgeAnimationKey)
+        }
+        guard edgeRect != rect || edgeRadius != radius else {
+            CATransaction.commit()
+            return
+        }
+        let inset = currentEdge.lineWidth / 2
+        let path = UIBezierPath(roundedRect: rect.insetBy(dx: inset, dy: inset),
+            cornerRadius: max(0, radius - inset)).cgPath
+        let previous = (currentEdge.presentation() as? CAShapeLayer)?.path ?? currentEdge.path
+        currentEdge.removeAnimation(forKey: Self.edgeAnimationKey)
+        currentEdge.path = path
+        edgeRect = rect
+        edgeRadius = radius
+        // Browse animates the native crop inside this same UIView animation block.
+        // Ordinary gesture/cancellation samples replace the path without residual work.
+        if duration > 0, let previous {
+            let animation = CABasicAnimation(keyPath: "path")
+            animation.fromValue = previous
+            animation.toValue = path
+            animation.duration = duration
+            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            currentEdge.add(animation, forKey: Self.edgeAnimationKey)
+        }
+        CATransaction.commit()
+    }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         touchOrigin = touches.first?.location(in: window)

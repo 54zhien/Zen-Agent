@@ -146,6 +146,13 @@ private struct SettingsAppearanceView: View {
                 Picker("外观", selection: $model.appearance) {
                     ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
                 }
+                .accessibilityIdentifier("settings-appearance-picker")
+                Toggle("App Space 墨染", isOn: $model.inkEnabled)
+                    .accessibilityIdentifier("settings-ink-enabled")
+                Slider(value: $model.inkIntensity, in: 0...1) { Text("墨染强度") }
+                    .disabled(!model.inkEnabled)
+                    .accessibilityIdentifier("settings-ink-intensity")
+                Text("墨染用于深色外观").foregroundStyle(.secondary)
                 Text(reduceMotion ? "已跟随系统减少动态效果" : "动态效果跟随系统设置")
                     .foregroundStyle(.secondary)
             }

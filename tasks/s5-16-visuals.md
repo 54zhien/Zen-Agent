@@ -1,6 +1,6 @@
 # S5-16 Visual reinforcement — implementation and validation record
 
-## Current publication: native behavior RED pending
+## Native behavior RED observed before production
 
 Settings FULL closed at remote2d501a6be6a39ee1194a3302c1e5241e23771fb8,
 tree437d5de40a08affbb25dd341db8d9dc9e519a3f5,local4025b41. Both complete
@@ -20,12 +20,39 @@ then passed12 tests after the fixed mode was added. This local configuration
 check is not product behavior RED. Real macOS XcodeGen/build and native behavior
 failures must precede production effects. The new Motion policy test draft is
 excluded until its actual type exists; missing symbols are not behavior RED.
-No renderer/edge production implementation is in this publication.
+No renderer/edge production implementation is in that RED publication.
+
+Both RED runs completed XcodeGen and real app/test builds. Push37239980587
+ran931 Swift tests/148 suites in99.175s; PR37240008961 in105.126s. Each
+recorded exactly2 CurrentCardEdge issues (missing sole layer and required path).
+Each also passed20 XCTest and the original3 Settings UI; the new actual
+Appearance test failed only because the Ink switch was absent. UI totals4,
+one failure,181.685s/150.804s. Actual iPad passed102.855s/110.456s and
+guard37240008951 passed. One Swift test-run start, no host restart/retry.
+Raw RED logs remain in the external handoff directory.
+
+## First implementation candidate — awaiting macOS result
+
+After the genuine RED, a native opaque canvas owns one root and two radial
+gradients. Gesture samples change only bounded reverse displacement/intensity;
+they do not restart keyed slow flow. Live scene, Reduce Motion, low power and
+thermal policy freezes flow/parallax, keeping static dark Ink. Window detachment
+also removes animations. Light mode or disabled Ink uses a static background.
+Actual Settings controls persist through the existing Appearance owner.
+
+SurfaceClipView owns one faint Current-only semantic outline above hosted content.
+It follows the real visible crop/corner radius, matches Browse crop settlement
+with one bounded path animation, clears that work on replacement/cancellation
+and hides in Full. No new gesture, Timeline, session, Router or Runtime owner.
+Native tests exercise layer identity, real animation keys, window lifecycle,
+policy changes, finite bounds, crop replacement and preference reload.
+The actual Settings UI exercises enablement/intensity, dark mode, two Lift/Return
+cycles and retained editor/identity/draft. Targeted and FULL gates remain OPEN.
 
 ## Approved bounded design and device limits
 
-This authorized slice follows the Settings full code gate. No Ink renderer or
-Current edge production source has been published yet.
+This authorized slice follows the Settings full code gate. Production work began
+only after the real native behavior RED above.
 
 Blueprint requires restrained cool-black Ink, independent slow flow, tightly
 bounded reverse parallax and a faint Current-only edge fitted to its visible

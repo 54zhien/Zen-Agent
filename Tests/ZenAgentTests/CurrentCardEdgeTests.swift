@@ -7,6 +7,32 @@ import Testing
 @Suite("Current Card visible edge", .serialized)
 @MainActor
 struct CurrentCardEdgeTests {
+    @Test("crop settlement cancellation clears the sole edge animation and Full hides it")
+    func cropReplacementCancelsPresentationWork() throws {
+        let view = SurfaceClipView(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        view.layer.cornerRadius = 20
+        view.visibleRect = CGRect(x: 40, y: 80, width: 320, height: 640)
+        view.setCurrentEdgeVisible(true)
+        let edge = try #require(view.layer.sublayers?.first { $0.name == "zen-current-card-edge" } as? CAShapeLayer)
+        let changed = CGRect(x: 60, y: 160, width: 280, height: 480)
+        UIView.animate(withDuration: 0.28) { view.visibleRect = changed }
+        #expect(edge.animationKeys()?.count == 1)
+        UIView.performWithoutAnimation { view.visibleRect = changed }
+        #expect((edge.animationKeys() ?? []).isEmpty)
+        #expect(abs(try #require(edge.path).boundingBoxOfPath.minX - changed.minX) <= 1)
+        for _ in 0..<20 {
+            view.setCurrentEdgeVisible(false)
+            #expect(!view.currentEdgeVisible)
+            view.setCurrentEdgeVisible(true)
+            #expect(view.currentEdgeVisible)
+        }
+        #expect(view.layer.sublayers?.filter { $0.name == "zen-current-card-edge" }.count == 1)
+        view.layer.cornerRadius = 0
+        view.visibleRect = nil
+        #expect(!view.currentEdgeVisible)
+        #expect((edge.animationKeys() ?? []).isEmpty)
+    }
+
     @Test("the Current edge follows its visible crop without accumulating layers")
     func edgeFitsTheCropAndDisappearsInFull() throws {
         let host = ConversationSurfaceViewController(content: Text("native edge fixture"))

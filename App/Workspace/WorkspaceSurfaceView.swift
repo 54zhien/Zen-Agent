@@ -107,7 +107,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
                                 windowInsets: navigationInsets,
                                 context: sidebarContext) {
         ZStack(alignment: .topLeading) {
-            Color.clear
+            AppSpaceInkView(appearance: model?.appearance,
+                isAppSpace: [.lifting, .settling, .card].contains(activeLift.state.phase),
+                displacement: browse.state.offset * Double(browse.layout()?.travel ?? 0))
             if model?.previewContent.isPresented == true, let layout = browse.layout() {
                 ForEach(layout.cards.filter { $0.item != browse.state.selected }
                     .map { browse.deletionProjection($0, in: layout) }, id: \.item) { card in
