@@ -58,7 +58,8 @@ struct WorkspaceNavigationView<Content: View>: View {
                         }
                     }
                 if state.overlay == .search, let overlays {
-                    ConversationSearchView(model: overlays.search, onClose: overlays.close, onSelect: overlays.select)
+                    ConversationSearchView(model: overlays.search, onClose: overlays.close,
+                        onSelect: { id in _ = overlays.select(id) })
                         .padding(.top, windowInsets.top)
                         .transition(.opacity).zIndex(100)
                 }

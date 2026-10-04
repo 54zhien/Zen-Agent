@@ -155,3 +155,13 @@ host bounds, Lift transform and keyboard layout remain independently owned.
 Search UI additionally asserts its button is below the scene status bar before
 the existing real hittability/tap gate. This correction still needs compiled
 targeted and full gates; no forced hit point, retries or weaker assertions.
+
+The c7901e6 window-inset source built and passed887/136+20 units on the
+push phone111386290158. Both UI cases stopped in the new placement assertion:
+the app AX tree exposes no StatusBar element, so reading its frame throws before
+the existing hittability gate. Keep the geometric assertion and compare against
+the native diagnostic's actual UIWindow.safeAreaInsets.top instead; require a
+nonzero portrait receipt. This is observed native geometry, not a forced tap or
+a fixed device number. The retained stream regression also now uses the actual
+WorkspaceOverlayCoordinator.select wrapper, then checks dismissal, continued
+provider output, durable completion and the outgoing unsent draft.

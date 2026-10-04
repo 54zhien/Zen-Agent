@@ -136,6 +136,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         fields.append("sidebarCanOpen=\(liftController?.sidebarNativeContext?()?.allowsOpening ?? false)")
         fields.append("timeline=\(liftController?.workspacePaneDiagnostic?() ?? "unbound")")
         if let window = view.window {
+            fields.append("windowSafeTop=\(window.safeAreaInsets.top)")
             fields.append("hostFrame=\(view.convert(view.bounds, to: window))")
             func scrollViews(in node: UIView) -> [UIScrollView] {
                 let own = (node as? UIScrollView).flatMap { $0 is UITextView ? nil : $0 }.map { [$0] } ?? []

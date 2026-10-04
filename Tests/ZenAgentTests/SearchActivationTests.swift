@@ -6,6 +6,58 @@ import GRDB
 @Suite("Search activation scope")
 @MainActor
 struct SearchActivationTests {
+    @Test("Search entry, read, exit and result activation keep the actual outgoing stream alive")
+    func searchNavigationPreservesAnActualStreamingRun() async throws {
+        let stream = Stage2StreamBox()
+        let fixture = try AppShellWiringTests().makeFixture(seed: .active,
+            scripts: [.holding(prefix: [.textDelta("before Search")], box: stream)])
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        await fixture.model.launchRestorationTask?.value
+        let shell = fixture.model
+        let origin = try #require(shell.pane?.session)
+        let bridge = try #require(shell.actionBridge)
+        let runID = try await bridge.start(SendCommand(conversationID: origin.conversationID,
+            text: "streaming Search", providerInstanceID: fixture.instanceID, modelID: fixture.modelID,
+            maxProviderSteps: 4, submissionID: "search-stream"))
+        await stream.waitUntilReady()
+        defer { stream.yieldLate(.finish(.stop)) }
+        origin.composer.draft.text = "unsent while streaming"
+        try fixture.store.database.write { db in
+            try Fixtures.conversation(id: "stream-search-target", title: "Streaming Search target").insert(db)
+        }
+        let navigation = WorkspaceNavigationState()
+        let overlays = WorkspaceOverlayCoordinator(store: fixture.store, shell: shell, navigation: navigation)
+        #expect(navigation.openSidebar(eligible: true))
+        navigation.completeSettlement(try #require(navigation.settlementID))
+        overlays.enter(.search, eligible: true, captureFocus: { nil })
+        #expect(navigation.overlay == .search)
+        overlays.search.query = "Streaming Search target"
+        await overlays.search.refresh()
+        #expect(overlays.search.items.map(\.id) == ["stream-search-target"])
+        stream.yieldLate(.textDelta(" during Search"))
+        overlays.close()
+        #expect(navigation.overlay == nil && shell.pane?.session === origin)
+        #expect(shell.router.hasActiveRun(for: origin.conversationID))
+        #expect(stream.cancellations == 0)
+        navigation.completeSettlement(try #require(navigation.settlementID))
+        #expect(navigation.openSidebar(eligible: true))
+        navigation.completeSettlement(try #require(navigation.settlementID))
+        overlays.enter(.search, eligible: true, captureFocus: { nil })
+        #expect(navigation.overlay == .search)
+        await overlays.select("stream-search-target").value
+        #expect(shell.conversationID == "stream-search-target")
+        #expect(navigation.overlay == nil)
+        #expect(shell.router.hasActiveRun(for: origin.conversationID))
+        #expect(stream.cancellations == 0)
+        stream.yieldLate(.textDelta(" after selection"))
+        stream.yieldLate(.finish(.stop))
+        try await fixture.runtime.waitForCompletion(runID: runID)
+        #expect(try fixture.store.run(id: runID)?.state == .completed)
+        #expect(origin.composer.draft.text == "unsent while streaming")
+        #expect(try ConversationTimelineLoader.load(conversationID: origin.conversationID, from: fixture.store)
+            .turns.flatMap(\.items).contains(.assistantText("before Search during Search after selection")))
+    }
+
     @Test func warmResultCommitsRestingAndPreservesBothDrafts() async throws {
         let fixture = try AppShellWiringTests().makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }

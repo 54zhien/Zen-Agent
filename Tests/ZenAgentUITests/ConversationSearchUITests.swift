@@ -90,7 +90,13 @@ final class ConversationSearchUITests: XCTestCase {
             XCTFail("Sidebar Search destination is unavailable")
             return false
         }
-        XCTAssertGreaterThanOrEqual(search.frame.minY, app.statusBars.firstMatch.frame.maxY,
+        guard let safeTop = (probe.value as? String)?.split(separator: ";")
+            .first(where: { $0.hasPrefix("windowSafeTop=") })
+            .flatMap({ Double($0.dropFirst("windowSafeTop=".count)) }), safeTop > 0 else {
+            XCTFail("Missing the actual portrait Window safe-area receipt")
+            return false
+        }
+        XCTAssertGreaterThanOrEqual(search.frame.minY, app.frame.minY + CGFloat(safeTop),
             "Search must be below the scene status bar")
         guard search.wait(for: \.isHittable, toEqual: true, timeout: 5) else {
             XCTFail("Sidebar Search destination is not hittable")

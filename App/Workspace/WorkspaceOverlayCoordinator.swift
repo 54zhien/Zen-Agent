@@ -28,7 +28,8 @@ final class WorkspaceOverlayCoordinator {
         focus?.restore()
     }
 
-    func select(_ id: String) {
+    @discardableResult
+    func select(_ id: String) -> Task<Void, Never> {
         search.select(id, open: { [weak shell] id in
             await shell?.openConversation(id: id, presentation: .resting) ?? false
         }, onSuccess: { [weak self] in
