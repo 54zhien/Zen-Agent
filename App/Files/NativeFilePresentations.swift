@@ -69,11 +69,6 @@ struct NativeFilePicker: UIViewControllerRepresentable {
                 controller.view.accessibilityIdentifier = "files-native-export"
             }
             controller.delegate = self
-#if DEBUG
-            if ProcessInfo.processInfo.environment["ZEN_DOCUMENT_PICKER_STYLE_UI_TEST"] == "1" {
-                controller.modalPresentationStyle = .overFullScreen
-            }
-#endif
             picker = controller
             // A document picker owns its native remote browser and bar geometry.
             // Present it as a UIKit modal, rather than embedding it as sheet content.

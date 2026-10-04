@@ -6,7 +6,6 @@ final class FilesWorkspaceUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launchEnvironment["ZEN_FILES_PREVIEW_UI_TEST"] = "1"
-        app.launchEnvironment["ZEN_DOCUMENT_PICKER_STYLE_UI_TEST"] = "1"
         app.launch()
         XCTAssertTrue(app.buttons["split-entry"].waitForExistence(timeout: 15))
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
@@ -42,21 +41,7 @@ final class FilesWorkspaceUITests: XCTestCase {
         XCTAssertTrue(exportPicker.waitForExistence(timeout: 10), "Export must present the native document picker")
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label IN %@", ["Save", "保存"])).firstMatch
             .waitForExistence(timeout: 5), "The actual export picker must offer saving the managed copy")
-        // This SDK reports the native export Cancel item as AX Other. Use the
-        // observed native subtree, without inventing an app-owned dismissal.
-        let close = exportPicker.descendants(matching: .any).matching(
-            NSPredicate(format: "label IN %@", ["Close", "关闭", "Cancel", "取消"])).firstMatch
-        XCTAssertTrue(close.waitForExistence(timeout: 5))
-        XCTAssertFalse(close.frame.isEmpty)
-        print("FILES_EXPORT_BEFORE_CANCEL frame=\(close.frame) hittable=\(close.isHittable) picker=\(exportPicker.frame)")
-        print("FILES_EXPORT_AX \(app.debugDescription)")
-        let before = XCTAttachment(screenshot: app.screenshot())
-        before.name = "Native export before Cancel"
-        before.lifetime = .keepAlways
-        add(before)
-        // XCTest computes {-1,-1} for this native AX Other's semantic tap.
-        // Exercise its actual visible control, then require real dismissal.
-        close.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        cancelNativePicker(exportPicker, in: app)
         print("FILES_EXPORT_AFTER_CANCEL picker=\(exportPicker.exists) closeHittable=\(app.buttons["files-workspace-close"].isHittable)")
         let after = XCTAttachment(screenshot: app.screenshot())
         after.name = "Native export after Cancel"
@@ -78,7 +63,6 @@ final class FilesWorkspaceUITests: XCTestCase {
     func testFilesImportOpensTheSystemPickerAndCloseRestoresTheDraft() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
-        app.launchEnvironment["ZEN_DOCUMENT_PICKER_STYLE_UI_TEST"] = "1"
         app.launch()
         XCTAssertTrue(app.buttons["split-entry"].waitForExistence(timeout: 15))
         let editor = app.textViews["conversation-composer-input"]
@@ -107,9 +91,10 @@ final class FilesWorkspaceUITests: XCTestCase {
         }
         XCTAssertTrue(app.staticTexts["files-workspace-empty"].exists)
         app.buttons["files-import"].tap()
-        let cancel = app.buttons.matching(NSPredicate(format: "label IN %@", ["Cancel", "取消"])).firstMatch
-        XCTAssertTrue(cancel.waitForExistence(timeout: 5))
-        cancel.tap()
+        let importPicker = app.descendants(matching: .any)["files-native-import"]
+        XCTAssertTrue(importPicker.waitForExistence(timeout: 5))
+        cancelNativePicker(importPicker, in: app)
+        expect { !importPicker.exists }
         XCTAssertTrue(workspace.exists)
         XCTAssertTrue(app.staticTexts["files-workspace-empty"].exists,
                       "Picker cancellation must not create a catalog asset")
@@ -122,6 +107,40 @@ final class FilesWorkspaceUITests: XCTestCase {
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
+    }
+
+    @MainActor
+    private func cancelNativePicker(_ picker: XCUIElement, in app: XCUIApplication,
+                                    file: StaticString = #filePath, line: UInt = #line) {
+        let labels = NSPredicate(format: "label IN %@", ["Cancel", "取消", "Close", "关闭"])
+        // A remembered directory can hide Cancel behind native Browse navigation.
+        // Rendered CI screenshots show that the hidden AX Other's stale frame
+        // overlaps More. Never synthesize input at that non-hittable frame.
+        for _ in 0..<6 {
+            let buttons = picker.buttons.matching(labels).allElementsBoundByIndex
+            let others = picker.otherElements.matching(labels).allElementsBoundByIndex
+            if let cancel = (buttons + others).first(where: { $0.isHittable }) {
+                let before = XCTAttachment(screenshot: app.screenshot())
+                before.name = "Native picker visible Cancel"
+                before.lifetime = .keepAlways
+                add(before)
+                print("FILES_NATIVE_VISIBLE_CANCEL frame=\(cancel.frame) type=\(cancel.elementType.rawValue)")
+                cancel.tap()
+                return
+            }
+            let back = picker.buttons["BackButton"]
+            guard back.exists && back.isHittable else {
+                XCTFail("Native picker has no hittable Cancel or Browse Back control", file: file, line: line)
+                let failure = XCTAttachment(screenshot: app.screenshot())
+                failure.name = "Native picker without visible cancellation"
+                failure.lifetime = .keepAlways
+                add(failure)
+                return
+            }
+            print("FILES_NATIVE_BROWSE_BACK label=\(back.label) frame=\(back.frame)")
+            back.tap()
+        }
+        XCTFail("Native picker did not reach visible cancellation within six Browse levels", file: file, line: line)
     }
 
     private func editorIdentity(_ diagnostic: String?) -> String? {

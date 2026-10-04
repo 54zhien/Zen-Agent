@@ -401,3 +401,25 @@ Explicit native screenshots and xcresulttool attachment export on failed runs
 provide rendered evidence; the export step is diagnostic and cannot change a
 failing build/test into success. Its current CLI help is printed in the real CI.
 Apple: https://developer.apple.com/documentation/uikit/uimodalpresentationstyle/overfullscreen
+## Rendered native cancellation evidence
+
+The overFullScreen diagnostic at remote91d9e658658e68bb2530b74f874aa912f945c4f8
+/tree1a83ecf2cfb4772b060959cc35b9bbbe93981efb did not fix cancellation.
+PR phone111453896616 passed912 Swift/141 suites99.269s and20 XCTest;
+import/focus passed44.444s, export failed79.104s with six downstream assertions.
+Real Pad PR111453896644 and push111453886687 passed (receipts retained separately).
+
+Artifact11305319785's exported PNGs were actually viewed. Before Cancel shows
+On My iPhone, a visible native Browse Back arrow, More and Save, and no visible
+Cancel. After the attempted Cancel coordinate input shows the More menu.
+The hidden AX Other named Cancel overlaps More exactly. The rendering proves
+that coordinate input never exercised cancellation; changing modal style did
+not address the native browser's current navigation level.
+
+Remove the DEBUG style flag. Native tests now require a hittable Cancel/Close;
+if absent, navigate only the actual native BackButton toward Browse, bounded to
+six levels. Input never uses the hidden Other's frame or an app-owned dismissal.
+Both paths require actual native picker disappearance. Export retains same
+active Files model/controls and one original Composer; import additionally
+requires original native editor identity, draft, keyboard and focus. The default
+production presentation path and complete source gates still need real GREEN.
