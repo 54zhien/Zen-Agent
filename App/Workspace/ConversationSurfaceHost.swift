@@ -258,7 +258,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     var allowsSidebarInput: Bool {
-        guard workspaceVisible, !inputSuppressed, !returnProxyHidden, !hasPresentedOverlay else { return false }
+        guard allowsSidebarClosing else { return false }
         func findComposer(_ node: UIView) -> ComposerHostView? {
             if let composer = node as? ComposerHostView { return composer }
             for child in node.subviews { if let composer = findComposer(child) { return composer } }
@@ -274,11 +274,17 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         return WorkspaceSidebarEligibility.allowsNativeInput(input)
     }
 
+    var allowsSidebarClosing: Bool {
+        workspaceVisible && !inputSuppressed && !returnProxyHidden && !hasPresentedOverlay
+    }
+
     func setSidebar(offset: CGFloat, settlement: UUID?, completion: ((UUID) -> Void)?) {
         guard offset.isFinite else { return }
         guard sidebarOffset != offset || sidebarSettlement != settlement else { return }
+        let displayedCenter = sidebarAnimator == nil ? nil : surfaceView.layer.presentation()?.position
         sidebarAnimator?.stopAnimation(true)
         sidebarAnimator = nil
+        if let displayedCenter { surfaceView.center = displayedCenter }
         sidebarOffset = offset
         sidebarSettlement = settlement
         // Lift alone owns transform. Navigation changes center while the native

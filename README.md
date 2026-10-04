@@ -39,7 +39,7 @@ its `Design/ADR/`; engineering/tooling trade-offs belong to this repository's
 
 ## Status
 
-As of 2026-09-30:
+As of 2026-10-04:
 
 - Stage 0 and Stage 1 are closed; Stage 2 Runtime and Tool boundaries are on `main`.
 - Stage 3 W1 wires the real App shell and text send/history. PR #12 added the
@@ -137,8 +137,10 @@ As of 2026-09-30:
   PR37169727362: generation/build,861 Swift Testing,20 XCTest,39 iPhone UI
   (one expected Pad-only skip), plus one actual iPad axis test in each run.
   See [the slice record](tasks/s5-11-rotation.md) for retained failed evidence.
-- S5-12 Sidebar is entering compiled behavior RED; S5-13–16 remain authorized
-  in order. No Sidebar implementation or full-stage completion is claimed yet.
+- S5-12 Sidebar is on stacked draft [PR #29](https://github.com/54zhien/Zen-Agent/pull/29).
+  Initial behavior RED compiled and reproduced the missing Rail. Product source
+  and review corrections require a completed full CI gate; S5-13–16 remain
+  authorized in order. Full-stage and physical acceptance remain open.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
   does not establish device memory, performance, input, comfort or VoiceOver acceptance.

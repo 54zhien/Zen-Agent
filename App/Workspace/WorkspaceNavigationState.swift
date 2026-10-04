@@ -19,6 +19,7 @@ final class WorkspaceNavigationState {
     private(set) var isDragging = false
     private(set) var overlay: WorkspaceOverlayRoute?
     private(set) var settlementID: UUID?
+    private(set) var gestureID: UUID?
     var blocksLift: Bool { isDragging || progress > 0 || settlementID != nil || overlay != nil }
 
     @discardableResult
@@ -32,12 +33,14 @@ final class WorkspaceNavigationState {
     func closeSidebar() {
         if progress > 0 || isOpen { settlementID = UUID() }
         isDragging = false; isOpen = false; progress = 0
+        gestureID = nil
     }
 
     @discardableResult
     func begin(eligible: Bool) -> Bool {
         guard eligible, overlay == nil, !isDragging, settlementID == nil else { return false }
         isDragging = true
+        gestureID = UUID()
         return true
     }
 
@@ -56,6 +59,7 @@ final class WorkspaceNavigationState {
             isOpen = progress + velocity / travel * 0.12 >= 0.5
         }
         isDragging = false
+        gestureID = nil
         progress = isOpen ? 1 : 0
         settlementID = UUID()
     }

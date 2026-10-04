@@ -12,7 +12,8 @@ final class SurfaceLiftController {
     var workspaceResizeActive = false
     @ObservationIgnored weak var workspaceNavigation: WorkspaceNavigationState?
     var workspaceNavigationActive: Bool { workspaceNavigation?.blocksLift == true }
-    @ObservationIgnored var sidebarNativeContext: (() -> (hostID: ObjectIdentifier, window: UIWindow, allowsOpening: Bool)?)?
+    @ObservationIgnored var sidebarNativeContext: (() -> (hostID: ObjectIdentifier, window: UIWindow,
+        allowsOpening: Bool, allowsClosing: Bool, surfaceView: UIView)?)?
     private(set) var heldReturnCardLabel: String?
     var nativeHostIdentity: ObjectIdentifier? { hostID }
     private(set) var retainsAppSpaceViewport = false
@@ -136,7 +137,10 @@ final class SurfaceLiftController {
             guard let self, let host, let window = host.view.window else { return nil }
             return (ObjectIdentifier(host), window, self.state.phase == .full && self.isWorkspaceVisible
                 && !self.hasSelection && !self.overlayPresented && !self.workspaceResizeActive
-                && host.allowsSidebarInput)
+                && host.allowsSidebarInput,
+                self.state.phase == .full && self.isWorkspaceVisible && !self.overlayPresented
+                    && !self.workspaceResizeActive && host.allowsSidebarClosing,
+                host.surfaceView)
         }
 #if DEBUG
         nativeInteractionDiagnostic = { [weak host] in host?.interactionDiagnostic ?? "host released" }

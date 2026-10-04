@@ -7,6 +7,15 @@ struct WorkspaceSidebarNativeContext {
     let paneID: ObjectIdentifier
     let window: UIWindow
     let allowsOpening: Bool
+    let allowsClosing: Bool
+    weak var surfaceView: UIView?
+
+    init(hostID: ObjectIdentifier, paneID: ObjectIdentifier, window: UIWindow,
+         allowsOpening: Bool, allowsClosing: Bool = true, surfaceView: UIView? = nil) {
+        self.hostID = hostID; self.paneID = paneID; self.window = window
+        self.allowsOpening = allowsOpening; self.allowsClosing = allowsClosing
+        self.surfaceView = surfaceView
+    }
 }
 
 @MainActor
@@ -40,7 +49,10 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     private var readContext: (() -> WorkspaceSidebarNativeContext?)?
     private var travel: CGFloat = 60
     private var sign: CGFloat = 1
-    private var captured: (host: ObjectIdentifier, pane: ObjectIdentifier, window: ObjectIdentifier)?
+    private typealias Owner = (host: ObjectIdentifier, pane: ObjectIdentifier, window: ObjectIdentifier)
+    private var captured: Owner?
+    private var capturedGestureID: UUID?
+    private var tapOwner: Owner?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -72,7 +84,10 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             edge.edges = edges
         }
         if window !== attachedWindow { attach() }
-        if captured != nil, !sameOwner() { state.reset(); captured = nil }
+        if captured != nil, !sameOwner(captured) {
+            if state.gestureID == capturedGestureID { state.reset() }
+            captured = nil; capturedGestureID = nil
+        }
     }
 
     override func didMoveToWindow() { super.didMoveToWindow(); attach() }
@@ -87,10 +102,12 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         for recognizer in [edge, reverse, closeTap] { attachedWindow?.removeGestureRecognizer(recognizer) }
         attachedWindow = nil
         captured = nil
+        capturedGestureID = nil
+        tapOwner = nil
         state?.reset()
     }
 
-    private func sameOwner() -> Bool {
+    private func sameOwner(_ captured: Owner?) -> Bool {
         guard let captured, let current = readContext?(), current.window === attachedWindow else { return false }
         return captured.host == current.hostID && captured.pane == current.paneID
             && captured.window == ObjectIdentifier(current.window)
@@ -100,47 +117,78 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         guard let window = attachedWindow, let current = readContext?(), current.window === window,
               convert(bounds, to: window).contains(touch.location(in: window)) else { return false }
         if gestureRecognizer === edge { return state?.isOpen == false && current.allowsOpening }
-        guard state?.isOpen == true, current.allowsOpening else { return false }
+        guard state?.isOpen == true, current.allowsClosing,
+              let surface = current.surfaceView, let hit = touch.view,
+              hit === surface || hit.isDescendant(of: surface) else { return false }
+        if gestureRecognizer === reverse {
+            var node: UIView? = hit
+            while let view = node {
+                if let editor = view as? UITextView, editor.selectedTextRange?.isEmpty == false { return false }
+                node = view.superview
+            }
+        }
         let x = touch.location(in: window).x
         let distance = sign > 0 ? x - window.bounds.minX : window.bounds.maxX - x
-        return distance >= travel
+        guard distance >= travel else { return false }
+        if gestureRecognizer === closeTap {
+            tapOwner = (current.hostID, current.paneID, ObjectIdentifier(window))
+        }
+        return true
     }
 
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let state, let current = readContext?(), current.window === attachedWindow,
-              current.allowsOpening, !state.isDragging, state.settlementID == nil else { return false }
-        if gestureRecognizer === closeTap { return state.isOpen }
+              !state.isDragging, state.settlementID == nil else { return false }
+        if gestureRecognizer === closeTap { return state.isOpen && current.allowsClosing && sameOwner(tapOwner) }
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
         let velocity = pan.velocity(in: current.window)
         guard velocity.x.isFinite, velocity.y.isFinite, abs(velocity.x) > abs(velocity.y) * 1.1 else { return false }
-        return gestureRecognizer === edge ? (!state.isOpen && velocity.x * sign > 0)
-            : (state.isOpen && velocity.x * sign < 0)
+        return gestureRecognizer === edge ? (!state.isOpen && current.allowsOpening && velocity.x * sign > 0)
+            : (state.isOpen && current.allowsClosing && velocity.x * sign < 0)
     }
 
     @objc private func changed(_ recognizer: UIGestureRecognizer) {
         guard let state else { return }
         if recognizer === closeTap {
-            if recognizer.state == .ended, readContext?()?.allowsOpening == true { state.closeSidebar() }
+            if recognizer.state == .ended, sameOwner(tapOwner), readContext?()?.allowsClosing == true {
+                state.closeSidebar()
+            }
+            tapOwner = nil
             return
         }
         guard let pan = recognizer as? UIPanGestureRecognizer, let current = readContext?(),
-              current.window === attachedWindow else { state.reset(); captured = nil; return }
+              current.window === attachedWindow else {
+            if state.gestureID == capturedGestureID, capturedGestureID != nil { state.reset() }
+            captured = nil; capturedGestureID = nil
+            return
+        }
+        let allowed = recognizer === edge ? current.allowsOpening : current.allowsClosing
         switch pan.state {
         case .began:
-            guard state.begin(eligible: current.allowsOpening) else { return }
+            guard state.begin(eligible: allowed) else { return }
             captured = (current.hostID, current.paneID, ObjectIdentifier(current.window))
+            capturedGestureID = state.gestureID
             state.drag(displacement: Double(pan.translation(in: current.window).x * sign), travel: Double(travel))
         case .changed, .ended:
-            guard sameOwner(), current.allowsOpening else { state.reset(); captured = nil; return }
+            guard let capturedGestureID, state.gestureID == capturedGestureID else {
+                captured = nil; self.capturedGestureID = nil; return
+            }
+            guard sameOwner(captured), allowed else {
+                state.reset(); captured = nil; self.capturedGestureID = nil; return
+            }
             // Release can contain the last displacement even without a changed callback.
             state.drag(displacement: Double(pan.translation(in: current.window).x * sign), travel: Double(travel))
             if pan.state == .ended {
                 state.end(velocity: Double(pan.velocity(in: current.window).x * sign), travel: Double(travel), cancelled: false)
                 captured = nil
+                self.capturedGestureID = nil
             }
         case .cancelled, .failed:
-            state.end(velocity: 0, travel: Double(travel), cancelled: true)
+            if state.gestureID == capturedGestureID, capturedGestureID != nil {
+                state.end(velocity: 0, travel: Double(travel), cancelled: true)
+            }
             captured = nil
+            capturedGestureID = nil
         default: break
         }
     }

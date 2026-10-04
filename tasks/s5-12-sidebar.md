@@ -95,3 +95,30 @@ admission regression first, using an unchanged owner/window and deterministic
 closing velocity; this policy test is not a physical gesture receipt. Publish it
 for compiled unit RED before changing the close predicate. Retain full UI gating
 after the correction and keep both compile failures visible.
+
+### Review regression RED and correction
+
+Local730dfdc / remote2bfa71e20e5fa8e0877a6fb982b81540fb0f519e /
+tree83c6737c0994f585c7b60f4ea1b693f632216861 passed XcodeGen/app build.
+Push37172861692 / phone111349266357 and PR37172864648 /
+phone111349263816 ran869 Swift tests/132 suites: exactly one issue at the
+new close-admission assertion after opening eligibility becomes false.20 XCTest
+passed. This is a compiled policy RED using an existing delegate API, not an
+absent-method compiler error or a physical Pan claim. PR Pad111349263854
+passed its actual test. Push Pad111349266425 failed to launch the app through
+Xcode after112.258 seconds; no axis behavior was observed in that job.
+
+The correction separates opening input guards from closing safety. Closing
+requires a visible, unsuppressed same Full/Single host/Pane/window without native
+modal presentation. Tap captures its owner at touch-down and revalidates it at
+completion. Close touches must descend from the actual shifted Surface; Rail
+and overlay controls are excluded. Reverse Pan defers inside selected native
+text views. Pan generations prevent late callbacks from resetting a newer owner.
+Timeline blank-close uses the measured leading blank margin, not a toolbar/AX
+bounding-box coordinate; after close, normal dismissal still requires a fresh
+Timeline callback. Native reversal captures the actual presentation center.
+Full product CI remains required after removing review-red.
+
+First-Send navigation availability now observes a one-way published-Turn flag
+on the existing Pane, updated only when a persisted Timeline is installed. Root
+does not subscribe to live token state to refresh its accessibility actions.

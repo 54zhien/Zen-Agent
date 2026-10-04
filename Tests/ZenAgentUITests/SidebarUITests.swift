@@ -18,7 +18,8 @@ final class SidebarUITests: XCTestCase {
         edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
         let rail = app.descendants(matching: .any)["sidebar-rail"]
         XCTAssertTrue(rail.waitForExistence(timeout: 5))
-        pane.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.3)).tap()
+        guard let blank = app.workspaceTimelineBlankPoint(pane: pane, editor: editor, preferLeading: true) else { return }
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: blank.x, dy: blank.y)).tap()
         expect { !rail.exists && abs(pane.frame.minX - originalX) < 2 }
         XCTAssertTrue(app.keyboards.firstMatch.exists)
         XCTAssertTrue((probe.value as? String)?.contains("focused=true;") == true)

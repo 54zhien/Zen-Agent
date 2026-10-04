@@ -85,4 +85,16 @@ struct WorkspaceNavigationStateTests {
     private func settle(_ state: WorkspaceNavigationState) {
         if let id = state.settlementID { state.completeSettlement(id) }
     }
+
+    @Test func ownerLossInvalidatesTheOldGestureBeforeANewOneBegins() throws {
+        let state = WorkspaceNavigationState()
+        #expect(state.begin(eligible: true))
+        let old = try #require(state.gestureID)
+        state.reset()
+        #expect(state.gestureID == nil)
+        #expect(state.begin(eligible: true))
+        #expect(state.gestureID != old)
+        state.end(velocity: 0, travel: 60, cancelled: true)
+        #expect(state.gestureID == nil)
+    }
 }

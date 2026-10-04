@@ -356,7 +356,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
         guard let model else { return false }
         // First accepted Send creates the durable Conversation without replacing
         // its Pane. Observe publication so the accessibility action can appear.
-        _ = model.persistedTurnCount
+        _ = model.pane?.hasPublishedTurn
         return scenePhase == .active && model.pane != nil && model.isCurrentConversationVisible
             && model.splitWorkspace == nil && !model.previewContent.isPresented
             && activeSurfaceSlot == nil && !resize.isActive && returnPresentation.phase == nil
@@ -366,7 +366,10 @@ struct WorkspaceSurfaceView<Content: View>: View {
         guard sidebarSpatiallyAvailable, let model, let pane = model.pane,
               let native = controller(for: model.sourceSurfaceSlot).sidebarNativeContext?() else { return nil }
         return WorkspaceSidebarNativeContext(hostID: native.hostID, paneID: ObjectIdentifier(pane),
-            window: native.window, allowsOpening: native.allowsOpening)
+            window: native.window, allowsOpening: native.allowsOpening
+                && !pane.composer.isComposing && !pane.composer.isSelectionHandleDragging
+                && pane.composer.quoteDragPhase == .idle,
+            allowsClosing: native.allowsClosing, surfaceView: native.surfaceView)
     }
 
     private var activeLift: SurfaceLiftController {
