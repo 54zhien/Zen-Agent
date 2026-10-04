@@ -298,7 +298,10 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     driver.workspacePaneDiagnostic = { [weak model] in
                         guard let model else { return "released owner" }
                         let pane = slot == model.sourceSurfaceSlot ? model.pane : model.splitPane
-                        return "modelRevision=\(model.workspaceLayoutRevision);\(pane?.scrollBridge.dividerDiagnostic ?? "no pane")"
+                        let owners = pane.map {
+                            "sessionIdentity=\(ObjectIdentifier($0.session));composerOwnerIdentity=\(ObjectIdentifier($0.composer));readingOwnerIdentity=\(ObjectIdentifier($0.readingPosition))"
+                        } ?? "no mounted warm presentation"
+                        return "modelRevision=\(model.workspaceLayoutRevision);\(owners);\(pane?.scrollBridge.dividerDiagnostic ?? "no pane")"
                     }
 #endif
                     driver.configureSplit(onDrop: { [weak model] intent in

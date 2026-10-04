@@ -16,6 +16,8 @@ final class SettingsUITests: XCTestCase {
         app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
         let identity = try XCTUnwrap((probe.value as? String)?.split(separator: ";")
             .first(where: { $0.hasPrefix("editorIdentity=") }).map(String.init))
+        let warmOwners = warmOwnerIdentities(probe)
+        XCTAssertEqual(warmOwners.count, 3)
         guard openAppearance(in: app) else { return }
         let ink = app.switches["settings-ink-enabled"].firstMatch
         guard ink.waitForExistence(timeout: 5) else {
@@ -34,7 +36,12 @@ final class SettingsUITests: XCTestCase {
         let savedIntensity = try XCTUnwrap(intensity.value as? String)
         ink.tap()
         expect { ink.value as? String == "0" }
+        guard ink.value as? String == "0" else {
+            print("Ink switch after native tap: \(ink.debugDescription)")
+            return
+        }
         app.buttons["settings-close"].tap()
+        expect { nativeEditorIdentity(probe) == identity && warmOwnerIdentities(probe) == warmOwners }
 
         let inkProbe = app.descendants(matching: .any)["app-space-ink-probe"]
         for enabled in [false, true] {
@@ -57,11 +64,13 @@ final class SettingsUITests: XCTestCase {
             expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" }
             XCTAssertTrue(pane.exists)
             XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
-            XCTAssertEqual((probe.value as? String)?.split(separator: ";")
-                .first(where: { $0.hasPrefix("editorIdentity=") }).map(String.init), identity)
+            // S5-04 deliberately dismantles the Full native editor in Preview.
+            // Return remounts it from the same warm owners, rather than keeping a hidden editor.
+            XCTAssertEqual(warmOwnerIdentities(probe), warmOwners)
             XCTAssertTrue((editor.value as? String)?.contains("Visual settings preserve this owner draft") == true)
             expect { (probe.value as? String)?.contains(";edgeVisible=false;") == true }
             if !enabled {
+                let returnedEditor = try XCTUnwrap(nativeEditorIdentity(probe))
                 guard openAppearance(in: app) else { return }
                 XCTAssertEqual(ink.value as? String, "0")
                 XCTAssertEqual(intensity.value as? String, savedIntensity)
@@ -69,7 +78,23 @@ final class SettingsUITests: XCTestCase {
                 ink.tap()
                 expect { ink.value as? String == "1" }
                 app.buttons["settings-close"].tap()
+                expect { nativeEditorIdentity(probe) == returnedEditor
+                    && warmOwnerIdentities(probe) == warmOwners }
             }
+        }
+    }
+
+    @MainActor
+    private func nativeEditorIdentity(_ probe: XCUIElement) -> String? {
+        (probe.value as? String)?.split(separator: ";")
+            .first(where: { $0.hasPrefix("editorIdentity=") }).map(String.init)
+    }
+
+    @MainActor
+    private func warmOwnerIdentities(_ probe: XCUIElement) -> [String] {
+        ((probe.value as? String)?.split(separator: ";") ?? []).compactMap { field in
+            ["sessionIdentity=", "composerOwnerIdentity=", "readingOwnerIdentity="]
+                .contains(where: { field.hasPrefix($0) }) ? String(field) : nil
         }
     }
 

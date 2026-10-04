@@ -49,6 +49,24 @@ policy changes, finite bounds, crop replacement and preference reload.
 The actual Settings UI exercises enablement/intensity, dark mode, two Lift/Return
 cycles and retained editor/identity/draft. Targeted and FULL gates remain OPEN.
 
+First implementation2c7e389/treeae22891 built in both37241606003/37241608585:
+942 Swift/151 suites passed78.796s/99.922s,20 XCTest passed; actualPad passed
+103.388s/109.186s,guard37241608686 passed. Each4SettingsUI had7 assertions
+in the new Ink case; original3passed. UI316.093s/281.972s; no restart/retry.
+Native artifact11317838918 and its screen recording show that the Form-wide
+Switch AX element's native tap at201,287 missed the actual right-side switch;
+enablement stayed on. Give the switch its own labeled interactive bounds.
+
+The two editor-identity failures were an incorrect new test contract, not evidence
+for changing S5-04. AppShellModel.enterPreview deliberately unregisters/releases
+the Full Pane, preserving its warm Session; PreviewHandoffUITests explicitly
+requires editor dismantling and native remount with draft/anchor restoration.
+Correct the assertion boundary: Settings Close retains the same native editor;
+Lift/Return retains actual Session, Composer and reading owners and draft, with
+one newly mounted editor. A DEBUG diagnostic reads these actual owners. Keep
+the existing native remount and reading-frame tests; do not retain hidden Full
+editors or change Runtime/SessionStore ownership to satisfy the mistaken test.
+
 ## Approved bounded design and device limits
 
 This authorized slice follows the Settings full code gate. Production work began
