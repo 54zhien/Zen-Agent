@@ -165,3 +165,19 @@ nonzero portrait receipt. This is observed native geometry, not a forced tap or
 a fixed device number. The retained stream regression also now uses the actual
 WorkspaceOverlayCoordinator.select wrapper, then checks dismissal, continued
 provider output, durable completion and the outgoing unsent draft.
+
+## Stable Rail composition correction
+
+Remote d93671ae3e6367e5fb465ab54a916a183acaa104 /tree
+315d5f32738f69f70d73982fd2caf4033b59310e passed888 Swift/136 suites and
+20 XCTest on push111388007436, including the actual held-stream regression.
+Both Search UI cases passed the required nonzero Window-inset and below-status-bar
+geometry assertions, then failed native hittability. Actual Pad111388166950
+and111388007465 passed120.401s and111.491s respectively.
+
+The complete SwiftUI content still occupies the full viewport above the Rail,
+even though its native Surface rejects the exposed strip. Give only the stable,
+settled, finite-width Rail precedence over that content layer. Drag/settlement
+composition and the overlay's higher layer remain unchanged. Continue to use the
+actual enabled/hittable/button tap and native focus/draft tests; log the observed
+button frame for future triage. Targeted GREEN and the full gate remain pending.

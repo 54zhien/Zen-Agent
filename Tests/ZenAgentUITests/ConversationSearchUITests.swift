@@ -98,6 +98,7 @@ final class ConversationSearchUITests: XCTestCase {
         }
         XCTAssertGreaterThanOrEqual(search.frame.minY, app.frame.minY + CGFloat(safeTop),
             "Search must be below the scene status bar")
+        print("SEARCH_RAIL_FRAME \(search.frame); windowSafeTop=\(safeTop)")
         guard search.wait(for: \.isHittable, toEqual: true, timeout: 5) else {
             XCTFail("Sidebar Search destination is not hittable")
             return false

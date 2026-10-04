@@ -44,6 +44,9 @@ struct SearchActivationTests {
         navigation.completeSettlement(try #require(navigation.settlementID))
         overlays.enter(.search, eligible: true, captureFocus: { nil })
         #expect(navigation.overlay == .search)
+        overlays.search.query = "Streaming Search target"
+        await overlays.search.refresh()
+        #expect(overlays.search.items.map(\.id) == ["stream-search-target"])
         await overlays.select("stream-search-target").value
         #expect(shell.conversationID == "stream-search-target")
         #expect(navigation.overlay == nil)
