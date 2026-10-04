@@ -267,3 +267,25 @@ Add bounded DEBUG diagnostics for handle identity, received native touches,
 actual XCTest screen point, live overlay/preview and both native host visibility
 flags. Keep gesture configuration, drag coordinates and all assertions unchanged.
 The candidate is not GREEN; Files full gate remains open.
+
+## Native cancellation delivery and full candidate
+
+On e58561d /treed339979, PR actual Pad111439496208 passed154.928s and
+push actual Pad111439487577 passed97.996s, one real case each, zero skip/failure.
+Both now recorded real Pan callbacks, same handle identity, released leases,
+and changed horizontal width. Only diagnostic code changed; this does not
+establish a cause or fix for the earlier intermittent Pad input loss.
+
+PR phone111439496242 passed911 Swift/141 suites128.179s and20 XCTest;
+push111439487584 passed911/14176.533s and20 XCTest. Import/focus passed.
+Both export cases found native Save and Cancel, then failed only the final
+Composer count. The actual log shows semantic Cancel tap computed {-1,-1};
+the following Files-close tap also computed {-1,-1}. Existence alone had allowed
+the covered underlay to be tapped before real native dismissal.
+
+Use the actual native Cancel control's center coordinate, require the picker
+actually disappear and Files Close become hittable, then require Files disappear
+and the native Composer return. No control/assertion is skipped or app-owned
+picker dismissal introduced. Remove files-red now so the repaired candidate
+runs all Stage5 units/UI plus the separate actual Pad gate. All results remain
+pending on this new tree; Settings production is still waiting for the full gate.

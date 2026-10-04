@@ -43,9 +43,16 @@ final class FilesWorkspaceUITests: XCTestCase {
         let close = exportPicker.descendants(matching: .any).matching(
             NSPredicate(format: "label IN %@", ["Close", "关闭", "Cancel", "取消"])).firstMatch
         XCTAssertTrue(close.waitForExistence(timeout: 5))
-        close.tap()
-        XCTAssertTrue(app.buttons["files-workspace-close"].waitForExistence(timeout: 5))
-        app.buttons["files-workspace-close"].tap()
+        XCTAssertFalse(close.frame.isEmpty)
+        // XCTest computes {-1,-1} for this native AX Other's semantic tap.
+        // Exercise its actual visible control, then require real dismissal.
+        close.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        expect { !exportPicker.exists }
+        let workspaceClose = app.buttons["files-workspace-close"]
+        XCTAssertTrue(workspaceClose.wait(for: \.isHittable, toEqual: true, timeout: 5))
+        workspaceClose.tap()
+        expect { !app.descendants(matching: .any)["files-workspace"].exists }
+        expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
     }
 
