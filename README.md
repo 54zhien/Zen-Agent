@@ -139,8 +139,12 @@ As of 2026-10-04:
   See [the slice record](tasks/s5-11-rotation.md) for retained failed evidence.
 - S5-12 Sidebar is on stacked draft [PR #29](https://github.com/54zhien/Zen-Agent/pull/29).
   Initial behavior RED compiled and reproduced the missing Rail. Product source
-  and review corrections require a completed full CI gate; S5-13–16 remain
-  authorized in order. Full-stage and physical acceptance remain open.
+  and review corrections passed both targeted phone gates on tree
+  `e4e713dd7176ad601c93d40e1a3f6b1011007d04`: generation/build,873 Swift
+  Testing,20 XCTest and7 Sidebar UI, including both landscape directions.
+  PR iPad passed; push iPad could not launch the app. The temporary test profile
+  is removed for the pending full gate. S5-13–16 remain authorized in order.
+  Full-stage and physical acceptance remain open.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
   does not establish device memory, performance, input, comfort or VoiceOver acceptance.

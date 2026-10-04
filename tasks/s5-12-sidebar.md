@@ -1,4 +1,4 @@
-# S5-12 Sidebar — preparation record
+# S5-12 Sidebar — implementation and gate record
 
 The owner authorized completing all remaining Stage 5 before their whole-stage
 review and physical-device testing. S5-11's full code gate is the predecessor;
@@ -15,8 +15,9 @@ alone is not forbidden. Opening and closing retain native focus, draft, reading
 and Run. Expose the equivalent named accessibility action while keeping children.
 
 Root owns retained navigation state and supplies live spatial admission. A
-navigation wrapper owns Rail/overlay composition; a native adapter owns UIWindow
-recognizer installation, arbitration and removal. Runtime owns Runs; the existing
+navigation wrapper owns Rail/overlay composition; a native adapter owns scene
+recognizer installation, arbitration and removal. Screen-edge opening uses the
+mounted root content view; reverse/tap closing stays on Window. Runtime owns Runs; the existing
 Session/Pane/Composer remain their own owners. A cancelled drag restores its
 stable endpoint; owner loss/inactive scene closes navigation. Future destinations
 stay disabled until their real handlers exist, with no empty pages.
@@ -266,3 +267,23 @@ its own attachment. The native unit regression verifies these attachments,
 keyboard-only preservation, real bounds-change cancellation and identity reuse.
 The two landscape behavior tests remain unchanged. This is a candidate to
 verify, not a claim that Apple's recognizer has a platform defect.
+
+### Targeted GREEN; full product gate pending
+
+Local `7ffdc14` /remote `b6ba4473b23bbd738f5c02ce414df893eba2af9a` /
+tree `e4e713dd7176ad601c93d40e1a3f6b1011007d04` passed source review.
+PR37179904319/phone111370197952 and push37179902790/phone111370192950
+both generated/built the project and passed873 Swift tests/132 suites,20 XCTest
+and all7 Sidebar UI cases. Both landscape openings now have actual edge begin,
+changed and ended callbacks and open=true/progress=1/settlement=nil; inner
+Timeline/editor widths and identity assertions passed. Other five cases passed.
+No test host restart/retry.
+
+Actual PR Pad111370197898 passed147.463s with native Pan81pt. Push
+Pad111370192983 failed78.892s: Xcode timed out launching the application,
+before any axis assertion or Pan. This job is unavailable acceptance evidence,
+not a passed test or an observed axis behavior regression.
+
+The temporary Sidebar profile is now removed. The next publication runs the
+complete product unit/UI targets and the dedicated actual Pad job. This record
+does not close S5-12 until that full gate has a real completed result.
