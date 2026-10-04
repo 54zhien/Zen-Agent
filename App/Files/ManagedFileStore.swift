@@ -55,6 +55,7 @@ final class ManagedFileStore: @unchecked Sendable {
     let applicationSupportRoot: URL
     let rootURL: URL
     let protectionRequirement: ProtectionRequirement
+    let presentationCacheRoot: URL
 
     private let fileManager: FileManager
     private let makeIdentifier: @Sendable () -> String
@@ -64,6 +65,7 @@ final class ManagedFileStore: @unchecked Sendable {
         applicationSupportRoot: URL,
         fileManager: FileManager = .default,
         protectionRequirement: ProtectionRequirement = .enforced,
+        presentationCacheRoot: URL? = nil,
         makeIdentifier: @escaping @Sendable () -> String = { UUID().uuidString },
         temporaryFileObserver: (@Sendable (URL, ManagedFileTemporaryFilePhase) -> Void)? = nil
     ) {
@@ -74,6 +76,10 @@ final class ManagedFileStore: @unchecked Sendable {
             .standardizedFileURL
         self.fileManager = fileManager
         self.protectionRequirement = protectionRequirement
+        self.presentationCacheRoot = (presentationCacheRoot
+            ?? fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first
+                ?? applicationSupportRoot.appendingPathComponent("PresentationCache", isDirectory: true))
+            .appendingPathComponent("ZenAgentFilePresentations", isDirectory: true).standardizedFileURL
         self.makeIdentifier = makeIdentifier
         self.temporaryFileObserver = temporaryFileObserver
     }
@@ -104,27 +110,31 @@ final class ManagedFileStore: @unchecked Sendable {
         fileAt sourceURL: URL,
         displayName: String,
         mediaType: String? = nil,
-        in store: PersistenceStore
+        in store: PersistenceStore,
+        checkCancellation: @Sendable () throws -> Void = { try Task<Never, Never>.checkCancellation() }
     ) throws -> ManagedFileDescriptor {
         guard sourceURL.isFileURL else {
             throw ManagedFileStoreError.invalidSourceURL
         }
         let input = InputStream(url: sourceURL)
         guard let input else { throw ManagedFileStoreError.invalidSourceURL }
-        return try ingest(input, displayName: displayName, mediaType: mediaType, in: store)
+        return try ingest(input, displayName: displayName, mediaType: mediaType, in: store,
+                          checkCancellation: checkCancellation)
     }
 
     func ingest(
         data: Data,
         displayName: String,
         mediaType: String? = nil,
-        in store: PersistenceStore
+        in store: PersistenceStore,
+        checkCancellation: @Sendable () throws -> Void = { try Task<Never, Never>.checkCancellation() }
     ) throws -> ManagedFileDescriptor {
         try ingest(
             InputStream(data: data),
             displayName: displayName,
             mediaType: mediaType,
-            in: store
+            in: store,
+            checkCancellation: checkCancellation
         )
     }
 
@@ -132,11 +142,13 @@ final class ManagedFileStore: @unchecked Sendable {
         _ input: InputStream,
         displayName: String,
         mediaType: String? = nil,
-        in store: PersistenceStore
+        in store: PersistenceStore,
+        checkCancellation: @Sendable () throws -> Void = { try Task<Never, Never>.checkCancellation() }
     ) throws -> ManagedFileDescriptor {
+        try checkCancellation()
         Self.operationLock.value.lock()
         defer { Self.operationLock.value.unlock() }
-
+        try checkCancellation()
         _ = try removeUnreferencedBlobsLocked(in: store)
         try ensureStorageDirectories()
 
@@ -178,7 +190,7 @@ final class ManagedFileStore: @unchecked Sendable {
         defer { buffer.deallocate() }
 
         while true {
-            if Task<Never, Never>.isCancelled { throw CancellationError() }
+            try checkCancellation()
             let readCount = input.read(buffer, maxLength: bufferSize)
             if readCount < 0 {
                 throw input.streamError ?? ManagedFileStoreError.streamReadFailed
@@ -198,9 +210,9 @@ final class ManagedFileStore: @unchecked Sendable {
         try output.close()
         try ensureProtection(on: temporaryURL)
         temporaryFileObserver?(temporaryURL, .protectedAfterWrite)
-
+        try checkCancellation()
         let streamedFingerprint = "sha256:" + Self.hex(streamedHasher.finalize())
-        let inspectedTemporary = try inspectBlob(at: temporaryURL)
+        let inspectedTemporary = try inspectBlob(at: temporaryURL, checkCancellation: checkCancellation)
         guard inspectedTemporary.byteCount == streamedByteCount,
               inspectedTemporary.fingerprint == streamedFingerprint
         else {
@@ -216,12 +228,14 @@ final class ManagedFileStore: @unchecked Sendable {
 
         var publishedThisCall = false
         do {
+            try checkCancellation()
             try publish(
                 temporaryURL,
                 to: destinationURL,
                 fingerprint: fingerprint,
                 byteCount: streamedByteCount,
-                publishedThisCall: &publishedThisCall
+                publishedThisCall: &publishedThisCall,
+                checkCancellation: checkCancellation
             )
 
             let assetID = makeIdentifier()
@@ -244,7 +258,9 @@ final class ManagedFileStore: @unchecked Sendable {
                 createdAt: now
             )
 
-            try store.createFileAsset(asset, initialVersion: version)
+            try checkCancellation()
+            try store.createFileAsset(asset, initialVersion: version, checkCancellation: checkCancellation)
+            // Metadata commit wins; a later cancellation must not erase this durable asset.
             return ManagedFileDescriptor(
                 assetID: assetID,
                 versionID: versionID,
@@ -271,9 +287,35 @@ final class ManagedFileStore: @unchecked Sendable {
         for attachment: SendAttachment,
         in store: PersistenceStore
     ) throws -> URL {
+        try withVerifiedBlob(for: attachment, in: store) { $0 }
+    }
+
+    /// The caller consumes immutable bytes while publish/removal shares the same lock.
+    /// The body must not call another public locked file operation.
+    func withVerifiedBlob<T>(for attachment: SendAttachment, in store: PersistenceStore,
+                             _ body: (URL) throws -> T) throws -> T {
+        try withFileOperation { try body(verifiedBlobURLLocked(for: attachment, in: store)) }
+    }
+
+    func withFileOperation<T>(_ body: () throws -> T) rethrows -> T {
         Self.operationLock.value.lock()
         defer { Self.operationLock.value.unlock() }
-        return try verifiedBlobURLLocked(for: attachment, in: store)
+        return try body()
+    }
+
+    @discardableResult
+    func removeUnreferencedAsset(id: String, in store: PersistenceStore,
+                                protectedAssetIDs: Set<String>,
+                                checkCancellation: @Sendable () throws -> Void = { try Task<Never, Never>.checkCancellation() }
+    ) throws -> Bool {
+        guard !protectedAssetIDs.contains(id) else { return false }
+        return try withFileOperation {
+            try checkCancellation()
+            guard try store.removeFileAssetIfUnreferenced(id: id, checkCancellation: checkCancellation) else { return false }
+            // Once metadata commits, finish fresh-reference cleanup despite cancellation.
+            _ = try removeUnreferencedBlobsLocked(in: store)
+            return true
+        }
     }
 
     func loadVerifiedBlob(
@@ -355,7 +397,8 @@ final class ManagedFileStore: @unchecked Sendable {
         to destinationURL: URL,
         fingerprint: String,
         byteCount: Int64,
-        publishedThisCall: inout Bool
+        publishedThisCall: inout Bool,
+        checkCancellation: @Sendable () throws -> Void
     ) throws {
         try ensureManagedPath(destinationURL)
         if fileManager.fileExists(atPath: destinationURL.path) {
@@ -363,7 +406,8 @@ final class ManagedFileStore: @unchecked Sendable {
             try verifyExistingBlob(
                 at: destinationURL,
                 fingerprint: fingerprint,
-                byteCount: byteCount
+                byteCount: byteCount,
+                checkCancellation: checkCancellation
             )
             return
         }
@@ -377,7 +421,8 @@ final class ManagedFileStore: @unchecked Sendable {
             try verifyExistingBlob(
                 at: destinationURL,
                 fingerprint: fingerprint,
-                byteCount: byteCount
+                byteCount: byteCount,
+                checkCancellation: checkCancellation
             )
             return
         }
@@ -386,16 +431,18 @@ final class ManagedFileStore: @unchecked Sendable {
         try verifyExistingBlob(
             at: destinationURL,
             fingerprint: fingerprint,
-            byteCount: byteCount
+            byteCount: byteCount,
+            checkCancellation: checkCancellation
         )
     }
 
     private func verifyExistingBlob(
         at url: URL,
         fingerprint: String,
-        byteCount: Int64
+        byteCount: Int64,
+        checkCancellation: @Sendable () throws -> Void
     ) throws {
-        let actual = try inspectBlob(at: url)
+        let actual = try inspectBlob(at: url, checkCancellation: checkCancellation)
         guard actual.byteCount == byteCount,
               actual.fingerprint == fingerprint
         else {
@@ -403,7 +450,10 @@ final class ManagedFileStore: @unchecked Sendable {
         }
     }
 
-    private func inspectBlob(at url: URL) throws -> (byteCount: Int64, fingerprint: String) {
+    private func inspectBlob(at url: URL,
+        checkCancellation: @Sendable () throws -> Void = { try Task<Never, Never>.checkCancellation() }
+    ) throws -> (byteCount: Int64, fingerprint: String) {
+        try checkCancellation()
         let attributes = try fileManager.attributesOfItem(atPath: url.path)
         guard attributes[.type] as? FileAttributeType == .typeRegular,
               let number = attributes[.size] as? NSNumber
@@ -416,6 +466,7 @@ final class ManagedFileStore: @unchecked Sendable {
         var hasher = SHA256()
         var byteCount: Int64 = 0
         while let chunk = try handle.read(upToCount: 64 * 1024), !chunk.isEmpty {
+            try checkCancellation()
             let (nextByteCount, overflow) = byteCount.addingReportingOverflow(Int64(chunk.count))
             guard !overflow else { throw ManagedFileStoreError.byteCountOverflow }
             byteCount = nextByteCount

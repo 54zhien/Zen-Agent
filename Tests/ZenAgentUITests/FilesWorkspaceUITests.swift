@@ -2,6 +2,49 @@ import XCTest
 
 final class FilesWorkspaceUITests: XCTestCase {
     @MainActor
+    func testManagedPreviewAndExportUseTheNativePresentations() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_FILES_PREVIEW_UI_TEST"] = "1"
+        app.launch()
+        XCTAssertTrue(app.buttons["split-entry"].waitForExistence(timeout: 15))
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
+        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        let files = app.buttons["sidebar-files"]
+        guard files.waitForExistence(timeout: 5),
+              files.wait(for: \.isEnabled, toEqual: true, timeout: 5),
+              files.wait(for: \.isHittable, toEqual: true, timeout: 5) else {
+            XCTFail("Sidebar Files destination is unavailable")
+            return
+        }
+        files.tap()
+        let preview = app.buttons["files-preview-managed-preview-fixture"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 10))
+        preview.tap()
+        let text = "Managed native preview/export fixture"
+        expect {
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.exists
+                || app.textViews.matching(NSPredicate(format: "value CONTAINS %@", text)).firstMatch.exists
+        }
+        let done = app.buttons.matching(NSPredicate(format: "label IN %@", ["Done", "完成"])).firstMatch
+        XCTAssertTrue(done.waitForExistence(timeout: 10), "Quick Look must present its native dismissal control")
+        done.tap()
+        let export = app.buttons["files-export-managed-preview-fixture"]
+        XCTAssertTrue(export.waitForExistence(timeout: 5))
+        export.tap()
+        let exportPicker = app.descendants(matching: .any)["files-native-export"]
+        XCTAssertTrue(exportPicker.waitForExistence(timeout: 10), "Export must present the native document picker")
+        let close = app.buttons.matching(NSPredicate(format: "label IN %@", ["Close", "关闭", "Cancel", "取消"])).firstMatch
+        XCTAssertTrue(close.waitForExistence(timeout: 5))
+        close.tap()
+        XCTAssertTrue(app.buttons["files-workspace-close"].waitForExistence(timeout: 5))
+        app.buttons["files-workspace-close"].tap()
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+    }
+
+    @MainActor
     func testFilesImportOpensTheSystemPickerAndCloseRestoresTheDraft() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"

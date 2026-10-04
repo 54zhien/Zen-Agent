@@ -8,7 +8,7 @@ import Testing
 @MainActor
 struct AttachmentSendTests {
     @Test("attachmentCommitsWithMessageAndRunInOneTransaction")
-    func attachmentCommitsWithMessageAndRunInOneTransaction() throws {
+    func attachmentCommitsWithMessageAndRunInOneTransaction() async throws {
         let supportRoot = temporarySupportRoot()
         defer { try? FileManager.default.removeItem(at: supportRoot) }
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
@@ -16,9 +16,10 @@ struct AttachmentSendTests {
             applicationSupportRoot: supportRoot,
             protectionRequirement: .bestEffort
         )
-        let descriptor = try managedFiles.ingest(
+        let descriptor = try await ingest(
             data: Data("send with attachment".utf8),
             displayName: "scan.png",
+            files: managedFiles,
             in: store
         )
         var commit = Fixtures.send(messageID: "message-with-attachment", runID: "run-with-attachment")
@@ -81,14 +82,17 @@ struct AttachmentSendTests {
         let supportRoot = temporarySupportRoot()
         defer { try? FileManager.default.removeItem(at: supportRoot) }
         let runtimeFixture = try makeRuntimeFixture(supportRoot: supportRoot)
-        let first = try runtimeFixture.managedFiles.ingest(
-            data: Data("first".utf8), displayName: "first.txt", in: runtimeFixture.store
+        let first = try await ingest(
+            data: Data("first".utf8), displayName: "first.txt",
+            files: runtimeFixture.managedFiles, in: runtimeFixture.store
         )
-        let second = try runtimeFixture.managedFiles.ingest(
-            data: Data("second".utf8), displayName: "second.txt", in: runtimeFixture.store
+        let second = try await ingest(
+            data: Data("second".utf8), displayName: "second.txt",
+            files: runtimeFixture.managedFiles, in: runtimeFixture.store
         )
-        let third = try runtimeFixture.managedFiles.ingest(
-            data: Data("third".utf8), displayName: "third.txt", in: runtimeFixture.store
+        let third = try await ingest(
+            data: Data("third".utf8), displayName: "third.txt",
+            files: runtimeFixture.managedFiles, in: runtimeFixture.store
         )
         var command = I05RuntimeTestFixtures.command(text: "compare these")
         command.submissionID = "attachment-digest-stable-id"
@@ -230,9 +234,10 @@ struct AttachmentSendTests {
         let supportRoot = temporarySupportRoot()
         defer { try? FileManager.default.removeItem(at: supportRoot) }
         let runtimeFixture = try makeRuntimeFixture(supportRoot: supportRoot)
-        let descriptor = try runtimeFixture.managedFiles.ingest(
+        let descriptor = try await ingest(
             data: Data("identity check".utf8),
             displayName: "identity.txt",
+            files: runtimeFixture.managedFiles,
             in: runtimeFixture.store
         )
         var command = I05RuntimeTestFixtures.command(text: "do not commit bad identity")
@@ -309,9 +314,10 @@ struct AttachmentSendTests {
         let supportRoot = temporarySupportRoot()
         defer { try? FileManager.default.removeItem(at: supportRoot) }
         let runtimeFixture = try makeRuntimeFixture(supportRoot: supportRoot)
-        let descriptor = try runtimeFixture.managedFiles.ingest(
+        let descriptor = try await ingest(
             data: Data("valid on first send".utf8),
             displayName: "retry.txt",
+            files: runtimeFixture.managedFiles,
             in: runtimeFixture.store
         )
         var command = I05RuntimeTestFixtures.command(text: "retry safely")
@@ -335,6 +341,15 @@ struct AttachmentSendTests {
         #expect(try runtimeFixture.store.messages(
             inConversation: I05RuntimeTestFixtures.conversationID
         ).filter { $0.role == .user }.count == 1)
+    }
+
+    private func ingest(data: Data, displayName: String, files: ManagedFileStore,
+                        in store: PersistenceStore) async throws -> ManagedFileDescriptor {
+        // Held import regressions must never make another fixture wait for
+        // the process-wide file lock on the actor that releases that import.
+        try await Task.detached {
+            try files.ingest(data: data, displayName: displayName, in: store)
+        }.value
     }
 
     private func makeRuntimeFixture(supportRoot: URL) throws -> (

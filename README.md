@@ -150,7 +150,10 @@ As of 2026-10-04:
   PR37195524247: generation/build,894 Swift Testing,20 XCTest,48 phone UI
   (one expected Pad-only skip), plus one actual Pad axis case in each run.
   Native query teardown preserves the original responder; no host restart/retry.
-  S5-14 Files behavior RED is next; S5-15–16 remain authorized in order.
+  S5-14 Files has compiled behavioral RED on stacked draft
+  [PR #31](https://github.com/54zhien/Zen-Agent/pull/31). Its complete Workspace
+  candidate is entering native regression CI; the full Files gate remains open.
+  S5-15–16 remain authorized after that full gate, in order.
   Full-stage and physical acceptance remain open.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order

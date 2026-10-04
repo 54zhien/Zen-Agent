@@ -8,6 +8,11 @@ final class ConversationSession {
     let readingPosition: ReadingPositionController
     private var submissionCoordinator: ComposerSendCoordinator?
 
+    var protectedFileAssetIDs: Set<String> {
+        Set(composer.draft.attachments.map(\.id))
+            .union(submissionCoordinator?.pendingFileAssetIDs ?? [])
+    }
+
     init(conversationID: String, configuration: ConversationComposerConfiguration?,
          sendAvailability: ComposerSendAvailability? = nil, tolerance: Double = 12) {
         self.conversationID = conversationID

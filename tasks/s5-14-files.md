@@ -1,7 +1,8 @@
-# S5-14 Files — preparation record
+# S5-14 Files — implementation and retained evidence
 
-This authorized slice follows the completed Search full code gate. No Files
-Workspace production source has been published yet.
+This authorized slice follows the completed Search full code gate. The Files
+Workspace source gate is still open. The implementation candidate follows the
+compiled existing-API behavioral RED recorded below.
 
 Blueprint navigation section15 and data sections6–7 require a real single-level
 catalog, native import, immutable preview/export and guarded removal. Workspace
@@ -156,3 +157,63 @@ Task to the cancellation receipt before yielding its startup event; the worker
 awaits that event asynchronously, then copies through the unchanged production
 ingest path. The synchronous after-copy observer still cancels the same actual
 Task. No production Files change accompanies this test compilation repair.
+
+## Compiled existing-API Files behavioral RED
+
+Remote1904846fb2153bdff7f7623444b4a3e1aadbfbdc /tree
+338816ded688c14fabbd4c10be2c84eb44c91c37 built successfully.
+PR37197983305 /phone111423714583:20 XCTest passed;895 Swift Testing in137
+suites ran84.199s, with only3 issues in the actual after-copy cancellation case:
+no CancellationError, version metadata persisted, and the blob persisted.
+Its cancellation receipt passed, proving the same actual import Task was cancelled.
+The Files UI case failed25.191s because Sidebar Files is unavailable. Exactly
+one Swift test-run start and no host restart. Both actual Pad jobs passed.
+This is behavioral RED, distinct from the preceding test compilation failure.
+Approved Files production may now proceed with the prepared service/Session/model
+tests, native preview/export UI and held Runtime regression.
+
+
+The push run37197981216 /phone111423712574 reproduced the same three cancellation
+issues:895 Swift Testing in137 suites78.693s;20 XCTest passed. Files UI failed
+27.909s because its Sidebar destination is unavailable. One Swift test-run start,
+no restart or retry. Actual Pad axis passed in PR job11142371459376.329s and push
+job11142371250080.192s, one real test each.
+
+## Complete Files candidate — native CI pending
+
+The bounded metadata catalog uses keyset pagination (maximum50 rows per page).
+Removal checks all historical durable attachment references in its transaction.
+The real retained Session drafts and Composer pending snapshots protect their
+asset IDs; removal reservations last through actual writer and blob cleanup.
+No attachment producer or incomplete attachment Send capability is enabled.
+Runtime remains the Run/Streaming/Approval owner.
+
+The async Workspace model owns its real detached worker and cancellation signal.
+Security-scoped import covers the whole copy operation. The owned signal reaches
+inside writer transactions before and after mutations. A completed metadata commit
+wins; cleanup drains using fresh shared-fingerprint references even after cancellation.
+Existing attachment fixtures now ingest off the presentation actor with assertions
+unchanged, avoiding actor blocking on the process-wide file lock.
+
+Native Quick Look and document export use verified immutable, protected copies
+excluded from backup. Copies survive catalog deletion and cache clearing from
+another store instance while leased. Redirected cache namespaces are refused.
+Presentation IDs and one-shot native callbacks reject stale completion. Closing
+Files restores the original editor identity, draft and native focus.
+Quick Look editing is explicitly disabled using the documented delegate API:
+https://developer.apple.com/documentation/quicklook/qlpreviewcontrollerdelegate/previewcontroller(_:editingmodefor:)
+
+Candidate tests cover paging, missing/corrupt bytes, shared blobs, historical and
+pending references, cancellation, reservation lifetime, cache leases and symlinks,
+off-main import and a held Runtime stream. Native UI covers real managed text in
+Quick Look, the export document picker, import cancellation and editor restoration.
+The writer-cancellation test does not prove GRDB queue admission; in-transaction
+checks are source evidence until native execution supplies the remaining behavior.
+
+Read-only review found no concrete P1/P2 blocker before compilation. This is not
+GREEN evidence. Actual XcodeGen/build/unit/Files UI and Pad CI are required, followed
+by removal of the temporary files-red profile and the complete Stage5 UI gate.
+Local YAML and ten profile guards passed. The managed build-settings guard could
+not execute locally because Ruby is unavailable; its real CI result remains required.
+PR31 stays draft and unmerged. External provider completion, device comfort,
+VoiceOver and memory acceptance follow the owner's whole-stage review.

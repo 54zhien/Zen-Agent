@@ -5,6 +5,12 @@ import Observation
 @Observable
 final class WorkspaceOverlayCoordinator {
     let search: ConversationSearchModel
+    private(set) var files: FilesWorkspaceModel?
+    var availableRoutes: Set<WorkspaceOverlayRoute> {
+        var routes: Set<WorkspaceOverlayRoute> = [.search]
+        if shell?.workspaceFilesAvailable == true { routes.insert(.files) }
+        return routes
+    }
     @ObservationIgnored private weak var shell: AppShellModel?
     @ObservationIgnored private weak var navigation: WorkspaceNavigationState?
     @ObservationIgnored private var focus: ComposerOverlayFocus?
@@ -15,19 +21,24 @@ final class WorkspaceOverlayCoordinator {
     }
 
     func enter(_ route: WorkspaceOverlayRoute, eligible: Bool, captureFocus: () -> ComposerOverlayFocus?) {
-        guard let navigation, route == .search else { return }
+        guard let navigation, availableRoutes.contains(route) else { return }
+        let catalog = route == .files ? shell?.makeFilesWorkspaceModel() : nil
+        if route == .files, catalog == nil { return }
         let captured = captureFocus()
         guard navigation.present(route, available: true, eligible: eligible) else { captured?.cancel(); return }
         focus?.cancel(); focus = captured
-        search.query = ""
+        if route == .search { search.query = "" }
+        files = catalog
     }
 
     func close(expectedID: UUID? = nil) {
         guard navigation?.overlay != nil,
               expectedID == nil || navigation?.overlayID == expectedID else { return }
         search.invalidate()
+        files?.invalidate(); files = nil
         navigation?.dismissOverlay()
-        focus?.restore()
+        let captured = focus; focus = nil
+        captured?.restore()
     }
 
     @discardableResult
@@ -41,6 +52,7 @@ final class WorkspaceOverlayCoordinator {
     }
 
     func reset() {
-        search.invalidate(); focus?.cancel(); focus = nil
+        search.invalidate(); files?.invalidate(); files = nil
+        focus?.cancel(); focus = nil
     }
 }
