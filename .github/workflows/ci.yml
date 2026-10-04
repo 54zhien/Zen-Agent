@@ -374,6 +374,9 @@ jobs:
           elif [ "$TEST_SCOPE" = "orientation-red" ]; then
             echo "::notice::S5-11 test-only RED: app build, complete unit target, rotation and cross-owner Return receipts; full prior-slice gate is separate."
             TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/WorkspaceRotationUITests -only-testing:ZenAgentUITests/WorkspaceReturnReceiptUITests)
+          elif [ "$TEST_SCOPE" = "sidebar-red" ]; then
+            echo "::notice::S5-12 targeted Sidebar regression/diagnostics: complete unit target and native Sidebar UI; full product gate remains required."
+            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SidebarUITests)
           elif [ "$TEST_SCOPE" = "resize-diagnostic" ]; then
             echo "::notice::Stage 5 resize diagnostics: all unit tests and SplitResize UI; full slice gate remains required."
             TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SplitResizeUITests)

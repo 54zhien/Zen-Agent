@@ -237,3 +237,25 @@ incremented only by the existing Timeline gesture callback. The test requires
 a fresh increment and real keyboard dismissal, then verifies blank classification.
 This changes diagnostics/test coordinates, not production layout or tap policy.
 S5-11 remains open until this candidate's full phone and actual Pad CI pass.
+
+### Full source gate
+
+Local79b96c0 / remotead10ca848a3f1d1d3ba7058643ac0f7e0f53dab5 /
+tree96300c087a4d272d77b55c947336bcd9447b98a2 passed both complete runs:
+push37169724633 / phone111340051817 and PR37169727362 /
+phone111340059636. Each passed hygiene, XcodeGen/build,861 Swift Testing
+in129 suites,20 XCTest and39 iPhone UI cases with only the expected Pad-only
+skip and no failure, test retry or host restart.
+
+Actual Pad111340051896 (push) and111340059693 (PR) each executed one
+axis/resize test with no failure/skip/retry. Menu completion and the live center
+hit-test precede actual native Pan delivery (67.5 and76.5pt respectively);
+source width grows and both ratios/native editor identities survive.
+
+The PR landscape probe measures readable=(62,78,750,15.75) inside874pt
+native bounds. The actual Timeline blank callback increments sequence1 to2,
+classifies blank=true and leaves focused=false with the keyboard dismissed.
+This establishes a fresh landscape touch, not a stale portrait diagnostic.
+Scoped source review found no blocker in menu readiness or fresh-tap geometry.
+S5-11's source gate is closed; PR #28 stays draft/open/unmerged. Physical
+rotation, VoiceOver, comfort, memory and performance acceptance remain open.

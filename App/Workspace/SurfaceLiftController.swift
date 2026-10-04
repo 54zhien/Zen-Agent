@@ -10,6 +10,10 @@ final class SurfaceLiftController {
     private(set) var workspaceVisibilityRevision: UInt64 = 0
     private(set) var overlayPresented = false
     var workspaceResizeActive = false
+    @ObservationIgnored weak var workspaceNavigation: WorkspaceNavigationState?
+    var workspaceNavigationActive: Bool { workspaceNavigation?.blocksLift == true }
+    @ObservationIgnored var sidebarNativeContext: (() -> (hostID: ObjectIdentifier, window: UIWindow,
+        allowsOpening: Bool, allowsClosing: Bool, surfaceView: UIView)?)?
     private(set) var heldReturnCardLabel: String?
     var nativeHostIdentity: ObjectIdentifier? { hostID }
     private(set) var retainsAppSpaceViewport = false
@@ -129,6 +133,15 @@ final class SurfaceLiftController {
         host.loadViewIfNeeded()
         hostID = ObjectIdentifier(host)
         host.liftController = self
+        sidebarNativeContext = { [weak self, weak host] in
+            guard let self, let host, let window = host.view.window else { return nil }
+            return (ObjectIdentifier(host), window, self.state.phase == .full && self.isWorkspaceVisible
+                && !self.hasSelection && !self.overlayPresented && !self.workspaceResizeActive
+                && host.allowsSidebarInput,
+                self.state.phase == .full && self.isWorkspaceVisible && !self.overlayPresented
+                    && !self.workspaceResizeActive && host.allowsSidebarClosing,
+                host.surfaceView)
+        }
 #if DEBUG
         nativeInteractionDiagnostic = { [weak host] in host?.interactionDiagnostic ?? "host released" }
 #endif
@@ -320,6 +333,7 @@ final class SurfaceLiftController {
         host.onViewportChanged = nil
         host.liftController = nil
         hostID = nil
+        sidebarNativeContext = nil
         resolveTarget = nil
         resolveReturnPose = nil
         captureHostFrame = nil
@@ -341,7 +355,8 @@ final class SurfaceLiftController {
     private func guarded(_ input: SurfaceLiftEligibility) -> SurfaceLiftEligibility {
         var result = input
         result.selectionActive = result.selectionActive || hasSelection
-        result.overlayPresented = result.overlayPresented || overlayPresented || workspaceResizeActive || (presentedOverlay?() ?? true)
+        result.overlayPresented = result.overlayPresented || overlayPresented || workspaceResizeActive
+            || workspaceNavigationActive || (presentedOverlay?() ?? true)
         return result
     }
     func canArm(_ input: SurfaceLiftEligibility) -> Bool {

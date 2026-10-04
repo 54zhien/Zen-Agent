@@ -15,35 +15,49 @@ final class WorkspacePadAxisUITests: XCTestCase {
         let entry = app.buttons["split-entry"]
         XCTAssertTrue(entry.waitForExistence(timeout: 15))
         entry.tap()
-        app.buttons["split-open-top"].tap()
+        let splitAction = app.buttons["split-open-top"]
+        guard splitAction.waitForExistence(timeout: 10) else {
+            XCTFail("Split menu did not become available after opening it")
+            return
+        }
+        splitAction.tap()
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()
         let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let other = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch
-        expect { source.exists && other.exists && app.frame.width > app.frame.height }
+        // Each AX request can block independently on a busy simulator. Observe
+        // these stable prerequisites separately before starting the next input.
+        XCTAssertTrue(source.waitForExistence(timeout: 10))
+        XCTAssertTrue(other.waitForExistence(timeout: 10))
+        expect { app.frame.width > app.frame.height }
         let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         let otherProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
         let sourceIdentity = try XCTUnwrap(editorIdentity(sourceProbe.value as? String))
         let otherIdentity = try XCTUnwrap(editorIdentity(otherProbe.value as? String))
         let verticalHeight = source.frame.height
         selectAxis("左右分屏", in: app)
-        expect { abs(source.frame.maxX - other.frame.minX) < 3
-            && source.frame.height > verticalHeight + 50 && self.leasesReleased(sourceProbe, otherProbe) }
+        expect { source.frame.height > verticalHeight + 50 }
+        expectLeasesReleased(sourceProbe, otherProbe)
+        XCTAssertEqual(source.frame.maxX, other.frame.minX, accuracy: 3)
         XCTAssertEqual(source.frame.height, other.frame.height, accuracy: 3)
         let widthBefore = source.frame.width
         let handle = app.descendants(matching: .any)["split-divider-handle"]
         let start = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        start.press(forDuration: 0.15, thenDragTo: start.withOffset(CGVector(dx: 100, dy: 0)))
+        start.press(forDuration: 0.15, thenDragTo: start.withOffset(CGVector(dx: 100, dy: 0)),
+            withVelocity: .slow, thenHoldForDuration: 0)
         print("PAD_RESIZE beforeWidth=\(widthBefore) source=\(source.frame) other=\(other.frame) handle=\(handle.frame) value=\(String(describing: handle.value))")
         print("PAD_SOURCE \(String(describing: sourceProbe.value))")
         print("PAD_OTHER \(String(describing: otherProbe.value))")
-        expect { source.frame.width > widthBefore + 50 && self.leasesReleased(sourceProbe, otherProbe) }
+        expect { source.frame.width > widthBefore + 50 }
+        expectLeasesReleased(sourceProbe, otherProbe)
         let horizontalWidth = source.frame.width
         selectAxis("上下分屏", in: app)
-        expect { abs(source.frame.height - verticalHeight) < 4 && self.leasesReleased(sourceProbe, otherProbe) }
+        expect { abs(source.frame.height - verticalHeight) < 4 }
+        expectLeasesReleased(sourceProbe, otherProbe)
         selectAxis("左右分屏", in: app)
-        expect { abs(source.frame.width - horizontalWidth) < 4 && self.leasesReleased(sourceProbe, otherProbe) }
+        expect { abs(source.frame.width - horizontalWidth) < 4 }
+        expectLeasesReleased(sourceProbe, otherProbe)
         XCTAssertEqual(editorIdentity(sourceProbe.value as? String), sourceIdentity)
         XCTAssertEqual(editorIdentity(otherProbe.value as? String), otherIdentity)
         XCTAssertTrue(source.exists && other.exists)
@@ -65,9 +79,9 @@ final class WorkspacePadAxisUITests: XCTestCase {
     }
 
     @MainActor
-    private func leasesReleased(_ source: XCUIElement, _ other: XCUIElement) -> Bool {
-        (source.value as? String)?.contains(";lease=false;") == true
-            && (other.value as? String)?.contains(";lease=false;") == true
+    private func expectLeasesReleased(_ source: XCUIElement, _ other: XCUIElement) {
+        expect { (source.value as? String)?.contains(";lease=false;") == true }
+        expect { (other.value as? String)?.contains(";lease=false;") == true }
     }
 
     @MainActor

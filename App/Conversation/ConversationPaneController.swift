@@ -18,6 +18,7 @@ final class ConversationPaneController {
     let conversationID: String
     let session: ConversationSession
     private(set) var liveStore: LiveConversationStore
+    private(set) var hasPublishedTurn: Bool
     let readingPosition: ReadingPositionController
     let composer: ComposerController
     private(set) var scrollRequest: ConversationPaneScrollRequest?
@@ -60,6 +61,7 @@ final class ConversationPaneController {
             projection: initialTimeline,
             coalescer: coalescer
         )
+        self.hasPublishedTurn = !initialTimeline.turns.isEmpty
         self.readingPosition = owner.readingPosition
         self.composer = owner.composer
         self.coalescer = coalescer
@@ -131,6 +133,7 @@ final class ConversationPaneController {
             )
         }
         liveStore = store
+        publishTurnAvailability(from: store.state.timeline)
     }
 
     @discardableResult
@@ -211,12 +214,18 @@ final class ConversationPaneController {
         )
         replacement.reconcilePendingToolApprovals(existingApprovals)
         liveStore = replacement
+        publishTurnAvailability(from: timeline)
 
         let loadedRunIDs = Set(timeline.turns.map(\.runID))
         let addedRunIDs = loadedRunIDs.subtracting(previousRunIDs)
         guard !addedRunIDs.isEmpty else { return [] }
         enqueue(readingPosition.applyStoreChanges(addedRunIDs).action)
         return addedRunIDs
+    }
+
+    private func publishTurnAvailability(from timeline: ConversationTimelineProjection) {
+        // Navigation observes durable publication, not streaming token mutations.
+        if !hasPublishedTurn, !timeline.turns.isEmpty { hasPublishedTurn = true }
     }
 
     private func enqueue(_ action: ScrollAction) {

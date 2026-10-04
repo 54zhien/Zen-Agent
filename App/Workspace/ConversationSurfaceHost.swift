@@ -11,6 +11,9 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var isWorkspaceVisible: Bool
     var isInputSuppressed: Bool
     var isReturnProxyHidden: Bool
+    var sidebarOffset: CGFloat
+    var sidebarSettlement: UUID?
+    var onSidebarSettled: ((UUID) -> Void)?
     var onNativeLayout: ((WorkspaceNativeLayoutReceipt?) -> Void)?
     let content: Content
 
@@ -20,6 +23,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
          isDeletionPending: (@MainActor (String) -> Bool)? = nil,
          isWorkspaceVisible: Bool = true,
          isInputSuppressed: Bool = false, isReturnProxyHidden: Bool = false,
+         sidebarOffset: CGFloat = 0, sidebarSettlement: UUID? = nil,
+         onSidebarSettled: ((UUID) -> Void)? = nil,
          onNativeLayout: ((WorkspaceNativeLayoutReceipt?) -> Void)? = nil,
          @ViewBuilder content: () -> Content) {
         self.request = request
@@ -30,6 +35,9 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         self.isWorkspaceVisible = isWorkspaceVisible
         self.isInputSuppressed = isInputSuppressed
         self.isReturnProxyHidden = isReturnProxyHidden
+        self.sidebarOffset = sidebarOffset
+        self.sidebarSettlement = sidebarSettlement
+        self.onSidebarSettled = onSidebarSettled
         self.onNativeLayout = onNativeLayout
         self.content = content()
     }
@@ -43,6 +51,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.setInputSuppressed(isInputSuppressed)
         controller.setReturnProxyHidden(isReturnProxyHidden)
         controller.setWorkspaceVisible(isWorkspaceVisible)
+        controller.setSidebar(offset: sidebarOffset, settlement: sidebarSettlement, completion: onSidebarSettled)
         return controller
     }
 
@@ -61,6 +70,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.setInputSuppressed(isInputSuppressed)
         controller.setReturnProxyHidden(isReturnProxyHidden)
         controller.setWorkspaceVisible(isWorkspaceVisible)
+        controller.setSidebar(offset: sidebarOffset, settlement: sidebarSettlement, completion: onSidebarSettled)
         controller.scheduleNativeLayoutReceipt()
     }
 
@@ -68,6 +78,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
                                          coordinator: Void) {
         controller.onNativeLayout?(nil)
         controller.onNativeLayout = nil
+        controller.cancelSidebar()
         controller.unbindDeletion()
         controller.unbindBrowse()
         controller.liftController?.unbind(controller)
@@ -92,6 +103,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private var lastInsets: UIEdgeInsets?
     private let cropMask = UIView()
     private var animator: UIViewPropertyAnimator?
+    private var sidebarOffset: CGFloat = 0
+    private var sidebarSettlement: UUID?
+    private var sidebarAnimator: UIViewPropertyAnimator?
 #if DEBUG
     // Tests pause the real animator so a busy simulator cannot skip settlement.
     var liftAnimatorForTesting: UIViewPropertyAnimator? { animator }
@@ -118,6 +132,8 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             "contentAXHidden=\(contentController.view.accessibilityElementsHidden)",
             "surfaceAX=\(surfaceView.isAccessibilityElement)", "activate=\(surfaceView.onActivate != nil)",
             "editors=\(mounted.count)", "browse=\(browseInteraction?.diagnostic ?? "none")"]
+        fields.append("sidebar=\(liftController?.workspaceNavigation?.nativeDiagnostic ?? "unbound")")
+        fields.append("sidebarCanOpen=\(liftController?.sidebarNativeContext?()?.allowsOpening ?? false)")
         fields.append("timeline=\(liftController?.workspacePaneDiagnostic?() ?? "unbound")")
         if let window = view.window {
             fields.append("hostFrame=\(view.convert(view.bounds, to: window))")
@@ -211,7 +227,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         super.viewDidLayoutSubviews()
         // Bounds and center remain independent of the presentation transform.
         let bounds = CGRect(origin: .zero, size: view.bounds.size)
-        let center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+        let center = CGPoint(x: view.bounds.midX + sidebarOffset, y: view.bounds.midY)
         if surfaceView.bounds != bounds { surfaceView.bounds = bounds }
         if surfaceView.center != center { surfaceView.center = center }
         if workspaceVisible { contentController.preserveContainerSafeArea(view.safeAreaInsets) }
@@ -241,6 +257,69 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     func setInputSuppressed(_ suppressed: Bool) {
         inputSuppressed = suppressed
         liftController?.refreshCardAccessibility()
+    }
+
+    var allowsSidebarInput: Bool {
+        guard allowsSidebarClosing else { return false }
+        func findComposer(_ node: UIView) -> ComposerHostView? {
+            if let composer = node as? ComposerHostView { return composer }
+            for child in node.subviews { if let composer = findComposer(child) { return composer } }
+            return nil
+        }
+        func hasNavigation(_ controller: UIViewController) -> Bool {
+            if let navigation = controller as? UINavigationController, navigation.viewControllers.count > 1 { return true }
+            return controller.children.contains { hasNavigation($0) }
+        }
+        guard !hasNavigation(contentController), let composer = findComposer(contentController.view) else { return false }
+        var input = composer.nativeSidebarInput
+        input.selectionActive = composer.editor.selectedTextRange.map { !$0.isEmpty } ?? false
+        return WorkspaceSidebarEligibility.allowsNativeInput(input)
+    }
+
+    var allowsSidebarClosing: Bool {
+        workspaceVisible && !inputSuppressed && !returnProxyHidden && !hasPresentedOverlay
+    }
+
+    func setSidebar(offset: CGFloat, settlement: UUID?, completion: ((UUID) -> Void)?) {
+        guard offset.isFinite else { return }
+        guard sidebarOffset != offset || sidebarSettlement != settlement else { return }
+        let displayedCenter = sidebarAnimator == nil ? nil : surfaceView.layer.presentation()?.position
+        sidebarAnimator?.stopAnimation(true)
+        sidebarAnimator = nil
+        if let displayedCenter { surfaceView.center = displayedCenter }
+        sidebarOffset = offset
+        sidebarSettlement = settlement
+        // Lift alone owns transform. Navigation changes center while the native
+        // bounds and hosting child's original safe area remain unchanged.
+        let center = CGPoint(x: view.bounds.midX + offset, y: view.bounds.midY)
+        guard let settlement else { surfaceView.center = center; return }
+        if UIAccessibility.isReduceMotionEnabled {
+            surfaceView.center = center
+            Task { @MainActor [weak self] in
+                await Task.yield()
+                guard self?.sidebarSettlement == settlement else { return }
+                completion?(settlement)
+            }
+            return
+        }
+        let animation = UIViewPropertyAnimator(duration: 0.22, curve: .easeOut) { [weak self] in
+            self?.surfaceView.center = center
+        }
+        sidebarAnimator = animation
+        animation.addCompletion { [weak self] position in
+            guard let self, self.sidebarSettlement == settlement, position == .end else { return }
+            self.sidebarAnimator = nil
+            completion?(settlement)
+        }
+        animation.startAnimation()
+    }
+
+    func cancelSidebar() {
+        sidebarAnimator?.stopAnimation(true)
+        sidebarAnimator = nil
+        sidebarSettlement = nil
+        sidebarOffset = 0
+        surfaceView.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
     }
 
     func setReturnProxyHidden(_ hidden: Bool) {
