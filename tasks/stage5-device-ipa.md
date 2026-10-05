@@ -6,9 +6,9 @@ source full CI and artifact verification to succeed; physical acceptance stays o
 
 ## Source and scope
 
-- Remote source: `0e795288739aaf78255cae5f771c1512157746a7`.
-- Source tree: `e71d39c948b5a5d0e43a88165dfd09c5cbf03db1`.
-- Required source FULL CI: [37303613272](https://github.com/54zhien/Zen-Agent/actions/runs/37303613272).
+- Remote source: `23f0608553ae23b4cc6498b83040004ad7e5c7a8`.
+- Source tree: `a3ef156570fbb33e4b52b2dc40a87a342c2d5dea`.
+- Required source FULL CI: [37308244443](https://github.com/54zhien/Zen-Agent/actions/runs/37308244443).
 - Packaging branch: `codex/s5-device-feedback-ipa-20261005`.
 - Upstream intent: [Blueprint PR 6](https://github.com/54zhien/Zen-Agent-Blueprint/pull/6).
 
