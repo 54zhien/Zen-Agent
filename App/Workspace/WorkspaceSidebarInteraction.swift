@@ -49,7 +49,7 @@ struct WorkspaceSidebarGestureBridge: UIViewRepresentable {
 /// One scene transport for the active host. The anchor itself never receives touches.
 @MainActor
 final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
-    private let edge = UIScreenEdgePanGestureRecognizer()
+    private let edge: UIScreenEdgePanGestureRecognizer
     private let reverse = UIPanGestureRecognizer()
     private let closeTap = UITapGestureRecognizer()
     private weak var attachedWindow: UIWindow?
@@ -76,7 +76,12 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     private var edgeTouchOwner: Owner?
     private var edgeTouchOrigin: CGPoint?
 
-    override init(frame: CGRect) {
+    override convenience init(frame: CGRect) {
+        self.init(frame: frame, edge: UIScreenEdgePanGestureRecognizer())
+    }
+
+    init(frame: CGRect, edge: UIScreenEdgePanGestureRecognizer) {
+        self.edge = edge
         super.init(frame: frame)
         for recognizer in [edge, reverse, closeTap] {
             recognizer.delegate = self
@@ -218,9 +223,23 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
         let velocity = pan.velocity(in: current.window)
         record("velocity \(kind(gestureRecognizer)) \(velocity),opening=\(current.allowsOpening),closing=\(current.allowsClosing)")
-        guard velocity.x.isFinite, velocity.y.isFinite, abs(velocity.x) > abs(velocity.y) * 1.1 else { return false }
-        return gestureRecognizer === edge ? (!state.isOpen && current.allowsOpening && velocity.x * sign > 0)
-            : (state.isOpen && current.allowsClosing && velocity.x * sign < 0)
+        var direction = velocity
+        if gestureRecognizer === edge {
+            guard sameOwner(edgeTouchOwner) else { return false }
+            // A coalesced native edge pan can begin with zero velocity and
+            // translation. Its admitted initial touch still records direction.
+            if velocity == .zero { direction = edgeDisplacement(pan, in: current.window) }
+        }
+        record("direction \(kind(gestureRecognizer)) \(direction)")
+        guard direction.x.isFinite, direction.y.isFinite, abs(direction.x) > abs(direction.y) * 1.1 else { return false }
+        return gestureRecognizer === edge ? (!state.isOpen && current.allowsOpening && direction.x * sign > 0)
+            : (state.isOpen && current.allowsClosing && direction.x * sign < 0)
+    }
+
+    private func edgeDisplacement(_ pan: UIPanGestureRecognizer, in window: UIWindow) -> CGPoint {
+        guard let origin = edgeTouchOrigin else { return .zero }
+        let point = pan.location(in: window)
+        return CGPoint(x: point.x - origin.x, y: point.y - origin.y)
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
@@ -251,10 +270,12 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     @objc private func changed(_ recognizer: UIGestureRecognizer) {
         guard let state else { return }
         record("callback \(kind(recognizer)) state=\(recognizer.state.rawValue)")
-        if recognizer === edge,
-           recognizer.state == .ended || recognizer.state == .cancelled || recognizer.state == .failed {
-            edgeTouchOwner = nil
-            edgeTouchOrigin = nil
+        defer {
+            if recognizer === edge,
+               recognizer.state == .ended || recognizer.state == .cancelled || recognizer.state == .failed {
+                edgeTouchOwner = nil
+                edgeTouchOrigin = nil
+            }
         }
         if recognizer === closeTap {
             if recognizer.state == .ended, sameOwner(tapOwner), readContext?()?.allowsClosing == true {
@@ -270,12 +291,17 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             return
         }
         let allowed = recognizer === edge ? current.allowsOpening : current.allowsClosing
+        // Measure opening in the stable Window space, including motion before
+        // recognition. Keep the touch origin through the final release sample.
+        let displacement = recognizer === edge ? edgeDisplacement(pan, in: current.window).x
+            : pan.translation(in: current.window).x
         switch pan.state {
         case .began:
+            if recognizer === edge, !sameOwner(edgeTouchOwner) { return }
             guard state.begin(eligible: allowed) else { return }
             captured = (current.hostID, current.paneID, ObjectIdentifier(current.window))
             capturedGestureID = state.gestureID
-            state.drag(displacement: Double(pan.translation(in: current.window).x * sign), travel: Double(travel))
+            state.drag(displacement: Double(displacement * sign), travel: Double(travel))
         case .changed, .ended:
             guard let capturedGestureID, state.gestureID == capturedGestureID else {
                 captured = nil; self.capturedGestureID = nil; return
@@ -284,7 +310,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
                 state.reset(); captured = nil; self.capturedGestureID = nil; return
             }
             // Release can contain the last displacement even without a changed callback.
-            state.drag(displacement: Double(pan.translation(in: current.window).x * sign), travel: Double(travel))
+            state.drag(displacement: Double(displacement * sign), travel: Double(travel))
             if pan.state == .ended {
                 state.end(velocity: Double(pan.velocity(in: current.window).x * sign), travel: Double(travel), cancelled: false)
                 captured = nil
