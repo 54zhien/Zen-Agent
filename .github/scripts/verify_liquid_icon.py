@@ -21,7 +21,9 @@ def verify(catalog):
 
     def solid(layer, value):
         actual = fill_colors(layer)
-        assert actual and all(all(abs(x - y) < 0.0001 for x, y in zip(c, [value] * 3 + [1])) for c in actual), actual
+        # actool quantizes serialized sRGB components (122/255 becomes 0.478).
+        # Compare the intended 8-bit color; also require identical gray fills below.
+        assert actual and all(len(c) == 4 and all(round(x * 255) == round(value * 255) for x in c[:3]) and c[3] == 1 for c in actual), actual
         return actual
 
     report = {}
@@ -42,16 +44,17 @@ def verify(catalog):
         assert len(stacks) == 1
         stack = stacks[0]
         assert stack['CanvasWidth'] == stack['CanvasHeight'] == 1024
-        background = next(a for a in stack['Layers'] if a['AssetType'] != 'IconGroup')
+        background = next(a for a in stack['Layers'] if a.get('AssetType') != 'IconGroup')
         background_colors = fill_colors(background)
         assert len(background_colors) >= 2 and len({tuple(c) for c in background_colors}) > 1, f'{appearance}: flat background: {background}'
-        lighting = next(a for a in stack['Layers'] if a['AssetType'] == 'IconGroup' and a.get('Appearance') == appearance)
+        lighting = next(a for a in stack['Layers'] if a.get('AssetType') == 'IconGroup' and a.get('Appearance') == appearance)
         assert lighting['LayerHasSpecular'] and lighting['LayerGathersSpecularByElement']
         assert abs(lighting['LayerShadowOpacity'] - 0.35) < 0.0001 and lighting['LayerShadowStyle'] == 3
         report[appearance] = {'symbol': symbol, 'gray': gray, 'background': background_colors, 'specular': True, 'shadowOpacity': lighting['LayerShadowOpacity']}
         groups[appearance] = layers
     for name in ('zen-symbol', 'zen-gray'):
         assert groups['UIAppearanceLight'][name]['SHA1Digest'] == groups['UIAppearanceDark'][name]['SHA1Digest'], f'Artwork geometry changed with appearance: {name}'
+    assert report['UIAppearanceLight']['gray'] == report['UIAppearanceDark']['gray']
     return {'state': 'PASS', 'appearances': report}
 
 
