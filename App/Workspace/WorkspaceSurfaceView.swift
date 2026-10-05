@@ -409,11 +409,17 @@ struct WorkspaceSurfaceView<Content: View>: View {
     private func sidebarContext() -> WorkspaceSidebarNativeContext? {
         guard sidebarSpatiallyAvailable, let pane = inputPane,
               let native = controller(for: inputSurfaceSlot).sidebarNativeContext?() else { return nil }
+        let otherSurfaces: [UIView] = WorkspaceSurfaceSlot.allCases.compactMap { slot in
+            guard slot != inputSurfaceSlot, surfaceIsVisible(slot) else { return nil }
+            return controller(for: slot).sidebarNativeContext?()?.surfaceView
+        }
+        let dockedInput: [UIView] = controller(for: inputSurfaceSlot).externalComposer.map { [$0] } ?? []
         return WorkspaceSidebarNativeContext(hostID: native.hostID, paneID: ObjectIdentifier(pane),
             window: native.window, allowsOpening: native.allowsOpening
                 && !pane.composer.isComposing && !pane.composer.isSelectionHandleDragging
                 && pane.composer.quoteDragPhase == .idle,
-            allowsClosing: native.allowsClosing, surfaceView: native.surfaceView)
+            allowsClosing: native.allowsClosing, surfaceView: native.surfaceView,
+            additionalClosingViews: otherSurfaces + dockedInput)
     }
 
     private func canConfigureNew(_ id: String) -> Bool {

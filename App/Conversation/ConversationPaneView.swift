@@ -102,6 +102,7 @@ struct ConversationPaneView: View {
                 onUserFocus: onUserFocus
             )
             .environment(\.composerUsesWorkspaceDock, usesSharedComposer)
+            .environment(\.composerIsActivePane, isActive)
             .id(ObjectIdentifier(pane.composer))
             .accessibilityIdentifier("conversation-pane-composer-\(pane.conversationID)")
         }

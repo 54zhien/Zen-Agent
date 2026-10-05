@@ -9,12 +9,20 @@ struct WorkspaceSidebarNativeContext {
     let allowsOpening: Bool
     let allowsClosing: Bool
     weak var surfaceView: UIView?
+    let additionalClosingViews: [UIView]
 
     init(hostID: ObjectIdentifier, paneID: ObjectIdentifier, window: UIWindow,
-         allowsOpening: Bool, allowsClosing: Bool = true, surfaceView: UIView? = nil) {
+         allowsOpening: Bool, allowsClosing: Bool = true, surfaceView: UIView? = nil,
+         additionalClosingViews: [UIView] = []) {
         self.hostID = hostID; self.paneID = paneID; self.window = window
         self.allowsOpening = allowsOpening; self.allowsClosing = allowsClosing
         self.surfaceView = surfaceView
+        self.additionalClosingViews = additionalClosingViews
+    }
+
+    func containsClosingView(_ view: UIView) -> Bool {
+        let roots = additionalClosingViews + [surfaceView].compactMap { $0 }
+        return view.window === window && roots.contains { view === $0 || view.isDescendant(of: $0) }
     }
 }
 
@@ -178,8 +186,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             return eligible
         }
         guard state?.isOpen == true, current.allowsClosing,
-              let surface = current.surfaceView, let hit = touch.view,
-              hit === surface || hit.isDescendant(of: surface) else {
+              let hit = touch.view, current.containsClosingView(hit) else {
             record("recv close rejected surface ancestry hit=\(touch.view.map { String(describing: type(of: $0)) } ?? "nil")")
             return false
         }
@@ -231,11 +238,11 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             admitted = !state.isOpen && current.allowsOpening
                 && sameOwner(edgeTouchOwner)
                 && otherView.isDescendant(of: current.window)
-        } else if gestureRecognizer === closeTap, let surface = current.surfaceView {
+        } else if gestureRecognizer === closeTap {
             // A shifted Surface tap restores navigation before its Timeline or
             // editor can interpret the same touch. Rail controls stay outside it.
             admitted = state.isOpen && current.allowsClosing
-                && (otherView === surface || otherView.isDescendant(of: surface))
+                && current.containsClosingView(otherView)
         } else { admitted = false }
         record("priority \(kind(gestureRecognizer)) over \(String(describing: type(of: otherGestureRecognizer)))=\(admitted),edgeOrigin=\(String(describing: edgeTouchOrigin)),edgeOwner=\(sameOwner(edgeTouchOwner))")
         return admitted

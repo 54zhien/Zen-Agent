@@ -9,6 +9,7 @@ struct ComposerHostBridge: UIViewRepresentable {
     @Environment(\.workspaceInputSuppressed) private var suppressed
     @Environment(\.workspaceComposerDock) private var dock
     @Environment(\.composerUsesWorkspaceDock) private var usesDock
+    @Environment(\.composerIsActivePane) private var isActivePane
 
     func makeUIView(context: Context) -> ComposerHostPortal {
         let view = ComposerHostPortal()
@@ -20,7 +21,7 @@ struct ComposerHostBridge: UIViewRepresentable {
 
     private func configure(_ view: ComposerHostPortal) {
         view.update(configuration: configuration, focused: focused, suppressed: suppressed,
-                    ownerID: conversationID, usesDock: usesDock, dock: dock)
+                    ownerID: conversationID, usesDock: usesDock, dock: dock, isActivePane: isActivePane)
     }
     static func dismantleUIView(_ view: ComposerHostPortal, coordinator: ()) { view.unmount() }
 }

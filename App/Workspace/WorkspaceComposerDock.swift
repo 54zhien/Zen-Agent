@@ -8,6 +8,9 @@ private struct WorkspaceComposerDockKey: EnvironmentKey {
 private struct ComposerUsesWorkspaceDockKey: EnvironmentKey {
     static let defaultValue = false
 }
+private struct ComposerIsActivePaneKey: EnvironmentKey {
+    static let defaultValue = true
+}
 extension EnvironmentValues {
     var workspaceComposerDock: WorkspaceComposerDockState? {
         get { self[WorkspaceComposerDockKey.self] }
@@ -16,6 +19,10 @@ extension EnvironmentValues {
     var composerUsesWorkspaceDock: Bool {
         get { self[ComposerUsesWorkspaceDockKey.self] }
         set { self[ComposerUsesWorkspaceDockKey.self] = newValue }
+    }
+    var composerIsActivePane: Bool {
+        get { self[ComposerIsActivePaneKey.self] }
+        set { self[ComposerIsActivePaneKey.self] = newValue }
     }
 }
 
@@ -75,6 +82,9 @@ final class ComposerHostPortal: UIView {
     private(set) var usesDock = false
     private weak var dock: WorkspaceComposerDockState?
     private weak var driver: SurfaceLiftController?
+    private var requestedFocus = false
+    private var inputSuppressed = false
+    private var isActivePane = true
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -83,17 +93,23 @@ final class ComposerHostPortal: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func update(configuration: ComposerHostView.Configuration, focused: Bool, suppressed: Bool,
-                ownerID: String, usesDock: Bool, dock: WorkspaceComposerDockState?) {
+                ownerID: String, usesDock: Bool, dock: WorkspaceComposerDockState?, isActivePane: Bool = true) {
         self.ownerID = ownerID; self.usesDock = usesDock
+        self.requestedFocus = focused; self.inputSuppressed = suppressed; self.isActivePane = isActivePane
         self.driver = configuration.liftInteraction?.driver
         self.dock = dock
         composer.configure(configuration)
         composer.setWorkspaceInputSuppressed(suppressed)
         if let dock { dock.register(self) } else { embed() }
-        if !suppressed, !usesDock || composer.superview is ComposerDockContainer {
-            composer.requestFocus(focused)
-        }
+        applyFocusIfAttached()
         composer.consumeOverlayFocusIfReady()
+    }
+    func applyFocusIfAttached(transferring: Bool = false) {
+        guard !inputSuppressed, composer.window != nil else { return }
+        if usesDock {
+            guard composer.superview is ComposerDockContainer, isActivePane || transferring else { return }
+        }
+        composer.requestFocus(requestedFocus || transferring)
     }
     func embed() {
         clearExternalOwner()
@@ -102,6 +118,7 @@ final class ComposerHostPortal: UIView {
         composer.frame = bounds
         addSubview(composer)
         setNeedsLayout()
+        applyFocusIfAttached()
     }
     func park() {
         clearExternalOwner()
@@ -127,7 +144,7 @@ final class ComposerDockContainer: UIView {
     private weak var portal: ComposerHostPortal?
     func install(_ incoming: ComposerHostPortal) {
         guard portal !== incoming || incoming.composer.superview !== self else {
-            incoming.registerExternalOwner(); return
+            incoming.registerExternalOwner(); incoming.applyFocusIfAttached(); return
         }
         let outgoing = portal
         let transferFocus = outgoing?.composer.editor.isFirstResponder == true
@@ -137,7 +154,7 @@ final class ComposerDockContainer: UIView {
         portal = incoming
         incoming.registerExternalOwner()
         incoming.composer.layoutIfNeeded()
-        if transferFocus { _ = incoming.composer.editor.becomeFirstResponder() }
+        incoming.applyFocusIfAttached(transferring: transferFocus)
         if outgoing !== incoming { outgoing?.park() }
     }
     override func layoutSubviews() {

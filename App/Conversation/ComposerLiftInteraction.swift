@@ -12,6 +12,7 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
 
     private weak var surface: UIView?
     private weak var editor: UITextView?
+    private weak var keyboardWindow: UIWindow?
     private let nativeInput: () -> SurfaceLiftEligibility
     private var configuration: Configuration?
     private var origin: CGPoint?
@@ -158,7 +159,10 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
     }
 
     @objc private func keyboardChanged(_ notification: Notification) {
-        guard let window = surface?.window else { return }
+        if let window = surface?.window { keyboardWindow = window }
+        // A Split editor is parked between activations. Keep receiving its
+        // Window's completion notifications so readiness cannot freeze mid-hide.
+        guard let window = surface?.window ?? keyboardWindow else { return }
         if let screen = notification.object as? UIScreen, screen !== window.screen { return }
         if notification.name == UIResponder.keyboardWillChangeFrameNotification {
             keyboardTransitioning = true
