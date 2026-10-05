@@ -1,45 +1,51 @@
-# Stage 5 device-test IPA
+# Stage 5 device-feedback IPA candidate
 
-The owner authorized an IPA on 2026-10-05 after the remaining Stage 5 code gates
-and whole-stage review. This branch packages the tested source; it does not merge
-the Stage 5 stack or establish physical-device acceptance.
+The owner authorized the screenshot corrections and a replacement device build.
+This packaging branch does not merge the Stage 5 stack. Delivery requires the
+source full CI and artifact verification to succeed; physical acceptance stays open.
 
 ## Source and scope
 
-- Tested remote source: `c3dc2ba359509fa4b70afb30c044560cde0cda27`.
-- Source tree: `183e1c55822081f83664d46eeaa553c4458a53c6`.
-- FULL CI: push `37258223980`, PR `37258227083`; guard `37258227085`, all passed.
-- Each phone run: 942 Swift tests / 151 suites, 20 XCTest, 54 UI tests with one
-  expected Pad-only skip, zero failures and no test-host restart/retry.
-- Dedicated native iPad simulator regression passed in both runs.
-- Packaging branch: `codex/s5-device-ipa-20261005`.
+- Remote source: `90217028f42e05de3a707210d8e07e6c24d96142`.
+- Source tree: `deb52b4a4a5de67d557da5a342b2171ae7846506`.
+- Required source FULL CI: [37291651090](https://github.com/54zhien/Zen-Agent/actions/runs/37291651090).
+- Packaging branch: `codex/s5-device-feedback-ipa-20261005`.
+- Upstream intent: [Blueprint PR 6](https://github.com/54zhien/Zen-Agent-Blueprint/pull/6).
 
-The existing Stage 4 unsigned-device workflow is renamed and scoped to this
-candidate. Its guard requires the exact tested ancestor/tree and allows only
-that workflow rename and this note. App, Tests, Config, resources, project inputs
-and the ordinary CI workflow remain unchanged. Windows static checks are only
-preflight; the macOS build and artifact verification determine success.
+The workflow checks the exact source ancestor/tree and permits changes only to
+itself and this note. App, Tests, Config, resources, XcodeGen inputs and ordinary
+CI match that source. The ordinary full CI also runs on the packaging branch.
+Build and CI may run concurrently; a built archive alone is not the delivery gate.
+Exact CI outcomes, artifact hash and verification receipts accompany the final IPA.
+
+## Corrections and review
+
+The source adds a black Split gutter with continuous surface corners and a white
+bounded resize handle; one bottom Composer presentation follows the active Pane.
+Each Conversation keeps its own native editor, draft, selection and Run. Sidebar
+owns conversation navigation. Lift tracks the finger vertically from the current
+position; Split latches its active Pane. Browse cards share a horizontal centerline
+and the light App Space canvas is darker gray.
+
+A fresh whole-branch review identified parked keyboard readiness, update-order
+focus transfer, Split Sidebar closing containment and obsolete UI assertions.
+Native unit/UI reproductions ran before the production fix pass. The final source
+keeps parked keyboard completion delivery, retains incoming focus intent, and
+admits closing touches on the opposite surface and dock without including Rail controls.
+The temporary test profile and workflow narrowing have been removed.
 
 ## Test variant
 
 Unsigned Debug, generic iOS / arm64, minimum iOS 26.0, bundle ID `com.zhien.zen`.
-Installation requires the owner's signing method. The existing `ZEN_DEVICE_TEST`
-variant uses System Sans for interface text; Anthropic Sans is removed from the
-IPA and `UIAppFonts` because its distribution rights remain unverified. Source
-Han Serif and JetBrains Mono retain their original files and accompanying OFL
-licenses. This variant cannot validate the development-only interface font.
-
-The workflow supplies IPA integrity checks, SHA-256, tested source identity,
-packaging commit/tree, workflow run and Xcode version in its output. Exact build
-result and local artifact checks are recorded alongside the downloaded IPA.
-The repository's ordinary full CI also runs on this branch.
+Installation requires the owner's signing method. `ZEN_DEVICE_TEST` uses System
+Sans interface text. Anthropic Sans is removed from the IPA and UIAppFonts because
+its distribution rights remain unverified. Source Han Serif and JetBrains Mono
+retain their original files and accompanying OFL licenses.
 
 ## Physical acceptance
 
-Use [the Stage 5 handoff](stage5-review-handoff.md) for the device checklist.
-Record device/OS, installed IPA SHA-256 and source identity before testing.
-Prioritize cold-launch initial Lift, Lift/Return, Chinese IME, retained drafts,
-split axes/divider/rotation, native file import/export and Settings persistence.
-Measure Ink/frame pacing, energy, memory and reading/input comfort on hardware;
-exercise VoiceOver and Dynamic Type. The historical Browse initial-Lift failure
-cause remains unresolved; passing instrumented CI does not prove causal repair.
+Check black divider/corners and handle-only resizing; active-Pane draft/send
+routing with IME; Sidebar close taps; vertical Lift and cancellation; horizontal
+Browse; Return into the original Split arrangement; keyboard and orientation changes.
+Record device/OS, installed SHA-256 and source identity. CI does not establish
+physical animation comfort, performance, energy use or memory behavior.
