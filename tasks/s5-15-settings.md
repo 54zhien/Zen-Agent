@@ -1,9 +1,29 @@
 # S5-15 Settings — implementation and validation record
 
 This authorized slice follows the Files full code gate. Formal Settings
-production source is published on draft PR32; the FULL source gate remains open.
+production source is published on draft PR32; the FULL source gate is closed.
 
-## Current candidate: FULL timeout headroom, gate pending
+## FULL code gate closed — 2026-10-05
+
+Local4025b41eb22594978a2cca650e23789b1296a2a4,
+remote2d501a6be6a39ee1194a3302c1e5241e23771fb8,
+tree437d5de40a08affbb25dd341db8d9dc9e519a3f5.
+Push37236474441/phone111536504582 and PR37236477630/phone111536496465
+both passed XcodeGen generation,build,20 XCTest,930 Swift/147 suites
+(92.918s/91.798s),53 phone UI with one expected Pad-only skip and zero
+failures (1406.042s/1783.797s). Actual Pad111536504614/111536496438
+passed68.517s/122.107s;guard37236477646 passed. Each Swift test run started
+once; no host restart/retry. Native Files import/export cancellation and all
+three Settings UI paths passed both FULL runs. Logs are retained as
+settings-headroom-{push,pr}-{phone,pad}.log in the durable handoff folder.
+
+The profile is absent in this tested source. The45-minute bounded job cap
+allowed the complete PR suite to finish without removing assertions or tests.
+The prior40-minute timeout below remains explicit. PR32 is draft/open/unmerged.
+Visuals now follows this exact source; fresh whole-stage review and physical
+IME/VoiceOver/comfort/memory/GPU/energy acceptance remain open.
+
+## Prior FULL timeout and bounded headroom
 
 FULL local55dcae5ed1126feb57a5bfe64e3a504d02e9f357,
 remote69a0058c50e75dda96b0e2d08e20a6f65aa802e9,

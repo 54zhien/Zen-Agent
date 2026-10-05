@@ -16,7 +16,7 @@
 - Independent slow flow and tightly clamped reverse parallax, initially about 2–4 pt.
 - Reduce Motion stops flow and parallax but retains static Ink.
 - Current alone receives a faint edge highlight, fitted to its visible crop; historical cards express depth through existing geometry and shading.
-- Light appearance treatment is pending the owner's already issued question. Do not invent its palette.
+- Light Ink remains disabled under the conservative approved implementation assumption; an explicit palette decision may follow device review.
 - Code/CI completion is separate from GPU, energy, frame pacing and physical comfort acceptance. No costly shader work before those measurements justify it.
 
 ## Task: S5-16 bounded native effects
@@ -25,24 +25,49 @@
 - Create `App/Workspace/AppSpaceInkView.swift` and `App/Workspace/AppSpaceMotionPolicy.swift` with their real implementations.
 - Modify `App/Workspace/WorkspaceSurfaceView.swift`, `App/Workspace/AppSpaceBrowseController.swift` only for displacement access, and `App/Workspace/ConversationSurfaceHost.swift` for the native edge path.
 - Extend the actual Appearance settings introduced by S5-15 with Ink enablement and a small bounded intensity range.
-- Tests: `Tests/ZenAgentTests/AppSpaceMotionPolicyTests.swift`, `Tests/ZenAgentTests/SurfaceLiftHostTests.swift`, relevant Workspace UI tests.
+- Tests: `Tests/ZenAgentTests/AppSpaceMotionPolicyTests.swift`, `Tests/ZenAgentTests/SurfaceLiftHostTests.swift`, Tests/ZenAgentTests/CurrentCardEdgeTests.swift, AppSpaceInkRendererTests.swift, AppearanceInkSettingsTests.swift, and actual SettingsUITests.swift.
 
 **Interfaces:**
 - Consume Browse's existing `state.offset`, the Surface visible rectangle/corner radius and system Reduce Motion/low-power/thermal state.
 - Produce a presentation policy with flow enabled, parallax enabled and bounded intensity/displacement. It owns no navigation or Runtime state.
 - The background renderer uses a fixed small layer count; changing Browse selection never adds layers or starts duplicate animation loops.
 
-- [ ] Add native behavior regressions for Reduce Motion retaining a static background, displacement saturation, toggling effects without changing selected identity, and fitting the highlight to an already cropped Surface.
-- [ ] Publish the tests and observe compiled behavioral RED before adding production effects.
-- [ ] Implement a low-cost native renderer using soft gradient layers and slow independent transforms. Keep its surface opaque; avoid full-screen live blur and per-frame SwiftUI state updates.
-- [ ] Implement reverse parallax from Browse displacement with strict finite bounds. Disable it for Reduce Motion, low-power mode and serious/critical thermal pressure. Freeze flow under the same policy and while the scene is inactive.
-- [ ] Apply a faint Current-only native edge path to the Surface's visible crop. Update on presentation geometry changes, remove in Full, and avoid duplicate outlines on projected history cards.
-- [ ] Connect persisted Ink settings to the renderer. Implement light appearance only after the owner's answer; preserve the approved card-stack structure in both orientations.
-- [ ] Verify layer-count stability, repeated background/foreground transitions, reduced-motion changes mid-gesture, selected identity and Return. Run local static checks and full macOS XcodeGen/build/unit/UI CI.
-- [ ] Review the diff and record exact tree/CI, device profiling checklist and unmerged status in the Stage 5 review handoff.
+- [x] Add native behavior regressions for Reduce Motion retaining a static background, displacement saturation, toggling effects without changing selected identity, and fitting the highlight to an already cropped Surface.
+- [x] Publish the tests and observe compiled behavioral RED before adding production effects.
+- [x] Implement a low-cost native renderer using soft gradient layers and slow independent transforms. Keep its surface opaque; avoid full-screen live blur and per-frame SwiftUI state updates.
+- [x] Implement reverse parallax from Browse displacement with strict finite bounds. Disable it for Reduce Motion, low-power mode and serious/critical thermal pressure. Freeze flow under the same policy and while the scene is inactive.
+- [x] Apply a faint Current-only native edge path to the Surface's visible crop. Update on presentation geometry changes, remove in Full, and avoid duplicate outlines on projected history cards.
+- [x] Connect persisted Ink settings to the renderer. Keep light-mode Ink off pending a palette decision; preserve the approved card-stack structure in both orientations.
+- [x] Verify layer-count stability, repeated background/foreground transitions, reduced-motion changes mid-gesture, selected identity and Return. Run local static checks and full macOS XcodeGen/build/unit/UI CI.
+- [x] Review the diff and record exact tree/CI, device profiling checklist and unmerged status in the Stage 5 review handoff.
 
 ## Whole-stage handoff
 
-- [ ] Reconcile the S5-09–16 implementation records with the approved Blueprint decisions and actual PR heads.
-- [ ] Confirm all required code gates on the final stacked tree; list any failed or unavailable validation explicitly.
-- [ ] Give the owner a concise map of the unmerged PRs, exact final head/tree and review entry points. Keep device measurements and comfort/VoiceOver checks open for the owner's next pass.
+- [x] Reconcile the S5-09–16 implementation records with the approved Blueprint decisions and actual PR heads.
+- [x] Confirm all required code gates on the final stacked tree; list any failed or unavailable validation explicitly.
+- [x] Give the owner a concise map of the unmerged PRs, exact final head/tree and review entry points. Keep device measurements and comfort/VoiceOver checks open for the owner's next pass.
+
+## Code closeout receipt
+
+Profile-free source db30ed60/tree79f55ccb passed both full runs37247975877/
+37247978542 and guard37247978538:942Swift/151suites,20XCTest,54phoneUI
+(one expected Pad-only skip,zero failures),actualPad both;oneSwift-run start,
+no host restart/retry. Fresh whole-stage review found no concrete Critical,
+Important or Minor code defect. See tasks/stage5-code-review.md and the current
+handoff for exact reviewed source, historical failures and physical-device limits.
+Light-mode Ink remains off; no palette, shader backend or device acceptance is
+invented by these checked implementation steps. All stacked PRs remain unmerged.
+
+The subsequent documentation-only candidate's PR Pad run failed one global-app
+AX landscape-readiness query. Its actual native axis/drag/ratio/editor checks
+passed afterward; the failure and video are retained. A focused review supports
+the test-only live-Pane-frame observation correction. See the handoff and PR33
+for its required own FULL pair/Pad/guard receipts. The same PR's phone run also
+failed an older Browse initial Lift and its subsequent swipe while all units and
+other UI passed. Correct synthesized input and Full video are retained. Bounded
+DEBUG test-only native gesture evidence was added; actual Lift policy and input
+remain unchanged, and no unsupported claim about the historical cause is made.
+The follow-up Pane-frame predicate also failed one PR Pad deadline while native
+behavior checks passed. The next candidate uses a hard first-sample geometry
+assertion after both Pane-existence gates; it preserves landscape validity but
+does not wait for orientation settling. Its own FULL receipts remain required.

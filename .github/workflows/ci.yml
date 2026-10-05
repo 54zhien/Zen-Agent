@@ -391,6 +391,9 @@ jobs:
           elif [ "$TEST_SCOPE" = "settings-red" ]; then
             echo "::notice::S5-15 Settings behavior RED/regressions: complete unit target and native Settings UI; full product gate remains required."
             TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SettingsUITests)
+          elif [ "$TEST_SCOPE" = "visuals-red" ]; then
+            echo "::notice::S5-16 native effect behavior RED/regressions: complete unit target and native Settings controls; full product gate remains required."
+            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SettingsUITests)
           elif [ "$TEST_SCOPE" = "resize-diagnostic" ]; then
             echo "::notice::Stage 5 resize diagnostics: all unit tests and SplitResize UI; full slice gate remains required."
             TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SplitResizeUITests)

@@ -17,11 +17,27 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 @Observable
 final class AppearanceSettings {
     var appearance: AppAppearance { didSet { defaults.set(appearance.rawValue, forKey: "zen.appearance.v1") } }
+    var inkEnabled: Bool { didSet { defaults.set(inkEnabled, forKey: "zen.appSpaceInk.enabled.v1") } }
+    private var inkStrength: Double
+    var inkIntensity: Double {
+        get { inkStrength }
+        set {
+            inkStrength = Self.boundedIntensity(newValue)
+            defaults.set(inkStrength, forKey: "zen.appSpaceInk.intensity.v1")
+        }
+    }
     @ObservationIgnored private let defaults: UserDefaults
 
     init(defaults: UserDefaults) {
         self.defaults = defaults
         appearance = AppAppearance(rawValue: defaults.string(forKey: "zen.appearance.v1") ?? "") ?? .system
+        inkEnabled = defaults.object(forKey: "zen.appSpaceInk.enabled.v1") == nil
+            ? true : defaults.bool(forKey: "zen.appSpaceInk.enabled.v1")
+        inkStrength = Self.boundedIntensity(defaults.object(forKey: "zen.appSpaceInk.intensity.v1") as? Double ?? 0.45)
+    }
+
+    private static func boundedIntensity(_ value: Double) -> Double {
+        value.isFinite ? min(1, max(0, value)) : 0.45
     }
 }
 

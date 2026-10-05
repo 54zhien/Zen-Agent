@@ -107,7 +107,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
                                 windowInsets: navigationInsets,
                                 context: sidebarContext) {
         ZStack(alignment: .topLeading) {
-            Color.clear
+            AppSpaceInkView(appearance: model?.appearance,
+                isAppSpace: [.lifting, .settling, .card].contains(activeLift.state.phase),
+                displacement: browse.state.offset * Double(browse.layout()?.travel ?? 0))
             if model?.previewContent.isPresented == true, let layout = browse.layout() {
                 ForEach(layout.cards.filter { $0.item != browse.state.selected }
                     .map { browse.deletionProjection($0, in: layout) }, id: \.item) { card in
@@ -296,7 +298,10 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     driver.workspacePaneDiagnostic = { [weak model] in
                         guard let model else { return "released owner" }
                         let pane = slot == model.sourceSurfaceSlot ? model.pane : model.splitPane
-                        return "modelRevision=\(model.workspaceLayoutRevision);\(pane?.scrollBridge.dividerDiagnostic ?? "no pane")"
+                        let owners = pane.map {
+                            "sessionIdentity=\(ObjectIdentifier($0.session));composerOwnerIdentity=\(ObjectIdentifier($0.composer));readingOwnerIdentity=\(ObjectIdentifier($0.readingPosition))"
+                        } ?? "no mounted warm presentation"
+                        return "modelRevision=\(model.workspaceLayoutRevision);\(owners);\(pane?.scrollBridge.dividerDiagnostic ?? "no pane")"
                     }
 #endif
                     driver.configureSplit(onDrop: { [weak model] intent in

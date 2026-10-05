@@ -163,19 +163,44 @@ As of 2026-10-05:
   guard37232432125: XcodeGen/build,930 Swift/147 suites,20 XCTest,three actual
   Settings UI paths and actual Pad in both runs. Native Configure/first Send,
   Soul save/focused Close, fresh-cache leases and account/default scope passed.
-  Profile-free FULL69a0058c passed push37233520294 (930 Swift,20 XCTest,
-  53 phone UI with one expected skip,actual Pad). PR37233523586 passed units,
-  actual Pad and51 UI cases but hit the40-minute job cap in its last rotation
-  case; it is incomplete. The next FULL candidate gives this job45 minutes,
-  preserving all tests and no retries. The source gate remains pending;
-  S5-16 Visuals follows it. See
-  [the current resume handoff](tasks/stage5-review-handoff.md).
-  Full-stage and physical acceptance remain open.
+  Profile-free FULL2d501a6b/tree437d5de4 closed the Settings code gate:
+  push37236474441,PR37236477630 and guard37236477646 passed930 Swift,
+  20 XCTest,53 phone UI with one expected skip and zero failures,actual Pad
+  in both runs; no host restart/retry. Prior PR37233523586's40-minute timeout
+  remains recorded; the accepted bounded45-minute cap preserves all tests.
+  S5-16 Visuals is implemented on stacked draft
+  [PR #33](https://github.com/54zhien/Zen-Agent/pull/33), unmerged. A fixed native
+  Ink canvas uses two keyed gradients and bounded reverse parallax with live
+  scene/Reduce Motion/power/thermal policy. Current alone gets a crop-fitted edge.
+  Compiled behavior RED and historical failures are in [the slice record](tasks/s5-16-visuals.md).
+  Native-switch candidate d05b532/treee77cdea passed both targeted runs
+  37245337008/37245338938:942 Swift/151 suites,20 XCTest,all4SettingsUI,
+  actualPad and guard, no host restart/retry. Provider Save hit-area repair
+  40c03f97/treedbac452f also passed both targeted runs37246708991/37246712273
+  with the same counts and actualPad/guard. Profile-free FULL source
+  db30ed60/tree79f55ccb passed push37247975877/PR37247978542 and guard:
+  942Swift/151suites,20XCTest,54phoneUI (one expected Pad-only skip,zero
+  failures),actualPad both, no host restart/retry. The Visuals code gate is
+  closed. The [fresh whole-stage review](tasks/stage5-code-review.md) found
+  no concrete Critical/Important/Minor code findings. See
+  [the current review handoff](tasks/stage5-review-handoff.md). The subsequent
+  documentation candidate's PR Pad run failed its global-app-frame landscape
+  readiness query. A focused test-observation correction uses the two live Pane
+  frames; its own exact-head FULL receipts are recorded in PR #33. The original
+  failure and focused review are retained. That PR's phone run also failed one
+  Browse initial Lift and its downstream swipe (all units and other UI passed).
+  Correct synthesized input is retained; bounded DEBUG test gesture evidence
+  was added without changing Lift policy or claiming the historical cause fixed.
+  The next PR Pad run also failed the timed Pane-frame predicate while all later
+  native behavior checks passed. The following candidate directly asserts the
+  first valid native geometry sample after both Pane existence gates; its own
+  FULL receipts and timing distinction are recorded in PR #33 and the handoff.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
   does not establish device memory, performance, input, comfort or VoiceOver acceptance.
 - Formal Settings IA and `Settings → Agent → Soul` are implemented in S5-15;
-  its full source gate is pending. Memory, Skills, MCP and Subagent remain later stages.
+  its full source gate passed at2d501a6b/tree437d5de4. Memory, Skills, MCP and
+  Subagent remain later stages.
 
 The [Stage 5 entry record](tasks/stage5-entry.md) records the integrated baseline,
 CI evidence, remaining device checks, and design decisions needed by later slices.
