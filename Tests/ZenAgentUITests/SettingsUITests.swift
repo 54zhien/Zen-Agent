@@ -7,7 +7,7 @@ final class SettingsUITests: XCTestCase {
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launchEnvironment["ZEN_INK_UI_TEST"] = "1"
         app.launch()
-        XCTAssertTrue(app.buttons["split-entry"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         let editor = app.textViews["conversation-composer-input"]
         let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
@@ -113,7 +113,7 @@ final class SettingsUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
-        XCTAssertTrue(app.buttons["split-entry"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         let editor = app.textViews["conversation-composer-input"]
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         editor.tap()
@@ -163,13 +163,15 @@ final class SettingsUITests: XCTestCase {
         app.launchEnvironment["ZEN_NEW_CONFIGURE_UI_TEST"] = "1"
         app.launch()
         let configure = app.buttons["new-conversation-configure"]
-        XCTAssertTrue(configure.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         let editor = app.textViews["conversation-composer-input"]
         editor.tap()
         editor.typeText("first Send keeps its original draft")
         let unavailableSend = app.buttons["conversation-composer-send"]
         XCTAssertFalse(unavailableSend.exists && unavailableSend.isEnabled)
         let admissionProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        app.openWorkspaceSidebar()
+        XCTAssertTrue(configure.waitForExistence(timeout: 10))
         configure.tap()
         let settings = app.descendants(matching: .any)["settings-page"]
         guard settings.waitForExistence(timeout: 5) else {
@@ -222,7 +224,7 @@ final class SettingsUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
-        XCTAssertTrue(app.buttons["split-entry"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         let editor = app.textViews["conversation-composer-input"]
         editor.tap()
         editor.typeText("draft retained through Settings")

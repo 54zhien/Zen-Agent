@@ -143,18 +143,19 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    func testInteriorSwipeAndSplitCannotRevealRail() {
+    func testInteriorSwipeIsIgnoredButStableSplitCanRevealRail() {
         let app = launch()
         let interior = app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
         interior.press(forDuration: 0.05, thenDragTo: interior.withOffset(CGVector(dx: 110, dy: 0)))
         XCTAssertFalse(app.descendants(matching: .any)["sidebar-rail"].exists)
+        app.openWorkspaceSidebar()
         app.buttons["split-entry"].tap()
         app.buttons["split-open-top"].tap()
         let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.35))
         edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
-        XCTAssertFalse(app.descendants(matching: .any)["sidebar-rail"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["sidebar-rail"].waitForExistence(timeout: 5))
         XCTAssertTrue(picker.exists)
     }
 
@@ -188,7 +189,7 @@ final class SidebarUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
-        XCTAssertTrue(app.buttons["split-entry"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         return app
     }
 

@@ -21,16 +21,18 @@ struct SplitWorkspaceGeometry {
               [rect.origin.x, rect.origin.y, rect.size.width, rect.size.height,
                rect.maxX, rect.maxY].allSatisfy({ $0.isFinite }) else { return nil }
         viewport = rect
+        let length = axis == .topBottom ? rect.height : rect.width
+        let gap = min(12, length * min(ratio, 1 - ratio))
         if axis == .topBottom {
-            let height = rect.height * ratio
-            top = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: height)
-            bottom = CGRect(x: rect.minX, y: top.maxY, width: rect.width, height: rect.height - height)
-            divider = CGRect(x: rect.minX, y: top.maxY - 14, width: rect.width, height: 28)
+            let boundary = rect.minY + rect.height * ratio
+            top = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: boundary - rect.minY - gap / 2)
+            divider = CGRect(x: rect.minX, y: boundary - gap / 2, width: rect.width, height: gap)
+            bottom = CGRect(x: rect.minX, y: divider.maxY, width: rect.width, height: rect.maxY - divider.maxY)
         } else {
-            let width = rect.width * ratio
-            top = CGRect(x: rect.minX, y: rect.minY, width: width, height: rect.height)
-            bottom = CGRect(x: top.maxX, y: rect.minY, width: rect.width - width, height: rect.height)
-            divider = CGRect(x: top.maxX - 14, y: rect.minY, width: 28, height: rect.height)
+            let boundary = rect.minX + rect.width * ratio
+            top = CGRect(x: rect.minX, y: rect.minY, width: boundary - rect.minX - gap / 2, height: rect.height)
+            divider = CGRect(x: boundary - gap / 2, y: rect.minY, width: gap, height: rect.height)
+            bottom = CGRect(x: divider.maxX, y: rect.minY, width: rect.maxX - divider.maxX, height: rect.height)
         }
     }
 

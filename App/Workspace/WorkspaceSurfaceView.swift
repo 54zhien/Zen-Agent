@@ -65,6 +65,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
     @State private var returnPresentation = WorkspaceReturnPresentation()
     @State private var navigation = WorkspaceNavigationState()
+    @State private var composerDock = WorkspaceComposerDockState()
     @Environment(\.layoutDirection) private var layoutDirection
     @ScaledMetric(relativeTo: .body) private var minimumWidth = 220.0
     @ScaledMetric(relativeTo: .body) private var minimumHeight = 300.0
@@ -124,6 +125,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
             GeometryReader { geometry in
                 let fullFrame = CGRect(origin: .zero, size: geometry.size)
                 ZStack(alignment: .topLeading) {
+                    if model?.splitWorkspace != nil, activeSurfaceSlot == nil { Color.black }
 #if DEBUG
                     if (ProcessInfo.processInfo.environment["ZEN_SURFACE_LIFT_UI_TEST"] == "1"
                         || ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1"),
@@ -144,18 +146,18 @@ struct WorkspaceSurfaceView<Content: View>: View {
                             deleteAction: deleteAction, isDeletionPending: isDeletionPending,
                             isWorkspaceVisible: visible, isInputSuppressed: suppressed,
                             isReturnProxyHidden: returnPresentation.hidesOrigin(slot),
-                            sidebarOffset: slot == model?.sourceSurfaceSlot
-                                ? CGFloat(navigation.progress) * min(geometry.size.width, 60 + navigationInsets.leading)
-                                    * (layoutDirection == .rightToLeft ? -1 : 1) : 0,
-                            sidebarSettlement: slot == model?.sourceSurfaceSlot ? navigation.settlementID : nil,
-                            onSidebarSettled: navigation.completeSettlement,
+                            restingCornerRadius: model?.splitWorkspace != nil && !driver.retainsAppSpaceViewport ? 24 : 0,
+                            sidebarOffset: CGFloat(navigation.progress) * min(geometry.size.width, 60 + navigationInsets.leading)
+                                * (layoutDirection == .rightToLeft ? -1 : 1),
+                            sidebarSettlement: navigation.settlementID,
+                            onSidebarSettled: slot == inputSurfaceSlot ? navigation.completeSettlement : nil,
                             onNativeLayout: { [weak model] receipt in
                                 guard let model else { return }
                                 returnPresentation.nativeLayout(receipt, slot: slot, currentContext: layoutContext,
                                     model: model, visibilityRevision: driver.workspaceVisibilityRevision)
                             }) {
                             WorkspaceHostedContent(model: model, slot: slot, browse: browse,
-                                returnPresentation: returnPresentation, navigation: navigation,
+                                returnPresentation: returnPresentation, navigation: navigation, composerDock: composerDock,
                                 content: content, contentForSlot: contentForSlot)
                                 .environment(\.surfaceLiftController, driver)
                                 .environment(\.surfaceBrowseController, model == nil ? nil : browse)
@@ -188,8 +190,19 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         if activeSurfaceSlot == nil, let layout = splitGeometry(in: geometry) {
                             divider(model: model, split: split, layout: layout)
                                 .position(x: layout.divider.midX, y: layout.divider.midY)
+                                .zIndex(20)
                         }
                     }
+                }
+                .overlay {
+                    WorkspaceComposerDock(state: composerDock, activeID: inputPane?.conversationID,
+                        visible: model?.splitWorkspace != nil && navigation.overlay == nil
+                            && model?.previewContent.isPresented != true && returnPresentation.phase == nil
+                            && (activeSurfaceSlot == nil || [.armed, .lifting].contains(activeLift.state.phase)
+                                || activeLift.state.pendingSettlement?.destination == .card))
+                        .offset(x: CGFloat(navigation.progress) * min(geometry.size.width, 60 + navigationInsets.leading)
+                            * (layoutDirection == .rightToLeft ? -1 : 1))
+                        .animation(.easeOut(duration: 0.16), value: navigation.progress)
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .background(WorkspaceLayoutObserver { context in
@@ -207,6 +220,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     if layoutContext != nil, returnPresentation.phase != nil {
                         controller(for: returnPresentation.plan?.originSlot ?? .primary).invalidate()
                     }
+                    composerDock.windowSize = context.windowSize
+                    composerDock.isPad = context.isPad
                     layoutState.context = context
                 })
             }
@@ -375,14 +390,14 @@ struct WorkspaceSurfaceView<Content: View>: View {
         // First accepted Send creates the durable Conversation without replacing
         // its Pane. Observe publication so the accessibility action can appear.
         _ = model.pane?.hasPublishedTurn
-        return scenePhase == .active && model.pane != nil && model.isCurrentConversationVisible
-            && model.splitWorkspace == nil && !model.previewContent.isPresented
+        return scenePhase == .active && inputPane != nil
+            && !model.previewContent.isPresented
             && activeSurfaceSlot == nil && !resize.isActive && returnPresentation.phase == nil
     }
 
     private func sidebarContext() -> WorkspaceSidebarNativeContext? {
-        guard sidebarSpatiallyAvailable, let model, let pane = model.pane,
-              let native = controller(for: model.sourceSurfaceSlot).sidebarNativeContext?() else { return nil }
+        guard sidebarSpatiallyAvailable, let pane = inputPane,
+              let native = controller(for: inputSurfaceSlot).sidebarNativeContext?() else { return nil }
         return WorkspaceSidebarNativeContext(hostID: native.hostID, paneID: ObjectIdentifier(pane),
             window: native.window, allowsOpening: native.allowsOpening
                 && !pane.composer.isComposing && !pane.composer.isSelectionHandleDragging
@@ -408,18 +423,29 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     private func captureOverlayFocus() -> ComposerOverlayFocus? {
-        guard let model, let pane = model.pane else { return nil }
-        let driver = controller(for: model.sourceSurfaceSlot)
+        guard let model, let pane = inputPane else { return nil }
+        let capturedSlot = inputSurfaceSlot
+        let driver = controller(for: capturedSlot)
         let host = driver.nativeHostIdentity
         return driver.captureOverlayFocus? { [weak model, weak pane, weak driver] in
             guard let model, let pane, let driver else { return false }
-            return model.pane === pane && driver.nativeHostIdentity == host
-                && model.splitWorkspace == nil && !model.previewContent.isPresented
+            let current = capturedSlot == model.sourceSurfaceSlot ? model.pane : model.splitPane
+            return current === pane && driver.nativeHostIdentity == host && !model.previewContent.isPresented
         }
     }
 
+    private var inputSurfaceSlot: WorkspaceSurfaceSlot {
+        guard let model else { return .primary }
+        guard let split = model.splitWorkspace, split.activeSlot == split.emptySlot else { return model.sourceSurfaceSlot }
+        return model.sourceSurfaceSlot.other
+    }
+    private var inputPane: ConversationPaneController? {
+        guard let model else { return nil }
+        return inputSurfaceSlot == model.sourceSurfaceSlot ? model.pane : model.splitPane
+    }
+
     private var activeLift: SurfaceLiftController {
-        controller(for: activeSurfaceSlot ?? model?.sourceSurfaceSlot ?? .primary)
+        controller(for: activeSurfaceSlot ?? inputSurfaceSlot)
     }
 
     private func controller(for slot: WorkspaceSurfaceSlot) -> SurfaceLiftController {
@@ -576,8 +602,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
         let minimum = SplitWorkspaceGeometry.minimumRatio(height: length,
             preferredMinimum: horizontal ? minimumWidth : max(180, minimumHeight * 0.65))
         return ZStack {
-            Rectangle().fill(Color.white.opacity(0.20))
-                .frame(width: horizontal ? 2 : layout.divider.width, height: horizontal ? layout.divider.height : 2)
+            Rectangle().fill(Color.black)
+                .frame(width: layout.divider.width, height: layout.divider.height)
                 .allowsHitTesting(false)
             SplitDividerView(ratio: split.activeRatio, closeIntent: resize.closeIntent,
                 canCloseTop: split.sourceSlot == .bottom || split.secondaryConversationID != nil,
@@ -677,6 +703,7 @@ private struct WorkspaceHostedContent<Content: View>: View {
     let browse: AppSpaceBrowseController
     let returnPresentation: WorkspaceReturnPresentation
     let navigation: WorkspaceNavigationState
+    let composerDock: WorkspaceComposerDockState
     let content: Content
     let contentForSlot: ((WorkspaceSurfaceSlot) -> Content)?
     @Environment(\.surfaceLiftController) private var lift
@@ -712,6 +739,7 @@ private struct WorkspaceHostedContent<Content: View>: View {
             && model?.previewSurfaceSlot != slot))
         .environment(\.workspaceInputSuppressed, navigation.overlay != nil || returnPresentation.suppressesTarget(slot))
         .environment(\.workspaceNavigation, navigation)
+        .environment(\.workspaceComposerDock, composerDock)
         .environment(\.modelMenuPreferences, model?.modelMenus)
         .preferredColorScheme(model?.appearance.appearance.colorScheme)
         // UIKit installs this root once. Read mutable layout state here so

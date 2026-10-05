@@ -2,6 +2,30 @@ import XCTest
 
 @MainActor
 extension XCUIApplication {
+    func openWorkspaceSidebar(file: StaticString = #filePath, line: UInt = #line) {
+        let rail = descendants(matching: .any)["sidebar-rail"]
+        if rail.exists { return }
+        XCTAssertTrue(textViews["conversation-composer-input"].waitForExistence(timeout: 15), file: file, line: line)
+        let probes = [descendants(matching: .any)["surface-native-interaction-probe"],
+                      descendants(matching: .any)["split-secondary-native-interaction-probe"]]
+        if probes.contains(where: { $0.exists }) {
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                probes.contains { ($0.value as? String)?.contains(";sidebarCanOpen=true;") == true }
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed, file: file, line: line)
+        }
+        let edge = coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
+        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        XCTAssertTrue(rail.waitForExistence(timeout: 10), file: file, line: line)
+        XCTAssertTrue(buttons["sidebar-settings"].wait(for: \.isEnabled, toEqual: true, timeout: 10), file: file, line: line)
+    }
+
+    func activateWorkspacePane(_ id: String, file: StaticString = #filePath, line: UInt = #line) {
+        let pane = scrollViews.matching(identifier: "conversation-pane-\(id)").firstMatch
+        XCTAssertTrue(pane.waitForExistence(timeout: 10), file: file, line: line)
+        pane.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.3)).tap()
+    }
+
     /// Exercise the real Timeline blank-background path, including safe-area
     /// containment. AX Pane bounds alone include regions outside that path.
     func dismissWorkspaceKeyboard(pane: XCUIElement, editor: XCUIElement,

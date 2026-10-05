@@ -12,6 +12,7 @@ final class WorkspacePadAxisUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
+        app.openWorkspaceSidebar()
         let entry = app.buttons["split-entry"]
         XCTAssertTrue(entry.waitForExistence(timeout: 15))
         entry.tap()
@@ -24,6 +25,7 @@ final class WorkspacePadAxisUITests: XCTestCase {
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()
+        XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch.waitForExistence(timeout: 10))
         let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let other = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch
         // Each AX request can block independently on a busy simulator. Observe

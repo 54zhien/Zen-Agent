@@ -95,6 +95,8 @@ final class ConversationSurfaceUITests: XCTestCase {
         input.typeText("SHEET_DRAFT")
         let configure = app.buttons["new-conversation-configure"]
         XCTAssertTrue(configure.waitForExistence(timeout: 5))
+        app.openWorkspaceSidebar()
+        XCTAssertTrue(configure.waitForExistence(timeout: 10))
         configure.tap()
         let close = app.buttons["关闭"]
         XCTAssertTrue(close.waitForExistence(timeout: 8))

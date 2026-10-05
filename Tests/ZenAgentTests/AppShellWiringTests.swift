@@ -211,6 +211,7 @@ struct AppShellWiringTests {
         for _ in 0..<60 where editors(in: host.view).count != 1 { try await Task.sleep(for: .milliseconds(25)) }
         #expect(editors(in: host.view).count == 1)
         #expect(editors(in: host.view).first?.text == "other focus draft")
+        let originalOtherEditor = editors(in: host.view).first
         _ = other.updateComposition(isComposing: true)
         fixture.model.selectSplitSlot(.top)
         #expect(fixture.model.splitWorkspace?.activeSlot == .bottom, "Uncommitted input cannot be detached")
@@ -223,6 +224,7 @@ struct AppShellWiringTests {
         for _ in 0..<60 where editors(in: host.view).first?.text != "other focus draft" { try await Task.sleep(for: .milliseconds(25)) }
         #expect(editors(in: host.view).count == 1)
         #expect(editors(in: host.view).first?.text == "other focus draft")
+        #expect(editors(in: host.view).first === originalOtherEditor)
         #expect(source.draft.text == "source focus draft" && other.draft.text == "other focus draft")
     }
 

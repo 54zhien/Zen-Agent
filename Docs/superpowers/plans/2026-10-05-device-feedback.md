@@ -40,7 +40,7 @@
 ### Task 2: Shared Split input, structural divider and Sidebar controls
 
 **Files:** Workspace composition, native Composer bridge, Conversation Pane presentation, AppShell active-Pane routing, Sidebar/overlay composition, related unit/UI tests. Add focused shared-input and navigation-action boundaries rather than extending unrelated runtime state.
-**Interfaces:** Workspace resolves `(Pane, actionBridge, surfaceSlot)` from `SplitWorkspaceState.activeSlot`; the existing per-session send coordinator remains authoritative. Pane content receives a Composer visibility policy. Shared input retains active native editor readiness; transfer commits marked text before changing ownership. Tap activation is refused during Lift/resize/overlays.
+**Interfaces:** Workspace resolves `(Pane, actionBridge, surfaceSlot)` from `SplitWorkspaceState.activeSlot`; the existing per-session send coordinator remains authoritative. Pane content receives a dock placement and bottom-clearance policy. A native Composer portal keeps each mounted Pane's existing editor, parks inactive editors outside the window, and reparents only the active editor into one Workspace dock. Marked text and selection/quote drags block owner transfer; ordinary editing transfers focus without replacing either editor. Tap activation is refused during Lift/resize/overlays.
 
 - [ ] Add regressions against current UI: exactly one bottom input in Split; content taps switch draft owner; no chat toolbar controls; Sidebar remains reachable from Split and New. Add divider gap/handle hit-area assertions.
 - [ ] Observe behavioral RED before production changes.

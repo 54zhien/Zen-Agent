@@ -71,6 +71,7 @@ struct NewConversationView: View {
     @Environment(\.surfaceLiftController) private var lift
     @Environment(\.surfaceBrowseController) private var browse
     @Environment(\.workspaceNavigation) private var workspaceNavigation
+    @Environment(\.workspaceComposerDock) private var composerDock
 
     var body: some View {
         Group {
@@ -113,8 +114,12 @@ struct NewConversationView: View {
                         runtime: runtime,
                         actionBridge: bridge,
                         maxProviderSteps: AppShellModel.maxProviderSteps,
-                        isActive: model.splitWorkspace == nil || model.splitWorkspace?.activeSlot == logicalSlot,
+                        isActive: isActivePane,
+                        usesSharedComposer: model.splitWorkspace != nil,
+                        reservesSharedComposer: reservesSharedComposer,
                         onUserFocus: {
+                            guard lift?.state.phase == .full, lift?.workspaceResizeActive != true,
+                                  workspaceNavigation?.blocksLift != true else { return }
                             if let logicalSlot { model.selectSplitSlot(logicalSlot) }
                         }
                     )
@@ -135,7 +140,7 @@ struct NewConversationView: View {
                                 dynamicTypeSize: dynamicTypeSize
                             ))
                     } actions: {
-                        Button("配置模型") { configureNew() }
+                        Text("从屏幕左边缘滑出侧边栏，在设置中配置模型。")
                             .font(Typography.font(
                                 for: .interfaceBody,
                                 dynamicTypeSize: dynamicTypeSize
@@ -143,60 +148,7 @@ struct NewConversationView: View {
                     }
                 }
             }
-            .navigationTitle("新会话")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("新会话") {
-                        if isSource { model.newConversation() } else { _ = model.createNewInSplit() }
-                    }
-                    .accessibilityIdentifier(isSource ? "new-conversation-new" : "split-secondary-new")
-                        .font(Typography.font(
-                            for: .interfaceBody,
-                            dynamicTypeSize: dynamicTypeSize
-                        ))
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 16) {
-                        if (model.splitWorkspace != nil || !model.isCurrentConversationVisible)
-                            && (!model.recentConversations.isEmpty || model.recentLoadError != nil) {
-                            Button {
-                                isRecentConversationsPresented = true
-                            } label: {
-                                Image(systemName: "clock.arrow.circlepath")
-                            }
-                            .font(Typography.font(
-                                for: .interfaceBody,
-                                dynamicTypeSize: dynamicTypeSize
-                            ))
-                            .accessibilityLabel("最近会话")
-                            .accessibilityIdentifier(isSource ? "new-conversation-recent" : "split-secondary-recent")
-                        }
-
-                        if model.splitWorkspace == nil {
-                            Menu {
-                                Button("上方分屏") { openAccessibleSplit(.top) }
-                                    .accessibilityIdentifier("split-open-top")
-                                Button("下方分屏") { openAccessibleSplit(.bottom) }
-                                    .accessibilityIdentifier("split-open-bottom")
-                            } label: {
-                                Image(systemName: "rectangle.split.2x1")
-                            }
-                            .accessibilityLabel("分屏")
-                            .accessibilityIdentifier("split-entry")
-                            .disabled(!canOpenAccessibleSplit)
-                        }
-
-                        if isSource, model.currentSettingsNewID == presentedID {
-                            Button("配置模型") { configureNew() }
-                                .font(Typography.font(
-                                    for: .interfaceBody,
-                                    dynamicTypeSize: dynamicTypeSize
-                                ))
-                                .accessibilityIdentifier("new-conversation-configure")
-                        }
-                    }
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
             .overlay(alignment: .top) {
                 if let message = model.previewContent.errorMessage {
                     Text(message)
@@ -305,7 +257,41 @@ struct NewConversationView: View {
             if !presented { historyAction?.cancel(); historyAction = nil }
         }
         .onDisappear { historyAction?.cancel(); historyAction = nil }
+        .onAppear { publishSidebarActions() }
+        .onChange(of: isActivePane ? presentedID : nil) { _, _ in publishSidebarActions() }
+        .onChange(of: sidebarActions) { _, _ in publishSidebarActions() }
 
+    }
+
+    private var isActivePane: Bool {
+        model.splitWorkspace == nil ? isSource : model.splitWorkspace?.activeSlot == logicalSlot
+    }
+    private var reservesSharedComposer: Bool {
+        let landscapeSingle = composerDock.map { !$0.isPad && $0.windowSize.width > $0.windowSize.height } ?? false
+        return landscapeSingle || model.splitWorkspace?.axis == .leftRight || logicalSlot == .bottom
+    }
+    private var sidebarActions: Set<WorkspaceConversationAction> {
+        var result: Set<WorkspaceConversationAction> = [.new]
+        if !model.recentConversations.isEmpty || model.recentLoadError != nil { result.insert(.recent) }
+        if model.splitWorkspace == nil, canOpenAccessibleSplit { result.formUnion([.splitTop, .splitBottom]) }
+        if isSource, model.currentSettingsNewID == presentedID { result.insert(.configure) }
+        return result
+    }
+    private func publishSidebarActions() {
+        guard isActivePane, let workspaceNavigation else { return }
+        let ownerID = presentedID
+        workspaceNavigation.conversationActions = sidebarActions
+        workspaceNavigation.onConversationAction = { action in
+            guard isActivePane, presentedID == ownerID, !model.previewContent.isPresented else { return }
+            switch action {
+            case .new:
+                if isSource { model.newConversation() } else { _ = model.createNewInSplit() }
+            case .recent: isRecentConversationsPresented = true
+            case .splitTop: openAccessibleSplit(.top)
+            case .splitBottom: openAccessibleSplit(.bottom)
+            case .configure: configureNew()
+            }
+        }
     }
 
     private func configureNew() {

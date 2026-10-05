@@ -10,6 +10,7 @@ final class SurfaceLiftController {
     private(set) var workspaceVisibilityRevision: UInt64 = 0
     private(set) var overlayPresented = false
     var workspaceResizeActive = false
+    @ObservationIgnored weak var externalComposer: ComposerHostView?
     @ObservationIgnored weak var workspaceNavigation: WorkspaceNavigationState?
     var workspaceNavigationActive: Bool { workspaceNavigation?.blocksLift == true }
     @ObservationIgnored var sidebarNativeContext: (() -> (hostID: ObjectIdentifier, window: UIWindow,

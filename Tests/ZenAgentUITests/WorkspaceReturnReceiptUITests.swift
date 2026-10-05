@@ -2,7 +2,7 @@ import XCTest
 
 final class WorkspaceReturnReceiptUITests: XCTestCase {
     @MainActor
-    func testOccupiedOwnerMeasuresWhileItsEditorRemainsOutsideAccessibility() throws {
+    func testOccupiedOwnerMeasuresWhileSharedInputRemainsOutsideAccessibility() throws {
         XCUIDevice.shared.orientation = .portrait
         defer { XCUIDevice.shared.orientation = .portrait }
         let app = XCUIApplication()
@@ -11,6 +11,10 @@ final class WorkspaceReturnReceiptUITests: XCTestCase {
         // seam must not supply a fake receipt or directly change a Pane owner.
         app.launchEnvironment["ZEN_RETURN_RECEIPT_PAUSE_UI_TEST"] = "1"
         app.launch()
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
+        let targetProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        let targetIdentity = try XCTUnwrap(editorIdentity(targetProbe.value as? String))
+        app.openWorkspaceSidebar()
         let entry = app.buttons["split-entry"]
         XCTAssertTrue(entry.waitForExistence(timeout: 15))
         entry.tap()
@@ -18,12 +22,11 @@ final class WorkspaceReturnReceiptUITests: XCTestCase {
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()
-        expect { app.textViews.matching(identifier: "conversation-composer-input").count == 2 }
-        let targetProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
-        let targetIdentity = try XCTUnwrap(editorIdentity(targetProbe.value as? String))
+        XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch.waitForExistence(timeout: 10))
+        expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
         let originProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
         expect { (originProbe.value as? String)?.contains("liftReady=true;") == true }
-        let originEditor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 1)
+        let originEditor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
         let start = originEditor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
         let card = app.descendants(matching: .any)["workspace-current-card"]
@@ -43,12 +46,12 @@ final class WorkspaceReturnReceiptUITests: XCTestCase {
             "The attached target's Timeline must also remain outside accessibility until convergence")
         let receipt = try XCTUnwrap(targetProbe.value as? String)
         XCTAssertTrue(receipt.contains(";visible=true;"))
-        XCTAssertTrue(receipt.contains(";editors=1;"))
+        XCTAssertTrue(receipt.contains(";editors=0;"))
         XCTAssertTrue(receipt.contains(";contentInteraction=false;"))
         XCTAssertTrue(receipt.contains(";contentAXHidden=true;"))
         XCTAssertTrue(receipt.contains("ready=true;"))
         XCTAssertTrue(receipt.contains(";request=nil;"))
-        XCTAssertEqual(editorIdentity(receipt), targetIdentity)
+        // The retained target editor is parked outside the Window until convergence.
         let targetFrame = try XCTUnwrap(hostFrame(receipt))
         XCTAssertEqual(targetFrame.minX, app.frame.minX, accuracy: 3)
         XCTAssertEqual(targetFrame.minY, app.frame.minY, accuracy: 3)

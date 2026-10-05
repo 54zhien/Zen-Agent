@@ -1,6 +1,8 @@
 import Foundation
 import Observation
 
+enum WorkspaceConversationAction: Hashable { case new, recent, splitTop, splitBottom, configure }
+
 enum WorkspaceOverlayRoute: Hashable { case search, files, settings }
 
 enum WorkspaceSidebarEligibility {
@@ -14,6 +16,9 @@ enum WorkspaceSidebarEligibility {
 @MainActor
 @Observable
 final class WorkspaceNavigationState {
+    var conversationActions: Set<WorkspaceConversationAction> = []
+    @ObservationIgnored var onConversationAction: ((WorkspaceConversationAction) -> Void)?
+    @ObservationIgnored private var pendingConversationAction: (() -> Void)?
     @ObservationIgnored var onReset: (() -> Void)?
     @ObservationIgnored var onConfigureNew: ((String) -> Void)?
     private(set) var progress = 0.0
@@ -86,7 +91,21 @@ final class WorkspaceNavigationState {
         return true
     }
 
-    func completeSettlement(_ id: UUID) { if settlementID == id { settlementID = nil } }
+    func completeSettlement(_ id: UUID) {
+        guard settlementID == id else { return }
+        settlementID = nil
+        let action = pendingConversationAction; pendingConversationAction = nil
+        action?()
+    }
+
+    func perform(_ action: WorkspaceConversationAction) {
+        guard isOpen, !isDragging, settlementID == nil, overlay == nil,
+              conversationActions.contains(action), let handler = onConversationAction else { return }
+        // Capture the originating Pane handler before closing; changing the
+        // active Pane afterward must not redirect an admitted action.
+        pendingConversationAction = { handler(action) }
+        closeSidebar()
+    }
     @discardableResult
     func presentNewSettings(eligible: Bool) -> Bool {
         guard eligible, !isOpen, progress == 0, !isDragging, settlementID == nil, overlay == nil else { return false }
@@ -102,5 +121,5 @@ final class WorkspaceNavigationState {
     }
 
     func dismissOverlay() { overlay = nil; overlayID = nil }
-    func reset() { onReset?(); closeSidebar(); dismissOverlay(); settlementID = nil }
+    func reset() { pendingConversationAction = nil; onReset?(); closeSidebar(); dismissOverlay(); settlementID = nil }
 }

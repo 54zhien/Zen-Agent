@@ -37,6 +37,8 @@ struct WorkspaceNavigationView<Content: View>: View {
             ZStack(alignment: .leading) {
                 if state.progress > 0 {
                     SidebarRailView(availableRoutes: !state.isDragging && state.settlementID == nil ? overlays?.availableRoutes ?? [] : [],
+                        conversationActions: !state.isDragging && state.settlementID == nil ? state.conversationActions : [],
+                        onAction: state.perform,
                         onSelect: { route in
                             overlays?.enter(route, eligible: context()?.allowsOpening == true, captureFocus: captureFocus)
                         })
