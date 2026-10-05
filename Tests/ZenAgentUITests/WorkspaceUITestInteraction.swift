@@ -16,7 +16,11 @@ extension XCUIApplication {
         }
         let edge = coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
         edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
-        XCTAssertTrue(rail.waitForExistence(timeout: 10), file: file, line: line)
+        guard rail.waitForExistence(timeout: 10) else {
+            let receipt = probes.filter { $0.exists }.map { String(describing: $0.value) }.joined(separator: "\n")
+            XCTFail("Sidebar did not open after one edge gesture. Native receipt: \(receipt)", file: file, line: line)
+            return
+        }
         XCTAssertTrue(buttons["sidebar-settings"].wait(for: \.isEnabled, toEqual: true, timeout: 10), file: file, line: line)
     }
 

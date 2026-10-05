@@ -35,9 +35,16 @@ struct WorkspaceComposerDockTests {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
-        let root = UIViewController()
+        let root = ComposerDockTestRoot()
         window.rootViewController = root; window.makeKeyAndVisible()
-        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
+        defer {
+            window.endEditing(true); window.isHidden = true
+            window.rootViewController = nil; previous?.makeKeyAndVisible()
+        }
+        // A newly keyed Window can still be completing its root appearance.
+        // Drive focus only after UIKit has finished that initial transition.
+        for _ in 0..<40 where !root.didAppear { try await Task.sleep(for: .milliseconds(25)) }
+        try #require(root.didAppear && window.isKeyWindow)
         let dock = WorkspaceComposerDockState()
         let container = ComposerDockContainer(frame: root.view.bounds)
         let a = ComposerHostPortal(frame: root.view.bounds), b = ComposerHostPortal(frame: root.view.bounds)
@@ -54,8 +61,9 @@ struct WorkspaceComposerDockTests {
         if preserveOutgoing { #expect(a.composer.editor.isFirstResponder) }
         update(b, id: "b", editing: true)
         dock.configure(container: container, activeID: "b", visible: true)
+        #expect(b.composer.editor.isFirstResponder, "incoming editor must receive focus at attachment")
         try await Task.sleep(for: .milliseconds(250))
-        #expect(b.composer.editor.isFirstResponder)
+        #expect(b.composer.editor.isFirstResponder, "settled focus; keyWindow=\(window.isKeyWindow), attached=\(b.composer.window === window)")
         #expect(!a.composer.editor.isFirstResponder)
         #expect(b.composer.editor.text == "b" && a.composer.editor.text == "a")
     }
@@ -68,5 +76,14 @@ struct WorkspaceComposerDockTests {
             onRemoveQuote: { _ in }, onAcceptQuote: { _ in }, onQuotePhase: { _ in },
             onText: { _, _, _ in }, onFocus: { _ in }, onSend: {}, onStop: {},
             onModel: { _ in }, onHeightChanged: { _ in })
+    }
+}
+
+@MainActor
+private final class ComposerDockTestRoot: UIViewController {
+    private(set) var didAppear = false
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        didAppear = true
     }
 }
