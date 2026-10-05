@@ -119,7 +119,8 @@ final class FilesWorkspaceUITests: XCTestCase {
     @MainActor
     private func cancelNativePicker(_ picker: XCUIElement, in app: XCUIApplication,
                                     file: StaticString = #filePath, line: UInt = #line) {
-        let labels = NSPredicate(format: "label IN %@", ["Cancel", "取消", "Close", "关闭"])
+        let navigationAction = NSPredicate(format: "label IN %@ OR identifier == %@",
+                                           ["Cancel", "取消", "Close", "关闭"], "BackButton")
         // A remembered directory can hide Cancel behind native Browse navigation.
         // Rendered CI screenshots show that the hidden AX Other's stale frame
         // overlaps More. Never synthesize input at that non-hittable frame.
@@ -128,33 +129,15 @@ final class FilesWorkspaceUITests: XCTestCase {
             navigation.name = "Native picker navigation before hit-point query"
             navigation.lifetime = .keepAlways
             add(navigation)
-            // The picker root exists before its remote navigation controls can
-            // accept input. Wait for an actual native action, not just that root.
-            let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                let actions = picker.buttons.matching(labels).allElementsBoundByIndex
-                    + picker.otherElements.matching(labels).allElementsBoundByIndex
-                return actions.contains { self.nativeActionIsHittable($0, in: app) }
-                    || self.nativeActionIsHittable(picker.buttons["BackButton"], in: app)
-            }, object: nil)
-            let readiness = XCTWaiter.wait(for: [ready], timeout: 5)
-            print("FILES_NATIVE_ACTION_READY result=\(readiness.rawValue)")
-            let buttons = picker.buttons.matching(labels).allElementsBoundByIndex
-            let others = picker.otherElements.matching(labels).allElementsBoundByIndex
-            for action in buttons + others {
-                print("FILES_NATIVE_CANCEL_FRAME frame=\(action.frame) type=\(action.elementType.rawValue)")
-                print("FILES_NATIVE_CANCEL_HITTABLE value=\(nativeActionIsHittable(action, in: app))")
-            }
-            if let cancel = (buttons + others).first(where: { nativeActionIsHittable($0, in: app) }) {
-                let before = XCTAttachment(screenshot: app.screenshot())
-                before.name = "Native picker visible Cancel"
-                before.lifetime = .keepAlways
-                add(before)
-                print("FILES_NATIVE_VISIBLE_CANCEL frame=\(cancel.frame) type=\(cancel.elementType.rawValue)")
-                cancel.tap()
-                return
-            }
-            let back = picker.buttons["BackButton"]
-            guard nativeActionIsHittable(back, in: app) else {
+            // The remote browser can still be loading after its root exists.
+            // Enumerating and resolving several remote elements inside one
+            // predicate can exhaust the waiter during a snapshot request.
+            // Resolve one live Button query; hidden AX Other aliases are not
+            // controls and must never supply a fallback tap location.
+            let action = picker.buttons.matching(navigationAction).firstMatch
+            guard action.waitForExistence(timeout: 5),
+                  nativeActionHasVisibleFrame(action, in: app),
+                  action.wait(for: \.isHittable, toEqual: true, timeout: 5) else {
                 XCTFail("Native picker has no hittable Cancel or Browse Back control", file: file, line: line)
                 let failure = XCTAttachment(screenshot: app.screenshot())
                 failure.name = "Native picker without visible cancellation"
@@ -166,22 +149,25 @@ final class FilesWorkspaceUITests: XCTestCase {
                 add(hierarchy)
                 return
             }
-            print("FILES_NATIVE_BROWSE_BACK label=\(back.label) frame=\(back.frame)")
-            back.tap()
+            let isBack = action.identifier == "BackButton"
+            let before = XCTAttachment(screenshot: app.screenshot())
+            before.name = isBack ? "Native picker visible Browse Back" : "Native picker visible Cancel"
+            before.lifetime = .keepAlways
+            add(before)
+            print("FILES_NATIVE_ACTION_READY back=\(isBack) label=\(action.label) frame=\(action.frame)")
+            action.tap()
+            if !isBack { return }
         }
         XCTFail("Native picker did not reach visible cancellation within six Browse levels", file: file, line: line)
     }
 
     @MainActor
-    private func nativeActionIsHittable(_ action: XCUIElement, in app: XCUIApplication) -> Bool {
-        guard action.exists else { return false }
+    private func nativeActionHasVisibleFrame(_ action: XCUIElement, in app: XCUIApplication) -> Bool {
         let frame = action.frame
         // Remote Browse navigation can expose a Cancel element before its frame
         // enters the viewport. XCTest's hit-point query can fail instead of
-        // returning false for that intermediate element; wait for its geometry.
-        guard !frame.isEmpty, !frame.isNull, !frame.isInfinite,
-              app.frame.contains(frame) else { return false }
-        return action.isHittable
+        // returning false for that intermediate element; validate geometry first.
+        return !frame.isEmpty && !frame.isNull && !frame.isInfinite && app.frame.contains(frame)
     }
 
     private func editorIdentity(_ diagnostic: String?) -> String? {
