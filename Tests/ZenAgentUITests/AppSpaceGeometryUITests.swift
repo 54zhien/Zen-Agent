@@ -2,7 +2,7 @@ import XCTest
 
 final class AppSpaceGeometryUITests: XCTestCase {
     @MainActor
-    func testStaticCurrentAndHistoryFormRightBiasedDepthStack() {
+    func testStaticCurrentAndHistoryShareHorizontalDepthCenterline() {
         let app = launch()
         let current = app.otherElements["app-space-card-current"]
         guard current.waitForExistence(timeout: 15) else {
@@ -15,7 +15,7 @@ final class AppSpaceGeometryUITests: XCTestCase {
             let previous = app.otherElements["app-space-card-history-\(depth)"]
             XCTAssertTrue(previous.exists)
             XCTAssertLessThan(previous.frame.minX, current.frame.minX)
-            XCTAssertLessThan(previous.frame.minY, current.frame.minY)
+            XCTAssertEqual(previous.frame.midY, current.frame.midY, accuracy: 1)
             XCTAssertLessThan(previous.frame.width, previousWidth)
             XCTAssertTrue(app.frame.insetBy(dx: -1, dy: -1).contains(previous.frame))
             previousWidth = previous.frame.width

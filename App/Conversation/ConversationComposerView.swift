@@ -15,6 +15,7 @@ struct ConversationComposerView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.surfaceLiftController) private var lift
     @Environment(\.modelMenuPreferences) private var menuPreferences
+    @Environment(\.workspaceComposerDock) private var dock
 
     init(conversationID: String, controller: ComposerController,
          bridge: ComposerRuntimeActionBridge, maxProviderSteps: Int,
@@ -37,7 +38,8 @@ struct ConversationComposerView: View {
 
     var body: some View {
         ComposerHostBridge(configuration: hostConfiguration,
-                           focused: controller.draft.presentationState == .editing)
+                           focused: controller.draft.presentationState == .editing,
+                           conversationID: conversationID)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .task(id: conversationID) { await observeRunProjection() }
             .task(id: controller.configuration?.providerInstanceID) { await loadKnownModels() }
@@ -131,7 +133,10 @@ struct ConversationComposerView: View {
                 configuration.modelID = modelID
                 controller.configuration = configuration
             },
-            onHeightChanged: onHeightChanged,
+            onHeightChanged: { height in
+                onHeightChanged(height)
+                dock?.measured(height, ownerID: conversationID)
+            },
             liftInteraction: lift.map { driver in
                 ComposerLiftInteraction.Configuration(driver: driver, conversationID: conversationID) { native in
                     var input = native

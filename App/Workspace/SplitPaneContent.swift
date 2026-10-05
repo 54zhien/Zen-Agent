@@ -80,74 +80,7 @@ struct SplitEmptyPanePicker: View {
 @MainActor
 struct SplitSecondaryPaneView: View {
     let model: AppShellModel
-    @Environment(\.surfaceLiftController) private var lift
-    @State private var showsRecent = false
-    @State private var selection: Task<Void, Never>?
-
     var body: some View {
-        Group {
-                if let pane = model.splitPane, let bridge = model.splitActionBridge,
-                          let runtime = model.runtimeForPresentation {
-                    NavigationStack {
-                        ConversationPaneView(pane: pane, runtime: runtime, actionBridge: bridge,
-                            maxProviderSteps: AppShellModel.maxProviderSteps,
-                            isActive: model.splitWorkspace?.activeSlot == model.splitWorkspace?.emptySlot,
-                            onUserFocus: {
-                                if let split = model.splitWorkspace { model.selectSplitSlot(split.emptySlot) }
-                            })
-                            .navigationTitle("会话")
-                            .toolbar {
-                                ToolbarItem(placement: .topBarLeading) {
-                                    Button("新会话") { _ = model.createNewInSplit() }
-                                        .accessibilityIdentifier("split-secondary-new")
-                                }
-                                ToolbarItem(placement: .topBarTrailing) {
-                                    Button { showsRecent = true } label: { Image(systemName: "clock.arrow.circlepath") }
-                                        .accessibilityLabel("最近会话")
-                                        .accessibilityIdentifier("split-secondary-recent")
-                                }
-                            }
-                    }
-                    .id(pane.conversationID)
-                }
-        }
-        .accessibilityIdentifier("split-secondary-pane")
-        .sheet(isPresented: $showsRecent) {
-            NavigationStack {
-                List {
-                    ForEach(model.recentConversations) { conversation in
-                        Button(conversation.title) {
-                            selection?.cancel()
-                            selection = Task {
-                                let opened = conversation.id == model.conversationID
-                                    ? await model.openConversation(id: conversation.id)
-                                    : await model.openInSplit(id: conversation.id)
-                                if opened, !Task.isCancelled { showsRecent = false }
-                            }
-                        }
-                        .accessibilityIdentifier("split-recent-\(conversation.id)")
-                    }
-                    if let error = model.splitOpenError ?? model.recentLoadError {
-                        Text(error).foregroundStyle(.secondary)
-                        Button("重试列表") { model.retryRecentConversations() }
-                    }
-                    if model.recentHasMore {
-                        Button("加载更多") { model.loadMoreRecentConversations() }
-                    }
-                }
-                .navigationTitle("最近会话")
-                .toolbar { Button("完成") { showsRecent = false } }
-            }
-        }
-        .onChange(of: showsRecent) { _, presented in
-            lift?.setOverlayPresented(presented)
-            if !presented { selection?.cancel(); selection = nil }
-        }
-        .onChange(of: model.splitPane?.conversationID) { _, _ in
-            guard !model.previewContent.isPresented, model.splitPane != nil else { return }
-            if lift?.state.phase == .settling, lift?.state.pendingSettlement?.destination == .full { return }
-            lift?.resetForConversationChange()
-        }
-        .onDisappear { selection?.cancel(); selection = nil }
+        NewConversationView(model: model, surfaceSlot: model.sourceSurfaceSlot.other)
     }
 }

@@ -161,6 +161,17 @@ final class AppShellModel {
     }
 
     func selectSplitSlot(_ slot: SplitDropSlot) {
+        guard let split = splitWorkspace, split.activeSlot != slot else { return }
+        let outgoing = split.activeSlot == split.sourceSlot ? pane : splitPane
+        let incoming = slot == split.sourceSlot ? pane : splitPane
+        guard let incoming, outgoing?.composer.isComposing != true,
+              outgoing?.composer.isSelectionHandleDragging != true,
+              outgoing?.composer.quoteDragPhase == .idle else { return }
+        let editing = outgoing?.composer.draft.presentationState == .editing
+        if editing {
+            _ = outgoing?.composer.handle(.keyboardDismissed)
+            _ = incoming.composer.handle(.textAreaTapped)
+        }
         splitWorkspace?.select(slot)
     }
 

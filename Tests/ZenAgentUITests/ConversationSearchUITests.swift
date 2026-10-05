@@ -6,7 +6,7 @@ final class ConversationSearchUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
-        XCTAssertTrue(app.buttons["split-entry"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         let editor = app.textViews["conversation-composer-input"]
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         editor.tap()
@@ -41,7 +41,7 @@ final class ConversationSearchUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
-        XCTAssertTrue(app.buttons["split-entry"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         let editor = app.textViews["conversation-composer-input"]
         editor.tap()
         editor.typeText("draft retained through Search")

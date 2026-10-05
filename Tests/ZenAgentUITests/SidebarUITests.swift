@@ -3,6 +3,32 @@ import UIKit
 
 final class SidebarUITests: XCTestCase {
     @MainActor
+    func testSplitSidebarClosingIncludesOppositePaneAndSharedInput() {
+        let app = launch()
+        app.openWorkspaceSidebar()
+        app.buttons["split-entry"].tap()
+        app.buttons["split-open-top"].tap()
+        let history = app.buttons["split-history-preview-ui-10"]
+        XCTAssertTrue(history.waitForExistence(timeout: 10)); history.tap()
+        XCTAssertTrue(app.scrollViews["conversation-pane-preview-ui-10"].waitForExistence(timeout: 10))
+        let editor = app.textViews["conversation-composer-input"]
+        let otherProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
+        let originalIdentity = editorIdentity(otherProbe.value as? String)
+        XCTAssertNotNil(originalIdentity)
+        let rail = app.descendants(matching: .any)["sidebar-rail"]
+        app.openWorkspaceSidebar()
+        app.activateWorkspacePane("preview-ui-11")
+        expect { !rail.exists }
+        XCTAssertEqual(editorIdentity(otherProbe.value as? String), originalIdentity)
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        app.openWorkspaceSidebar()
+        editor.tap()
+        expect { !rail.exists }
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "Closing tap must not start editing")
+        XCTAssertEqual(editorIdentity(otherProbe.value as? String), originalIdentity)
+    }
+
+    @MainActor
     func testShiftedBlankTapClosesRailRetainingFocusAndLaterBlankTapDismissesNormally() {
         let app = launch()
         let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
@@ -15,8 +41,7 @@ final class SidebarUITests: XCTestCase {
         let identity = editorIdentity(probe.value as? String)
         let originalX = pane.frame.minX
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        app.dragWorkspaceSidebarEdge(at: 0.3)
         let rail = app.descendants(matching: .any)["sidebar-rail"]
         receipt("focused-open", probe)
         XCTAssertTrue(rail.waitForExistence(timeout: 5))
@@ -64,8 +89,7 @@ final class SidebarUITests: XCTestCase {
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
         // The failure recording places the former mid-edge point in the
         // landscape sensor corridor. Start on the unobstructed screen edge.
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.25))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        app.dragWorkspaceSidebarEdge(at: 0.25)
         let rail = app.descendants(matching: .any)["sidebar-rail"]
         receipt("landscape-open", probe)
         XCTAssertTrue(rail.waitForExistence(timeout: 5))
@@ -94,8 +118,7 @@ final class SidebarUITests: XCTestCase {
         let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let before = pane.frame
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        app.dragWorkspaceSidebarEdge(at: 0.3)
         let rail = app.descendants(matching: .any)["sidebar-rail"]
         receipt("editing-open", probe)
         XCTAssertTrue(rail.waitForExistence(timeout: 5))
@@ -124,8 +147,7 @@ final class SidebarUITests: XCTestCase {
         let before = pane.frame
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.5))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        app.dragWorkspaceSidebarEdge(at: 0.5)
         let rail = app.descendants(matching: .any)["sidebar-rail"]
         receipt("resting-open", probe)
         XCTAssertTrue(rail.waitForExistence(timeout: 5))
@@ -143,18 +165,18 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    func testInteriorSwipeAndSplitCannotRevealRail() {
+    func testInteriorSwipeIsIgnoredButStableSplitCanRevealRail() {
         let app = launch()
         let interior = app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
         interior.press(forDuration: 0.05, thenDragTo: interior.withOffset(CGVector(dx: 110, dy: 0)))
         XCTAssertFalse(app.descendants(matching: .any)["sidebar-rail"].exists)
+        app.openWorkspaceSidebar()
         app.buttons["split-entry"].tap()
         app.buttons["split-open-top"].tap()
         let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.35))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
-        XCTAssertFalse(app.descendants(matching: .any)["sidebar-rail"].exists)
+        app.dragWorkspaceSidebarEdge(at: 0.35)
+        XCTAssertTrue(app.descendants(matching: .any)["sidebar-rail"].waitForExistence(timeout: 5))
         XCTAssertTrue(picker.exists)
     }
 
@@ -168,8 +190,7 @@ final class SidebarUITests: XCTestCase {
         start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
         let card = app.descendants(matching: .any)["workspace-current-card"]
         expect { card.exists }
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.5))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        app.dragWorkspaceSidebarEdge(at: 0.5)
         XCTAssertFalse(app.descendants(matching: .any)["sidebar-rail"].exists)
         XCTAssertTrue(card.exists)
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
@@ -188,7 +209,7 @@ final class SidebarUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
-        XCTAssertTrue(app.buttons["split-entry"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         return app
     }
 

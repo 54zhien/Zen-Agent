@@ -92,7 +92,7 @@ final class AppSpaceInkNativeView: UIView {
         self.policy = policy
         self.dark = dark
         overrideUserInterfaceStyle = dark ? .dark : .light
-        backgroundColor = dark ? UIColor(red: 0.035, green: 0.039, blue: 0.049, alpha: 1) : .systemBackground
+        backgroundColor = dark ? UIColor(red: 0.035, green: 0.039, blue: 0.049, alpha: 1) : UIColor(red: 0.24, green: 0.25, blue: 0.28, alpha: 1)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         ink.isHidden = !dark || !policy.showsInk

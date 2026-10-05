@@ -12,6 +12,10 @@ final class WorkspacePadAxisUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
+        let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        let sourceIdentity = try XCTUnwrap(editorIdentity(sourceProbe.value as? String))
+        app.openWorkspaceSidebar()
         let entry = app.buttons["split-entry"]
         XCTAssertTrue(entry.waitForExistence(timeout: 15))
         entry.tap()
@@ -24,6 +28,7 @@ final class WorkspacePadAxisUITests: XCTestCase {
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()
+        XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch.waitForExistence(timeout: 10))
         let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let other = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch
         // Each AX request can block independently on a busy simulator. Observe
@@ -45,15 +50,13 @@ final class WorkspacePadAxisUITests: XCTestCase {
         }
         XCTAssertGreaterThan(initialViewport.width, initialViewport.height,
                              "Initial native workspace must already be landscape")
-        let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         let otherProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
-        let sourceIdentity = try XCTUnwrap(editorIdentity(sourceProbe.value as? String))
         let otherIdentity = try XCTUnwrap(editorIdentity(otherProbe.value as? String))
         let verticalHeight = source.frame.height
         selectAxis("左右分屏", in: app)
         expect { source.frame.height > verticalHeight + 50 }
         expectLeasesReleased(sourceProbe, otherProbe)
-        XCTAssertEqual(source.frame.maxX, other.frame.minX, accuracy: 3)
+        XCTAssertEqual(source.frame.maxX + 12, other.frame.minX, accuracy: 3)
         XCTAssertEqual(source.frame.height, other.frame.height, accuracy: 3)
         let widthBefore = source.frame.width
         let handle = app.descendants(matching: .any)["split-divider-handle"]
@@ -82,8 +85,12 @@ final class WorkspacePadAxisUITests: XCTestCase {
         selectAxis("左右分屏", in: app)
         expect { abs(source.frame.width - horizontalWidth) < 4 }
         expectLeasesReleased(sourceProbe, otherProbe)
-        XCTAssertEqual(editorIdentity(sourceProbe.value as? String), sourceIdentity)
         XCTAssertEqual(editorIdentity(otherProbe.value as? String), otherIdentity)
+        app.activateWorkspacePane("preview-ui-11")
+        expect { self.editorIdentity(sourceProbe.value as? String) == sourceIdentity }
+        app.activateWorkspacePane("preview-ui-10")
+        expect { self.editorIdentity(otherProbe.value as? String) == otherIdentity }
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         XCTAssertTrue(source.exists && other.exists)
     }
 

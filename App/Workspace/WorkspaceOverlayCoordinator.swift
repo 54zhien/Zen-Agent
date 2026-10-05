@@ -65,7 +65,7 @@ final class WorkspaceOverlayCoordinator {
     @discardableResult
     func select(_ id: String) -> Task<Void, Never> {
         search.select(id, open: { [weak shell] id in
-            await shell?.openConversation(id: id, presentation: .resting) ?? false
+            await shell?.openActivePaneConversation(id: id) ?? false
         }, onSuccess: { [weak self] in
             self?.focus?.cancel()
             self?.navigation?.dismissOverlay()

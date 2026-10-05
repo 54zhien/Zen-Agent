@@ -14,6 +14,7 @@ final class SplitResizeUITests: XCTestCase {
     @MainActor
     private func closePane(action: String, survivorID: String, retiredID: String) {
         let app = occupiedSplit()
+        app.activateWorkspacePane(survivorID)
         let probeID = survivorID == "preview-ui-10"
             ? "split-secondary-native-interaction-probe" : "surface-native-interaction-probe"
         let probe = app.descendants(matching: .any)[probeID]
@@ -73,50 +74,25 @@ final class SplitResizeUITests: XCTestCase {
         let secondary = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch
         let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         let secondaryProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
+        app.activateWorkspacePane("preview-ui-11")
+        let input = app.textViews["conversation-composer-input"]
         let sourceIdentity = editorIdentity(sourceProbe.value as? String)
+        XCTAssertNotNil(sourceIdentity)
+        input.tap(); input.typeText("source resize draft")
+        dismissKeyboard(in: app, pane: source, editor: input, probe: sourceProbe)
+        app.activateWorkspacePane("preview-ui-10")
         let secondaryIdentity = editorIdentity(secondaryProbe.value as? String)
-        XCTAssertNotNil(sourceIdentity, "The source probe must identify its actual native editor")
-        XCTAssertNotNil(secondaryIdentity, "The secondary probe must identify its actual native editor")
-        let initialEditor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
-        initialEditor.tap()
-        initialEditor.typeText("source resize draft")
-        let sourceEditor = editor(in: app, containing: "source resize draft")
-        XCTAssertTrue(sourceEditor.waitForExistence(timeout: 5))
-        dismissKeyboard(in: app, pane: source, editor: sourceEditor, probe: sourceProbe)
-        XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source resize draft".utf16.count)
-        XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), 0)
-        // The empty resting editor need not be a separate AX text-view node.
-        // Tap its real native location, then type through the actual first responder.
-        guard let point = editorPoint(secondaryProbe.value as? String) else {
-            XCTFail("The secondary Surface must retain its native editor geometry")
-            return
-        }
-        app.coordinate(withNormalizedOffset: .zero).withOffset(
-            CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY)).tap()
-        expect { (secondaryProbe.value as? String)?.contains(";focused=true;") == true }
-        app.typeText("secondary resize draft")
+        XCTAssertNotNil(secondaryIdentity)
+        input.tap(); input.typeText("secondary resize draft")
         printDiagnostics(app, context: "after secondary input")
-        XCTAssertTrue(app.descendants(matching: .any)["split-viewport-probe"].exists,
-            "The keyboard-safe Workspace geometry receipt must run in this fixture")
-        XCTAssertTrue(viewportUsesProposedSize(app.descendants(matching: .any)["split-viewport-probe"].value as? String),
-            "Split must use the actual proposed size without subtracting the keyboard twice")
-        XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source resize draft".utf16.count)
-        XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), "secondary resize draft".utf16.count)
+        XCTAssertTrue(viewportUsesProposedSize(app.descendants(matching: .any)["split-viewport-probe"].value as? String))
         let nativeFrame = editorFrame(secondaryProbe.value as? String)
         let lineHeight = editorLineHeight(secondaryProbe.value as? String)
-        XCTAssertNotNil(nativeFrame)
-        XCTAssertNotNil(lineHeight)
-        // UIKit frame rounding may differ from font.lineHeight by a floating-point ULP.
-        XCTAssertGreaterThanOrEqual((nativeFrame?.height ?? 0) + 0.01, lineHeight ?? 1,
-            "The focused native editor must expose at least one readable line")
-        XCTAssertGreaterThanOrEqual((timelineHeight(sourceProbe.value as? String) ?? 0) + 0.01,
-            editorLineHeight(sourceProbe.value as? String) ?? 1,
-            "The inactive Pane must remain readable while the other Pane edits")
-        XCTAssertGreaterThanOrEqual((timelineHeight(secondaryProbe.value as? String) ?? 0) + 0.01,
-            lineHeight ?? 1, "The editing Pane must retain a readable Timeline viewport")
-        let secondaryEditor = editor(in: app, containing: "secondary resize draft")
-        XCTAssertTrue(secondaryEditor.waitForExistence(timeout: 5))
-        dismissKeyboard(in: app, pane: secondary, editor: secondaryEditor, probe: secondaryProbe)
+        XCTAssertNotNil(nativeFrame); XCTAssertNotNil(lineHeight)
+        XCTAssertGreaterThanOrEqual((nativeFrame?.height ?? 0) + 0.01, lineHeight ?? 1)
+        XCTAssertGreaterThanOrEqual((timelineHeight(sourceProbe.value as? String) ?? 0) + 0.01, lineHeight ?? 1)
+        XCTAssertGreaterThanOrEqual((timelineHeight(secondaryProbe.value as? String) ?? 0) + 0.01, lineHeight ?? 1)
+        dismissKeyboard(in: app, pane: secondary, editor: input, probe: secondaryProbe)
 
         let sourceBefore = source.frame
         let secondaryBefore = secondary.frame
@@ -127,16 +103,15 @@ final class SplitResizeUITests: XCTestCase {
         XCTAssertLessThan(secondary.frame.height, secondaryBefore.height - 30)
         XCTAssertEqual(source.frame.height + secondary.frame.height,
                        sourceBefore.height + secondaryBefore.height, accuracy: 3)
-        XCTAssertTrue((sourceEditor.value as? String)?.contains("source resize draft") == true
-            || sourceEditor.label.contains("source resize draft"))
-        XCTAssertTrue((secondaryEditor.value as? String)?.contains("secondary resize draft") == true
-            || secondaryEditor.label.contains("secondary resize draft"))
-        XCTAssertTrue((sourceProbe.value as? String)?.contains(";editors=1;") == true)
-        XCTAssertTrue((secondaryProbe.value as? String)?.contains(";editors=1;") == true)
-        XCTAssertEqual(editorIdentity(sourceProbe.value as? String), sourceIdentity)
+        XCTAssertTrue((input.value as? String)?.contains("secondary resize draft") == true)
         XCTAssertEqual(editorIdentity(secondaryProbe.value as? String), secondaryIdentity)
-        XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source resize draft".utf16.count)
-        XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), "secondary resize draft".utf16.count)
+        app.activateWorkspacePane("preview-ui-11")
+        expect { (input.value as? String) == "source resize draft" }
+        XCTAssertEqual(editorIdentity(sourceProbe.value as? String), sourceIdentity)
+        app.activateWorkspacePane("preview-ui-10")
+        expect { (input.value as? String) == "secondary resize draft" }
+        XCTAssertEqual(editorIdentity(secondaryProbe.value as? String), secondaryIdentity)
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
     }
 
     @MainActor
@@ -152,7 +127,7 @@ final class SplitResizeUITests: XCTestCase {
         line.tap()
         XCTAssertTrue(divider.exists)
         XCTAssertTrue(secondary.exists)
-        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2)
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
     }
 
     private func editorIdentity(_ diagnostic: String?) -> String? {
@@ -240,6 +215,7 @@ final class SplitResizeUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
+        app.openWorkspaceSidebar()
         let entry = app.buttons["split-entry"]
         XCTAssertTrue(entry.waitForExistence(timeout: 15))
         entry.tap()
@@ -247,7 +223,8 @@ final class SplitResizeUITests: XCTestCase {
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()
-        expect { app.textViews.matching(identifier: "conversation-composer-input").count == 2 }
+        XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch.waitForExistence(timeout: 10))
+        expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
         return app
     }
 

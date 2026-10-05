@@ -11,6 +11,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var isWorkspaceVisible: Bool
     var isInputSuppressed: Bool
     var isReturnProxyHidden: Bool
+    var restingCornerRadius: CGFloat
     var sidebarOffset: CGFloat
     var sidebarSettlement: UUID?
     var onSidebarSettled: ((UUID) -> Void)?
@@ -23,7 +24,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
          isDeletionPending: (@MainActor (String) -> Bool)? = nil,
          isWorkspaceVisible: Bool = true,
          isInputSuppressed: Bool = false, isReturnProxyHidden: Bool = false,
-         sidebarOffset: CGFloat = 0, sidebarSettlement: UUID? = nil,
+         restingCornerRadius: CGFloat = 0, sidebarOffset: CGFloat = 0, sidebarSettlement: UUID? = nil,
          onSidebarSettled: ((UUID) -> Void)? = nil,
          onNativeLayout: ((WorkspaceNativeLayoutReceipt?) -> Void)? = nil,
          @ViewBuilder content: () -> Content) {
@@ -35,6 +36,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         self.isWorkspaceVisible = isWorkspaceVisible
         self.isInputSuppressed = isInputSuppressed
         self.isReturnProxyHidden = isReturnProxyHidden
+        self.restingCornerRadius = restingCornerRadius
         self.sidebarOffset = sidebarOffset
         self.sidebarSettlement = sidebarSettlement
         self.onSidebarSettled = onSidebarSettled
@@ -48,6 +50,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.bindBrowse(browseController)
         controller.bindDeletion(deleteAction, isPending: isDeletionPending)
         controller.onNativeLayout = onNativeLayout
+        controller.setRestingCornerRadius(restingCornerRadius)
         controller.setInputSuppressed(isInputSuppressed)
         controller.setReturnProxyHidden(isReturnProxyHidden)
         controller.setWorkspaceVisible(isWorkspaceVisible)
@@ -67,6 +70,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.bindBrowse(browseController)
         controller.bindDeletion(deleteAction, isPending: isDeletionPending)
         controller.onNativeLayout = onNativeLayout
+        controller.setRestingCornerRadius(restingCornerRadius)
         controller.setInputSuppressed(isInputSuppressed)
         controller.setReturnProxyHidden(isReturnProxyHidden)
         controller.setWorkspaceVisible(isWorkspaceVisible)
@@ -88,6 +92,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
 @MainActor
 final class ConversationSurfaceViewController<Content: View>: UIViewController {
     let contentController: SurfaceHostingController<Content>
+    private var restingCornerRadius: CGFloat = 0
     let surfaceView = SurfaceClipView()
     private(set) var presentation = SurfaceGeometry.Presentation.full
     private var request = SurfaceGeometry.Request.full
@@ -129,7 +134,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             }
             return values.joined(separator: ">")
         }
-        let mounted = editors(in: contentController.view)
+        let mounted = editors(in: contentController.view) + (liftController?.externalComposer.map { [$0.editor] } ?? [])
         var fields = ["host=\(ObjectIdentifier(self))", "phase=\(String(describing: liftController?.state.phase))",
             "edgeVisible=\(surfaceView.currentEdgeVisible)",
             "visible=\(workspaceVisible)", "root=\(chain(view))",
@@ -260,6 +265,11 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         }
     }
 
+    func setRestingCornerRadius(_ radius: CGFloat) {
+        restingCornerRadius = radius
+        surfaceView.layer.cornerRadius = max(radius, presentation.cornerRadius)
+    }
+
     func setInputSuppressed(_ suppressed: Bool) {
         inputSuppressed = suppressed
         liftController?.refreshCardAccessibility()
@@ -271,7 +281,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             if let navigation = controller as? UINavigationController, navigation.viewControllers.count > 1 { return true }
             return controller.children.contains { hasNavigation($0) }
         }
-        guard !hasNavigation(contentController), let composer = findComposer(in: contentController.view) else { return false }
+        guard !hasNavigation(contentController), let composer = findComposer(in: contentController.view) ?? liftController?.externalComposer else { return false }
         var input = composer.nativeSidebarInput
         input.selectionActive = composer.editor.selectedTextRange.map { !$0.isEmpty } ?? false
         return WorkspaceSidebarEligibility.allowsNativeInput(input)
@@ -285,7 +295,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     func captureOverlayFocus(ownerIsCurrent: @escaping () -> Bool) -> ComposerOverlayFocus? {
         guard allowsSidebarInput else { return nil }
-        return findComposer(in: contentController.view)?.captureOverlayFocus(ownerIsCurrent: ownerIsCurrent)
+        return (findComposer(in: contentController.view) ?? liftController?.externalComposer)?.captureOverlayFocus(ownerIsCurrent: ownerIsCurrent)
     }
 
     var allowsSidebarClosing: Bool {
@@ -351,7 +361,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         guard force || presentation != resolved else { updateCrop(); return true }
         presentation = resolved
         surfaceView.transform = CGAffineTransform(a: resolved.scale, b: 0, c: 0, d: resolved.scale, tx: resolved.translation.width, ty: resolved.translation.height)
-        surfaceView.layer.cornerRadius = resolved.cornerRadius
+        surfaceView.layer.cornerRadius = max(restingCornerRadius, resolved.cornerRadius)
         updateCrop()
         return true
     }
@@ -607,6 +617,20 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     func convergeLift(to pose: SurfaceGeometry.Pose, animated: Bool,
                       completion: @escaping (Bool) -> Void) {
+        // A reversed settlement starts at visible pixels, not the animator's
+        // cached endpoint or a scalar projected onto a different Lift path.
+        if animator != nil, let visible = surfaceView.layer.presentation() {
+            let available = CGSize(width: view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right,
+                height: view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom)
+            if available.width > 0, available.height > 0 {
+                let transform = visible.transform
+                let captured = SurfaceGeometry.Pose(scale: transform.m11,
+                    translation: CGSize(width: transform.m41 / available.width, height: transform.m42 / available.height),
+                    cornerRadius: visible.cornerRadius, clipFraction: presentation.clipFraction)
+                cancelLiftAnimation()
+                UIView.performWithoutAnimation { _ = apply(.init(to: captured, progress: 1), force: true) }
+            }
+        }
         cancelLiftAnimation()
         guard animated, !UIAccessibility.isReduceMotionEnabled else {
             completion(apply(.init(to: pose, progress: 1)))

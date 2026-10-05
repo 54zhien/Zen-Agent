@@ -49,10 +49,10 @@ struct WorkspaceDevicePresentationTests {
         #expect(split.activeSlot == .bottom && split.secondaryConversationID == "other")
         let layout = try #require(SplitWorkspaceGeometry(size: landscape,
             safeArea: UIEdgeInsets(top: 20, left: 30, bottom: 25, right: 40), ratio: split.activeRatio, axis: .leftRight))
-        #expect(layout.top.maxX == layout.bottom.minX)
-        #expect(layout.divider.midX == layout.top.maxX)
-        #expect(layout.top.width + layout.bottom.width == layout.viewport.width)
-        #expect(layout.divider.width == 28 && layout.divider.height == layout.viewport.height)
+        #expect(layout.divider.maxX == layout.bottom.minX)
+        #expect(layout.divider.minX == layout.top.maxX)
+        #expect(layout.top.width + layout.divider.width + layout.bottom.width == layout.viewport.width)
+        #expect(layout.divider.width == 12 && layout.divider.height == layout.viewport.height)
         #expect(layout.top.height == layout.bottom.height)
     }
 }

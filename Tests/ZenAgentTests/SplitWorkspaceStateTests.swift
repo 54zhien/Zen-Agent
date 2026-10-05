@@ -12,7 +12,7 @@ struct SplitWorkspaceStateTests {
             viewport: CGRect(x: 0, y: 0, width: 402, height: 539), ratio: 0.5))
         #expect(proposed.viewport == raw.viewport)
         #expect(proposed.top == raw.top && proposed.bottom == raw.bottom)
-        #expect(proposed.top.height == 269.5 && proposed.bottom.height == 269.5)
+        #expect(proposed.top.height == 263.5 && proposed.bottom.height == 263.5)
         #expect(SplitWorkspaceGeometry(viewport: .null, ratio: 0.5) == nil)
         #expect(SplitWorkspaceGeometry(viewport: .zero, ratio: 0.5) == nil)
     }
@@ -30,9 +30,9 @@ struct SplitWorkspaceStateTests {
         #expect(replaced.topBottomRatio == split.topBottomRatio)
         let layout = try #require(SplitWorkspaceGeometry(size: CGSize(width: 400, height: 800),
             safeArea: UIEdgeInsets(top: 50, left: 10, bottom: 30, right: 15), ratio: split.topBottomRatio))
-        #expect(layout.top.maxY == layout.bottom.minY)
-        #expect(layout.divider.midY == layout.top.maxY)
-        #expect(layout.top.height + layout.bottom.height == layout.viewport.height)
+        #expect(layout.top.maxY + layout.divider.height == layout.bottom.minY)
+        #expect(layout.divider.minY == layout.top.maxY)
+        #expect(layout.top.height + layout.divider.height + layout.bottom.height == layout.viewport.height)
         #expect(SplitWorkspaceGeometry(size: .zero, safeArea: .zero, ratio: 0.5) == nil)
         #expect(SplitWorkspaceGeometry(size: CGSize(width: 400, height: 800), safeArea: .zero, ratio: .nan) == nil)
         #expect(SplitWorkspaceGeometry.projectedRatio(0.1, minimum: 0.25) > 0.1)

@@ -26,6 +26,7 @@ Blueprint  ──defines intent──▶  Zen-Agent
 ```
 Zen-Agent-Blueprint @ 99d30b815651fe987bab9f88e269a84a89318625
 Owner-approved Stage 5 supplement @ e6d8c5f9919a83672bea670bc7e49339e5f5373c
+Device feedback corrections @ 3b4b22c0df91be668406127c84c1822b359883c0
 ```
 
 This is a snapshot of the design state this work started from, not a permanent

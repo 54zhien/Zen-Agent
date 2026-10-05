@@ -2,6 +2,28 @@ import XCTest
 
 final class SplitContainerUITests: XCTestCase {
     @MainActor
+    func testSharedBottomComposerFollowsContentTapWithoutSharingDrafts() {
+        let app = launchedOccupiedSplit()
+        let input = app.textViews["conversation-composer-input"]
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+        XCTAssertFalse(app.buttons["new-conversation-new"].exists)
+        XCTAssertFalse(app.buttons["split-entry"].exists)
+        let divider = app.descendants(matching: .any)["split-divider"]
+        XCTAssertGreaterThan(input.frame.minY, divider.frame.maxY)
+        app.activateWorkspacePane("preview-ui-11")
+        input.tap(); input.typeText("upper draft stays upper")
+        app.activateWorkspacePane("preview-ui-10")
+        expect { !(input.value as? String ?? "").contains("upper draft stays upper") }
+        input.tap(); input.typeText("lower draft stays lower")
+        app.activateWorkspacePane("preview-ui-11")
+        expect { (input.value as? String) == "upper draft stays upper" }
+        app.activateWorkspacePane("preview-ui-10")
+        expect { (input.value as? String) == "lower draft stays lower" }
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+        XCTAssertGreaterThan(input.frame.minY, divider.frame.maxY)
+    }
+
+    @MainActor
     func testSecondaryLiftSurvivesDeletingTheOppositePaneAndReturnsToEditableSingle() {
         // The system's default interruption handler waits out notification
         // banners, which can consume the real ten-second Undo window.
@@ -12,7 +34,7 @@ final class SplitContainerUITests: XCTestCase {
         }
         defer { removeUIInterruptionMonitor(monitor) }
         let app = launchedOccupiedSplit()
-        let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 1)
+        let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
         let card = app.descendants(matching: .any)["workspace-current-card"]
@@ -64,6 +86,7 @@ final class SplitContainerUITests: XCTestCase {
     @MainActor
     func testSourceSplitPaneLiftsToAppSpaceAndReturnsWithOtherPaneIntact() {
         let app = launchedOccupiedSplit(usingDrag: true)
+        app.activateWorkspacePane("preview-ui-11")
         let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
         XCTAssertTrue(editor.exists)
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
@@ -73,7 +96,7 @@ final class SplitContainerUITests: XCTestCase {
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
         app.descendants(matching: .any)["workspace-current-card"].tap()
         expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" }
-        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2)
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-10"].exists)
     }
 
@@ -92,7 +115,7 @@ final class SplitContainerUITests: XCTestCase {
         // accessibility siblings. Measure the native timeline viewport explicitly.
         let sourcePane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let sourceHeight = sourcePane.frame.height
-        let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 1)
+        let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
         XCTAssertTrue(editor.exists)
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
@@ -101,7 +124,7 @@ final class SplitContainerUITests: XCTestCase {
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
         app.descendants(matching: .any)["workspace-current-card"].tap()
         expect { (app.otherElements["split-secondary-lift-state-probe"].value as? String) == "full" }
-        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2)
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-11"].exists)
         expect { anchor.exists && anchor.isHittable && (position.value as? String) == "settled" }
         XCTAssertEqual(anchor.frame.minY, anchorFrame.minY, accuracy: 3,
@@ -145,7 +168,8 @@ final class SplitContainerUITests: XCTestCase {
             start.press(forDuration: 0.7,
                         thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)))
         } else {
-            let entry = app.buttons["split-entry"]
+            app.openWorkspaceSidebar()
+        let entry = app.buttons["split-entry"]
             XCTAssertTrue(entry.waitForExistence(timeout: 15))
             entry.tap()
             let action = app.buttons["split-open-top"]
@@ -155,6 +179,7 @@ final class SplitContainerUITests: XCTestCase {
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()
+        XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch.waitForExistence(timeout: 10))
         XCTAssertTrue(app.descendants(matching: .any)["split-secondary-pane"].waitForExistence(timeout: 10))
         return app
     }
@@ -190,6 +215,7 @@ final class SplitContainerUITests: XCTestCase {
         app.launch()
         let source = app.descendants(matching: .any)["conversation-pane-preview-ui-11"]
         XCTAssertTrue(source.waitForExistence(timeout: 15))
+        app.openWorkspaceSidebar()
         let entry = app.buttons["split-entry"]
         guard entry.waitForExistence(timeout: 10) else {
             XCTFail("Accessible Split menu missing")
@@ -209,7 +235,7 @@ final class SplitContainerUITests: XCTestCase {
         newCard.tap()
         XCTAssertTrue(app.descendants(matching: .any)["split-secondary-pane"].waitForExistence(timeout: 10))
         XCTAssertTrue(source.exists)
-        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2)
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         let divider = app.descendants(matching: .any)["split-divider"]
         XCTAssertTrue(divider.waitForExistence(timeout: 10))
         divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.8)
@@ -240,10 +266,11 @@ final class SplitContainerUITests: XCTestCase {
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()
+        XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch.waitForExistence(timeout: 10))
         XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-10"]
             .waitForExistence(timeout: 10))
         XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-11"].exists)
-        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2)
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
     }
 
     @MainActor
@@ -252,6 +279,7 @@ final class SplitContainerUITests: XCTestCase {
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
+        app.openWorkspaceSidebar()
         let entry = app.buttons["split-entry"]
         guard entry.waitForExistence(timeout: 10) else {
             XCTFail("Accessible Split menu missing")

@@ -56,6 +56,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var measuredHeight: CGFloat = 0
     private var lastHostWidth: CGFloat = -1
     private var lastReportedClearance: CGFloat = -1
+    var measuredClearance: CGFloat { max(62, lastReportedClearance) }
     private weak var textCarrier: UIView?
     private var liftInteraction: ComposerLiftInteraction!
     private var workspaceInputSuppressed = false

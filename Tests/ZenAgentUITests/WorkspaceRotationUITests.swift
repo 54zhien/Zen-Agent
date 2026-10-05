@@ -10,52 +10,35 @@ final class WorkspaceRotationUITests: XCTestCase {
         let secondary = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch
         let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         let secondaryProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
-        let initialEditor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
-        initialEditor.tap()
-        initialEditor.typeText("source portrait draft")
-        let sourceEditor = editor(in: app, containing: "source portrait draft")
-        XCTAssertTrue(sourceEditor.waitForExistence(timeout: 5))
-        dismissKeyboard(app, pane: source, editor: sourceEditor, probe: sourceProbe)
-        XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source portrait draft".utf16.count)
-        XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), 0)
-        guard let point = editorPoint(secondaryProbe.value as? String) else {
-            XCTFail("Secondary native editor geometry must be available")
-            return
-        }
-        app.coordinate(withNormalizedOffset: .zero).withOffset(
-            CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY)).tap()
-        expect { (secondaryProbe.value as? String)?.contains(";focused=true;") == true }
-        app.typeText("secondary portrait draft")
+        app.activateWorkspacePane("preview-ui-11")
+        let input = app.textViews["conversation-composer-input"]
+        input.tap(); input.typeText("source portrait draft")
+        dismissKeyboard(app, pane: source, editor: input, probe: sourceProbe)
+        app.activateWorkspacePane("preview-ui-10")
+        input.tap(); input.typeText("secondary portrait draft")
         XCTAssertTrue(source.exists && secondary.exists)
-        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 2,
-            "The portrait keyboard's smaller usable height must not change device presentation")
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         XCTAssertTrue(app.descendants(matching: .any)["split-divider"].exists)
-        XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source portrait draft".utf16.count)
-        XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), "secondary portrait draft".utf16.count)
-        let secondaryEditor = editor(in: app, containing: "secondary portrait draft")
-        XCTAssertTrue(secondaryEditor.waitForExistence(timeout: 5))
-        dismissKeyboard(app, pane: secondary, editor: secondaryEditor, probe: secondaryProbe)
+        dismissKeyboard(app, pane: secondary, editor: input, probe: secondaryProbe)
         let sourceHeight = source.frame.height
         let secondaryHeight = secondary.frame.height
 
         XCUIDevice.shared.orientation = .landscapeLeft
         expect { app.frame.width > app.frame.height }
         expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
-        let landscapeEditor = app.textViews["conversation-composer-input"]
-        XCTAssertTrue(secondary.exists && landscapeEditor.isHittable)
+        XCTAssertTrue(secondary.exists && input.isHittable)
         XCTAssertFalse(source.exists)
-        landscapeEditor.tap()
-        landscapeEditor.typeText(" landscape edit")
-        dismissKeyboard(app, pane: secondary, editor: landscapeEditor, probe: secondaryProbe)
+        input.tap(); input.typeText(" landscape edit")
+        dismissKeyboard(app, pane: secondary, editor: input, probe: secondaryProbe)
 
         XCUIDevice.shared.orientation = .portrait
-        expect { app.textViews.matching(identifier: "conversation-composer-input").count == 2 }
-        XCTAssertTrue((sourceEditor.value as? String) == "source portrait draft"
-            || sourceEditor.label == "source portrait draft")
-        let editedSecondary = editor(in: app, containing: "secondary portrait draft landscape edit")
-        XCTAssertTrue(editedSecondary.exists)
-        XCTAssertEqual(editorTextLength(sourceProbe.value as? String), "source portrait draft".utf16.count)
-        XCTAssertEqual(editorTextLength(secondaryProbe.value as? String), "secondary portrait draft landscape edit".utf16.count)
+        expect { source.exists && secondary.exists }
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+        XCTAssertTrue((input.value as? String)?.contains("secondary portrait draft landscape edit") == true)
+        app.activateWorkspacePane("preview-ui-11")
+        expect { (input.value as? String) == "source portrait draft" }
+        app.activateWorkspacePane("preview-ui-10")
+        expect { (input.value as? String) == "secondary portrait draft landscape edit" }
         XCTAssertEqual(source.frame.height, sourceHeight, accuracy: 3)
         XCTAssertEqual(secondary.frame.height, secondaryHeight, accuracy: 3)
     }
@@ -67,7 +50,7 @@ final class WorkspaceRotationUITests: XCTestCase {
         let app = occupiedSplit()
         let originProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
         expect { (originProbe.value as? String)?.contains("liftReady=true;") == true }
-        let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 1)
+        let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
         let card = app.descendants(matching: .any)["workspace-current-card"]
@@ -85,7 +68,7 @@ final class WorkspaceRotationUITests: XCTestCase {
         XCTAssertTrue(source.exists && app.textViews["conversation-composer-input"].isHittable)
 
         XCUIDevice.shared.orientation = .portrait
-        expect { app.textViews.matching(identifier: "conversation-composer-input").count == 2 }
+        expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
         XCTAssertTrue(source.exists)
         XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch.exists)
     }
@@ -95,14 +78,24 @@ final class WorkspaceRotationUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
+        app.openWorkspaceSidebar()
         let entry = app.buttons["split-entry"]
         XCTAssertTrue(entry.waitForExistence(timeout: 15))
         entry.tap()
-        app.buttons["split-open-top"].tap()
+        let action = app.buttons["split-open-top"]
+        XCTAssertTrue(action.waitForExistence(timeout: 5))
+        XCTAssertTrue(action.wait(for: \.isHittable, toEqual: true, timeout: 5))
+        print("ROTATION_SPLIT_ACTION frame=\(action.frame),enabled=\(action.isEnabled),hittable=\(action.isHittable)")
+        action.tap()
         let history = app.buttons["split-history-preview-ui-10"]
-        XCTAssertTrue(history.waitForExistence(timeout: 10))
+        guard history.waitForExistence(timeout: 10) else {
+            let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+            XCTFail("Split picker did not appear after the hittable menu action. Native receipt: \(String(describing: probe.value)); hierarchy: \(app.debugDescription)")
+            return app
+        }
         history.tap()
-        expect { app.textViews.matching(identifier: "conversation-composer-input").count == 2 }
+        XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch.waitForExistence(timeout: 10))
+        expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
         return app
     }
 
