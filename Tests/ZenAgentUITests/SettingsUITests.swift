@@ -207,13 +207,19 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(settingsClose.wait(for: \.isEnabled, toEqual: true, timeout: 5))
         settingsClose.tap()
         expect { !settings.exists }
+        app.openWorkspaceSidebar()
         XCTAssertTrue(configure.exists, "configuration alone must not commit the New Conversation")
+        editor.tap()
+        expect { !app.descendants(matching: .any)["sidebar-rail"].exists }
         XCTAssertTrue((editor.value as? String)?.contains("first Send keeps its original draft") == true)
         let send = app.buttons["conversation-composer-send"]
         XCTAssertTrue(send.waitForExistence(timeout: 5))
         XCTAssertTrue(send.wait(for: \.isEnabled, toEqual: true, timeout: 5))
         send.tap()
+        app.openWorkspaceSidebar()
         expect { !configure.exists }
+        editor.tap()
+        expect { !app.descendants(matching: .any)["sidebar-rail"].exists }
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
