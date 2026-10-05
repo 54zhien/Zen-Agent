@@ -1,5 +1,23 @@
 # S5-16 Visual reinforcement — implementation and validation record
 
+
+## Current source gate — FULL CLOSED; fresh review complete
+
+Tested local174c23cad7e9bb1fda698e6fcab166cf5a9dde20 and published
+remote db30ed60a1c4c164f03892b8421b0351a7d45bf4 have identical tree
+79f55ccb5d2ff9558eaae8e5111830f409ecca91. Profile is absent.
+Both full push37247975877 and PR37247978542 plus guard37247978538 passed
+real macOS XcodeGen/build,942Swift/151suites (74.272s/80.325s),20XCTest,
+54phoneUI (one expected Pad-only skip,zero failures;1413.836s/1424.781s)
+and the separate actualPad case (107.610s/173.815s). One Swift test-run start
+and no host restart/retry in each. Native Files cancellation, Settings Save/
+first Send/Soul Close, Ink controls and all Workspace regressions passed.
+The fresh read-only [whole-stage review](stage5-code-review.md) compared main
+eec3eb3 to this source, inspected integrated foundations as context, and found
+no concrete Critical/Important/Minor code findings. No focused repair was requested.
+Draft PR33 remains open/unmerged; physical acceptance remains OPEN.
+The rest of this record preserves chronological RED and failure evidence.
+
 ## Native behavior RED observed before production
 
 Settings FULL closed at remote2d501a6be6a39ee1194a3302c1e5241e23771fb8,
@@ -168,3 +186,17 @@ complete phone UI suite, plus the unchanged actualPad axis job, must pass before
 this slice's FULL code gate closes. README, plan and whole-stage handoff now
 reflect implemented source and real targeted receipts. Fresh whole-stage review
 follows FULL success. Physical profiling/comfort/accessibility remain OPEN.
+
+## Final review and documentation closeout
+
+The fresh reviewer inspected cumulative S5-05–16 changes and integrated Stage5
+foundations, including ownership, cancellation, stale results, native restoration,
+Files leases, Settings credential/account/Soul scopes and native visuals. Its
+report is preserved in stage5-code-review.md; static review adds no device evidence.
+GitHub's commit API independently confirms the published db30ed60 commit tree
+79f55ccb5d2ff9558eaae8e5111830f409ecca91, matching the reviewed local tree.
+
+The closure commit changes documentation only. App,Tests,Config,Resources,
+project.yml and CI remain identical to that tested source. Its exact local/remote
+HEAD,tree and own CI receipts are recorded in PR33 and the external handoff,
+without introducing a self-SHA documentation loop. No merge/main push/IPA.

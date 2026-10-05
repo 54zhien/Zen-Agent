@@ -38,11 +38,22 @@
 - [x] Implement reverse parallax from Browse displacement with strict finite bounds. Disable it for Reduce Motion, low-power mode and serious/critical thermal pressure. Freeze flow under the same policy and while the scene is inactive.
 - [x] Apply a faint Current-only native edge path to the Surface's visible crop. Update on presentation geometry changes, remove in Full, and avoid duplicate outlines on projected history cards.
 - [x] Connect persisted Ink settings to the renderer. Keep light-mode Ink off pending a palette decision; preserve the approved card-stack structure in both orientations.
-- [ ] Verify layer-count stability, repeated background/foreground transitions, reduced-motion changes mid-gesture, selected identity and Return. Run local static checks and full macOS XcodeGen/build/unit/UI CI.
-- [ ] Review the diff and record exact tree/CI, device profiling checklist and unmerged status in the Stage 5 review handoff.
+- [x] Verify layer-count stability, repeated background/foreground transitions, reduced-motion changes mid-gesture, selected identity and Return. Run local static checks and full macOS XcodeGen/build/unit/UI CI.
+- [x] Review the diff and record exact tree/CI, device profiling checklist and unmerged status in the Stage 5 review handoff.
 
 ## Whole-stage handoff
 
-- [ ] Reconcile the S5-09–16 implementation records with the approved Blueprint decisions and actual PR heads.
-- [ ] Confirm all required code gates on the final stacked tree; list any failed or unavailable validation explicitly.
-- [ ] Give the owner a concise map of the unmerged PRs, exact final head/tree and review entry points. Keep device measurements and comfort/VoiceOver checks open for the owner's next pass.
+- [x] Reconcile the S5-09–16 implementation records with the approved Blueprint decisions and actual PR heads.
+- [x] Confirm all required code gates on the final stacked tree; list any failed or unavailable validation explicitly.
+- [x] Give the owner a concise map of the unmerged PRs, exact final head/tree and review entry points. Keep device measurements and comfort/VoiceOver checks open for the owner's next pass.
+
+## Code closeout receipt
+
+Profile-free source db30ed60/tree79f55ccb passed both full runs37247975877/
+37247978542 and guard37247978538:942Swift/151suites,20XCTest,54phoneUI
+(one expected Pad-only skip,zero failures),actualPad both;oneSwift-run start,
+no host restart/retry. Fresh whole-stage review found no concrete Critical,
+Important or Minor code defect. See tasks/stage5-code-review.md and the current
+handoff for exact reviewed source, historical failures and physical-device limits.
+Light-mode Ink remains off; no palette, shader backend or device acceptance is
+invented by these checked implementation steps. All stacked PRs remain unmerged.

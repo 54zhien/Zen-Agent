@@ -1,12 +1,14 @@
 # Stage 5 当前代码与整体 review 交接 — 2026-10-05
 
-Visuals targeted 双跑已通过；本候选移除定向测试配置，等待 FULL 与 fresh review。
+剩余 Files、Settings、Visuals 的完整代码 gate 与新的全阶段只读审查均已完成。
+这是代码与审查交接；真机验收保持开放。
 
 实际 checkout：C:\Users\Azusa\.codex\worktrees\s5-history-handoff\Zen-Agent。
 分支 codex/s5-16-visuals，draft PR33，base Settings PR32。
 Files、Settings FULL 已关闭。Visuals 在真实 RED 后完成原生 Ink、Current 边缘和设置；
 开关修正与原生 Provider Save 点击区修正的 targeted 双跑均已通过。
-完整回归与新的全阶段审查仍待完成。
+Visuals profile-free FULL 已在 db30ed60/tree79f55ccb 双跑通过。新的全阶段审查
+未发现具体 Critical、Important 或 Minor 代码缺陷，详见 [完整报告](stage5-code-review.md)。
 主 checkout/main 干净且未修改，HEAD eec3eb38c3d4869a58031449f303f04dec55d0fd。
 本地与 connector commit SHA 不同但每次发布验证源码 tree 相同；不要 reset/rebase 对齐 SHA。
 
@@ -34,7 +36,7 @@ CURRENT-STATE.md、settings-ci-receipts.json、visual-ci-receipts.json 是当前
 | S5-13 Search | PR #30, tasks/s5-13-search.md | Remote6a217da90153e04a5e0120195610aaae95ab9a35 /tree81dfd8c48e3cb17a453749432fc0f6272bbdcb24 passed full push37195522196 and PR37195524247: generation/build,894 Swift/136 suites,20 XCTest,48 phone UI with one expected Pad-only skip and zero failures, plus actual Pad axis once each. Native teardown/keyboard/identity/draft and all Workspace regressions pass; no host restart/retry. Full Search source gate closed |
 | S5-14 Files | PR #31, tasks/s5-14-files.md | Remotec9f6e2aa2e5e989c62cd7abe920f74815743c826/treec66db812610c4f84c2dc0c141a58492d067fbc5f: complete push37222392865,PR37222395611,guard37222395686 passed generation/build,912 Swift/141 suites,20 XCTest,50 phone UI with one expected Pad-only skip and zero failures,actual Pad both. Actual native import/export cancellation returns original editor/draft/focus. No host restart/retry; historical failures retained |
 | S5-15 Settings | PR #32, tasks/s5-15-settings.md | Remote2d501a6be6a39ee1194a3302c1e5241e23771fb8/tree437d5de40a08affbb25dd341db8d9dc9e519a3f5: full push37236474441,PR37236477630,guard37236477646 passed XcodeGen/build,930 Swift/147 suites,20 XCTest,53 phone UI with one expected skip and zero failures,actual Pad both. No restart/retry; code gate closed. Prior40min incomplete PR retained |
-| S5-16 Ink / motion / highlight | Visual reinforcement plan; tasks/s5-16-visuals.md | 实际编译 RED 后实现固定2渐变 Ink 与 Current crop 边缘。d05b532/treee77cdea targeted 双跑通过942Swift/151suites、20XCTest、4SettingsUI、actualPad。Save 点击区修正40c03f97/treedbac452f 也通过双跑37246708991/37246712273（942Swift/151suites、20XCTest、4SettingsUI、actualPad、guard，无重启/重试）；定向 profile 已移除，FULL/review OPEN |
+| S5-16 Ink / motion / highlight | PR #33, `tasks/s5-16-visuals.md` | Remote `db30ed60a1c4c164f03892b8421b0351a7d45bf4` / tree `79f55ccb5d2ff9558eaae8e5111830f409ecca91`: profile-free full push37247975877, PR37247978542 and guard37247978538 passed XcodeGen/build,942 Swift/151 suites,20 XCTest,54 phone UI (one expected Pad-only skip,zero failures),actualPad both. One Swift start/no host restart/retry each. FULL code gate closed; fresh whole-stage review completed with no concrete Critical/Important/Minor finding |
 
 PR readiness refreshed2026-10-05: #22/#23 Ready/open/unmerged; #24-33 draft/open/unmerged. Exact branch heads and bases are in live-stack-2026-10-05.json. Main remains eec3eb38c3d4869a58031449f303f04dec55d0fd; no merge/main push/IPA.
 
@@ -51,6 +53,27 @@ PR readiness refreshed2026-10-05: #22/#23 Ready/open/unmerged; #24-33 draft/open
 - Full Conversation Sidebar opens only from the leading screen edge, with an
   equivalent accessibility action. Its top-level destinations are Search,
   Files and Settings; Agent configuration lives under Settings.
+
+## Current tested source and review status
+
+Final tested source: local `174c23cad7e9bb1fda698e6fcab166cf5a9dde20`,
+remote `db30ed60a1c4c164f03892b8421b0351a7d45bf4`, identical tree
+`79f55ccb5d2ff9558eaae8e5111830f409ecca91`. Full units74.272s/80.325s,
+phoneUI1413.836s/1424.781s, actualPad107.610s/173.815s. Raw completed
+native logs are archived outside the production checkout. Historical S5-09
+PR failure and Settings timeout remain explicitly distinguished in the table.
+
+Fresh reviewer `stage5_final_review` completed the cumulative main→source diff
+and inspected integrated Stage5 foundations as context. The [saved report](stage5-code-review.md)
+records no concrete Critical/Important/Minor code finding, its coverage and limits.
+It ran no new tests and does not establish physical-device acceptance.
+
+The final closure commit updates documentation only; App,Tests,Config,Resources,
+project.yml and CI remain identical to the tested source above. Its latest exact
+HEAD/tree and own CI are in [PR #33](https://github.com/54zhien/Zen-Agent/pull/33)
+and the external current receipts. This avoids a self-SHA documentation loop.
+The owner can now review the complete stacked code and proceed to physical-device
+acceptance. All PRs remain unmerged; no main push or IPA was performed.
 
 ## Whole-stage code review focus
 
@@ -150,8 +173,7 @@ S5-14 review found a reachable post-commit cleanup/catalog mismatch. Actual
 existing-API RED reproduced the stale catalog/feedback with real metadata commit
 and refusing FileManager. The repair is unit GREEN in both latest full runs:
 refresh authoritative rows even on post-commit cleanup failure, show explicit
-pending cleanup and retry only real orphan cleanup. The final review handoff must
-include that failure and its tested fix. Metadata commit and byte cleanup have separate failure states.
+pending cleanup and retry only real orphan cleanup. This handoff preserves that failure and its tested fix. Metadata commit and byte cleanup have separate failure states.
 Retry must use fresh version references under the existing global file lock,
 remain off MainActor, and keep actual worker ownership until drain. The native
 picker query must observe true dismissal before attempting an underlay control.

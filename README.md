@@ -177,8 +177,12 @@ As of 2026-10-05:
   37245337008/37245338938:942 Swift/151 suites,20 XCTest,all4SettingsUI,
   actualPad and guard, no host restart/retry. Provider Save hit-area repair
   40c03f97/treedbac452f also passed both targeted runs37246708991/37246712273
-  with the same counts and actualPad/guard. The selective profile is removed
-  for complete CI; FULL and fresh whole-stage review remain open. See
+  with the same counts and actualPad/guard. Profile-free FULL source
+  db30ed60/tree79f55ccb passed push37247975877/PR37247978542 and guard:
+  942Swift/151suites,20XCTest,54phoneUI (one expected Pad-only skip,zero
+  failures),actualPad both, no host restart/retry. The Visuals code gate is
+  closed. The [fresh whole-stage review](tasks/stage5-code-review.md) found
+  no concrete Critical/Important/Minor code findings. See
   [the current review handoff](tasks/stage5-review-handoff.md).
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
