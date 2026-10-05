@@ -54,7 +54,10 @@ struct WorkspaceComposerDockTests {
         if preserveOutgoing { #expect(a.composer.editor.isFirstResponder) }
         update(b, id: "b", editing: true)
         dock.configure(container: container, activeID: "b", visible: true)
+        print("DOCK immediately: key=\(window.isKeyWindow) active=\(scene.activationState.rawValue) A=\(a.composer.editor.isFirstResponder) B=\(b.composer.editor.isFirstResponder) attached=\(b.composer.window === window)")
+        #expect(b.composer.editor.isFirstResponder, "incoming editor must receive focus at attachment")
         try await Task.sleep(for: .milliseconds(250))
+        print("DOCK settled: key=\(window.isKeyWindow) A=\(a.composer.editor.isFirstResponder) B=\(b.composer.editor.isFirstResponder) attached=\(b.composer.window === window)")
         #expect(b.composer.editor.isFirstResponder)
         #expect(!a.composer.editor.isFirstResponder)
         #expect(b.composer.editor.text == "b" && a.composer.editor.text == "a")
