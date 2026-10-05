@@ -3,6 +3,32 @@ import UIKit
 
 final class SidebarUITests: XCTestCase {
     @MainActor
+    func testSplitSidebarClosingIncludesOppositePaneAndSharedInput() {
+        let app = launch()
+        app.openWorkspaceSidebar()
+        app.buttons["split-entry"].tap()
+        app.buttons["split-open-top"].tap()
+        let history = app.buttons["split-history-preview-ui-10"]
+        XCTAssertTrue(history.waitForExistence(timeout: 10)); history.tap()
+        XCTAssertTrue(app.scrollViews["conversation-pane-preview-ui-10"].waitForExistence(timeout: 10))
+        let editor = app.textViews["conversation-composer-input"]
+        let otherProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
+        let originalIdentity = editorIdentity(otherProbe.value as? String)
+        XCTAssertNotNil(originalIdentity)
+        let rail = app.descendants(matching: .any)["sidebar-rail"]
+        app.openWorkspaceSidebar()
+        app.activateWorkspacePane("preview-ui-11")
+        expect { !rail.exists }
+        XCTAssertEqual(editorIdentity(otherProbe.value as? String), originalIdentity)
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        app.openWorkspaceSidebar()
+        editor.tap()
+        expect { !rail.exists }
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "Closing tap must not start editing")
+        XCTAssertEqual(editorIdentity(otherProbe.value as? String), originalIdentity)
+    }
+
+    @MainActor
     func testShiftedBlankTapClosesRailRetainingFocusAndLaterBlankTapDismissesNormally() {
         let app = launch()
         let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
