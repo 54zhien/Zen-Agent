@@ -359,27 +359,32 @@ struct WorkspaceSurfaceView<Content: View>: View {
             : splitFrame(in: geometry, slot: logicalSlot(for: slot)) ?? fullFrame
         let visible = surfaceIsVisible(slot)
         let suppressed = returnPresentation.suppressesTarget(slot)
-        return ConversationSurfaceHost(liftController: driver,
-            browseController: model != nil && slot == (model?.previewSurfaceSlot ?? model?.sourceSurfaceSlot) ? browse : nil,
+        let surfaceBrowse: AppSpaceBrowseController? = model != nil && slot == (model?.previewSurfaceSlot ?? model?.sourceSurfaceSlot) ? browse : nil
+        let corner: CGFloat = model?.splitWorkspace != nil && !driver.retainsAppSpaceViewport ? 24 : 0
+        let sidebarOffset = CGFloat(navigation.progress) * min(geometry.size.width, 60 + navigationInsets.leading)
+            * (layoutDirection == .rightToLeft ? -1 : 1)
+        let settled: ((UUID) -> Void)?
+        if slot == inputSurfaceSlot { settled = { navigation.completeSettlement($0) } }
+        else { settled = nil }
+        let hosted = WorkspaceHostedContent(model: model, slot: slot, browse: browse,
+            returnPresentation: returnPresentation, navigation: navigation, composerDock: composerDock,
+            content: content, contentForSlot: contentForSlot)
+            .environment(\.surfaceLiftController, driver)
+            .environment(\.surfaceBrowseController, model == nil ? nil : browse)
+        let surface = ConversationSurfaceHost(liftController: driver,
+            browseController: surfaceBrowse,
             deleteAction: deleteAction, isDeletionPending: isDeletionPending,
             isWorkspaceVisible: visible, isInputSuppressed: suppressed,
             isReturnProxyHidden: returnPresentation.hidesOrigin(slot),
-            restingCornerRadius: model?.splitWorkspace != nil && !driver.retainsAppSpaceViewport ? 24 : 0,
-            sidebarOffset: CGFloat(navigation.progress) * min(geometry.size.width, 60 + navigationInsets.leading)
-                * (layoutDirection == .rightToLeft ? -1 : 1),
+            restingCornerRadius: corner, sidebarOffset: sidebarOffset,
             sidebarSettlement: navigation.settlementID,
-            onSidebarSettled: slot == inputSurfaceSlot ? navigation.completeSettlement : nil,
+            onSidebarSettled: settled,
             onNativeLayout: { [weak model] receipt in
                 guard let model else { return }
                 returnPresentation.nativeLayout(receipt, slot: slot, currentContext: layoutContext,
                     model: model, visibilityRevision: driver.workspaceVisibilityRevision)
-            }) {
-            WorkspaceHostedContent(model: model, slot: slot, browse: browse,
-                returnPresentation: returnPresentation, navigation: navigation, composerDock: composerDock,
-                content: content, contentForSlot: contentForSlot)
-                .environment(\.surfaceLiftController, driver)
-                .environment(\.surfaceBrowseController, model == nil ? nil : browse)
-        }
+            }) { hosted }
+        return surface
         .frame(width: frame.width, height: frame.height)
         .position(x: frame.midX, y: frame.midY)
         // Native visibility detaches inactive content and clears
@@ -388,7 +393,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
         // leave that responder waiting with no new native callback.
         .allowsHitTesting(visible && !suppressed)
         .accessibilityHidden(!visible || suppressed)
-        .zIndex(activeSurfaceSlot == slot ? 10 : 0)
+        .zIndex(activeSurfaceSlot == slot ? 10.0 : 0.0)
     }
 
     private var sidebarSpatiallyAvailable: Bool {
