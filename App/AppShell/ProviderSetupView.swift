@@ -352,14 +352,22 @@ struct ProviderSetupView: View {
 
                 Section("保存状态") {
                     Text(model.statusLabel)
+                        .accessibilityIdentifier("provider-setup-status")
                     if let errorMessage = model.errorMessage {
                         Text(errorMessage)
                             .foregroundStyle(.red)
                             .accessibilityIdentifier("provider-setup-error")
                     }
-                    Button(model.isComplete ? "配置完成" : "保存配置") {
+                    Button {
                         _ = model.save()
+                    } label: {
+                        // Form exposes the full row as the button's AX frame.
+                        // Its native center must activate Save, including after keyboard scrolling.
+                        Text(model.isComplete ? "配置完成" : "保存配置")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                     }
+                    .accessibilityIdentifier("provider-setup-save")
                     .disabled(model.isSaving || model.isComplete || model.models.isEmpty || settingsFocus?.hasMarkedText == true)
                     if model.canAbandonAndCreateNew {
                         Button("放弃本次并新建", role: .destructive) {

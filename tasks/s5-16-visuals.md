@@ -121,3 +121,33 @@ policy changes mid-gesture and selection/Return preservation; pass full macOS
 generation/build/unit/UI/actual Pad gates. Reconcile all stacked PR heads and
 records in the whole-stage review handoff. GPU/energy/frame pacing, comfort and
 VoiceOver acceptance require the owner's subsequent physical-device pass.
+
+## Native Save activation repair after recorded Startup RED
+
+Candidate893cd1ff PR37243726991 failed the real Startup Save path. Artifact
+11318991136, video E5BE6FEF-964E-48D5-9AE5-AD42A073AB3F at31/35s, shows
+an enabled Save button, idle unsaved status and the entered masked key after
+the native row-center tap. ProviderSetupModel.save() synchronously clears the
+input and enters saving at action entry. Those unchanged pixels show that the
+action was not activated; no credential-store failure is established.
+
+The small repair makes the existing Save label fill its Form row with a native
+rectangular content shape. The existing synchronous action, account commit,
+credential compensation and focus ownership remain the same. Stable Save/status
+identifiers let the UI wait for actual enabled admission, tap the real button,
+then require its real status to become configurationComplete. A failed Save
+returns immediately with native diagnostics rather than producing Send cascades.
+No coordinate tap, direct preference write, mocked save, retry or timeout increase.
+The earlier compiled failure is the behavior RED for this repair; this revision
+requires its own generation/build and all Settings UI before the FULL gate.
+
+Native leaf candidate d05b532a4dfc28f74f3f88bb86558455aa375950 / tree
+ e77cdea08d289f4d04f28df0e8df564715837db9 completed both targeted gates:
+push37245337008 and PR37245338938, guard37245338964 all passed. Each built
+942Swift/151suites (100.115s/76.664s),20XCTest and all4SettingsUI with zero
+failures (262.402s/184.220s); actualPad71.687s/87.517s. One actual Swift-run
+start, no host restart/retry. The descendant native switch now toggles real
+preferences; Ink visibility/flow/edge, persisted intensity, two Lift/Return
+cycles, warm-owner identity, draft and native editor retention across Settings
+Close pass. The Save hit-area repair above still requires its own targeted gate
+before profile removal/FULL. Earlier failed candidates remain recorded.

@@ -183,8 +183,20 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(key.waitForExistence(timeout: 5))
         key.tap()
         key.typeText("settings-ui-fixture-key")
-        app.buttons["保存配置"].tap()
-        XCTAssertTrue(app.staticTexts["配置完成"].waitForExistence(timeout: 5))
+        let save = app.buttons["provider-setup-save"]
+        guard save.waitForExistence(timeout: 5),
+              save.wait(for: \.isEnabled, toEqual: true, timeout: 5) else {
+            XCTFail("The actual Provider Save must become ready before activation")
+            return
+        }
+        save.tap()
+        let savedStatus = app.staticTexts["provider-setup-status"]
+        guard savedStatus.wait(for: \.label, toEqual: "配置完成", timeout: 5) else {
+            let error = app.staticTexts["provider-setup-error"]
+            print("Provider Save after native tap: \(save.debugDescription); error=\(error.exists ? error.label : "none")")
+            XCTFail("The native Provider Save did not complete its real configuration")
+            return
+        }
         let setupClose = app.buttons["provider-setup-close"]
         XCTAssertTrue(setupClose.waitForExistence(timeout: 5))
         setupClose.tap()
