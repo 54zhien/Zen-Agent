@@ -29,19 +29,33 @@ final class ComposerMotionUITests: XCTestCase {
         input.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
         input.typeText("你好")
+        // The native recording can already show both characters while the first
+        // accessibility snapshot still exposes the preceding text revision.
+        let receivedText = waitForText("你好", in: input)
         let observedAfterTyping = input.value as? String
-        XCTAssertTrue(observedAfterTyping?.contains("你好") == true,
-                      "Expected typed Chinese input; observed \(String(describing: observedAfterTyping))")
+        guard receivedText else {
+            XCTFail("Expected typed Chinese input; observed \(String(describing: observedAfterTyping))")
+            return
+        }
         let send = app.buttons["conversation-composer-send"]
         XCTAssertTrue(send.waitForExistence(timeout: 5))
         send.tap()
         XCTAssertTrue(waitForEmptyInput(input))
         input.typeText("第二条")
+        XCTAssertTrue(waitForText("第二条", in: input))
         XCTAssertTrue(send.waitForExistence(timeout: 5))
         send.tap()
         XCTAssertTrue(waitForEmptyInput(input))
         background.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 8))
+    }
+
+    @MainActor
+    private func waitForText(_ expected: String, in input: XCUIElement) -> Bool {
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (input.value as? String) == expected
+        }, object: nil)
+        return XCTWaiter.wait(for: [ready], timeout: 5) == .completed
     }
 
     @MainActor

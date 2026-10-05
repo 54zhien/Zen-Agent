@@ -26,13 +26,20 @@ final class FilesWorkspaceUITests: XCTestCase {
         let originalOwner = ownerProbe.value as? String
         XCTAssertTrue(originalOwner?.contains("active=true") == true)
         preview.tap()
-        let text = "Managed native preview/export fixture"
-        expect {
-            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.exists
-                || app.textViews.matching(NSPredicate(format: "value CONTAINS %@", text)).firstMatch.exists
-        }
         let done = app.buttons.matching(NSPredicate(format: "label IN %@", ["Done", "完成"])).firstMatch
         XCTAssertTrue(done.waitForExistence(timeout: 10), "Quick Look must present its native dismissal control")
+        let text = "Managed native preview/export fixture"
+        // Quick Look publishes its remote content after its native shell. Query
+        // both representations in one snapshot instead of spending the content
+        // deadline on two sequential remote accessibility requests per poll.
+        let content = app.descendants(matching: .any).matching(NSPredicate(
+            format: "(elementType == %d AND label CONTAINS %@) OR (elementType == %d AND value CONTAINS %@)",
+            Int(XCUIElement.ElementType.staticText.rawValue), text,
+            Int(XCUIElement.ElementType.textView.rawValue), text)).firstMatch
+        guard content.waitForExistence(timeout: 10) else {
+            XCTFail("Quick Look did not expose the managed file content: \(app.debugDescription)")
+            return
+        }
         done.tap()
         let export = app.buttons["files-export-managed-preview-fixture"]
         XCTAssertTrue(export.waitForExistence(timeout: 5))
