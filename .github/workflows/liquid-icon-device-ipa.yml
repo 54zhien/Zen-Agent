@@ -15,6 +15,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Toolchain versions
         run: xcodebuild -version
+      - name: Compile icon alone and verify appearance fills
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/IconProbe"
+          xcrun actool Resources/zen.icon --compile "$RUNNER_TEMP/IconProbe" \
+            --app-icon zen --platform iphoneos --minimum-deployment-target 26.0 \
+            --target-device iphone --target-device ipad --output-format human-readable-text \
+            --notices --warnings --output-partial-info-plist "$RUNNER_TEMP/IconProbe.plist"
+          xcrun assetutil --info "$RUNNER_TEMP/IconProbe/Assets.car" > "$RUNNER_TEMP/IconProbe.json"
+          cat "$RUNNER_TEMP/IconProbe.json"
+          python3 .github/scripts/verify_liquid_icon.py "$RUNNER_TEMP/IconProbe.json"
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Xcode project
@@ -73,6 +85,7 @@ jobs:
           print('Compiled primary icon:', icons)
           PY
           xcrun assetutil --info "$app/Assets.car" > "$RUNNER_TEMP/CompiledIconAssets.json"
+          python3 .github/scripts/verify_liquid_icon.py "$RUNNER_TEMP/CompiledIconAssets.json" --output "$RUNNER_TEMP/ICON-APPEARANCE-VERIFICATION.json"
       - name: Strip unlicensed interface font and package IPA
         shell: bash
         run: |
@@ -115,13 +128,14 @@ jobs:
             exit 1
           fi
           cp "$RUNNER_TEMP/CompiledIconAssets.json" "$output/"
-          /usr/bin/shasum -a 256 Resources/zen.icon/icon.json Resources/zen.icon/Assets/zen.svg Resources/zen.icon/Assets/zen-dark.svg > "$output/ICON-SHA256SUMS.txt"
+          cp "$RUNNER_TEMP/ICON-APPEARANCE-VERIFICATION.json" "$output/"
+          /usr/bin/shasum -a 256 Resources/zen.icon/icon.json Resources/zen.icon/Assets/*.svg > "$output/ICON-SHA256SUMS.txt"
           cp Resources/Fonts/LICENSE-SourceHanSerif.txt "$output/LICENSES/"
           cp Resources/Fonts/LICENSE-JetBrainsMono.txt "$output/LICENSES/"
           (cd "$output" && /usr/bin/shasum -a 256 "$name" > SHA256SUMS.txt)
           {
             echo 'Baseline: fd8655999fef4758db947fb734f50e7c6bde24b8 (verified V11)'
-            echo 'Icon source: desktop zen.icon; original JSON/SVG preserved'
+            echo 'Icon source: desktop zen.icon; exact artwork split into symbol/gray layers, appearance fills corrected, system backgrounds'
             echo "Packaging commit: $GITHUB_SHA"
             echo "Packaging tree: $(git rev-parse HEAD^{tree})"
             echo "Workflow run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
