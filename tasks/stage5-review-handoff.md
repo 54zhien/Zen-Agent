@@ -88,6 +88,16 @@ The same Card prerequisite now stops on failure rather than issuing a cascade
 swipe; real input, successful-path assertions and ten-second wait are unchanged.
 This adds evidence without claiming the intermittent historical cause fixed.
 
+The following a260c8e/tree3e518507 candidate also compiled but its PR Pad gate
+failed the timed Pane-frame predicate (137.135s); push Pad passed95.749s. All
+later axes/drag/ratios/editor checks passed. Artifact11322354710 and landscape
+video are retained. The next narrow observation asserts the first valid native
+geometry sample after both existing Pane-existence waits, rather than polling
+blocking AX getters within another waiter's deadline. It requires a finite
+positive workspace with width>height immediately at that sample; it does not
+wait for later orientation settling. See the focused Pad review for this timing
+distinction and limits. No additional poll, timeout extension or policy change.
+
 The following Pad test repair plus DEBUG diagnostics/documentation keeps Lift
 policy,Config,Resources,project.yml and CI unchanged. It requires its own
 profile-free FULL pair/actual Pad/guard.
@@ -179,6 +189,9 @@ establish rights absent from the manifest. No font replacement is authorized.
   content, keyboard changes, selection, IME composition and Dynamic Type.
 - Handle hit area, snap/rubber-band/close thresholds, haptics and cancellation;
   rotation/axis changes during Lift, Card preparation and Return.
+- First natural Lift after cold launch: the intermittent simulator admission
+  failure is recorded without a proven cause; passing instrumented CI does not
+  close that historical causal question.
 - VoiceOver/Switch Control operation and meaningful focus after transitions.
 - Peak memory with long histories and warm sessions; frame pacing, CPU/GPU,
   energy, thermal behavior and stable renderer/native-view counts in Instruments.

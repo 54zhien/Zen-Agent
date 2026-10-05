@@ -191,6 +191,10 @@ As of 2026-10-05:
   Browse initial Lift and its downstream swipe (all units and other UI passed).
   Correct synthesized input is retained; bounded DEBUG test gesture evidence
   was added without changing Lift policy or claiming the historical cause fixed.
+  The next PR Pad run also failed the timed Pane-frame predicate while all later
+  native behavior checks passed. The following candidate directly asserts the
+  first valid native geometry sample after both Pane existence gates; its own
+  FULL receipts and timing distinction are recorded in PR #33 and the handoff.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
   does not establish device memory, performance, input, comfort or VoiceOver acceptance.

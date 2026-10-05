@@ -30,19 +30,21 @@ final class WorkspacePadAxisUITests: XCTestCase {
         // these stable prerequisites separately before starting the next input.
         XCTAssertTrue(source.waitForExistence(timeout: 10))
         XCTAssertTrue(other.waitForExistence(timeout: 10))
-        // The global app AX frame can stall during orientation settling. The
-        // two live pane frames describe the workspace whose axis we exercise.
-        expect {
-            let sourceFrame = source.frame
-            let otherFrame = other.frame
-            guard [sourceFrame, otherFrame].allSatisfy({ frame in
-                !frame.isNull && !frame.isEmpty && frame.width > 0 && frame.height > 0 &&
-                    [frame.minX, frame.minY, frame.width, frame.height].allSatisfy { $0.isFinite }
-            }) else { return false }
-            let viewport = sourceFrame.union(otherFrame)
-            return viewport.width.isFinite && viewport.height.isFinite &&
-                viewport.width > viewport.height
+        // Synchronous AX frame reads can outlive a predicate waiter. After both
+        // existence gates, require the first native geometry sample to be ready.
+        let sourceFrame = source.frame
+        let otherFrame = other.frame
+        let initialViewport = sourceFrame.union(otherFrame)
+        print("PAD_INITIAL_GEOMETRY source=\(sourceFrame) other=\(otherFrame) viewport=\(initialViewport)")
+        guard [sourceFrame, otherFrame].allSatisfy({ frame in
+            !frame.isNull && !frame.isEmpty && frame.width > 0 && frame.height > 0 &&
+                [frame.minX, frame.minY, frame.width, frame.height].allSatisfy { $0.isFinite }
+        }), initialViewport.width.isFinite, initialViewport.height.isFinite else {
+            XCTFail("Initial native Pane geometry is invalid: \(sourceFrame), \(otherFrame)")
+            return
         }
+        XCTAssertGreaterThan(initialViewport.width, initialViewport.height,
+                             "Initial native workspace must already be landscape")
         let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         let otherProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
         let sourceIdentity = try XCTUnwrap(editorIdentity(sourceProbe.value as? String))

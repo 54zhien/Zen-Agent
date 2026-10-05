@@ -67,3 +67,7 @@ failed an older Browse initial Lift and its subsequent swipe while all units and
 other UI passed. Correct synthesized input and Full video are retained. Bounded
 DEBUG test-only native gesture evidence was added; actual Lift policy and input
 remain unchanged, and no unsupported claim about the historical cause is made.
+The follow-up Pane-frame predicate also failed one PR Pad deadline while native
+behavior checks passed. The next candidate uses a hard first-sample geometry
+assertion after both Pane-existence gates; it preserves landscape validity but
+does not wait for orientation settling. Its own FULL receipts remain required.

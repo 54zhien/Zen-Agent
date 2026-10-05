@@ -233,3 +233,22 @@ native input evidence, and stops on that failed prerequisite instead of issuing
 an impossible swipe. No Lift threshold, policy, ownership, timer or retry changes.
 This is evidence collection, not a claim that the historical Lift cause is fixed.
 The combined candidate still requires its own FULL pair/actual Pad/guard.
+
+## Follow-up Pad observation — prior predicate candidate is RED
+
+Remotea260c8e/tree3e518507 (local3de6520) compiled. Push Pad passed95.749s;
+PR37255912177/job111592847720 failed once at the timed Pane-frame predicate,
+137.135s. Both existence gates passed, but the synchronous AX frame lookup
+blocked/retried past the predicate waiter's budget. All subsequent native axes,
+real drag688→769, ratios and editor identities passed. Failure artifact11322354710,
+raw log and landscape video are retained. This candidate is not a complete GREEN.
+
+The [focused follow-up review](stage5-pad-readiness-review.md) distinguishes a
+one-shot geometry assertion from waiting for orientation to settle. The next
+test candidate samples each actual Pane frame once on the main actor after the
+two existing existence gates, logs the real rectangles, rejects invalid geometry,
+and directly requires the finite union width>height. The first sample must already
+be landscape; a portrait or invalid sample remains RED. It adds no polling,
+timeout extension or business mutation. All later assertions, real drag anchor
+and waits remain unchanged. The frame getter can still block internally; only
+its own complete FULL pair/actual Pad/guard can validate this observation.
