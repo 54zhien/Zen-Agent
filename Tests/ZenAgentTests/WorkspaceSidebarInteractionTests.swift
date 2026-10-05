@@ -6,6 +6,45 @@ import Testing
 @MainActor
 struct WorkspaceSidebarInteractionTests {
     @Test(arguments: [false, true])
+    func nativeEdgeCanAskBeforeItsFirstMotionSample(rightToLeft: Bool) {
+        let fixture = SidebarEdgeFixture(rightToLeft: rightToLeft)
+        defer { fixture.interaction.detach() }
+        #expect(fixture.receive())
+        #expect(fixture.interaction.gestureRecognizerShouldBegin(fixture.edge))
+        fixture.send(.began)
+        #expect(!fixture.state.isDragging && fixture.state.progress == 0)
+        fixture.edge.point.x += rightToLeft ? -20 : 20
+        fixture.send(.changed)
+        #expect(fixture.state.isDragging && abs(fixture.state.progress - 1.0 / 3.0) < 0.001)
+        fixture.edge.point.x += rightToLeft ? -80 : 80
+        fixture.send(.ended)
+        #expect(fixture.state.isOpen && fixture.state.progress == 1)
+    }
+
+    @Test(arguments: ["stationary", "vertical", "reverse", "owner", "eligibility", "cancelled"])
+    func provisionalEdgeNeverOpensWithoutEligibleHorizontalMotion(reason: String) {
+        let fixture = SidebarEdgeFixture(rightToLeft: false)
+        defer { fixture.interaction.detach() }
+        #expect(fixture.receive())
+        #expect(fixture.interaction.gestureRecognizerShouldBegin(fixture.edge))
+        fixture.send(.began)
+        #expect(!fixture.state.isDragging && fixture.state.progress == 0)
+        switch reason {
+        case "vertical": fixture.edge.point.y += 60
+        case "reverse": fixture.edge.point.x -= 60
+        case "owner": fixture.pane = NSObject(); fixture.edge.point.x += 60
+        case "eligibility": fixture.allowsOpening = false; fixture.edge.point.x += 60
+        default: break
+        }
+        fixture.send(reason == "cancelled" ? .cancelled : .changed)
+        #expect(!fixture.state.isDragging && fixture.state.progress == 0)
+        // Rejected motion cannot turn into an opening later in the same touch.
+        if reason != "stationary" { fixture.edge.point = CGPoint(x: 101, y: 300) }
+        fixture.send(.ended)
+        #expect(!fixture.state.isOpen && !fixture.state.isDragging && fixture.state.progress == 0)
+    }
+
+    @Test(arguments: [false, true])
     func coalescedEdgeOpensFromInitialTouchWithoutVelocityOrTranslation(rightToLeft: Bool) throws {
         let fixture = SidebarEdgeFixture(rightToLeft: rightToLeft)
         defer { fixture.interaction.detach() }
@@ -26,7 +65,7 @@ struct WorkspaceSidebarInteractionTests {
     @Test func zeroVelocityFallbackStillRejectsVerticalReverseInteriorAndUnownedTouches() {
         let fixture = SidebarEdgeFixture(rightToLeft: false)
         defer { fixture.interaction.detach() }
-        for offset in [CGPoint.zero, CGPoint(x: 0, y: 50), CGPoint(x: 10, y: 50), CGPoint(x: -30, y: 0)] {
+        for offset in [CGPoint(x: 0, y: 50), CGPoint(x: 10, y: 50), CGPoint(x: -30, y: 0)] {
             #expect(fixture.receive())
             fixture.edge.point = CGPoint(x: 1 + offset.x, y: 300 + offset.y)
             #expect(!fixture.interaction.gestureRecognizerShouldBegin(fixture.edge))
@@ -198,6 +237,7 @@ private final class SidebarEdgeFixture {
     let interaction: WorkspaceSidebarInteraction
     let host = NSObject()
     var pane = NSObject()
+    var allowsOpening = true
     let rightToLeft: Bool
 
     init(rightToLeft: Bool) {
@@ -206,7 +246,7 @@ private final class SidebarEdgeFixture {
         window.addSubview(interaction)
         interaction.configure(state: state, travel: 60, isRightToLeft: rightToLeft) { [unowned self] in
             WorkspaceSidebarNativeContext(hostID: ObjectIdentifier(host), paneID: ObjectIdentifier(pane),
-                window: window, allowsOpening: true)
+                window: window, allowsOpening: allowsOpening)
         }
     }
 
