@@ -45,7 +45,7 @@ enum AppSpaceBrowseGeometry {
                 let scale = 1 - CGFloat(depth) * 0.04
                 return Card(item: item,
                     frame: CGRect(x: base.frame.minX - 28 * CGFloat(depth),
-                        y: base.frame.minY - 6 * CGFloat(depth),
+                        y: base.frame.midY - base.frame.height * scale / 2,
                         width: base.frame.width * scale, height: base.frame.height * scale),
                     cornerRadius: base.cornerRadius * scale, opacity: 0, depth: Double(depth))
             }

@@ -607,6 +607,20 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     func convergeLift(to pose: SurfaceGeometry.Pose, animated: Bool,
                       completion: @escaping (Bool) -> Void) {
+        // A reversed settlement starts at visible pixels, not the animator's
+        // cached endpoint or a scalar projected onto a different Lift path.
+        if animator != nil, let visible = surfaceView.layer.presentation() {
+            let available = CGSize(width: view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right,
+                height: view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom)
+            if available.width > 0, available.height > 0 {
+                let transform = visible.transform
+                let captured = SurfaceGeometry.Pose(scale: transform.m11,
+                    translation: CGSize(width: transform.m41 / available.width, height: transform.m42 / available.height),
+                    cornerRadius: visible.cornerRadius, clipFraction: presentation.clipFraction)
+                cancelLiftAnimation()
+                UIView.performWithoutAnimation { _ = apply(.init(to: captured, progress: 1), force: true) }
+            }
+        }
         cancelLiftAnimation()
         guard animated, !UIAccessibility.isReduceMotionEnabled else {
             completion(apply(.init(to: pose, progress: 1)))

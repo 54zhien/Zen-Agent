@@ -43,6 +43,21 @@ struct DeviceFeedbackGeometryTests {
         #expect(host.surfaceView.transform == .identity)
     }
 
+    @Test func splitSurfacesLeaveARealGutterOnBothAxes() throws {
+        for axis in [SplitWorkspaceAxis.topBottom, .leftRight] {
+            let layout = try #require(SplitWorkspaceGeometry(viewport: CGRect(x: 0, y: 0, width: 800, height: 900), ratio: 0.63, axis: axis))
+            if axis == .topBottom {
+                #expect(layout.top.maxY < layout.bottom.minY)
+                #expect(layout.divider.minY == layout.top.maxY)
+                #expect(layout.divider.maxY == layout.bottom.minY)
+            } else {
+                #expect(layout.top.maxX < layout.bottom.minX)
+                #expect(layout.divider.minX == layout.top.maxX)
+                #expect(layout.divider.maxX == layout.bottom.minX)
+            }
+        }
+    }
+
     @Test func lightSpaceIsDarkerThanItsWhiteConversationCards() throws {
         let canvas = AppSpaceInkNativeView()
         canvas.configure(policy: .resolve(enabled: false, intensity: 0, offset: 0,

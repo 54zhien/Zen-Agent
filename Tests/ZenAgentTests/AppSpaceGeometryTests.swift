@@ -24,7 +24,7 @@ struct AppSpaceGeometryTests {
             let card = try #require(layout.cards.first { $0.depth == depth })
             #expect(card.item == .conversation(ids[3 - depth]))
             #expect(card.frame.minX < current.frame.minX)
-            #expect(card.frame.minY < current.frame.minY)
+            #expect(abs(card.frame.midY - current.frame.midY) < 0.001)
             #expect(abs(card.frame.width / current.frame.width - (1 - CGFloat(depth) * 0.04)) < 0.001)
             #expect(layout.safeViewport.contains(card.frame))
         }

@@ -187,7 +187,7 @@ struct AppShellWiringTests {
         #expect(fixture.model.pane?.session === kept)
     }
 
-    @Test("native Composer focus selects the corresponding Split Pane without sharing drafts")
+    @Test("one shared Split editor follows the active Pane and protects composition")
     func splitNativeFocusTransfer() async throws {
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
@@ -202,32 +202,28 @@ struct AppShellWiringTests {
         let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
         let host = UIHostingController(rootView: AppShellRootView(model: fixture.model))
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-        defer {
-            window.isHidden = true
-            window.rootViewController = nil
-            previousKeyWindow?.makeKeyAndVisible()
-        }
+        window.rootViewController = host; window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previousKeyWindow?.makeKeyAndVisible() }
         func editors(in view: UIView) -> [UITextView] {
             if let text = view as? UITextView, text.accessibilityIdentifier == "conversation-composer-input" { return [text] }
             return view.subviews.flatMap { editors(in: $0) }
         }
-        for _ in 0..<60 where editors(in: host.view).count != 2 { try await Task.sleep(for: .milliseconds(25)) }
-        let mounted = editors(in: host.view)
-        let sourceEditor = try #require(mounted.first { $0.text == "source focus draft" })
-        let otherEditor = try #require(mounted.first { $0.text == "other focus draft" })
-        // Native focus callbacks are synchronous. Do not yield the main actor
-        // between focus and assertions to another suite's temporary key window.
-        window.makeKeyAndVisible()
-        #expect(sourceEditor.becomeFirstResponder())
-        #expect(fixture.model.splitWorkspace?.activeSlot == .top)
-        #expect(sourceEditor.isFirstResponder && !otherEditor.isFirstResponder)
-        #expect(otherEditor.becomeFirstResponder())
-        #expect(fixture.model.splitWorkspace?.activeSlot == .bottom)
-        #expect(otherEditor.isFirstResponder && !sourceEditor.isFirstResponder)
-        #expect(source.draft.text == "source focus draft")
-        #expect(other.draft.text == "other focus draft")
+        for _ in 0..<60 where editors(in: host.view).count != 1 { try await Task.sleep(for: .milliseconds(25)) }
+        #expect(editors(in: host.view).count == 1)
+        #expect(editors(in: host.view).first?.text == "other focus draft")
+        _ = other.updateComposition(isComposing: true)
+        fixture.model.selectSplitSlot(.top)
+        #expect(fixture.model.splitWorkspace?.activeSlot == .bottom, "Uncommitted input cannot be detached")
+        _ = other.updateComposition(isComposing: false)
+        fixture.model.selectSplitSlot(.top)
+        for _ in 0..<60 where editors(in: host.view).first?.text != "source focus draft" { try await Task.sleep(for: .milliseconds(25)) }
+        #expect(editors(in: host.view).count == 1)
+        #expect(editors(in: host.view).first?.text == "source focus draft")
+        fixture.model.selectSplitSlot(.bottom)
+        for _ in 0..<60 where editors(in: host.view).first?.text != "other focus draft" { try await Task.sleep(for: .milliseconds(25)) }
+        #expect(editors(in: host.view).count == 1)
+        #expect(editors(in: host.view).first?.text == "other focus draft")
+        #expect(source.draft.text == "source focus draft" && other.draft.text == "other focus draft")
     }
 
     @Test("secondary Pane New and Recent replace that Pane while source stays live")
