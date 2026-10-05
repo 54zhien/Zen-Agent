@@ -30,7 +30,7 @@ struct SplitDividerView: UIViewRepresentable {
 }
 
 @MainActor
-final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
+final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGestureRecognizerDelegate {
     var configuration: SplitDividerView? {
         didSet {
             accessibilityValue = configuration.map {
@@ -63,6 +63,8 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
     }
     private let handle = UIView()
     private var panAdmitted = false
+    private var touchOrigin: CGPoint?
+    private weak var touchWindow: UIWindow?
 #if DEBUG
     private var lastPanDiagnostic = "none"
     private var lastBeginAdmitted = false
@@ -116,6 +118,8 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
         handle.isUserInteractionEnabled = false
         handle.backgroundColor = .white
         handle.layer.cornerRadius = 2
+        pan.delegate = self
+        pan.maximumNumberOfTouches = 1
         addGestureRecognizer(pan)
         addInteraction(UIContextMenuInteraction(delegate: self))
         isAccessibilityElement = true
@@ -134,29 +138,39 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
             : CGRect(x: 0, y: (bounds.height - 4) / 2, width: bounds.width, height: 4)
     }
 
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer === pan, pan.numberOfTouches == 0, let window else { return false }
+        touchOrigin = touch.location(in: window)
+        touchWindow = window
+        return true
+    }
+
     @objc private func panned(_ recognizer: UIPanGestureRecognizer) {
         guard let configuration else { return }
+        guard let window, touchWindow === window else { cancelPan(); return }
+        let distance = displacement(recognizer)
         switch recognizer.state {
         case .began:
             panAdmitted = configuration.onBegin()
 #if DEBUG
             lastBeginAdmitted = panAdmitted
 #endif
-            if panAdmitted { configuration.onMove(displacement(recognizer)) }
+            if panAdmitted { configuration.onMove(distance) }
         case .changed:
-            if panAdmitted { configuration.onMove(displacement(recognizer)) }
+            if panAdmitted { configuration.onMove(distance) }
         case .ended:
             if panAdmitted {
-                configuration.onMove(displacement(recognizer))
+                configuration.onMove(distance)
                 panAdmitted = false
                 configuration.onEnd(false)
             }
+            touchOrigin = nil; touchWindow = nil
         case .cancelled, .failed:
             cancelPan()
         default: break
         }
 #if DEBUG
-        lastPanDiagnostic = "state=\(recognizer.state.rawValue),begin=\(lastBeginAdmitted),admitted=\(panAdmitted),translation=\(displacement(recognizer))"
+        lastPanDiagnostic = "state=\(recognizer.state.rawValue),begin=\(lastBeginAdmitted),admitted=\(panAdmitted),translation=\(distance)"
         if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
             accessibilityValue = "ratio=\(configuration.ratio);axis=\(configuration.axis);\(lastPanDiagnostic);resize=\(configuration.resizeDiagnostic?() ?? "none")"
         }
@@ -164,13 +178,23 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate {
     }
 
     private func displacement(_ pan: UIPanGestureRecognizer) -> Double {
-        let value = pan.translation(in: window)
+        // UIKit can recognize a coalesced drag only at its final sample and
+        // report zero translation. Preserve the initial touch in stable Window
+        // coordinates; the handle itself moves with the ratio being edited.
+        let value: CGPoint
+        if let touchOrigin, let window, touchWindow === window {
+            let current = pan.location(in: window)
+            value = CGPoint(x: current.x - touchOrigin.x, y: current.y - touchOrigin.y)
+        } else {
+            value = pan.translation(in: window)
+        }
         return Double(configuration?.axis == .leftRight ? value.x : value.y)
     }
     @objc private func verticalAxis() -> Bool { configuration?.onAxis?(.topBottom); return configuration?.onAxis != nil }
     @objc private func horizontalAxis() -> Bool { configuration?.onAxis?(.leftRight); return configuration?.onAxis != nil }
 
     func cancelPan() {
+        touchOrigin = nil; touchWindow = nil
         guard panAdmitted else { return }
         panAdmitted = false
         configuration?.onEnd(true)
