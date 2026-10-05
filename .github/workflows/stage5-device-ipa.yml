@@ -23,7 +23,7 @@ jobs:
           base=c3dc2ba359509fa4b70afb30c044560cde0cda27
           test "$(git rev-parse "$base^{tree}")" = '183e1c55822081f83664d46eeaa553c4458a53c6'
           test "$(git merge-base HEAD "$base")" = "$base"
-          actual=$(git diff --name-only "$base" HEAD | sort)
+          actual=$(git diff --no-renames --name-only "$base" HEAD | sort)
           expected=$(printf '%s\n' \
             '.github/workflows/stage4-device-ipa.yml' \
             '.github/workflows/stage5-device-ipa.yml' \
