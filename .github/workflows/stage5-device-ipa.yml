@@ -20,8 +20,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base=cd88c0bf555726fdfc2a56628b13c88713a5f4ea
-          test "$(git rev-parse "$base^{tree}")" = '1f62193282c6d48b52cfbe7cbea51a132d9b3452'
+          base=8d6ffa7169d5ef8b9a52f3e06876cb8790d0ce74
+          test "$(git rev-parse "$base^{tree}")" = '58e23a982a2153f7ec5a82309694a537f627177d'
           test "$(git merge-base HEAD "$base")" = "$base"
           actual=$(git diff --no-renames --name-only "$base" HEAD | sort)
           expected=$(printf '%s\n' \
@@ -103,9 +103,9 @@ jobs:
           cp Resources/Fonts/LICENSE-JetBrainsMono.txt "$output/LICENSES/"
           (cd "$output" && /usr/bin/shasum -a 256 "$name" > SHA256SUMS.txt)
           {
-            echo 'Stage 5 source candidate commit: cd88c0bf555726fdfc2a56628b13c88713a5f4ea'
-            echo 'Stage 5 source candidate tree: 1f62193282c6d48b52cfbe7cbea51a132d9b3452'
-            echo 'Source FULL CI: 37317707058; delivery requires success'
+            echo 'Stage 5 source candidate commit: 8d6ffa7169d5ef8b9a52f3e06876cb8790d0ce74'
+            echo 'Stage 5 source candidate tree: 58e23a982a2153f7ec5a82309694a537f627177d'
+            echo 'Source FULL CI: 37325263358; delivery requires success'
             echo "Packaging commit: $GITHUB_SHA"
             echo "Packaging tree: $(git rev-parse HEAD^{tree})"
             echo "Workflow run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

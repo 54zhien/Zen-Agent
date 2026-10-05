@@ -99,6 +99,9 @@ final class WorkspaceNavigationState {
     }
 
     func perform(_ action: WorkspaceConversationAction) {
+#if DEBUG
+        recordNative("action=\(action),open=\(isOpen),drag=\(isDragging),settled=\(settlementID == nil),overlay=\(String(describing: overlay)),available=\(conversationActions.contains(action)),handler=\(onConversationAction != nil)")
+#endif
         guard isOpen, !isDragging, settlementID == nil, overlay == nil,
               conversationActions.contains(action), let handler = onConversationAction else { return }
         // Capture the originating Pane handler before closing; changing the

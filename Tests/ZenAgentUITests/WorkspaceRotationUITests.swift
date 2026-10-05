@@ -82,9 +82,17 @@ final class WorkspaceRotationUITests: XCTestCase {
         let entry = app.buttons["split-entry"]
         XCTAssertTrue(entry.waitForExistence(timeout: 15))
         entry.tap()
-        app.buttons["split-open-top"].tap()
+        let action = app.buttons["split-open-top"]
+        XCTAssertTrue(action.waitForExistence(timeout: 5))
+        XCTAssertTrue(action.wait(for: \.isHittable, toEqual: true, timeout: 5))
+        print("ROTATION_SPLIT_ACTION frame=\(action.frame),enabled=\(action.isEnabled),hittable=\(action.isHittable)")
+        action.tap()
         let history = app.buttons["split-history-preview-ui-10"]
-        XCTAssertTrue(history.waitForExistence(timeout: 10))
+        guard history.waitForExistence(timeout: 10) else {
+            let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+            XCTFail("Split picker did not appear after the hittable menu action. Native receipt: \(String(describing: probe.value)); hierarchy: \(app.debugDescription)")
+            return app
+        }
         history.tap()
         XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch.waitForExistence(timeout: 10))
         expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
