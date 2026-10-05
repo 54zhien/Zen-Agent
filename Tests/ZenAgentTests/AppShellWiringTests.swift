@@ -1546,7 +1546,11 @@ struct AppShellWiringTests {
         weak var oldEditor = try #require(editor(in: host.view))
         #expect(oldEditor?.selectedRange == NSRange(location: 3, length: 2))
         #expect(fixture.model.enterPreview())
-        for _ in 0..<40 where editor(in: host.view) != nil { try await Task.sleep(for: .milliseconds(25)) }
+        // Detachment and SwiftUI representable disposal happen in separate turns.
+        // Await the release we assert, using the same bounded lifecycle window.
+        for _ in 0..<40 where editor(in: host.view) != nil || oldEditor != nil {
+            try await Task.sleep(for: .milliseconds(25))
+        }
         #expect(editor(in: host.view) == nil)
         #expect(oldEditor == nil)
         #expect(await fixture.model.preparePreviewReturn())
