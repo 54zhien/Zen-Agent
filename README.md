@@ -183,7 +183,14 @@ As of 2026-10-05:
   failures),actualPad both, no host restart/retry. The Visuals code gate is
   closed. The [fresh whole-stage review](tasks/stage5-code-review.md) found
   no concrete Critical/Important/Minor code findings. See
-  [the current review handoff](tasks/stage5-review-handoff.md).
+  [the current review handoff](tasks/stage5-review-handoff.md). The subsequent
+  documentation candidate's PR Pad run failed its global-app-frame landscape
+  readiness query. A focused test-observation correction uses the two live Pane
+  frames; its own exact-head FULL receipts are recorded in PR #33. The original
+  failure and focused review are retained. That PR's phone run also failed one
+  Browse initial Lift and its downstream swipe (all units and other UI passed).
+  Correct synthesized input is retained; bounded DEBUG test gesture evidence
+  was added without changing Lift policy or claiming the historical cause fixed.
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
   does not establish device memory, performance, input, comfort or VoiceOver acceptance.

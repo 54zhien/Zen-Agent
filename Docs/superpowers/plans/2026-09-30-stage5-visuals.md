@@ -57,3 +57,13 @@ Important or Minor code defect. See tasks/stage5-code-review.md and the current
 handoff for exact reviewed source, historical failures and physical-device limits.
 Light-mode Ink remains off; no palette, shader backend or device acceptance is
 invented by these checked implementation steps. All stacked PRs remain unmerged.
+
+The subsequent documentation-only candidate's PR Pad run failed one global-app
+AX landscape-readiness query. Its actual native axis/drag/ratio/editor checks
+passed afterward; the failure and video are retained. A focused review supports
+the test-only live-Pane-frame observation correction. See the handoff and PR33
+for its required own FULL pair/Pad/guard receipts. The same PR's phone run also
+failed an older Browse initial Lift and its subsequent swipe while all units and
+other UI passed. Correct synthesized input and Full video are retained. Bounded
+DEBUG test-only native gesture evidence was added; actual Lift policy and input
+remain unchanged, and no unsupported claim about the historical cause is made.

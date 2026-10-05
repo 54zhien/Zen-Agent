@@ -68,12 +68,34 @@ and inspected integrated Stage5 foundations as context. The [saved report](stage
 records no concrete Critical/Important/Minor code finding, its coverage and limits.
 It ran no new tests and does not establish physical-device acceptance.
 
-The final closure commit updates documentation only; App,Tests,Config,Resources,
-project.yml and CI remain identical to the tested source above. Its latest exact
-HEAD/tree and own CI are in [PR #33](https://github.com/54zhien/Zen-Agent/pull/33)
-and the external current receipts. This avoids a self-SHA documentation loop.
-The owner can now review the complete stacked code and proceed to physical-device
-acceptance. All PRs remain unmerged; no main push or IPA was performed.
+The first documentation-only closure ab5cd44/tree d4ffc8b preserved that source.
+Push Pad passed90.066s; PR37252198078 Pad job111581981090 failed once at
+WorkspacePadAxisUITests:33, a global-app-frame landscape readiness query.
+All later native axis/drag/ratio/editor assertions passed; the113.271s real
+failed case and xcresult artifact11321566067 are retained. Actual video shows
+the landscape Split. The [focused review](stage5-pad-readiness-review.md)
+supports observing the two live Pane frames instead, keeping the width>height
+gate and all native behavior assertions, app-coordinate drag and waits intact.
+
+The same documentation candidate's push phone FULL passed (942/151+20 units,
+54UI/one expected skip/zero failures); PR units passed but its first Browse Lift
+never entered Card, followed by a missing-Card swipe error. All other UI passed.
+One Swift start/no host restart/retry each. Raw artifact11321804529 preserves
+correct touch coordinates/0.7s hold/220-point drag and Full video; the trace lacks
+the exact native refusal/cancellation reason. The [focused review](stage5-browse-lift-review.md)
+covers a bounded12-entry DEBUG UI-test-only gesture trace and test diagnostics.
+The same Card prerequisite now stops on failure rather than issuing a cascade
+swipe; real input, successful-path assertions and ten-second wait are unchanged.
+This adds evidence without claiming the intermittent historical cause fixed.
+
+The following Pad test repair plus DEBUG diagnostics/documentation keeps Lift
+policy,Config,Resources,project.yml and CI unchanged. It requires its own
+profile-free FULL pair/actual Pad/guard.
+Latest exact HEAD/tree and those CI outcomes are in
+[PR #33](https://github.com/54zhien/Zen-Agent/pull/33) and external current receipts.
+This avoids a self-SHA documentation loop and keeps the failed candidate explicit.
+The owner can review the complete stack and, after the latest code gate passes,
+proceed to physical-device acceptance. All PRs remain unmerged; no main push or IPA.
 
 ## Whole-stage code review focus
 

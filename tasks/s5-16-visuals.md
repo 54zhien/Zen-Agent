@@ -196,7 +196,40 @@ report is preserved in stage5-code-review.md; static review adds no device evide
 GitHub's commit API independently confirms the published db30ed60 commit tree
 79f55ccb5d2ff9558eaae8e5111830f409ecca91, matching the reviewed local tree.
 
-The closure commit changes documentation only. App,Tests,Config,Resources,
-project.yml and CI remain identical to that tested source. Its exact local/remote
-HEAD,tree and own CI receipts are recorded in PR33 and the external handoff,
-without introducing a self-SHA documentation loop. No merge/main push/IPA.
+The first closure commit ab5cd44/tree d4ffc8b changed documentation only.
+Its push Pad passed90.066s, but PR37252198078/job111581981090 compiled and
+ran the real case with one failure at WorkspacePadAxisUITests:33: the global
+app.frame landscape query stalled until its waiter expired. All later actual
+axis/drag/ratio/editor assertions passed (113.271s total). The failure is retained
+with raw log, xcresult artifact11321566067 and video; it is not a second GREEN.
+
+The focused [Pad readiness review](stage5-pad-readiness-review.md) supports
+sampling each actual Pane frame once per poll, validating finite positive
+rectangles, and requiring their union width>height. This changes only the test
+observation. All native axis/drag/ratio/editor assertions, the app-coordinate
+drag anchor, timeouts, skips and no-retry policy remain intact. App,Config,
+Resources,project.yml and CI are identical to the reviewed tested source for
+that Pad correction; the separate DEBUG-only diagnostic addition is below.
+The test+documentation correction requires its own profile-free FULL pair,
+actual Pad cases and guard. Its exact local/remote HEAD,tree and final CI receipts
+are recorded in PR33 and the external handoff rather than a self-SHA doc loop.
+No merge/main push/IPA; physical acceptance remains open.
+
+That documentation candidate's phone outcomes are complete: push passed
+942Swift/151suites107.282s,20XCTest,54UI (one expected Pad-only skip,
+zero failures)1293.246s. PR units passed100.195s, but54UI1437.999s recorded
+two errors in one older Browse case: initial Lift never entered Card at line19,
+then swipeRight failed because no Card existed. One Swift start/no host restart
+or retry in each run; guard passed. Raw phone artifact11321804529 is retained.
+Its synthesized event confirms(201,803)→(201,583),hold0.7s, valid editor center;
+video remains Full. Evidence cannot identify an admission or cancellation reason.
+
+The [focused Lift review](stage5-browse-lift-review.md) covers the evidence and
+limited diagnostic addition. DEBUG plus the existing UI-test environment enables
+a12-entry native gesture trace of receive/admission/start/refusal/terminal and
+active invalidation, with boolean eligibility/geometry and no draft text. The
+Browse test preserves the original input and ten-second Card assertion, prints
+native input evidence, and stops on that failed prerequisite instead of issuing
+an impossible swipe. No Lift threshold, policy, ownership, timer or retry changes.
+This is evidence collection, not a claim that the historical Lift cause is fixed.
+The combined candidate still requires its own FULL pair/actual Pad/guard.
