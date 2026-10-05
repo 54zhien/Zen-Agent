@@ -1,8 +1,8 @@
-name: Stage 4 unsigned device IPA
+name: Stage 5 unsigned device IPA
 
 on:
   push:
-    branches: [codex/stage4-closure]
+    branches: [codex/s5-device-ipa-20261005]
 
 permissions:
   contents: read
@@ -16,23 +16,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify Stage 4 closure source and packaging scope
+      - name: Verify tested Stage 5 source and packaging-only scope
         shell: bash
         run: |
           set -euo pipefail
-          base=bd30f314cd528b32544bd22333f82ee02da77585
+          base=c3dc2ba359509fa4b70afb30c044560cde0cda27
+          test "$(git rev-parse "$base^{tree}")" = '183e1c55822081f83664d46eeaa553c4458a53c6'
           test "$(git merge-base HEAD "$base")" = "$base"
           actual=$(git diff --name-only "$base" HEAD | sort)
           expected=$(printf '%s\n' \
             '.github/workflows/stage4-device-ipa.yml' \
-            '.github/workflows/w1-device-ipa.yml' \
-            'AGENTS.md' \
-            'README.md' \
-            'Tests/ZenAgentTests/DualConversationPaneConcurrencyTests.swift' \
-            'Tests/ZenAgentTests/SoulPromptIntegrationTests.swift' \
-            'tasks/stage4-closure.md' | sort)
+            '.github/workflows/stage5-device-ipa.yml' \
+            'tasks/stage5-device-ipa.md' | sort)
           test "$actual" = "$expected" || {
-            echo 'Unexpected Stage 4 closure files:' >&2
+            echo 'Unexpected changes relative to the tested Stage 5 source:' >&2
             diff -u <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") >&2 || true
             exit 1
           }
@@ -96,7 +93,7 @@ jobs:
               plistlib.dump(info, file)
           PY
 
-          name='ZenAgent-Stage4-device-test.ipa'
+          name='ZenAgent-Stage5-device-test.ipa'
           (cd "$stage" && /usr/bin/zip -qry "$output/$name" Payload)
           /usr/bin/unzip -tq "$output/$name"
           if /usr/bin/unzip -Z1 "$output/$name" | grep -i 'Anthropic'; then
@@ -107,17 +104,23 @@ jobs:
           cp Resources/Fonts/LICENSE-JetBrainsMono.txt "$output/LICENSES/"
           (cd "$output" && /usr/bin/shasum -a 256 "$name" > SHA256SUMS.txt)
           {
-            echo 'Stage 4 closure base: bd30f314cd528b32544bd22333f82ee02da77585'
-            echo "Device candidate commit: $GITHUB_SHA"
+            echo 'Tested Stage 5 source commit: c3dc2ba359509fa4b70afb30c044560cde0cda27'
+            echo 'Tested Stage 5 source tree: 183e1c55822081f83664d46eeaa553c4458a53c6'
+            echo 'Source FULL CI: 37258223980 / 37258227083; guard 37258227085'
+            echo "Packaging commit: $GITHUB_SHA"
+            echo "Packaging tree: $(git rev-parse HEAD^{tree})"
+            echo "Workflow run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo 'Variant: unsigned Debug device build, System Sans interface font'
             echo 'Bundle ID: com.zhien.zen'
             echo 'Minimum iOS: 26.0'
+            echo 'Architecture: arm64'
+            xcodebuild -version
           } > "$output/BUILD-INFO.txt"
 
       - name: Upload unsigned IPA and provenance
         uses: actions/upload-artifact@v4
         with:
-          name: ZenAgent-Stage4-device-test-${{ github.run_number }}
+          name: ZenAgent-Stage5-device-test-${{ github.run_number }}
           path: ${{ runner.temp }}/ZenAgentDeviceOutput/
           retention-days: 7
           compression-level: 0
