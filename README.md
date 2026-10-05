@@ -168,15 +168,24 @@ As of 2026-10-05:
   20 XCTest,53 phone UI with one expected skip and zero failures,actual Pad
   in both runs; no host restart/retry. Prior PR37233523586's40-minute timeout
   remains recorded; the accepted bounded45-minute cap preserves all tests.
-  S5-16 Visuals now starts with existing-API native edge and Ink-controls RED;
-  no effect production source has been published yet. See
-  [the current resume handoff](tasks/stage5-review-handoff.md).
-  Full-stage and physical acceptance remain open.
+  S5-16 Visuals is implemented on stacked draft
+  [PR #33](https://github.com/54zhien/Zen-Agent/pull/33), unmerged. A fixed native
+  Ink canvas uses two keyed gradients and bounded reverse parallax with live
+  scene/Reduce Motion/power/thermal policy. Current alone gets a crop-fitted edge.
+  Compiled behavior RED and historical failures are in [the slice record](tasks/s5-16-visuals.md).
+  Native-switch candidate d05b532/treee77cdea passed both targeted runs
+  37245337008/37245338938:942 Swift/151 suites,20 XCTest,all4SettingsUI,
+  actualPad and guard, no host restart/retry. Provider Save hit-area repair
+  40c03f97/treedbac452f also passed both targeted runs37246708991/37246712273
+  with the same counts and actualPad/guard. The selective profile is removed
+  for complete CI; FULL and fresh whole-stage review remain open. See
+  [the current review handoff](tasks/stage5-review-handoff.md).
 - The owner subsequently directed all Stage 5 physical acceptance to take place
   after Stage 5 development ends. Device gates remain open; the changed order
   does not establish device memory, performance, input, comfort or VoiceOver acceptance.
 - Formal Settings IA and `Settings → Agent → Soul` are implemented in S5-15;
-  its full source gate is pending. Memory, Skills, MCP and Subagent remain later stages.
+  its full source gate passed at2d501a6b/tree437d5de4. Memory, Skills, MCP and
+  Subagent remain later stages.
 
 The [Stage 5 entry record](tasks/stage5-entry.md) records the integrated baseline,
 CI evidence, remaining device checks, and design decisions needed by later slices.

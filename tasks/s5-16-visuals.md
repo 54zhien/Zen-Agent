@@ -31,7 +31,7 @@ one failure,181.685s/150.804s. Actual iPad passed102.855s/110.456s and
 guard37240008951 passed. One Swift test-run start, no host restart/retry.
 Raw RED logs remain in the external handoff directory.
 
-## First implementation candidate — awaiting macOS result
+## Implementation history and recorded failures
 
 After the genuine RED, a native opaque canvas owns one root and two radial
 gradients. Gesture samples change only bounded reverse displacement/intensity;
@@ -47,7 +47,8 @@ and hides in Full. No new gesture, Timeline, session, Router or Runtime owner.
 Native tests exercise layer identity, real animation keys, window lifecycle,
 policy changes, finite bounds, crop replacement and preference reload.
 The actual Settings UI exercises enablement/intensity, dark mode, two Lift/Return
-cycles and retained editor/identity/draft. Targeted and FULL gates remain OPEN.
+cycles with native retention across Settings and warm-owner/draft restoration
+across Preview. The results and remaining FULL gate are recorded below.
 
 First implementation2c7e389/treeae22891 built in both37241606003/37241608585:
 942 Swift/151 suites passed78.796s/99.922s,20 XCTest passed; actualPad passed
@@ -151,3 +152,19 @@ preferences; Ink visibility/flow/edge, persisted intensity, two Lift/Return
 cycles, warm-owner identity, draft and native editor retention across Settings
 Close pass. The Save hit-area repair above still requires its own targeted gate
 before profile removal/FULL. Earlier failed candidates remain recorded.
+
+## Native Save targeted gate closed; FULL candidate
+
+Save repair40c03f97a2628fdcad9e3bea05b5ccfbbe2d2a82 / tree
+ dbac452f2dff2a000a0a8e90930c0b3c55196a33 passed push37246708991 and
+PR37246712273,guard37246712207. Each completed XcodeGen/build,942Swift/
+151suites (89.989s/78.982s),20XCTest and all4SettingsUI with zero failures
+(209.100s/192.914s). ActualPad passed87.135s/75.114s. One Swift-run start
+and no host restart/retry. The actual native Save/first Send and both Soul Close
+paths pass with the strengthened status guard; no fake configuration activation.
+
+The next candidate removes .github/stage5-test-profile.json. All units and the
+complete phone UI suite, plus the unchanged actualPad axis job, must pass before
+this slice's FULL code gate closes. README, plan and whole-stage handoff now
+reflect implemented source and real targeted receipts. Fresh whole-stage review
+follows FULL success. Physical profiling/comfort/accessibility remain OPEN.
