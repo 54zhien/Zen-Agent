@@ -20,7 +20,10 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
 #if DEBUG
     var animatorForTesting: UIViewPropertyAnimator? { animator }
     private var diagnosticEvents: [String] = []
-    var diagnostic: String { diagnosticEvents.joined(separator: " | ") }
+    var diagnostic: String {
+        "owner=\(isCurrentOwner),enabled=\(recognizer.isEnabled),native=\(recognizer.state.rawValue),phase=\(controller.state.phase),canBrowse=\(canBrowse());events="
+            + diagnosticEvents.joined(separator: " | ")
+    }
     private func record(_ event: String) {
         diagnosticEvents.append(event)
         if diagnosticEvents.count > 24 { diagnosticEvents.removeFirst() }
@@ -74,6 +77,13 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
     var hasNavigationActions: Bool {
         isCurrentOwner && controller.isPresented && !controller.interactionSuspended && controller.state.phase == .idle
     }
+
+#if DEBUG
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        record("touch=\(touch.location(in: coordinates?.window ?? coordinates)) hit=\(touch.view.map { String(describing: type(of: $0)) } ?? "nil")")
+        return true
+    }
+#endif
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard isCurrentOwner, gestureRecognizer === recognizer, canBrowse(), controller.state.phase == .idle,
