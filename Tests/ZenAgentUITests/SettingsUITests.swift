@@ -2,6 +2,60 @@ import XCTest
 
 final class SettingsUITests: XCTestCase {
     @MainActor
+    func testAppSpacePersistedUnconfiguredConversationHasFormalConfigure() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launch()
+        let editor = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        expect { (probe.value as? String)?.contains("liftReady=true") == true }
+        let point = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        point.press(forDuration: 0.7, thenDragTo: point.withOffset(CGVector(dx: 0, dy: -220)))
+        let card = app.descendants(matching: .any)["workspace-current-card"]
+        expect { card.exists }
+        card.swipeLeft()
+        expect { card.exists && card.label.contains("新对话") }
+        card.tap()
+        expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" }
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        editor.tap()
+        editor.typeText("durable empty draft")
+        let identity = nativeEditorIdentity(probe)
+        XCTAssertNotNil(identity)
+        app.openWorkspaceSidebar()
+        let configure = app.buttons["new-conversation-configure"]
+        guard configure.waitForExistence(timeout: 5) else {
+            XCTFail("App Space-created durable unconfigured Conversation must expose Sidebar Configure")
+            return
+        }
+        configure.tap()
+        let settings = app.descendants(matching: .any)["settings-page"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        app.buttons["settings-providers"].tap()
+        app.buttons["settings-provider-add"].tap()
+        let key = app.secureTextFields["DeepSeek API Key"]
+        XCTAssertTrue(key.waitForExistence(timeout: 5))
+        key.tap(); key.typeText("persisted-configure-ui-fixture-key")
+        let save = app.buttons["provider-setup-save"]
+        XCTAssertTrue(save.wait(for: \.isEnabled, toEqual: true, timeout: 5))
+        save.tap()
+        XCTAssertTrue(app.staticTexts["provider-setup-status"].wait(for: \.label, toEqual: "配置完成", timeout: 5))
+        app.buttons["provider-setup-close"].tap()
+        let close = app.buttons["settings-close"]
+        XCTAssertTrue(close.wait(for: \.isEnabled, toEqual: true, timeout: 5))
+        close.tap()
+        expect { !settings.exists }
+        XCTAssertEqual(nativeEditorIdentity(probe), identity)
+        XCTAssertEqual(editor.value as? String, "durable empty draft")
+        let send = app.buttons["conversation-composer-send"]
+        XCTAssertTrue(send.wait(for: \.isEnabled, toEqual: true, timeout: 5))
+        send.tap()
+        app.openWorkspaceSidebar()
+        XCTAssertFalse(configure.exists)
+    }
+
+    @MainActor
     func testReauthenticationReturnsToSameComposerWithSendEnabled() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
