@@ -95,7 +95,7 @@ enum ToolPolicyResourceRequirement: Sendable, Equatable {
 
     func accepts(_ scope: ToolResourceScope) -> Bool {
         guard scope.isValid else { return false }
-        switch (self, scope) {
+        return switch (self, scope) {
         case (.notRequired, .notRequired), (.target, .target), (.file, .file): true
         default: false
         }
@@ -107,7 +107,7 @@ enum ToolPolicyEgressRequirement: Sendable, Equatable {
 
     func accepts(_ scope: ToolDestinationScope) -> Bool {
         guard scope.isValid else { return false }
-        switch (self, scope) {
+        return switch (self, scope) {
         case (.notRequired, .notRequired), (.provider, .provider),
              (.providerRequiringApproval, .provider): true
         default: false
