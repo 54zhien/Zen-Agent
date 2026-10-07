@@ -85,3 +85,117 @@ struct ToolScopedGrant: Sendable, Equatable {
     let destination: ToolDestinationScope
     let validity: ToolGrantValidity
 }
+
+enum ToolActionRisk: Sendable, Equatable {
+    case low, high, destructive, unknown
+}
+
+enum ToolPolicyResourceRequirement: Sendable, Equatable {
+    case notRequired, target, file, unknown
+
+    func accepts(_ scope: ToolResourceScope) -> Bool {
+        guard scope.isValid else { return false }
+        switch (self, scope) {
+        case (.notRequired, .notRequired), (.target, .target), (.file, .file): true
+        default: false
+        }
+    }
+}
+
+enum ToolPolicyEgressRequirement: Sendable, Equatable {
+    case notRequired, provider, providerRequiringApproval, unknown
+
+    func accepts(_ scope: ToolDestinationScope) -> Bool {
+        guard scope.isValid else { return false }
+        switch (self, scope) {
+        case (.notRequired, .notRequired), (.provider, .provider),
+             (.providerRequiringApproval, .provider): true
+        default: false
+        }
+    }
+}
+
+struct ToolPolicyActionMetadata: Sendable, Equatable {
+    let toolID: String
+    let actionID: String
+    let descriptorRevision: String
+    let risk: ToolActionRisk
+    let allowsAutomaticApproval: Bool
+    let allowsConversationGrant: Bool
+    let resourceRequirement: ToolPolicyResourceRequirement
+    let egressRequirement: ToolPolicyEgressRequirement
+
+    var isKnown: Bool {
+        risk != .unknown && resourceRequirement != .unknown && egressRequirement != .unknown
+    }
+
+    var requiresExplicitApproval: Bool {
+        risk != .low || egressRequirement == .providerRequiringApproval
+    }
+}
+
+enum ToolPersistentPolicy: Sendable, Equatable {
+    case alwaysAllow, askEveryTime, deny
+}
+
+enum ToolPolicySafetyCap: Sendable, Equatable {
+    case unrestricted, requiresExplicitApproval, deny, unknown
+}
+
+struct ToolPolicySnapshot: Sendable, Equatable {
+    let toolID: String
+    let actionID: String
+    let descriptorRevision: String
+    let mode: ToolPersistentPolicy
+
+    func bindsLogicalAction(_ call: ToolPolicyCallContext) -> Bool {
+        toolID == call.toolID && actionID == call.actionID
+    }
+
+    func binds(_ call: ToolPolicyCallContext) -> Bool {
+        bindsLogicalAction(call) && descriptorRevision == call.descriptorRevision
+    }
+}
+
+enum ToolPolicyAdmissionDisposition: Sendable, Equatable {
+    case allowed, needsApproval, denied
+}
+
+/// Authorization at preparation, not a second execution state. Repreparing the
+/// same call must not transfer this admission to a different frozen intent.
+struct ToolPolicyAdmission: Sendable, Equatable {
+    let disposition: ToolPolicyAdmissionDisposition
+    let intentBinding: String
+}
+
+struct ToolPolicyEvaluationInput: Sendable, Equatable {
+    let action: ToolPolicyActionMetadata?
+    let safetyCap: ToolPolicySafetyCap
+    let policyAtCreation: ToolPolicySnapshot
+    let admission: ToolPolicyAdmission
+    let currentPolicy: ToolPolicySnapshot
+    let call: ToolPolicyCallContext
+    /// Current trusted resolution, compared with the existing frozen intent.
+    /// It contains neither executable arguments nor an alternative ToolCall.
+    let resolvedResource: ToolResourceScope
+    let resolvedDestination: ToolDestinationScope
+    let resolvedIntentBinding: String
+    let grants: [ToolScopedGrant]
+}
+
+enum ToolPolicyReason: Sendable, Equatable {
+    case globalPolicy, onceGrant, conversationGrant
+    case hardDeny, globalDeny, unknownSafetyCap, unknownMetadata
+    case explicitApprovalRequired, automaticApprovalForbidden
+    case noApplicableGrant, conversationGrantForbidden
+    case invalidIdentity, actionChanged, descriptorChanged, policyChanged
+    case invalidResourceScope, invalidDestinationScope
+    case resourceChanged, destinationChanged, intentChanged
+}
+
+enum ToolPolicyDecision: Sendable, Equatable {
+    case allow(ToolPolicyReason)
+    case needsApproval(ToolPolicyReason)
+    case deny(ToolPolicyReason)
+    case dependencyChanged(ToolPolicyReason)
+}
