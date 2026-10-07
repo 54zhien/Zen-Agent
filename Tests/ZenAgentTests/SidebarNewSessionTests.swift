@@ -78,7 +78,9 @@ struct SidebarNewSessionTests {
         default: break
         }
         shell.newConversation()
-        #expect((shell.sessions.session(for: original.conversationID) === original) == (kind != "blank"))
+        #expect(shell.enterPreview())
+        let window = try shell.newConversationBrowseWindow()
+        #expect(window.summaries.contains { $0.id == original.conversationID } == (kind != "blank"))
     }
 
     @Test("uncommitted replacement cannot retire a runtime-protected owner")
