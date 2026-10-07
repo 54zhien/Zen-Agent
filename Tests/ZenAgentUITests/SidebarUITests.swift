@@ -3,6 +3,36 @@ import UIKit
 
 final class SidebarUITests: XCTestCase {
     @MainActor
+    func testSidebarNewReturnsToOriginalUnsentDraftThroughAppSpace() {
+        let app = launch()
+        app.openWorkspaceSidebar()
+        app.buttons["new-conversation-new"].tap()
+        let editor = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        editor.tap()
+        editor.typeText("sidebar retained draft")
+        expect { (editor.value as? String) == "sidebar retained draft" }
+        let pane = app.scrollViews.matching(NSPredicate(format: "identifier BEGINSWITH %@", "conversation-pane-")).firstMatch
+        app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        let selection = (probe.value as? String)?.split(separator: ";")
+            .first { $0.hasPrefix("editorSelection=") }.map(String.init)
+        XCTAssertEqual(selection, "editorSelection=(22,0)")
+        app.openWorkspaceSidebar()
+        app.buttons["new-conversation-new"].tap()
+        expect { (editor.value as? String) == "" }
+        let point = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        point.press(forDuration: 0.7, thenDragTo: point.withOffset(CGVector(dx: 0, dy: -220)))
+        let card = app.descendants(matching: .any)["workspace-current-card"]
+        expect { card.exists }
+        card.swipeRight()
+        expect { card.exists }
+        card.tap()
+        expect { (editor.value as? String) == "sidebar retained draft" }
+        expect { (probe.value as? String)?.contains(selection ?? "missing-selection") == true }
+    }
+
+    @MainActor
     func testSplitSidebarClosingIncludesOppositePaneAndSharedInput() {
         let app = launch()
         app.openWorkspaceSidebar()
