@@ -47,7 +47,10 @@ final class AppShellModel {
         guard let dependencies else { return nil }
         return SettingsWorkspaceModel(store: dependencies.store, credentials: dependencies.credentials,
             provider: dependencies.provider, defaults: userDefaults, appearance: appearance, menus: modelMenus,
-            files: dependencies.managedFiles, onDefault: { [weak self] target, initializeCapturedNew in
+            files: dependencies.managedFiles,
+            onProviderCommitted: { [weak self] instanceID in
+                await self?.refreshSendAvailability(for: instanceID)
+            }, onDefault: { [weak self] target, initializeCapturedNew in
                 guard let self else { return }
                 self.target = target
                 // Updating the future-New cache never reinstalls an existing Pane.
@@ -66,6 +69,33 @@ final class AppShellModel {
     func makeFilesWorkspaceModel() -> FilesWorkspaceModel? {
         guard let dependencies, let files = dependencies.managedFiles else { return nil }
         return FilesWorkspaceModel(store: dependencies.store, files: files, sessions: sessions)
+    }
+
+    func refreshSendAvailability(for instanceID: ProviderInstanceID) async {
+        guard let dependencies else { return }
+        let token = UUID()
+        configurationRefreshIDs[instanceID] = token
+        defer {
+            if configurationRefreshIDs[instanceID] == token { configurationRefreshIDs[instanceID] = nil }
+        }
+        let targets: [(session: ConversationSession, configuration: ConversationComposerConfiguration)] =
+            sessions.retainedSessions.compactMap { session in
+                guard let configuration = session.composer.configuration,
+                      configuration.providerInstanceID == instanceID else { return nil }
+                return (session, configuration)
+            }
+        let results = await AppShellConfiguration.availabilities(for: targets.map(\.configuration),
+            store: dependencies.store, provider: dependencies.provider, credentials: dependencies.credentials)
+        guard configurationRefreshIDs[instanceID] == token, router === dependencies.router else { return }
+        for (target, result) in zip(targets, results) {
+            guard sessions.session(for: target.session.conversationID) === target.session,
+                  target.session.composer.configuration == target.configuration else { continue }
+            target.session.composer.sendAvailability = result
+        }
+        if let owner = pane?.composer ?? previewContent.session?.composer {
+            sendAvailability = owner.sendAvailability
+            targetMessage = owner.sendAvailability.message
+        }
     }
     static let defaultInstanceIDKey = "zen.w1.defaultTarget.v1.instanceID"
     static let defaultModelIDKey = "zen.w1.defaultTarget.v1.modelID"
@@ -654,6 +684,7 @@ final class AppShellModel {
     @ObservationIgnored private var startedAssembly = false
     @ObservationIgnored private var backgroundedAtInProcess: Date?
     @ObservationIgnored private let sessions = ConversationSessionStore()
+    @ObservationIgnored private var configurationRefreshIDs: [ProviderInstanceID: UUID] = [:]
     @ObservationIgnored private var navigationID = UUID()
     @ObservationIgnored private var openTicket: (conversationID: String, ticket: UUID)?
     @ObservationIgnored private var splitSelectionID = UUID()

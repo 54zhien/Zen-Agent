@@ -41,6 +41,8 @@ final class ConversationSessionStore {
         entries[conversationID]?.session
     }
 
+    var retainedSessions: [ConversationSession] { entries.values.map(\.session) }
+
     var protectedFileAssetIDs: Set<String> {
         Set(entries.values.flatMap { $0.session.protectedFileAssetIDs })
     }

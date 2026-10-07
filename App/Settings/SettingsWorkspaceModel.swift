@@ -25,14 +25,18 @@ final class SettingsWorkspaceModel {
     @ObservationIgnored private let provider: any ModelProvider
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let onDefault: (AppExecutionTarget, Bool) -> Void
+    @ObservationIgnored private let onProviderCommitted: @MainActor (ProviderInstanceID) async -> Void
     @ObservationIgnored private var active = true
     @ObservationIgnored private var selection: UInt64 = 0
 
     init(store: PersistenceStore, credentials: any CredentialStoring, provider: any ModelProvider,
          defaults: UserDefaults, appearance: AppearanceSettings, menus: ModelMenuPreferences,
-         files: ManagedFileStore?, onDefault: @escaping (AppExecutionTarget, Bool) -> Void) {
+         files: ManagedFileStore?,
+         onProviderCommitted: @escaping @MainActor (ProviderInstanceID) async -> Void = { _ in },
+         onDefault: @escaping (AppExecutionTarget, Bool) -> Void) {
         self.store = store; self.credentials = credentials; self.provider = provider
         self.defaults = defaults; self.appearance = appearance; self.menus = menus; self.onDefault = onDefault
+        self.onProviderCommitted = onProviderCommitted
         soul = SoulSettingsModel(store: store)
         storage = files.map { SettingsStorageModel(store: store, files: $0) }
         if let instance = defaults.string(forKey: AppShellModel.defaultInstanceIDKey),
@@ -100,7 +104,9 @@ final class SettingsWorkspaceModel {
     }
 
     func accountEditor(for instance: ProviderInstance) -> ProviderAccountSettingsModel {
-        ProviderAccountSettingsModel(store: store, credentials: credentials, instance: instance)
+        // Publication remains meaningful after this Settings presentation closes.
+        ProviderAccountSettingsModel(store: store, credentials: credentials, instance: instance,
+            onCommitted: onProviderCommitted)
     }
 
     func invalidate() {

@@ -14,11 +14,14 @@ final class ProviderAccountSettingsModel {
     @ObservationIgnored private let store: PersistenceStore
     @ObservationIgnored private let credentials: any CredentialStoring
     @ObservationIgnored private let makeCredentialReference: () -> CredentialReference
+    @ObservationIgnored private let onCommitted: @MainActor (ProviderInstanceID) async -> Void
 
     init(store: PersistenceStore, credentials: any CredentialStoring, instance: ProviderInstance,
-         makeCredentialReference: @escaping () -> CredentialReference = { CredentialReference(id: UUID().uuidString) }) {
+         makeCredentialReference: @escaping () -> CredentialReference = { CredentialReference(id: UUID().uuidString) },
+         onCommitted: @escaping @MainActor (ProviderInstanceID) async -> Void = { _ in }) {
         self.store = store; self.credentials = credentials; self.instance = instance
         self.makeCredentialReference = makeCredentialReference
+        self.onCommitted = onCommitted
         displayName = instance.displayName; endpoint = instance.baseURL?.absoluteString ?? ""
     }
 
@@ -46,6 +49,7 @@ final class ProviderAccountSettingsModel {
                     baseURL: url, expectedEditRevision: accepted.editRevision)
             }.value
             statusMessage = "账户资料已保存。"
+            await onCommitted(instance.id)
         } catch { errorMessage = "资料保存失败或账户已变化。本页修改已保留，请重新检查账户。" }
     }
 
@@ -82,6 +86,7 @@ final class ProviderAccountSettingsModel {
             }.value
             apiKey = ""
             statusMessage = "凭据已保存，尚未联网验证。"
+            await onCommitted(instance.id)
         } catch { errorMessage = "重认证未完成，账户资料和输入已保留。请检查账户后重试。" }
     }
 }
