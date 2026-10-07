@@ -28,12 +28,9 @@ final class SidebarUITests: XCTestCase {
         XCTAssertTrue(error.exists)
         XCTAssertTrue(error.isHittable, "Open feedback must be visible even above a long Recent list")
         XCTAssertTrue(retry.isHittable)
-        let diagnostic = app.descendants(matching: .any)["recent-open-fixture-diagnostic"]
-        print("RECENT_OPEN_NATIVE before-retry \(diagnostic.exists ? String(describing: diagnostic.value) : "probe missing")")
         guard retry.exists && retry.isHittable else { return }
         retry.tap()
         expect { app.scrollViews["conversation-pane-preview-ui-9"].exists && !retry.exists && !target.exists && !error.exists }
-        print("RECENT_OPEN_NATIVE after-retry \(diagnostic.exists ? String(describing: diagnostic.value) : "probe missing")")
         XCTAssertTrue(app.scrollViews["conversation-pane-preview-ui-11"].exists)
     }
     @MainActor

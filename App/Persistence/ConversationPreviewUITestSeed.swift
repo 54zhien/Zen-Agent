@@ -68,12 +68,5 @@ enum ConversationPreviewUITestSeed {
                 arguments: [RunState.completed.rawValue, "recent-split-failure-run"])
         }
     }
-
-    static func recentSplitFailureState(in store: PersistenceStore) -> String {
-        (try? store.database.read { db in
-            try String.fetchOne(db, sql: "SELECT state FROM agentRun WHERE id = ?",
-                arguments: ["recent-split-failure-run"])
-        }) ?? "missing-or-unreadable"
-    }
 }
 #endif

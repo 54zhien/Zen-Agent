@@ -7,9 +7,10 @@ struct ConversationPreviewUITestFixture: View {
     @State private var positionRequest: UInt64?
     @State private var didOpenHistory = false
     @State private var hiddenViewportInset: CGFloat = 0
-    @State private var recentDiagnostics = RecentOpenFixtureDiagnostics()
     private let files: ManagedFileStore
-    private let store: PersistenceStore
+    // Fixture values can be rebuilt while the model is retained. Repair writes
+    // must keep using the same database that supplies that model's history.
+    @State private var store: PersistenceStore
 
     init() {
         do {
@@ -17,7 +18,7 @@ struct ConversationPreviewUITestFixture: View {
             let store = ProcessInfo.processInfo.environment["ZEN_NEW_CONFIGURE_UI_TEST"] == "1" || reauthentication
                 ? PersistenceStore(database: try ZenDatabase.inMemory())
                 : try ConversationPreviewUITestSeed.makeStore()
-            self.store = store
+            _store = State(initialValue: store)
             let files = ManagedFileStore(applicationSupportRoot: FileManager.default.temporaryDirectory
                 .appendingPathComponent("PreviewFiles-\(UUID())", isDirectory: true),
                 protectionRequirement: .bestEffort)
@@ -58,16 +59,10 @@ struct ConversationPreviewUITestFixture: View {
             .onChange(of: model.splitOpenError) { _, error in
                 guard error != nil,
                       ProcessInfo.processInfo.environment["ZEN_RECENT_SPLIT_FAILURE_UI_TEST"] == "1" else { return }
-                recentDiagnostics.observerCalls += 1
-                recentDiagnostics.repairDB = String(describing: ObjectIdentifier(store.database))
-                recentDiagnostics.before = ConversationPreviewUITestSeed.recentSplitFailureState(in: store)
-                model.recordRecentOpenDiagnosticForUITest("fixture observer call=\(recentDiagnostics.observerCalls) db=\(recentDiagnostics.repairDB) before=\(recentDiagnostics.before)")
                 // Restore only after the real history reader has rejected C;
                 // the UI must consume the failure and invoke its own retry.
                 do { try ConversationPreviewUITestSeed.restoreRecentSplitFailure(in: store) }
                 catch { fatalError("Recent Split fixture could not restore") }
-                recentDiagnostics.after = ConversationPreviewUITestSeed.recentSplitFailureState(in: store)
-                model.recordRecentOpenDiagnosticForUITest("fixture observer repaired db=\(recentDiagnostics.repairDB) after=\(recentDiagnostics.after)")
             }
             .task {
                 guard !didOpenHistory else { return }
@@ -103,15 +98,6 @@ struct ConversationPreviewUITestFixture: View {
                 Text("pending=\(String(describing: model.pane?.scrollRequest?.sequence)) \(model.pane?.previewReadingDiagnosticForUITest ?? "Preview")")
                     .font(.system(size: 1)).frame(width: 1, height: 1)
                     .accessibilityIdentifier("preview-reading-diagnostic")
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if ProcessInfo.processInfo.environment["ZEN_RECENT_SPLIT_FAILURE_UI_TEST"] == "1" {
-                    RecentOpenFixtureProbe {
-                        "fixture model=\(ObjectIdentifier(model));db=\(ObjectIdentifier(store.database));rawC=\(ConversationPreviewUITestSeed.recentSplitFailureState(in: store));observer=\(recentDiagnostics.observerCalls);repairDB=\(recentDiagnostics.repairDB);before=\(recentDiagnostics.before);after=\(recentDiagnostics.after);pane=\(model.splitPane?.conversationID ?? "nil");trace=" + model.recentOpenDiagnosticsForUITest.joined(separator: " | ")
-                    }
-                    .frame(width: 1, height: 1)
-                    .allowsHitTesting(false)
-                }
             }
             .overlay(alignment: .topLeading) {
                 if model.previewContent.isPresented, model.splitWorkspace != nil,
@@ -153,40 +139,6 @@ struct ConversationPreviewUITestFixture: View {
                     .padding(.top, 100)
                 }
             }
-    }
-}
-
-@MainActor
-private final class RecentOpenFixtureDiagnostics {
-    var observerCalls = 0
-    var repairDB = "none"
-    var before = "none"
-    var after = "none"
-}
-
-@MainActor
-private struct RecentOpenFixtureProbe: UIViewRepresentable {
-    let readValue: () -> String
-
-    func makeUIView(context: Context) -> RecentOpenFixtureProbeView {
-        let view = RecentOpenFixtureProbeView()
-        view.isAccessibilityElement = true
-        view.accessibilityIdentifier = "recent-open-fixture-diagnostic"
-        view.readValue = readValue
-        return view
-    }
-
-    func updateUIView(_ uiView: RecentOpenFixtureProbeView, context: Context) {
-        uiView.readValue = readValue
-    }
-}
-
-@MainActor
-private final class RecentOpenFixtureProbeView: UIView {
-    var readValue: (() -> String)?
-    override var accessibilityValue: String? {
-        get { readValue?() ?? super.accessibilityValue }
-        set { super.accessibilityValue = newValue }
     }
 }
 #endif
