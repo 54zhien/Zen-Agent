@@ -36,7 +36,7 @@ struct PersistedEmptyConfigureTests {
             #expect(try fixture.store.conversationInitialBinding(id: id) == binding)
             #expect(try fixture.store.conversation(id: id)?.userActiveAt == Fixtures.epoch)
             #expect(try fixture.store.boundSoulVersion(conversationID: id)?.id == "configure-soul")
-            guard pane.composer.sendAvailability.isReady else { return }
+            try #require(pane.composer.sendAvailability.isReady)
             let bridge = try #require(fixture.model.actionBridge)
             _ = await pane.session.sendCoordinator(bridge: bridge, maxProviderSteps: 4).handlePrimaryAction()
             let run = try #require(try fixture.store.runs(inConversation: id).first)

@@ -72,7 +72,7 @@ struct SettingsModelsView: View {
                             if model.isConfigureMode {
                                 Button("用于当前会话") { Task {
                                     _ = await model.configureCapturedConversation(providerInstanceID: entry.id, modelID: descriptor.id)
-                                }}.disabled(model.isConfiguringConversation)
+                                }}.disabled(model.isConfiguringConversation).buttonStyle(.borderless)
                             }
                             Toggle("在模型菜单中显示", isOn: Binding(get: {
                                 !model.menus.isHidden(descriptor.id, in: entry.id)
@@ -84,7 +84,7 @@ struct SettingsModelsView: View {
                             } else {
                                 Button("设为全局默认") { Task {
                                     _ = await model.setDefault(providerInstanceID: entry.id, modelID: descriptor.id)
-                                }}.disabled(model.isSelectingDefault)
+                                }}.disabled(model.isSelectingDefault).buttonStyle(.borderless)
                             }
                         }
                     }.onMove { source, destination in
