@@ -9,6 +9,12 @@ struct PersistedEmptyConfigureTests {
     func persistedEmptyConversationConfiguresThroughFormalSettingsAndSurvivesReopen() async throws {
         let path = try Fixtures.scratchPath(name: "formal-configure.sqlite")
         defer { Fixtures.cleanUp(path) }
+        try await checkFormalConfigureAndFreshReopen(at: path)
+    }
+
+    // Both database ownership graphs must end before the outer test unlinks
+    // the database and its WAL/SHM files.
+    private func checkFormalConfigureAndFreshReopen(at path: URL) async throws {
         let context: (id: String, binding: ConversationInitialBinding, seed: RequestConfigSeed,
             credentials: CredentialStore, provider: Stage2ScriptedProvider, defaults: UserDefaults, suite: String)
         do {
