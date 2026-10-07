@@ -756,7 +756,7 @@ final class AppShellModel {
         recentOpenFailure = nil
         router.historyPreparation.cancel()
         launchRestorationTask?.cancel()
-        rememberCurrentSession()
+        rememberCurrentSession(retainUncommitted: true)
         cancelPreviewReturn()
         previewContent.finish()
         router.unregisterPane(for: conversationID)
