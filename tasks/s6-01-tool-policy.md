@@ -43,15 +43,20 @@ through the existing App and unit-test directory sources.
 | Scope GREEN | `57a8c718` / tree `54c2a412` | [37630609897](https://github.com/54zhien/Zen-Agent/actions/runs/37630609897), job112823653096: all 14 Scope functions and all 979 Swift tests /157 suites plus20 XCTest passed. Phone58 /one expected skip /three assertions in `PreviewHandoffUITests.testDeepReadingAnchorRestoresAfterNativeContentRemount` failed; actual Pad passed | failure; distinct S5-owned UI failure preserved |
 | Evaluator pre-RED signature candidate | `df4ece2a` / tree `0afc7e5b` | [37638040685](https://github.com/54zhien/Zen-Agent/actions/runs/37638040685) superseded by explicit `return switch` correction; not behavioral evidence | cancelled; neither RED nor GREEN |
 | Evaluator RED | `fe637c59` / tree `53de63f9` | [37638196089](https://github.com/54zhien/Zen-Agent/actions/runs/37638196089), job112850790372: compiled;20 new evaluator functions generated53 assertion issues, Swift999 /158 suites failed53 issues, all14 Scope and965 inherited Swift functions plus20 XCTest passed. Phone58 /one expected skip /zero failures; actual Pad passed | expected assertion failure |
+| Evaluator GREEN | `3fd4b758` / tree `46976fdf` | [37643333096](https://github.com/54zhien/Zen-Agent/actions/runs/37643333096), job112867687720: XcodeGen/build,999 Swift /158 suites,20 XCTest, phone58 /one expected Pad-only skip /zero failures, actual Pad and hygiene passed | success |
+| Temporal/identity RED | `a49f5d62` / tree `b8b26987` | [37649932736](https://github.com/54zhien/Zen-Agent/actions/runs/37649932736), job112890393623: compiled;1019 Swift /159 suites failed45 issues,26 across13 encoded-identity and13 blank-identity cases,19 temporal issues across11 functions. Prior evaluator and inherited units passed;20 XCTest and phone58 /one expected skip /zero failures, actual Pad passed | expected assertion failure |
+| All rules GREEN | `dadabd8b1f38b377c26c117a9f7648ad1a9ab45a` / tree `dc1a9a1a381e8630b4efafde1c84b642b6e865c1` | [37656163959](https://github.com/54zhien/Zen-Agent/actions/runs/37656163959), job112911658848: XcodeGen/build,1019 Swift /159 suites (54 added Policy functions),20 XCTest, phone58 /one expected Pad-only skip /zero failures, actual Pad and hygiene passed | success |
 
 Each observed unit run above had one actual Swift Testing run start. A cancelled
 workflow is not passed; completed rule assertions before a later cancellation
 are recorded as assertions only. No compiler failure is labeled behavioral RED.
 The superseded candidate has no RED/GREEN claim.
 
-Task2 GREEN candidate is `3fd4b758` / tree `46976fdf`, submitted to
-[37643333096](https://github.com/54zhien/Zen-Agent/actions/runs/37643333096).
-Its result and Task3 are not yet verified in this revision of the record.
+All three rule groups now have actual RED/GREEN evidence. The all-rules source
+run had one Swift Testing start, zero host restart, and no retry. The phone-only
+Pad skip is recorded separately; the actual Pad job executed successfully.
+The final handoff documentation commit still requires its own exact-head CI;
+the conversation's final receipt identifies that SHA/tree without a self-SHA loop.
 
 ## Rule boundary and future integration
 
@@ -66,6 +71,28 @@ source/destination; separate grants never combine into a source-to-sink permit.
 The decision has stable reason codes. An allow result is a point-in-time
 calculation, never a cached execution license.
 
+Creation policy/admission and current policy remain distinct. Automatic
+admission only survives unchanged binding and revocation epoch; widening does
+not release an old waiting/denied call. Repreparation must not inherit an old
+intent's admission. Matching fresh once approval, or a permitted conversation
+approval explicitly issued for this call/run/intent, can authorize that call.
+Another call's new conversation grant only serves legitimately admitted future
+calls. Inactive/revoked/consumed grants, ended subjects and unavailable calls do
+not authorize execution.
+
+The trusted future layer supplies call/subject eligibility, approval origin and
+the relevant monotonically increasing revocation epoch. The epoch must reflect
+applicable policy, cap and grant tightening, remain coherent across revalidation,
+and never fall when Settings widens. The kernel neither tracks these events nor
+stores their state. Current resolved dependencies are compared to the frozen
+intent before grants; no old approval can substitute a new version/destination.
+
+Opaque identities compare UTF-8 bytes, with no normalization or resolver. Swift
+text equality uses canonical Unicode equivalence ([primary documentation](https://docs.swift.org/swift-book/LanguageGuide/StringsAndCharacters.html));
+the13-axis native RED reproduced that widening before the byte comparison fix.
+Whitespace-only identity tokens are invalid; explicit no-resource requirements
+remain different from missing required identity.
+
 Production dispatch, grant/policy persistence, OS consent/permissions, Files
 Tool and Settings remain unimplemented here. No dependency, capability,
 entitlement, signing or IPA change is part of S6-01. Future integration must
@@ -79,5 +106,52 @@ revalidate before the existing dispatch marker and preserve its crash semantics.
   results; cost: these rule results do not establish a clean cumulative full gate.
 - Completed unit assertion failures before later UI cancellation establish RED
   only; cost: they never establish a passed workflow or GREEN gate.
+- Opaque byte identities, immutable admission binding and relevant revocation
+  facts make authority changes explicit; cost: future Runtime/Persistence must
+  supply coherent resolved identities, eligibility, origins and monotonic epochs.
+
+## Review and stop status
+
+One independent whole-branch read-only review completed for the tested source
+`dadabd8b`. It inspected the base-to-head diff, supplied plan/spec and uncommitted
+handoff refresh, and independently checked the real CI. No Critical or Important
+finding; one Minor is deferred. The reviewer modified no file, index or HEAD.
+
+**Deferred P3:** synthesized whole-value `Equatable` on some identity-carrying
+DTOs (including `ToolGrantKind.once`, call/grant/admission/policy/input values)
+can consider differently encoded text equal, whereas the authorization matcher
+correctly distinguishes UTF-8 bytes. Current evaluator never uses whole-input
+equality to grant permission, so no authorization bypass was found. Remove
+unneeded conformance or align it to byte semantics before a future consumer
+relies on equality. No production code was changed for this Minor in this pass.
+
+Review exclusions were explicitly resolved, not silently counted as verified:
+
+| Considered behavior | Resolution | Cost / remaining validation |
+| --- | --- | --- |
+| Trusted Runtime/frozen-intent projection | Explicitly outside S6-01 | Must be implemented and tested at integration |
+| Admission creation, persistence/recovery and immutability | Consume facts only | Owning layer must preserve actual authority history |
+| Atomic epoch updates on revocation/cap/policy tightening | No event/store implementation | Future owner must update coherent monotonic facts atomically |
+| Approval origin, subject lifetime and terminal eligibility provenance | Trusted inputs, not UI inference | Future authoritative storage projection must be tested |
+| Pre-dispatch revocation race, grant consumption, recovery/replay | Existing execution chain untouched | S6-04 still needs conditional/serialized dispatch validation |
+| OS consent, managed Files, result guard, Settings, MCP/Child delegation | User/plan excludes implementation | No live capability or integration claim |
+| Multiple resources/targets, wildcard and expiry clock | Only declared single exact scopes | No set/wildcard/time permission support |
+| Forbidden conversation grant alongside independent alwaysAllow | Conservative needsApproval follows allowed-choice constraint | May ask instead of silently substituting another grant kind |
+| Explicit-approval cap with a legal conversation grant | Honor independent allowsConversationGrant declaration | Per-call-only confirmation must explicitly prohibit conversation grants |
+| Nonblank token syntax, URL normalization and actual identity resolution | Consume opaque trusted identities only | Resolver/format authenticity needs separate integration checks |
+| Simulator CI vs device/Stage5/full Stage6 closure | Keep distinct | No physical-device or stage-closure claim |
+| Final documentation SHA/tree CI | Separate final exact-head gate | Final receipt comes from completed CI, not earlier source run |
+
+No design conflict or irreversible storage decision was discovered; no ADR or
+Blueprint rewrite is introduced just to mirror code. Local static checks include
+YAML/source paths, existing profile `full`, its12 Python regressions, complete
+tracked/untracked file review and `git diff --check`; native results above are CI,
+not claimed local Windows Swift builds or physical-device acceptance. Raw
+execution logs/receipts and the review report are retained outside this checkout
+at `C:/Users/Azusa/Documents/Codex/s6-01-policy-evidence-20261008-8b9b`.
+
+The documentation refresh changes only this independent record relative to the
+tested code head. The final exact HEAD/tree and CI are supplied in the final
+conversation handoff; this avoids inventing a self-referential commit SHA here.
 
 Stop after S6-01. No S6-02, PR merge, main push, automatic S5 absorption or IPA.
