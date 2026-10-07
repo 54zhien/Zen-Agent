@@ -3,6 +3,37 @@ import UIKit
 
 final class SidebarUITests: XCTestCase {
     @MainActor
+    func testOccupiedSecondaryRecentFailureIsVisibleAndRetryable() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_RECENT_SPLIT_FAILURE_UI_TEST"] = "1"
+        app.launch()
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
+        app.openWorkspaceSidebar()
+        app.buttons["split-entry"].tap()
+        app.buttons["split-open-top"].tap()
+        let secondary = app.buttons["split-history-preview-ui-10"]
+        XCTAssertTrue(secondary.waitForExistence(timeout: 10)); secondary.tap()
+        app.activateWorkspacePane("preview-ui-10")
+        let editor = app.textViews["conversation-composer-input"]
+        editor.tap(); editor.typeText("B retained recent draft")
+        expect { (editor.value as? String) == "B retained recent draft" }
+        app.openWorkspaceSidebar()
+        app.buttons["new-conversation-recent"].tap()
+        let target = app.buttons["split-recent-preview-ui-9"]
+        XCTAssertTrue(target.waitForExistence(timeout: 10)); target.tap()
+        let retry = app.buttons["recent-conversation-open-retry"]
+        let error = app.staticTexts["会话读取失败，原会话已保留。请重试打开。"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10), "Occupied secondary Recent must expose the failed target retry")
+        XCTAssertTrue(error.exists)
+        XCTAssertTrue(error.isHittable, "Open feedback must be visible even above a long Recent list")
+        XCTAssertTrue(retry.isHittable)
+        guard retry.exists && retry.isHittable else { return }
+        retry.tap()
+        expect { app.scrollViews["conversation-pane-preview-ui-9"].exists && !retry.exists && !target.exists && !error.exists }
+        XCTAssertTrue(app.scrollViews["conversation-pane-preview-ui-11"].exists)
+    }
+    @MainActor
     func testSidebarNewReturnsToOriginalUnsentDraftThroughAppSpace() {
         let app = launch()
         app.openWorkspaceSidebar()

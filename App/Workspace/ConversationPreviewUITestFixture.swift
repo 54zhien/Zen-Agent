@@ -54,6 +54,14 @@ struct ConversationPreviewUITestFixture: View {
     var body: some View {
         AppShellRootView(model: model)
             .padding(.bottom, hiddenViewportInset)
+            .onChange(of: model.splitOpenError) { _, error in
+                guard error != nil,
+                      ProcessInfo.processInfo.environment["ZEN_RECENT_SPLIT_FAILURE_UI_TEST"] == "1" else { return }
+                // Restore only after the real history reader has rejected C;
+                // the UI must consume the failure and invoke its own retry.
+                do { try ConversationPreviewUITestSeed.restoreRecentSplitFailure(in: store) }
+                catch { fatalError("Recent Split fixture could not restore") }
+            }
             .task {
                 guard !didOpenHistory else { return }
                 didOpenHistory = true
