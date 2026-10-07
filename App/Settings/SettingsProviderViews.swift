@@ -22,6 +22,10 @@ struct SettingsAccountsView: View {
                 }
                 Button("添加 Provider") { onAdd() }.accessibilityIdentifier("settings-provider-add")
             } footer: { Text("凭据保存在 Keychain。资料保存与重认证不改变正在运行的请求。") }
+            if let error = model.configurationErrorMessage {
+                Section { Text(error).foregroundStyle(.red) }
+            }
+            if let status = model.configurationStatusMessage { Section { Text(status) } }
         }.navigationTitle("Providers 与账户").settingsCloseToolbar()
     }
 }
@@ -65,6 +69,11 @@ struct SettingsModelsView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(descriptor.displayName)
                             Text(capabilitySummary(descriptor)).foregroundStyle(.secondary)
+                            if model.isConfigureMode {
+                                Button("用于当前会话") { Task {
+                                    _ = await model.configureCapturedConversation(providerInstanceID: entry.id, modelID: descriptor.id)
+                                }}.disabled(model.isConfiguringConversation)
+                            }
                             Toggle("在模型菜单中显示", isOn: Binding(get: {
                                 !model.menus.isHidden(descriptor.id, in: entry.id)
                             }, set: { visible in
@@ -84,6 +93,9 @@ struct SettingsModelsView: View {
                         model.menus.setOrder(models.map(\.id), for: entry.id)
                     }
                 }
+            }
+            if let status = model.configurationStatusMessage {
+                Section { Text(status).accessibilityIdentifier("settings-conversation-configuration-status") }
             }
             if let error = model.errorMessage { Section { Text(error).foregroundStyle(.red) } }
         }.navigationTitle("模型").settingsCloseToolbar().toolbar { EditButton() }

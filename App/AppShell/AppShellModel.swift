@@ -36,34 +36,59 @@ final class AppShellModel {
     let modelMenus: ModelMenuPreferences
 
     var currentSettingsNewID: String? {
-        guard let dependencies, let pane, pane.conversationID == conversationID,
-              splitWorkspace == nil, !previewContent.isPresented else { return nil }
-        _ = pane.hasPublishedTurn
-        do { return try dependencies.store.conversationLifecycle(id: conversationID) == nil ? conversationID : nil }
+        do { return try configurationOwner(id: conversationID, allowConfiguredUncommitted: true) == nil ? nil : conversationID }
         catch { return nil }
+    }
+
+    func configurationOwner(id: String) throws -> ConversationConfigurationOwner? {
+        try configurationOwner(id: id, allowConfiguredUncommitted: false)
+    }
+
+    private func configurationOwner(id: String, allowConfiguredUncommitted: Bool) throws -> ConversationConfigurationOwner? {
+        guard let dependencies else { return nil }
+        return try AppShellConfiguration.owner(id: id, currentID: conversationID, pane: pane,
+            hasSplit: splitWorkspace != nil, isPreviewPresented: previewContent.isPresented,
+            store: dependencies.store, allowConfiguredUncommitted: allowConfiguredUncommitted)
     }
 
     func makeSettingsModel(configureNewID: String? = nil) -> SettingsWorkspaceModel? {
         guard let dependencies else { return nil }
+        let capturedSession = pane?.session
+        let onConfigure: (@MainActor (AppExecutionTarget) throws -> Bool)?
+        if let configureNewID, capturedSession?.composer.configuration == nil {
+            onConfigure = { [weak self, weak capturedSession] target in
+                guard let self, let capturedSession, self.pane?.session === capturedSession else { return false }
+                return try self.initializeConversationConfiguration(target, id: configureNewID)
+            }
+        } else { onConfigure = nil }
         return SettingsWorkspaceModel(store: dependencies.store, credentials: dependencies.credentials,
             provider: dependencies.provider, defaults: userDefaults, appearance: appearance, menus: modelMenus,
             files: dependencies.managedFiles,
+            onConfigure: onConfigure,
             onProviderCommitted: { [weak self] instanceID in
                 await self?.refreshSendAvailability(for: instanceID)
-            }, onDefault: { [weak self] target, initializeCapturedNew in
-                guard let self else { return }
-                self.target = target
-                // Updating the future-New cache never reinstalls an existing Pane.
-                guard initializeCapturedNew, let configureNewID,
-                      self.currentSettingsNewID == configureNewID, let pane = self.pane,
-                      pane.composer.configuration == nil else { return }
-                pane.composer.configuration = ConversationComposerConfiguration(
-                    providerInstanceID: target.providerInstanceID, modelID: target.modelID)
-                pane.composer.sendAvailability = ConversationPaneFactory.availability(
-                    for: pane.composer.configuration, in: dependencies)
-                self.sendAvailability = pane.composer.sendAvailability
-                self.targetMessage = self.sendAvailability.message
+            }, onDefault: { [weak self] target, _ in
+                self?.target = target
             })
+    }
+
+    private func initializeConversationConfiguration(_ target: AppExecutionTarget, id: String) throws -> Bool {
+        guard let dependencies, let owner = try configurationOwner(id: id), let pane else { return false }
+        switch owner {
+        case .uncommitted: break
+        case .persistedEmpty:
+            // The read only exposes an affordance. This transaction remains the
+            // authority if Send, deletion or another configuration has won first.
+            guard try dependencies.store.initializeEmptyConversationBinding(id: id,
+                binding: .init(providerInstanceID: target.providerInstanceID, modelID: target.modelID),
+                at: Date()) else { return false }
+        }
+        pane.composer.configuration = .init(providerInstanceID: target.providerInstanceID, modelID: target.modelID)
+        pane.composer.sendAvailability = AppShellConfiguration.availability(for: pane.composer.configuration,
+            store: dependencies.store, provider: dependencies.provider, credentials: dependencies.credentials)
+        sendAvailability = pane.composer.sendAvailability
+        targetMessage = sendAvailability.message
+        return true
     }
 
     func makeFilesWorkspaceModel() -> FilesWorkspaceModel? {
@@ -1214,28 +1239,15 @@ final class AppShellModel {
 
     private func targetWasSaved(_ savedTarget: AppExecutionTarget) {
         target = savedTarget
-        targetMessage = nil
-        sendAvailability = .ready
-        guard let pane else {
+        guard pane != nil else {
             installPaneIfReady()
             return
         }
-        guard let dependencies else { return }
         do {
-            // Explicit Configure can initialize an unconfigured empty New once.
-            // Global defaults never replace a copied choice or a committed seed.
-            let explicitBinding = ConversationInitialBinding(providerInstanceID: savedTarget.providerInstanceID, modelID: savedTarget.modelID)
-            if try dependencies.store.conversationLifecycle(id: conversationID) == nil
-                || dependencies.store.initializeEmptyConversationBinding(id: conversationID, binding: explicitBinding, at: Date()) {
-                pane.composer.configuration = ConversationComposerConfiguration(
-                    providerInstanceID: savedTarget.providerInstanceID, modelID: savedTarget.modelID)
-            }
-            pane.composer.sendAvailability = ConversationPaneFactory.availability(for: pane.composer.configuration, in: dependencies)
+            _ = try initializeConversationConfiguration(savedTarget, id: conversationID)
         } catch {
-            pane.composer.sendAvailability = .unavailable(AppTargetFailure.persistenceUnavailable.message)
+            targetMessage = AppTargetFailure.persistenceUnavailable.message
         }
-        sendAvailability = pane.composer.sendAvailability
-        targetMessage = sendAvailability.message
     }
 
     private func targetBecameUnavailable(

@@ -28,6 +28,13 @@ struct ConversationPreviewUITestFixture: View {
                 credentials: credentials, router: router, toolRegistry: .empty, managedFiles: files)
             let defaults = UserDefaults(suiteName: "ZenAgent.PreviewHandoffUITest")!
             defaults.removePersistentDomain(forName: "ZenAgent.PreviewHandoffUITest")
+            if ProcessInfo.processInfo.environment["ZEN_EXISTING_CONFIGURE_UI_TEST"] == "1" {
+                let reference = CredentialReference(id: "existing-configure-\(UUID())", kind: .apiKey)
+                try credentials.provision(SecretValue("existing-configure-ui-fixture-key"), as: reference)
+                try store.createProviderInstance(ProviderInstance(id: .init(rawValue: "existing-configure-account"),
+                    providerID: .deepSeek, displayName: "Existing Configure fixture", baseURL: nil,
+                    configRevision: .initial, credentialReference: reference))
+            }
             if reauthentication {
                 let id = ProviderInstanceID(rawValue: "reauth-ui-account")
                 try store.createProviderInstance(ProviderInstance(id: id, providerID: .deepSeek,

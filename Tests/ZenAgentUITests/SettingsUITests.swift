@@ -2,6 +2,45 @@ import XCTest
 
 final class SettingsUITests: XCTestCase {
     @MainActor
+    func testExistingAccountExplicitlyConfiguresOnlyTheCurrentConversation() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_EXISTING_CONFIGURE_UI_TEST"] = "1"
+        app.launch()
+        let editor = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        expect { (probe.value as? String)?.contains("liftReady=true") == true }
+        let point = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        point.press(forDuration: 0.7, thenDragTo: point.withOffset(CGVector(dx: 0, dy: -220)))
+        let card = app.descendants(matching: .any)["workspace-current-card"]
+        expect { card.exists }
+        card.swipeLeft()
+        expect { card.exists && card.label.contains("新对话") }
+        card.tap()
+        expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" }
+        editor.tap(); editor.typeText("existing account draft")
+        let identity = nativeEditorIdentity(probe)
+        app.openWorkspaceSidebar()
+        app.buttons["new-conversation-configure"].tap()
+        app.buttons["settings-models"].tap()
+        let use = app.buttons["用于当前会话"]
+        XCTAssertTrue(use.waitForExistence(timeout: 5))
+        use.tap()
+        XCTAssertTrue(app.staticTexts["settings-conversation-configuration-status"].waitForExistence(timeout: 5))
+        app.buttons["settings-close"].tap()
+        expect { !app.descendants(matching: .any)["settings-page"].exists }
+        XCTAssertEqual(nativeEditorIdentity(probe), identity)
+        XCTAssertEqual(editor.value as? String, "existing account draft")
+        let send = app.buttons["conversation-composer-send"]
+        expect { send.exists && send.isEnabled }
+        app.openWorkspaceSidebar()
+        app.buttons["new-conversation-new"].tap()
+        expect { (editor.value as? String) == "" }
+        XCTAssertFalse(send.exists && send.isEnabled, "Current-only selection must leave a future New unconfigured")
+    }
+
+    @MainActor
     func testAppSpacePersistedUnconfiguredConversationHasFormalConfigure() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
