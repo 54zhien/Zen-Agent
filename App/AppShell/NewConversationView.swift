@@ -68,6 +68,9 @@ struct NewConversationView: View {
     @State private var isProviderSetupPresented = false
     @State private var isRecentConversationsPresented = false
     @State private var historyAction: Task<Void, Never>?
+    @State private var recentOpenFailure: RecentConversationOpenFailure?
+    @State private var recentOpenGeneration = UUID()
+    @State private var recentOpenTarget: String?
     @Environment(\.surfaceLiftController) private var lift
     @Environment(\.surfaceBrowseController) private var browse
     @Environment(\.workspaceNavigation) private var workspaceNavigation
@@ -90,6 +93,9 @@ struct NewConversationView: View {
         }
         .accessibilityIdentifier(isSource ? "workspace-source-pane" : "split-secondary-pane")
         .onChange(of: presentedID) { _, _ in
+            if isRecentConversationsPresented, presentedID != recentOpenTarget {
+                invalidateRecentOpen()
+            }
             // Selected Full commits at the existing late handoff. Cancelling here
             // would interrupt the second segment of that same Surface.
             if lift?.state.phase == .settling, lift?.state.pendingSettlement?.destination == .full,
@@ -218,17 +224,12 @@ struct NewConversationView: View {
                         .buttonStyle(.plain)
                         .accessibilityIdentifier(isSource ? "recent-conversation-\(conversation.id)" : "split-recent-\(conversation.id)")
                     }
-                    if let error = model.recentLoadError {
+                    if let error = model.recentListingError {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(error)
                                 .foregroundStyle(.secondary)
-                            if let failure = model.recentOpenFailure {
-                                Button("重试打开") { openRecentConversation(id: failure.conversationID) }
-                                    .accessibilityIdentifier("recent-conversation-open-retry")
-                            } else {
-                                Button("重试") { model.retryRecentConversations() }
-                                    .accessibilityIdentifier("recent-conversations-retry")
-                            }
+                            Button("重试") { model.retryRecentConversations() }
+                                .accessibilityIdentifier("recent-conversations-retry")
                         }
                         .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
                     } else if model.recentHasMore {
@@ -238,6 +239,20 @@ struct NewConversationView: View {
                     }
                 }
                 .listStyle(.plain)
+                .safeAreaInset(edge: .top) {
+                    if let failure = recentOpenFailure {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(failure.message)
+                                .accessibilityIdentifier("recent-conversation-open-error")
+                            Button("重试打开") { openRecentConversation(id: failure.conversationID) }
+                                .accessibilityIdentifier("recent-conversation-open-retry")
+                        }
+                        .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        .background(.regularMaterial)
+                    }
+                }
                 .navigationTitle("最近会话")
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -254,9 +269,18 @@ struct NewConversationView: View {
             lift?.setOverlayPresented(presented)
         }
         .onChange(of: isRecentConversationsPresented) { _, presented in
-            if !presented { historyAction?.cancel(); historyAction = nil }
+            if presented {
+                recentOpenGeneration = UUID()
+                recentOpenFailure = nil
+                recentOpenTarget = nil
+            } else {
+                invalidateRecentOpen()
+            }
         }
-        .onDisappear { historyAction?.cancel(); historyAction = nil }
+        .onChange(of: model.splitWorkspace?.arrangementID) { _, _ in
+            if isRecentConversationsPresented { invalidateRecentOpen() }
+        }
+        .onDisappear { invalidateRecentOpen() }
         .onAppear { publishSidebarActions() }
         .onChange(of: isActivePane ? presentedID : nil) { _, _ in publishSidebarActions() }
         .onChange(of: sidebarActions) { _, _ in publishSidebarActions() }
@@ -272,7 +296,7 @@ struct NewConversationView: View {
     }
     private var sidebarActions: Set<WorkspaceConversationAction> {
         var result: Set<WorkspaceConversationAction> = [.new]
-        if !model.recentConversations.isEmpty || model.recentLoadError != nil { result.insert(.recent) }
+        if !model.recentConversations.isEmpty || model.recentListingError != nil { result.insert(.recent) }
         if model.splitWorkspace == nil, canOpenAccessibleSplit { result.formUnion([.splitTop, .splitBottom]) }
         if isSource, model.currentSettingsNewID == presentedID { result.insert(.configure) }
         return result
@@ -300,17 +324,40 @@ struct NewConversationView: View {
     }
 
     private func openRecentConversation(id: String) {
-        historyAction?.cancel()
+        invalidateRecentOpen()
+        let generation = recentOpenGeneration
+        let ownerID = presentedID
+        let opensSource = isSource || id == model.conversationID
+        recentOpenTarget = id
         historyAction = Task {
-            let opened = isSource || id == model.conversationID
-                ? await model.openConversation(id: id) : await model.openInSplit(id: id)
-            guard !Task.isCancelled, isRecentConversationsPresented else { return }
-            if opened {
+            let outcome = opensSource
+                ? await model.openConversationResult(id: id) : await model.openInSplitResult(id: id)
+            // Successful replacement intentionally changes B to C before this
+            // result returns. Other owner changes must discard older feedback.
+            guard !Task.isCancelled, isRecentConversationsPresented, recentOpenGeneration == generation,
+                  presentedID == ownerID || (outcome.isOpened && presentedID == id) else { return }
+            recentOpenTarget = nil
+            historyAction = nil
+            switch outcome {
+            case .opened:
+                recentOpenFailure = nil
                 isRecentConversationsPresented = false
-            } else if let failure = model.recentOpenFailure, failure.conversationID == id {
+            case .cancelled:
+                recentOpenFailure = nil
+            case .failed(let failure):
+                guard failure.conversationID == id else { return }
+                recentOpenFailure = failure
                 UIAccessibility.post(notification: .announcement, argument: failure.message)
             }
         }
+    }
+
+    private func invalidateRecentOpen() {
+        recentOpenGeneration = UUID()
+        historyAction?.cancel()
+        historyAction = nil
+        recentOpenTarget = nil
+        recentOpenFailure = nil
     }
 
     private var canOpenAccessibleSplit: Bool {

@@ -304,11 +304,11 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 if model.splitPane == nil, activeSurfaceSlot == nil {
                     SplitEmptyPanePicker(summaries: model.recentConversations,
                         occupiedID: split.sourceConversationID,
-                        errorMessage: model.splitOpenError ?? model.recentLoadError,
+                        errorMessage: model.splitOpenError ?? model.recentListingError,
                         hasMore: model.recentHasMore,
                         onLoadMore: model.loadMoreRecentConversations,
-                        onRetry: model.retryRecentConversations,
-                        onOpen: { id in Task { _ = await model.openInSplit(id: id) } },
+                        onRetry: { Task { await model.retrySplitPicker() } },
+                        onOpen: { id in Task { _ = await model.openInSplitResult(id: id) } },
                         onNew: { _ = model.createNewInSplit() })
                         .frame(width: emptyFrame.width, height: emptyFrame.height)
                         .position(x: emptyFrame.midX, y: emptyFrame.midY)

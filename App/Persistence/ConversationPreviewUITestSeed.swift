@@ -44,6 +44,11 @@ enum ConversationPreviewUITestSeed {
             // A real persisted decoding failure, while bounded Recent summaries
             // remain readable. Only this native regression seeds the extra Run.
             try store.database.write { db in
+                for index in 0..<24 {
+                    let date = Date(timeIntervalSince1970: Double(-index - 1))
+                    try ConversationRecord(id: "recent-older-\(index)", title: "Older Recent conversation \(index)",
+                        createdAt: date, updatedAt: date, userActiveAt: date, pinned: false, lifecycle: .visible).insert(db)
+                }
                 var run = try AgentRunRecord.fetchOne(db, key: "preview-reading-run-0")!
                 run.id = "recent-split-failure-run"
                 run.conversationID = "preview-ui-9"
