@@ -157,6 +157,16 @@ final class AppShellModel {
     private(set) var splitActionBridge: ComposerRuntimeActionBridge?
     private(set) var splitOpenError: String?
     private(set) var splitOpenRetryID: String?
+#if DEBUG
+    @ObservationIgnored private(set) var recentOpenDiagnosticsForUITest: [String] = []
+
+    func recordRecentOpenDiagnosticForUITest(_ event: String) {
+        guard ProcessInfo.processInfo.environment["ZEN_RECENT_SPLIT_FAILURE_UI_TEST"] == "1" else { return }
+        recentOpenDiagnosticsForUITest.append(event)
+        if recentOpenDiagnosticsForUITest.count > 32 { recentOpenDiagnosticsForUITest.removeFirst() }
+        print("RECENT_OPEN_TRACE \(event)")
+    }
+#endif
     private(set) var splitPreviewOriginSlot: SplitDropSlot?
     private var splitExistingOtherReturnID: String?
     private var borrowedPreviewOwner = false
@@ -275,6 +285,11 @@ final class AppShellModel {
         let cancelled = ConversationOpenOutcome.cancelled(conversationID: id)
         guard let split = splitWorkspace, !previewContent.isPresented,
               id != split.sourceConversationID, let dependencies, !Task.isCancelled else { return cancelled }
+#if DEBUG
+        if ProcessInfo.processInfo.environment["ZEN_RECENT_SPLIT_FAILURE_UI_TEST"] == "1" {
+            recordRecentOpenDiagnosticForUITest("producer begin id=\(id) model=\(ObjectIdentifier(self)) db=\(ObjectIdentifier(dependencies.store.database)) rawC=\(ConversationPreviewUITestSeed.recentSplitFailureState(in: dependencies.store)) source=\(split.sourceConversationID) secondary=\(split.secondaryConversationID ?? "nil")")
+        }
+#endif
         cancelConversationOpenSelection()
         cancelSplitSelection()
         if splitPane?.conversationID == id {
@@ -297,6 +312,9 @@ final class AppShellModel {
         }
         func failed() -> ConversationOpenOutcome {
             guard isCurrent() else { return cancelled }
+#if DEBUG
+            recordRecentOpenDiagnosticForUITest("producer failed id=\(id) current=\(isCurrent())")
+#endif
             let failure = RecentConversationOpenFailure(conversationID: id)
             splitOpenError = failure.message
             splitOpenRetryID = failure.conversationID
@@ -304,6 +322,9 @@ final class AppShellModel {
         }
         do {
             let history = try await router.historyPreparation.prepare(id: id, store: dependencies.store)
+#if DEBUG
+            recordRecentOpenDiagnosticForUITest("producer prepared id=\(id) turns=\(history.timeline.turns.count) current=\(isCurrent()) ticket=\(router.acceptsPanePreparation(for: id, ticket: ticket))")
+#endif
             let warmOwner = sessions.uncommittedSession(for: id)
             guard isCurrent(), router.acceptsPanePreparation(for: id, ticket: ticket) else { return cancelled }
             guard history.snapshot.conversation?.lifecycle == .visible
@@ -340,8 +361,14 @@ final class AppShellModel {
             splitWorkspace = committed
             splitOpenError = nil
             splitOpenRetryID = nil
+#if DEBUG
+            recordRecentOpenDiagnosticForUITest("producer opened id=\(id) pane=\(splitPane?.conversationID ?? "nil")")
+#endif
             return .opened(conversationID: id)
         } catch {
+#if DEBUG
+            recordRecentOpenDiagnosticForUITest("producer catch id=\(id) type=\(String(reflecting: type(of: error))) current=\(isCurrent()) ticket=\(router.acceptsPanePreparation(for: id, ticket: ticket))")
+#endif
             guard !(error is CancellationError), isCurrent(),
                   router.acceptsPanePreparation(for: id, ticket: ticket) else { return cancelled }
             return failed()

@@ -93,6 +93,9 @@ struct NewConversationView: View {
         }
         .accessibilityIdentifier(isSource ? "workspace-source-pane" : "split-secondary-pane")
         .onChange(of: presentedID) { _, _ in
+#if DEBUG
+            model.recordRecentOpenDiagnosticForUITest("consumer owner-change owner=\(presentedID) target=\(recentOpenTarget ?? "nil") sheet=\(isRecentConversationsPresented)")
+#endif
             if isRecentConversationsPresented, presentedID != recentOpenTarget {
                 invalidateRecentOpen()
             }
@@ -334,6 +337,11 @@ struct NewConversationView: View {
                 ? await model.openConversationResult(id: id) : await model.openInSplitResult(id: id)
             // Successful replacement intentionally changes B to C before this
             // result returns. Other owner changes must discard older feedback.
+#if DEBUG
+            let accepted = !Task.isCancelled && isRecentConversationsPresented && recentOpenGeneration == generation
+                && (presentedID == ownerID || (outcome.isOpened && presentedID == id))
+            model.recordRecentOpenDiagnosticForUITest("consumer finish target=\(id) outcome=\(String(describing: outcome)) accepted=\(accepted) cancelled=\(Task.isCancelled) sheet=\(isRecentConversationsPresented) sameGeneration=\(recentOpenGeneration == generation) oldOwner=\(ownerID) owner=\(presentedID)")
+#endif
             guard !Task.isCancelled, isRecentConversationsPresented, recentOpenGeneration == generation,
                   presentedID == ownerID || (outcome.isOpened && presentedID == id) else { return }
             recentOpenTarget = nil
@@ -353,6 +361,9 @@ struct NewConversationView: View {
     }
 
     private func invalidateRecentOpen() {
+#if DEBUG
+        model.recordRecentOpenDiagnosticForUITest("consumer invalidate owner=\(presentedID) target=\(recentOpenTarget ?? "nil") sheet=\(isRecentConversationsPresented)")
+#endif
         recentOpenGeneration = UUID()
         historyAction?.cancel()
         historyAction = nil
