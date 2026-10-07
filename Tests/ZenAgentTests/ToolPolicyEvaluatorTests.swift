@@ -153,8 +153,8 @@ struct ToolPolicyEvaluatorTests {
                                  resourceRequirement: resource, egressRequirement: egress)
     }
 
-    func policy(tool: String = "files", action: String = "read", revision: String = "r1", mode: ToolPersistentPolicy = .askEveryTime) -> ToolPolicySnapshot {
-        ToolPolicySnapshot(toolID: tool, actionID: action, descriptorRevision: revision, mode: mode)
+    func policy(tool: String = "files", action: String = "read", revision: String = "r1", mode: ToolPersistentPolicy = .askEveryTime, epoch: UInt64 = 0) -> ToolPolicySnapshot {
+        ToolPolicySnapshot(toolID: tool, actionID: action, descriptorRevision: revision, mode: mode, revocationEpoch: epoch)
     }
 
     func input(action: ToolPolicyActionMetadata? = ToolPolicyEvaluatorTests.ordinaryAction,

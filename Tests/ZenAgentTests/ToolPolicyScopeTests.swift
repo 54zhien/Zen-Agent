@@ -92,18 +92,59 @@ struct ToolPolicyScopeTests {
     func call(callID: String = "call", runID: String = "run", subject: ToolGrantSubject = .parentConversation("conversation"),
               toolID: String = "files", actionID: String = "read", revision: String = "r1", binding: String = "intent",
               resource: ToolResourceScope = .file(assetID: "asset", versionID: "version", contentIdentity: "digest"),
-              destination: ToolDestinationScope = .provider(instanceID: "provider", endpointIdentity: "endpoint")) -> ToolPolicyCallContext {
+              destination: ToolDestinationScope = .provider(instanceID: "provider", endpointIdentity: "endpoint"),
+              available: Bool = true, subjectAvailable: Bool = true) -> ToolPolicyCallContext {
         ToolPolicyCallContext(toolCallID: callID, agentRunID: runID, subject: subject, toolID: toolID,
                               actionID: actionID, descriptorRevision: revision, intentBinding: binding,
-                              resource: resource, destination: destination)
+                              resource: resource, destination: destination,
+                              authorizationIsAvailable: available, subjectIsAvailable: subjectAvailable)
     }
 
     func grant(kind: ToolGrantKind = .conversation, subject: ToolGrantSubject = .parentConversation("conversation"),
                toolID: String = "files", actionID: String = "read", revision: String = "r1",
                resource: ToolResourceScope = .file(assetID: "asset", versionID: "version", contentIdentity: "digest"),
                destination: ToolDestinationScope = .provider(instanceID: "provider", endpointIdentity: "endpoint"),
-               validity: ToolGrantValidity = .active) -> ToolScopedGrant {
+               validity: ToolGrantValidity = .active, epoch: UInt64 = 0,
+               issuedFor: ToolGrantApprovalBinding? = ToolGrantApprovalBinding(toolCallID: "call", agentRunID: "run", intentBinding: "intent")) -> ToolScopedGrant {
         ToolScopedGrant(kind: kind, subject: subject, toolID: toolID, actionID: actionID, descriptorRevision: revision,
-                        resource: resource, destination: destination, validity: validity)
+                        resource: resource, destination: destination, validity: validity,
+                        revocationEpoch: epoch, issuedFor: issuedFor)
+    }
+
+    @Test(arguments: ["subject", "tool", "action", "revision", "call", "run", "binding", "target", "asset", "version", "content", "provider", "endpoint"])
+    func distinctEncodedIdentitiesDoNotMatch(field: String) {
+        let pair = identityPair(field: field, callValue: "identity/\u{00e9}", grantValue: "identity/e\u{0301}")
+        #expect(!ToolGrantScopeMatcher.matches(grant: pair.1, call: pair.0))
+    }
+
+    @Test(arguments: ["subject", "tool", "action", "revision", "call", "run", "binding", "target", "asset", "version", "content", "provider", "endpoint"])
+    func whitespaceOnlyIdentityIsMissing(field: String) {
+        let pair = identityPair(field: field, callValue: " \t\n", grantValue: " \t\n")
+        #expect(!ToolGrantScopeMatcher.matches(grant: pair.1, call: pair.0))
+    }
+
+    func identityPair(field: String, callValue: String, grantValue: String) -> (ToolPolicyCallContext, ToolScopedGrant) {
+        func resource(_ value: String) -> ToolResourceScope {
+            if field == "target" { return .target(value) }
+            return .file(assetID: field == "asset" ? value : "asset",
+                         versionID: field == "version" ? value : "version",
+                         contentIdentity: field == "content" ? value : "digest")
+        }
+        func destination(_ value: String) -> ToolDestinationScope {
+            .provider(instanceID: field == "provider" ? value : "provider", endpointIdentity: field == "endpoint" ? value : "endpoint")
+        }
+        let context = call(callID: field == "call" ? callValue : "call", runID: field == "run" ? callValue : "run",
+                           subject: .parentConversation(field == "subject" ? callValue : "conversation"),
+                           toolID: field == "tool" ? callValue : "files", actionID: field == "action" ? callValue : "read",
+                           revision: field == "revision" ? callValue : "r1", binding: field == "binding" ? callValue : "intent",
+                           resource: resource(callValue), destination: destination(callValue))
+        let scopedGrant = grant(kind: .once(toolCallID: field == "call" ? grantValue : "call",
+                                           agentRunID: field == "run" ? grantValue : "run",
+                                           intentBinding: field == "binding" ? grantValue : "intent"),
+                                subject: .parentConversation(field == "subject" ? grantValue : "conversation"),
+                                toolID: field == "tool" ? grantValue : "files", actionID: field == "action" ? grantValue : "read",
+                                revision: field == "revision" ? grantValue : "r1",
+                                resource: resource(grantValue), destination: destination(grantValue))
+        return (context, scopedGrant)
     }
 }

@@ -54,6 +54,9 @@ struct ToolPolicyCallContext: Sendable, Equatable {
     let intentBinding: String
     let resource: ToolResourceScope
     let destination: ToolDestinationScope
+    /// Projections of existing call/subject eligibility, not an execution state.
+    let authorizationIsAvailable: Bool
+    let subjectIsAvailable: Bool
 
     var hasValidIdentity: Bool {
         guard !toolCallID.isEmpty, !agentRunID.isEmpty, subject.isValid,
@@ -84,6 +87,16 @@ struct ToolScopedGrant: Sendable, Equatable {
     let resource: ToolResourceScope
     let destination: ToolDestinationScope
     let validity: ToolGrantValidity
+    let revocationEpoch: UInt64
+    /// A conversation grant can authorize future calls without matching this
+    /// origin; an already waiting call needs its own explicit approval witness.
+    let issuedFor: ToolGrantApprovalBinding?
+}
+
+struct ToolGrantApprovalBinding: Sendable, Equatable {
+    let toolCallID: String
+    let agentRunID: String
+    let intentBinding: String
 }
 
 enum ToolActionRisk: Sendable, Equatable {
@@ -147,6 +160,9 @@ struct ToolPolicySnapshot: Sendable, Equatable {
     let actionID: String
     let descriptorRevision: String
     let mode: ToolPersistentPolicy
+    /// Monotonic relevant-authority revocation floor supplied by trusted code.
+    /// It advances on relevant policy/cap/grant tightening, never on widening.
+    let revocationEpoch: UInt64
 
     func bindsLogicalAction(_ call: ToolPolicyCallContext) -> Bool {
         toolID == call.toolID && actionID == call.actionID
@@ -191,6 +207,8 @@ enum ToolPolicyReason: Sendable, Equatable {
     case invalidIdentity, actionChanged, descriptorChanged, policyChanged
     case invalidResourceScope, invalidDestinationScope
     case resourceChanged, destinationChanged, intentChanged
+    case priorApprovalRequired, authorizationUnavailable, subjectUnavailable
+    case stalePolicySnapshot
 }
 
 enum ToolPolicyDecision: Sendable, Equatable {
