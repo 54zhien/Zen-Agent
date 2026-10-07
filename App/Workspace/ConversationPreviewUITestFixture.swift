@@ -12,7 +12,8 @@ struct ConversationPreviewUITestFixture: View {
 
     init() {
         do {
-            let store = ProcessInfo.processInfo.environment["ZEN_NEW_CONFIGURE_UI_TEST"] == "1"
+            let reauthentication = ProcessInfo.processInfo.environment["ZEN_REAUTH_UI_TEST"] == "1"
+            let store = ProcessInfo.processInfo.environment["ZEN_NEW_CONFIGURE_UI_TEST"] == "1" || reauthentication
                 ? PersistenceStore(database: try ZenDatabase.inMemory())
                 : try ConversationPreviewUITestSeed.makeStore()
             self.store = store
@@ -27,6 +28,13 @@ struct ConversationPreviewUITestFixture: View {
                 credentials: credentials, router: router, toolRegistry: .empty, managedFiles: files)
             let defaults = UserDefaults(suiteName: "ZenAgent.PreviewHandoffUITest")!
             defaults.removePersistentDomain(forName: "ZenAgent.PreviewHandoffUITest")
+            if reauthentication {
+                let id = ProviderInstanceID(rawValue: "reauth-ui-account")
+                try store.createProviderInstance(ProviderInstance(id: id, providerID: .deepSeek,
+                    displayName: "Reauth fixture", baseURL: nil, configRevision: .initial, credentialReference: nil))
+                defaults.set(id.rawValue, forKey: AppShellModel.defaultInstanceIDKey)
+                defaults.set("fake-model", forKey: AppShellModel.defaultModelIDKey)
+            }
             let model = AppShellModel(dependencies: AppAssembly.Dependencies(store: store,
                 credentials: credentials, provider: provider, runtime: runtime, router: router,
                 managedFiles: files), userDefaults: defaults)
@@ -42,7 +50,8 @@ struct ConversationPreviewUITestFixture: View {
             .task {
                 guard !didOpenHistory else { return }
                 didOpenHistory = true
-                if ProcessInfo.processInfo.environment["ZEN_NEW_CONFIGURE_UI_TEST"] == "1" { return }
+                if ProcessInfo.processInfo.environment["ZEN_NEW_CONFIGURE_UI_TEST"] == "1"
+                    || ProcessInfo.processInfo.environment["ZEN_REAUTH_UI_TEST"] == "1" { return }
                 if ProcessInfo.processInfo.environment["ZEN_FILES_PREVIEW_UI_TEST"] == "1" {
                     let files = files, store = store
                     do {

@@ -2,6 +2,41 @@ import XCTest
 
 final class SettingsUITests: XCTestCase {
     @MainActor
+    func testReauthenticationReturnsToSameComposerWithSendEnabled() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_REAUTH_UI_TEST"] = "1"
+        app.launch()
+        let editor = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        editor.tap()
+        editor.typeText("reauth retained draft")
+        expect { (editor.value as? String) == "reauth retained draft" }
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        let identity = nativeEditorIdentity(probe)
+        XCTAssertNotNil(identity)
+        let send = app.buttons["conversation-composer-send"]
+        XCTAssertFalse(send.exists && send.isEnabled)
+        app.openWorkspaceSidebar()
+        app.buttons["sidebar-settings"].tap()
+        app.buttons["settings-providers"].tap()
+        let account = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Reauth fixture")).firstMatch
+        XCTAssertTrue(account.waitForExistence(timeout: 5))
+        account.tap()
+        let key = app.secureTextFields["新的 API Key"]
+        XCTAssertTrue(key.waitForExistence(timeout: 5))
+        key.tap()
+        key.typeText("reauth-ui-fixture-key")
+        app.buttons["保存新凭据"].tap()
+        XCTAssertTrue(app.staticTexts["凭据已保存，尚未联网验证。"].waitForExistence(timeout: 10))
+        app.buttons["settings-close"].tap()
+        expect { !app.descendants(matching: .any)["settings-page"].exists }
+        expect { send.exists && send.isEnabled }
+        XCTAssertEqual(nativeEditorIdentity(probe), identity)
+        XCTAssertEqual(editor.value as? String, "reauth retained draft")
+    }
+
+    @MainActor
     func testInkControlsPersistAndLiftReturnsTheSameConversationOwner() throws {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
