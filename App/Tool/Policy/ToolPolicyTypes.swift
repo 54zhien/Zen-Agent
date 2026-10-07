@@ -1,12 +1,32 @@
 /// Trusted identity projections from the existing Runtime and frozen intent.
 /// These values carry no arguments, executable payload or ToolCall state.
+enum ToolPolicyIdentity {
+    static func isValid(_ value: String) -> Bool {
+        value.contains { !$0.isWhitespace }
+    }
+
+    static func equals(_ lhs: String, _ rhs: String) -> Bool {
+        // These are opaque resolved identities, not human text. String equality
+        // would merge different Unicode encodings through canonical equivalence.
+        lhs.utf8.elementsEqual(rhs.utf8)
+    }
+}
+
 enum ToolGrantSubject: Sendable, Equatable {
     case parentConversation(String)
     case run(String)
 
     var isValid: Bool {
         switch self {
-        case .parentConversation(let id), .run(let id): !id.isEmpty
+        case .parentConversation(let id), .run(let id): ToolPolicyIdentity.isValid(id)
+        }
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        switch (lhs, rhs) {
+        case (.parentConversation(let a), .parentConversation(let b)), (.run(let a), .run(let b)):
+            ToolPolicyIdentity.equals(a, b)
+        default: false
         }
     }
 }
@@ -21,9 +41,19 @@ enum ToolResourceScope: Sendable, Equatable {
         switch self {
         case .notRequired: true
         case .missing: false
-        case .target(let id): !id.isEmpty
+        case .target(let id): ToolPolicyIdentity.isValid(id)
         case .file(let asset, let version, let content):
-            !asset.isEmpty && !version.isEmpty && !content.isEmpty
+            ToolPolicyIdentity.isValid(asset) && ToolPolicyIdentity.isValid(version) && ToolPolicyIdentity.isValid(content)
+        }
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        switch (lhs, rhs) {
+        case (.notRequired, .notRequired), (.missing, .missing): true
+        case (.target(let a), .target(let b)): ToolPolicyIdentity.equals(a, b)
+        case (.file(let a, let v, let c), .file(let b, let w, let d)):
+            ToolPolicyIdentity.equals(a, b) && ToolPolicyIdentity.equals(v, w) && ToolPolicyIdentity.equals(c, d)
+        default: false
         }
     }
 }
@@ -38,7 +68,16 @@ enum ToolDestinationScope: Sendable, Equatable {
         case .notRequired: true
         case .missing: false
         case .provider(let instance, let endpoint):
-            !instance.isEmpty && !endpoint.isEmpty
+            ToolPolicyIdentity.isValid(instance) && ToolPolicyIdentity.isValid(endpoint)
+        }
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        switch (lhs, rhs) {
+        case (.notRequired, .notRequired), (.missing, .missing): true
+        case (.provider(let a, let e), .provider(let b, let f)):
+            ToolPolicyIdentity.equals(a, b) && ToolPolicyIdentity.equals(e, f)
+        default: false
         }
     }
 }
@@ -59,10 +98,10 @@ struct ToolPolicyCallContext: Sendable, Equatable {
     let subjectIsAvailable: Bool
 
     var hasValidIdentity: Bool {
-        guard !toolCallID.isEmpty, !agentRunID.isEmpty, subject.isValid,
-              !toolID.isEmpty, !actionID.isEmpty, !descriptorRevision.isEmpty,
-              !intentBinding.isEmpty else { return false }
-        if case .run(let id) = subject { return id == agentRunID }
+        guard ToolPolicyIdentity.isValid(toolCallID), ToolPolicyIdentity.isValid(agentRunID), subject.isValid,
+              ToolPolicyIdentity.isValid(toolID), ToolPolicyIdentity.isValid(actionID),
+              ToolPolicyIdentity.isValid(descriptorRevision), ToolPolicyIdentity.isValid(intentBinding) else { return false }
+        if case .run(let id) = subject { return ToolPolicyIdentity.equals(id, agentRunID) }
         return true
     }
 }
@@ -97,6 +136,12 @@ struct ToolGrantApprovalBinding: Sendable, Equatable {
     let toolCallID: String
     let agentRunID: String
     let intentBinding: String
+
+    func binds(_ call: ToolPolicyCallContext) -> Bool {
+        ToolPolicyIdentity.equals(toolCallID, call.toolCallID)
+            && ToolPolicyIdentity.equals(agentRunID, call.agentRunID)
+            && ToolPolicyIdentity.equals(intentBinding, call.intentBinding)
+    }
 }
 
 enum ToolActionRisk: Sendable, Equatable {
@@ -165,11 +210,11 @@ struct ToolPolicySnapshot: Sendable, Equatable {
     let revocationEpoch: UInt64
 
     func bindsLogicalAction(_ call: ToolPolicyCallContext) -> Bool {
-        toolID == call.toolID && actionID == call.actionID
+        ToolPolicyIdentity.equals(toolID, call.toolID) && ToolPolicyIdentity.equals(actionID, call.actionID)
     }
 
     func binds(_ call: ToolPolicyCallContext) -> Bool {
-        bindsLogicalAction(call) && descriptorRevision == call.descriptorRevision
+        bindsLogicalAction(call) && ToolPolicyIdentity.equals(descriptorRevision, call.descriptorRevision)
     }
 }
 
