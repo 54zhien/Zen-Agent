@@ -35,8 +35,8 @@ struct SettingsAvailabilityHandoffTests {
         try await fixture.runtime.waitForCompletion(runID: run.id)
         let request = try #require((await fixture.provider.ledger.requestsSnapshot()).first)
         #expect(request.modelID == fixture.modelID)
-        #expect(run.requestConfigSeed?.credentialBinding.reference == editor.instance.credentialReference)
-        #expect(run.requestConfigSeed?.providerInstanceID == configuration?.providerInstanceID)
+        #expect(run.requestConfigSeed.credentialBinding.reference == editor.instance.credentialReference)
+        #expect(run.requestConfigSeed.providerInstanceID == configuration?.providerInstanceID)
     }
 
     @Test("the account signal reaches warm and both active matching owners", arguments: ["warm", "split"])
