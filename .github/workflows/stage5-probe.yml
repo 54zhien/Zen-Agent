@@ -1,0 +1,55 @@
+name: Stage 5 causal probes
+on:
+  push:
+    branches: [codex/s5-handoff-repairs-20261007]
+    paths: [.github/workflows/stage5-probe.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [iPhone, iPad]
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
+      - name: Run one controlled probe
+        env:
+          DEVICE: ${{ matrix.device }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available | grep -E "^\s+$DEVICE" | head -n 1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          test -n "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          if [ "$DEVICE" = iPad ]; then
+            TEST=ZenAgentUITests/SidebarEdgeDiagnosticUITests
+          else
+            TEST=ZenAgentTests/WorkspaceComposerDockTests
+          fi
+          xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent \
+            -configuration Debug -destination "id=$UDID" \
+            -only-testing:"$TEST" -resultBundlePath "$RUNNER_TEMP/Probe.xcresult" \
+            2>&1 | tee "$RUNNER_TEMP/Probe.log"
+          ! grep -Fq 'Restarting after unexpected exit, crash, or test timeout' "$RUNNER_TEMP/Probe.log"
+      - name: Export attachments
+        if: always()
+        run: xcrun xcresulttool export attachments --path "$RUNNER_TEMP/Probe.xcresult" --output-path "$RUNNER_TEMP/attachments"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stage5-probe-${{ matrix.device }}
+          path: |
+            ${{ runner.temp }}/Probe.xcresult
+            ${{ runner.temp }}/Probe.log
+            ${{ runner.temp }}/attachments
+          retention-days: 7
