@@ -120,6 +120,9 @@ struct WorkspaceComposerDockTests {
         try await Task.sleep(for: .milliseconds(250))
         try #require(a.composer.editor.isFirstResponder)
 
+        // The incoming bridge can receive the active-Pane environment before
+        // the Dock's activeID update, while its draft is still resting.
+        update(b, id: "b", controller: incoming, active: true)
         // Native transfer publishes .editing synchronously; SwiftUI delivers
         // that state to the portal on a later update. Refresh the same Dock in
         // that gap, without issuing a new input/blur intent from either owner.
