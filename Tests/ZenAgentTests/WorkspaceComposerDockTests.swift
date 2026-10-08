@@ -5,37 +5,6 @@ import UIKit
 @Suite("Shared Composer native lifecycle", .serialized)
 @MainActor
 struct WorkspaceComposerDockTests {
-    @Test("notification-only fixture must not take key ownership from an editing window")
-    func notificationFixturePreservesEditingWindow() async throws {
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let previous = scene.windows.first { $0.isKeyWindow }
-        let window = UIWindow(windowScene: scene)
-        let root = ComposerDockTestRoot()
-        window.rootViewController = root; window.makeKeyAndVisible()
-        defer {
-            window.endEditing(true); window.isHidden = true
-            window.rootViewController = nil; previous?.makeKeyAndVisible()
-        }
-        for _ in 0..<40 where !root.didAppear { try await Task.sleep(for: .milliseconds(25)) }
-        try #require(root.didAppear && window.isKeyWindow)
-        let editor = UITextView(frame: root.view.bounds)
-        root.view.addSubview(editor)
-        editor.text = "retained"
-        try #require(editor.becomeFirstResponder())
-        try await Task.sleep(for: .milliseconds(250))
-        try #require(editor.isFirstResponder)
-        let changes = DockWindowKeyChanges()
-        let observer = NotificationCenter.default.addObserver(forName: UIWindow.didResignKeyNotification,
-            object: window, queue: .main) { _ in MainActor.assumeIsolated { changes.count += 1 } }
-        defer { NotificationCenter.default.removeObserver(observer) }
-        try parkedEditorReceivesKeyboardDismissalFromItsWindow()
-        #expect(changes.count == 0, "a synthetic notification fixture must not replace the active editor's key window")
-        #expect(window.isKeyWindow && editor.isFirstResponder)
-        try await Task.sleep(for: .milliseconds(250))
-        #expect(window.isKeyWindow && editor.isFirstResponder)
-        #expect(editor.text == "retained")
-    }
-
     @Test func parkedEditorReceivesKeyboardDismissalFromItsWindow() throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         // This observes screen-scoped notifications, not native focus. Keep the
@@ -197,6 +166,37 @@ struct WorkspaceComposerDockTests {
         #expect(!portal.composer.editor.isFirstResponder)
         dock.configure(container: container, activeID: "pending", visible: true)
         #expect(!portal.composer.editor.isFirstResponder)
+    }
+
+    @Test("notification-only fixture must not take key ownership from an editing window")
+    func notificationFixturePreservesEditingWindow() async throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let root = ComposerDockTestRoot()
+        window.rootViewController = root; window.makeKeyAndVisible()
+        defer {
+            window.endEditing(true); window.isHidden = true
+            window.rootViewController = nil; previous?.makeKeyAndVisible()
+        }
+        for _ in 0..<40 where !root.didAppear { try await Task.sleep(for: .milliseconds(25)) }
+        try #require(root.didAppear && window.isKeyWindow)
+        let editor = UITextView(frame: root.view.bounds)
+        root.view.addSubview(editor)
+        editor.text = "retained"
+        try #require(editor.becomeFirstResponder())
+        try await Task.sleep(for: .milliseconds(250))
+        try #require(editor.isFirstResponder)
+        let changes = DockWindowKeyChanges()
+        let observer = NotificationCenter.default.addObserver(forName: UIWindow.didResignKeyNotification,
+            object: window, queue: .main) { _ in MainActor.assumeIsolated { changes.count += 1 } }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        try parkedEditorReceivesKeyboardDismissalFromItsWindow()
+        #expect(changes.count == 0, "a synthetic notification fixture must not replace the active editor's key window")
+        #expect(window.isKeyWindow && editor.isFirstResponder)
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(window.isKeyWindow && editor.isFirstResponder)
+        #expect(editor.text == "retained")
     }
 
     private func configuration(text: String, editing: Bool,
