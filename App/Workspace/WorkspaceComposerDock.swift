@@ -144,7 +144,11 @@ final class ComposerDockContainer: UIView {
     private weak var portal: ComposerHostPortal?
     func install(_ incoming: ComposerHostPortal) {
         guard portal !== incoming || incoming.composer.superview !== self else {
-            incoming.registerExternalOwner(); incoming.applyFocusIfAttached(); return
+            // Native transfer may publish focus before the bridge updates its
+            // cached intent. Reinstalling the same owner must not replay that
+            // old blur; Portal.update applies actual new focus requests.
+            incoming.registerExternalOwner()
+            return
         }
         let outgoing = portal
         let transferFocus = outgoing?.composer.editor.isFirstResponder == true
