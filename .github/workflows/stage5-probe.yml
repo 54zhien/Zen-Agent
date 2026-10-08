@@ -1,5 +1,5 @@
 name: Stage 5 causal probes
-# Probe 3: native action/lifecycle trace; broad versus scroll-only priority.
+# Probe 4: base system recognizer, three fixed attempts per orientation/policy; no retry-on-failure.
 on:
   push:
     branches: [codex/s5-handoff-repairs-20261007]
@@ -49,6 +49,14 @@ jobs:
       - name: Export attachments
         if: always()
         run: xcrun xcresulttool export attachments --path "$RUNNER_TEMP/Probe.xcresult" --output-path "$RUNNER_TEMP/attachments"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stage5-probe-logs-${{ matrix.device }}
+          path: |
+            ${{ runner.temp }}/Probe.log
+            ${{ runner.temp }}/edge-actions.log
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         if: always()
         with:

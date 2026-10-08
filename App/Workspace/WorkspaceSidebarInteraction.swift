@@ -77,16 +77,11 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     private var edgeTouchOrigin: CGPoint?
     private var edgeRejected = false
 
-    override convenience init(frame: CGRect) {
 #if DEBUG
-        if ProcessInfo.processInfo.environment["ZEN_EDGE_DIAGNOSTIC"] == "1" {
-            let edge = SidebarEdgeDiagnosticRecognizer()
-            self.init(frame: frame, edge: edge)
-            edge.report = { [weak self] in self?.record($0) }
-            edge.addTarget(edge, action: #selector(SidebarEdgeDiagnosticRecognizer.observeAction(_:)))
-            return
-        }
+    private var diagnosticObserver: SidebarEdgeActionObserver?
 #endif
+
+    override convenience init(frame: CGRect) {
         self.init(frame: frame, edge: UIScreenEdgePanGestureRecognizer())
     }
 
@@ -100,6 +95,14 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             recognizer.cancelsTouchesInView = true
             recognizer.addTarget(self, action: #selector(changed(_:)))
         }
+#if DEBUG
+        if ProcessInfo.processInfo.environment["ZEN_EDGE_DIAGNOSTIC"] == "1" {
+            let observer = SidebarEdgeActionObserver()
+            observer.report = { [weak self] in self?.record($0) }
+            diagnosticObserver = observer
+            edge.addTarget(observer, action: #selector(SidebarEdgeActionObserver.observe(_:)))
+        }
+#endif
         edge.maximumNumberOfTouches = 1
         reverse.maximumNumberOfTouches = 1
         closeTap.require(toFail: reverse)
@@ -399,42 +402,11 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
 }
 
 #if DEBUG
-/// Temporary observation only: retain UIKit's recognizer and event handling.
-private final class SidebarEdgeDiagnosticRecognizer: UIScreenEdgePanGestureRecognizer {
+@MainActor
+private final class SidebarEdgeActionObserver: NSObject {
     var report: ((String) -> Void)?
-    private var moves = 0
-    @objc func observeAction(_ recognizer: UIGestureRecognizer) {
-        report?("independent target raw=\(recognizer.state.rawValue),same=\(recognizer === self)")
-    }
-    private func sample(_ phase: String, _ touches: Set<UITouch>, before: State) {
-        guard let touch = touches.first else { return }
-        report?("input \(phase) \(before.rawValue)->\(state.rawValue) point=\(touch.location(in: view?.window)) time=\(touch.timestamp)")
-    }
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        let before = state
-        super.touchesBegan(touches, with: event)
-        sample("began", touches, before: before)
-    }
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
-        let before = state
-        super.touchesMoved(touches, with: event)
-        moves += 1
-        if moves <= 2 { sample("moved", touches, before: before) }
-    }
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
-        let before = state
-        super.touchesEnded(touches, with: event)
-        sample("ended moves=\(moves)", touches, before: before)
-    }
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
-        let before = state
-        super.touchesCancelled(touches, with: event)
-        sample("cancelled moves=\(moves)", touches, before: before)
-    }
-    override func reset() {
-        report?("input reset state=\(state.rawValue) moves=\(moves)")
-        super.reset()
-        moves = 0
+    @objc func observe(_ recognizer: UIGestureRecognizer) {
+        report?("independent target raw=\(recognizer.state.rawValue),type=\(type(of: recognizer))")
     }
 }
 #endif
