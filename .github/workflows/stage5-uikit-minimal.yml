@@ -1,0 +1,205 @@
+name: Stage 5 independent UIKit reproduction
+on:
+  push:
+    branches: [codex/s5-handoff-repairs-20261007]
+    paths: [.github/workflows/stage5-uikit-minimal.yml]
+permissions:
+  contents: read
+jobs:
+  uikit:
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [original, during, after]
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - run: brew install xcodegen
+      - name: Generate independent UIKit host and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p App Tests
+          cat > project.yml <<'YAML'
+          name: KeyboardProbe
+          options:
+            deploymentTarget:
+              iOS: '26.0'
+          settings:
+            base:
+              SWIFT_VERSION: '6.0'
+              SWIFT_STRICT_CONCURRENCY: complete
+              GENERATE_INFOPLIST_FILE: YES
+              CODE_SIGNING_ALLOWED: NO
+          targets:
+            KeyboardProbe:
+              type: application
+              platform: iOS
+              sources: [App]
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: local.stage5.keyboardprobe
+              info:
+                path: App/Info.plist
+                properties:
+                  UILaunchScreen: {}
+                  UIApplicationSceneManifest:
+                    UIApplicationSupportsMultipleScenes: false
+                    UISceneConfigurations: {}
+            KeyboardProbeTests:
+              type: bundle.unit-test
+              platform: iOS
+              sources: [Tests]
+              dependencies:
+                - target: KeyboardProbe
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: local.stage5.keyboardprobe.tests
+                  TEST_HOST: $(BUILT_PRODUCTS_DIR)/KeyboardProbe.app/KeyboardProbe
+                  BUNDLE_LOADER: $(TEST_HOST)
+          schemes:
+            KeyboardProbe:
+              build:
+                targets:
+                  KeyboardProbe: all
+              test:
+                targets: [KeyboardProbeTests]
+          YAML
+          cat > App/App.swift <<'SWIFT'
+          import UIKit
+          @main
+          final class AppDelegate: UIResponder, UIApplicationDelegate {
+              func application(_ application: UIApplication,
+                               configurationForConnecting session: UISceneSession,
+                               options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+                  let configuration = UISceneConfiguration(name: nil, sessionRole: session.role)
+                  configuration.delegateClass = SceneDelegate.self
+                  return configuration
+              }
+          }
+          final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+              var window: UIWindow?
+              func scene(_ scene: UIScene, willConnectTo session: UISceneSession,
+                         options: UIScene.ConnectionOptions) {
+                  guard let scene = scene as? UIWindowScene else { return }
+                  let window = UIWindow(windowScene: scene)
+                  let root = UIViewController()
+                  root.view.backgroundColor = .white
+                  window.rootViewController = root
+                  self.window = window
+                  window.makeKeyAndVisible()
+              }
+          }
+          SWIFT
+          cat > Tests/ColdUIKitTests.swift <<'SWIFT'
+          import Testing
+          import UIKit
+          @Suite(.serialized) @MainActor
+          struct ColdUIKitTests {
+              @Test(arguments: [false, true])
+              func original(preserveOutgoing: Bool) async throws { try await transfer("original", preserveOutgoing) }
+              @Test(arguments: [false, true])
+              func during(preserveOutgoing: Bool) async throws { try await transfer("during", preserveOutgoing) }
+              @Test(arguments: [false, true])
+              func after(preserveOutgoing: Bool) async throws { try await transfer("after", preserveOutgoing) }
+              private func transfer(_ mode: String, _ preserve: Bool) async throws {
+                  let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+                  let previous = scene.windows.first { $0.isKeyWindow }
+                  let window = UIWindow(windowScene: scene)
+                  let root = ProbeRoot()
+                  window.rootViewController = root
+                  window.makeKeyAndVisible()
+                  defer {
+                      window.endEditing(true); window.isHidden = true
+                      window.rootViewController = nil; previous?.makeKeyAndVisible()
+                  }
+                  for _ in 0..<40 where !root.didAppear { try await Task.sleep(for: .milliseconds(25)) }
+                  try #require(root.didAppear && window.isKeyWindow)
+                  let frame = CGRect(x: 28, y: 100, width: root.view.bounds.width - 56, height: 58)
+                  let a = UITextView(frame: frame), b = UITextView(frame: frame)
+                  a.text = "a"; b.text = "b"
+                  a.font = .systemFont(ofSize: 16); b.font = .systemFont(ofSize: 16)
+                  let trace = PresentationTrace()
+                  let observers = [UIResponder.keyboardWillShowNotification, UIResponder.keyboardDidShowNotification].map { name in
+                      NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { notification in
+                          let screenID = (notification.object as? UIScreen).map(ObjectIdentifier.init)
+                          MainActor.assumeIsolated {
+                              guard a.isFirstResponder else { return }
+                              if let screenID, screenID != ObjectIdentifier(window.screen) { return }
+                              if name == UIResponder.keyboardWillShowNotification { trace.willShow = true }
+                              if name == UIResponder.keyboardDidShowNotification { trace.didShow = true }
+                              trace.events.append("\(Date().timeIntervalSince1970) \(name.rawValue)")
+                          }
+                      }
+                  }
+                  defer {
+                      observers.forEach { NotificationCenter.default.removeObserver($0) }
+                      print("UIKIT_ONLY mode=\(mode) preserve=\(preserve)\n\(trace.events.joined(separator: "\n"))")
+                  }
+                  root.view.addSubview(a)
+                  try #require(a.becomeFirstResponder())
+                  if mode == "during" {
+                      for _ in 0..<600 where !trace.willShow { try await Task.sleep(for: .milliseconds(10)) }
+                      try #require(trace.willShow && !trace.didShow, "presentation interval not observed; focused=\(a.isFirstResponder)")
+                  } else { try await Task.sleep(for: .milliseconds(250)) }
+                  #expect(a.isFirstResponder)
+                  if mode == "after" {
+                      for _ in 0..<600 where !trace.didShow { try await Task.sleep(for: .milliseconds(10)) }
+                      try #require(trace.didShow, "presentation completion not observed; focused=\(a.isFirstResponder)")
+                  }
+                  trace.events.append("\(Date().timeIntervalSince1970) outgoingRequest didShow=\(trace.didShow)")
+                  if !preserve { a.resignFirstResponder() }
+                  root.view.addSubview(b)
+                  b.becomeFirstResponder()
+                  a.removeFromSuperview()
+                  #expect(b.isFirstResponder)
+                  trace.events.append("\(Date().timeIntervalSince1970) incomingImmediate focused=\(b.isFirstResponder)")
+                  try await Task.sleep(for: .milliseconds(250))
+                  trace.events.append("\(Date().timeIntervalSince1970) incomingSettled focused=\(b.isFirstResponder)")
+                  #expect(b.isFirstResponder)
+                  #expect(!a.isFirstResponder)
+                  #expect(a.text == "a" && b.text == "b")
+              }
+          }
+          @MainActor private final class PresentationTrace {
+              var willShow = false, didShow = false
+              var events: [String] = []
+          }
+          @MainActor private final class ProbeRoot: UIViewController {
+              private(set) var didAppear = false
+              override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); didAppear = true }
+          }
+          SWIFT
+          xcodegen generate
+      - name: Run one independent cold case
+        timeout-minutes: 20
+        env:
+          CONTROL: ${{ matrix.test }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available | grep -E '^\s+iPhone' | head -n 1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          test -n "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          xcodebuild test -project KeyboardProbe.xcodeproj -scheme KeyboardProbe \
+            -configuration Debug -destination "id=$UDID" \
+            "-only-testing:KeyboardProbeTests/ColdUIKitTests/$CONTROL(preserveOutgoing:)" \
+            -resultBundlePath "$RUNNER_TEMP/UIKitOnly.xcresult" 2>&1 | tee "$RUNNER_TEMP/UIKitOnly.log"
+          grep -Eq 'Test run with 1 test in 1 suite passed' "$RUNNER_TEMP/UIKitOnly.log"
+          ! grep -Fq 'Restarting after unexpected exit, crash, or test timeout' "$RUNNER_TEMP/UIKitOnly.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: uikit-only-logs-${{ matrix.test }}
+          path: |
+            ${{ runner.temp }}/UIKitOnly.log
+            App/*.swift
+            Tests/*.swift
+            project.yml
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: uikit-only-results-${{ matrix.test }}
+          path: ${{ runner.temp }}/UIKitOnly.xcresult
+          retention-days: 7
