@@ -40,6 +40,12 @@ jobs:
               --predicate 'process == "ZenAgent" OR process == "TextInputUIService" OR process == "SpringBoard" OR process == "keyboardservicesd"' \
               >> "$RUNNER_TEMP/evidence/focus-system-window.log" 2>&1 || true
           done < <(find "$RUNNER_TEMP/evidence/focus/diagnostics" -name '*.logarchive' -type d)
+          while IFS= read -r archive; do
+            /usr/bin/log show --archive "$archive" --style compact \
+              --start '2026-10-08 10:51:58' --end '2026-10-08 10:52:15' \
+              --info --debug --predicate 'process == "ZenAgent" OR process == "SpringBoard"' \
+              >> "$RUNNER_TEMP/evidence/pad-system-window.log" 2>&1 || true
+          done < <(find "$RUNNER_TEMP/evidence/pad/diagnostics" -name '*.logarchive' -type d)
       - uses: actions/upload-artifact@v4
         with:
           name: stage5-small-evidence
@@ -48,6 +54,7 @@ jobs:
             ${{ runner.temp }}/evidence/focus/attachments
             ${{ runner.temp }}/evidence/inventory.txt
             ${{ runner.temp }}/evidence/focus-system-window.log
+            ${{ runner.temp }}/evidence/pad-system-window.log
           retention-days: 7
       - uses: actions/upload-artifact@v4
         if: always()
