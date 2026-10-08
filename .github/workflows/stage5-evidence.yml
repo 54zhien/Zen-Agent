@@ -1,0 +1,39 @@
+name: Stage 5 archived evidence
+on:
+  push:
+    branches: [codex/s5-handoff-repairs-20261007]
+    paths: [.github/workflows/stage5-evidence.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  export:
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - name: Decode original failure bundles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          for pair in pad:11544568068 focus:11529588650; do
+            label=${pair%%:*}
+            id=${pair##*:}
+            mkdir -p "$RUNNER_TEMP/$label" "$RUNNER_TEMP/evidence/$label"
+            gh api "repos/54zhien/Zen-Agent/actions/artifacts/$id/zip" > "$RUNNER_TEMP/$label.zip"
+            unzip -q "$RUNNER_TEMP/$label.zip" -d "$RUNNER_TEMP/$label"
+            bundle=$(find "$RUNNER_TEMP/$label" -name '*.xcresult' -type d -maxdepth 3 | head -n 1)
+            test -n "$bundle"
+            xcrun xcresulttool export attachments --path "$bundle" --output-path "$RUNNER_TEMP/evidence/$label/attachments"
+            xcrun xcresulttool get test-results summary --path "$bundle" > "$RUNNER_TEMP/evidence/$label/summary.json"
+            xcrun xcresulttool get test-results tests --path "$bundle" > "$RUNNER_TEMP/evidence/$label/tests.json"
+            xcrun xcresulttool export diagnostics --path "$bundle" --output-path "$RUNNER_TEMP/evidence/$label/diagnostics"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stage5-decoded-evidence
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
