@@ -31,6 +31,24 @@ jobs:
             xcrun xcresulttool get test-results tests --path "$bundle" > "$RUNNER_TEMP/evidence/$label/tests.json"
             xcrun xcresulttool export diagnostics --path "$bundle" --output-path "$RUNNER_TEMP/evidence/$label/diagnostics"
           done
+          find "$RUNNER_TEMP/evidence" -type f -exec ls -lh {} \; > "$RUNNER_TEMP/evidence/inventory.txt"
+          cat "$RUNNER_TEMP/evidence/inventory.txt"
+          while IFS= read -r archive; do
+            /usr/bin/log show --archive "$archive" --style compact \
+              --start '2026-10-08 04:36:21' --end '2026-10-08 04:36:35' \
+              --info --debug \
+              --predicate 'process == "ZenAgent" OR process == "TextInputUIService" OR process == "SpringBoard" OR process == "keyboardservicesd"' \
+              >> "$RUNNER_TEMP/evidence/focus-system-window.log" 2>&1 || true
+          done < <(find "$RUNNER_TEMP/evidence/focus/diagnostics" -name '*.logarchive' -type d)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stage5-small-evidence
+          path: |
+            ${{ runner.temp }}/evidence/pad/attachments
+            ${{ runner.temp }}/evidence/focus/attachments
+            ${{ runner.temp }}/evidence/inventory.txt
+            ${{ runner.temp }}/evidence/focus-system-window.log
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         if: always()
         with:
