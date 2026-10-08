@@ -31,21 +31,58 @@ struct WorkspaceComposerDockTests {
 
     @Test(arguments: [false, true])
     func focusIntentSurvivesOutgoingThenIncomingThenDockUpdateOrder(preserveOutgoing: Bool) async throws {
-        ComposerHostView.focusDiagnostic = { print("COLD_DOCK \(Date().timeIntervalSince1970) \($0)") }
-        defer { ComposerHostView.focusDiagnostic = nil }
+        try await coldFocusTransfer(preserveOutgoing: preserveOutgoing, usingApplicationWindow: false)
+    }
+
+    @Test(arguments: [false, true])
+    func coldDockOnApplicationWindow(preserveOutgoing: Bool) async throws {
+        try await coldFocusTransfer(preserveOutgoing: preserveOutgoing, usingApplicationWindow: true)
+    }
+
+    private func coldFocusTransfer(preserveOutgoing: Bool, usingApplicationWindow: Bool) async throws {
+        var events: [String] = []
+        ComposerHostView.focusDiagnostic = { event in
+            events.append("COLD_DOCK \(Date().timeIntervalSince1970) appWindow=\(usingApplicationWindow) preserve=\(preserveOutgoing) \(event)")
+            if event.contains("didEndEditing"), event.contains("state=editing") {
+                events.append(Thread.callStackSymbols.joined(separator: "\n"))
+            }
+        }
+        defer {
+            ComposerHostView.focusDiagnostic = nil
+            print(events.joined(separator: "\n"))
+        }
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }
-        let window = UIWindow(windowScene: scene)
+        let window = usingApplicationWindow ? try #require(previous) : UIWindow(windowScene: scene)
         let root = ComposerDockTestRoot()
-        window.rootViewController = root; window.makeKeyAndVisible()
+        let parent: UIViewController?
+        if usingApplicationWindow {
+            parent = try #require(window.rootViewController)
+            parent?.addChild(root)
+            root.view.frame = window.bounds
+            parent?.view.addSubview(root.view)
+            root.didMove(toParent: parent)
+        } else {
+            parent = nil
+            window.rootViewController = root; window.makeKeyAndVisible()
+        }
         defer {
-            window.endEditing(true); window.isHidden = true
-            window.rootViewController = nil; previous?.makeKeyAndVisible()
+            if usingApplicationWindow {
+                root.view.endEditing(true)
+                root.willMove(toParent: nil); root.view.removeFromSuperview(); root.removeFromParent()
+            } else {
+                window.endEditing(true)
+                window.isHidden = true
+                window.rootViewController = nil; previous?.makeKeyAndVisible()
+            }
         }
         // A newly keyed Window can still be completing its root appearance.
         // Drive focus only after UIKit has finished that initial transition.
-        for _ in 0..<40 where !root.didAppear { try await Task.sleep(for: .milliseconds(25)) }
-        try #require(root.didAppear && window.isKeyWindow)
+        if !usingApplicationWindow {
+            for _ in 0..<40 where !root.didAppear { try await Task.sleep(for: .milliseconds(25)) }
+            try #require(root.didAppear)
+        }
+        try #require(window.isKeyWindow && root.view.window === window)
         let dock = WorkspaceComposerDockState()
         let container = ComposerDockContainer(frame: root.view.bounds)
         let a = ComposerHostPortal(frame: root.view.bounds), b = ComposerHostPortal(frame: root.view.bounds)
