@@ -84,6 +84,66 @@ struct WorkspaceComposerDockTests {
         try await focusIntentSurvivesOutgoingThenIncomingThenDockUpdateOrder(preserveOutgoing: false)
     }
 
+    @Test("Dock refresh cannot replay a stale blur between native transfer and bridge feedback", arguments: [false, true])
+    func refreshBeforeBridgeFeedbackKeepsTransferredFocus(refreshBeforeFeedback: Bool) async throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let root = ComposerDockTestRoot()
+        window.rootViewController = root; window.makeKeyAndVisible()
+        defer {
+            window.endEditing(true); window.isHidden = true
+            window.rootViewController = nil; previous?.makeKeyAndVisible()
+        }
+        for _ in 0..<40 where !root.didAppear { try await Task.sleep(for: .milliseconds(25)) }
+        try #require(root.didAppear && window.isKeyWindow)
+
+        let dock = WorkspaceComposerDockState()
+        let container = ComposerDockContainer(frame: root.view.bounds)
+        let a = ComposerHostPortal(frame: root.view.bounds), b = ComposerHostPortal(frame: root.view.bounds)
+        let outgoing = ComposerController(configuration: nil), incoming = ComposerController(configuration: nil)
+        outgoing.draft.text = "a"; incoming.draft.text = "b"
+        _ = outgoing.handle(.textAreaTapped)
+        root.view.addSubview(a); root.view.addSubview(b); root.view.addSubview(container)
+        dock.configure(container: container, activeID: "a", visible: true)
+
+        func update(_ portal: ComposerHostPortal, id: String, controller: ComposerController, active: Bool) {
+            let editing = controller.draft.presentationState == .editing
+            portal.update(configuration: configuration(text: id, editing: editing, onFocus: { focused in
+                let event: ComposerPresentationEvent = focused ? .textAreaTapped : .keyboardDismissed
+                _ = controller.handle(event)
+            }), focused: editing, suppressed: false, ownerID: id, usesDock: true,
+                dock: dock, isActivePane: active)
+        }
+        update(a, id: "a", controller: outgoing, active: true)
+        update(b, id: "b", controller: incoming, active: false)
+        try await Task.sleep(for: .milliseconds(250))
+        try #require(a.composer.editor.isFirstResponder)
+
+        // Native transfer publishes .editing synchronously; SwiftUI delivers
+        // that state to the portal on a later update. Refresh the same Dock in
+        // that gap, without issuing a new input/blur intent from either owner.
+        dock.configure(container: container, activeID: "b", visible: true)
+        try #require(b.composer.editor.isFirstResponder)
+        #expect(incoming.draft.presentationState == .editing)
+        if refreshBeforeFeedback {
+            dock.configure(container: container, activeID: "b", visible: true)
+            #expect(b.composer.editor.isFirstResponder, "an unchanged Dock refresh must not replay the old resting focus request")
+            #expect(incoming.draft.presentationState == .editing)
+        }
+        update(b, id: "b", controller: incoming, active: true)
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(b.composer.editor.isFirstResponder)
+        #expect(!a.composer.editor.isFirstResponder)
+        #expect(incoming.draft.presentationState == .editing)
+        #expect(a.composer.editor.text == "a" && b.composer.editor.text == "b")
+
+        // Explicit bridge blur must still release focus after handoff.
+        _ = incoming.handle(.keyboardDismissed)
+        update(b, id: "b", controller: incoming, active: true)
+        #expect(!b.composer.editor.isFirstResponder)
+    }
+
     private func configuration(text: String, editing: Bool,
                                onFocus: @escaping (Bool) -> Void = { _ in }) -> ComposerHostView.Configuration {
         .init(text: text, selection: ComposerSelection(range: 0..<0),
