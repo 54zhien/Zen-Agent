@@ -14,6 +14,12 @@ on:
     branches: ['**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      focus_diagnostic:
+        description: Temporary Stage 5 focus diagnosis; none retains the full gate
+        type: choice
+        default: none
+        options: [none, dock, focus-group]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -357,6 +363,8 @@ jobs:
         run: xcrun simctl list devices available
 
       - name: Run app unit and UI tests
+        env:
+          FOCUS_DIAGNOSTIC: ${{ github.event_name == 'workflow_dispatch' && inputs.focus_diagnostic || 'none' }}
         run: |
           set -euo pipefail
           UDID=$(xcrun simctl list devices available \
@@ -397,6 +405,25 @@ jobs:
           elif [ "$TEST_SCOPE" = "resize-diagnostic" ]; then
             echo "::notice::Stage 5 resize diagnostics: all unit tests and SplitResize UI; full slice gate remains required."
             TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SplitResizeUITests)
+          fi
+          if [ "$FOCUS_DIAGNOSTIC" != none ]; then
+            echo "::notice::Stage 5 focus diagnosis ($FOCUS_DIAGNOSTIC), NOT the full acceptance gate."
+            TEST_ARGS=(test -only-testing:ZenAgentTests/WorkspaceComposerDockTests)
+            if [ "$FOCUS_DIAGNOSTIC" = focus-group ]; then
+              TEST_ARGS+=(-only-testing:ZenAgentTests/ComposerHostIntegrationTests
+                -only-testing:ZenAgentTests/ComposerOverlayFocusTests
+                -only-testing:ZenAgentTests/ComposerExitLayoutTests
+                -only-testing:ZenAgentTests/ConversationSurfaceHostTests
+                -only-testing:ZenAgentTests/SurfaceLiftHostTests
+                -only-testing:ZenAgentTests/SidebarSurfaceTests
+                -only-testing:ZenAgentTests/DeviceFeedbackGeometryTests
+                -only-testing:ZenAgentTests/CurrentCardEdgeTests
+                -only-testing:ZenAgentTests/AppSpaceInkRendererTests
+                -only-testing:ZenAgentTests/AppShellWiringTests)
+            elif [ "$FOCUS_DIAGNOSTIC" != dock ]; then
+              echo '::error::Unknown focus diagnostic scope'
+              exit 1
+            fi
           fi
           touch "$RUNNER_TEMP/test-start.marker"
 

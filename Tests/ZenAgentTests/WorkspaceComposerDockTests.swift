@@ -37,7 +37,10 @@ struct WorkspaceComposerDockTests {
         let window = UIWindow(windowScene: scene)
         let root = ComposerDockTestRoot()
         window.rootViewController = root; window.makeKeyAndVisible()
+        let trace = ComposerDockFocusTrace(window: window, variant: preserveOutgoing)
         defer {
+            trace.record("before-cleanup")
+            trace.finish()
             window.endEditing(true); window.isHidden = true
             window.rootViewController = nil; previous?.makeKeyAndVisible()
         }
@@ -48,11 +51,16 @@ struct WorkspaceComposerDockTests {
         let dock = WorkspaceComposerDockState()
         let container = ComposerDockContainer(frame: root.view.bounds)
         let a = ComposerHostPortal(frame: root.view.bounds), b = ComposerHostPortal(frame: root.view.bounds)
+        trace.outgoing = a.composer.editor; trace.incoming = b.composer.editor
         root.view.addSubview(a); root.view.addSubview(b); root.view.addSubview(container)
         dock.configure(container: container, activeID: "a", visible: true)
         func update(_ portal: ComposerHostPortal, id: String, editing: Bool, active: Bool = true) {
-            portal.update(configuration: configuration(text: id, editing: editing), focused: editing,
+            trace.record("update-begin owner=\(id) requested=\(editing) active=\(active)")
+            portal.update(configuration: configuration(text: id, editing: editing, onFocus: { value in
+                trace.record("delegate owner=\(id) focused=\(value)")
+            }), focused: editing,
                 suppressed: false, ownerID: id, usesDock: true, dock: dock, isActivePane: active)
+            trace.record("update-end owner=\(id)")
         }
         update(a, id: "a", editing: true); update(b, id: "b", editing: false)
         try await Task.sleep(for: .milliseconds(250))
@@ -61,21 +69,65 @@ struct WorkspaceComposerDockTests {
         if preserveOutgoing { #expect(a.composer.editor.isFirstResponder) }
         update(b, id: "b", editing: true)
         dock.configure(container: container, activeID: "b", visible: true)
+        trace.record("incoming-installed")
         #expect(b.composer.editor.isFirstResponder, "incoming editor must receive focus at attachment")
         try await Task.sleep(for: .milliseconds(250))
+        trace.record("settled-check")
         #expect(b.composer.editor.isFirstResponder, "settled focus; keyWindow=\(window.isKeyWindow), attached=\(b.composer.window === window)")
         #expect(!a.composer.editor.isFirstResponder)
         #expect(b.composer.editor.text == "b" && a.composer.editor.text == "a")
     }
 
-    private func configuration(text: String, editing: Bool) -> ComposerHostView.Configuration {
+    private func configuration(text: String, editing: Bool,
+                               onFocus: @escaping (Bool) -> Void = { _ in }) -> ComposerHostView.Configuration {
         .init(text: text, selection: ComposerSelection(range: 0..<0),
             state: editing ? .editing : .resting, collapseProgress: .expanded,
             font: .systemFont(ofSize: 16), showsPlus: false, primary: .send(enabled: true),
             models: [], selectedModelID: nil, errorMessage: nil, references: [],
             onRemoveQuote: { _ in }, onAcceptQuote: { _ in }, onQuotePhase: { _ in },
-            onText: { _, _, _ in }, onFocus: { _ in }, onSend: {}, onStop: {},
+            onText: { _, _, _ in }, onFocus: onFocus, onSend: {}, onStop: {},
             onModel: { _ in }, onHeightChanged: { _ in })
+    }
+}
+
+@MainActor
+private final class ComposerDockFocusTrace: NSObject {
+    weak var outgoing: UITextView?
+    weak var incoming: UITextView?
+    private weak var window: UIWindow?
+    private let variant: Bool
+    private let start = ProcessInfo.processInfo.systemUptime
+    private var events: [String] = []
+
+    init(window: UIWindow, variant: Bool) {
+        self.window = window; self.variant = variant
+        super.init()
+        for name in [UIWindow.didBecomeKeyNotification, UIWindow.didResignKeyNotification,
+                     UITextView.textDidBeginEditingNotification, UITextView.textDidEndEditingNotification,
+                     UIResponder.keyboardWillHideNotification, UIResponder.keyboardDidHideNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(receive(_:)), name: name, object: nil)
+        }
+        record("trace-start")
+    }
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    func record(_ event: String) {
+        guard events.count < 64 else { return }
+        let elapsed = ProcessInfo.processInfo.systemUptime - start
+        events.append("t=\(elapsed) \(event) key=\(window?.isKeyWindow == true) aFocused=\(outgoing?.isFirstResponder == true) bFocused=\(incoming?.isFirstResponder == true) bAttached=\(incoming?.window === window)")
+    }
+    @objc private func receive(_ notification: Notification) {
+        let object = notification.object as AnyObject?
+        let owner = object == nil ? "nil" : object === outgoing ? "a" : object === incoming ? "b" : "foreign"
+        let identity = object.map { String(describing: ObjectIdentifier($0)) } ?? "nil"
+        record("notification=\(notification.name.rawValue) owner=\(owner) object=\(identity)")
+        if notification.name == UITextView.textDidEndEditingNotification, object === incoming {
+            record("b-end-stack=\(Thread.callStackSymbols.prefix(18).joined(separator: " <- "))")
+        }
+    }
+    func finish() {
+        NotificationCenter.default.removeObserver(self)
+        print("S5_DOCK_FOCUS variant=\(variant) window=\(window.map { String(describing: ObjectIdentifier($0)) } ?? "nil") \(events.joined(separator: " | "))")
     }
 }
 
