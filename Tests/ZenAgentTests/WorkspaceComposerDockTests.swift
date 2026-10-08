@@ -38,10 +38,9 @@ struct WorkspaceComposerDockTests {
 
     @Test func parkedEditorReceivesKeyboardDismissalFromItsWindow() throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let previous = scene.windows.first { $0.isKeyWindow }
+        // This observes screen-scoped notifications, not native focus. Keep the
+        // fixture attached to a Window without starting a scene/key transition.
         let window = UIWindow(windowScene: scene)
-        window.rootViewController = UIViewController(); window.makeKeyAndVisible()
-        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
         let surface = UIView(frame: window.bounds)
         let editor = UITextView()
         window.addSubview(surface); surface.addSubview(editor)

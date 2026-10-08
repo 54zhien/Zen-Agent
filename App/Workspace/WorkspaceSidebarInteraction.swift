@@ -398,6 +398,11 @@ private final class SidebarEdgeDiagnosticRecognizer: UIScreenEdgePanGestureRecog
         let before = state
         super.touchesBegan(touches, with: event)
         sample("began", touches, before: before)
+        if ProcessInfo.processInfo.environment["ZEN_EDGE_DELIVERY_STALL"] == "1" {
+            // Fault injection only, removed with this diagnostic recognizer.
+            // Model a stalled app event loop during the original 270 ms drag.
+            Thread.sleep(forTimeInterval: 0.25)
+        }
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
         let before = state

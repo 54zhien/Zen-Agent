@@ -1,4 +1,5 @@
 name: Stage 5 causal probes
+# Probe 2: fixture isolation GREEN and controlled edge delivery-delay comparison.
 on:
   push:
     branches: [codex/s5-handoff-repairs-20261007]
