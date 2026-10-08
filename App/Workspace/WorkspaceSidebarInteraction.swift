@@ -77,10 +77,6 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     private var edgeTouchOrigin: CGPoint?
     private var edgeRejected = false
 
-#if DEBUG
-    private var diagnosticObserver: SidebarEdgeActionObserver?
-#endif
-
     override convenience init(frame: CGRect) {
         self.init(frame: frame, edge: UIScreenEdgePanGestureRecognizer())
     }
@@ -95,14 +91,6 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             recognizer.cancelsTouchesInView = true
             recognizer.addTarget(self, action: #selector(changed(_:)))
         }
-#if DEBUG
-        if ProcessInfo.processInfo.environment["ZEN_EDGE_DIAGNOSTIC"] == "1" {
-            let observer = SidebarEdgeActionObserver()
-            observer.report = { [weak self] in self?.record($0) }
-            diagnosticObserver = observer
-            edge.addTarget(observer, action: #selector(SidebarEdgeActionObserver.observe(_:)))
-        }
-#endif
         edge.maximumNumberOfTouches = 1
         reverse.maximumNumberOfTouches = 1
         closeTap.require(toFail: reverse)
@@ -154,7 +142,6 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         record("attach bounds=\(window.bounds),edgeView=\(type(of: edgeView)),edgeBounds=\(edgeView.bounds),orientation=\(geometry?.orientation.rawValue ?? 0),edge=\(edge.edges.rawValue)")
     }
     func detach() {
-        record("detach interaction=\(ObjectIdentifier(self)),edge=\(ObjectIdentifier(edge)),raw=\(edge.state.rawValue),attached=\(attachedEdgeView != nil)")
         attachedEdgeView?.removeGestureRecognizer(edge)
         for recognizer in [reverse, closeTap] { attachedWindow?.removeGestureRecognizer(recognizer) }
         attachedWindow = nil
@@ -177,12 +164,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
 
     private func record(_ message: @autoclosure () -> String) {
 #if DEBUG
-        let message = message()
-        state?.recordNative(message)
-        if ProcessInfo.processInfo.environment["ZEN_EDGE_DIAGNOSTIC"] == "1" {
-            NSLog("S5EDGE interaction=%@ edge=%@ %@", String(describing: ObjectIdentifier(self)),
-                  String(describing: ObjectIdentifier(edge)), message)
-        }
+        state?.recordNative(message())
 #endif
     }
 
@@ -274,18 +256,13 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
               let state, !state.isDragging, state.settlementID == nil,
               let current = readContext?(), current.window === attachedWindow,
               let otherView = otherGestureRecognizer.view, otherView.window === current.window else { return false }
-        var admitted: Bool
+        let admitted: Bool
         if gestureRecognizer === edge {
             // UIKit's dynamic failure requirement gives the admitted edge gesture
             // priority over content recognizers, including landscape safe-area hosts.
             admitted = !state.isOpen && current.allowsOpening
                 && sameOwner(edgeTouchOwner)
                 && otherView.isDescendant(of: current.window)
-#if DEBUG
-            if ProcessInfo.processInfo.environment["ZEN_EDGE_SCROLL_PRIORITY_ONLY"] == "1" {
-                admitted = admitted && otherGestureRecognizer === (otherView as? UIScrollView)?.panGestureRecognizer
-            }
-#endif
         } else if gestureRecognizer === closeTap {
             // A shifted Surface tap restores navigation before its Timeline or
             // editor can interpret the same touch. Rail controls stay outside it.
@@ -297,7 +274,6 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     }
 
     @objc private func changed(_ recognizer: UIGestureRecognizer) {
-        record("target entered statePresent=\(state != nil),raw=\(recognizer.state.rawValue)")
         guard let state else { return }
         record("callback \(kind(recognizer)) state=\(recognizer.state.rawValue)")
         defer {
@@ -400,13 +376,3 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         captured = nil; capturedGestureID = nil
     }
 }
-
-#if DEBUG
-@MainActor
-private final class SidebarEdgeActionObserver: NSObject {
-    var report: ((String) -> Void)?
-    @objc func observe(_ recognizer: UIGestureRecognizer) {
-        report?("independent target raw=\(recognizer.state.rawValue),type=\(type(of: recognizer))")
-    }
-}
-#endif

@@ -90,3 +90,83 @@ candidate passes review and complete CI. Stage 6's worktree and branch are
 outside this executor's scope. No IPA was built. Device acceptance and the
 previously disclosed SQLite cleanup warnings remain open. The supplied
 Minecraft screenshot is separate from Zen Agent and is not fixed here.
+
+## Archived failure decoding and fixture isolation
+
+The subsequent original xcresult export identifies the failed focus window as
+context `5777F084`. In its system log, the keyboard task queue timed out at
+04:36:24.157; SpringBoard disconnected that same input context with an outstanding
+assertion at 04:36:28.024. KeyboardManagement XPC invalidation and input-session
+teardown preceded the focus assertion at 04:36:29.092. The test window did not
+resign key until cleanup at 04:36:29.139. Thus this failure included keyboard
+service disruption while the editor's window remained attached/key; the log
+does not identify what originally caused the service timeout.
+
+The preceding notification-only fixture unnecessarily made a temporary window
+key, restored the previous key window, and produced an unbalanced root-controller
+appearance warning. It only exercises screen-scoped keyboard notifications and
+requires a window-attached view, not a key window or a root-controller appearance.
+
+A regression invokes that fixture while another window contains a focused
+editor, observing key resignation plus immediate/settled responder and text:
+
+- [RED 37775902495](https://github.com/54zhien/Zen-Agent/actions/runs/37775902495),
+  source `29ea80e0487a10b690489294719af268261be305`: Phone job `113306532331`
+  generated/built and reported exactly one issue, the editing window's key
+  resignation count was 1 instead of 0. Its responder/text checks and existing
+  focus cases passed. This reproduces fixture interference, not the historical
+  delayed-loss assertion.
+- [GREEN 37777967269](https://github.com/54zhien/Zen-Agent/actions/runs/37777967269),
+  source `137dcdd99c718a8e0512e868c6744211f9ed811d`: Phone job `113313522695`
+  passed all 5 test functions / 1 suite after removing key presentation and the
+  unused root controller. All original notification and focus assertions remain.
+  The overall run failed in its independent Pad diagnostic job; it is not a
+  complete-CI success.
+
+This establishes the fixture's unnecessary key-window side effect and its
+removal. It does not establish that the earlier brief key change caused the
+historical keyboard-service timeout. Synthetic notifications remain screen-wide;
+the new regression proves key/responder/text preservation, not isolation of every
+other keyboard observer. No global test-parallelism policy was changed.
+
+Review also found that the new regression initially ran before the original
+focus cases and could warm the keyboard service. It has been moved after the
+existing cases, and a separate cold selected execution of only the original
+false/true case is required to control for that ordering effect. Source order
+alone is not used as an execution guarantee. The cold/related result and final
+complete-CI gate are still pending at this record's current checkpoint.
+
+The diagnostic source pushes are not release candidates. Their cancelled
+standard CI runs are not acceptance evidence. The original `e829d85` source CI
+[37764831983](https://github.com/54zhien/Zen-Agent/actions/runs/37764831983) passed,
+but its [PR run 37764837454](https://github.com/54zhien/Zen-Agent/actions/runs/37764837454)
+failed the actual Pad's first Sidebar opening. That independent native failure
+remains under investigation; PR #35 is not merged and no M exists.
+
+## Native Sidebar investigation: no accepted production repair
+
+The Pad first-edge failure is independent of the Dock fixture correction.
+Temporary probes preserved the original one-drag opening assertion:
+
+| Probe | Actual result | Limit |
+| --- | --- | --- |
+| `37775902495` / Pad `113306532025` | Both first-edge landscape cases passed | No failure reproduced |
+| `37777967269` / Pad `113313523239` | 4 tests, 1 failure: ordinary right-landscape opening; both deliberate event-stall comparisons passed | Does not support slow drag as a repair |
+| `37781102671` / Pad `113324112106` | 4 tests, 1 failure in broad-priority left-landscape; both scroll-pan-only variants passed | Uses a diagnostic recognizer subclass |
+| `37783352703` / Pad `113331753936` | Base system recognizer: 12 fixed attempts across orientation/policy, all passed | Both baseline and comparison passed; priority hypothesis unproven |
+
+In the failed subclass trace, the same recognizer/interaction remained mounted
+through 11 moves and `.began` to `.ended`. Neither its interaction target nor an
+independent target received an action. The first detach occurred during later
+rotation cleanup. Full system decoding (`37785953572`) adds UIKit action/reset
+and SpringBoard failure-requirement events, but does not identify a responsible
+dependency or establish equivalence with the original production-recognizer
+failure, which had no `shouldBegin` callback.
+
+Accordingly, no priority narrowing, gesture replacement, drag-speed change, or
+extra wait is accepted as a production fix. All temporary probe workflows,
+recognizer subclasses, extra action targets, fault injection, and environment
+switches have been removed. The Sidebar production source is byte-equivalent to
+`e829d85`. Original full-CI workflows and all original test assertions remain.
+The bounded probe results are investigation evidence, not a claim that the
+historical Pad failure is resolved. Main integration remains gated.
