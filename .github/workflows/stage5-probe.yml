@@ -1,5 +1,5 @@
 name: Stage 5 causal probes
-# Probe 2: fixture isolation GREEN and controlled edge delivery-delay comparison.
+# Probe 3: native action/lifecycle trace; broad versus scroll-only priority.
 on:
   push:
     branches: [codex/s5-handoff-repairs-20261007]
@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        device: [iPhone, iPad]
+        device: [iPad]
     runs-on: macos-26
     timeout-minutes: 25
     steps:
@@ -42,6 +42,10 @@ jobs:
             -only-testing:"$TEST" -resultBundlePath "$RUNNER_TEMP/Probe.xcresult" \
             2>&1 | tee "$RUNNER_TEMP/Probe.log"
           ! grep -Fq 'Restarting after unexpected exit, crash, or test timeout' "$RUNNER_TEMP/Probe.log"
+      - name: Export native action trace
+        if: always()
+        run: |
+          xcrun simctl spawn booted log show --last 20m --style compact --predicate 'eventMessage CONTAINS "S5EDGE"' > "$RUNNER_TEMP/edge-actions.log"
       - name: Export attachments
         if: always()
         run: xcrun xcresulttool export attachments --path "$RUNNER_TEMP/Probe.xcresult" --output-path "$RUNNER_TEMP/attachments"
@@ -52,5 +56,6 @@ jobs:
           path: |
             ${{ runner.temp }}/Probe.xcresult
             ${{ runner.temp }}/Probe.log
+            ${{ runner.temp }}/edge-actions.log
             ${{ runner.temp }}/attachments
           retention-days: 7

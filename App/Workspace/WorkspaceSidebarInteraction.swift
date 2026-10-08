@@ -83,6 +83,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             let edge = SidebarEdgeDiagnosticRecognizer()
             self.init(frame: frame, edge: edge)
             edge.report = { [weak self] in self?.record($0) }
+            edge.addTarget(edge, action: #selector(SidebarEdgeDiagnosticRecognizer.observeAction(_:)))
             return
         }
 #endif
@@ -150,6 +151,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         record("attach bounds=\(window.bounds),edgeView=\(type(of: edgeView)),edgeBounds=\(edgeView.bounds),orientation=\(geometry?.orientation.rawValue ?? 0),edge=\(edge.edges.rawValue)")
     }
     func detach() {
+        record("detach interaction=\(ObjectIdentifier(self)),edge=\(ObjectIdentifier(edge)),raw=\(edge.state.rawValue),attached=\(attachedEdgeView != nil)")
         attachedEdgeView?.removeGestureRecognizer(edge)
         for recognizer in [reverse, closeTap] { attachedWindow?.removeGestureRecognizer(recognizer) }
         attachedWindow = nil
@@ -172,7 +174,12 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
 
     private func record(_ message: @autoclosure () -> String) {
 #if DEBUG
-        state?.recordNative(message())
+        let message = message()
+        state?.recordNative(message)
+        if ProcessInfo.processInfo.environment["ZEN_EDGE_DIAGNOSTIC"] == "1" {
+            NSLog("S5EDGE interaction=%@ edge=%@ %@", String(describing: ObjectIdentifier(self)),
+                  String(describing: ObjectIdentifier(edge)), message)
+        }
 #endif
     }
 
@@ -264,13 +271,18 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
               let state, !state.isDragging, state.settlementID == nil,
               let current = readContext?(), current.window === attachedWindow,
               let otherView = otherGestureRecognizer.view, otherView.window === current.window else { return false }
-        let admitted: Bool
+        var admitted: Bool
         if gestureRecognizer === edge {
             // UIKit's dynamic failure requirement gives the admitted edge gesture
             // priority over content recognizers, including landscape safe-area hosts.
             admitted = !state.isOpen && current.allowsOpening
                 && sameOwner(edgeTouchOwner)
                 && otherView.isDescendant(of: current.window)
+#if DEBUG
+            if ProcessInfo.processInfo.environment["ZEN_EDGE_SCROLL_PRIORITY_ONLY"] == "1" {
+                admitted = admitted && otherGestureRecognizer === (otherView as? UIScrollView)?.panGestureRecognizer
+            }
+#endif
         } else if gestureRecognizer === closeTap {
             // A shifted Surface tap restores navigation before its Timeline or
             // editor can interpret the same touch. Rail controls stay outside it.
@@ -282,6 +294,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     }
 
     @objc private func changed(_ recognizer: UIGestureRecognizer) {
+        record("target entered statePresent=\(state != nil),raw=\(recognizer.state.rawValue)")
         guard let state else { return }
         record("callback \(kind(recognizer)) state=\(recognizer.state.rawValue)")
         defer {
@@ -390,6 +403,9 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
 private final class SidebarEdgeDiagnosticRecognizer: UIScreenEdgePanGestureRecognizer {
     var report: ((String) -> Void)?
     private var moves = 0
+    @objc func observeAction(_ recognizer: UIGestureRecognizer) {
+        report?("independent target raw=\(recognizer.state.rawValue),same=\(recognizer === self)")
+    }
     private func sample(_ phase: String, _ touches: Set<UITouch>, before: State) {
         guard let touch = touches.first else { return }
         report?("input \(phase) \(before.rawValue)->\(state.rawValue) point=\(touch.location(in: view?.window)) time=\(touch.timestamp)")
@@ -398,11 +414,6 @@ private final class SidebarEdgeDiagnosticRecognizer: UIScreenEdgePanGestureRecog
         let before = state
         super.touchesBegan(touches, with: event)
         sample("began", touches, before: before)
-        if ProcessInfo.processInfo.environment["ZEN_EDGE_DELIVERY_STALL"] == "1" {
-            // Fault injection only, removed with this diagnostic recognizer.
-            // Model a stalled app event loop during the original 270 ms drag.
-            Thread.sleep(forTimeInterval: 0.25)
-        }
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
         let before = state
