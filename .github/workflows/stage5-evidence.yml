@@ -16,7 +16,7 @@ jobs:
           artifact-ids: '11555360836'
           run-id: 37784846258
           github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/archived/ColdFocus.xcresult
+          path: ${{ runner.temp }}/archived
           merge-multiple: true
       - name: Decode original cold focus loss
         shell: bash
