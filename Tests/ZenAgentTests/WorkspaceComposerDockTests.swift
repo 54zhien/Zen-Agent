@@ -78,6 +78,12 @@ struct WorkspaceComposerDockTests {
         #expect(b.composer.editor.text == "b" && a.composer.editor.text == "a")
     }
 
+    @Test("bounded repeated outgoing-first focus handoff", arguments: Array(0..<5))
+    func repeatedOutgoingFirstHandoffRetainsSettledFocus(attempt: Int) async throws {
+        print("S5_DOCK_ATTEMPT \(attempt)")
+        try await focusIntentSurvivesOutgoingThenIncomingThenDockUpdateOrder(preserveOutgoing: false)
+    }
+
     private func configuration(text: String, editing: Bool,
                                onFocus: @escaping (Bool) -> Void = { _ in }) -> ComposerHostView.Configuration {
         .init(text: text, selection: ComposerSelection(range: 0..<0),
@@ -127,7 +133,10 @@ private final class ComposerDockFocusTrace: NSObject {
     }
     func finish() {
         NotificationCenter.default.removeObserver(self)
-        print("S5_DOCK_FOCUS variant=\(variant) window=\(window.map { String(describing: ObjectIdentifier($0)) } ?? "nil") \(events.joined(separator: " | "))")
+        let identity = window.map { String(describing: ObjectIdentifier($0)) } ?? "nil"
+        for (index, event) in events.enumerated() {
+            print("S5_DOCK_FOCUS variant=\(variant) window=\(identity) seq=\(index) \(event)")
+        }
     }
 }
 
