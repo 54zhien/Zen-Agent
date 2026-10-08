@@ -266,3 +266,37 @@ The next missing evidence is the trigger preceding the native connection
 timeout, plus the iPad admission-to-begin failure. Passing samples above cannot
 replace those missing causal results. No final complete-CI acceptance or main
 integration is claimed for this checkpoint.
+
+## Clean-source complete CI: original failure reproduced again
+
+Source `19423a448c318bfba7da7f18fc33a25b968c699f` / tree
+`1012621d43a0a07575eb3916711bee57c8933c99` contains no temporary diagnostics.
+Its [PR CI 37801917220](https://github.com/54zhien/Zen-Agent/actions/runs/37801917220)
+passed 987 Swift tests / 158 suites, 20 XCTest, 61 Phone UI tests (one expected
+Pad-only skip), and actual iPad 1/1, with no host restart. Guard self-test
+`37801917243` also passed.
+
+The same source's [push CI 37801912044](https://github.com/54zhien/Zen-Agent/actions/runs/37801912044)
+failed exactly the original false parameter's settled B-focus assertion at
+`WorkspaceComposerDockTests.swift:65`, with key window and attachment both true.
+Swift ran 987 tests / 158 suites with one issue; 20 XCTest, all 61 Phone UI
+tests (the same expected skip), iPad 1/1 and hygiene passed. There was one
+Swift test-run start and no host restart. This was a test failure, not a job
+deadline, and the failed xcresult is archived (249,057,562 bytes, SHA-256
+`58c07ebe9b7e7d3a31526dc167cf18b1440c03e5727f9d2e68dc385ca003187e`).
+Both Phone jobs still logged three previously disclosed SQLite teardown warnings.
+
+Both the passing and failing original false cases logged a keyboard-queue
+timeout with no stack and a later generic `[Client] XPC connection interrupted`.
+The generic Client line does not identify the connection or service, so it
+cannot be equated with the decoded KeyboardManagement context from the older
+failure. These messages alone do not determine whether focus assertions fail.
+
+The next temporary diagnostic selects the unchanged original function on three
+predeclared fresh runners. A passive log watcher starts external native sampling
+only after the keyboard-queue timeout is actually observed, extracting and
+checking the app PID from that fault line. There is no sampling before the
+fault, no keyboard warmup, and no changed app behavior or assertion. All three
+outcomes must be retained; this is not a retry-until-green gate. Missing triggers
+or failed sampling are explicitly reported as missing stack evidence. The
+temporary workflow must be removed before a later acceptance candidate.
