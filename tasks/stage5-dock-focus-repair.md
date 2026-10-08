@@ -3,6 +3,14 @@
 This record describes a reproduced production focus bug. It does not close
 Stage 5, the original intermittent PR failure, or physical-device acceptance.
 
+## Current integration status: blocked
+
+The original `preserveOutgoing=false` settled-focus failure reproduced again
+when selected alone on a cold simulator, without the notification fixture.
+The fixes below remain valid independently; they do not resolve that original
+failure. PR #35 is not merged, and no verified main integration commit M exists.
+The independent iPad first-Sidebar-gesture failure also remains unresolved.
+
 ## Reproduced stale blur
 
 The incoming Pane bridge can receive `isActivePane=true` while its draft is
@@ -133,8 +141,8 @@ Review also found that the new regression initially ran before the original
 focus cases and could warm the keyboard service. It has been moved after the
 existing cases, and a separate cold selected execution of only the original
 false/true case is required to control for that ordering effect. Source order
-alone is not used as an execution guarantee. The cold/related result and final
-complete-CI gate are still pending at this record's current checkpoint.
+alone is not used as an execution guarantee. That cold selection subsequently
+failed as documented below; its dependent related-group step did not run.
 
 The diagnostic source pushes are not release candidates. Their cancelled
 standard CI runs are not acceptance evidence. The original `e829d85` source CI
@@ -170,3 +178,72 @@ switches have been removed. The Sidebar production source is byte-equivalent to
 `e829d85`. Original full-CI workflows and all original test assertions remain.
 The bounded probe results are investigation evidence, not a claim that the
 historical Pad failure is resolved. Main integration remains gated.
+
+## Original cold focus failure and bounded controls
+
+[Cold run 37784846258](https://github.com/54zhien/Zen-Agent/actions/runs/37784846258)
+on `fd613e2143200445e6eabd51c887c28f7eee5951` generated and built the app, then
+selected exactly the original function and both parameters. The false case
+failed settled B focus, with `keyWindow=true` and `attached=true`; immediate
+B focus and the true case passed. No notification fixture or keyboard-warming
+regression ran. This rules out that fixture as a necessary trigger.
+
+The archived xcresult was decoded in
+[37791959704](https://github.com/54zhien/Zen-Agent/actions/runs/37791959704).
+Its events identify the immediate resignation path:
+
+| UTC event time | Observation |
+| --- | --- |
+| 13:51:52.072 | App-side first keyboard `willShow` |
+| 13:51:52.284 | A's input-session teardown |
+| 13:51:52.344 | SpringBoard keyboard `didShow` |
+| 13:51:53.364 | App keyboard-task queue timeout |
+| 13:51:57.013 | KeyboardManagement hosted connection timed out and invalidated |
+| 13:51:57.464 | UIKit KeyboardArbiter client explicitly logged `resignFirstResponder` |
+| 13:51:57.467 | B's `UITextView` input-session teardown |
+
+This identifies a native keyboard-arbiter resignation after connection loss.
+It does not establish what caused the timeout, nor establish that the fault
+belongs to the simulator rather than the app's use of UIKit.
+
+The following controlled runs are diagnostic evidence, not accepted repairs:
+
+| Run / source | Result | Interpretation |
+| --- | --- | --- |
+| [37789542184](https://github.com/54zhien/Zen-Agent/actions/runs/37789542184) / `98878c1` | Three fresh jobs passed: plain UITextView in a new window, plain UITextView in the app window, direct ComposerHost in a new window | Direct mounts omit controller ancestry; synchronous trace printing also affects timing. No window or Composer exoneration. |
+| [37791795003](https://github.com/54zhien/Zen-Agent/actions/runs/37791795003) / `6b5a0af` | Original Dock and app-window Dock each passed both parameters | App-window arm still logged a keyboard-queue timeout without losing focus. Queue timeout alone is not sufficient; changing window is not a demonstrated repair. |
+| [37795010711](https://github.com/54zhien/Zen-Agent/actions/runs/37795010711) / `9d4a7ec` | Original 250 ms, first-willShow/during, and didShow/after arms all passed both parameters; all event gates were reached | Original and during arms transferred before didShow. Waiting for didShow is not established as the required fix. |
+
+The timing experiment's first source, `bd70f2d`, failed compilation in
+[37793840883](https://github.com/54zhien/Zen-Agent/actions/runs/37793840883):
+a non-Sendable Notification was captured across an actor boundary. That was
+corrected by extracting only its screen identity before actor isolation.
+No behavior test ran on the uncompilable source; it is not a behavioral RED.
+
+The original assertions, parameter cases, 250 ms checks, and production focus
+behavior are retained. No extra keyboard-readiness wait, retry, swallowed
+resignation, new gesture priority, or simulator-version change has been
+accepted as a fix. Temporary control tests, source trace hooks, and diagnostic
+comparison workflows are removed. Their immutable source commits, logs, xcresults, and
+hash-checked local archives retain the investigation evidence.
+
+The independent UIKit-only project on `4a80d18` imports no ZenAgent code or
+SwiftUI. Its during/after cases passed both parameters in run `37795890659`.
+The original-timing job did not execute in attempt 1: GitHub reported that no
+hosted runner acquired the job and noted macOS arm64 capacity constraints.
+Only that unexecuted job was resubmitted; no failed behavior was retried.
+The result of that final control is still pending at this source checkpoint.
+
+The cold RED's native fault explicitly contains `Last Exception Backtrace:
+No stack!`. A temporary `stage5-cold-stack.yml` therefore selects the unchanged
+original function once and externally samples the app's threads for 30 seconds.
+It adds no app hooks, focus readiness, keyboard warmup, or test assertion change.
+This is a bounded attempt to identify the call waiting on the keyboard queue;
+sampling can affect scheduling, so a passing sample does not establish a repair.
+Sampling failures must be distinguished from test failures. This evidence-only
+workflow must be removed before any final candidate and complete CI gate.
+
+The next missing evidence is the trigger preceding the native connection
+timeout, plus the iPad admission-to-begin failure. Passing samples above cannot
+replace those missing causal results. No final complete-CI acceptance or main
+integration is claimed for this checkpoint.

@@ -31,82 +31,22 @@ struct WorkspaceComposerDockTests {
 
     @Test(arguments: [false, true])
     func focusIntentSurvivesOutgoingThenIncomingThenDockUpdateOrder(preserveOutgoing: Bool) async throws {
-        try await coldFocusTransfer(preserveOutgoing: preserveOutgoing, usingApplicationWindow: false)
-    }
-
-    @Test(arguments: [false, true])
-    func coldDockOnApplicationWindow(preserveOutgoing: Bool) async throws {
-        try await coldFocusTransfer(preserveOutgoing: preserveOutgoing, usingApplicationWindow: true)
-    }
-
-    @Test(arguments: [false, true])
-    func coldDockAfterKeyboardPresentation(preserveOutgoing: Bool) async throws {
-        try await coldFocusTransfer(preserveOutgoing: preserveOutgoing, usingApplicationWindow: false,
-                                    keyboardBoundary: .after)
-    }
-
-    @Test(arguments: [false, true])
-    func coldDockDuringKeyboardPresentation(preserveOutgoing: Bool) async throws {
-        try await coldFocusTransfer(preserveOutgoing: preserveOutgoing, usingApplicationWindow: false,
-                                    keyboardBoundary: .during)
-    }
-
-    private enum KeyboardBoundary: String { case original, during, after }
-
-    private func coldFocusTransfer(preserveOutgoing: Bool, usingApplicationWindow: Bool,
-                                  keyboardBoundary: KeyboardBoundary = .original) async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }
-        let window = usingApplicationWindow ? try #require(previous) : UIWindow(windowScene: scene)
+        let window = UIWindow(windowScene: scene)
         let root = ComposerDockTestRoot()
-        let parent: UIViewController?
-        if usingApplicationWindow {
-            parent = try #require(window.rootViewController)
-            parent?.addChild(root)
-            root.view.frame = window.bounds
-            parent?.view.addSubview(root.view)
-            root.didMove(toParent: parent)
-        } else {
-            parent = nil
-            window.rootViewController = root; window.makeKeyAndVisible()
-        }
+        window.rootViewController = root; window.makeKeyAndVisible()
         defer {
-            if usingApplicationWindow {
-                root.view.endEditing(true)
-                root.willMove(toParent: nil); root.view.removeFromSuperview(); root.removeFromParent()
-            } else {
-                window.endEditing(true)
-                window.isHidden = true
-                window.rootViewController = nil; previous?.makeKeyAndVisible()
-            }
+            window.endEditing(true); window.isHidden = true
+            window.rootViewController = nil; previous?.makeKeyAndVisible()
         }
         // A newly keyed Window can still be completing its root appearance.
         // Drive focus only after UIKit has finished that initial transition.
-        if !usingApplicationWindow {
-            for _ in 0..<40 where !root.didAppear { try await Task.sleep(for: .milliseconds(25)) }
-            try #require(root.didAppear)
-        }
-        try #require(window.isKeyWindow && root.view.window === window)
+        for _ in 0..<40 where !root.didAppear { try await Task.sleep(for: .milliseconds(25)) }
+        try #require(root.didAppear && window.isKeyWindow)
         let dock = WorkspaceComposerDockState()
         let container = ComposerDockContainer(frame: root.view.bounds)
         let a = ComposerHostPortal(frame: root.view.bounds), b = ComposerHostPortal(frame: root.view.bounds)
-        let presentation = DockKeyboardPresentationTrace()
-        let observers = [UIResponder.keyboardWillShowNotification, UIResponder.keyboardDidShowNotification].map { name in
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { notification in
-                let screenID = (notification.object as? UIScreen).map(ObjectIdentifier.init)
-                MainActor.assumeIsolated {
-                    guard a.composer.editor.isFirstResponder else { return }
-                    if let screenID, screenID != ObjectIdentifier(window.screen) { return }
-                    if name == UIResponder.keyboardWillShowNotification { presentation.willShow = true }
-                    if name == UIResponder.keyboardDidShowNotification { presentation.didShow = true }
-                    presentation.events.append("\(Date().timeIntervalSince1970) \(name.rawValue)")
-                }
-            }
-        }
-        defer {
-            observers.forEach { NotificationCenter.default.removeObserver($0) }
-            print("COLD_BOUNDARY mode=\(keyboardBoundary.rawValue) preserve=\(preserveOutgoing)\n\(presentation.events.joined(separator: "\n"))")
-        }
         root.view.addSubview(a); root.view.addSubview(b); root.view.addSubview(container)
         dock.configure(container: container, activeID: "a", visible: true)
         func update(_ portal: ComposerHostPortal, id: String, editing: Bool, active: Bool = true) {
@@ -114,28 +54,14 @@ struct WorkspaceComposerDockTests {
                 suppressed: false, ownerID: id, usesDock: true, dock: dock, isActivePane: active)
         }
         update(a, id: "a", editing: true); update(b, id: "b", editing: false)
-        if keyboardBoundary == .during {
-            // Diagnostic only: perform the same handoff from the first native
-            // presentation interval, after the notification callback returns.
-            for _ in 0..<600 where !presentation.willShow { try await Task.sleep(for: .milliseconds(10)) }
-            try #require(presentation.willShow && !presentation.didShow)
-        } else {
-            try await Task.sleep(for: .milliseconds(250))
-        }
+        try await Task.sleep(for: .milliseconds(250))
         #expect(a.composer.editor.isFirstResponder)
-        if keyboardBoundary == .after {
-            for _ in 0..<600 where !presentation.didShow { try await Task.sleep(for: .milliseconds(10)) }
-            try #require(presentation.didShow)
-        }
-        presentation.events.append("\(Date().timeIntervalSince1970) outgoingRequest didShow=\(presentation.didShow)")
         update(a, id: "a", editing: false, active: !preserveOutgoing)
         if preserveOutgoing { #expect(a.composer.editor.isFirstResponder) }
         update(b, id: "b", editing: true)
         dock.configure(container: container, activeID: "b", visible: true)
         #expect(b.composer.editor.isFirstResponder, "incoming editor must receive focus at attachment")
-        presentation.events.append("\(Date().timeIntervalSince1970) incomingImmediate focused=\(b.composer.editor.isFirstResponder)")
         try await Task.sleep(for: .milliseconds(250))
-        presentation.events.append("\(Date().timeIntervalSince1970) incomingSettled focused=\(b.composer.editor.isFirstResponder)")
         #expect(b.composer.editor.isFirstResponder, "settled focus; keyWindow=\(window.isKeyWindow), attached=\(b.composer.window === window)")
         #expect(!a.composer.editor.isFirstResponder)
         #expect(b.composer.editor.text == "b" && a.composer.editor.text == "a")
@@ -295,8 +221,3 @@ private final class ComposerDockTestRoot: UIViewController {
 }
 
 @MainActor private final class DockWindowKeyChanges { var count = 0 }
-@MainActor private final class DockKeyboardPresentationTrace {
-    var willShow = false
-    var didShow = false
-    var events: [String] = []
-}
