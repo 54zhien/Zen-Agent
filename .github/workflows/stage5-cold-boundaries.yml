@@ -1,4 +1,5 @@
 name: Stage 5 cold keyboard presentation boundary
+# Observe Sendable screen identity across the notification callback boundary.
 on:
   push:
     branches: [codex/s5-handoff-repairs-20261007]

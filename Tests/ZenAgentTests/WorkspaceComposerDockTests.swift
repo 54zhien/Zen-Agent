@@ -93,9 +93,10 @@ struct WorkspaceComposerDockTests {
         let presentation = DockKeyboardPresentationTrace()
         let observers = [UIResponder.keyboardWillShowNotification, UIResponder.keyboardDidShowNotification].map { name in
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { notification in
+                let screenID = (notification.object as? UIScreen).map(ObjectIdentifier.init)
                 MainActor.assumeIsolated {
                     guard a.composer.editor.isFirstResponder else { return }
-                    if let screen = notification.object as? UIScreen, screen !== window.screen { return }
+                    if let screenID, screenID != ObjectIdentifier(window.screen) { return }
                     if name == UIResponder.keyboardWillShowNotification { presentation.willShow = true }
                     if name == UIResponder.keyboardDidShowNotification { presentation.didShow = true }
                     presentation.events.append("\(Date().timeIntervalSince1970) \(name.rawValue)")
