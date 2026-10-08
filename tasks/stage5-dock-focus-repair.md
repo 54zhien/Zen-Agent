@@ -300,3 +300,33 @@ fault, no keyboard warmup, and no changed app behavior or assertion. All three
 outcomes must be retained; this is not a retry-until-green gate. Missing triggers
 or failed sampling are explicitly reported as missing stack evidence. The
 temporary workflow must be removed before a later acceptance candidate.
+
+
+## Fault-triggered capture result and output-latency correction
+
+Run `37810046511` on `97368fec89d10e5844fc3f1dfdea55dae5b72445`
+completed all three predefined samples. The original function and both arguments
+passed in each sample; none is a reproduced settled-focus failure. Sample 2 had
+no keyboard-queue timeout and correctly reported no trigger. Samples 1 and 3
+observed the timeout but failed stack capture: `/usr/bin/sample` returned 255
+because the application process had already exited after its selected test.
+The test exit was 0 and watcher exit was 1 in both jobs. These are diagnostic
+failures, not passing stack evidence and not product-test failures.
+
+The fault timestamp versus watcher timestamp shows delays of 1.608 seconds
+(sample 1) and 2.646 seconds (sample 3) through the xcodebuild output path.
+All three logs and xcresults were downloaded and verified against artifact
+size, SHA-256 and ZIP CRC. No sample report was produced in the two failed
+captures. The clean-source failure in `37801912044` remains unresolved.
+
+The next bounded diagnostic addresses that measured capture limitation. It
+reads the same fault directly from the simulator's native log stream rather
+than xcodebuild output, retaining complete lines and the stream's stderr.
+It runs the unchanged normal unit-test target (including the original focus
+function), with two predefined fresh runners. The broader unit suite retains
+the real test-host lifecycle of the failing full-CI run and gives an external
+sampler time to finish; it adds no post-test hold, application hook, readiness
+wait, process suspension, or new assertion. Production code, tests, project,
+configuration and normal CI remain byte-identical to `19423a4`. Stack capture
+still starts only after a fault; any scheduling effect after that point remains
+a limitation. This temporary diagnostic is not an acceptance gate.

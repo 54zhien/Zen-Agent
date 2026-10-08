@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sample: [1, 2, 3]
+        sample: [1, 2]
     runs-on: macos-26
     timeout-minutes: 30
     steps:
@@ -22,12 +22,13 @@ jobs:
           path: ~/Library/Caches/org.swift.swiftpm
           key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
           restore-keys: spm-${{ runner.os }}-
-      - name: Run unchanged cold case with a passive fault watcher
+      - name: Capture native faults during unchanged unit suite
         shell: bash
         run: |
           set -euo pipefail
           UDID=$(xcrun simctl list devices available | grep -E '^\s+iPhone' | head -n 1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
           test -n "$UDID"
+          export UDID
           xcrun simctl bootstatus "$UDID" -b
           mkdir -p "$RUNNER_TEMP/FaultStacks"
           touch "$RUNNER_TEMP/FaultFocus.log"
@@ -36,13 +37,32 @@ jobs:
           root = pathlib.Path(os.environ['RUNNER_TEMP'])
           output = root / 'FaultStacks'
           timeout_seen = False
-          with (root / 'FaultFocus.log').open(errors='replace') as stream:
+          native_log = output / 'native-fault.log'
+          native_log.touch()
+          log_output = native_log.open('w')
+          log_error = (output / 'native-stream.stderr').open('w')
+          logger = subprocess.Popen(['xcrun', 'simctl', 'spawn', os.environ['UDID'],
+              'log', 'stream', '--style', 'compact', '--level', 'debug',
+              '--predicate', 'process == "ZenAgent" AND eventMessage CONTAINS "Keyboard queue task timeout detected"'],
+              stdout=log_output, stderr=log_error)
+          try:
+            with native_log.open(errors='replace') as stream:
+              pending = ''
               while True:
-                  line = stream.readline()
-                  if not line:
+                  if logger.poll() is not None:
+                      raise RuntimeError('Native log stream exited before capture completed')
+                  chunk = stream.readline()
+                  if not chunk:
                       if (output / 'done').exists():
                           break
                       time.sleep(0.02)
+                      continue
+                  pending += chunk
+                  if not pending.endswith('\n'):
+                      continue
+                  line, pending = pending, ''
+                  # log stream prints its predicate before the event rows.
+                  if not re.match(r'\d{4}-\d{2}-\d{2} ', line):
                       continue
                   if 'Keyboard queue task timeout detected' not in line:
                       continue
@@ -70,6 +90,15 @@ jobs:
                       (output / 'invalid-sample.txt').write_text('Missing matching process header or main-thread graph.\n')
                       raise RuntimeError('Native sample does not identify the target main thread')
                   break
+          finally:
+              logger.terminate()
+              try:
+                  logger.wait(timeout=5)
+              except subprocess.TimeoutExpired:
+                  logger.kill()
+                  logger.wait()
+              log_output.close()
+              log_error.close()
           if not timeout_seen:
               (output / 'no-trigger.txt').write_text('No keyboard-queue timeout was observed; no failure stack captured.\n')
           PY
@@ -78,7 +107,7 @@ jobs:
           set +e
           xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent \
             -configuration Debug -destination "id=$UDID" \
-            '-only-testing:ZenAgentTests/WorkspaceComposerDockTests/focusIntentSurvivesOutgoingThenIncomingThenDockUpdateOrder(preserveOutgoing:)' \
+            -only-testing:ZenAgentTests \
             -resultBundlePath "$RUNNER_TEMP/FaultFocus.xcresult" 2>&1 | tee "$RUNNER_TEMP/FaultFocus.log"
           TEST_EXIT=${PIPESTATUS[0]}
           touch "$RUNNER_TEMP/FaultStacks/done"
@@ -88,7 +117,7 @@ jobs:
           printf 'test_exit=%s\nwatcher_exit=%s\n' "$TEST_EXIT" "$WATCH_EXIT" > "$RUNNER_TEMP/FaultStacks/result.txt"
           test "$WATCH_EXIT" -eq 0
           test "$TEST_EXIT" -eq 0
-          grep -Eq 'Test run with 1 test in 1 suite passed' "$RUNNER_TEMP/FaultFocus.log"
+          grep -Eq 'Test run with [0-9]+ tests in [0-9]+ suites passed' "$RUNNER_TEMP/FaultFocus.log"
           ! grep -Fq 'Restarting after unexpected exit, crash, or test timeout' "$RUNNER_TEMP/FaultFocus.log"
       - uses: actions/upload-artifact@v4
         if: always()
