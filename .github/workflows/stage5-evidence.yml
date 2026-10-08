@@ -11,54 +11,33 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 10
     steps:
-      - name: Decode original failure bundles
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: '11552094176'
+          run-id: 37781102671
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/archived
+          merge-multiple: true
+      - name: Decode failed native dispatch interval
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/evidence"
-          for pair in pad:11544568068 focus:11529588650; do
-            label=${pair%%:*}
-            id=${pair##*:}
-            mkdir -p "$RUNNER_TEMP/$label" "$RUNNER_TEMP/evidence/$label"
-            gh api "repos/54zhien/Zen-Agent/actions/artifacts/$id/zip" > "$RUNNER_TEMP/$label.zip"
-            unzip -q "$RUNNER_TEMP/$label.zip" -d "$RUNNER_TEMP/$label"
-            bundle=$(find "$RUNNER_TEMP/$label" -name '*.xcresult' -type d -maxdepth 3 | head -n 1)
-            test -n "$bundle"
-            xcrun xcresulttool export attachments --path "$bundle" --output-path "$RUNNER_TEMP/evidence/$label/attachments"
-            xcrun xcresulttool get test-results summary --path "$bundle" > "$RUNNER_TEMP/evidence/$label/summary.json"
-            xcrun xcresulttool get test-results tests --path "$bundle" > "$RUNNER_TEMP/evidence/$label/tests.json"
-            xcrun xcresulttool export diagnostics --path "$bundle" --output-path "$RUNNER_TEMP/evidence/$label/diagnostics"
-          done
-          find "$RUNNER_TEMP/evidence" -type f -exec ls -lh {} \; > "$RUNNER_TEMP/evidence/inventory.txt"
-          cat "$RUNNER_TEMP/evidence/inventory.txt"
+          mkdir -p "$RUNNER_TEMP/decoded"
+          bundle=$(find "$RUNNER_TEMP/archived" -maxdepth 3 -name '*.xcresult' -type d | head -n 1)
+          test -n "$bundle"
+          xcrun xcresulttool get test-results summary --path "$bundle" > "$RUNNER_TEMP/decoded/summary.json"
+          xcrun xcresulttool get test-results tests --path "$bundle" > "$RUNNER_TEMP/decoded/tests.json"
+          xcrun xcresulttool export diagnostics --path "$bundle" --output-path "$RUNNER_TEMP/diagnostics"
+          find "$RUNNER_TEMP/diagnostics" -type f > "$RUNNER_TEMP/decoded/inventory.txt"
           while IFS= read -r archive; do
             /usr/bin/log show --archive "$archive" --style compact \
-              --start '2026-10-08 04:36:21' --end '2026-10-08 04:36:35' \
-              --info --debug \
-              --predicate 'process == "ZenAgent" OR process == "TextInputUIService" OR process == "SpringBoard" OR process == "keyboardservicesd"' \
-              >> "$RUNNER_TEMP/evidence/focus-system-window.log" 2>&1 || true
-          done < <(find "$RUNNER_TEMP/evidence/focus/diagnostics" -name '*.logarchive' -type d)
-          while IFS= read -r archive; do
-            /usr/bin/log show --archive "$archive" --style compact \
-              --start '2026-10-08 10:51:58' --end '2026-10-08 10:52:15' \
+              --start '2026-10-08 13:13:13' --end '2026-10-08 13:13:28' \
               --info --debug --predicate 'process == "ZenAgent" OR process == "SpringBoard"' \
-              >> "$RUNNER_TEMP/evidence/pad-system-window.log" 2>&1 || true
-          done < <(find "$RUNNER_TEMP/evidence/pad/diagnostics" -name '*.logarchive' -type d)
-      - uses: actions/upload-artifact@v4
-        with:
-          name: stage5-small-evidence
-          path: |
-            ${{ runner.temp }}/evidence/pad/attachments
-            ${{ runner.temp }}/evidence/focus/attachments
-            ${{ runner.temp }}/evidence/inventory.txt
-            ${{ runner.temp }}/evidence/focus-system-window.log
-            ${{ runner.temp }}/evidence/pad-system-window.log
-          retention-days: 7
+              >> "$RUNNER_TEMP/decoded/native-dispatch-window.log" 2>&1
+          done < <(find "$RUNNER_TEMP/diagnostics" -name '*.logarchive' -type d)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: stage5-decoded-evidence
-          path: ${{ runner.temp }}/evidence
+          name: stage5-native-dispatch-evidence
+          path: ${{ runner.temp }}/decoded
           retention-days: 7
