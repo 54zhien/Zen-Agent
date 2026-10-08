@@ -232,7 +232,12 @@ SwiftUI. Its during/after cases passed both parameters in run `37795890659`.
 The original-timing job did not execute in attempt 1: GitHub reported that no
 hosted runner acquired the job and noted macOS arm64 capacity constraints.
 Only that unexecuted job was resubmitted; no failed behavior was retried.
-The result of that final control is still pending at this source checkpoint.
+Attempt 2's job `113385490657` passed the original-timing function and both
+parameters, with one suite, no test-host restart, and `TEST SUCCEEDED`. The false
+case requested outgoing resignation before didShow and retained B focus after
+250 ms. All three independent arms therefore passed; this does not reproduce
+the original fault or prove that it is a system defect. Both attempts' metadata,
+capacity annotations, logs, and three xcresults are archived with SHA-256 checks.
 
 The cold RED's native fault explicitly contains `Last Exception Backtrace:
 No stack!`. A temporary `stage5-cold-stack.yml` therefore selects the unchanged
@@ -241,7 +246,21 @@ It adds no app hooks, focus readiness, keyboard warmup, or test assertion change
 This is a bounded attempt to identify the call waiting on the keyboard queue;
 sampling can affect scheduling, so a passing sample does not establish a repair.
 Sampling failures must be distinguished from test failures. This evidence-only
-workflow must be removed before any final candidate and complete CI gate.
+workflow was removed after the result below, before the next complete CI gate.
+
+[Stack capture 37799578964](https://github.com/54zhien/Zen-Agent/actions/runs/37799578964)
+on `0f6746aa45cf0772ff4664d718b7f64394b7701f` generated, built, and passed the
+original function with both parameters (one suite, 7.006 seconds, no host restart).
+The sample identified the actual simulator ZenAgent process, PID 23501, and
+completed successfully with a symbolicated main-thread graph. Its 30-second
+capture began at 15:30:54 UTC and overlapped the test around 15:31:14–21.
+The graph includes the original test's initial A-focus path through
+`ComposerDockContainer.install` and `ComposerHostView.requestFocus` into UIKit.
+It contains no `_lockWhenReadyForMainThread` or `resignFirstResponder` sample;
+the test log has no keyboard-task-queue timeout or XPC failure. Consequently
+it supplies a passing reference stack, not the missing failure stack or a fix.
+Logs/sample archive SHA-256: `6937077390d1a4bbec1f18ad3f1d76c9897edd45a588705b3da79fedcf307629`.
+xcresult archive SHA-256: `53d46c15e7ed71269d8280103332b03ef5b2faf3d4a3b54caa9e12c746c7352a`.
 
 The next missing evidence is the trigger preceding the native connection
 timeout, plus the iPad admission-to-begin failure. Passing samples above cannot
