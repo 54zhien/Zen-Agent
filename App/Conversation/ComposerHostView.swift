@@ -64,10 +64,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var overlayFocusReason = "none"
 #if DEBUG
     private var overlayFocusEvents: [String] = []
+    static var focusDiagnostic: ((String) -> Void)?
 #endif
 
     private func recordOverlayFocusEvent(_ event: String) {
 #if DEBUG
+        Self.focusDiagnostic?("host=\(ObjectIdentifier(self)) editor=\(ObjectIdentifier(editor)) \(event) focused=\(editor.isFirstResponder) state=\(currentState) attached=\(window != nil) key=\(window?.isKeyWindow == true) suppressed=\(workspaceInputSuppressed)")
         guard overlayFocus != nil || overlayFocusReason == "restored" else { return }
         overlayFocusEvents.append("\(event)[focused=\(editor.isFirstResponder),state=\(currentState),suppressed=\(workspaceInputSuppressed),guide=\(keyboardLayoutGuide.layoutFrame)]")
         if overlayFocusEvents.count > 16 { overlayFocusEvents.removeFirst(overlayFocusEvents.count - 16) }
@@ -412,6 +414,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     func requestFocus(_ focused: Bool) {
+        recordOverlayFocusEvent("requestFocus(\(focused)) before")
+        defer { recordOverlayFocusEvent("requestFocus(\(focused)) after") }
         guard !workspaceInputSuppressed else { return }
         if focused {
             if !editor.isFirstResponder { editor.becomeFirstResponder() }

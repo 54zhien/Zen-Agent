@@ -31,6 +31,8 @@ struct WorkspaceComposerDockTests {
 
     @Test(arguments: [false, true])
     func focusIntentSurvivesOutgoingThenIncomingThenDockUpdateOrder(preserveOutgoing: Bool) async throws {
+        ComposerHostView.focusDiagnostic = { print("COLD_DOCK \(Date().timeIntervalSince1970) \($0)") }
+        defer { ComposerHostView.focusDiagnostic = nil }
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)

@@ -1,0 +1,55 @@
+name: Stage 5 cold native boundaries
+on:
+  push:
+    branches: [codex/s5-handoff-repairs-20261007]
+    paths: [.github/workflows/stage5-cold-boundaries.yml]
+permissions:
+  contents: read
+jobs:
+  cold-control:
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - plainUIKitOutgoingFirstKeepsIncomingFocus
+          - plainUIKitOnApplicationWindowKeepsIncomingFocus
+          - composerHostOutgoingFirstKeepsIncomingFocus
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
+      - name: Run exactly one cold control
+        timeout-minutes: 26
+        env:
+          CONTROL: ${{ matrix.test }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available | grep -E '^\s+iPhone' | head -n 1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          test -n "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent \
+            -configuration Debug -destination "id=$UDID" \
+            "-only-testing:ZenAgentTests/ColdFocusControlTests/$CONTROL()" \
+            -resultBundlePath "$RUNNER_TEMP/ColdControl.xcresult" 2>&1 | tee "$RUNNER_TEMP/ColdControl.log"
+          grep -Eq 'Test run with 1 test in 1 suite passed' "$RUNNER_TEMP/ColdControl.log"
+          ! grep -Fq 'Restarting after unexpected exit, crash, or test timeout' "$RUNNER_TEMP/ColdControl.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cold-control-logs-${{ matrix.test }}
+          path: ${{ runner.temp }}/ColdControl.log
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cold-control-results-${{ matrix.test }}
+          path: ${{ runner.temp }}/ColdControl.xcresult
+          retention-days: 7
