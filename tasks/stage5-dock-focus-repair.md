@@ -423,3 +423,40 @@ intended to cover the outgoing call beyond the earlier startup-only reference;
 actual sample frames and call timestamps must establish coverage. Early sampling
 can perturb timing; another pass is not a repair and no full-CI sweep is warranted
 until evidence identifies a concrete production or fixture correction.
+
+
+## Valid outgoing stack: expected path, not the missing incoming loss
+
+[37904896222](https://github.com/54zhien/Zen-Agent/actions/runs/37904896222)
+on `e465aa4b7fc7de7e5dfd4d251dab183b7ffa2c0c` built and passed the original
+function (both arguments, one test / one suite, 18.166 seconds) and produced a
+valid PID15299 sample with 867 main-thread samples. One outgoing-call sample
+follows Portal.update / applyFocusIfAttached / Host.requestFocus(false) into
+UITextView.resignFirstResponder, UIKit input-delegate teardown,
+UIKeyboardTaskQueue.waitUntilAllTasksAreFinished / lockWhenReadyForMainThread,
+and NSCondition/pthread wait. There is no app callback below that UIKit handoff.
+
+A negative request spans 1791534981.0586429 to 1791534982.175071. B's later
+positive request spans 1791534982.211226 to 1791534982.261508. This run has no
+queue-timeout line and no B-focus failure. Early profiling changes timing
+substantially: A's initial positive request lasts about 10 seconds. The separate
+AppShell assembly samples do not establish temporal overlap or a competing focus
+request; source inspection found no direct global blur in assembly. libRPAC's
+wait interceptor appears, but its presence does not demonstrate checker failure.
+Independent review agrees that no production-source violation is established.
+
+The logs ZIP is 197,508 bytes, SHA-256
+`23d8aad635fdcfed2fe52393a391fa426891ff2c30a28ba3443f4e0a038d72ce`;
+the xcresult ZIP is 127,042 bytes, SHA-256
+`3e2bda4102589862b9381ba2e3e55877ad5f3180a12529e7d5d0335a19949a72`.
+Both were size/hash/CRC verified and retained with an exact outgoing-stack excerpt.
+Automatic full CI 37904896137 / 37904902156 was cancelled. No main merge occurred.
+
+The remaining evidence gap is B's actual unexpected loss, not A's expected
+resignation. The next single original-function execution removes external
+sampling. The existing in-memory hook captures Thread.callStackSymbols plus
+key/attachment/responder state only when B emits didEndEditing after didBeginEditing
+and before cleanup. If B loses responder state without that callback, the test
+records that distinct boundary. Original parameters/assertions/waits remain
+unchanged. A passing execution without the event is inconclusive; it must not
+close the original RED or justify a repeated full-CI sweep.

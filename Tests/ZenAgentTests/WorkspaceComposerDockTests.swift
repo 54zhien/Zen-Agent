@@ -48,14 +48,25 @@ struct WorkspaceComposerDockTests {
         let container = ComposerDockContainer(frame: root.view.bounds)
         let a = ComposerHostPortal(frame: root.view.bounds), b = ComposerHostPortal(frame: root.view.bounds)
         var focusEvents: [String] = []
+        var incomingBeganEditing = false
+        var capturedIncomingLoss = false
         ComposerHostView.focusDiagnostic = { host, event in
             guard host === a.composer || host === b.composer else { return }
             let owner = host === a.composer ? "a" : "b"
             focusEvents.append("FOCUS_CALL \(Date().timeIntervalSince1970) preserve=\(preserveOutgoing) owner=\(owner) event=\(event) responder=\(host.editor.isFirstResponder)")
-
+            if owner == "b", event == "didBeginEditing" { incomingBeganEditing = true }
+            if owner == "b", event == "didEndEditing", incomingBeganEditing, !capturedIncomingLoss {
+                capturedIncomingLoss = true
+                // Observe the actual loss after it happens, before fixture cleanup.
+                // Capturing only this unexpected event avoids continuous profiler overhead.
+                focusEvents.append("FOCUS_LOSS_STACK time=\(Date().timeIntervalSince1970) preserve=\(preserveOutgoing) key=\(window.isKeyWindow) attached=\(host.window === window) responder=\(host.editor.isFirstResponder)\n\(Thread.callStackSymbols.joined(separator: "\n"))\nEND_FOCUS_LOSS_STACK")
+            }
         }
         defer {
             ComposerHostView.focusDiagnostic = nil
+            if incomingBeganEditing, !b.composer.editor.isFirstResponder, !capturedIncomingLoss {
+                focusEvents.append("B_STATE_LOSS_WITHOUT_CALLBACK preserve=\(preserveOutgoing)")
+            }
             print(focusEvents.joined(separator: "\n"))
         }
         root.view.addSubview(a); root.view.addSubview(b); root.view.addSubview(container)
