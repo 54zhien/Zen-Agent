@@ -36,7 +36,8 @@ call/result so the remaining batch continues.
 
 Allowed production: ToolRegistry, new ToolIntentCodec, ToolRuntime, three existing
 built-ins, Policy type Codable conformances, PersistenceStore+ToolCalls,
-AgentRuntime and RunRequestRebuilder. Tests: new ToolIntentVersionTests and
+AgentRuntime, RunRequestRebuilder and the original ConversationRuntime cold recovery
+handoff. Tests: new ToolIntentVersionTests and
 ToolIntentContinuationTests, existing three ToolExecutable fixture definitions.
 Own plan and `tasks/s6-02-action-intent.md`. All other S5 UI/Workspace/AppShell,
 Settings/Files, signing/Config/workflows/project/dependencies stay untouched.

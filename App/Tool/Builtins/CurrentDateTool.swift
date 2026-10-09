@@ -23,7 +23,10 @@ struct CurrentDateTool: ToolExecutable {
             ]),
             revision: "1",
             sideEffect: .none,
-            approvalRequirement: .notRequired
+            approvalRequirement: .notRequired,
+            actions: [ToolPolicyActionMetadata(toolID: Self.toolID, actionID: Self.toolID, descriptorRevision: "1",
+                risk: .low, allowsAutomaticApproval: true, allowsConversationGrant: true,
+                resourceRequirement: .notRequired, egressRequirement: .notRequired)]
         )
     }
 
@@ -34,13 +37,10 @@ struct CurrentDateTool: ToolExecutable {
         _ = callID
         try ToolArgumentJSON.requireEmptyObject(argumentsJSON)
 
-        return ToolExecutionIntent(
-            formatVersion: ToolExecutionIntent.currentFormatVersion,
-            toolID: descriptor.id,
-            descriptorRevision: descriptor.revision,
+        return try ToolIntentCodec.freeze(
+            descriptor: descriptor, actionID: Self.toolID,
             normalizedArgumentsJSON: "{}",
-            targetIdentity: nil,
-            destinationIdentity: nil
+            resource: .notRequired, destination: .notRequired
         )
     }
 
@@ -49,6 +49,7 @@ struct CurrentDateTool: ToolExecutable {
         idempotencyKey: String
     ) async throws -> ToolExecutionResult {
         _ = idempotencyKey
+        try ToolIntentCodec.validate(intent, descriptor: descriptor)
         guard
             intent.formatVersion == ToolExecutionIntent.currentFormatVersion,
             intent.toolID == descriptor.id,

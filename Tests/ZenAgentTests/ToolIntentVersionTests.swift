@@ -160,6 +160,53 @@ struct ToolIntentVersionTests {
         #expect(try store.toolResult(toolCallID: "changed")?.payload == ToolIntentFailure.dependenciesChanged.resultContent)
         #expect(try store.toolCall(id: "changed")?.executionIntent == json)
     }
+
+    @Test(arguments: [ToolCallState.dispatched, .indeterminate, .succeeded, .rejected])
+    func rejectionCannotCrossDispatchOrRewriteTerminal(state: ToolCallState) throws {
+        let store = try S6IntentFixture.store()
+        try store.createToolCall(S6IntentFixture.call(id: "protected", state: state, json: "{}"))
+        #expect(throws: (any Error).self) {
+            try store.rejectUndispatchedToolCall(id: "protected", expectedAttempt: 1,
+                result: ToolResultRecord(toolCallID: "protected", payload: "must not insert", createdAt: Fixtures.epoch))
+        }
+        #expect(try store.toolCall(id: "protected")?.state == state)
+        #expect(try store.toolResult(toolCallID: "protected") == nil)
+    }
+
+    @Test func staleAttemptCannotInsertRejectionResult() throws {
+        let store = try S6IntentFixture.store()
+        try store.createToolCall(S6IntentFixture.call(id: "attempt", state: .prepared, json: "{}"))
+        #expect(throws: (any Error).self) {
+            try store.rejectUndispatchedToolCall(id: "attempt", expectedAttempt: 2,
+                result: ToolResultRecord(toolCallID: "attempt", payload: "must not insert", createdAt: Fixtures.epoch))
+        }
+        #expect(try store.toolCall(id: "attempt")?.state == .prepared)
+        #expect(try store.toolResult(toolCallID: "attempt") == nil)
+    }
+
+    @Test func scopedExecutorWithoutTrustedResolverFailsClosed() async throws {
+        let store = try S6IntentFixture.store()
+        let ledger = SideEffectLedger()
+        let tool = S6MissingResolverTool(base: Stage2SideEffectTool(ledger: ledger))
+        let json = String(decoding: try JSONEncoder().encode(tool.prepare(callID: "scope", argumentsJSON: "{}")), as: UTF8.self)
+        try store.createToolCall(S6IntentFixture.call(id: "scope", state: .prepared, json: json))
+        let runtime = ToolRuntime(store: store, registry: try ToolRegistry(tools: [tool]))
+        _ = try await runtime.executePrepared(toolCallID: "scope")
+        #expect(await ledger.snapshot().isEmpty)
+        #expect(try store.toolCall(id: "scope")?.state == .rejected)
+        #expect(try store.toolResult(toolCallID: "scope")?.payload == ToolIntentFailure.dependenciesChanged.resultContent)
+    }
+}
+
+private struct S6MissingResolverTool: ToolExecutable {
+    let base: Stage2SideEffectTool
+    var descriptor: ToolDescriptor { base.descriptor }
+    func prepare(callID: String, argumentsJSON: String) throws -> ToolExecutionIntent {
+        try base.prepare(callID: callID, argumentsJSON: argumentsJSON)
+    }
+    func execute(_ intent: ToolExecutionIntent, idempotencyKey: String) async throws -> ToolExecutionResult {
+        try await base.execute(intent, idempotencyKey: idempotencyKey)
+    }
 }
 
 private struct S6ChangedTargetTool: ToolExecutable {

@@ -20,6 +20,8 @@ enum ToolRuntimeError: Error, Equatable, Sendable {
 /// The runtime deliberately keeps the dispatch marker and executor call as two
 /// separate operations. `markToolCallDispatched` commits before `execute` is entered;
 /// a crash after that commit is therefore recovered as uncertain rather than retried.
+/// S6-02 validates frozen semantics and compatibility. The full Effective Policy,
+/// grants and system permission authority are integrated in the later S6-04 slice.
 final class ToolRuntime: @unchecked Sendable {
     private let store: PersistenceStore
     private let registry: ToolRegistry
@@ -52,19 +54,36 @@ final class ToolRuntime: @unchecked Sendable {
 
         guard
             let descriptor = registry.descriptor(id: toolID),
-            let executor = registry.executor(id: toolID)
+            let executor = registry.executor(id: toolID),
+            ToolPolicyIdentity.equals(toolID, descriptor.id)
         else {
             throw ToolRuntimeError.unknownTool(toolID)
         }
 
         let callID = UUID().uuidString
-        let intent = try executor.prepare(callID: callID, argumentsJSON: argumentsJSON)
-        guard
-            intent.formatVersion == ToolExecutionIntent.currentFormatVersion,
-            intent.toolID == descriptor.id,
-            intent.descriptorRevision == descriptor.revision
-        else {
-            throw ToolExecutionError.invalidIntent
+        let intent: ToolExecutionIntent
+        do {
+            intent = try executor.prepare(callID: callID, argumentsJSON: argumentsJSON)
+            try ToolIntentCodec.validate(intent, descriptor: descriptor)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            let failure = (error as? ToolIntentFailure)
+                ?? ((error as? ToolExecutionError) == .invalidArguments ? .invalidArguments : .preparationFailed)
+            let result = ToolExecutionResult(content: failure.resultContent)
+            // A rejected transcript retains the original arguments for cold
+            // continuation, but has no executable action/scope authority.
+            let representation = ToolExecutionIntent(
+                formatVersion: ToolExecutionIntent.currentFormatVersion, toolID: descriptor.id,
+                descriptorRevision: descriptor.revision, normalizedArgumentsJSON: argumentsJSON,
+                targetIdentity: nil, destinationIdentity: nil
+            )
+            try store.createRejectedToolCall(ToolCallRecord(
+                id: callID, agentRunID: agentRunID, action: descriptor.id, state: .rejected,
+                executionIntent: try encode(representation), attempt: 1, providerCallID: providerCallID,
+                batchID: batchID, batchSequence: batchSequence, createdAt: now, updatedAt: now
+            ), result: ToolResultRecord(toolCallID: callID, payload: result.content, createdAt: now))
+            return result
         }
 
         let intentJSON = try encode(intent)
@@ -247,6 +266,7 @@ final class ToolRuntime: @unchecked Sendable {
                 actual: call.state
             )
         }
+        if let rejection = try validatePendingIntent(toolCallID: call.id, at: now) { return rejection }
         try store.markToolCallPrepared(id: toolCallID, at: now)
         return try await executePrepared(toolCallID: toolCallID, at: now)
     }
@@ -265,6 +285,7 @@ final class ToolRuntime: @unchecked Sendable {
                 actual: call.state
             )
         }
+        if let rejection = try validatePendingIntent(toolCallID: call.id, at: now) { return rejection }
         guard let executionIntent = call.executionIntent else {
             throw ToolRuntimeError.missingExecutionIntent(toolCallID)
         }
@@ -336,6 +357,34 @@ final class ToolRuntime: @unchecked Sendable {
         return call
     }
 
+    /// Cold recovery and dispatch share this check. Terminal calls are historical
+    /// results, while dispatched calls remain owned by uncertain-outcome recovery.
+    func validatePendingIntent(toolCallID: String, at now: Date = Date()) throws -> ToolExecutionResult? {
+        let call = try requiredToolCall(id: toolCallID)
+        guard [ToolCallState.validated, .waitingForApproval, .approved, .prepared].contains(call.state) else { return nil }
+        let failure: ToolIntentFailure
+        do {
+            guard let json = call.executionIntent else { throw ToolIntentFailure.malformedIntent }
+            let intent = try ToolIntentCodec.decodeForDisplay(json)
+            guard let executor = registry.executor(id: intent.toolID),
+                  ToolPolicyIdentity.equals(call.action, intent.toolID)
+            else { throw ToolIntentFailure.descriptorChanged }
+            try ToolIntentCodec.validate(intent, descriptor: executor.descriptor)
+            try executor.validateDependencies(intent)
+            return nil
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            failure = (error as? ToolIntentFailure) ?? .dependenciesChanged
+        }
+        let result = ToolExecutionResult(content: failure.resultContent)
+        try store.rejectUndispatchedToolCall(
+            id: call.id, expectedAttempt: call.attempt,
+            result: ToolResultRecord(toolCallID: call.id, payload: result.content, createdAt: now), at: now
+        )
+        return result
+    }
+
     private func encode(_ intent: ToolExecutionIntent) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -350,11 +399,8 @@ final class ToolRuntime: @unchecked Sendable {
         _ json: String,
         callID: String
     ) throws -> ToolExecutionIntent {
-        guard let data = json.data(using: .utf8) else {
-            throw ToolRuntimeError.invalidStoredExecutionIntent(callID)
-        }
         do {
-            return try JSONDecoder().decode(ToolExecutionIntent.self, from: data)
+            return try ToolIntentCodec.decodeForDisplay(json)
         } catch {
             throw ToolRuntimeError.invalidStoredExecutionIntent(callID)
         }

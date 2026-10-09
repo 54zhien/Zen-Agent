@@ -121,11 +121,7 @@ struct RunRequestRebuilder {
                   call.batchSequence == index,
                   let providerCallID = call.providerCallID,
                   let encodedIntent = call.executionIntent,
-                  let intent = try? JSONDecoder().decode(
-                    ToolExecutionIntent.self,
-                    from: Data(encodedIntent.utf8)
-                  ),
-                  intent.formatVersion == ToolExecutionIntent.currentFormatVersion,
+                  let intent = try? ToolIntentCodec.decodeForDisplay(encodedIntent),
                   intent.toolID == call.action,
                   snapshot.exposedTools.contains(where: {
                     $0.toolID == intent.toolID &&

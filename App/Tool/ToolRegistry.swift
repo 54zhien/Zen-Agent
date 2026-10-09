@@ -35,7 +35,7 @@ struct ToolDescriptor: Sendable, Equatable {
 }
 
 struct ToolExecutionIntent: Codable, Sendable, Equatable {
-    static let currentFormatVersion = 1
+    static let currentFormatVersion = 2
 
     var formatVersion: Int
     var toolID: String
@@ -71,7 +71,13 @@ protocol ToolExecutable: Sendable {
 }
 
 extension ToolExecutable {
-    func validateDependencies(_ intent: ToolExecutionIntent) throws {}
+    func validateDependencies(_ intent: ToolExecutionIntent) throws {
+        // A scoped executor must supply a trusted live resolver. Only stateless
+        // actions can prove their lack of mutable dependencies without one.
+        guard intent.resourceScope == .notRequired, intent.destinationScope == .notRequired else {
+            throw ToolIntentFailure.dependenciesChanged
+        }
+    }
 }
 
 enum ToolRegistryError: Error, Equatable, Sendable {

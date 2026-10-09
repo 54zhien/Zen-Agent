@@ -728,6 +728,9 @@ actor ConversationRuntime {
         } catch {
             throw RunRequestRebuildError.incompatibleSnapshot
         }
+        // Settle incompatible pending intents on their original IDs before any
+        // legacy approval wait or transcript reconstruction can conceal them.
+        try await agentRuntime.settleIncompatiblePendingTools(inRun: run.id)
         let batch = try RunRequestRebuilder(
             store: store,
             provider: provider,
