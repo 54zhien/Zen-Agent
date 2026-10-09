@@ -1,15 +1,20 @@
 # Stage 5 Dock focus repair — 2026-10-08
 
-This record describes a reproduced production focus bug. It does not close
-Stage 5, the original intermittent PR failure, or physical-device acceptance.
+This record describes native-test focus failures in the production Composer path.
+It does not close Stage 5, the original intermittent PR failure, or physical-device acceptance.
 
-## Current integration status: blocked
+## Current handoff status: focus investigation deferred; integration pending
 
-The original `preserveOutgoing=false` settled-focus failure reproduced again
-when selected alone on a cold simulator, without the notification fixture.
-The fixes below remain valid independently; they do not resolve that original
-failure. PR #35 is not merged, and no verified main integration commit M exists.
-The independent iPad first-Sidebar-gesture failure also remains unresolved.
+On 2026-10-09 the owner capped further focus diagnosis at two attempts, then
+authorized deferring this unresolved issue and continuing the Stage 6 handoff.
+Both attempts passed without reproducing B loss. See the final dated section
+for the evidence and exact scope. The defect is not fixed, the original
+regression stays enabled, and historical RED evidence below remains valid.
+
+At this cleanup checkpoint PR #35 is not yet merged and no verified main
+integration M exists. Actual candidate/M CI must be reported separately. The
+historical iPad first-Sidebar failure and physical-device acceptance also remain
+open; this record does not waive unrelated failures or declare Stage 5 complete.
 
 ## Reproduced stale blur
 
@@ -460,3 +465,54 @@ and before cleanup. If B loses responder state without that callback, the test
 records that distinct boundary. Original parameters/assertions/waits remain
 unchanged. A passing execution without the event is inconclusive; it must not
 close the original RED or justify a repeated full-CI sweep.
+
+## Owner-approved deferral after two final diagnostic attempts (2026-10-09)
+
+The owner instructed: “那你再试两次，如果还不能解决就先跳过，继续衔接stage6”.
+This changes the focus-investigation stopping condition. The focus defect remains
+open and is carried as a known issue; this is not a root-cause finding or repair.
+Regression assertions remain enabled. This does not authorize hiding unrelated
+failures, bypassing required checks, taking over the Stage 6 worktree, starting
+S6-02, merging Stage 6 into main or building an IPA.
+
+Both additional diagnostics use unchanged `1b13a74b5393e4cf291938697e7a52702c679990`
+and the original false/true function with the event-only B-loss hook:
+
+| Additional attempt | Run attempt / job | Actual result |
+| --- | --- | --- |
+| 1 | [37907105288 attempt 2](https://github.com/54zhien/Zen-Agent/actions/runs/37907105288/attempts/2), job 113753058846 | Build and original false/true function passed: one test/suite, 3.518 seconds. Queue timeout during A resignation; no unexpected B end-editing or state-loss marker. No host restart. |
+| 2 | [37907105288 attempt 3](https://github.com/54zhien/Zen-Agent/actions/runs/37907105288/attempts/3), job 113757596582 | Build and original false/true function passed: one test/suite, 4.016 seconds. No queue timeout, unexpected B end-editing or state-loss marker. No host restart. |
+
+The two-attempt diagnostic budget is exhausted after the second completed run;
+no further focus-only retry or profiler sweep is part of this handoff. Historical
+RED 37801912044 and cold RED 37784846258 remain valid unresolved evidence.
+
+Cleanup removes only the temporary DEBUG hook, in-test trace and diagnostic
+workflow. App and regression-test content must match clean checkpoint `19423a4`;
+its previously proven stale-blur and pre-attachment focus repairs are retained.
+All workflow/test selection defaults remain full and the original failing test
+is neither skipped nor marked as an expected pass/failure.
+
+Handoff still distinguishes candidate CI, actual main integration M, M-specific
+CI and physical-device acceptance. The prior iPad first-Sidebar failure also
+remains disclosed; a new failure outside the deferred focus case must be assessed
+separately. No claim of all-Stage-5 completion is made.
+
+A read-only merge-tree preflight of clean `19423a4` with S6 `47ee7ed` had no text
+conflict. It contributed only S6's existing eight allowed paths and preserved all
+three Policy sources and three tests byte-for-byte. This is not an executed S6
+merge and does not replace checking the actual final M and combined N. The S6
+owner remains responsible for its live worktree and eventual combined full CI.
+
+Both attempts' log/result archives were size, SHA-256 and ZIP-CRC verified and
+retained at `C:/Users/Azusa/.codex/artifacts/stage5-native-closeout-20261008`:
+
+| Attempt | Logs SHA-256 | xcresult SHA-256 |
+| --- | --- | --- |
+| 1 | `0383a9a94e7e52fffe45c10b769a95198b2cfc748d97167c1143f7d47c529a62` | `115255bb036ef13b66137272a83f790f2a7c608cb3864eb689202dcd5fd0f9da` |
+| 2 | `425e53b1fa36bd27e79678d62defe52407881299806557a85e533fd3c96b881d` | `71f54d248462ef3ea4f369c6dc30144f7ec5c4fdbd65940448b957e8f94542f7` |
+
+The cleaned candidate requires its own full CI before its integration status is
+reported; the two passing diagnostic runs are not that full-CI receipt. Exact
+candidate/M/N receipts belong in the PR and handoff, not a self-referential SHA
+inside the commit being validated.
