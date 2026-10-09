@@ -358,3 +358,35 @@ no matrix/full-suite sweep. Missing markers or invalid capture fail diagnostics.
 Sampling may perturb timing; useful call stacks must be inspected, and a green
 sample is not a fix. These temporary hooks/workflow must be removed before any
 acceptance candidate. Original full-CI RED37801912044 remains open.
+
+
+## Single-call result: timeout is inside outgoing resignation
+
+Diagnostic source `e1948814f5acf12c0bb24179829dfa14f7752fdc`,
+[run 37875280601](https://github.com/54zhien/Zen-Agent/actions/runs/37875280601),
+passed both arguments of the original function but failed stack capture.
+The original false fixture now brackets A requestFocus(false) from
+1791513822.950521 to 1791513825.4619389 (2.511 seconds); the native keyboard
+queue timeout at 1791513824.032580 is inside that call. B requestFocus(true)
+starts only at 1791513825.497178 and returns at 1791513825.5455508 (48 ms).
+This identifies a timeout boundary, not the cause of the original B-focus loss:
+all focus assertions passed in this sample.
+
+The native marker was emitted at 1791513821.722 but observed by the watcher at
+1791513825.0332632, approximately 3.311 seconds late. The sample tool exited 0
+but produced no report and logged pid_for_task failure after the app exited.
+Test exit was 0; watcher exit was 1. Thus no valid native stack was captured.
+The 49,232-byte logs artifact was size/SHA-256/ZIP verified; SHA-256 is
+`4cbff3f72852714b03a67510be38961b7bacd5d6b7100b94c1358772c129c373`.
+Both automatic complete CI runs 37875285193 and 37875280591 report success;
+these diagnostic-source passes do not close clean-source failure 37801912044.
+
+The next measurement removes that measured log-delivery dependency: the test
+atomically writes a PID/timestamp marker at the first A negative-request entry.
+The watcher polls the selected simulator's data containers, validates the live
+app PID and simulator identity, and takes one 1-second/10-ms native sample.
+There is one job and no new test wait, host hold, changed assertion, parameter,
+or production focus behavior. Marker errors, missing capture and invalid stacks
+remain explicit failures. A valid report must still be inspected for overlap
+with the resignation and meaningful blocked frames; sampling can perturb timing.
+The hooks and workflow remain temporary and must leave the acceptance source.
