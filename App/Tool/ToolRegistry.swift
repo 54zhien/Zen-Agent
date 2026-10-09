@@ -65,6 +65,13 @@ protocol ToolExecutable: Sendable {
         _ intent: ToolExecutionIntent,
         idempotencyKey: String
     ) async throws -> ToolExecutionResult
+
+    /// Trusted dependency check; may reject, never replace the frozen intent.
+    func validateDependencies(_ intent: ToolExecutionIntent) throws
+}
+
+extension ToolExecutable {
+    func validateDependencies(_ intent: ToolExecutionIntent) throws {}
 }
 
 enum ToolRegistryError: Error, Equatable, Sendable {

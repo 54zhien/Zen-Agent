@@ -144,6 +144,37 @@ struct ToolIntentVersionTests {
         #expect(try store.toolCalls(inRun: "s6-run").count == 1)
         #expect(try store.toolResult(toolCallID: "bad") != nil)
     }
+
+    @Test func changedTrustedTargetRejectsBeforeDispatch() async throws {
+        let store = try S6IntentFixture.store()
+        let ledger = SideEffectLedger()
+        let tool = S6ChangedTargetTool(ledger: ledger)
+        let intent = try tool.prepare(callID: "changed", argumentsJSON: "{}")
+        let json = String(decoding: try JSONEncoder().encode(intent), as: UTF8.self)
+        try store.createToolCall(S6IntentFixture.call(id: "changed", state: .prepared, json: json))
+        let runtime = ToolRuntime(store: store, registry: try ToolRegistry(tools: [tool]))
+        do { _ = try await runtime.executePrepared(toolCallID: "changed") }
+        catch { Issue.record("dependency change must settle original call: \(error)") }
+        #expect(await ledger.snapshot().isEmpty)
+        #expect(try store.toolCall(id: "changed")?.state == .rejected)
+        #expect(try store.toolResult(toolCallID: "changed")?.payload == ToolIntentFailure.dependenciesChanged.resultContent)
+        #expect(try store.toolCall(id: "changed")?.executionIntent == json)
+    }
+}
+
+private struct S6ChangedTargetTool: ToolExecutable {
+    let base: Stage2SideEffectTool
+    var descriptor: ToolDescriptor { base.descriptor }
+    init(ledger: SideEffectLedger) { base = Stage2SideEffectTool(ledger: ledger) }
+    func prepare(callID: String, argumentsJSON: String) throws -> ToolExecutionIntent {
+        try base.prepare(callID: callID, argumentsJSON: argumentsJSON)
+    }
+    func validateDependencies(_ intent: ToolExecutionIntent) throws {
+        throw ToolIntentFailure.dependenciesChanged
+    }
+    func execute(_ intent: ToolExecutionIntent, idempotencyKey: String) async throws -> ToolExecutionResult {
+        try await base.execute(intent, idempotencyKey: idempotencyKey)
+    }
 }
 
 enum S6IntentFixture {
