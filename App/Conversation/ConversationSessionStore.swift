@@ -11,11 +11,14 @@ enum ConversationSessionState: Equatable {
 final class ConversationSessionStore {
     enum Reconstruction {
         case unavailable
+        case uncommitted
         case history(configuration: ConversationComposerConfiguration?)
     }
 
     private struct Entry {
         let session: ConversationSession
+        let creationOrder: UInt64
+        let initialConfiguration: ConversationComposerConfiguration?
         var reconstruction: Reconstruction
         var lastAccess: Date
         var accessOrder: UInt64
@@ -23,7 +26,8 @@ final class ConversationSessionStore {
     }
 
     private var entries: [String: Entry] = [:]
-    private var activeID: String?
+    private var activeIDs: Set<String> = []
+    private var fileRemovalReservations: [String: UUID] = [:]
     private var accessOrder: UInt64 = 0
     private let warmLimit: Int
     private let now: () -> Date
@@ -37,6 +41,44 @@ final class ConversationSessionStore {
         entries[conversationID]?.session
     }
 
+    var retainedSessions: [ConversationSession] { entries.values.map(\.session) }
+
+    var protectedFileAssetIDs: Set<String> {
+        Set(entries.values.flatMap { $0.session.protectedFileAssetIDs })
+    }
+
+    func isFileRemovalReserved(assetID: String) -> Bool {
+        fileRemovalReservations[assetID] != nil
+    }
+
+    /// Future attachment producers must check this reservation before appending
+    /// a version reference on this same actor. The current UI has no such producer.
+    func withFileRemovalReservation(assetID: String,
+        operation: @Sendable () async throws -> Bool
+    ) async throws -> Bool {
+        guard fileRemovalReservations[assetID] == nil,
+              !protectedFileAssetIDs.contains(assetID) else { return false }
+        let token = UUID()
+        fileRemovalReservations[assetID] = token
+        defer {
+            if fileRemovalReservations[assetID] == token {
+                fileRemovalReservations.removeValue(forKey: assetID)
+            }
+        }
+        // Await the real writer's drain even when the caller has been cancelled.
+        return try await operation()
+    }
+
+    var uncommittedIDs: [String] {
+        entries.filter { if case .uncommitted = $0.value.reconstruction { return true }; return false }
+            .sorted { $0.value.creationOrder > $1.value.creationOrder }.map(\.key)
+    }
+
+    func uncommittedSession(for id: String) -> ConversationSession? {
+        guard let entry = entries[id], case .uncommitted = entry.reconstruction else { return nil }
+        return entry.session
+    }
+
     func state(for conversationID: String) -> ConversationSessionState {
         entries[conversationID]?.state ?? .evicted
     }
@@ -44,23 +86,67 @@ final class ConversationSessionStore {
     func retain(_ session: ConversationSession, reconstruction: Reconstruction) {
         let id = session.conversationID
         if var entry = entries[id], entry.session === session {
+            // Read uncertainty cannot erase previously established warm-only provenance.
+            if case .uncommitted = entry.reconstruction, case .unavailable = reconstruction {
+                return
+            }
             entry.reconstruction = reconstruction
             entries[id] = entry
         } else {
             accessOrder += 1
             let date = now()
-            entries[id] = Entry(session: session, reconstruction: reconstruction,
+            entries[id] = Entry(session: session,
+                creationOrder: accessOrder, initialConfiguration: session.composer.configuration,
+                reconstruction: reconstruction,
                 lastAccess: date, accessOrder: accessOrder,
-                state: activeID == id ? .active : .warm(lastAccess: date))
+                state: activeIDs.contains(id) ? .active : .warm(lastAccess: date))
         }
     }
 
     /// Called only after the replacement Pane has loaded and registered.
-    func activate(_ session: ConversationSession) {
-        if let activeID, var previous = entries[activeID] {
-            previous.state = .warm(lastAccess: previous.lastAccess)
-            entries[activeID] = previous
+    func activate(_ session: ConversationSession, isRuntimeProtected: (String) -> Bool = { _ in false }) {
+        for id in activeIDs where id != session.conversationID {
+            demote(id, isRuntimeProtected: isRuntimeProtected)
         }
+        activeIDs = [session.conversationID]
+        promote(session)
+    }
+
+    /// Split keeps the source Session resident while a distinct second Pane is live.
+    @discardableResult
+    func activate(_ session: ConversationSession, alongside sourceID: String,
+                  isRuntimeProtected: (String) -> Bool = { _ in false }) -> Bool {
+        let id = session.conversationID
+        guard id != sourceID, activeIDs.contains(sourceID) else { return false }
+        for other in activeIDs where other != sourceID && other != id {
+            demote(other, isRuntimeProtected: isRuntimeProtected)
+        }
+        activeIDs = [sourceID, id]
+        promote(session)
+        return true
+    }
+
+    func deactivate(_ conversationID: String) {
+        guard activeIDs.remove(conversationID) != nil, var entry = entries[conversationID] else { return }
+        entry.state = .warm(lastAccess: entry.lastAccess)
+        entries[conversationID] = entry
+    }
+
+    private func demote(_ id: String, isRuntimeProtected: (String) -> Bool) {
+        guard var previous = entries[id] else { return }
+        // Only a pristine blank working page can be retired on replacement.
+        // Drafts, changed configuration, anchors and pending submission retain their owner.
+        if case .uncommitted = previous.reconstruction,
+           !isRuntimeProtected(id),
+           previous.session.canReconstruct(configuration: previous.initialConfiguration) {
+            entries.removeValue(forKey: id)
+        } else {
+            previous.state = .warm(lastAccess: previous.lastAccess)
+            entries[id] = previous
+        }
+    }
+
+    private func promote(_ session: ConversationSession) {
         let id = session.conversationID
         var entry = entries[id]
         if entry?.session !== session {
@@ -73,22 +159,21 @@ final class ConversationSessionStore {
         incoming.accessOrder = accessOrder
         incoming.state = .active
         entries[id] = incoming
-        activeID = id
     }
 
     func remove(conversationID: String) {
         entries.removeValue(forKey: conversationID)
-        if activeID == conversationID { activeID = nil }
+        activeIDs.remove(conversationID)
     }
 
     func removeAll() {
         entries.removeAll()
-        activeID = nil
+        activeIDs.removeAll()
     }
 
     func evictIfNeeded(isRuntimeProtected: (String) -> Bool) {
         let candidates = entries.filter { id, entry in
-            guard id != activeID, !isRuntimeProtected(id),
+            guard !activeIDs.contains(id), !isRuntimeProtected(id),
                   case .history(let configuration) = entry.reconstruction else { return false }
             return entry.session.canReconstruct(configuration: configuration)
         }.sorted { $0.value.accessOrder < $1.value.accessOrder }

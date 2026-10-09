@@ -109,6 +109,9 @@ struct ConversationRuntimeFirstSendTests {
         )
 
         // Idempotency is checked before the conversation's current sendability.
+        // A delete now requires the owning Run to leave its active slot first.
+        _ = try? await fixture.runtime.waitForCompletion(runID: originalRunID)
+        #expect(try fixture.store.activeParentRuns(inConversation: conversationID).isEmpty)
         try fixture.store.beginDeletion(conversationID: conversationID)
         let messageCountBeforeReplay = try fixture.store.messages(
             inConversation: conversationID

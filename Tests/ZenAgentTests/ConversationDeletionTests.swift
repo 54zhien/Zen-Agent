@@ -23,6 +23,7 @@ struct ConversationDeletionTests {
     private func seeded() throws -> PersistenceStore {
         let store = try makeStore()
         try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
+        try store.finishRun(id: "r1", state: .cancelled, endReason: .cancelledByUser)
         return store
     }
 
@@ -68,9 +69,9 @@ struct ConversationDeletionTests {
         )
         #expect(try store.conversationLifecycle(id: "c1") == .visible)
 
-        // And it is usable again: the run still holds the slot, so the conversation is
-        // exactly where it was rather than half-alive.
-        #expect(try store.activeParentRuns(inConversation: "c1").count == 1)
+        // Undo restores the data, not the cancelled Run.
+        #expect(try store.activeParentRuns(inConversation: "c1").isEmpty)
+        #expect(try store.run(id: "r1")?.state == .cancelled)
     }
 
     @Test("finalising removes the body")

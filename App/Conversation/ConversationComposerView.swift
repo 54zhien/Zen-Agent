@@ -8,22 +8,27 @@ struct ConversationComposerView: View {
     private let bridge: ComposerRuntimeActionBridge
     private let onHeightChanged: (CGFloat) -> Void
     private let onKeyboardWillChange: () -> Void
+    private let onUserFocus: () -> Void
     @State private var coordinator: ComposerSendCoordinator
     @State private var runProjection: RunProjection?
     @State private var knownModels: [ModelDescriptor] = []
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.surfaceLiftController) private var lift
+    @Environment(\.modelMenuPreferences) private var menuPreferences
+    @Environment(\.workspaceComposerDock) private var dock
 
     init(conversationID: String, controller: ComposerController,
          bridge: ComposerRuntimeActionBridge, maxProviderSteps: Int,
          coordinator: ComposerSendCoordinator? = nil,
          onHeightChanged: @escaping (CGFloat) -> Void = { _ in },
-         onKeyboardWillChange: @escaping () -> Void = {}) {
+         onKeyboardWillChange: @escaping () -> Void = {},
+         onUserFocus: @escaping () -> Void = {}) {
         self.conversationID = conversationID
         self.controller = controller
         self.bridge = bridge
         self.onHeightChanged = onHeightChanged
         self.onKeyboardWillChange = onKeyboardWillChange
+        self.onUserFocus = onUserFocus
         _coordinator = State(initialValue: coordinator ?? ComposerSendCoordinator(
             conversationID: conversationID, controller: controller,
             configuration: controller.configuration, bridge: bridge,
@@ -33,7 +38,8 @@ struct ConversationComposerView: View {
 
     var body: some View {
         ComposerHostBridge(configuration: hostConfiguration,
-                           focused: controller.draft.presentationState == .editing)
+                           focused: controller.draft.presentationState == .editing,
+                           conversationID: conversationID)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .task(id: conversationID) { await observeRunProjection() }
             .task(id: controller.configuration?.providerInstanceID) { await loadKnownModels() }
@@ -57,7 +63,8 @@ struct ConversationComposerView: View {
 
     private var modelsForSelectedInstance: [ModelDescriptor] {
         guard let instanceID = controller.configuration?.providerInstanceID else { return [] }
-        return knownModels.filter { $0.providerInstanceID == instanceID }
+        let canonical = knownModels.filter { $0.providerInstanceID == instanceID }
+        return menuPreferences?.visibleModels(canonical) ?? canonical
     }
 
     private var isSendable: Bool {
@@ -110,6 +117,7 @@ struct ConversationComposerView: View {
                     onKeyboardWillChange()
                 }
                 if focused {
+                    onUserFocus()
                     let event: ComposerPresentationEvent = controller.draft.presentationState == .compact
                         ? .compactTapped : .textAreaTapped
                     apply(controller.handle(event))
@@ -125,9 +133,12 @@ struct ConversationComposerView: View {
                 configuration.modelID = modelID
                 controller.configuration = configuration
             },
-            onHeightChanged: onHeightChanged,
+            onHeightChanged: { height in
+                onHeightChanged(height)
+                dock?.measured(height, ownerID: conversationID)
+            },
             liftInteraction: lift.map { driver in
-                ComposerLiftInteraction.Configuration(driver: driver) { native in
+                ComposerLiftInteraction.Configuration(driver: driver, conversationID: conversationID) { native in
                     var input = native
                     input.isEditing = input.isEditing || controller.draft.presentationState == .editing
                     input.hasMarkedText = input.hasMarkedText || controller.isComposing

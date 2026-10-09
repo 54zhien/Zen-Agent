@@ -1,0 +1,37 @@
+# Stage 5 Browse Lift causal review
+
+## Scope and result
+
+This read-only review covers the PR FULL phone failure in visual-final-pr-phone.log, the tested input path in Tests/ZenAgentUITests/AppSpaceBrowseUITests.swift, the native Lift admission/eligibility/anchor code, and the new uncommitted diagnostic-only diff. The failed candidate was reported as ab5cd44 / tree d4ffc8b, with App and test source otherwise identical to the already reviewed FULL source. I did not run tests or edit production code, tests, or tracked documentation.
+
+The PR UI result is a real RED: the first Lift did not expose the Current Card. The available evidence does not establish whether UIKit rejected the gesture at receive/begin, Lift admission or eligibility changed during the gesture, or XCTest delivery timing interacted with that path. The editor-center coordinate is correct, and the source intentionally routes that resting-state point to the Lift surface, so a bad anchor is not supported. Do not classify this as a test-input defect or make a speculative production repair from the current evidence.
+
+## CI and failure evidence
+
+The PR FULL phone build completed. The supplied run had 942 Swift tests in 151 suites and 20 XCTest tests pass; the 54 UI cases had one expected Pad-only skip and two failures in this single test. There was no host restart or retry. Push FULL phone passed, including this same test.
+
+In visual-final-pr-phone.log, AppSpaceBrowseUITests.testDistantBrowseAndVerticalDragKeepPreviewUntilExplicitActivation starts at 01:51:12.884. The first-card wait fails at line 19 around 01:51:39.348. Because the previous assertion used XCTAssertTrue and continued, the following swipe at about 01:51:39.351 then failed because workspace-current-card had no match; that second error is a cascade, not an independent Browse regression. The final AX hierarchy reports surface-lift-state-probe=full, and workspace-current-card is absent.
+
+The exported synthesized event (3E11C760-49E8-4358-B893-5E13B0D23009, decoded to the same-named JSON in the handoff directory) records a down at (201, 803), a 0.7-second hold, a drag to (201, 583) at offset 1.14, and release there. The AX hierarchy attachment D83D1777-55B1-40FA-A4B2-618D9B8AB2E4 reports the composer TextView frame as {{80, 792.4}, {242, 21.2}}, whose center is exactly (201, 803). The 220-point endpoint is in the intended upward direction and exceeds the SurfaceLiftState onset/full-distance calibration (12/180 points). The supplied frame review of the recording shows the Full workspace with no keyboard or overlay and no visible shrink during the attempted Lift. The hierarchy's native interaction diagnostic is truncated; the decoded snapshot contains no liftReady trace for the actual event.
+
+The same PR run's next test, testNativeBrowseSnapsOneNeighborAndOpensSelectedHistory, passes with the same editor-center long-press and -220 drag. The Push FULL run also passes the failing test. The prior S5-09 ledger explicitly records another intermittent PR observation where an older Browse test's initial Lift never entered Card (tasks/s5-09-review.md:291-293). Together these results support an intermittent admission boundary, not a deterministic invalid coordinate or a deterministic failure of the later Browse path.
+
+## Native path and causal boundary
+
+The test waits for liftReady=true before sending input. In ComposerLiftInteraction, that value reflects SurfaceLiftController.canArm(input); canArm requires Full phase, guarded SurfaceLiftEligibility.allowsLift, and a resolvable target. Eligibility excludes editing/first-responder state, marked text, visible or transitioning keyboard, unsettled Composer layout, selection, quote drag, and overlays (ComposerLiftInteraction.swift:54-61; SurfaceLiftController.swift:368-373; SurfaceLiftState.swift:3-16). This proves the gate was ready at the sample time, but it does not prove the admission result at the later native touch.
+
+The test targets the center of the accessibility TextView. ComposerHostView.hitTest deliberately returns the Lift surface for a point inside the viewport while the Lift is installed and the Composer is not editing (ComposerHostView.swift:288-301). ComposerLiftInteraction attaches the long-press recognizer to that surface and accepts a touch only when touch.view is that surface; shouldBegin rechecks canArm. On began it arms; on changed it checks current eligibility and feeds upward displacement to the controller; on end it applies the final displacement before settling (ComposerLiftInteraction.swift:78-116). Thus the intended anchor maps to the recognizer's view under the ready/resting condition, and the decoded coordinate agrees with the AX frame.
+
+However, no failure-run trace shows the actual touch.view, shouldReceive result, shouldBegin result, arm result, recognizer terminal state, or an eligibility invalidation. The post-action Full phase only proves that Card was not reached; it cannot distinguish rejected receipt, rejected begin, an arm race, refusal/cancellation during movement, or a timing issue in the synthesized event. The current evidence is insufficient to choose among those causes.
+
+## Review of the new diagnostic-only diff
+
+ComposerLiftInteraction.swift adds a trace behind #if DEBUG and the ZEN_PREVIEW_HANDOFF_UI_TEST=1 launch flag. It retains at most 12 event strings and records only the receive/view type, begin acceptance, began/terminal points and origin, refused drag, invalidation state, phase/progress, and boolean SurfaceLiftEligibility fields. It does not record draft text, prompt content, credentials, or conversation IDs. The broader existing native diagnostic printed by the test includes layout and object-identity metadata and editor text length, but not editor contents; this test uses the preview fixture.
+
+The instrumentation leaves gesture ownership, hit testing, thresholds, eligibility, and state transitions unchanged. The new local accepted values evaluate the same delegate predicates once and return the same results. The trace is stored on the existing interaction instance, has a fixed entry cap, and has no global or persistent owner. Release builds exclude it. The test preserves the real 0.7-second hold, 220-point drag, 10-second waits, and all Browse/Return assertions. Its initial-card wait now XCTFails with the native diagnostic and returns, removing only the invalid follow-on swipe error.
+
+One limited measurement risk remains: the test's new pre-input print fetches editor.frame/coordinates and reads the native AX diagnostic once more before the gesture. That diagnostic walks existing host/timeline state, so it can add some simulator and AX-query latency, although this occurs in the test-only path and is bounded to a single pre-input read (plus the failure report). Treat the next result as evidence from an instrumented run, not proof that the historical cause is repaired.
+
+## Conclusion and next evidence
+
+The current run demonstrates an intermittent end-to-end Lift failure but not its root cause. The diagnostic diff is narrowly scoped and has no identified business-state, ownership, secret, or release-build effect. A failing rerun's bounded trace should discriminate receive/view rejection, begin/canArm rejection, successful arm followed by eligibility invalidation/refused drag, or terminal-without-Card. If the instrumented run passes, retain the historical admission failure as unresolved rather than treating the instrumentation as a fix. This is static review only; no test was run in this review.

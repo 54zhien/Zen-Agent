@@ -52,6 +52,65 @@ struct ConversationSummaryTests {
         return SeededHistory(store: store, orderedIDs: ordered.map(\.id))
     }
 
+    @Test("browse neighborhoods use nearest inverse keyset across 100 real histories")
+    func browseNeighborhoodsAreBounded() throws {
+        let fixture = try seed(historyCount: 100)
+        let trace = S504SQLTrace()
+        try fixture.store.database.read { db in
+            db.trace { if case .statement(let statement) = $0 { trace.record(statement.sql) } }
+        }
+        defer { try? fixture.store.database.read { db in db.trace(nil) } }
+        for index in [0, 1, 7, 8, 49, 96, 99] {
+            let id = fixture.orderedIDs[index]
+            let window = try fixture.store.conversationBrowseWindow(id: id)
+            #expect(window.current?.id == id)
+            #expect(window.older.map(\.id) == Array(fixture.orderedIDs.dropFirst(index + 1).prefix(3)))
+            #expect(window.newer?.id == (index == 0 ? nil : fixture.orderedIDs[index - 1]))
+            #expect(window.summaries.count <= 5)
+            #expect(Set(window.summaries.map(\.id)).count == window.summaries.count)
+            #expect(window.summaries.allSatisfy { $0.excerpt.count <= 320 })
+        }
+        // Each window reads one current, at most three older and one newer.
+        // Extra-row keyset lookahead is metadata-bounded and never a full history read.
+        #expect(trace.summaryQueryCount <= 21)
+        #expect(try fixture.store.conversationBrowseWindow(id: "uncommitted").current == nil)
+        #expect(throws: (any Error).self) { try fixture.store.conversationBrowseWindow(id: "hidden") }
+    }
+
+    @Test("100-step actual history browse keeps only five projections and preserves selection on SQL failure")
+    @MainActor
+    func browseControllerDoesNotAccumulateHistory() throws {
+        let fixture = try seed(historyCount: 100)
+        let browse = AppSpaceBrowseController(reader: { try fixture.store.conversationBrowseWindow(id: $0) })
+        browse.present(originID: fixture.orderedIDs[0])
+        for index in 1..<100 {
+            #expect(browse.begin())
+            #expect(browse.drag(displacement: 200, travel: 300))
+            let settlement = try #require(browse.end(velocity: 100_000, travel: 300))
+            #expect(browse.complete(settlement, finished: true))
+            #expect(browse.state.selected == .conversation(fixture.orderedIDs[index]))
+            #expect(browse.summaries.count <= 5)
+            #expect(browse.currentSummary?.id == fixture.orderedIDs[index])
+        }
+        let previous = browse.summaries
+        try fixture.store.database.write { db in try db.execute(sql: "ALTER TABLE message RENAME TO unavailable_browse_message") }
+        #expect(browse.begin())
+        #expect(browse.drag(displacement: -200, travel: 300))
+        let failed = try #require(browse.end(velocity: 0, travel: 300))
+        #expect(!browse.complete(failed, finished: true))
+        #expect(browse.state.selected == .conversation(fixture.orderedIDs[99]))
+        #expect(browse.summaries == previous && browse.errorMessage != nil)
+        try fixture.store.database.write { db in try db.execute(sql: "ALTER TABLE unavailable_browse_message RENAME TO message") }
+        browse.refresh()
+        #expect(browse.errorMessage == nil)
+        #expect(browse.begin())
+        #expect(browse.drag(displacement: -200, travel: 300))
+        let cancelled = try #require(browse.end(velocity: 0, travel: 300))
+        browse.cancel()
+        #expect(!browse.complete(cancelled, finished: true))
+        #expect(browse.currentSummary?.id == fixture.orderedIDs[99])
+    }
+
     @Test("keyset pages preserve pinned activity and tie order without whole-history payloads",
           arguments: [100, 1_000])
     func pagesAreBounded(historyCount: Int) throws {

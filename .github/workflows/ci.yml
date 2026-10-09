@@ -24,6 +24,54 @@ permissions:
 
 jobs:
 
+  pad-workspace:
+    name: iPad workspace axis
+    needs: repo-hygiene
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Cache Swift Package Manager
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
+      - name: Run native iPad axis regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available | grep -E '^\s+iPad' | head -n 1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          test -n "$UDID"
+          xcrun simctl help bootstatus
+          xcrun simctl bootstatus "$UDID" -b
+          xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent \
+            -configuration Debug -destination "id=$UDID" \
+            -only-testing:ZenAgentUITests/WorkspacePadAxisUITests \
+            -resultBundlePath "$RUNNER_TEMP/PadWorkspace.xcresult" \
+            2>&1 | tee "$RUNNER_TEMP/PadWorkspace.log"
+          if grep -Fq 'Restarting after unexpected exit, crash, or test timeout' "$RUNNER_TEMP/PadWorkspace.log"; then
+            echo '::error::iPad test host restarted'
+            exit 1
+          fi
+          if grep -Eiq 'Test Case .*WorkspacePadAxisUITests.*skipped' "$RUNNER_TEMP/PadWorkspace.log"; then
+            echo '::error::iPad regression was skipped'
+            exit 1
+          fi
+      - name: Upload iPad failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pad-workspace-failure
+          path: |
+            ${{ runner.temp }}/PadWorkspace.xcresult
+            ${{ runner.temp }}/PadWorkspace.log
+          retention-days: 7
+
   # -------------------------------------------------------------------------
   # Cheap, fast, and verifies two of Stage 0's completion criteria directly:
   #   - .xcodeproj is generated, not committed
@@ -254,7 +302,10 @@ jobs:
     name: Build and test
     needs: repo-hygiene
     runs-on: macos-26
-    timeout-minutes: 30
+    # FULL37317707058 passed all 954 Swift, 20 XCTest and 56 UI tests and
+    # printed TEST SUCCEEDED, but the 45-minute job deadline cancelled cleanup.
+    # This job headroom changes no per-test timeout, retry or suite selection.
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
 
@@ -317,11 +368,41 @@ jobs:
             exit 1
           fi
           echo "Using simulator $UDID"
+          xcrun simctl help bootstatus
+          xcrun simctl bootstatus "$UDID" -b
+          python3 -B .github/scripts/test_stage5_test_profile.py
+          TEST_SCOPE=$(python3 -B .github/scripts/stage5_test_profile.py)
+          TEST_ARGS=(test)
+          if [ "$TEST_SCOPE" = "review-red" ]; then
+            echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
+            TEST_ARGS+=(-only-testing:ZenAgentTests)
+          elif [ "$TEST_SCOPE" = "orientation-red" ]; then
+            echo "::notice::S5-11 test-only RED: app build, complete unit target, rotation and cross-owner Return receipts; full prior-slice gate is separate."
+            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/WorkspaceRotationUITests -only-testing:ZenAgentUITests/WorkspaceReturnReceiptUITests)
+          elif [ "$TEST_SCOPE" = "sidebar-red" ]; then
+            echo "::notice::S5-12 targeted Sidebar regression/diagnostics: complete unit target and native Sidebar UI; full product gate remains required."
+            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SidebarUITests)
+          elif [ "$TEST_SCOPE" = "search-red" ]; then
+            echo "::notice::S5-13 Search behavior RED/regressions: complete unit target and native Search UI; full product gate remains required."
+            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/ConversationSearchUITests)
+          elif [ "$TEST_SCOPE" = "files-red" ]; then
+            echo "::notice::S5-14 Files behavior RED/regressions: complete unit target and native Files UI; full product gate remains required."
+            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/FilesWorkspaceUITests)
+          elif [ "$TEST_SCOPE" = "settings-red" ]; then
+            echo "::notice::S5-15 Settings behavior RED/regressions: complete unit target and native Settings UI; full product gate remains required."
+            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SettingsUITests)
+          elif [ "$TEST_SCOPE" = "visuals-red" ]; then
+            echo "::notice::S5-16 native effect behavior RED/regressions: complete unit target and native Settings controls; full product gate remains required."
+            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SettingsUITests)
+          elif [ "$TEST_SCOPE" = "resize-diagnostic" ]; then
+            echo "::notice::Stage 5 resize diagnostics: all unit tests and SplitResize UI; full slice gate remains required."
+            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SplitResizeUITests)
+          fi
           touch "$RUNNER_TEMP/test-start.marker"
 
           set +e
           set -o pipefail
-          xcodebuild test \
+          xcodebuild "${TEST_ARGS[@]}" \
             -project ZenAgent.xcodeproj \
             -scheme ZenAgent \
             -configuration Debug \
@@ -668,6 +749,20 @@ jobs:
 
           cat "$SUMMARY"
 
+      - name: Export native failure attachments
+        if: failure()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          xcrun xcresulttool export attachments --help
+          if [ -d "$RUNNER_TEMP/ZenAgentTests.xcresult" ]; then
+            xcrun xcresulttool export attachments \
+              --path "$RUNNER_TEMP/ZenAgentTests.xcresult" \
+              --output-path "$RUNNER_TEMP/native-ui-attachments" \
+              2>&1 | tee "$RUNNER_TEMP/native-ui-attachments.log"
+          fi
+
       - name: Upload test results on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -676,6 +771,8 @@ jobs:
           path: |
             ${{ runner.temp }}/ZenAgentTests.xcresult
             ${{ runner.temp }}/ZenAgentTests.log
+            ${{ runner.temp }}/native-ui-attachments
+            ${{ runner.temp }}/native-ui-attachments.log
             ${{ runner.temp }}/test-start.marker
             ${{ runner.temp }}/xcresult-console.log
             ${{ runner.temp }}/xcresult-console.stderr

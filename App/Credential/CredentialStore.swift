@@ -193,15 +193,31 @@ struct CredentialStore: CredentialStoring {
                 generation: 1
             )
 
-            try metadataRepository.saveMetadata(
-                CredentialMetadata(
-                    reference: reference,
-                    bindingGeneration: 1,
-                    principalFingerprint: principalFingerprint,
-                    status: .active,
-                    updatedAt: now
+            do {
+                try metadataRepository.saveMetadata(
+                    CredentialMetadata(
+                        reference: reference,
+                        bindingGeneration: 1,
+                        principalFingerprint: principalFingerprint,
+                        status: .active,
+                        updatedAt: now
+                    )
                 )
-            )
+            } catch {
+                let publicationError = error
+                let published: CredentialMetadata?
+                do { published = try metadataRepository.loadMetadata(for: reference) }
+                catch { throw publicationError }
+                // The same reference lock excludes another credential writer.
+                // A repository may commit before throwing; unknown is not absent.
+                if published == nil {
+                    do { try secrets.delete(reference, generation: 1) }
+                    catch {
+                        throw CredentialError.failed(reference, underlying: "Fresh credential cleanup failed")
+                    }
+                }
+                throw publicationError
+            }
         }
     }
 

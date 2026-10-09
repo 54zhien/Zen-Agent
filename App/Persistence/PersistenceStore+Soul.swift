@@ -1,7 +1,21 @@
 import Foundation
 import GRDB
 
+struct SoulEditingSnapshot: Sendable {
+    let soul: SoulRecord?
+    let version: SoulVersionRecord?
+}
+
 extension PersistenceStore {
+    func soulEditingSnapshot() throws -> SoulEditingSnapshot {
+        try database.read { db in
+            let soul = try SoulRecord.fetchOne(db, key: SoulRecord.globalID)
+            let version = try soul.flatMap { try SoulVersionRecord.fetchOne(db, key: $0.currentVersionID) }
+            if soul != nil, version == nil { throw PersistenceError.soulNotFound }
+            return SoulEditingSnapshot(soul: soul, version: version)
+        }
+    }
+
     func createSoul(initialVersion: SoulVersionRecord, at now: Date) throws {
         do {
             try database.write { db in

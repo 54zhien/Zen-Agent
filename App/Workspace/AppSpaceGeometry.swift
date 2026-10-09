@@ -48,14 +48,12 @@ enum AppSpaceGeometry {
         let count = min(selected, 3)
         // Keep a positive rounding margin instead of relying on exact edge equality.
         let marginX = min(1, available.width * 0.001)
-        let marginY = min(1, available.height * 0.001)
         let stepX = count == 0 ? 0 : max(0, min(28, (frame.minX - safe.minX - marginX) / CGFloat(count)))
-        let stepY = count == 0 ? 0 : max(0, min(6, (frame.minY - safe.minY - marginY) / CGFloat(count)))
         let corner = min(24, min(width, height) * 0.1)
         let cards = (0...count).reversed().map { depth in
             let scale = 1 - CGFloat(depth) * 0.04
             return Placement(item: items[selected - depth],
-                frame: CGRect(x: frame.minX - stepX * CGFloat(depth), y: frame.minY - stepY * CGFloat(depth),
+                frame: CGRect(x: frame.minX - stepX * CGFloat(depth), y: frame.midY - height * scale / 2,
                               width: width * scale, height: height * scale),
                 depth: depth, cornerRadius: corner * scale)
         }

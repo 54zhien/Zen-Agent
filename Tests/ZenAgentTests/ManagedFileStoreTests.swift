@@ -343,6 +343,7 @@ struct ManagedFileStoreTests {
             try store.commitUserTurnAndCreateParentRun(commit)
         }
 
+        try store.finishRun(id: "run-one", state: .cancelled, endReason: .cancelledByUser)
         try store.beginDeletion(conversationID: "conversation-one")
         try store.finalizeDeletion(conversationID: "conversation-one")
 

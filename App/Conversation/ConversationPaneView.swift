@@ -1,5 +1,16 @@
 import SwiftUI
 
+private struct ConversationBottomNoticeKey: EnvironmentKey {
+    static var defaultValue: AnyView? { nil }
+}
+
+extension EnvironmentValues {
+    var conversationBottomNotice: AnyView? {
+        get { self[ConversationBottomNoticeKey.self] }
+        set { self[ConversationBottomNoticeKey.self] = newValue }
+    }
+}
+
 @MainActor
 struct ConversationPaneView: View {
     let pane: ConversationPaneController
@@ -8,20 +19,38 @@ struct ConversationPaneView: View {
     let maxProviderSteps: Int
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.conversationBottomNotice) private var bottomNotice
+    @Environment(\.workspaceNavigation) private var navigation
+    @Environment(\.workspaceComposerDock) private var dock
+    private let usesSharedComposer: Bool
+    private let reservesSharedComposer: Bool
     @State private var composerClearance: CGFloat = 62
     private let scrollBridge: ConversationPaneScrollBridge
+    private let onUserFocus: () -> Void
+    private let isActive: Bool
 
     init(
         pane: ConversationPaneController,
         runtime: ConversationRuntime,
         actionBridge: ComposerRuntimeActionBridge,
-        maxProviderSteps: Int
+        maxProviderSteps: Int,
+        isActive: Bool = true,
+        usesSharedComposer: Bool = false, reservesSharedComposer: Bool = false,
+        onUserFocus: @escaping () -> Void = {}
     ) {
         self.pane = pane
         self.runtime = runtime
         self.actionBridge = actionBridge
         self.maxProviderSteps = maxProviderSteps
         self.scrollBridge = pane.scrollBridge
+        self.isActive = isActive
+        self.usesSharedComposer = usesSharedComposer
+        self.reservesSharedComposer = reservesSharedComposer
+        self.onUserFocus = onUserFocus
+    }
+
+    private var bottomClearance: CGFloat {
+        usesSharedComposer ? (reservesSharedComposer ? dock?.clearance ?? 62 : 0) : composerClearance
     }
 
     var body: some View {
@@ -34,6 +63,7 @@ struct ConversationPaneView: View {
                     pane.liveStore.reconcilePendingToolApprovals(approvals)
                 },
                 onQuoteReference: { reference in
+                    onUserFocus()
                     _ = pane.composer.addQuoteReference(reference)
                 },
                 onQuoteDragPhaseChanged: { phase in
@@ -43,13 +73,15 @@ struct ConversationPaneView: View {
                     _ = pane.composer.handle(.selectionHandleDragChanged(isDragging))
                 },
                 onBlankBackgroundTap: {
-                    guard pane.composer.draft.presentationState == .editing,
+                    if !isActive { onUserFocus(); return }
+                    guard navigation?.blocksLift != true,
+                          pane.composer.draft.presentationState == .editing,
                           pane.composer.quoteDragPhase == .idle,
                           !pane.composer.isSelectionHandleDragging else { return }
                     _ = pane.composer.handle(.conversationBackgroundTapped)
                 },
                 scrollBridge: scrollBridge,
-                bottomComposerClearance: composerClearance
+                bottomComposerClearance: bottomClearance
             )
             .accessibilityIdentifier("conversation-pane-approval-\(pane.conversationID)")
 
@@ -66,8 +98,11 @@ struct ConversationPaneView: View {
                 },
                 onKeyboardWillChange: {
                     scrollBridge.composerKeyboardWillChange()
-                }
+                },
+                onUserFocus: onUserFocus
             )
+            .environment(\.composerUsesWorkspaceDock, usesSharedComposer)
+            .environment(\.composerIsActivePane, isActive)
             .id(ObjectIdentifier(pane.composer))
             .accessibilityIdentifier("conversation-pane-composer-\(pane.conversationID)")
         }
@@ -83,10 +118,20 @@ struct ConversationPaneView: View {
                     for: .interfaceCaption,
                     dynamicTypeSize: dynamicTypeSize
                 ))
-                .padding(.bottom, 96)
+                .padding(.bottom, bottomClearance + 24)
             }
         }
         .accessibilityIdentifier("conversation-pane-\(pane.conversationID)")
+        .overlay(alignment: .bottom) {
+            // Workspace notices share this Pane's keyboard-adjusted viewport
+            // and the measured Composer clearance, including its quote shelf.
+            bottomNotice
+                .padding(.bottom, bottomClearance + 8)
+        }
+        .simultaneousGesture(TapGesture().onEnded {
+            if !isActive, navigation?.blocksLift != true { onUserFocus() }
+        })
+        .onChange(of: bottomClearance) { _, _ in scrollBridge.composerHeightWillChange() }
         .task {
             do {
                 try await pane.refreshPendingApprovals(using: runtime)

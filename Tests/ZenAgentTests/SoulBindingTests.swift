@@ -108,6 +108,7 @@ struct SoulBindingTests {
         try store.createSoul(initialVersion: version("v1", "Original"), at: Fixtures.epoch)
         try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
 
+        try store.finishRun(id: "r1", state: .cancelled, endReason: .cancelledByUser)
         try store.beginDeletion(conversationID: "c1")
         #expect(try store.boundSoulVersion(conversationID: "c1")?.id == "v1")
         try store.undoDeletion(conversationID: "c1")

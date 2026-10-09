@@ -100,6 +100,7 @@ struct FileAssetPersistenceTests {
         commit.attachments = [attachment()]
         try store.commitUserTurnAndCreateParentRun(commit)
 
+        try store.finishRun(id: "r1", state: .cancelled, endReason: .cancelledByUser)
         try store.beginDeletion(conversationID: "c1")
         try store.finalizeDeletion(conversationID: "c1")
 

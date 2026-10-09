@@ -17,8 +17,8 @@ struct SurfaceLiftEligibility: Equatable, Sendable {
 }
 
 struct SurfaceLiftState: Equatable, Sendable {
-    enum Phase: Equatable, Sendable { case full, armed, lifting, settling, card }
-    enum Destination: Equatable, Sendable { case full, card }
+    enum Phase: Equatable, Sendable { case full, armed, lifting, settling, card, split }
+    enum Destination: Equatable, Sendable { case full, card, split }
     struct Settlement: Equatable, Sendable {
         let identity: UUID
         let destination: Destination
@@ -60,9 +60,14 @@ struct SurfaceLiftState: Equatable, Sendable {
         return settle(toward: !cancelled && progress >= 0.5 ? .card : .full)
     }
 
+    mutating func endForSplit() -> Settlement? {
+        guard phase == .lifting else { return nil }
+        return settle(toward: .split)
+    }
+
     mutating func requestReturn(visibleProgress: Double? = nil) -> Settlement? {
         if let visibleProgress, !visibleProgress.isFinite { return nil }
-        guard phase == .card || phase == .settling || phase == .lifting else { return nil }
+        guard phase == .card || phase == .split || phase == .settling || phase == .lifting else { return nil }
         // UIKit captures the actual visible position before stopping an animator;
         // its model endpoint may already be Card while pixels are still in transit.
         if let visibleProgress { progress = min(1, max(0, visibleProgress)) }
@@ -75,8 +80,12 @@ struct SurfaceLiftState: Equatable, Sendable {
             interrupt()
             return true
         }
-        progress = settlement.destination == .card ? 1 : 0
-        phase = settlement.destination == .card ? .card : .full
+        progress = settlement.destination == .full ? 0 : 1
+        switch settlement.destination {
+        case .full: phase = .full
+        case .card: phase = .card
+        case .split: phase = .split
+        }
         pendingSettlement = nil
         return true
     }

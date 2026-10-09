@@ -11,6 +11,9 @@ name: ZenAgent
 options:
   bundleIdPrefix: com.zhien.zen
   createIntermediateGroups: true
+  fileTypes:
+    icon:
+      file: true
   # NOTE: deployment targets deliberately live in Config/Common.xcconfig, not here.
   # Build settings written into the project file override xcconfig values, so
   # declaring them in both places would silently make the xcconfig non-authoritative.
@@ -48,6 +51,11 @@ targets:
       # flat in the bundle root — which is what makes the bare-file-name
       # `UIAppFonts` entries below correct rather than merely convenient.
       - path: Resources/Fonts
+        buildPhase: resources
+      - path: Resources/Licenses
+        buildPhase: resources
+      - path: Resources/zen.icon
+        type: file
         buildPhase: resources
     dependencies:
       # The production persistence layer. Confined to App/Persistence/ and enforced

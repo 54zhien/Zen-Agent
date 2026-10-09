@@ -14,10 +14,10 @@ struct AppShellRootView: View {
                 ProgressView("正在打开会话数据")
                     .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
             case .ready:
-                WorkspaceSurfaceView(model: model) {
-                    NewConversationView(model: model)
-                }
-                .ignoresSafeArea()
+                WorkspaceSurfaceView(model: model, contentForSlot: { slot in
+                    NewConversationView(model: model, surfaceSlot: slot)
+                })
+                .ignoresSafeArea(.container)
             case .failed(let failure):
                 VStack(spacing: 16) {
                     Text(failure.title)
@@ -35,6 +35,7 @@ struct AppShellRootView: View {
         .task {
             model.assembleIfNeeded()
         }
+        .preferredColorScheme(model.appearance.appearance.colorScheme)
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background:
@@ -53,23 +54,54 @@ struct AppShellRootView: View {
 @MainActor
 struct NewConversationView: View {
     let model: AppShellModel
+    var surfaceSlot: WorkspaceSurfaceSlot = .primary
+
+    private var isSource: Bool { surfaceSlot == model.sourceSurfaceSlot }
+    private var presentedPane: ConversationPaneController? { isSource ? model.pane : model.splitPane }
+    private var presentedBridge: ComposerRuntimeActionBridge? { isSource ? model.actionBridge : model.splitActionBridge }
+    private var presentedID: String { presentedPane?.conversationID ?? model.conversationID }
+    private var logicalSlot: SplitDropSlot? {
+        guard let split = model.splitWorkspace else { return nil }
+        return isSource ? split.sourceSlot : split.emptySlot
+    }
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var isProviderSetupPresented = false
     @State private var isRecentConversationsPresented = false
     @State private var historyAction: Task<Void, Never>?
+    @State private var recentOpenFailure: RecentConversationOpenFailure?
+    @State private var recentOpenGeneration = UUID()
+    @State private var recentOpenTarget: String?
     @Environment(\.surfaceLiftController) private var lift
+    @Environment(\.surfaceBrowseController) private var browse
+    @Environment(\.workspaceNavigation) private var workspaceNavigation
+    @Environment(\.workspaceComposerDock) private var composerDock
 
     var body: some View {
         Group {
-            if model.previewContent.isPresented {
+            if model.previewContent.isPresented,
+               model.previewSurfaceSlot == surfaceSlot {
                 ConversationPreviewView(
-                    summary: model.previewContent.summaries.first { $0.id == model.conversationID },
-                    status: model.previewContent.status)
+                    summary: browse?.isPresented == true ? browse?.currentSummary : model.previewContent.currentSummary,
+                    status: model.appSpaceActionError(for: browse?.selectedConversationID).map { .failed($0) } ?? (browse?.isPresented == true
+                        ? model.previewContent.status(for: browse?.selectedConversationID,
+                            summary: browse?.currentSummary, summaryError: browse?.errorMessage)
+                        : model.previewContent.status),
+                    isNewEntry: browse?.isNewEntry == true)
             } else {
                 fullContent
             }
         }
-        .onChange(of: model.conversationID) { _, _ in lift?.resetForConversationChange() }
+        .accessibilityIdentifier(isSource ? "workspace-source-pane" : "split-secondary-pane")
+        .onChange(of: presentedID) { _, _ in
+            if isRecentConversationsPresented, presentedID != recentOpenTarget {
+                invalidateRecentOpen()
+            }
+            // Selected Full commits at the existing late handoff. Cancelling here
+            // would interrupt the second segment of that same Surface.
+            if lift?.state.phase == .settling, lift?.state.pendingSettlement?.destination == .full,
+               model.previewHandoffID == presentedID { return }
+            lift?.resetForConversationChange()
+        }
         .onChange(of: model.previewContent.isPresented) { _, presented in
             // Directly opening the current Card has no identity change. Normal
             // animated Return is already settling and must finish its late segment.
@@ -80,14 +112,22 @@ struct NewConversationView: View {
     private var fullContent: some View {
         NavigationStack {
             Group {
-                if let pane = model.pane,
-                   let bridge = model.actionBridge,
+                if let pane = presentedPane,
+                   let bridge = presentedBridge,
                    let runtime = model.runtimeForPresentation {
                     ConversationPaneView(
                         pane: pane,
                         runtime: runtime,
                         actionBridge: bridge,
-                        maxProviderSteps: AppShellModel.maxProviderSteps
+                        maxProviderSteps: AppShellModel.maxProviderSteps,
+                        isActive: isActivePane,
+                        usesSharedComposer: model.splitWorkspace != nil,
+                        reservesSharedComposer: reservesSharedComposer,
+                        onUserFocus: {
+                            guard lift?.state.phase == .full, lift?.workspaceResizeActive != true,
+                                  workspaceNavigation?.blocksLift != true else { return }
+                            if let logicalSlot { model.selectSplitSlot(logicalSlot) }
+                        }
                     )
                     // Native scroll geometry belongs to this Conversation's Pane.
                     // Async Open must not reuse the outgoing empty page's measurements.
@@ -106,7 +146,7 @@ struct NewConversationView: View {
                                 dynamicTypeSize: dynamicTypeSize
                             ))
                     } actions: {
-                        Button("配置模型") { isProviderSetupPresented = true }
+                        Text("从屏幕左边缘滑出侧边栏，在设置中配置模型。")
                             .font(Typography.font(
                                 for: .interfaceBody,
                                 dynamicTypeSize: dynamicTypeSize
@@ -114,40 +154,7 @@ struct NewConversationView: View {
                     }
                 }
             }
-            .navigationTitle("新会话")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("新会话") { model.newConversation() }
-                        .font(Typography.font(
-                            for: .interfaceBody,
-                            dynamicTypeSize: dynamicTypeSize
-                        ))
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 16) {
-                        if !model.recentConversations.isEmpty || model.recentLoadError != nil {
-                            Button {
-                                isRecentConversationsPresented = true
-                            } label: {
-                                Image(systemName: "clock.arrow.circlepath")
-                            }
-                            .font(Typography.font(
-                                for: .interfaceBody,
-                                dynamicTypeSize: dynamicTypeSize
-                            ))
-                            .accessibilityLabel("最近会话")
-                            .accessibilityIdentifier("new-conversation-recent")
-                        }
-
-                        Button("配置模型") { isProviderSetupPresented = true }
-                            .font(Typography.font(
-                                for: .interfaceBody,
-                                dynamicTypeSize: dynamicTypeSize
-                            ))
-                            .accessibilityIdentifier("new-conversation-configure")
-                    }
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
             .overlay(alignment: .top) {
                 if let message = model.previewContent.errorMessage {
                     Text(message)
@@ -162,7 +169,7 @@ struct NewConversationView: View {
                     .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
                     .padding()
                     .background(.regularMaterial)
-                } else if let message = model.router.recoveryMessage(for: model.conversationID) {
+                } else if let message = model.router.recoveryMessage(for: presentedID) {
                     HStack(spacing: 12) {
                         Text(message)
                             .font(Typography.font(
@@ -172,7 +179,7 @@ struct NewConversationView: View {
                         Button("重试加载") {
                             historyAction?.cancel()
                             historyAction = Task {
-                                _ = await model.router.retryTimelineLoad(for: model.conversationID)
+                                _ = await model.router.retryTimelineLoad(for: presentedID)
                             }
                         }
                         .font(Typography.font(
@@ -215,19 +222,14 @@ struct NewConversationView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityIdentifier("recent-conversation-\(conversation.id)")
+                        .accessibilityIdentifier(isSource ? "recent-conversation-\(conversation.id)" : "split-recent-\(conversation.id)")
                     }
-                    if let error = model.recentLoadError {
+                    if let error = model.recentListingError {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(error)
                                 .foregroundStyle(.secondary)
-                            if let failure = model.recentOpenFailure {
-                                Button("重试打开") { openRecentConversation(id: failure.conversationID) }
-                                    .accessibilityIdentifier("recent-conversation-open-retry")
-                            } else {
-                                Button("重试") { model.retryRecentConversations() }
-                                    .accessibilityIdentifier("recent-conversations-retry")
-                            }
+                            Button("重试") { model.retryRecentConversations() }
+                                .accessibilityIdentifier("recent-conversations-retry")
                         }
                         .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
                     } else if model.recentHasMore {
@@ -237,6 +239,20 @@ struct NewConversationView: View {
                     }
                 }
                 .listStyle(.plain)
+                .safeAreaInset(edge: .top) {
+                    if let failure = recentOpenFailure {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(failure.message)
+                                .accessibilityIdentifier("recent-conversation-open-error")
+                            Button("重试打开") { openRecentConversation(id: failure.conversationID) }
+                                .accessibilityIdentifier("recent-conversation-open-retry")
+                        }
+                        .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        .background(.regularMaterial)
+                    }
+                }
                 .navigationTitle("最近会话")
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -253,22 +269,108 @@ struct NewConversationView: View {
             lift?.setOverlayPresented(presented)
         }
         .onChange(of: isRecentConversationsPresented) { _, presented in
-            if !presented { historyAction?.cancel(); historyAction = nil }
+            if presented {
+                recentOpenGeneration = UUID()
+                recentOpenFailure = nil
+                recentOpenTarget = nil
+            } else {
+                invalidateRecentOpen()
+            }
         }
-        .onDisappear { historyAction?.cancel(); historyAction = nil }
+        .onChange(of: model.splitWorkspace?.arrangementID) { _, _ in
+            if isRecentConversationsPresented { invalidateRecentOpen() }
+        }
+        .onDisappear { invalidateRecentOpen() }
+        .onAppear { publishSidebarActions() }
+        .onChange(of: isActivePane ? presentedID : nil) { _, _ in publishSidebarActions() }
+        .onChange(of: sidebarActions) { _, _ in publishSidebarActions() }
 
     }
 
+    private var isActivePane: Bool {
+        model.splitWorkspace == nil ? isSource : model.splitWorkspace?.activeSlot == logicalSlot
+    }
+    private var reservesSharedComposer: Bool {
+        let landscapeSingle = composerDock.map { !$0.isPad && $0.windowSize.width > $0.windowSize.height } ?? false
+        return landscapeSingle || model.splitWorkspace?.axis == .leftRight || logicalSlot == .bottom
+    }
+    private var sidebarActions: Set<WorkspaceConversationAction> {
+        var result: Set<WorkspaceConversationAction> = [.new]
+        if !model.recentConversations.isEmpty || model.recentListingError != nil { result.insert(.recent) }
+        if model.splitWorkspace == nil, canOpenAccessibleSplit { result.formUnion([.splitTop, .splitBottom]) }
+        if isSource, model.currentSettingsNewID == presentedID { result.insert(.configure) }
+        return result
+    }
+    private func publishSidebarActions() {
+        guard isActivePane, let workspaceNavigation else { return }
+        let ownerID = presentedID
+        workspaceNavigation.conversationActions = sidebarActions
+        workspaceNavigation.onConversationAction = { action in
+            guard isActivePane, presentedID == ownerID, !model.previewContent.isPresented else { return }
+            switch action {
+            case .new:
+                if isSource { model.newConversation() } else { _ = model.createNewInSplit() }
+            case .recent: isRecentConversationsPresented = true
+            case .splitTop: openAccessibleSplit(.top)
+            case .splitBottom: openAccessibleSplit(.bottom)
+            case .configure: configureNew()
+            }
+        }
+    }
+
+    private func configureNew() {
+        if let workspaceNavigation { workspaceNavigation.onConfigureNew?(presentedID) }
+        else { isProviderSetupPresented = true }
+    }
+
     private func openRecentConversation(id: String) {
-        historyAction?.cancel()
+        invalidateRecentOpen()
+        let generation = recentOpenGeneration
+        let ownerID = presentedID
+        let opensSource = isSource || id == model.conversationID
+        recentOpenTarget = id
         historyAction = Task {
-            let opened = await model.openConversation(id: id)
-            guard !Task.isCancelled, isRecentConversationsPresented else { return }
-            if opened {
+            let outcome = opensSource
+                ? await model.openConversationResult(id: id) : await model.openInSplitResult(id: id)
+            // Successful replacement intentionally changes B to C before this
+            // result returns. Other owner changes must discard older feedback.
+            guard !Task.isCancelled, isRecentConversationsPresented, recentOpenGeneration == generation,
+                  presentedID == ownerID || (outcome.isOpened && presentedID == id) else { return }
+            recentOpenTarget = nil
+            historyAction = nil
+            switch outcome {
+            case .opened:
+                recentOpenFailure = nil
                 isRecentConversationsPresented = false
-            } else if let failure = model.recentOpenFailure, failure.conversationID == id {
+            case .cancelled:
+                recentOpenFailure = nil
+            case .failed(let failure):
+                guard failure.conversationID == id else { return }
+                recentOpenFailure = failure
                 UIAccessibility.post(notification: .announcement, argument: failure.message)
             }
+        }
+    }
+
+    private func invalidateRecentOpen() {
+        recentOpenGeneration = UUID()
+        historyAction?.cancel()
+        historyAction = nil
+        recentOpenTarget = nil
+        recentOpenFailure = nil
+    }
+
+    private var canOpenAccessibleSplit: Bool {
+        guard let pane = model.pane, lift?.state.phase == .full else { return false }
+        return pane.composer.canBeginSurfaceLift(
+            keyboardVisible: pane.composer.draft.presentationState == .editing,
+            stableBottomAnchor: true)
+    }
+
+    private func openAccessibleSplit(_ slot: SplitDropSlot) {
+        guard canOpenAccessibleSplit else { return }
+        withAnimation(.easeOut(duration: 0.12)) {
+            _ = model.commitSplitDrop(SplitDropIntent(conversationID: model.conversationID, slot: slot))
         }
     }
 

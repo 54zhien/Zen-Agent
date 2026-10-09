@@ -318,6 +318,7 @@ final class ProviderSetupModel {
 @MainActor
 struct ProviderSetupView: View {
     @Bindable var model: ProviderSetupModel
+    var settingsFocus: SettingsInputFocus? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.dismiss) private var dismiss
 
@@ -339,22 +340,35 @@ struct ProviderSetupView: View {
                 }
 
                 Section("API Key") {
-                    SecureField("DeepSeek API Key", text: $model.apiKey)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
+                    if let settingsFocus {
+                        SettingsTextField(text: $model.apiKey, title: "DeepSeek API Key", focus: settingsFocus,
+                            secure: true, identifier: "DeepSeek API Key")
+                    } else {
+                        SecureField("DeepSeek API Key", text: $model.apiKey)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
                 }
 
                 Section("保存状态") {
                     Text(model.statusLabel)
+                        .accessibilityIdentifier("provider-setup-status")
                     if let errorMessage = model.errorMessage {
                         Text(errorMessage)
                             .foregroundStyle(.red)
                             .accessibilityIdentifier("provider-setup-error")
                     }
-                    Button(model.isComplete ? "配置完成" : "保存配置") {
+                    Button {
                         _ = model.save()
+                    } label: {
+                        // Form exposes the full row as the button's AX frame.
+                        // Its native center must activate Save, including after keyboard scrolling.
+                        Text(model.isComplete ? "配置完成" : "保存配置")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                     }
-                    .disabled(model.isSaving || model.isComplete || model.models.isEmpty)
+                    .accessibilityIdentifier("provider-setup-save")
+                    .disabled(model.isSaving || model.isComplete || model.models.isEmpty || settingsFocus?.hasMarkedText == true)
                     if model.canAbandonAndCreateNew {
                         Button("放弃本次并新建", role: .destructive) {
                             model.startNewAttempt()
@@ -366,9 +380,14 @@ struct ProviderSetupView: View {
             .navigationTitle("配置模型")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") { dismiss() }
+                    Button("关闭") {
+                        if let settingsFocus { settingsFocus.release { dismiss() } }
+                        else { dismiss() }
+                    }.disabled(settingsFocus?.hasMarkedText == true)
+                        .accessibilityIdentifier("provider-setup-close")
                 }
             }
         }
+        .onDisappear { model.apiKey = "" }
     }
 }

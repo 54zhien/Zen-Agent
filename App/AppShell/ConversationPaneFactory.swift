@@ -54,6 +54,11 @@ struct ConversationPaneFactory {
                 return ConversationComposerConfiguration(
                     providerInstanceID: seed.providerInstanceID, modelID: seed.modelID)
             }
+            if snapshot?.messages.isEmpty == true, snapshot?.runs.isEmpty == true,
+               let binding = try dependencies.store.conversationInitialBinding(id: id),
+               let instanceID = binding.providerInstanceID, let modelID = binding.modelID {
+                return ConversationComposerConfiguration(providerInstanceID: instanceID, modelID: modelID)
+            }
         } else {
             return target.map {
                 ConversationComposerConfiguration(providerInstanceID: $0.providerInstanceID, modelID: $0.modelID)
@@ -64,17 +69,8 @@ struct ConversationPaneFactory {
 
     static func availability(for configuration: ConversationComposerConfiguration?,
                               in dependencies: AppAssembly.Dependencies) -> ComposerSendAvailability {
-        guard let configuration else { return .unconfigured }
-        do {
-            _ = try AppAssembly.validateTarget(providerInstanceID: configuration.providerInstanceID,
-                modelID: configuration.modelID, store: dependencies.store,
-                provider: dependencies.provider, credentials: dependencies.credentials)
-            return .ready
-        } catch let failure as AppTargetFailure {
-            return .unavailable(failure.message)
-        } catch {
-            return .unavailable(AppTargetFailure.configurationUnavailable.message)
-        }
+        AppShellConfiguration.availability(for: configuration, store: dependencies.store,
+            provider: dependencies.provider, credentials: dependencies.credentials)
     }
 
 }

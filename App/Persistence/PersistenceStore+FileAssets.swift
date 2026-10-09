@@ -5,7 +5,8 @@ extension PersistenceStore {
 
     func createFileAsset(
         _ asset: FileAssetRecord,
-        initialVersion: FileAssetVersionRecord
+        initialVersion: FileAssetVersionRecord,
+        checkCancellation: @Sendable () throws -> Void = {}
     ) throws {
         guard initialVersion.assetID == asset.id,
               asset.currentVersionID == initialVersion.id
@@ -18,14 +19,36 @@ extension PersistenceStore {
 
         do {
             try database.write { db in
+                try checkCancellation()
                 try asset.insert(db)
                 try initialVersion.insert(db)
+                try checkCancellation()
             }
         } catch let error as PersistenceError {
             throw error
         } catch let error as DatabaseError
             where error.resultCode == .SQLITE_CONSTRAINT {
             throw PersistenceError.constraintViolation
+        }
+    }
+
+    /// Durable references include historical versions and pending-deletion Conversations.
+    func removeFileAssetIfUnreferenced(id: String, checkCancellation: @Sendable () throws -> Void = {}) throws -> Bool {
+        do {
+            return try database.write { db in
+                try checkCancellation()
+                let references = try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM messageAttachment
+                    WHERE assetID = ? OR versionID IN (
+                        SELECT id FROM fileAssetVersion WHERE assetID = ?)
+                    """, arguments: [id, id]) ?? 0
+                guard references == 0 else { return false }
+                let removed = try FileAssetRecord.deleteOne(db, key: id)
+                try checkCancellation()
+                return removed
+            }
+        } catch let error as DatabaseError where error.resultCode == .SQLITE_CONSTRAINT {
+            return false
         }
     }
 

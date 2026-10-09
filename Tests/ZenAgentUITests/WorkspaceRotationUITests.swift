@@ -1,0 +1,167 @@
+import XCTest
+
+final class WorkspaceRotationUITests: XCTestCase {
+    @MainActor
+    func testLandscapeEditsBelongToTheLastActivePaneAndPortraitRestoresBoth() {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = occupiedSplit()
+        let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        let secondary = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch
+        let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        let secondaryProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
+        app.activateWorkspacePane("preview-ui-11")
+        let input = app.textViews["conversation-composer-input"]
+        input.tap(); input.typeText("source portrait draft")
+        dismissKeyboard(app, pane: source, editor: input, probe: sourceProbe)
+        app.activateWorkspacePane("preview-ui-10")
+        input.tap(); input.typeText("secondary portrait draft")
+        XCTAssertTrue(source.exists && secondary.exists)
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+        XCTAssertTrue(app.descendants(matching: .any)["split-divider"].exists)
+        dismissKeyboard(app, pane: secondary, editor: input, probe: secondaryProbe)
+        let sourceHeight = source.frame.height
+        let secondaryHeight = secondary.frame.height
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        expect { app.frame.width > app.frame.height }
+        expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
+        XCTAssertTrue(secondary.exists && input.isHittable)
+        XCTAssertFalse(source.exists)
+        input.tap(); input.typeText(" landscape edit")
+        dismissKeyboard(app, pane: secondary, editor: input, probe: secondaryProbe)
+
+        XCUIDevice.shared.orientation = .portrait
+        expect { source.exists && secondary.exists }
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+        XCTAssertTrue((input.value as? String)?.contains("secondary portrait draft landscape edit") == true)
+        app.activateWorkspacePane("preview-ui-11")
+        expect { (input.value as? String) == "source portrait draft" }
+        app.activateWorkspacePane("preview-ui-10")
+        expect { (input.value as? String) == "secondary portrait draft landscape edit" }
+        XCTAssertEqual(source.frame.height, sourceHeight, accuracy: 3)
+        XCTAssertEqual(secondary.frame.height, secondaryHeight, accuracy: 3)
+    }
+
+    @MainActor
+    func testLandscapeCardStackReturnsToTheSelectedExistingPaneWithoutDuplicatingIt() {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = occupiedSplit()
+        let originProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
+        expect { (originProbe.value as? String)?.contains("liftReady=true;") == true }
+        let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
+        let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
+        let card = app.descendants(matching: .any)["workspace-current-card"]
+        expect { card.exists && card.label.contains("Workspace conversation 10") }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        expect { app.frame.width > app.frame.height && card.exists }
+        XCTAssertTrue(card.label.contains("Workspace conversation 10"))
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
+        XCTAssertTrue(app.frame.contains(card.frame))
+        card.swipeLeft()
+        expect { card.label.contains("Workspace conversation 11") }
+        card.tap()
+        expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
+        let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        XCTAssertTrue(source.exists && app.textViews["conversation-composer-input"].isHittable)
+
+        XCUIDevice.shared.orientation = .portrait
+        expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
+        XCTAssertTrue(source.exists)
+        XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch.exists)
+    }
+
+    @MainActor
+    private func occupiedSplit() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launch()
+        app.openWorkspaceSidebar()
+        let entry = app.buttons["split-entry"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 15))
+        entry.tap()
+        let action = app.buttons["split-open-top"]
+        XCTAssertTrue(action.waitForExistence(timeout: 5))
+        XCTAssertTrue(action.wait(for: \.isHittable, toEqual: true, timeout: 5))
+        print("ROTATION_SPLIT_ACTION frame=\(action.frame),enabled=\(action.isEnabled),hittable=\(action.isHittable)")
+        action.tap()
+        let history = app.buttons["split-history-preview-ui-10"]
+        guard history.waitForExistence(timeout: 10) else {
+            let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+            XCTFail("Split picker did not appear after the hittable menu action. Native receipt: \(String(describing: probe.value)); hierarchy: \(app.debugDescription)")
+            return app
+        }
+        history.tap()
+        XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch.waitForExistence(timeout: 10))
+        expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
+        return app
+    }
+
+    @MainActor
+    private func dismissKeyboard(_ app: XCUIApplication, pane: XCUIElement, editor: XCUIElement, probe: XCUIElement) {
+        guard let readable = timelineFrame(probe.value as? String), readable.height > 0 else {
+            XCTFail("Editing requires a measured native Timeline viewport")
+            return
+        }
+        let point = CGPoint(x: readable.maxX - 8,
+            y: min(readable.maxY - 8, max(readable.minY + 8, editor.frame.minY - 30)))
+        XCTAssertTrue(readable.contains(point))
+        XCTAssertTrue(pane.frame.contains(point))
+        XCTAssertLessThan(point.y, app.keyboards.firstMatch.frame.minY)
+        print("ROTATION_BLANK point=\(point) readable=\(readable) before=\(String(describing: probe.value))")
+        guard let previous = blankTapSequence(probe.value as? String) else {
+            XCTFail("Expected an actual Timeline tap sequence")
+            return
+        }
+        app.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY)).tap()
+        expect { !app.keyboards.firstMatch.exists
+            && (self.blankTapSequence(probe.value as? String) ?? previous) > previous }
+        XCTAssertTrue((probe.value as? String)?.contains(";blank=true;") == true,
+            "The actual Timeline must classify this touch as blank background")
+        print("ROTATION_BLANK after=\(String(describing: probe.value))")
+    }
+
+    private func timelineFrame(_ diagnostic: String?) -> CGRect? {
+        guard let field = diagnostic?.split(separator: ";").first(where: { $0.hasPrefix("timelineVisibleFrame=(") }) else { return nil }
+        let values = field.dropFirst("timelineVisibleFrame=(".count).dropLast().split(separator: ",").compactMap {
+            Double($0.trimmingCharacters(in: .whitespaces))
+        }
+        guard values.count == 4 else { return nil }
+        return CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
+    }
+
+    private func blankTapSequence(_ diagnostic: String?) -> UInt64? {
+        diagnostic?.split(separator: ";").first { $0.hasPrefix("blankTapSequence=") }
+            .flatMap { UInt64($0.dropFirst("blankTapSequence=".count)) }
+    }
+
+    private func editorPoint(_ diagnostic: String?) -> CGPoint? {
+        guard let field = diagnostic?.split(separator: ";").first(where: { $0.hasPrefix("point=(") }) else { return nil }
+        let values = field.dropFirst(7).dropLast().split(separator: ",").compactMap {
+            Double($0.trimmingCharacters(in: .whitespaces))
+        }
+        guard values.count == 2 else { return nil }
+        return CGPoint(x: values[0], y: values[1])
+    }
+
+    @MainActor
+    private func editor(in app: XCUIApplication, containing draft: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier == %@ AND (value CONTAINS %@ OR label CONTAINS %@)",
+            "conversation-composer-input", draft, draft)).firstMatch
+    }
+
+    private func editorTextLength(_ diagnostic: String?) -> Int? {
+        diagnostic?.split(separator: ";").first { $0.hasPrefix("editorTextLength=") }
+            .flatMap { Int($0.dropFirst("editorTextLength=".count)) }
+    }
+
+    @MainActor
+    private func expect(_ condition: @escaping () -> Bool, file: StaticString = #filePath, line: UInt = #line) {
+        let pending = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [pending], timeout: 10), .completed, file: file, line: line)
+    }
+}

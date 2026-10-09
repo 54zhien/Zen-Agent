@@ -1,6 +1,11 @@
 import Foundation
 import GRDB
 
+struct PendingCardDeletion: Equatable, Sendable {
+    let conversationID: String
+    let deadline: Date
+}
+
 /// The conversation deletion lifecycle.
 ///
 ///     visible → pendingDeletion → (undo → visible | finalize → finalizedDeletion)
@@ -9,6 +14,103 @@ import GRDB
 /// conversation is gone from ordinary listing but its body is entirely intact. Undo
 /// that returns an empty shell is the failure this shape exists to make impossible.
 extension PersistenceStore {
+    static let cardUndoWindow: TimeInterval = 10
+
+    func beginCardDeletion(conversationID: String, at now: Date = Date()) throws -> PendingCardDeletion {
+        let pending = PendingCardDeletion(conversationID: conversationID,
+            deadline: now.addingTimeInterval(Self.cardUndoWindow))
+        try beginDeletion(conversationID: conversationID, at: now, deadline: pending.deadline)
+        return pending
+    }
+
+    func pendingCardDeletion(id: String) throws -> PendingCardDeletion? {
+        try database.read { db in
+            guard let deadline = try Date.fetchOne(db, sql: """
+                SELECT deletion.deadlineAt FROM conversationDeletionDeadline AS deletion
+                JOIN conversation ON conversation.id = deletion.conversationID
+                WHERE deletion.conversationID = ? AND conversation.lifecycle = ?
+                """, arguments: [id, ConversationLifecycle.pendingDeletion.rawValue]) else { return nil }
+            return PendingCardDeletion(conversationID: id, deadline: deadline)
+        }
+    }
+
+    /// Keyset page for cold-start expiry recovery. Only intent metadata crosses
+    /// this boundary; no Message, Part, or file body is materialized.
+    func pendingCardDeletionPage(after cursor: PendingCardDeletion? = nil,
+                                 limit: Int = 50) throws -> [PendingCardDeletion] {
+        try database.read { db in
+            let count = min(50, max(1, limit))
+            let rows: [Row]
+            if let cursor {
+                rows = try Row.fetchAll(db, sql: """
+                    SELECT deletion.conversationID, deletion.deadlineAt
+                    FROM conversationDeletionDeadline AS deletion
+                    JOIN conversation ON conversation.id = deletion.conversationID
+                    WHERE conversation.lifecycle = ?
+                      AND (deletion.deadlineAt > ? OR
+                           (deletion.deadlineAt = ? AND deletion.conversationID > ?))
+                    ORDER BY deletion.deadlineAt, deletion.conversationID LIMIT ?
+                    """, arguments: [ConversationLifecycle.pendingDeletion.rawValue,
+                        cursor.deadline, cursor.deadline, cursor.conversationID, count])
+            } else {
+                rows = try Row.fetchAll(db, sql: """
+                    SELECT deletion.conversationID, deletion.deadlineAt
+                    FROM conversationDeletionDeadline AS deletion
+                    JOIN conversation ON conversation.id = deletion.conversationID
+                    WHERE conversation.lifecycle = ?
+                    ORDER BY deletion.deadlineAt, deletion.conversationID LIMIT ?
+                    """, arguments: [ConversationLifecycle.pendingDeletion.rawValue, count])
+            }
+            return rows.map { PendingCardDeletion(conversationID: $0["conversationID"],
+                deadline: $0["deadlineAt"]) }
+        }
+    }
+
+    func undoCardDeletion(conversationID: String, at now: Date = Date()) throws {
+        try database.write { db in
+            try undoDeletion(conversationID: conversationID, at: now,
+                requiresCardIntent: true, in: db)
+        }
+    }
+
+    /// The UI may use this only while it still owns the original continuous
+    /// timer, or after a recovered item receives an explicit restore choice.
+    /// A wall-clock jump must not turn a live Undo into a refused transaction.
+    func restoreCardDeletionWithoutWallDeadline(conversationID: String,
+                                                at now: Date = Date()) throws {
+        try database.write { db in
+            try undoDeletion(conversationID: conversationID, at: now,
+                requiresCardIntent: true, ignoreCardDeadline: true, in: db)
+        }
+    }
+
+    /// Explicit recovery choice. Both the Card intent and pending lifecycle are
+    /// checked in the same transaction that removes the body.
+    func confirmRecoveredCardDeletion(conversationID: String, at now: Date = Date()) throws {
+        try database.write { db in
+            guard try Date.fetchOne(db, sql: """
+                SELECT deletion.deadlineAt FROM conversationDeletionDeadline AS deletion
+                JOIN conversation ON conversation.id = deletion.conversationID
+                WHERE deletion.conversationID = ? AND conversation.lifecycle = ?
+                """, arguments: [conversationID, ConversationLifecycle.pendingDeletion.rawValue]) != nil else {
+                throw PersistenceError.invalidTransition("No recovered Card Delete to confirm")
+            }
+            try finalizeDeletion(conversationID: conversationID, at: now, in: db)
+        }
+    }
+
+    func finalizeExpiredCardDeletion(conversationID: String, at now: Date = Date()) throws -> Bool {
+        try database.write { db in
+            guard let deadline = try Date.fetchOne(db, sql: """
+                SELECT deletion.deadlineAt FROM conversationDeletionDeadline AS deletion
+                JOIN conversation ON conversation.id = deletion.conversationID
+                WHERE deletion.conversationID = ? AND conversation.lifecycle = ?
+                """, arguments: [conversationID, ConversationLifecycle.pendingDeletion.rawValue]),
+                now >= deadline else { return false }
+            try finalizeDeletion(conversationID: conversationID, at: now, in: db)
+            return true
+        }
+    }
 
     /// Conversations in ordinary listing. Pending-deletion ones are absent.
     func visibleConversations() throws -> [ConversationRecord] {
@@ -25,8 +127,35 @@ extension PersistenceStore {
     }
 
     /// Commits the delete. Hides the conversation; keeps everything.
+    /// The active-slot check shares this transaction with the lifecycle update, so
+    /// a new Parent Run cannot slip in after the caller's Stop and before deletion.
     func beginDeletion(conversationID: String, at now: Date = Date()) throws {
-        try transition(from: .visible, to: .pendingDeletion, conversationID: conversationID, at: now)
+        try beginDeletion(conversationID: conversationID, at: now, deadline: nil)
+    }
+
+    private func beginDeletion(conversationID: String, at now: Date, deadline: Date?) throws {
+        try database.write { db in
+            let conversation = try requireConversation(conversationID, in: db)
+            guard conversation.lifecycle == .visible else {
+                throw PersistenceError.invalidLifecycleTransition(
+                    expected: .visible, actual: conversation.lifecycle
+                )
+            }
+            guard try String.fetchOne(db,
+                sql: "SELECT id FROM agentRun WHERE activeSlot = ? LIMIT 1",
+                arguments: [conversationID]) == nil else {
+                throw PersistenceError.invalidTransition("Active Parent Run must settle before deletion")
+            }
+            try db.execute(
+                sql: "UPDATE conversation SET lifecycle = ?, updatedAt = ? WHERE id = ?",
+                arguments: [ConversationLifecycle.pendingDeletion.rawValue, now, conversationID]
+            )
+            if let deadline {
+                try db.execute(sql: """
+                    INSERT INTO conversationDeletionDeadline(conversationID, deadlineAt) VALUES (?, ?)
+                    """, arguments: [conversationID, deadline])
+            }
+        }
     }
 
     /// Puts it back. The body was never touched, so there is nothing to restore.
@@ -37,7 +166,39 @@ extension PersistenceStore {
     /// claims to be there and has nothing in it. The undo window is a state, not a
     /// boolean you can set back.
     func undoDeletion(conversationID: String, at now: Date = Date()) throws {
-        try transition(from: .pendingDeletion, to: .visible, conversationID: conversationID, at: now)
+        try database.write { db in
+            try undoDeletion(conversationID: conversationID, at: now,
+                requiresCardIntent: false, in: db)
+        }
+    }
+
+    private func undoDeletion(conversationID: String, at now: Date,
+                              requiresCardIntent: Bool, ignoreCardDeadline: Bool = false,
+                              in db: Database) throws {
+        let conversation = try requireConversation(conversationID, in: db)
+        guard conversation.lifecycle == .pendingDeletion else {
+            throw PersistenceError.invalidLifecycleTransition(
+                expected: .pendingDeletion, actual: conversation.lifecycle)
+        }
+        let hasDeadlineTable = try db.tableExists("conversationDeletionDeadline")
+        var deadline: Date?
+        if hasDeadlineTable {
+            deadline = try Date.fetchOne(db, sql: """
+                SELECT deadlineAt FROM conversationDeletionDeadline WHERE conversationID = ?
+                """, arguments: [conversationID])
+        }
+        if requiresCardIntent && deadline == nil {
+            throw PersistenceError.invalidTransition("No pending Card Delete to undo")
+        }
+        if let deadline, now >= deadline, !ignoreCardDeadline {
+            throw PersistenceError.invalidTransition("Card Delete Undo deadline has expired")
+        }
+        try db.execute(sql: "UPDATE conversation SET lifecycle = ?, updatedAt = ? WHERE id = ?",
+            arguments: [ConversationLifecycle.visible.rawValue, now, conversationID])
+        if hasDeadlineTable {
+            try db.execute(sql: "DELETE FROM conversationDeletionDeadline WHERE conversationID = ?",
+                arguments: [conversationID])
+        }
     }
 
     /// The point of no return: the body goes, and what must survive, survives.
@@ -49,9 +210,15 @@ extension PersistenceStore {
     /// side effect later.
     func finalizeDeletion(conversationID: String, at now: Date = Date()) throws {
         try database.write { db in
+            try finalizeDeletion(conversationID: conversationID, at: now, in: db)
+        }
+    }
+
+    private func finalizeDeletion(conversationID: String, at now: Date,
+                                  in db: Database) throws {
             // Refused before any write — a refused finalise must not even write
-            // tombstones. Run in this transaction rather than via `transition`, which
-            // would open a second `database.write` here; GRDB forbids nesting writes.
+            // tombstones. Keep the lifecycle check in this transaction; nesting
+            // another `database.write` here would violate GRDB's write boundary.
             let conversation = try requireConversation(conversationID, in: db)
             switch conversation.lifecycle {
             case .pendingDeletion:
@@ -115,7 +282,10 @@ extension PersistenceStore {
                 sql: "UPDATE conversation SET lifecycle = ?, updatedAt = ? WHERE id = ?",
                 arguments: [ConversationLifecycle.finalizedDeletion.rawValue, now, conversationID]
             )
-        }
+            if try db.tableExists("conversationDeletionDeadline") {
+                try db.execute(sql: "DELETE FROM conversationDeletionDeadline WHERE conversationID = ?",
+                    arguments: [conversationID])
+            }
     }
 
     // MARK: - Tombstones
@@ -133,32 +303,6 @@ extension PersistenceStore {
     }
 
     // MARK: - Internals
-
-    /// Moves the lifecycle, refusing transitions the lifecycle does not have.
-    ///
-    /// Written as an explicit from/to pair so every transition has to name where it
-    /// starts. A bare "set to X" cannot express that, and one of the two directions here
-    /// is one-way.
-    private func transition(
-        from expected: ConversationLifecycle,
-        to next: ConversationLifecycle,
-        conversationID: String,
-        at now: Date
-    ) throws {
-        try database.write { db in
-            let conversation = try requireConversation(conversationID, in: db)
-            guard conversation.lifecycle == expected else {
-                throw PersistenceError.invalidLifecycleTransition(
-                    expected: expected,
-                    actual: conversation.lifecycle
-                )
-            }
-            try db.execute(
-                sql: "UPDATE conversation SET lifecycle = ?, updatedAt = ? WHERE id = ?",
-                arguments: [next.rawValue, now, conversationID]
-            )
-        }
-    }
 
     /// Fetches the conversation a lifecycle mutation names. A mutation on a
     /// conversation that does not exist is a caller bug, not a no-op.

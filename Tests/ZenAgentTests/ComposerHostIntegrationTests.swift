@@ -1,11 +1,32 @@
 import Testing
 import UIKit
+import SwiftUI
 
 @testable import ZenAgent
 
 @MainActor
 @Suite("Composer host wiring")
 struct ComposerHostIntegrationTests {
+    @Test("Sidebar admits both native stable Composer phases", arguments: [ComposerPresentationState.resting, .editing])
+    func sidebarAcceptsStableNativePhase(state: ComposerPresentationState) throws {
+        let surface = ConversationSurfaceViewController(content: Color.clear, request: .full)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = surface
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        surface.view.layoutIfNeeded()
+        let content = try #require(surface.children.first?.view)
+        let composer = ComposerHostView(frame: .zero)
+        // Establish the actual stable phase without introducing a test animator
+        // completion or claiming a simulated keyboard transition.
+        composer.configure(configuration(text: "", state: state))
+        content.addSubview(composer)
+        composer.frame = content.bounds
+        composer.layoutIfNeeded()
+        #expect(surface.allowsSidebarInput)
+        if state == .editing { #expect(!composer.nativeLiftInput.allowsLift) }
+    }
+
     @Test("editorIdentitySurvivesMorphAndPlaceholderSharesOrigin")
     func editorIdentitySurvivesMorph() {
         let (window, host) = installedHost()
@@ -40,7 +61,7 @@ struct ComposerHostIntegrationTests {
             host.editor.caretRect(for: host.editor.beginningOfDocument), to: viewport
         )
         #expect(host.placeholder.text == "说点什么吧")
-        #expect(host.editor.tintColor == .black)
+        #expect(host.editor.tintColor == .label)
         #expect(host.placeholder.frame.minX > caret.maxX)
         #expect(host.placeholder.frame.minX - caret.maxX <= 2)
         #expect(abs(host.placeholder.frame.midY - caret.midY) < 2)
@@ -142,7 +163,8 @@ struct ComposerHostIntegrationTests {
         autoreleasepool {
             let host = ComposerHostView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
             var config = configuration()
-            config.liftInteraction = .init(driver: SurfaceLiftController(), eligibility: { $0 })
+            config.liftInteraction = .init(driver: SurfaceLiftController(),
+                                           conversationID: "test-conversation", eligibility: { $0 })
             host.configure(config)
             weakHost = host
             weakEditor = host.editor

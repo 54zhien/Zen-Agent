@@ -60,7 +60,8 @@ enum ComposerGeometry {
             return editingLayout(
                 width: width,
                 availableHeight: height,
-                contentHeight: contentHeight
+                contentHeight: contentHeight,
+                lineHeight: lineHeight
             )
         }
 
@@ -155,10 +156,17 @@ enum ComposerGeometry {
     private static func editingLayout(
         width: CGFloat,
         availableHeight: CGFloat,
-        contentHeight: CGFloat
+        contentHeight: CGFloat,
+        lineHeight: CGFloat
     ) -> ComposerLayout {
         let outerWidth = max(0, width - 2 * edgeInset)
-        let maximumHeight = availableHeight * editingMaxHeightFraction
+        // A proportional cap must still leave a readable input above the rail.
+        // Small Panes use that floor only when their actual viewport can fit it.
+        let maximumHeight = min(
+            max(0, availableHeight - editingBottomSpacing),
+            max(availableHeight * editingMaxHeightFraction,
+                editorTopInset + controlRailMinHeight + lineHeight)
+        )
         let requestedHeight = max(
             editingMinHeight,
             editorTopInset + contentHeight + controlRailMinHeight

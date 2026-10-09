@@ -37,7 +37,7 @@ struct LocalHTTPServerLifecycleTests {
 
     /// Connects and takes one byte, so the worker is genuinely mid-script rather than
     /// still sitting in `accept` — the state that strands it.
-    private func connectAndReadOneByte(_ server: LocalHTTPServer) async throws {
+    private func withConnectedWorker(_ server: LocalHTTPServer, assertions: () throws -> Void) async throws {
         try await withSession { session in
             let (bytes, _) = try await session.bytes(for: URLRequest(url: server.baseURL))
             var iterator = bytes.makeAsyncIterator()
@@ -48,6 +48,9 @@ struct LocalHTTPServerLifecycleTests {
                 received += 1
             }
             #expect(received == 1, "the client never got a byte, so the worker's state is not the one under test")
+            // The peer must stay alive until shutdown is asserted. Closing this
+            // session first races the worker's read against the test's precondition.
+            try withExtendedLifetime((bytes, iterator)) { try assertions() }
         }
     }
 
@@ -55,35 +58,36 @@ struct LocalHTTPServerLifecycleTests {
     func stalledWorkerTerminates() async throws {
         let server = try LocalHTTPServer(script: .chunkThenStall("piece"))
         server.start()
-        try await connectAndReadOneByte(server)
+        try await withConnectedWorker(server) {
+            // The worker is now parked in `read`, waiting for a peer that stays alive.
+            #expect(server.wroteChunk)
+            #expect(!server.observedPeerClose)
+            #expect(!server.hasTerminated, "the worker should still be running at this point")
 
-        // The worker is now parked in `read`, waiting for a peer that is not going away.
-        #expect(server.wroteChunk)
-        #expect(!server.hasTerminated, "the worker should still be running at this point")
-
-        #expect(server.shutdown(), "LocalHTTPServer worker did not terminate")
-        #expect(server.hasTerminated)
+            #expect(server.shutdown(), "LocalHTTPServer worker did not terminate")
+            #expect(server.hasTerminated)
+        }
     }
 
     @Test("a script waiting for its gate stops on teardown")
     func gatedWorkerTerminates() async throws {
         let server = try LocalHTTPServer(script: .chunkThenDisconnect("partial"))
         server.start()
-        try await connectAndReadOneByte(server)
-
-        // Parked waiting for a `requestClose` that will never come.
-        #expect(server.shutdown(), "LocalHTTPServer worker did not terminate")
-        #expect(server.hasTerminated)
+        try await withConnectedWorker(server) {
+            // Parked waiting for a `requestClose` that will never come.
+            #expect(server.shutdown(), "LocalHTTPServer worker did not terminate")
+            #expect(server.hasTerminated)
+        }
     }
 
     @Test("a continuously streaming worker stops on teardown")
     func streamingWorkerTerminates() async throws {
         let server = try LocalHTTPServer(script: .continuous("piece", every: 0.02))
         server.start()
-        try await connectAndReadOneByte(server)
-
-        #expect(server.shutdown(), "LocalHTTPServer worker did not terminate")
-        #expect(server.hasTerminated)
+        try await withConnectedWorker(server) {
+            #expect(server.shutdown(), "LocalHTTPServer worker did not terminate")
+            #expect(server.hasTerminated)
+        }
     }
 
     @Test("a shutdown that wins the publication race still terminates the worker")
@@ -141,12 +145,12 @@ struct LocalHTTPServerLifecycleTests {
     func teardownIsIdempotent() async throws {
         let server = try LocalHTTPServer(script: .chunkThenStall("piece"))
         server.start()
-        try await connectAndReadOneByte(server)
-
-        #expect(server.shutdown())
-        // `deinit` calls this again on every server, so the second call is the normal
-        // path rather than an edge case.
-        #expect(server.shutdown())
-        #expect(server.hasTerminated)
+        try await withConnectedWorker(server) {
+            #expect(server.shutdown())
+            // `deinit` calls this again on every server, so the second call is the normal
+            // path rather than an edge case.
+            #expect(server.shutdown())
+            #expect(server.hasTerminated)
+        }
     }
 }

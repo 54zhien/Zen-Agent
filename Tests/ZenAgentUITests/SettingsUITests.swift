@@ -1,0 +1,442 @@
+import XCTest
+
+final class SettingsUITests: XCTestCase {
+    @MainActor
+    func testExistingAccountExplicitlyConfiguresOnlyTheCurrentConversation() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_EXISTING_CONFIGURE_UI_TEST"] = "1"
+        app.launch()
+        let editor = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        expect { (probe.value as? String)?.contains("liftReady=true") == true }
+        let point = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        point.press(forDuration: 0.7, thenDragTo: point.withOffset(CGVector(dx: 0, dy: -220)))
+        let card = app.descendants(matching: .any)["workspace-current-card"]
+        expect { card.exists }
+        card.swipeLeft()
+        expect { card.exists && card.label.contains("新对话") }
+        card.tap()
+        expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" }
+        editor.tap(); editor.typeText("existing account draft")
+        let identity = nativeEditorIdentity(probe)
+        app.openWorkspaceSidebar()
+        app.buttons["new-conversation-configure"].tap()
+        app.buttons["settings-models"].tap()
+        let use = app.buttons["用于当前会话"]
+        XCTAssertTrue(use.waitForExistence(timeout: 5))
+        use.tap()
+        XCTAssertTrue(app.staticTexts["settings-conversation-configuration-status"].waitForExistence(timeout: 5))
+        app.buttons["settings-close"].tap()
+        expect { !app.descendants(matching: .any)["settings-page"].exists }
+        XCTAssertEqual(nativeEditorIdentity(probe), identity)
+        XCTAssertEqual(editor.value as? String, "existing account draft")
+        let send = app.buttons["conversation-composer-send"]
+        expect { send.exists && send.isEnabled }
+        app.openWorkspaceSidebar()
+        app.buttons["new-conversation-new"].tap()
+        expect { (editor.value as? String) == "" }
+        XCTAssertFalse(send.exists && send.isEnabled, "Current-only selection must leave a future New unconfigured")
+    }
+
+    @MainActor
+    func testAppSpacePersistedUnconfiguredConversationHasFormalConfigure() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launch()
+        let editor = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        expect { (probe.value as? String)?.contains("liftReady=true") == true }
+        let point = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        point.press(forDuration: 0.7, thenDragTo: point.withOffset(CGVector(dx: 0, dy: -220)))
+        let card = app.descendants(matching: .any)["workspace-current-card"]
+        expect { card.exists }
+        card.swipeLeft()
+        expect { card.exists && card.label.contains("新对话") }
+        card.tap()
+        expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" }
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        editor.tap()
+        editor.typeText("durable empty draft")
+        let identity = nativeEditorIdentity(probe)
+        XCTAssertNotNil(identity)
+        app.openWorkspaceSidebar()
+        let configure = app.buttons["new-conversation-configure"]
+        guard configure.waitForExistence(timeout: 5) else {
+            XCTFail("App Space-created durable unconfigured Conversation must expose Sidebar Configure")
+            return
+        }
+        configure.tap()
+        let settings = app.descendants(matching: .any)["settings-page"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        app.buttons["settings-providers"].tap()
+        app.buttons["settings-provider-add"].tap()
+        let key = app.secureTextFields["DeepSeek API Key"]
+        XCTAssertTrue(key.waitForExistence(timeout: 5))
+        key.tap(); key.typeText("persisted-configure-ui-fixture-key")
+        let save = app.buttons["provider-setup-save"]
+        XCTAssertTrue(save.wait(for: \.isEnabled, toEqual: true, timeout: 5))
+        save.tap()
+        XCTAssertTrue(app.staticTexts["provider-setup-status"].wait(for: \.label, toEqual: "配置完成", timeout: 5))
+        app.buttons["provider-setup-close"].tap()
+        let close = app.buttons["settings-close"]
+        XCTAssertTrue(close.wait(for: \.isEnabled, toEqual: true, timeout: 5))
+        close.tap()
+        expect { !settings.exists }
+        XCTAssertEqual(nativeEditorIdentity(probe), identity)
+        XCTAssertEqual(editor.value as? String, "durable empty draft")
+        let send = app.buttons["conversation-composer-send"]
+        XCTAssertTrue(send.wait(for: \.isEnabled, toEqual: true, timeout: 5))
+        send.tap()
+        app.openWorkspaceSidebar()
+        XCTAssertFalse(configure.exists)
+    }
+
+    @MainActor
+    func testReauthenticationReturnsToSameComposerWithSendEnabled() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_REAUTH_UI_TEST"] = "1"
+        app.launch()
+        let editor = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        editor.tap()
+        editor.typeText("reauth retained draft")
+        expect { (editor.value as? String) == "reauth retained draft" }
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        let identity = nativeEditorIdentity(probe)
+        XCTAssertNotNil(identity)
+        let send = app.buttons["conversation-composer-send"]
+        XCTAssertFalse(send.exists && send.isEnabled)
+        app.openWorkspaceSidebar()
+        app.buttons["sidebar-settings"].tap()
+        app.buttons["settings-providers"].tap()
+        let account = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Reauth fixture")).firstMatch
+        XCTAssertTrue(account.waitForExistence(timeout: 5))
+        account.tap()
+        let key = app.secureTextFields["新的 API Key"]
+        XCTAssertTrue(key.waitForExistence(timeout: 5))
+        key.tap()
+        key.typeText("reauth-ui-fixture-key")
+        app.buttons["保存新凭据"].tap()
+        XCTAssertTrue(app.staticTexts["凭据已保存，尚未联网验证。"].waitForExistence(timeout: 10))
+        app.buttons["settings-close"].tap()
+        expect { !app.descendants(matching: .any)["settings-page"].exists }
+        expect { send.exists && send.isEnabled }
+        XCTAssertEqual(nativeEditorIdentity(probe), identity)
+        XCTAssertEqual(editor.value as? String, "reauth retained draft")
+    }
+
+    @MainActor
+    func testInkControlsPersistAndLiftReturnsTheSameConversationOwner() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_INK_UI_TEST"] = "1"
+        app.launch()
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
+        let editor = app.textViews["conversation-composer-input"]
+        let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        editor.tap()
+        editor.typeText("Visual settings preserve this owner draft")
+        app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
+        let identity = try XCTUnwrap((probe.value as? String)?.split(separator: ";")
+            .first(where: { $0.hasPrefix("editorIdentity=") }).map(String.init))
+        let warmOwners = warmOwnerIdentities(probe)
+        XCTAssertEqual(warmOwners.count, 3)
+        guard openAppearance(in: app) else { return }
+        let inkRow = app.switches["settings-ink-enabled"].firstMatch
+        guard inkRow.waitForExistence(timeout: 5) else {
+            XCTFail("The existing Appearance page must expose its functional Ink switch")
+            return
+        }
+        // The iOS Form AX wrapper covers the row, with a real native Switch child.
+        // Its row-center point misses that child; activate the actual control.
+        let ink = inkRow.descendants(matching: .switch).firstMatch
+        guard ink.waitForExistence(timeout: 5), ink.isHittable,
+              ink.frame.width > 0, ink.frame.width < inkRow.frame.width,
+              inkRow.frame.contains(ink.frame) else {
+            print("Ink row/control hierarchy: \(inkRow.debugDescription)")
+            XCTFail("The Ink row must contain its real hittable native switch")
+            return
+        }
+        let picker = app.buttons["settings-appearance-picker"].firstMatch
+        picker.tap()
+        app.buttons["深色"].tap()
+        expect { ink.isEnabled }
+        if ink.value as? String != "1" { ink.tap() }
+        let intensity = app.sliders["settings-ink-intensity"].firstMatch
+        XCTAssertTrue(intensity.waitForExistence(timeout: 5))
+        expect { ink.value as? String == "1" && intensity.isEnabled }
+        intensity.adjust(toNormalizedSliderPosition: 0.7)
+        let savedIntensity = try XCTUnwrap(intensity.value as? String)
+        ink.tap()
+        expect { ink.value as? String == "0" }
+        guard ink.value as? String == "0" else {
+            print("Ink switch after native tap: \(ink.debugDescription)")
+            return
+        }
+        app.buttons["settings-close"].tap()
+        expect { self.nativeEditorIdentity(probe) == identity && self.warmOwnerIdentities(probe) == warmOwners }
+
+        let inkProbe = app.descendants(matching: .any)["app-space-ink-probe"]
+        for enabled in [false, true] {
+            expect { !app.descendants(matching: .any)["settings-page"].exists
+                && (probe.value as? String)?.contains("liftReady=true") == true }
+            expect { (inkProbe.value as? String)?.contains(";flowKeys=0;") == true }
+            let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
+            let card = app.descendants(matching: .any)["workspace-current-card"]
+            expect { card.exists && card.label.contains("Workspace conversation 11") }
+            expect { (probe.value as? String)?.contains(";edgeVisible=true;") == true }
+            expect { (inkProbe.value as? String)?.contains(enabled ? "ink=true;" : "ink=false;") == true }
+            let diagnostic = try XCTUnwrap(inkProbe.value as? String)
+            XCTAssertTrue(diagnostic.contains(";layers=2;"))
+            XCTAssertTrue(diagnostic.contains(";nativeWindow=true;"))
+            XCTAssertTrue(diagnostic.contains(enabled ? "ink=true;" : "ink=false;"))
+            let expectedKeys = enabled && diagnostic.contains(";flowRequested=true;") ? 2 : 0
+            expect { (inkProbe.value as? String)?.contains(";flowKeys=\(expectedKeys);") == true }
+            card.tap()
+            expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" }
+            XCTAssertTrue(pane.exists)
+            XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+            // S5-04 deliberately dismantles the Full native editor in Preview.
+            // Return remounts it from the same warm owners, rather than keeping a hidden editor.
+            XCTAssertEqual(warmOwnerIdentities(probe), warmOwners)
+            XCTAssertTrue((editor.value as? String)?.contains("Visual settings preserve this owner draft") == true)
+            expect { (probe.value as? String)?.contains(";edgeVisible=false;") == true }
+            if !enabled {
+                let returnedEditor = try XCTUnwrap(nativeEditorIdentity(probe))
+                guard openAppearance(in: app) else { return }
+                XCTAssertEqual(ink.value as? String, "0")
+                XCTAssertEqual(intensity.value as? String, savedIntensity)
+                XCTAssertTrue("\(picker.label) \(picker.value ?? "")".contains("深色"))
+                ink.tap()
+                expect { ink.value as? String == "1" }
+                app.buttons["settings-close"].tap()
+                expect { self.nativeEditorIdentity(probe) == returnedEditor
+                    && self.warmOwnerIdentities(probe) == warmOwners }
+            }
+        }
+    }
+
+    @MainActor
+    private func nativeEditorIdentity(_ probe: XCUIElement) -> String? {
+        (probe.value as? String)?.split(separator: ";")
+            .first(where: { $0.hasPrefix("editorIdentity=") }).map(String.init)
+    }
+
+    @MainActor
+    private func warmOwnerIdentities(_ probe: XCUIElement) -> [String] {
+        ((probe.value as? String)?.split(separator: ";") ?? []).compactMap { field in
+            ["sessionIdentity=", "composerOwnerIdentity=", "readingOwnerIdentity="]
+                .contains(where: { field.hasPrefix($0) }) ? String(field) : nil
+        }
+    }
+
+    @MainActor
+    func testSoulEditorCloseReturnsFocusToTheSameNativeConversationEditor() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launch()
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
+        let editor = app.textViews["conversation-composer-input"]
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        editor.tap()
+        editor.typeText("focused Settings draft")
+        expect { app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=true;") == true
+            && (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
+        let identity = (probe.value as? String)?.split(separator: ";")
+            .first(where: { $0.hasPrefix("editorIdentity=") }).map(String.init)
+        XCTAssertNotNil(identity)
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
+        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        let destination = app.buttons["sidebar-settings"]
+        guard destination.waitForExistence(timeout: 5),
+              destination.wait(for: \.isEnabled, toEqual: true, timeout: 5),
+              destination.wait(for: \.isHittable, toEqual: true, timeout: 5) else {
+            XCTFail("Settings must be reachable while the original editor is focused")
+            return
+        }
+        destination.tap()
+        let page = app.descendants(matching: .any)["settings-page"]
+        XCTAssertTrue(page.waitForExistence(timeout: 5))
+        let agent = app.buttons["settings-agent"]
+        if !agent.isHittable { page.swipeUp() }
+        agent.tap()
+        app.buttons["settings-soul"].tap()
+        let soul = app.textViews["settings-soul-instructions"]
+        XCTAssertTrue(soul.waitForExistence(timeout: 5))
+        soul.tap()
+        soul.typeText("Unsaved Soul editor input")
+        app.buttons["settings-close"].tap()
+        expect { !page.exists && !soul.exists
+            && app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=true;") == true }
+        XCTAssertEqual((probe.value as? String)?.split(separator: ";")
+            .first(where: { $0.hasPrefix("editorIdentity=") }).map(String.init), identity)
+        XCTAssertTrue((editor.value as? String)?.contains("focused Settings draft") == true)
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+        let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
+    }
+
+    @MainActor
+    func testEmptyStartupConfiguresItsNewOwnerThroughSettingsAndCommitsOnlyOnSend() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_NEW_CONFIGURE_UI_TEST"] = "1"
+        app.launch()
+        let configure = app.buttons["new-conversation-configure"]
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
+        let editor = app.textViews["conversation-composer-input"]
+        editor.tap()
+        editor.typeText("first Send keeps its original draft")
+        let unavailableSend = app.buttons["conversation-composer-send"]
+        XCTAssertFalse(unavailableSend.exists && unavailableSend.isEnabled)
+        let admissionProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        app.openWorkspaceSidebar()
+        XCTAssertTrue(configure.waitForExistence(timeout: 10))
+        configure.tap()
+        let settings = app.descendants(matching: .any)["settings-page"]
+        guard settings.waitForExistence(timeout: 5) else {
+            print("New Settings after Configure: \(admissionProbe.value as? String ?? "missing probe")")
+            XCTFail("Configure did not present Settings for its uncommitted New owner")
+            return
+        }
+        app.buttons["settings-providers"].tap()
+        app.buttons["settings-provider-add"].tap()
+        let key = app.secureTextFields["DeepSeek API Key"]
+        XCTAssertTrue(key.waitForExistence(timeout: 5))
+        key.tap()
+        key.typeText("settings-ui-fixture-key")
+        let save = app.buttons["provider-setup-save"]
+        guard save.waitForExistence(timeout: 5),
+              save.wait(for: \.isEnabled, toEqual: true, timeout: 5) else {
+            XCTFail("The actual Provider Save must become ready before activation")
+            return
+        }
+        save.tap()
+        let savedStatus = app.staticTexts["provider-setup-status"]
+        guard savedStatus.wait(for: \.label, toEqual: "配置完成", timeout: 5) else {
+            let error = app.staticTexts["provider-setup-error"]
+            print("Provider Save after native tap: \(save.debugDescription); error=\(error.exists ? error.label : "none")")
+            XCTFail("The native Provider Save did not complete its real configuration")
+            return
+        }
+        let setupClose = app.buttons["provider-setup-close"]
+        XCTAssertTrue(setupClose.waitForExistence(timeout: 5))
+        setupClose.tap()
+        expect { !setupClose.exists }
+        let settingsClose = app.buttons["settings-close"]
+        XCTAssertTrue(settingsClose.wait(for: \.isEnabled, toEqual: true, timeout: 5))
+        settingsClose.tap()
+        expect { !settings.exists }
+        app.openWorkspaceSidebar()
+        XCTAssertTrue(configure.exists, "configuration alone must not commit the New Conversation")
+        editor.tap()
+        expect { !app.descendants(matching: .any)["sidebar-rail"].exists }
+        XCTAssertTrue((editor.value as? String)?.contains("first Send keeps its original draft") == true)
+        let send = app.buttons["conversation-composer-send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 5))
+        XCTAssertTrue(send.wait(for: \.isEnabled, toEqual: true, timeout: 5))
+        send.tap()
+        app.openWorkspaceSidebar()
+        expect { !configure.exists }
+        editor.tap()
+        expect { !app.descendants(matching: .any)["sidebar-rail"].exists }
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+    }
+
+    @MainActor
+    func testSettingsReachesSoulAndClosingRestoresTheConversationDraft() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launch()
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
+        let editor = app.textViews["conversation-composer-input"]
+        editor.tap()
+        editor.typeText("draft retained through Settings")
+        let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
+        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        let settings = app.buttons["sidebar-settings"]
+        guard settings.waitForExistence(timeout: 5),
+              settings.wait(for: \.isEnabled, toEqual: true, timeout: 5),
+              settings.wait(for: \.isHittable, toEqual: true, timeout: 5) else {
+            XCTFail("Sidebar Settings destination is unavailable")
+            return
+        }
+        XCTAssertFalse(app.buttons["sidebar-agent"].exists)
+        settings.tap()
+        let page = app.descendants(matching: .any)["settings-page"]
+        guard page.waitForExistence(timeout: 5) else {
+            XCTFail("Settings page did not appear after opening Settings")
+            return
+        }
+        XCTAssertFalse(app.descendants(matching: .any)["sidebar-rail"].exists)
+        let agent = app.buttons["settings-agent"]
+        if !agent.isHittable { page.swipeUp() }
+        XCTAssertTrue(agent.waitForExistence(timeout: 5))
+        agent.tap()
+        let soul = app.buttons["settings-soul"]
+        if !soul.isHittable { page.swipeUp() }
+        XCTAssertTrue(soul.waitForExistence(timeout: 5))
+        soul.tap()
+        let input = app.textViews["settings-soul-instructions"]
+        XCTAssertTrue(input.waitForExistence(timeout: 5))
+        input.tap()
+        input.typeText("Use concise responses.")
+        app.buttons["settings-soul-save"].tap()
+        let saved = app.staticTexts["settings-soul-save-status"]
+        XCTAssertTrue(saved.waitForExistence(timeout: 5))
+        XCTAssertTrue(saved.label.contains("已保存"))
+        app.buttons["settings-close"].tap()
+        expect { !page.exists }
+        XCTAssertTrue((editor.value as? String)?.contains("draft retained through Settings") == true)
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
+    }
+
+    @MainActor
+    private func openAppearance(in app: XCUIApplication) -> Bool {
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
+        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        let settings = app.buttons["sidebar-settings"]
+        guard settings.waitForExistence(timeout: 5),
+              settings.wait(for: \.isEnabled, toEqual: true, timeout: 5),
+              settings.wait(for: \.isHittable, toEqual: true, timeout: 5) else {
+            XCTFail("Native Settings destination is unavailable")
+            return false
+        }
+        settings.tap()
+        let page = app.descendants(matching: .any)["settings-page"]
+        guard page.waitForExistence(timeout: 5) else {
+            XCTFail("Settings page did not appear")
+            return false
+        }
+        let appearance = app.buttons["外观"].firstMatch
+        if !appearance.isHittable { page.swipeUp() }
+        guard appearance.waitForExistence(timeout: 5) else {
+            XCTFail("Existing Appearance page is unavailable")
+            return false
+        }
+        appearance.tap()
+        return true
+    }
+
+    @MainActor
+    private func expect(_ condition: @escaping () -> Bool, file: StaticString = #filePath, line: UInt = #line) {
+        let pending = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [pending], timeout: 10), .completed, file: file, line: line)
+    }
+}
