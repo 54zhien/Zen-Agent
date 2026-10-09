@@ -104,12 +104,13 @@ final class ComposerHostPortal: UIView {
         applyFocusIfAttached()
         composer.consumeOverlayFocusIfReady()
     }
-    func applyFocusIfAttached(transferring: Bool = false) {
+    func applyFocusIfAttached(transferring: Bool = false, allowResignation: Bool = true) {
         guard !inputSuppressed, composer.window != nil else { return }
         if usesDock {
             guard composer.superview is ComposerDockContainer, isActivePane || transferring else { return }
         }
-        composer.requestFocus(requestedFocus || transferring)
+        let focused = requestedFocus || transferring
+        if focused || allowResignation { composer.requestFocus(focused) }
     }
     func embed() {
         clearExternalOwner()
@@ -144,7 +145,13 @@ final class ComposerDockContainer: UIView {
     private weak var portal: ComposerHostPortal?
     func install(_ incoming: ComposerHostPortal) {
         guard portal !== incoming || incoming.composer.superview !== self else {
-            incoming.registerExternalOwner(); incoming.applyFocusIfAttached(); return
+            // Native transfer may publish focus before the bridge updates its
+            // cached intent. Reinstalling the same owner must not replay that
+            // old blur. Positive requests can still need retry after window
+            // attachment; Portal.update applies actual new blur requests.
+            incoming.registerExternalOwner()
+            incoming.applyFocusIfAttached(allowResignation: false)
+            return
         }
         let outgoing = portal
         let transferFocus = outgoing?.composer.editor.isFirstResponder == true

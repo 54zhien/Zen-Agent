@@ -8,7 +8,9 @@ struct ConversationPreviewUITestFixture: View {
     @State private var didOpenHistory = false
     @State private var hiddenViewportInset: CGFloat = 0
     private let files: ManagedFileStore
-    private let store: PersistenceStore
+    // Fixture values can be rebuilt while the model is retained. Repair writes
+    // must keep using the same database that supplies that model's history.
+    @State private var store: PersistenceStore
 
     init() {
         do {
@@ -16,7 +18,7 @@ struct ConversationPreviewUITestFixture: View {
             let store = ProcessInfo.processInfo.environment["ZEN_NEW_CONFIGURE_UI_TEST"] == "1" || reauthentication
                 ? PersistenceStore(database: try ZenDatabase.inMemory())
                 : try ConversationPreviewUITestSeed.makeStore()
-            self.store = store
+            _store = State(initialValue: store)
             let files = ManagedFileStore(applicationSupportRoot: FileManager.default.temporaryDirectory
                 .appendingPathComponent("PreviewFiles-\(UUID())", isDirectory: true),
                 protectionRequirement: .bestEffort)
@@ -28,6 +30,13 @@ struct ConversationPreviewUITestFixture: View {
                 credentials: credentials, router: router, toolRegistry: .empty, managedFiles: files)
             let defaults = UserDefaults(suiteName: "ZenAgent.PreviewHandoffUITest")!
             defaults.removePersistentDomain(forName: "ZenAgent.PreviewHandoffUITest")
+            if ProcessInfo.processInfo.environment["ZEN_EXISTING_CONFIGURE_UI_TEST"] == "1" {
+                let reference = CredentialReference(id: "existing-configure-\(UUID())", kind: .apiKey)
+                try credentials.provision(SecretValue("existing-configure-ui-fixture-key"), as: reference)
+                try store.createProviderInstance(ProviderInstance(id: .init(rawValue: "existing-configure-account"),
+                    providerID: .deepSeek, displayName: "Existing Configure fixture", baseURL: nil,
+                    configRevision: .initial, credentialReference: reference))
+            }
             if reauthentication {
                 let id = ProviderInstanceID(rawValue: "reauth-ui-account")
                 try store.createProviderInstance(ProviderInstance(id: id, providerID: .deepSeek,
@@ -47,6 +56,14 @@ struct ConversationPreviewUITestFixture: View {
     var body: some View {
         AppShellRootView(model: model)
             .padding(.bottom, hiddenViewportInset)
+            .onChange(of: model.splitOpenError) { _, error in
+                guard error != nil,
+                      ProcessInfo.processInfo.environment["ZEN_RECENT_SPLIT_FAILURE_UI_TEST"] == "1" else { return }
+                // Restore only after the real history reader has rejected C;
+                // the UI must consume the failure and invoke its own retry.
+                do { try ConversationPreviewUITestSeed.restoreRecentSplitFailure(in: store) }
+                catch { fatalError("Recent Split fixture could not restore") }
+            }
             .task {
                 guard !didOpenHistory else { return }
                 didOpenHistory = true

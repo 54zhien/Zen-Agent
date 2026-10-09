@@ -28,9 +28,11 @@ struct SidebarNewSessionTests {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         window.rootViewController = host
-        window.makeKeyAndVisible()
+        // Mount onAppear's navigation callbacks without acquiring global keyboard focus.
+        window.isHidden = false
         defer { window.isHidden = true; window.rootViewController = nil }
         host.view.layoutIfNeeded()
+        #expect(!window.isKeyWindow)
         for _ in 0..<100 where navigation.onConversationAction == nil {
             try await Task.sleep(for: .milliseconds(20))
         }

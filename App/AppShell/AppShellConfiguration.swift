@@ -1,6 +1,28 @@
 import Foundation
 
+enum ConversationConfigurationOwner: Equatable {
+    case uncommitted(id: String)
+    case persistedEmpty(id: String)
+}
+
 enum AppShellConfiguration {
+    @MainActor
+    static func owner(id: String, currentID: String, pane: ConversationPaneController?,
+                      hasSplit: Bool, isPreviewPresented: Bool, store: PersistenceStore,
+                      allowConfiguredUncommitted: Bool = false) throws -> ConversationConfigurationOwner? {
+        guard id == currentID, let pane, pane.conversationID == id,
+              !hasSplit, !isPreviewPresented else { return nil }
+        // This observation also invalidates Sidebar capability after the first Send.
+        _ = pane.hasPublishedTurn
+        if try store.conversationLifecycle(id: id) == nil {
+            guard allowConfiguredUncommitted || pane.composer.configuration == nil else { return nil }
+            return .uncommitted(id: id)
+        }
+        guard pane.composer.configuration == nil,
+              try store.canInitializeEmptyConversationBinding(id: id) else { return nil }
+        return .persistedEmpty(id: id)
+    }
+
     static func availability(for configuration: ConversationComposerConfiguration?,
                              store: PersistenceStore, provider: any ModelProvider,
                              credentials: any CredentialStoring) -> ComposerSendAvailability {

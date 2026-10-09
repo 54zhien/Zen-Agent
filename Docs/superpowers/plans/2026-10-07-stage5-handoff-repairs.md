@@ -1,6 +1,6 @@
 # Stage 5 入口交接修复计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. 本轮只交付复核与计划，尚未授权执行；如用户选择委派，再使用 subagent-driven-development。
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking. 用户已确认执行；后两项已获委派授权，按串行行为 RED→完整 CI GREEN 执行。
 
 **Goal:** 修复 Sidebar New、账户重认证、持久空会话 Configure 和副 Pane 最近会话打开失败四条交接路径。
 
@@ -46,11 +46,11 @@
 
 以下步骤每个任务各执行一次，不跨任务混合 RED 与修复：
 
-- [ ] 增加该任务行为测试；确保断言在当前生产源码可编译，且失败原因是所审缺陷，不能把编译失败或 fixture 失败当 RED。
-- [ ] 只提交/推送测试及必要的 DEBUG 测试夹具；等待 CI 报出预期行为失败，记录 SHA/tree、run URL、测试名与断言。此时不写生产修复。
-- [ ] 实施最小修复；本地执行 `git diff --check`，检查 project.yml、路径与 ignore 边界，只 stage 本任务文件。
-- [ ] 提交/推送 GREEN，等待现有完整 CI（hygiene、XcodeGen、build、unit/UI、独立 iPad axis）和适用的现有 build-settings guard。真实失败先修，不以 cancelled/skipped 替代 passed。
-- [ ] 记录 GREEN SHA/tree、job、失败/跳过/host restart 状态，完成该任务 review 后再进行下一项。
+- [x] 增加该任务行为测试；确保断言在当前生产源码可编译，且失败原因是所审缺陷，不能把编译失败或 fixture 失败当 RED。
+- [x] 只提交/推送测试及必要的 DEBUG 测试夹具；等待 CI 报出预期行为失败，记录 SHA/tree、run URL、测试名与断言。此时不写生产修复。
+- [x] 实施最小修复；本地执行 `git diff --check`，检查 project.yml、路径与 ignore 边界，只 stage 本任务文件。
+- [x] 提交/推送 GREEN，等待现有完整 CI（hygiene、XcodeGen、build、unit/UI、独立 iPad axis）和适用的现有 build-settings guard。真实失败先修，不以 cancelled/skipped 替代 passed。
+- [x] 记录 GREEN SHA/tree、job、失败/跳过/host restart 状态，完成该任务 review 后再进行下一项。
 
 本轮不改 CI 范围以节省成本。新分支默认使用完整现有流程，避免旧临时 profile 导致漏跑。若执行时另行获准使用定向 RED，其记录必须明确 scope，GREEN 与最终 Gate 仍跑全量。
 
@@ -72,7 +72,7 @@ xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent \
 
 **Interfaces:** 继续消费 `newConversation() -> Void`、`rememberCurrentSession(retainUncommitted:)`、`sessions.retain(_:reconstruction:)` 和现有 App Space browse/return。生产接口不变；Sidebar `.new` 仍调用同一方法。
 
-- [ ] 增加 `sidebarNewRetainsUnsentSessionAndRestoresDraft()`：用现有 `AppShellWiringTests.makeFixture(seed: .none)` 创建无 Conversation 记录的 A，设置草稿 `未发送的草稿 🧑🏽‍💻`、`ComposerSelection(range: 1..<3)` 与 configuration；调用真实 Sidebar action；进入 B 的 App Space，找回 A 并 Return。断言如下（`originalDraft` 是完整 `ComposerDraftState` 快照）：
+- [x] 增加 `sidebarNewRetainsUnsentSessionAndRestoresDraft()`：用现有 `AppShellWiringTests.makeFixture(seed: .none)` 创建无 Conversation 记录的 A，设置草稿 `未发送的草稿 🧑🏽‍💻`、`ComposerSelection(range: 1..<3)` 与 configuration；调用真实 Sidebar action；进入 B 的 App Space，找回 A 并 Return。断言如下（`originalDraft` 是完整 `ComposerDraftState` 快照）：
 
 ```swift
 #expect(shell.conversationID == originalID)
@@ -82,11 +82,11 @@ xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent \
 #expect(try fixture.store.conversationLifecycle(id: originalID) == nil)
 ```
 
-- [ ] UI 增加 `testSidebarNewReturnsToOriginalUnsentDraftThroughAppSpace`：点正式 Sidebar New，不能替换为直接调用 App Space New；确认 Return 后全文、选区可恢复。需要 DEBUG selection probe 时复用原生 interaction probe 风格。
-- [ ] 补 `sidebarNewRetiresOnlyReconstructibleBlankSession`：真正空白可重建页退役；有配置改动、阅读位置、pending submission 或 runtime protection 的原 owner 不退役。复用 Session Store 已有测试与保护判断。
-- [ ] 取得共同流程中的行为 RED。
-- [ ] 单栏 New 显式保留未提交 owner，再由现有 Session Store 激活/demote 决定可重建空页退役。不另建 draft cache，不无条件永久保存所有空页。
-- [ ] 取得完整 GREEN 并记录证据；复查 Split New、App Space New 与未知/已删除卡片拒绝测试。
+- [x] UI 增加 `testSidebarNewReturnsToOriginalUnsentDraftThroughAppSpace`：点正式 Sidebar New，不能替换为直接调用 App Space New；确认 Return 后全文、选区可恢复。需要 DEBUG selection probe 时复用原生 interaction probe 风格。
+- [x] 补 `sidebarNewRetiresOnlyReconstructibleBlankSession`：真正空白可重建页退役；有配置改动、阅读位置、pending submission 或 runtime protection 的原 owner 不退役。复用 Session Store 已有测试与保护判断。
+- [x] 取得共同流程中的行为 RED。
+- [x] 单栏 New 显式保留未提交 owner，再由现有 Session Store 激活/demote 决定可重建空页退役。不另建 draft cache，不无条件永久保存所有空页。
+- [x] 取得完整 GREEN 并记录证据；复查 Split New、App Space New 与未知/已删除卡片拒绝测试。
 
 ## Task 2：账户变更重新校验现有 Session 的发送可用性
 
@@ -94,7 +94,7 @@ xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent \
 
 **Interfaces（新增）:** 账户 editor 接受 `onCommitted: @MainActor (ProviderInstanceID) -> Void`，仅配置事务/凭据绑定发布成功后触发；由 Settings model 转发到 shell。Session Store 提供只读 `retainedSessions: [ConversationSession]` 快照，包含 active、warm、Preview owner，不引入第二套 owner 表。Shell 提供 `refreshSendAvailability(for instanceID: ProviderInstanceID) async`，放在配置职责文件。
 
-- [ ] 增加 `reauthenticationRefreshesRetainedComposerWithoutReplacement`：使原配置因缺 Key 进入 unavailable，保留 Pane/Session 与中文草稿；通过正式 Settings model 的 account editor 保存新凭据并返回，等待刷新。断言：
+- [x] 增加 `reauthenticationRefreshesRetainedComposerWithoutReplacement`：使原配置因缺 Key 进入 unavailable，保留 Pane/Session 与中文草稿；通过正式 Settings model 的 account editor 保存新凭据并返回，等待刷新。断言：
 
 ```swift
 #expect(shell.pane === originalPane)
@@ -104,13 +104,13 @@ xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent \
 #expect(try fixture.store.run(id: oldRunID)?.requestConfigSeed == oldSeed)
 ```
 
-- [ ] 使用已有 fake provider 验证新的 Send 采用新绑定，旧 active Run 的身份/seed/execution snapshot/credential binding 不变；另一 Provider Session 不被改写。
-- [ ] 增加保存失败、凭据仍不可读、不支持原模型、两 Pane 同 Provider、warm Session、刷新期间切换配置/关闭 Settings 的断言。失败保持 unavailable；迟到结果只能更新仍匹配被捕获 Session 与 configuration 的 owner。
-- [ ] UI 增加 `testReauthenticationReturnsToSameComposerWithSendEnabled`，走正式保存/关闭路径；草稿与编辑器身份保留，不能通过关闭并重开 Conversation 让测试间接通过。
-- [ ] 取得共同流程中的行为 RED。
-- [ ] 刷新以 `AppAssembly.validateTarget` 为依据，在 detached 任务内读取现有 store/credentials/provider，回到 MainActor 后核对 Session 身份、configuration 和操作 generation。无配置继续 unconfigured。成功仅表示本地允许下一次请求，不声明联网认证成功。
-- [ ] 不替换 Pane、Composer、Run；不改变模型选择。失败消息仍为安全摘要；不要顺带清除 Stop/提交错误等不相关反馈。
-- [ ] 取得完整 GREEN，复查 SettingsAccount、SettingsScope、历史 credential 与 Run 冻结测试。
+- [x] 使用已有 fake provider 验证新的 Send 采用新绑定，旧 active Run 的身份/seed/execution snapshot/credential binding 不变；另一 Provider Session 不被改写。
+- [x] 增加保存失败、凭据仍不可读、不支持原模型、两 Pane 同 Provider、warm Session、刷新期间切换配置/关闭 Settings 的断言。失败保持 unavailable；迟到结果只能更新仍匹配被捕获 Session 与 configuration 的 owner。
+- [x] UI 增加 `testReauthenticationReturnsToSameComposerWithSendEnabled`，走正式保存/关闭路径；草稿与编辑器身份保留，不能通过关闭并重开 Conversation 让测试间接通过。
+- [x] 取得共同流程中的行为 RED。
+- [x] 刷新以 `AppAssembly.validateTarget` 为依据，在 detached 任务内读取现有 store/credentials/provider，回到 MainActor 后核对 Session 身份、configuration 和操作 generation。无配置继续 unconfigured。成功仅表示本地允许下一次请求，不声明联网认证成功。
+- [x] 不替换 Pane、Composer、Run；不改变模型选择。失败消息仍为安全摘要；不要顺带清除 Stop/提交错误等不相关反馈。
+- [x] 取得完整 GREEN，复查 SettingsAccount、SettingsScope、历史 credential 与 Run 冻结测试。
 
 ## Task 3：正式 Configure 接上持久空会话的一次性绑定
 
@@ -120,13 +120,13 @@ xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent \
 
 Settings 增加显式 `configureCapturedConversation(providerInstanceID: ProviderInstanceID, modelID: ModelID) async -> Bool`；只在 Configure 模式的已有模型旁显示“用于当前会话”。ProviderSetup 成功也走同一 captured-owner 初始化。普通 `setDefault` 继续只影响未来 New；不把全局默认回调解释成当前会话配置。
 
-- [ ] 增加 `persistedEmptyConversationConfiguresThroughFormalSettingsAndSurvivesReopen`：零 Provider → App Space New → Return 已落库空会话 → Sidebar Configure → Settings 添加账户并明确选模型 → 首次 fake Send → 关闭并重新打开数据库/建立新 shell。断言 Configure capability 可达、同 Pane/草稿保留、initial binding 正确、首次 request seed 正确、冷启动恢复使用已提交配置。
-- [ ] 增加已有账户但无全局默认时的显式配置；选择当前会话目标不自动改全局默认。普通 Settings 改默认不填补任何现有空 binding。
-- [ ] 增加重复 Configure、配置期间 New/删除/首次 Send、非空历史、已有 copied binding、持久化读写失败。事务返回 false/throw 时 UI 配置保持原状且反馈可见；首次绑定不改变 userActiveAt、Soul binding。
-- [ ] UI 增加 `testAppSpacePersistedUnconfiguredConversationHasFormalConfigure`，必须从 Sidebar 进入，不调用旧 `providerSetup` 属性。
-- [ ] 取得共同流程中的行为 RED。
-- [ ] 所有 Configure 可达性与提交检查消费同一 owner 判定。持久 owner 先事务写成功，后更新其当前 Composer；未落库 owner 只更新 Session。复用现有校验/反馈，去掉重复的默认与显式初始化决策。
-- [ ] 取得完整 GREEN，保留旧未落库 Configure、stale callback、global-default isolation 与 ConversationMetadata 测试。
+- [x] 增加 `persistedEmptyConversationConfiguresThroughFormalSettingsAndSurvivesReopen`：零 Provider → App Space New → Return 已落库空会话 → Sidebar Configure → Settings 添加账户并明确选模型 → 首次 fake Send → 关闭并重新打开数据库/建立新 shell。断言 Configure capability 可达、同 Pane/草稿保留、initial binding 正确、首次 request seed 正确、冷启动恢复使用已提交配置。
+- [x] 增加已有账户但无全局默认时的显式配置；选择当前会话目标不自动改全局默认。普通 Settings 改默认不填补任何现有空 binding。
+- [x] 增加重复 Configure、配置期间 New/删除/首次 Send、非空历史、已有 copied binding、持久化读写失败。事务返回 false/throw 时 UI 配置保持原状且反馈可见；首次绑定不改变 userActiveAt、Soul binding。
+- [x] UI 增加 `testAppSpacePersistedUnconfiguredConversationHasFormalConfigure`，必须从 Sidebar 进入，不调用旧 `providerSetup` 属性。
+- [x] 取得共同流程中的行为 RED。
+- [x] 所有 Configure 可达性与提交检查消费同一 owner 判定。持久 owner 先事务写成功，后更新其当前 Composer；未落库 owner 只更新 Session。复用现有校验/反馈，去掉重复的默认与显式初始化决策。
+- [x] 取得完整 GREEN，保留旧未落库 Configure、stale callback、global-default isolation 与 ConversationMetadata 测试。
 
 ## Task 4：最近入口消费带目标身份的打开结果
 
@@ -134,13 +134,13 @@ Settings 增加显式 `configureCapturedConversation(providerInstanceID: Provide
 
 **Interfaces（新增）:** `ConversationOpenOutcome: Equatable, Sendable` 提供 `.opened(conversationID: String)`、`.cancelled(conversationID: String)`、`.failed(RecentConversationOpenFailure)` 及只读 `isOpened: Bool`；增加 `openConversationResult(id: String) async -> ConversationOpenOutcome` 与 `openInSplitResult(id: String) async -> ConversationOpenOutcome`。原 Bool 方法作为兼容包装，避免本轮改完所有导航调用者。
 
-- [ ] 增加 `occupiedSecondaryRecentOpenFailureKeepsPaneAndTargetsRetry`：source=A，secondary=B 已占用；通过 Sidebar Recent 选择 C，注入一次目标 history preparation 读取失败。断言明确 `.failed` 且 target=C、B 的 Pane/Session/草稿不变、最近页面仍打开、C 对应错误和“重试打开”可见；修复读条件后重试打开 C。
-- [ ] 增加 canceled、被新选择替代、Split arrangement 改变和读任务迟到，不产生错误公告，不覆盖更新操作结果。列表分页失败仍重试分页，目标打开失败重试该 ID。
-- [ ] UI 增加 `testOccupiedSecondaryRecentFailureIsVisibleAndRetryable`，必须让副 Pane 已占用，不能以空 Split Picker 替代；通过 DEBUG 一次性 history reader 失败夹具，不注入真实网络或秘密。
-- [ ] 取得共同流程中的行为 RED。
-- [ ] 将现有 open 内部的成功/取消/读取与提交失败返回为明确结果，保留 preparation ticket、selection 和 arrangement 检查。最近 sheet 用局部失败状态消费 result；列表错误另消费只读 listing error，避免来源混用。空 Picker 继续消费自己的 split error，并由明确 failed outcome 更新。
-- [ ] 结果发布核对当前 sheet 操作身份；成功清错误/关 sheet，真实失败保留旧 Pane并展示重试，取消/过期安静退出，不保留上一操作的错误。
-- [ ] 取得完整 GREEN，复查 primary Recent、Search/Preview return、Split replacement 与 native iPad axis。
+- [x] 增加 `occupiedSecondaryRecentOpenFailureKeepsPaneAndTargetsRetry`：source=A，secondary=B 已占用；通过 Sidebar Recent 选择 C，注入一次目标 history preparation 读取失败。断言明确 `.failed` 且 target=C、B 的 Pane/Session/草稿不变、最近页面仍打开、C 对应错误和“重试打开”可见；修复读条件后重试打开 C。
+- [x] 增加 canceled、被新选择替代、Split arrangement 改变和读任务迟到，不产生错误公告，不覆盖更新操作结果。列表分页失败仍重试分页，目标打开失败重试该 ID。
+- [x] UI 增加 `testOccupiedSecondaryRecentFailureIsVisibleAndRetryable`，必须让副 Pane 已占用，不能以空 Split Picker 替代；通过 DEBUG 一次性 history reader 失败夹具，不注入真实网络或秘密。
+- [x] 取得共同流程中的行为 RED。
+- [x] 将现有 open 内部的成功/取消/读取与提交失败返回为明确结果，保留 preparation ticket、selection 和 arrangement 检查。最近 sheet 用局部失败状态消费 result；列表错误另消费只读 listing error，避免来源混用。空 Picker 继续消费自己的 split error，并由明确 failed outcome 更新。
+- [x] 结果发布核对当前 sheet 操作身份；成功清错误/关 sheet，真实失败保留旧 Pane并展示重试，取消/过期安静退出，不保留上一操作的错误。
+- [x] 取得完整 GREEN，复查 primary Recent、Search/Preview return、Split replacement 与 native iPad axis。
 
 ## 最终 Gate 与交付
 
@@ -155,4 +155,4 @@ Settings 增加显式 `configureCapturedConversation(providerInstanceID: Provide
 - 四条 review 均有实际入口测试、最小生产责任边界、失败/取消约束和独立 RED→GREEN。
 - 第 1 项不把 `seed: .active` 当作未落库草稿复现；第 2 项不以重新打开 Pane 绕过缺陷；第 3 项不以旧 providerSetup 测试绕过正式路由；第 4 项不以空副 Pane 代替已占用场景。
 - 任务 2 与 3 串行共享配置职责文件；其余维持现有边界。新增类型/方法是本计划的实现决策，不声称为现有 API。
-- 本轮仅新增此计划文件，没有修改生产代码、测试、Blueprint 或 CI；执行和实机结果尚无。
+- 2026-10-08 执行记录：四项代码/测试均已有实际完整 RED→GREEN，详见 `tasks/stage5-handoff-repairs.md`。最终候选另含一项已确认的测试清理修正，必须以该交付 commit 自身关联的完整 CI 与交付回复核对最终 Gate。下列发布后核对项在本文提交前不虚构完成；用户整合 review 与实机验收仍待后续进行。

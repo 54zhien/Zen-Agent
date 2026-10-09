@@ -155,3 +155,69 @@ tested code head. The final exact HEAD/tree and CI are supplied in the final
 conversation handoff; this avoids inventing a self-referential commit SHA here.
 
 Stop after S6-01. No S6-02, PR merge, main push, automatic S5 absorption or IPA.
+
+## Authorized fixed Stage 5 baseline sync — 2026-10-09
+
+The owner explicitly authorized the original S5 executor to deliver a verified
+fixed main baseline to this original S6 worktree for sync and combined full CI.
+That authorization permits this one baseline absorption, not S6-02 or a S6-to-main
+merge. The original S5 worktree remains separately owned and was not modified.
+
+- Pre-sync checkpoint H: `47ee7ed9c47603f15079d78f02a3599c11b68e50`.
+- H tree: `1435e0de48d41aae541949389ee770daf07697a8`.
+- Fixed M: `52a456bb53d10360aa6d485202f4bd05e2c6bdbf`.
+- M tree: `3653f870c941368ff4fa4e6abc89e854a55cf2db`.
+- M parents: `eec3eb38c3d4869a58031449f303f04dec55d0fd` and
+  `e9b808ee24fcfaf5de289b1567a51f749f071fd4`; actual ordinary merged PR35.
+- [M's own full CI37918132167](https://github.com/54zhien/Zen-Agent/actions/runs/37918132167)
+  completed success at exact M: hygiene, XcodeGen/build,987 Swift /158 suites,
+  20 XCTest, phone61 /one expected Pad-only skip /zero failures, actualPad1 /zero
+  failures /zero skips. Raw logs independently verified: one Swift run start,
+  zero host restart; source-run results never substitute for combination CI.
+- M phone log SHA-256:
+  `43eaff47b1a7281edc11644ce384886c630ba7e50b54e491a109ad24c949c851`.
+- M Pad log SHA-256:
+  `7226d876a5e04dfe53c667b09c8c6926775742a3ba97ef8608bd871aa6d506e2`.
+
+The live named S6 worktree, index and nonignored untracked state were clean at H.
+No stash, reset, forced commit or cleanup was used. A normal
+`git merge --no-ff --no-commit` consumed this fixed M, not floating main, then
+paused for actual index review. There was no text conflict or whitespace error.
+
+Relative to M, the combination contributes only the same eight authorized S6
+paths above. Before this record update, all eight S6 file blobs and literal
+working-tree SHA-256 values matched H. The six Policy sources/tests remain
+byte-for-byte H content after this documentation update. The S6 plan is also
+unchanged. Relative to H, imported non-S6 paths come directly from verified M;
+this executor made no S5 production/test modification or blanket conflict choice.
+The original focus regression/parameters/assertions are kept at M's exact blob.
+
+This ordinary merge commit is combination N, with parents H and fixed M. Its
+exact SHA/tree, two-ancestor checks and N-specific complete CI receipt are reported
+by the final conversation handoff and archived evidence, avoiding a self-SHA loop.
+The N CI must execute the existing full profile including phone, actual Pad and
+hygiene; previous counts are historical observations, not hardcoded acceptance
+counts. A failed, cancelled or incomplete N run is not passed. No focus-only
+diagnostic or unchanged retry sweep is authorized by this sync.
+
+### Known deferred/open items retained from M
+
+- **The intermittent incoming Composer stable-focus loss is not fixed.** The
+  owner exhausted the two additional original false/true diagnostic attempts,
+  `37907105288` attempts2/3 (3.518s/4.016s), then explicitly deferred the issue to
+  continue engineering sync. Both passed without a B-loss event, so no initiating
+  cause or repair is inferred. Historical RED37784846258 and37801912044 remain
+  valid unresolved evidence. Temporary probes were removed; original regression
+  assertions stay enabled. No new focus investigation or retry is added here.
+- Historical iPad first-Sidebar failure remains disclosed. Current green CI does
+  not erase that history or establish physical-device acceptance.
+- Physical-device acceptance and SQLite teardown warnings remain open; no broad
+  cleanup/refactor is part of baseline sync.
+- The S6 whole-DTO `Equatable` P3 remains deferred as documented above. This
+  mechanical sync does not change Policy code; address equality separately before
+  a future consumer relies on it.
+- Production Policy/intent/dispatch integration, persistence, system permission,
+  Files, Settings and all S6-02 onward work remain excluded. Engineering sync is
+  not an announcement that all Stage5 or Stage6 acceptance is complete.
+
+Stop after combination verification. No S6 PR merge, main push, IPA or S6-02.

@@ -40,7 +40,33 @@ enum ConversationPreviewUITestSeed {
                     executionSnapshot: nil, createdAt: date, updatedAt: date, activeSlot: nil).insert(db)
             }
         }
+        if ProcessInfo.processInfo.environment["ZEN_RECENT_SPLIT_FAILURE_UI_TEST"] == "1" {
+            // A real persisted decoding failure, while bounded Recent summaries
+            // remain readable. Only this native regression seeds the extra Run.
+            try store.database.write { db in
+                for index in 0..<24 {
+                    let date = Date(timeIntervalSince1970: Double(-index - 1))
+                    try ConversationRecord(id: "recent-older-\(index)", title: "Older Recent conversation \(index)",
+                        createdAt: date, updatedAt: date, userActiveAt: date, pinned: false, lifecycle: .visible).insert(db)
+                }
+                var run = try AgentRunRecord.fetchOne(db, key: "preview-reading-run-0")!
+                run.id = "recent-split-failure-run"
+                run.conversationID = "preview-ui-9"
+                run.triggerMessageID = nil
+                run.responseMessageID = nil
+                try run.insert(db)
+                try db.execute(sql: "UPDATE agentRun SET state = ? WHERE id = ?",
+                    arguments: ["invalid-recent-split-state", run.id])
+            }
+        }
         return store
+    }
+
+    static func restoreRecentSplitFailure(in store: PersistenceStore) throws {
+        try store.database.write { db in
+            try db.execute(sql: "UPDATE agentRun SET state = ? WHERE id = ?",
+                arguments: [RunState.completed.rawValue, "recent-split-failure-run"])
+        }
     }
 }
 #endif

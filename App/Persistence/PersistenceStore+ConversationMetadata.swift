@@ -50,6 +50,21 @@ extension PersistenceStore {
             return true
         }
     }
+
+    func canInitializeEmptyConversationBinding(id: String) throws -> Bool {
+        try database.read { db in
+            try Bool.fetchOne(db, sql: """
+                SELECT EXISTS(
+                    SELECT 1 FROM conversation c
+                    JOIN conversationInitialBinding b ON b.conversationID = c.id
+                    WHERE c.id = ? AND c.lifecycle = ?
+                      AND b.providerInstanceID IS NULL AND b.modelID IS NULL
+                      AND NOT EXISTS(SELECT 1 FROM message WHERE conversationID = c.id)
+                      AND NOT EXISTS(SELECT 1 FROM agentRun WHERE conversationID = c.id)
+                )
+                """, arguments: [id, ConversationLifecycle.visible.rawValue]) ?? false
+        }
+    }
     func renameConversation(id: String, title: String, at now: Date) throws {
         let normalized = title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         guard !normalized.isEmpty, normalized.count <= 512, now.timeIntervalSince1970.isFinite else {

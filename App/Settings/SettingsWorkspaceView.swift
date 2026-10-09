@@ -20,6 +20,7 @@ struct SettingsWorkspaceView: View {
                         .accessibilityIdentifier("settings-providers")
                     NavigationLink { SettingsModelsView(model: model) }
                         label: { Label("模型", systemImage: "list.bullet") }
+                        .accessibilityIdentifier("settings-models")
                 }
                 Section("外观") {
                     NavigationLink { SettingsAppearanceView(model: model.appearance) }
