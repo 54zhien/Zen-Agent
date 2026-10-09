@@ -29,35 +29,26 @@ jobs:
           mkdir -p "$RUNNER_TEMP/FaultStacks"
           touch "$RUNNER_TEMP/FaultFocus.log"
           cat > "$RUNNER_TEMP/watch-fault.py" <<'PY'
-          import json, os, pathlib, re, subprocess, time
+          import os, pathlib, re, subprocess, time
           root = pathlib.Path(os.environ['RUNNER_TEMP'])
           output = root / 'FaultStacks'
-          containers = pathlib.Path.home() / 'Library/Developer/CoreSimulator/Devices' / os.environ['UDID'] / 'data/Containers/Data/Application'
-          started = time.time()
+          started = time.monotonic()
           trigger_seen = False
-          while time.time() - started < 1500:
-              markers = []
-              for marker in containers.glob('*/tmp/s5-focus-resign.json'):
-                  payload = json.loads(marker.read_text())
-                  if payload['requestedAt'] >= started:
-                      markers.append((marker, payload))
-              if len(markers) > 1:
-                  raise RuntimeError('Multiple fresh markers; refusing an ambiguous target')
-              if markers:
+          while time.monotonic() - started < 1500:
+              listing = subprocess.check_output(['/bin/ps', '-axo', 'pid=,comm='], text=True)
+              matches = [line.strip().split(None, 1) for line in listing.splitlines()
+                         if line.rstrip().endswith('/ZenAgent.app/ZenAgent') and os.environ['UDID'] in line]
+              if len(matches) > 1:
+                  raise RuntimeError('Multiple application processes in selected simulator')
+              if matches:
                   trigger_seen = True
-                  marker, payload = markers[0]
-                  observed = time.time()
-                  (output / 'marker.json').write_text(json.dumps(payload, indent=2))
-                  pid = str(int(payload['pid']))
-                  identity = subprocess.check_output(['/bin/ps', '-p', pid, '-o', 'comm='], text=True).strip()
-                  if pathlib.Path(identity).name != 'ZenAgent' or os.environ['UDID'] not in identity:
-                      raise RuntimeError('Marker PID is not the application in the selected simulator')
-                  (output / 'trigger.txt').write_text(f'pid={pid}\nidentity={identity}\nrequested={payload["requestedAt"]}\nobserved={observed}\nlag={observed - payload["requestedAt"]}\n')
-                  # Bound capture to outgoing resignation. No test wait/hold is added.
-                  # Sampling affects scheduling and is never an acceptance result.
+                  pid, identity = matches[0]
+                  (output / 'trigger.txt').write_text(f'pid={pid}\nidentity={identity}\nstarted={time.time()}\n')
+                  # Attach before the short focus calls. -mayDie pre-collects symbols and
+                  # missed those calls in prior captures. Do not delay the test for sampling.
                   with (output / 'sample-tool.log').open('w') as log:
-                      result = subprocess.run(['/usr/bin/sample', pid, '1', '10', '-mayDie',
-                          '-file', str(output / 'app.sample.txt')], stdout=log, stderr=log, timeout=30)
+                      result = subprocess.run(['/usr/bin/sample', pid, '60', '10',
+                          '-file', str(output / 'app.sample.txt')], stdout=log, stderr=log, timeout=120)
                   with (output / 'trigger.txt').open('a') as receipt:
                       receipt.write(f'finished={time.time()}\nexit={result.returncode}\n')
                   if result.returncode != 0 or not (output / 'app.sample.txt').is_file():
@@ -68,10 +59,10 @@ jobs:
                   break
               if (output / 'done').exists():
                   break
-              time.sleep(0.02)
+              time.sleep(0.1)
           if not trigger_seen:
-              (output / 'no-trigger.txt').write_text('Expected resignation marker was not observed; capture is incomplete.\n')
-              raise RuntimeError('Missing original test resignation marker')
+              (output / 'no-trigger.txt').write_text('Application process was not observed; capture is incomplete.\n')
+              raise RuntimeError('Missing application process')
           PY
           python3 "$RUNNER_TEMP/watch-fault.py" &
           WATCHER=$!

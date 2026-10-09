@@ -390,3 +390,36 @@ or production focus behavior. Marker errors, missing capture and invalid stacks
 remain explicit failures. A valid report must still be inspected for overlap
 with the resignation and meaningful blocked frames; sampling can perturb timing.
 The hooks and workflow remain temporary and must leave the acceptance source.
+
+
+## File-trigger result and sampler startup correction
+
+Source `69d0f2b038fef1a5922b1a32995ae8833e7aff15`,
+[run 37902935227](https://github.com/54zhien/Zen-Agent/actions/runs/37902935227),
+built and passed the original false/true function (one test / one suite).
+Native capture failed again: marker visibility lag was 1.333 seconds, and the
+sampler reported pid_for_task failure with no report after app exit. A false
+entry/return were 1791533811.136973 / 1791533812.349042; the queue timeout was
+1791533812.215804. B entered at 1791533812.371121. No B-focus failure occurred.
+Both ZIP artifacts were size/SHA-256/CRC verified: logs 48,718 bytes,
+`76205cc001305661dc950a408c7c061f76fce32217bd5d6efa27c161b18c5b83`;
+xcresult 125,768 bytes,
+`981baa7d0e07c8f0ed419be3fac57bf70460d02d6cb25d3829453eb399a86076`.
+Automatic normal push/PR CI runs 37902935238 / 37902940492 were cancelled;
+guard 37902940485 passed. No acceptance or main integration is claimed.
+
+Inspection of the previously successful startup capture 37799578964 shows it
+used sample without -mayDie. Apple's archived Diagnosing Slow Operations guide
+states that -mayDie collects symbol information before sampling:
+https://developer.apple.com/library/archive/documentation/Performance/Conceptual/CodeSpeed/Articles/DiagnosingSlowness.html
+That creates a startup cost omitted from the prior call-trigger design; its
+exact contribution on this runner has not been separately measured.
+
+The bounded correction reuses that proven process-start attachment mechanism,
+validates the selected simulator PID, and samples for up to 60 seconds without
+-mayDie. It retains A/B timestamp traces, removes test file I/O entirely, and
+adds no keyboard warmup, test hold or changed assertion. The longer window is
+intended to cover the outgoing call beyond the earlier startup-only reference;
+actual sample frames and call timestamps must establish coverage. Early sampling
+can perturb timing; another pass is not a repair and no full-CI sweep is warranted
+until evidence identifies a concrete production or fixture correction.

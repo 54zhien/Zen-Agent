@@ -48,27 +48,11 @@ struct WorkspaceComposerDockTests {
         let container = ComposerDockContainer(frame: root.view.bounds)
         let a = ComposerHostPortal(frame: root.view.bounds), b = ComposerHostPortal(frame: root.view.bounds)
         var focusEvents: [String] = []
-        var samplingStarted = false
         ComposerHostView.focusDiagnostic = { host, event in
             guard host === a.composer || host === b.composer else { return }
             let owner = host === a.composer ? "a" : "b"
             focusEvents.append("FOCUS_CALL \(Date().timeIntervalSince1970) preserve=\(preserveOutgoing) owner=\(owner) event=\(event) responder=\(host.editor.isFirstResponder)")
-            if !preserveOutgoing, !samplingStarted, owner == "a", event == "requestFocus(false) enter" {
-                samplingStarted = true
-                // The native log stream delivered the previous marker seconds late.
-                // Publish atomically before resignation without waiting for the sampler.
-                let marker = FileManager.default.temporaryDirectory.appendingPathComponent("s5-focus-resign.json")
-                do {
-                    let data = try JSONSerialization.data(withJSONObject: [
-                        "pid": ProcessInfo.processInfo.processIdentifier,
-                        "requestedAt": Date().timeIntervalSince1970,
-                        "event": event
-                    ])
-                    try data.write(to: marker, options: .atomic)
-                } catch {
-                    focusEvents.append("FOCUS_CAPTURE_WRITE_FAILED \(error)")
-                }
-            }
+
         }
         defer {
             ComposerHostView.focusDiagnostic = nil
