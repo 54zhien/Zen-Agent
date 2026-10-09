@@ -330,3 +330,31 @@ wait, process suspension, or new assertion. Production code, tests, project,
 configuration and normal CI remain byte-identical to `19423a4`. Stack capture
 still starts only after a fault; any scheduling effect after that point remains
 a limitation. This temporary diagnostic is not an acceptance gate.
+
+
+## Single-call investigation after point review
+
+Both jobs of diagnostic37813185858 were cancelled at the owner's request to
+stop broad resource use and inspect the focus path first. No acceptance result
+comes from that run. The owner subsequently authorized finding and repairing
+the issue along the narrowed call-boundary direction.
+
+Existing archived app-window control6b5a0af already brackets a keyboard timeout:
+A requestFocus(false) entered at1791469963.959981 and returned at1791469965.153606;
+the native queue fault timestamp is14:32:45.045680UTC (1791469965.045680).
+B requestFocus(true) began only at1791469965.176267. Thus that timeout occurs
+inside A's synchronous resignation, not inside B acquisition. That control
+ultimately passed and used the application window, so this identifies a timeout
+boundary but is not proof of the original settled-focus failure's root cause.
+
+One diagnostic job now selects only the unchanged original function/arguments.
+A DEBUG-only hook records A/B request entry/return and existing delegate events
+in memory; it prints after the assertions and is removed before cleanup. All
+original assertions, waits, parameter order and app focus behavior are retained.
+A single native marker at the first A positive request bounds an8-second,
+10ms-interval external sample, addressing the earlier startup sample's coverage
+ending before the outgoing call. There is no extra sleep or test-host hold and
+no matrix/full-suite sweep. Missing markers or invalid capture fail diagnostics.
+Sampling may perturb timing; useful call stacks must be inspected, and a green
+sample is not a fix. These temporary hooks/workflow must be removed before any
+acceptance candidate. Original full-CI RED37801912044 remains open.

@@ -47,6 +47,21 @@ struct WorkspaceComposerDockTests {
         let dock = WorkspaceComposerDockState()
         let container = ComposerDockContainer(frame: root.view.bounds)
         let a = ComposerHostPortal(frame: root.view.bounds), b = ComposerHostPortal(frame: root.view.bounds)
+        var focusEvents: [String] = []
+        var samplingStarted = false
+        ComposerHostView.focusDiagnostic = { host, event in
+            guard host === a.composer || host === b.composer else { return }
+            let owner = host === a.composer ? "a" : "b"
+            focusEvents.append("FOCUS_CALL \(Date().timeIntervalSince1970) preserve=\(preserveOutgoing) owner=\(owner) event=\(event) responder=\(host.editor.isFirstResponder)")
+            if !preserveOutgoing, !samplingStarted, owner == "a", event == "requestFocus(true) enter" {
+                samplingStarted = true
+                NSLog("S5_FOCUS_CALL_CAPTURE")
+            }
+        }
+        defer {
+            ComposerHostView.focusDiagnostic = nil
+            print(focusEvents.joined(separator: "\n"))
+        }
         root.view.addSubview(a); root.view.addSubview(b); root.view.addSubview(container)
         dock.configure(container: container, activeID: "a", visible: true)
         func update(_ portal: ComposerHostPortal, id: String, editing: Bool, active: Bool = true) {
