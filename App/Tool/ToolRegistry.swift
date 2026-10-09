@@ -31,6 +31,7 @@ struct ToolDescriptor: Sendable, Equatable {
     var revision: String
     var sideEffect: ToolSideEffect
     var approvalRequirement: ToolApprovalRequirement
+    var actions: [ToolPolicyActionMetadata] = []
 }
 
 struct ToolExecutionIntent: Codable, Sendable, Equatable {
@@ -43,6 +44,9 @@ struct ToolExecutionIntent: Codable, Sendable, Equatable {
     var targetIdentity: String?
     var destinationIdentity: String?
     var approvalDisclosure: ToolApprovalDisclosure? = nil
+    var policyAction: ToolPolicyActionMetadata? = nil
+    var resourceScope: ToolResourceScope? = nil
+    var destinationScope: ToolDestinationScope? = nil
 }
 
 struct ToolExecutionResult: Sendable, Equatable {

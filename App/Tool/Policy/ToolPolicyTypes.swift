@@ -31,7 +31,7 @@ enum ToolGrantSubject: Sendable, Equatable {
     }
 }
 
-enum ToolResourceScope: Sendable, Equatable {
+enum ToolResourceScope: Codable, Sendable, Equatable {
     case notRequired
     case missing
     case target(String)
@@ -58,7 +58,7 @@ enum ToolResourceScope: Sendable, Equatable {
     }
 }
 
-enum ToolDestinationScope: Sendable, Equatable {
+enum ToolDestinationScope: Codable, Sendable, Equatable {
     case notRequired
     case missing
     case provider(instanceID: String, endpointIdentity: String)
@@ -144,11 +144,11 @@ struct ToolGrantApprovalBinding: Sendable, Equatable {
     }
 }
 
-enum ToolActionRisk: Sendable, Equatable {
+enum ToolActionRisk: Codable, Sendable, Equatable {
     case low, high, destructive, unknown
 }
 
-enum ToolPolicyResourceRequirement: Sendable, Equatable {
+enum ToolPolicyResourceRequirement: Codable, Sendable, Equatable {
     case notRequired, target, file, unknown
 
     func accepts(_ scope: ToolResourceScope) -> Bool {
@@ -160,7 +160,7 @@ enum ToolPolicyResourceRequirement: Sendable, Equatable {
     }
 }
 
-enum ToolPolicyEgressRequirement: Sendable, Equatable {
+enum ToolPolicyEgressRequirement: Codable, Sendable, Equatable {
     case notRequired, provider, providerRequiringApproval, unknown
 
     func accepts(_ scope: ToolDestinationScope) -> Bool {
@@ -173,7 +173,7 @@ enum ToolPolicyEgressRequirement: Sendable, Equatable {
     }
 }
 
-struct ToolPolicyActionMetadata: Sendable, Equatable {
+struct ToolPolicyActionMetadata: Codable, Sendable, Equatable {
     let toolID: String
     let actionID: String
     let descriptorRevision: String
