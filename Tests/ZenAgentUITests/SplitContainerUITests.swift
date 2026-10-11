@@ -68,7 +68,9 @@ final class SplitContainerUITests: XCTestCase {
         guard let message = messages.allElementsBoundByIndex.first(where: {
             $0.isHittable && $0.frame.height > 0 && source.frame.intersects($0.frame)
         }) else { XCTFail("Expected selectable source text"); return }
-        let word = message.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5))
+        guard let seedValue = message.value as? String else { XCTFail("Expected a unique seeded message value"); return }
+        let stableMessage = messages.matching(NSPredicate(format: "value == %@", seedValue)).firstMatch
+        let word = stableMessage.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5))
         word.press(forDuration: 0.8)
         let copy = app.menuItems["Copy"]
         guard copy.waitForExistence(timeout: 5) else {
@@ -86,6 +88,7 @@ final class SplitContainerUITests: XCTestCase {
     @MainActor
     func testMessageBodyDoubleTapStillSelectsText() {
         let app = launchedOccupiedSplit(observeContentFocus: true)
+        app.activateWorkspacePane("preview-ui-11")
         let input = app.textViews["conversation-composer-input"]
         input.tap()
         input.typeText("double tap destination draft")
@@ -95,21 +98,23 @@ final class SplitContainerUITests: XCTestCase {
         guard let message = messages.allElementsBoundByIndex.first(where: {
             $0.isHittable && $0.frame.height > 0 && source.frame.intersects($0.frame)
         }) else { XCTFail("Expected selectable source text"); return }
-        message.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5)).doubleTap()
+        guard let seedValue = message.value as? String else { XCTFail("Expected a unique seeded message value"); return }
+        let stableMessage = messages.matching(NSPredicate(format: "value == %@", seedValue)).firstMatch
+        stableMessage.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5)).doubleTap()
         XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 5),
                       "Double tap must retain native word selection and its Copy action")
         XCTAssertEqual(input.value as? String, "double tap destination draft",
-                       "Word selection must not replace the active input owner")
+                       "Word selection must preserve this Pane's draft")
 
         // Re-enter the Composer after a native selection, then activate that
         // same body. A retained range must not turn a Pane tap into focus loss.
         input.tap()
         XCTAssertTrue(app.keyboards.firstMatch.exists)
-        message.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5)).tap()
+        stableMessage.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5)).tap()
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         XCTAssertTrue(app.keyboards.firstMatch.exists)
         XCTAssertTrue((probe.value as? String)?.contains("focused=true;") == true)
-        message.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5)).doubleTap()
+        stableMessage.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5)).doubleTap()
         XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 5),
                       "Selection must remain available after returning from the Composer")
     }
@@ -126,7 +131,9 @@ final class SplitContainerUITests: XCTestCase {
         guard let prompt = prompts.allElementsBoundByIndex.first(where: {
             $0.isHittable && $0.frame.height > 0 && source.frame.intersects($0.frame)
         }) else { XCTFail("Expected a visible Prompt capsule"); return }
-        let word = prompt.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5))
+        guard let seedValue = prompt.value as? String else { XCTFail("Expected a unique seeded message value"); return }
+        let stablePrompt = prompts.matching(NSPredicate(format: "value == %@", seedValue)).firstMatch
+        let word = stablePrompt.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5))
         word.tap()
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         XCTAssertTrue(app.keyboards.firstMatch.exists)
@@ -136,6 +143,28 @@ final class SplitContainerUITests: XCTestCase {
         XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 5),
                       "Prompt text must retain native word selection")
         XCTAssertEqual(input.value as? String, "source prompt draft")
+    }
+
+    @MainActor
+    func testActivePromptDoubleTapPresentsNativeCopyMenu() {
+        let app = launchedOccupiedSplit(observeContentFocus: true)
+        app.activateWorkspacePane("preview-ui-11")
+        let input = app.textViews["conversation-composer-input"]
+        input.tap()
+        input.typeText("active prompt selection draft")
+        let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        let prompts = source.textViews.matching(NSPredicate(
+            format: "value BEGINSWITH %@", "User prompt"))
+        guard let prompt = prompts.allElementsBoundByIndex.first(where: {
+            $0.isHittable && $0.frame.height > 0 && source.frame.intersects($0.frame)
+        }), let seedValue = prompt.value as? String else {
+            XCTFail("Expected a visible seeded Prompt capsule"); return
+        }
+        let stablePrompt = prompts.matching(NSPredicate(format: "value == %@", seedValue)).firstMatch
+        stablePrompt.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5)).doubleTap()
+        XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 5),
+                      "Double tapping the active Prompt must preserve native Copy")
+        XCTAssertEqual(input.value as? String, "active prompt selection draft")
     }
 
     @MainActor
