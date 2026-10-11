@@ -28,6 +28,9 @@ final class SurfaceLiftController {
     private(set) var requestedSplitReturnSlot: SplitDropSlot?
     private var selectedSources: Set<String> = []
     var minimumCardSize = CGSize(width: 220, height: 300)
+#if DEBUG
+    @ObservationIgnored var lastNativeLiftReceipt = ""
+#endif
     @ObservationIgnored private var hostID: ObjectIdentifier?
     @ObservationIgnored private var interactiveDistance = 0.0
     @ObservationIgnored private var hasInteractivePose = false
@@ -150,7 +153,9 @@ final class SurfaceLiftController {
                 host.surfaceView)
         }
 #if DEBUG
-        nativeInteractionDiagnostic = { [weak host] in host?.interactionDiagnostic ?? "host released" }
+        nativeInteractionDiagnostic = { [weak host, weak self] in
+            (host?.interactionDiagnostic ?? "host released") + ";lastLiftReceipt=[\(self?.lastNativeLiftReceipt ?? "")]"
+        }
         nativeVisibilityDiagnostic = { [weak host] in host?.visibilityDiagnostic ?? "host released" }
 #endif
         detach = { [weak host] in host?.onViewportChanged = nil; host?.liftController = nil }

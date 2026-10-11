@@ -167,7 +167,7 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
             // Emit only after recognition has terminated, so evidence collection
             // does not add console work during the held gesture.
             if recordsUITestGestures {
-                print("LIFT_TERMINAL_RECEIPT recognizer=\(ObjectIdentifier(recognizer));trace=[\(gestureTrace.joined(separator: " | "))]")
+                configuration.driver.lastNativeLiftReceipt = gestureTrace.joined(separator: " | ")
             }
 #endif
             defer { origin = nil }
