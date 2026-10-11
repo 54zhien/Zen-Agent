@@ -207,8 +207,10 @@ struct AppShellWiringTests {
         let loss = NativeFocusLossEvidence()
         let observer = NotificationCenter.default.addObserver(forName: UITextView.textDidEndEditingNotification,
             object: nil, queue: .main) { notification in
+                // Notification is not Sendable; only the UIKit reference crosses isolation.
+                let editor = notification.object as? UITextView
                 MainActor.assumeIsolated {
-                    loss.capture(scene: scene, window: window, editor: notification.object as? UITextView)
+                    loss.capture(scene: scene, window: window, editor: editor)
                 }
             }
         defer { loss.armed = false; NotificationCenter.default.removeObserver(observer) }

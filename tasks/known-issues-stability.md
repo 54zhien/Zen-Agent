@@ -242,6 +242,14 @@ formal full selection byte for byte. The next exact repair head must build and
 run all unit/Phone UI tests and the actual iPad case. Do not close the unresolved
 native loss merely because the Compact repair or a subsequent full run passes.
 
+The first full repair head `57601a3cef1830fca1e8323bc7e2062740be1506`, run
+`38117378404`, built the application but failed test compilation: the new
+failure observer captured a non-Sendable Notification inside MainActor isolation.
+This is not behavioral RED. The observer now extracts the MainActor-isolated
+UITextView reference on its delivery executor before entering the isolated
+callback. No operation, timing, source repair or assertion is changed. A new
+full native result is still required.
+
 - [ ] Record each confirmed root, RED SHA/run/assertion and minimal repair.
 - [ ] Obtain GREEN on the same behavioral regression before the next repair.
 - [x] Restore the formal full CI selection after temporary diagnostics.
