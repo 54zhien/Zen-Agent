@@ -79,7 +79,10 @@ final class SplitContainerUITests: XCTestCase {
         }
         XCTAssertEqual(input.value as? String, "quote destination draft",
                        "Selecting text must not replace the active input owner")
-        word.press(forDuration: 0.8, thenDragTo: input.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+        // The first word is "Assistant". Start near its center, away from
+        // the leading selection handle that UIKit treats as range adjustment.
+        let selectedWordCenter = stableMessage.coordinate(withNormalizedOffset: CGVector(dx: 0.21, dy: 0.5))
+        selectedWordCenter.press(forDuration: 0.8, thenDragTo: input.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
         XCTAssertTrue(app.buttons["移除引用"].waitForExistence(timeout: 5),
                       "The native selected range must still produce a Quote drop")
         XCTAssertEqual(input.value as? String, "quote destination draft")
