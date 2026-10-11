@@ -16,6 +16,7 @@ final class WorkspacePadAxisUITests: XCTestCase {
         let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         let sourceIdentity = try XCTUnwrap(editorIdentity(sourceProbe.value as? String))
         app.openWorkspaceSidebar()
+        print("PAD_FIRST_SIDEBAR \(String(describing: sourceProbe.value))")
         let entry = app.buttons["split-entry"]
         XCTAssertTrue(entry.waitForExistence(timeout: 15))
         entry.tap()

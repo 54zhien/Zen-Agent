@@ -184,7 +184,12 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        if gestureRecognizer === edge { edgeTouchOwner = nil; edgeTouchOrigin = nil; edgeRejected = false }
+        if gestureRecognizer === edge {
+            edgeTouchOwner = nil; edgeTouchOrigin = nil; edgeRejected = false
+#if DEBUG
+            (edge as? SidebarEdgeReceiptRecognizer)?.capturesNextTouch = false
+#endif
+        }
         guard let window = attachedWindow, let current = readContext?(), current.window === window,
               convert(bounds, to: window).contains(touch.location(in: window)) else {
             record("recv \(kind(gestureRecognizer)) rejected context=\(readContext?() != nil),anchor=\(bounds),window=\(window === attachedWindow)")
@@ -200,6 +205,9 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             if eligible, distance >= 0, distance <= travel {
                 edgeTouchOwner = (current.hostID, current.paneID, ObjectIdentifier(window))
                 edgeTouchOrigin = touch.location(in: window)
+#if DEBUG
+                (edge as? SidebarEdgeReceiptRecognizer)?.capturesNextTouch = true
+#endif
             }
             return eligible
         }
@@ -394,13 +402,14 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
 @MainActor
 private final class SidebarEdgeReceiptRecognizer: UIScreenEdgePanGestureRecognizer {
     var onReceipt: ((String) -> Void)?
+    var capturesNextTouch = false
     private weak var observedTouch: UITouch?
     private var receipt: [String] = []
     private var sawMove = false
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        observedTouch = touches.first
-        receipt.removeAll(); sawMove = false
+        observedTouch = capturesNextTouch ? touches.first : nil
+        if observedTouch != nil { receipt.removeAll(); sawMove = false }
         record("beganBefore")
         super.touchesBegan(touches, with: event)
         record("beganAfter")
@@ -425,6 +434,7 @@ private final class SidebarEdgeReceiptRecognizer: UIScreenEdgePanGestureRecogniz
         if observedTouch != nil { record("reset") }
         super.reset()
         observedTouch = nil
+        capturesNextTouch = false
     }
     private func record(_ phase: String) {
         guard let touch = observedTouch else { return }

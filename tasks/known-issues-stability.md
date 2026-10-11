@@ -295,6 +295,14 @@ or state owner, and does not override native recognition or add a retry. It asks
 whether UIKit rejects at touch admission, loses movement, or is cancelled by a
 competing recognizer. A passing diagnostic would not close the historical failure.
 
+The first edge-observation Pad job `114413767697` passed in 92.805 seconds.
+Its late PAD_SOURCE sample held the subsequent divider touch, not the first edge:
+UIKit correctly failed that center-screen non-edge touch at touchesBegan. The
+observer now retains only a touch admitted to the existing leading corridor,
+and the Pad test prints the first Sidebar receipt immediately after that one
+gesture. All superclass calls, production admission and original assertions
+remain unchanged. This repairs the observation gap; it is not a Sidebar fix.
+
 - [ ] Record each confirmed root, RED SHA/run/assertion and minimal repair.
 - [ ] Obtain GREEN on the same behavioral regression before the next repair.
 - [x] Restore the formal full CI selection after temporary diagnostics.
