@@ -670,11 +670,11 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     @objc private func keyboardDidHide(_ notification: Notification) {
         guard window != nil else { return }
         recordOverlayFocusEvent("keyboardDidHide")
-        // This Window-wide notification can finish another editor's hide after
-        // our responder handoff, or accompany a hardware keyboard. Native
-        // focus wins; didEndEditing still reports a real loss of this editor.
+        // A Window-wide hide can finish an earlier transition while this editor
+        // is awaiting focus, even if it owned a previous keyboard transition.
+        // Only didEndEditing reports native focus loss; visibility cannot
+        // revoke a newer request or a hardware-keyboard responder.
         if !editor.isFirstResponder {
-            if currentState == .editing { configuration?.onFocus(false) }
             keyboardTransitionOwned = false
         }
     }

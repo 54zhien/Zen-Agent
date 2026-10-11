@@ -7,7 +7,8 @@ This is a new authorization; historical deferrals remain evidence, not closure.
 ## Ownership and baseline
 
 - Own worktree: `C:/Users/Azusa/.codex/worktrees/known-issues-stability/Zen-Agent`.
-- Own branch: `codex/known-issues-stability`.
+- Own final branch: `codex/known-issues-stability-final`; the earlier
+  `codex/known-issues-stability` full gate stays running on its original head.
 - Starting HEAD: `c99328641d3227c6ecd1435dc461e4ae02759704`.
 - S6-02 source baseline: `bac8a66e495302ecc0134069f1a0c58558ee5542`.
 - Main observed at start: `52a456bb53d10360aa6d485202f4bd05e2c6bdbf`.
@@ -259,6 +260,25 @@ the stability branch. Its new assertions exercise the real keyboard observer
 before focus application, including a retained editor with prior native focus.
 This is not yet a proven cause of the historical delayed arbiter resignation.
 Production keyboard handling is unchanged for the initial RED invocation.
+
+Issue 12 behavioral RED: `ff161a025344f15cbae9e22739b07076efa9a241`, run
+`38118444246`, Phone job `114408035971`. The app and tests compiled; 130 tests
+in seven suites ran once in 28.678 seconds, with exactly two failed assertions
+at ComposerOverlayFocusTests:68. Both fresh and previously focused hosts received
+the unexpected false event. Actual native focus acquisition and resignation
+controls passed. The shell Resting/Compact handoff and model-intent assertions
+passed, establishing Issue 11 GREEN; the real Split UI passed in 46.657 seconds.
+The iPad job `114408035914` also passed its native case. No host restart occurred.
+
+Issue 12 repair removes only the synthesized onFocus(false) from keyboard hide.
+UITextView didEndEditing remains authoritative; keyboard transition bookkeeping
+and native delegate handling are retained. Gating on prior keyboard ownership
+alone would still lose the pending request of a previously focused editor, as
+the second RED argument demonstrates. There is no focus retry or delay. The
+workflow again matches main's full gate exactly; native GREEN is pending.
+The preceding full `b1146f0` Pad job `114406525733` passed its actual case in
+134.593 seconds. Its Phone gate continues independently and is not cancelled by
+publishing the final repair branch.
 
 - [ ] Record each confirmed root, RED SHA/run/assertion and minimal repair.
 - [ ] Obtain GREEN on the same behavioral regression before the next repair.
