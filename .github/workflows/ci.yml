@@ -374,8 +374,8 @@ jobs:
           TEST_SCOPE=$(python3 -B .github/scripts/stage5_test_profile.py)
           TEST_ARGS=(test)
           if [ "$GITHUB_REF_NAME" = "codex/known-issues-stability" ]; then
-            echo "::notice::Diagnostic lifetime RED/GREEN only; final full gate is still required."
-            TEST_ARGS+=(-only-testing:ZenAgentTests/ComposerLiftDiagnosticTests)
+            echo "::notice::Lift recorder GREEN and shell lifetime RED; final full gate is still required."
+            TEST_ARGS+=(-only-testing:ZenAgentTests/ComposerLiftDiagnosticTests -only-testing:ZenAgentTests/AppShellLifetimeTests -only-testing:ZenAgentTests/PersistedEmptyConfigureTests)
           fi
           if [ "$TEST_SCOPE" = "review-red" ]; then
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."

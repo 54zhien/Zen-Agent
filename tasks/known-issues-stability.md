@@ -64,6 +64,10 @@ This is a new authorization; historical deferrals remain evidence, not closure.
   owns Pane, Session and the cached Send coordinator/bridge back to Runtime.
   Existing idle-shell release coverage never creates that coordinator. A release
   regression must confirm the cycle before changing ownership.
+- The next native invocation also introduces Issue 5 test-only cases: idle shell,
+  cached coordinator, completed Send, and an active Runtime outliving presentation.
+  Recorder GREEN and ownership RED are assessed by their individual suite results;
+  no whole-workflow GREEN is inferred from a partially passing diagnostic run.
 
 ## Verification and review
 
