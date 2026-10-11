@@ -316,22 +316,8 @@ final class QuoteTextView: UITextView {
     #endif
 
     override func becomeFirstResponder() -> Bool {
-        // A read-only body's single tap activates its Pane. UIKit's later text
-        // interaction must not take the responder from the transferred Composer.
-        // Intercept acquisition, not recognition: the native text interaction
-        // can bypass UIView.gestureRecognizerShouldBegin on this path.
-        // Long/double taps and non-touch requests still use native selection.
-        let hasRecognizedSingleTap = (gestureRecognizers ?? []).contains { gesture in
-            guard let tap = gesture as? UITapGestureRecognizer else { return false }
-            return tap !== presentationTap && tap.state == .ended
-                && tap.numberOfTapsRequired == 1 && tap.numberOfTouchesRequired == 1
-        }
-        if !isEditable, !isFirstResponder, hasRecognizedSingleTap {
-            #if DEBUG
-            record("declinedSingleTap")
-            #endif
-            return false
-        }
+        // Diagnostic control: same native menu scenarios without the candidate
+        // single-tap responder veto. This branch is not a production candidate.
         #if DEBUG
         record("beforeBecome")
         #endif
