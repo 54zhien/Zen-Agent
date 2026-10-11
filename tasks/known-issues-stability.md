@@ -51,6 +51,10 @@ This is a new authorization; historical deferrals remain evidence, not closure.
 11. Split selection sends `textAreaTapped` to an incoming Compact Composer. The
     reducer only accepts that event from Resting; Compact needs `compactTapped`.
     Prove the model's focus intent before UIKit can accidentally rescue it.
+12. A window-wide keyboard hide can publish a false focus event while this host
+    is configured Editing but has not yet acquired its requested native focus.
+    Test both fresh and previously focused hosts through the real notification
+    observer; genuine native resignation must still publish a false event.
 
 ## Evidence
 
@@ -249,6 +253,12 @@ This is not behavioral RED. The observer now extracts the MainActor-isolated
 UITextView reference on its delivery executor before entering the isolated
 callback. No operation, timing, source repair or assertion is changed. A new
 full native result is still required.
+
+The Issue 12 test-only diagnostic preserves the running full `b1146f0` gate on
+the stability branch. Its new assertions exercise the real keyboard observer
+before focus application, including a retained editor with prior native focus.
+This is not yet a proven cause of the historical delayed arbiter resignation.
+Production keyboard handling is unchanged for the initial RED invocation.
 
 - [ ] Record each confirmed root, RED SHA/run/assertion and minimal repair.
 - [ ] Obtain GREEN on the same behavioral regression before the next repair.

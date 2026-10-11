@@ -49,6 +49,31 @@ struct ComposerOverlayFocusTests {
         #expect(focusEvents.isEmpty, "software keyboard visibility is not the actual responder's focus")
     }
 
+    @Test("a completed keyboard hide cannot cancel a pending focus request", arguments: [false, true])
+    func keyboardHidePreservesPendingFocus(previouslyFocused: Bool) throws {
+        var focusEvents: [Bool] = []
+        let (window, host) = installedHost(state: .editing, onFocus: { focusEvents.append($0) })
+        defer { host.editor.resignFirstResponder(); window.isHidden = true; window.rootViewController = nil }
+        if previouslyFocused {
+            try #require(host.editor.becomeFirstResponder())
+            host.requestFocus(false)
+            #expect(focusEvents.last == false, "native resignation must still publish a real loss")
+        }
+        try #require(!host.editor.isFirstResponder)
+        focusEvents.removeAll()
+        // The configured Editing projection precedes application of the next
+        // focus request. An old/global hide must not synthesize a new blur here.
+        NotificationCenter.default.post(name: UIResponder.keyboardDidHideNotification,
+                                        object: window.screen)
+        #expect(focusEvents.isEmpty, "keyboard visibility cannot cancel pending native ownership")
+        host.requestFocus(true)
+        #expect(host.editor.isFirstResponder)
+        #expect(focusEvents.last == true)
+        host.requestFocus(false)
+        #expect(!host.editor.isFirstResponder)
+        #expect(focusEvents.last == false, "real delegate focus loss remains authoritative")
+    }
+
     @Test("Search ends its own editing before restore; hosting updates and teardown keep the responder")
     func searchHostingTeardownCannotRevokeTheRetainedComposer() async throws {
         let (window, composer) = installedHost()
