@@ -280,6 +280,21 @@ The preceding full `b1146f0` Pad job `114406525733` passed its actual case in
 134.593 seconds. Its Phone gate continues independently and is not cancelled by
 publishing the final repair branch.
 
+The first `f72e653` full candidate did not pass the Pad gate: run `38119405773`,
+job `114410862167`, reproduced first-Sidebar non-opening before any Split entry.
+The native receipt shows the eligible touch at (1.5, 309.5), landscape orientation
+3, an attached 1376x1032 scene root, and granted failure priority over four content
+recognizers. There is no shouldBegin or action callback. The original first-edge
+assertion failed, followed by two missing-Split consequences; this is behavioral
+failure, not a simulator destination or compilation failure. Phone remains running.
+
+A separate diagnostic branch observes the actual screen-edge recognizer's raw
+touch delivery before/after superclass handling and at reset, with bounded peer
+states. It is DEBUG and UI-fixture gated, observation-ignored, retains no touch
+or state owner, and does not override native recognition or add a retry. It asks
+whether UIKit rejects at touch admission, loses movement, or is cancelled by a
+competing recognizer. A passing diagnostic would not close the historical failure.
+
 - [ ] Record each confirmed root, RED SHA/run/assertion and minimal repair.
 - [ ] Obtain GREEN on the same behavioral regression before the next repair.
 - [x] Restore the formal full CI selection after temporary diagnostics.

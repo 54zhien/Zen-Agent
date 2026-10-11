@@ -78,6 +78,12 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     private var edgeRejected = false
 
     override convenience init(frame: CGRect) {
+#if DEBUG
+        if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
+            self.init(frame: frame, edge: SidebarEdgeReceiptRecognizer())
+            return
+        }
+#endif
         self.init(frame: frame, edge: UIScreenEdgePanGestureRecognizer())
     }
 
@@ -100,6 +106,11 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     func configure(state: WorkspaceNavigationState, travel: CGFloat, isRightToLeft: Bool,
                    context: @escaping () -> WorkspaceSidebarNativeContext?) {
         self.state = state
+#if DEBUG
+        (edge as? SidebarEdgeReceiptRecognizer)?.onReceipt = { [weak state] in
+            state?.edgeTransportDiagnostic = $0
+        }
+#endif
         self.readContext = context
         self.travel = max(1, travel)
         self.sign = isRightToLeft ? -1 : 1
@@ -376,3 +387,59 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         captured = nil; capturedGestureID = nil
     }
 }
+
+#if DEBUG
+/// Observes the native recognizer's delivery boundary without overriding its
+/// state, direction, failure dependencies or any superclass touch handling.
+@MainActor
+private final class SidebarEdgeReceiptRecognizer: UIScreenEdgePanGestureRecognizer {
+    var onReceipt: ((String) -> Void)?
+    private weak var observedTouch: UITouch?
+    private var receipt: [String] = []
+    private var sawMove = false
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        observedTouch = touches.first
+        receipt.removeAll(); sawMove = false
+        record("beganBefore")
+        super.touchesBegan(touches, with: event)
+        record("beganAfter")
+    }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        let first = !sawMove
+        if first { record("firstMoveBefore"); sawMove = true }
+        super.touchesMoved(touches, with: event)
+        if first { record("firstMoveAfter") }
+    }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        record("endedBefore")
+        super.touchesEnded(touches, with: event)
+        record("endedAfter")
+    }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        record("cancelledBefore")
+        super.touchesCancelled(touches, with: event)
+        record("cancelledAfter")
+    }
+    override func reset() {
+        if observedTouch != nil { record("reset") }
+        super.reset()
+        observedTouch = nil
+    }
+    private func record(_ phase: String) {
+        guard let touch = observedTouch else { return }
+        let window = view?.window
+        let point = touch.location(in: window)
+        let peers: String = (touch.gestureRecognizers ?? []).sorted {
+            let left = $0.state == .began || $0.state == .changed
+            let right = $1.state == .began || $1.state == .changed
+            return left && !right
+        }.prefix(16).map {
+            "\(String(describing: type(of: $0))):\($0.state.rawValue)"
+        }.joined(separator: ",")
+        receipt.append("\(phase);state=\(state.rawValue);touch=\(touch.phase.rawValue);point=\(point);edges=\(edges.rawValue);orientation=\(window?.windowScene?.effectiveGeometry.interfaceOrientation.rawValue ?? 0);peers=[\(peers)]")
+        if receipt.count > 10 { receipt.removeFirst(receipt.count - 10) }
+        onReceipt?(receipt.joined(separator: " | "))
+    }
+}
+#endif

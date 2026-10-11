@@ -30,8 +30,9 @@ final class WorkspaceNavigationState {
     private(set) var gestureID: UUID?
 #if DEBUG
     @ObservationIgnored private var nativeEvents: [String] = []
+    @ObservationIgnored var edgeTransportDiagnostic = ""
     var nativeDiagnostic: String {
-        "open=\(isOpen),progress=\(progress),drag=\(isDragging),settlement=\(String(describing: settlementID));events=\(nativeEvents.joined(separator: " | "))"
+        "open=\(isOpen),progress=\(progress),drag=\(isDragging),settlement=\(String(describing: settlementID));events=\(nativeEvents.joined(separator: " | "));rawEdge=[\(edgeTransportDiagnostic)]"
     }
     func recordNative(_ event: String) {
         nativeEvents.append(event)
