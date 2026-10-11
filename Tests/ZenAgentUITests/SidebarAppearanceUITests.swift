@@ -32,14 +32,14 @@ final class SidebarAppearanceUITests: XCTestCase {
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()
 
-        let upperPane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch
-        let lowerPane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        let upperPane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        let lowerPane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch
         XCTAssertTrue(upperPane.waitForExistence(timeout: 10))
         XCTAssertTrue(lowerPane.waitForExistence(timeout: 10))
         XCTAssertLessThan(upperPane.frame.midY, lowerPane.frame.midY,
                           "The fixture should keep the selected conversation in the lower pane")
 
-        app.activateWorkspacePane("preview-ui-11")
+        app.activateWorkspacePane("preview-ui-10")
         let editor = app.textViews["conversation-composer-input"]
         XCTAssertTrue(editor.waitForExistence(timeout: 10))
         editor.tap()

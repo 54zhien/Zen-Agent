@@ -376,7 +376,7 @@ jobs:
           TEST_ARGS=(test)
           if [ "$GITHUB_REF_NAME" = "codex/sidebar-keyboard-continuity" ]; then
             echo "::notice::Targeted sidebar appearance and continuous keyboard regression; not the final full gate."
-            TEST_ARGS+=(-only-testing:ZenAgentTests/WorkspaceComposerDockTests -only-testing:ZenAgentTests/AppShellWiringTests -only-testing:ZenAgentTests/SidebarSurfaceTests -only-testing:ZenAgentUITests/SidebarAppearanceUITests -only-testing:ZenAgentUITests/SplitContainerUITests/testSharedComposerKeepsFocusWhenTappingOppositeMessageBody)
+            TEST_ARGS+=(-only-testing:ZenAgentTests/WorkspaceComposerDockTests -only-testing:ZenAgentTests/AppShellWiringTests -only-testing:ZenAgentTests/SidebarSurfaceTests -only-testing:ZenAgentUITests/SidebarAppearanceUITests -only-testing:ZenAgentUITests/SplitContainerUITests/testSharedComposerKeepsFocusWhenTappingOppositeMessageBody -only-testing:ZenAgentUITests/SplitContainerUITests/testMessageBodyLongPressStillSelectsAndDragsAQuote)
           elif [ "$TEST_SCOPE" = "review-red" ]; then
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
             TEST_ARGS+=(-only-testing:ZenAgentTests)

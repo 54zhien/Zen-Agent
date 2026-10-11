@@ -67,6 +67,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
     @State private var navigation = WorkspaceNavigationState()
     @State private var composerDock = WorkspaceComposerDockState()
     @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var minimumWidth = 220.0
     @ScaledMetric(relativeTo: .body) private var minimumHeight = 300.0
     @Environment(\.scenePhase) private var scenePhase
@@ -286,6 +287,11 @@ struct WorkspaceSurfaceView<Content: View>: View {
     private func workspaceSurfaces(in geometry: GeometryProxy) -> some View {
         ZStack(alignment: .topLeading) {
             if model?.splitWorkspace != nil, activeSurfaceSlot == nil { Color.black }
+            if navigation.progress > 0 || navigation.settlementID != nil {
+                sidebarBackdrop(in: geometry)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
 #if DEBUG
             if (ProcessInfo.processInfo.environment["ZEN_SURFACE_LIFT_UI_TEST"] == "1"
                 || ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1"),
@@ -312,10 +318,14 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         onNew: { _ = model.createNewInSplit() })
                         .frame(width: emptyFrame.width, height: emptyFrame.height)
                         .position(x: emptyFrame.midX, y: emptyFrame.midY)
+                        .offset(x: sidebarTranslation(in: geometry))
+                        .animation(sidebarAnimation, value: navigation.progress)
                 }
                 if activeSurfaceSlot == nil, let layout = splitGeometry(in: geometry) {
                     divider(model: model, split: split, layout: layout)
                         .position(x: layout.divider.midX, y: layout.divider.midY)
+                        .offset(x: sidebarTranslation(in: geometry))
+                        .animation(sidebarAnimation, value: navigation.progress)
                         .zIndex(20)
                 }
             }
@@ -326,9 +336,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     && model?.previewContent.isPresented != true && returnPresentation.phase == nil
                     && (activeSurfaceSlot == nil || [.armed, .lifting].contains(activeLift.state.phase)
                         || activeLift.state.pendingSettlement?.destination == .card))
-                .offset(x: CGFloat(navigation.progress) * min(geometry.size.width, 60 + navigationInsets.leading)
-                    * (layoutDirection == .rightToLeft ? -1 : 1))
-                .animation(.easeOut(duration: 0.16), value: navigation.progress)
+                .offset(x: sidebarTranslation(in: geometry))
+                .animation(sidebarAnimation, value: navigation.progress)
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
         .background(WorkspaceLayoutObserver { context in
@@ -352,6 +361,34 @@ struct WorkspaceSurfaceView<Content: View>: View {
         })
     }
 
+    private var sidebarAnimation: Animation? {
+        reduceMotion || navigation.isDragging ? nil : .easeOut(duration: 0.22)
+    }
+
+    private func sidebarTranslation(in geometry: GeometryProxy) -> CGFloat {
+        CGFloat(navigation.progress) * min(geometry.size.width, 60 + navigationInsets.leading)
+            * (layoutDirection == .rightToLeft ? -1 : 1)
+    }
+
+    private func sidebarBackdrop(in geometry: GeometryProxy) -> some View {
+        ZStack(alignment: .topLeading) {
+            Color(uiColor: .systemBackground)
+            Color.black.opacity(0.28 * (1 - navigation.progress))
+                .animation(sidebarAnimation, value: navigation.progress)
+            if case .split(let axis) = devicePresentation, activeSurfaceSlot == nil,
+               let layout = splitGeometry(in: geometry) {
+                // Preserve the black space around the divider-facing 24pt
+                // corners while the Sidebar page is exposed underneath.
+                Rectangle().fill(Color.black)
+                    .frame(width: layout.divider.width + (axis == .leftRight ? 48 : 0),
+                           height: layout.divider.height + (axis == .topBottom ? 48 : 0))
+                    .position(x: layout.divider.midX, y: layout.divider.midY)
+                    .offset(x: sidebarTranslation(in: geometry))
+                    .animation(sidebarAnimation, value: navigation.progress)
+            }
+        }
+    }
+
     private func workspaceSurface(slot: WorkspaceSurfaceSlot, geometry: GeometryProxy) -> some View {
         let fullFrame = CGRect(origin: .zero, size: geometry.size)
         let driver = controller(for: slot)
@@ -361,8 +398,15 @@ struct WorkspaceSurfaceView<Content: View>: View {
         let suppressed = returnPresentation.suppressesTarget(slot)
         let surfaceBrowse: AppSpaceBrowseController? = model != nil && slot == (model?.previewSurfaceSlot ?? model?.sourceSurfaceSlot) ? browse : nil
         let corner: CGFloat = model?.splitWorkspace != nil && !driver.retainsAppSpaceViewport ? 24 : 0
-        let sidebarOffset = CGFloat(navigation.progress) * min(geometry.size.width, 60 + navigationInsets.leading)
-            * (layoutDirection == .rightToLeft ? -1 : 1)
+        let sidebarOffset = sidebarTranslation(in: geometry)
+        // The proposed Workspace already avoids the keyboard. Only square an
+        // exterior edge that actually reaches that shortened viewport; inner
+        // corners and the black divider retain their normal geometry.
+        let keyboardShortensViewport = layoutContext.map {
+            $0.windowSize.height - $0.frame.maxY > $0.windowSafeAreaInsets.bottom + 1
+        } ?? false
+        let squareBottomCorners = model?.splitWorkspace != nil && !driver.retainsAppSpaceViewport
+            && keyboardShortensViewport && abs(frame.maxY - fullFrame.maxY) < 1
         let settled: ((UUID) -> Void)?
         if slot == inputSurfaceSlot { settled = { navigation.completeSettlement($0) } }
         else { settled = nil }
@@ -376,7 +420,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
             deleteAction: deleteAction, isDeletionPending: isDeletionPending,
             isWorkspaceVisible: visible, isInputSuppressed: suppressed,
             isReturnProxyHidden: returnPresentation.hidesOrigin(slot),
-            restingCornerRadius: corner, sidebarOffset: sidebarOffset,
+            restingCornerRadius: corner, squareBottomCorners: squareBottomCorners, sidebarOffset: sidebarOffset,
             sidebarSettlement: navigation.settlementID,
             onSidebarSettled: settled,
             onNativeLayout: { [weak model] receipt in

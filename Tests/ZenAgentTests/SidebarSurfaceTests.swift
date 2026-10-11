@@ -71,9 +71,12 @@ struct SidebarSurfaceTests {
         reference.cornerConfiguration = .uniformCorners(radius: .containerConcentric())
         reference.backgroundColor = .clear
         reference.isUserInteractionEnabled = false
+        reference.isAccessibilityElement = false
+        reference.accessibilityElementsHidden = true
         window.addSubview(reference)
-        window.layoutIfNeeded()
+        reference.layoutIfNeeded()
         let expectedRadius = reference.effectiveRadius(corner: .topLeft)
+        reference.removeFromSuperview()
 
         host.setSidebar(offset: 60, settlement: nil, completion: nil)
         host.view.setNeedsLayout()

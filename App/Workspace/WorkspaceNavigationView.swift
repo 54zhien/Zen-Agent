@@ -35,7 +35,7 @@ struct WorkspaceNavigationView<Content: View>: View {
             // the actual scene Window insets for controls, not this reader's zeroes.
             let travel = min(geometry.size.width, 60 + windowInsets.leading)
             ZStack(alignment: .leading) {
-                if state.progress > 0 {
+                if state.progress > 0 || state.settlementID != nil {
                     SidebarRailView(availableRoutes: !state.isDragging && state.settlementID == nil ? overlays?.availableRoutes ?? [] : [],
                         conversationActions: !state.isDragging && state.settlementID == nil ? state.conversationActions : [],
                         onAction: state.perform,
@@ -46,11 +46,17 @@ struct WorkspaceNavigationView<Content: View>: View {
                         .padding(.top, windowInsets.top)
                         .padding(.bottom, windowInsets.bottom)
                         .frame(width: travel, height: geometry.size.height)
-                        .background(Color(white: 0.035))
-                        // The retained content still occupies the full viewport
-                        // in SwiftUI. Once exposed and settled, Rail controls must
-                        // precede that transparent hit region within this strip.
-                        .zIndex(state.isOpen && !state.isDragging && state.settlementID == nil ? 1 : 0)
+                        // The retained native hosts occupy the full SwiftUI
+                        // viewport. Reveal only the exposed part of the Rail
+                        // above that hit region; its page background stays below
+                        // the translated Surfaces so their shadows remain visible.
+                        .mask(alignment: .leading) {
+                            Rectangle().frame(width: travel * CGFloat(state.progress))
+                        }
+                        .animation(reduceMotion || state.isDragging ? nil : .easeOut(duration: 0.22), value: state.progress)
+                        .allowsHitTesting(state.isOpen && !state.isDragging && state.settlementID == nil)
+                        .accessibilityHidden(!state.isOpen || state.isDragging || state.settlementID != nil)
+                        .zIndex(1)
                 }
                 content
                     .frame(width: geometry.size.width, height: geometry.size.height)
@@ -87,7 +93,7 @@ struct WorkspaceNavigationView<Content: View>: View {
                 }
             }
             .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: state.overlay)
-            .background(Color(white: 0.035))
+            .background(Color(uiColor: .systemBackground))
             .background(WorkspaceSidebarGestureBridge(state: state, travel: travel,
                 isRightToLeft: direction == .rightToLeft, context: context))
         }

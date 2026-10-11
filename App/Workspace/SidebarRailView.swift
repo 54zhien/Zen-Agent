@@ -20,8 +20,10 @@ struct SidebarRailView: View {
                     } label: {
                         Image(systemName: "rectangle.split.2x1").font(.system(size: 21))
                             .frame(width: 48, height: 48)
+                            .glassEffect(.regular.interactive(), in: Circle())
                     }
-                    .foregroundStyle(.white.opacity(0.85))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.primary)
                     .accessibilityLabel("分屏").accessibilityIdentifier("split-entry")
                 }
                 if conversationActions.contains(.configure) {
@@ -43,8 +45,9 @@ struct SidebarRailView: View {
     private func action(_ action: WorkspaceConversationAction, symbol: String, label: String, identifier: String) -> some View {
         Button { onAction(action) } label: {
             Image(systemName: symbol).font(.system(size: 21)).frame(width: 48, height: 48)
+                .glassEffect(.regular.interactive(), in: Circle())
         }
-        .buttonStyle(.plain).foregroundStyle(.white.opacity(0.85))
+        .buttonStyle(.plain).foregroundStyle(.primary)
         .disabled(!conversationActions.contains(action))
         .accessibilityLabel(label).accessibilityIdentifier(identifier)
     }
@@ -56,9 +59,10 @@ struct SidebarRailView: View {
                 .font(.system(size: 21, weight: .regular))
                 .frame(width: 48, height: 48)
                 .contentShape(Rectangle())
+                .glassEffect(.regular.interactive(), in: Circle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.white.opacity(0.85))
+        .foregroundStyle(.primary)
         .disabled(!availableRoutes.contains(route))
         .accessibilityLabel(label)
         .accessibilityIdentifier(identifier)
