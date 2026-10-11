@@ -22,21 +22,28 @@ was exported from artifact `11697760988` by evidence-only run `38127305191`:
 This disproves the earlier hypothesis of outgoing focus loss preceding Pane
 selection. The first candidate attempted the read-only Quote text view's public
 `UIView.gestureRecognizerShouldBegin` admission hook. It did not prevent the
-original native focus loss, so that behavioral veto was removed. The next
-observation records actual view-hook calls and public recognizer states at
-`becomeFirstResponder` before choosing a different interception boundary. AppShell and Dock focus transfer, IME guards, native blur
-callbacks and text selection remain the existing owners. There is no refocus,
-second tap, retry, new delay, private selector or global keyboard suppression.
+original native focus loss, so that behavioral veto was removed. Observation
+commit `4909599`, run `38128821010`, confirms zero calls to that view hook. At
+body responder acquisition, the single tap is an attached public
+UITapGestureRecognizer in ended state with one tap and one touch; at long-press
+acquisition, tap recognizers are still possible and the loupe gesture has begun.
+This supports a second candidate at `becomeFirstResponder`: decline an inactive,
+read-only body's recognized single-tap acquisition. Prompt presentation taps are
+excluded by object identity. Long/double taps and non-touch acquisition continue
+to UIKit. No private class names/selectors, refocus, delay or retry are used.
+AppShell/Dock transfer, IME guards and native blur retain their existing owners.
 
-The initial repair candidate `656f4ed`, run `38127709745`, retains the failing
-UI case and adds native long-press selection/Quote drop and explicit blank-tap
-blur controls. The real model handoff test also asserts selection/Quote-drag
-vetoes preserve both complete drafts and the outgoing native responder. Native
-result failed: 107 Swift tests in three suites passed, as did margin transfer
-and explicit blank blur, but the original body focus assertion and new
-long-press Copy control failed. One native Swift run and no host restart.
-This is not repair GREEN. The temporary focused workflow is not a complete gate.
-Final exact-HEAD receipts are stored outside the checkout to avoid self-reference.
+The initial candidate `656f4ed`, run `38127709745`, and diagnostic `4909599`
+both built and passed 107 Swift tests in three suites, plus margin transfer and
+explicit blank blur. Both retained the original body focus failure. Each had one
+Swift run and no host restart. The long-press control's Copy failure was a test
+locator defect: the captured accessibility tree exposes MenuItem Copy, while
+the test queried Button Copy. Correct the query; selection was actually present,
+but Quote drag was not reached. The new candidate also adds double-tap word
+selection and non-touch responder/selection controls. Original body assertions
+remain unchanged. Candidate GREEN and the full gate are still pending.
+The temporary focused workflow is not a complete gate. Final exact-HEAD
+receipts are stored outside the checkout to avoid self-reference.
 
 Settings first-Lift cancellation, the earlier first-Sidebar failures, and the
 historical delayed focus loss remain separate unresolved evidence. Neither a

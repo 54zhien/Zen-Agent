@@ -54,6 +54,7 @@ struct QuoteSelectableText: UIViewRepresentable {
             )
             tap.delegate = context.coordinator
             tap.cancelsTouchesInView = false
+            textView.presentationTap = tap
             textView.addGestureRecognizer(tap)
         }
 
@@ -298,9 +299,11 @@ enum QuoteDropRegion {
     }
 }
 
-#if DEBUG
 @MainActor
 final class QuoteTextView: UITextView {
+    weak var presentationTap: UITapGestureRecognizer?
+
+    #if DEBUG
     private func record(_ event: String) {
         guard ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" else { return }
         let peers: String = (gestureRecognizers ?? []).map { gesture in
@@ -310,18 +313,32 @@ final class QuoteTextView: UITextView {
         print("SPLIT_CONTENT_BODY event=\(event);text=\((text ?? "").prefix(48));first=\(isFirstResponder);selection=\(selectedRange);peers=[\(peers)]")
     }
 
-    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        record("shouldBegin=\(type(of: gestureRecognizer))")
-        return super.gestureRecognizerShouldBegin(gestureRecognizer)
-    }
+    #endif
 
     override func becomeFirstResponder() -> Bool {
+        // A read-only body's single tap activates its Pane. UIKit's later text
+        // interaction must not take the responder from the transferred Composer.
+        // Intercept acquisition, not recognition: the native text interaction
+        // can bypass UIView.gestureRecognizerShouldBegin on this path.
+        // Long/double taps and non-touch requests still use native selection.
+        let hasRecognizedSingleTap = (gestureRecognizers ?? []).contains { gesture in
+            guard let tap = gesture as? UITapGestureRecognizer else { return false }
+            return tap !== presentationTap && tap.state == .ended
+                && tap.numberOfTapsRequired == 1 && tap.numberOfTouchesRequired == 1
+        }
+        if !isEditable, !isFirstResponder, hasRecognizedSingleTap {
+            #if DEBUG
+            record("declinedSingleTap")
+            #endif
+            return false
+        }
+        #if DEBUG
         record("beforeBecome")
+        #endif
         let result = super.becomeFirstResponder()
+        #if DEBUG
         record("afterBecome=\(result)")
+        #endif
         return result
     }
 }
-#else
-private typealias QuoteTextView = UITextView
-#endif

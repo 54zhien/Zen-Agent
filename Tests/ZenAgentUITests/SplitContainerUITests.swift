@@ -70,7 +70,7 @@ final class SplitContainerUITests: XCTestCase {
         }) else { XCTFail("Expected selectable source text"); return }
         let word = message.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5))
         word.press(forDuration: 0.8)
-        let copy = app.buttons["Copy"]
+        let copy = app.menuItems["Copy"]
         guard copy.waitForExistence(timeout: 5) else {
             XCTFail("Long press must retain native text selection and its Copy action")
             return
@@ -81,6 +81,61 @@ final class SplitContainerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["移除引用"].waitForExistence(timeout: 5),
                       "The native selected range must still produce a Quote drop")
         XCTAssertEqual(input.value as? String, "quote destination draft")
+    }
+
+    @MainActor
+    func testMessageBodyDoubleTapStillSelectsText() {
+        let app = launchedOccupiedSplit(observeContentFocus: true)
+        let input = app.textViews["conversation-composer-input"]
+        input.tap()
+        input.typeText("double tap destination draft")
+        let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        let messages = source.textViews.matching(NSPredicate(
+            format: "value BEGINSWITH %@", "Assistant response"))
+        guard let message = messages.allElementsBoundByIndex.first(where: {
+            $0.isHittable && $0.frame.height > 0 && source.frame.intersects($0.frame)
+        }) else { XCTFail("Expected selectable source text"); return }
+        message.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5)).doubleTap()
+        XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 5),
+                      "Double tap must retain native word selection and its Copy action")
+        XCTAssertEqual(input.value as? String, "double tap destination draft",
+                       "Word selection must not replace the active input owner")
+
+        // Re-enter the Composer after a native selection, then activate that
+        // same body. A retained range must not turn a Pane tap into focus loss.
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        message.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5)).tap()
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertTrue((probe.value as? String)?.contains("focused=true;") == true)
+        message.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5)).doubleTap()
+        XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 5),
+                      "Selection must remain available after returning from the Composer")
+    }
+
+    @MainActor
+    func testPromptTapKeepsComposerFocusAndDoubleTapStillSelectsText() {
+        let app = launchedOccupiedSplit(observeContentFocus: true)
+        let input = app.textViews["conversation-composer-input"]
+        input.tap()
+        input.typeText("prompt destination draft")
+        let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        let prompts = source.textViews.matching(NSPredicate(
+            format: "value BEGINSWITH %@", "User prompt"))
+        guard let prompt = prompts.allElementsBoundByIndex.first(where: {
+            $0.isHittable && $0.frame.height > 0 && source.frame.intersects($0.frame)
+        }) else { XCTFail("Expected a visible Prompt capsule"); return }
+        let word = prompt.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5))
+        word.tap()
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertTrue((probe.value as? String)?.contains("focused=true;") == true)
+        input.typeText("source prompt draft")
+        word.doubleTap()
+        XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 5),
+                      "Prompt text must retain native word selection")
+        XCTAssertEqual(input.value as? String, "source prompt draft")
     }
 
     @MainActor
