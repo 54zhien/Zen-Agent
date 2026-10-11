@@ -137,6 +137,53 @@ struct WorkspaceComposerDockTests {
         #expect(!b.composer.editor.isFirstResponder)
     }
 
+    @Test("a bridge snapshot cannot undo newer native focus; a new explicit blur still applies", arguments: [false, true])
+    func bridgeSnapshotAfterNativeTransfer(explicitBlur: Bool) async throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let root = ComposerDockTestRoot()
+        window.rootViewController = root; window.makeKeyAndVisible()
+        defer {
+            window.endEditing(true); window.isHidden = true
+            window.rootViewController = nil; previous?.makeKeyAndVisible()
+        }
+        for _ in 0..<40 where !root.didAppear { try await Task.sleep(for: .milliseconds(25)) }
+        try #require(root.didAppear && window.isKeyWindow)
+        let dock = WorkspaceComposerDockState()
+        let container = ComposerDockContainer(frame: root.view.bounds)
+        let a = ComposerHostPortal(frame: root.view.bounds), b = ComposerHostPortal(frame: root.view.bounds)
+        let incoming = ComposerController(configuration: nil)
+        incoming.draft.text = "incoming draft"
+        root.view.addSubview(a); root.view.addSubview(b); root.view.addSubview(container)
+        dock.configure(container: container, activeID: "a", visible: true)
+        a.update(configuration: configuration(text: "outgoing draft", editing: true), focused: true,
+            suppressed: false, ownerID: "a", usesDock: true, dock: dock)
+        // SwiftUI can evaluate a value before UIKit transfers the responder.
+        // Keep that value while the real delegate publishes the newer intent.
+        let pendingConfiguration = configuration(text: incoming.draft.text, editing: false, onFocus: { focused in
+            _ = incoming.handle(focused ? .textAreaTapped : .keyboardDismissed)
+        })
+        b.update(configuration: pendingConfiguration, focused: false, suppressed: false,
+            ownerID: "b", usesDock: true, dock: dock)
+        try await Task.sleep(for: .milliseconds(250))
+        try #require(a.composer.editor.isFirstResponder)
+        dock.configure(container: container, activeID: "b", visible: true)
+        try #require(b.composer.editor.isFirstResponder)
+        try #require(incoming.draft.presentationState == .editing)
+        // There has not yet been a bridge update containing focused=true.
+        if explicitBlur { _ = incoming.handle(.conversationBackgroundTapped) }
+        b.update(configuration: pendingConfiguration, focused: false, suppressed: false,
+            ownerID: "b", usesDock: true, dock: dock)
+        #expect(b.composer.editor.isFirstResponder == !explicitBlur,
+                "a stale resting render must not issue a new keyboard-dismissal intent")
+        #expect((incoming.draft.presentationState == .editing) == !explicitBlur)
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(b.composer.editor.isFirstResponder == !explicitBlur)
+        #expect(!a.composer.editor.isFirstResponder)
+        #expect(b.composer.editor.text == "incoming draft" && a.composer.editor.text == "outgoing draft")
+    }
+
     @Test("a focus request made before Dock window attachment is retried after attachment")
     func windowAttachmentRetriesPendingFocusWithoutReplayingBlur() async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
