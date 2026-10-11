@@ -43,6 +43,27 @@ This is a new authorization; historical deferrals remain evidence, not closure.
    values before any correction. Existing evaluator compares identities by bytes.
 8. Final audit: reconcile stale status records, inspect existing modules and
    inherited review suggestions, and add any concrete defects to this register.
+9. Rename prefill: `AppSpaceConversationActions.title` still returns an empty
+   stored title while the Card displays the first-message provisional title.
+   Preserve full manual titles and reuse the bounded summary for the fallback.
+
+## Evidence
+
+- Issue 1 behavioral RED: `b5f5e2ba2e2e75afc17292b37e03b3da6e8c4802`,
+  run `38110707869`, Phone job `114385526389`. XcodeGen and app/test compilation
+  succeeded; the three native handler cases produced seven expected assertions:
+  missing began/terminal evidence on all original drivers and misattribution to
+  the replacement driver. One Swift test-run start. This proves recorder lifetime,
+  not the initiating cause of the historical OS gesture cancellation.
+- Issue 1 candidate keeps bounded DEBUG evidence on the weak original driver
+  and records terminal callbacks before the native attachment/configuration guard.
+  The production recognizer and Lift transitions are unchanged. Native GREEN pending.
+  The RED receipt also exposed an inferred `SQL(elements: [])` peer join;
+  explicitly require a String so an empty peer list is recorded as `peers=[]`.
+- Issue 5 source hypothesis: Runtime callbacks strongly capture Router, which
+  owns Pane, Session and the cached Send coordinator/bridge back to Runtime.
+  Existing idle-shell release coverage never creates that coordinator. A release
+  regression must confirm the cycle before changing ownership.
 
 ## Verification and review
 

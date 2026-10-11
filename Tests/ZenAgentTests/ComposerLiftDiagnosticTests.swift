@@ -65,6 +65,7 @@ struct ComposerLiftDiagnosticTests {
 
         #expect(driver.lastNativeLiftReceipt.contains("began;"))
         #expect(driver.lastNativeLiftReceipt.contains("terminal=\(UIGestureRecognizer.State.cancelled.rawValue)"))
+        #expect(driver.lastNativeLiftReceipt.contains("peers=[]"))
         #expect(replacement.lastNativeLiftReceipt.isEmpty,
                 "a cancelled old gesture must not become a replacement owner's receipt")
     }

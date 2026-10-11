@@ -22,6 +22,7 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
 #if DEBUG
     private let recordsUITestGestures = ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1"
     private var gestureTrace: [String] = []
+    private weak var diagnosticDriver: SurfaceLiftController?
     private weak var observedTouch: UITouch?
     private var recordedFirstChange = false
 #endif
@@ -74,7 +75,7 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
     // before input alone cannot explain a later native gesture refusal.
     private func recordGesture(_ event: String) {
         guard recordsUITestGestures else { return }
-        let peers = (observedTouch?.gestureRecognizers ?? []).sorted {
+        let peers: String = (observedTouch?.gestureRecognizers ?? []).sorted {
             let left = $0.state == .began || $0.state == .changed
             let right = $1.state == .began || $1.state == .changed
             return left && !right
@@ -82,8 +83,12 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
             let view = peer.view.map { String(String(describing: type(of: $0)).prefix(96)) } ?? "nil"
             return "\(String(describing: type(of: peer))):\(peer.state.rawValue):\(peer.isEnabled):\(view)"
         }.joined(separator: ",")
-        gestureTrace.append("\(event);phase=\(String(describing: configuration?.driver.state.phase));progress=\(configuration?.driver.state.progress ?? 0);input=\(input);touchPhase=\(observedTouch?.phase.rawValue ?? -1);peers=[\(peers)]")
+        let driver = diagnosticDriver ?? configuration?.driver
+        gestureTrace.append("\(event);phase=\(String(describing: driver?.state.phase));progress=\(driver?.state.progress ?? 0);input=\(input);touchPhase=\(observedTouch?.phase.rawValue ?? -1);peers=[\(peers)]")
         if gestureTrace.count > 12 { gestureTrace.removeFirst(gestureTrace.count - 12) }
+        // The native transport can disappear during handoff. Keep bounded,
+        // observation-ignored evidence on the driver that began this gesture.
+        diagnosticDriver?.lastNativeLiftReceipt = gestureTrace.joined(separator: " | ")
     }
 #endif
 
@@ -135,12 +140,20 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
     }
 
     @objc private func gestureChanged(_ gesture: UILongPressGestureRecognizer) {
+#if DEBUG
+        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
+            let point = surface?.window.map { gesture.location(in: $0) }
+            recordGesture("terminal=\(gesture.state.rawValue);point=\(String(describing: point));origin=\(String(describing: origin))")
+            diagnosticDriver = nil
+        }
+#endif
         guard let configuration, let window = surface?.window else { return }
         let point = gesture.location(in: window)
         switch gesture.state {
         case .began:
 #if DEBUG
             recordedFirstChange = false
+            diagnosticDriver = configuration.driver
 #endif
             origin = configuration.driver.arm(input, conversationID: configuration.conversationID) ? point : nil
 #if DEBUG
@@ -162,14 +175,6 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
                 self.origin = nil
             }
         case .ended, .cancelled, .failed:
-#if DEBUG
-            recordGesture("terminal=\(gesture.state.rawValue);point=\(point);origin=\(String(describing: origin))")
-            // Emit only after recognition has terminated, so evidence collection
-            // does not add console work during the held gesture.
-            if recordsUITestGestures {
-                configuration.driver.lastNativeLiftReceipt = gestureTrace.joined(separator: " | ")
-            }
-#endif
             defer { origin = nil }
             guard let origin else { return }
             guard input.allowsLift else { configuration.driver.invalidate(); return }
