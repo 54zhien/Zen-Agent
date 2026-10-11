@@ -187,7 +187,9 @@ final class SettingsUITests: XCTestCase {
                 && (probe.value as? String)?.contains("liftReady=true") == true }
             expect { (inkProbe.value as? String)?.contains(";flowKeys=0;") == true }
             let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            print("SETTINGS_LIFT_BEFORE enabled=\(enabled) axFrame=\(editor.frame) native=\(probe.value as? String ?? "missing")")
             start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
+            print("SETTINGS_LIFT_AFTER enabled=\(enabled) axFrame=\(editor.frame) native=\(probe.value as? String ?? "missing")")
             let card = app.descendants(matching: .any)["workspace-current-card"]
             expect { card.exists && card.label.contains("Workspace conversation 11") }
             expect { (probe.value as? String)?.contains(";edgeVisible=true;") == true }
