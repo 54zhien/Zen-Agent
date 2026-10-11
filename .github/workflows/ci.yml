@@ -374,9 +374,11 @@ jobs:
           python3 -B .github/scripts/test_stage5_test_profile.py
           TEST_SCOPE=$(python3 -B .github/scripts/stage5_test_profile.py)
           TEST_ARGS=(test)
+          TEST_SCHEME=ZenAgent
           if [ "$GITHUB_REF_NAME" = "codex/split-content-tap-diagnostic" ] || [ "$GITHUB_REF_NAME" = "codex/fix-split-content-focus" ]; then
-            echo "::notice::Phone content-tap diagnostic: native Dock and Quote controls plus message-body and margin handoffs; not a full gate."
-            TEST_ARGS+=(-only-testing:ZenAgentTests/WorkspaceComposerDockTests -only-testing:ZenAgentTests/QuoteDragTests -only-testing:ZenAgentTests/QuoteTextViewTests -only-testing:ZenAgentTests/AppShellWiringTests -only-testing:ZenAgentUITests/SplitContainerUITests/testMessageBodyLongPressStillSelectsAndDragsAQuote -only-testing:ZenAgentUITests/SplitContainerUITests/testMessageBodyDoubleTapStillSelectsText -only-testing:ZenAgentUITests/SplitContainerUITests/testPromptTapKeepsComposerFocusAndDoubleTapStillSelectsText -only-testing:ZenAgentUITests/SplitContainerUITests/testActivePaneBlankTapStillDismissesTheKeyboard -only-testing:ZenAgentUITests/SplitContainerUITests/testSharedComposerKeepsFocusWhenTappingOppositeMessageBody -only-testing:ZenAgentUITests/SplitContainerUITests/testSharedBottomComposerFollowsContentTapWithoutSharingDrafts)
+            echo "::notice::UI-only menu/drag observation and original body regression; unit target and Pad intentionally excluded; not a full gate."
+            TEST_SCHEME=DIAGNOSTIC_SplitContainerUITests
+            TEST_ARGS+=(-only-testing:ZenAgentUITests/SplitContainerUITests/testMessageBodyLongPressStillSelectsAndDragsAQuote -only-testing:ZenAgentUITests/SplitContainerUITests/testMessageBodyDoubleTapStillSelectsText -only-testing:ZenAgentUITests/SplitContainerUITests/testPromptTapKeepsComposerFocusAndDoubleTapStillSelectsText -only-testing:ZenAgentUITests/SplitContainerUITests/testActivePromptDoubleTapPresentsNativeCopyMenu -only-testing:ZenAgentUITests/SplitContainerUITests/testSharedComposerKeepsFocusWhenTappingOppositeMessageBody)
           elif [ "$TEST_SCOPE" = "review-red" ]; then
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
             TEST_ARGS+=(-only-testing:ZenAgentTests)
@@ -408,7 +410,7 @@ jobs:
           set -o pipefail
           xcodebuild "${TEST_ARGS[@]}" \
             -project ZenAgent.xcodeproj \
-            -scheme ZenAgent \
+            -scheme "$TEST_SCHEME" \
             -configuration Debug \
             -destination "id=$UDID" \
             -resultBundlePath "$RUNNER_TEMP/ZenAgentTests.xcresult" \
