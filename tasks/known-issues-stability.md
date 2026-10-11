@@ -196,8 +196,14 @@ Issue 10 native GREEN: `848d85208160bded66be21a143de617dcd49bc30`, run
 focus regression. The actual Split UI test passed in 52.250 seconds without the
 extra editor tap. There was one Swift start, no host restart and TEST SUCCEEDED.
 This must not be used to close Issues 2–4.
-The preceding full head's actual iPad case passed in 86.511 seconds (job
-`114395487417`); its full Phone gate is still running at this record update.
+The preceding full head `b8934878fa29a14a714847be59bc993a2181233f` completed
+run `38114107871` successfully: 1,070 Swift tests in 167 suites, 20 XCTest unit
+tests, and 61 Phone UI cases with the expected one Pad-only skip and zero failures.
+Phone job `114395487376` had one Swift start, no host restart and no
+`formal-configure.sqlite` vnode warnings. Rename and both active-Runtime lifetime
+arguments passed. All seven Settings and ten Sidebar cases passed. The actual
+iPad case passed in 86.511 seconds (job `114395487417`). This verifies the earlier
+repairs including Issue 9, but does not explain the historical input failures.
 
 The next test-only change adds Resting/Compact arguments to the real shell
 focus regression and checks the target's Editing intent immediately after
@@ -205,10 +211,41 @@ selection, before UIKit handoff. The Compact precondition is established and
 required immediately before selection so layout cannot silently turn the
 fixture back into Resting. The production selection code is unchanged for RED.
 
+In that test-only run `38115982163`, iPad job `114400875573` failed before test
+compilation/execution: simctl reported a booted iPad, but Xcode listed only generic
+destinations and could not resolve that UDID (exit 70). No native assertion ran;
+this is unavailable acceptance evidence, not behavioral RED or GREEN. Preserve
+the failure and require a real iPad result on the final repair head.
+
+Issue 11 behavioral RED: test-only `d0e8c16a24036868aff4648a88f5f7de11d3b9ae`,
+run `38115982163`, Phone job `114400875604`. Compilation succeeded and 122 tests
+in six suites ran once. The Compact argument failed the immediate model-intent
+assertion at AppShellWiringTests:228 (`.compact != .editing`), before UIKit could
+repair it through its own focus callback. Its later native handoff assertions
+passed. The candidate selects `compactTapped` for Compact and the existing
+`textAreaTapped` for other states; IME/selection/Quote guards are unchanged.
+
+This run also exposed four failures in the Resting control's settled native
+focus/controller state, after a keyboard-queue timeout and XPC interruption.
+That is separate unresolved evidence: the Compact event change cannot explain
+it. Both arguments actually ran sequentially, so it was not cross-argument
+window competition. An explicit serialized trait now preserves that requirement.
+The shell test now records only an unexpected incoming end-editing callback,
+with the same bounded stack/window observer used by the Dock regression. It adds
+no focus request, warmup, timeout or retry. The shared Draft text is fixture-only
+filtering to exclude the expected outgoing resignation. All five original
+failure assertions remain. The stale-bridge regression and the real Split UI
+test still passed (62.493 seconds) on the failing run.
+
+The temporary diagnostic selector is removed; the workflow matches main's
+formal full selection byte for byte. The next exact repair head must build and
+run all unit/Phone UI tests and the actual iPad case. Do not close the unresolved
+native loss merely because the Compact repair or a subsequent full run passes.
+
 - [ ] Record each confirmed root, RED SHA/run/assertion and minimal repair.
 - [ ] Obtain GREEN on the same behavioral regression before the next repair.
-- [ ] Restore the formal full CI selection after temporary diagnostics.
-- [ ] Review the full candidate and current architecture: ownership, persistence,
+- [x] Restore the formal full CI selection after temporary diagnostics.
+- [x] Review the full candidate and current architecture: ownership, persistence,
   cancellation, recovery, provider/tool boundaries, UI input and navigation.
 - [ ] Run static hygiene/profile checks, XcodeGen, build, all unit/Phone UI tests
   and the actual iPad job on the final exact HEAD. Inspect executed counts and

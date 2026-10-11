@@ -48,7 +48,7 @@ struct WorkspaceComposerDockTests {
         let container = ComposerDockContainer(frame: root.view.bounds)
         let a = ComposerHostPortal(frame: root.view.bounds), b = ComposerHostPortal(frame: root.view.bounds)
         root.view.addSubview(a); root.view.addSubview(b); root.view.addSubview(container)
-        let loss = DockFocusLossEvidence()
+        let loss = NativeFocusLossEvidence()
         let observer = NotificationCenter.default.addObserver(forName: UITextView.textDidEndEditingNotification,
             object: b.composer.editor, queue: .main) { _ in
                 MainActor.assumeIsolated { loss.capture(scene: scene, window: window) }
@@ -67,7 +67,7 @@ struct WorkspaceComposerDockTests {
         update(b, id: "b", editing: true)
         dock.configure(container: container, activeID: "b", visible: true)
         #expect(b.composer.editor.isFirstResponder, "incoming editor must receive focus at attachment")
-        loss.armed = true
+        loss.arm()
         try await Task.sleep(for: .milliseconds(250))
         #expect(b.composer.editor.isFirstResponder, "settled focus; keyWindow=\(window.isKeyWindow), attached=\(b.composer.window === window); loss=\(loss.receipt)")
         #expect(!a.composer.editor.isFirstResponder)
@@ -269,12 +269,19 @@ struct WorkspaceComposerDockTests {
 /// Observe only the unexpected loss, after it happens. No focus request, timer,
 /// warmup or logging is added to the native transfer being checked.
 @MainActor
-private final class DockFocusLossEvidence {
+final class NativeFocusLossEvidence {
     var armed = false
     private(set) var receipt = "no end-editing notification"
+    private var expectedText: String?
 
-    func capture(scene: UIWindowScene, window: UIWindow) {
-        guard armed else { return }
+    func arm(expectedText: String? = nil) {
+        self.expectedText = expectedText
+        receipt = "no end-editing notification"
+        armed = true
+    }
+
+    func capture(scene: UIWindowScene, window: UIWindow, editor: UITextView? = nil) {
+        guard armed, expectedText == nil || editor?.text == expectedText else { return }
         armed = false
         func responders(in view: UIView) -> [String] {
             (view.isFirstResponder ? ["\(type(of: view)):\(ObjectIdentifier(view))"] : [])

@@ -187,7 +187,7 @@ struct AppShellWiringTests {
         #expect(fixture.model.pane?.session === kept)
     }
 
-    @Test("one shared Split editor follows the active Pane and protects composition", arguments: [false, true])
+    @Test("one shared Split editor follows the active Pane and protects composition", .serialized, arguments: [false, true])
     func splitNativeFocusTransfer(incomingCompact: Bool) async throws {
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
@@ -204,6 +204,14 @@ struct AppShellWiringTests {
         let host = UIHostingController(rootView: AppShellRootView(model: fixture.model))
         window.rootViewController = host; window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil; previousKeyWindow?.makeKeyAndVisible() }
+        let loss = NativeFocusLossEvidence()
+        let observer = NotificationCenter.default.addObserver(forName: UITextView.textDidEndEditingNotification,
+            object: nil, queue: .main) { notification in
+                MainActor.assumeIsolated {
+                    loss.capture(scene: scene, window: window, editor: notification.object as? UITextView)
+                }
+            }
+        defer { loss.armed = false; NotificationCenter.default.removeObserver(observer) }
         func editors(in view: UIView) -> [UITextView] {
             if let text = view as? UITextView, text.accessibilityIdentifier == "conversation-composer-input" { return [text] }
             return view.subviews.flatMap { editors(in: $0) }
@@ -224,6 +232,7 @@ struct AppShellWiringTests {
             _ = source.updateCollapseProgress(.fullyCollapsed)
             try #require(source.draft.presentationState == .compact)
         }
+        loss.arm(expectedText: "source focus draft")
         fixture.model.selectSplitSlot(.top)
         #expect(source.draft.presentationState == .editing,
                 "Pane selection must publish focus intent even when its incoming Composer was Compact")
@@ -231,15 +240,16 @@ struct AppShellWiringTests {
         #expect(editors(in: host.view).count == 1)
         #expect(editors(in: host.view).first?.text == "source focus draft")
         try await Task.sleep(for: .milliseconds(250))
-        #expect(editors(in: host.view).first?.isFirstResponder == true)
+        #expect(editors(in: host.view).first?.isFirstResponder == true, "source handoff; loss=\(loss.receipt)")
         #expect(source.draft.presentationState == .editing)
+        loss.arm(expectedText: "other focus draft")
         fixture.model.selectSplitSlot(.bottom)
         for _ in 0..<60 where editors(in: host.view).first?.text != "other focus draft" { try await Task.sleep(for: .milliseconds(25)) }
         #expect(editors(in: host.view).count == 1)
         #expect(editors(in: host.view).first?.text == "other focus draft")
         #expect(editors(in: host.view).first === originalOtherEditor)
         try await Task.sleep(for: .milliseconds(250))
-        #expect(originalOtherEditor?.isFirstResponder == true)
+        #expect(originalOtherEditor?.isFirstResponder == true, "secondary handoff; loss=\(loss.receipt)")
         #expect(other.draft.presentationState == .editing)
         #expect(source.draft.text == "source focus draft" && other.draft.text == "other focus draft")
     }
