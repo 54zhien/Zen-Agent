@@ -54,18 +54,21 @@ struct AppShellLifetimeTests {
         }
     }
 
-    @Test("an active Runtime persists its completion after the shell and Pane are released")
-    func activeRuntimeDoesNotRetainPresentation() async throws {
+    @Test("an active Runtime persists its completion after the shell and Pane are released",
+          arguments: [false, true])
+    func activeRuntimeDoesNotRetainPresentation(holdRuntimeExternally: Bool) async throws {
         let probe = ShellLifetimeProbe()
         let stream = Stage2StreamBox()
-        let (runtime, store, runID) = try await startHoldingRun(probe: probe, stream: stream)
+        let (runtime, store, runID) = try await startHoldingRun(probe: probe, stream: stream,
+            holdRuntimeExternally: holdRuntimeExternally)
         #expect(probe.shell == nil)
         #expect(probe.router == nil)
         #expect(probe.pane == nil)
+        #expect(probe.runtime != nil, "active execution must own its durability projection")
         #expect(try store.run(id: runID)?.state.isActive == true)
         stream.yieldLate(.textDelta("after shell release"))
         stream.yieldLate(.finish(.stop))
-        try await runtime.waitForCompletion(runID: runID)
+        try await (runtime ?? probe.runtime)?.waitForCompletion(runID: runID)
         #expect(try store.run(id: runID)?.state == .completed)
         let run = try #require(try store.run(id: runID))
         let messages = try store.messages(inConversation: run.conversationID)
@@ -75,8 +78,9 @@ struct AppShellLifetimeTests {
         #expect(text.contains("after shell release"))
     }
 
-    private func startHoldingRun(probe: ShellLifetimeProbe, stream: Stage2StreamBox) async throws
-        -> (ConversationRuntime, PersistenceStore, String) {
+    private func startHoldingRun(probe: ShellLifetimeProbe, stream: Stage2StreamBox,
+                                 holdRuntimeExternally: Bool) async throws
+        -> (ConversationRuntime?, PersistenceStore, String) {
         let fixture = try AppShellWiringTests().makeFixture(seed: .active,
             scripts: [.holding(prefix: [], box: stream)])
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
@@ -88,6 +92,6 @@ struct AppShellLifetimeTests {
         _ = await pane.session.sendCoordinator(bridge: bridge, maxProviderSteps: 4).handlePrimaryAction()
         let run = try #require(try fixture.store.runs(inConversation: pane.conversationID).first)
         await stream.waitUntilReady()
-        return (fixture.runtime, fixture.store, run.id)
+        return (holdRuntimeExternally ? fixture.runtime : nil, fixture.store, run.id)
     }
 }

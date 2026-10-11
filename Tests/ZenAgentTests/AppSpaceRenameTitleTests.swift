@@ -5,10 +5,11 @@ import Testing
 @Suite("App Space Rename title")
 @MainActor
 struct AppSpaceRenameTitleTests {
-    @Test(arguments: ["provisional", "empty", "manual", "deleted"])
+    @Test(arguments: ["provisional", "empty", "whitespace", "manual", "deleted"])
     func prefillMatchesTheDisplayedFallbackAndPreservesFullManualTitle(kind: String) throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
-        let stored = kind == "manual" ? String(repeating: "手动标题", count: 30) : ""
+        let stored = kind == "manual" ? String(repeating: "手动标题", count: 30)
+            : kind == "whitespace" ? " \u{3000}\n" : ""
         try store.database.write { db in
             try Fixtures.conversation(id: "rename", title: stored,
                 lifecycle: kind == "deleted" ? .pendingDeletion : .visible).insert(db)

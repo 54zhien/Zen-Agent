@@ -35,7 +35,10 @@ final class AppSpaceConversationActions {
     func title(id: String) -> String? {
         do {
             guard let row = try store.conversation(id: id), row.lifecycle == .visible else { return nil }
-            return row.title
+            // Editing keeps a full manual title; an untitled row uses the same
+            // bounded first-message fallback that the Card already displays.
+            if !PersistenceStore.summaryText(row.title).isEmpty { return row.title }
+            return try store.conversationSummaryWindow(ids: [id]).first?.title
         } catch { errorMessage = "会话标题读取失败，请重试。"; errorTargetID = id; return nil }
     }
     func rename(id: String, title: String) -> Bool {

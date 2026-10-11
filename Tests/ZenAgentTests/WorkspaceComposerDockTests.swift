@@ -48,6 +48,12 @@ struct WorkspaceComposerDockTests {
         let container = ComposerDockContainer(frame: root.view.bounds)
         let a = ComposerHostPortal(frame: root.view.bounds), b = ComposerHostPortal(frame: root.view.bounds)
         root.view.addSubview(a); root.view.addSubview(b); root.view.addSubview(container)
+        let loss = DockFocusLossEvidence()
+        let observer = NotificationCenter.default.addObserver(forName: UITextView.textDidEndEditingNotification,
+            object: b.composer.editor, queue: .main) { _ in
+                MainActor.assumeIsolated { loss.capture(scene: scene, window: window) }
+            }
+        defer { loss.armed = false; NotificationCenter.default.removeObserver(observer) }
         dock.configure(container: container, activeID: "a", visible: true)
         func update(_ portal: ComposerHostPortal, id: String, editing: Bool, active: Bool = true) {
             portal.update(configuration: configuration(text: id, editing: editing), focused: editing,
@@ -61,8 +67,9 @@ struct WorkspaceComposerDockTests {
         update(b, id: "b", editing: true)
         dock.configure(container: container, activeID: "b", visible: true)
         #expect(b.composer.editor.isFirstResponder, "incoming editor must receive focus at attachment")
+        loss.armed = true
         try await Task.sleep(for: .milliseconds(250))
-        #expect(b.composer.editor.isFirstResponder, "settled focus; keyWindow=\(window.isKeyWindow), attached=\(b.composer.window === window)")
+        #expect(b.composer.editor.isFirstResponder, "settled focus; keyWindow=\(window.isKeyWindow), attached=\(b.composer.window === window); loss=\(loss.receipt)")
         #expect(!a.composer.editor.isFirstResponder)
         #expect(b.composer.editor.text == "b" && a.composer.editor.text == "a")
     }
@@ -208,6 +215,28 @@ struct WorkspaceComposerDockTests {
             onRemoveQuote: { _ in }, onAcceptQuote: { _ in }, onQuotePhase: { _ in },
             onText: { _, _, _ in }, onFocus: onFocus, onSend: {}, onStop: {},
             onModel: { _ in }, onHeightChanged: { _ in })
+    }
+}
+
+/// Observe only the unexpected loss, after it happens. No focus request, timer,
+/// warmup or logging is added to the native transfer being checked.
+@MainActor
+private final class DockFocusLossEvidence {
+    var armed = false
+    private(set) var receipt = "no end-editing notification"
+
+    func capture(scene: UIWindowScene, window: UIWindow) {
+        guard armed else { return }
+        armed = false
+        func responders(in view: UIView) -> [String] {
+            (view.isFirstResponder ? ["\(type(of: view)):\(ObjectIdentifier(view))"] : [])
+                + view.subviews.flatMap { responders(in: $0) }
+        }
+        let windows: String = scene.windows.map {
+            "\(ObjectIdentifier($0)):key=\($0.isKeyWindow):hidden=\($0.isHidden):responders=\(responders(in: $0))"
+        }.joined(separator: " | ")
+        let stack: String = Thread.callStackSymbols.prefix(24).joined(separator: " | ")
+        receipt = "time=\(ProcessInfo.processInfo.systemUptime);scene=\(scene.activationState.rawValue);key=\(window.isKeyWindow);windows=[\(windows)];stack=\(stack)"
     }
 }
 

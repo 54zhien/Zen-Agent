@@ -373,18 +373,6 @@ jobs:
           python3 -B .github/scripts/test_stage5_test_profile.py
           TEST_SCOPE=$(python3 -B .github/scripts/stage5_test_profile.py)
           TEST_ARGS=(test)
-          if [ "$GITHUB_REF_NAME" = "codex/known-issues-stability" ]; then
-            echo "::notice::Known-issues Policy repair and pending Rename regression; final full gate is still required."
-            TEST_ARGS+=(-only-testing:ZenAgentTests/ToolPolicyIdentityEqualityTests
-              -only-testing:ZenAgentTests/ToolPolicyScopeTests
-              -only-testing:ZenAgentTests/ToolPolicyEvaluatorTests
-              -only-testing:ZenAgentTests/ToolPolicyTemporalTests
-              -only-testing:ZenAgentTests/ToolIntentVersionTests
-              -only-testing:ZenAgentTests/ToolIntentContinuationTests
-              -only-testing:ZenAgentTests/AppShellLifetimeTests
-              -only-testing:ZenAgentTests/ComposerLiftDiagnosticTests
-              -only-testing:ZenAgentTests/AppSpaceRenameTitleTests)
-          fi
           if [ "$TEST_SCOPE" = "review-red" ]; then
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
             TEST_ARGS+=(-only-testing:ZenAgentTests)

@@ -113,6 +113,51 @@ The next diagnostic selects Policy/intent regression suites plus ownership,
 receipt and Rename cases. It intentionally still exposes Issue 9; final full
 selection will be restored after the serial fixes.
 
+`1530c3837a500e323da9c14fe86fb2aa6969e750`, run `38113326705`, Phone job
+`114393241969`, compiled and ran 83 tests in nine suites (one Swift start; no
+restart). All Policy equality/scope/evaluator/temporal tests and intent version/
+continuation tests passed, as did shell lifetime and diagnostic receipt tests.
+Only the two unchanged Rename assertions failed. Issue 7 is therefore GREEN.
+
+Issue 9 now reads the existing bounded summary fallback only when the stored
+title is blank under the summary's whitespace rules. A nonblank manual title
+remains full length; a read does not rename anything. Coverage additionally
+checks legacy whitespace-only titles. Native GREEN is required on the next head.
+
+The temporary branch selector is removed: the next invocation uses the formal
+full unit/Phone UI selection and the actual iPad job. Additional controls prove
+that an active Runtime survives even without an external strong owner. The
+original Dock focus test records scene/window/responder state and a bounded
+stack only after unexpected B end-editing; its operations, timings and assertions
+are unchanged. The Settings test retains the post-drag Sidebar receipt and Lift
+retains its original-driver trace across transport teardown.
+
+The owner reports that native input faults also occur on an iPhone 15 Pro Max
+and reports iOS 27.2. The exact fault/operation chain, app build and system-version
+confirmation have been requested. The observed CI uses Xcode 26.6 (17F113) and
+an iPhone 17 Pro simulator on iOS 26.2; it is not a matching device-system receipt.
+Issues 2–4 cannot be dismissed as simulator-only or closed by passing CI.
+
+### Cross-module review scope
+
+- App shell / Session / Router / Runtime ownership and asynchronous completion:
+  the confirmed cycle is repaired; active execution keeps its durable projection.
+- Frozen intent preparation, pending rejection CAS, provider continuation and
+  disk recovery: original call/attempt/JSON are preserved; rejected or historical
+  results do not authorize execution. Full Policy integration remains S6-04 work.
+- HTTP/Provider cancellation and failure paths: existing bounded stream/error
+  processing and no automatic POST replay remain intact.
+- Files import/removal and presentations: worker draining, publication/removal
+  locking, draft reservations and protected presentation copies remain intact.
+- Settings configuration, account credentials and Soul: captured-session identity,
+  revision checks and persistence publication own updates, not a closing view.
+- App Space metadata and navigation: Rename fallback is corrected; the three
+  native input stability questions above remain open and block an all-fixed claim.
+
+No additional actionable source defect was confirmed in this pass. This is a
+review of the candidate diff and high-risk module boundaries, supported by the
+native regression suite; it is not proof of every possible device behavior.
+
 - [ ] Record each confirmed root, RED SHA/run/assertion and minimal repair.
 - [ ] Obtain GREEN on the same behavioral regression before the next repair.
 - [ ] Restore the formal full CI selection after temporary diagnostics.
