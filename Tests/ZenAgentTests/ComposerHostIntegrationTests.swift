@@ -175,15 +175,15 @@ struct ComposerHostIntegrationTests {
             return view.subviews.lazy.compactMap { nativeLift(in: $0) }.first
         }
         let gesture = try #require(nativeLift(in: host))
-        #require(driver.canArm(host.nativeLiftInput))
+        try #require(driver.canArm(host.nativeLiftInput))
         // UIKit's documented subclass state transition delivers the real native
         // action on the next run-loop turn; the Surface state is never assigned.
         gesture.state = .began
         for _ in 0..<20 where driver.state.phase == .full {
             try await Task.sleep(for: .milliseconds(10))
         }
-        #require(driver.state.phase == .armed)
-        #require(gesture.state == .began)
+        try #require(driver.state.phase == .armed)
+        try #require(gesture.state == .began)
         host.configure(config)
         #expect(gesture.state == .began, "A refresh with unchanged ownership must not cancel the recognized gesture")
         try await Task.sleep(for: .milliseconds(10))
