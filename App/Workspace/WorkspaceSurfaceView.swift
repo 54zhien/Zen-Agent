@@ -790,7 +790,10 @@ private struct SurfaceInteractionProbe: UIViewRepresentable {
         let view = SurfaceInteractionProbeView()
         view.isAccessibilityElement = true
         view.accessibilityIdentifier = identifier
-        view.readValue = { [weak driver] in driver?.nativeInteractionDiagnostic?() ?? "unbound" }
+        let keyboard = WorkspaceKeyboardTransitionTrace.shared
+        view.readValue = { [weak driver] in
+            "\(driver?.nativeInteractionDiagnostic?() ?? "unbound");\(keyboard.diagnostic)"
+        }
         return view
     }
     func updateUIView(_ uiView: SurfaceInteractionProbeView, context: Context) {}
@@ -814,6 +817,67 @@ private final class SurfaceInteractionProbeView: UIView {
     override var accessibilityValue: String? {
         get { readValue?() ?? super.accessibilityValue }
         set { super.accessibilityValue = newValue }
+    }
+}
+
+@MainActor
+private final class WorkspaceKeyboardTransitionTrace: NSObject {
+    static let shared = WorkspaceKeyboardTransitionTrace()
+
+    private(set) var willHideCount = 0
+    private(set) var didHideCount = 0
+    private(set) var offscreenFrameCount = 0
+    private(set) var visibleToHiddenCount = 0
+    private(set) var visible = false
+    private(set) var visibleHeight: CGFloat = 0
+
+    private override init() {
+        super.init()
+        let center = NotificationCenter.default
+        for name in [UIResponder.keyboardWillHideNotification, UIResponder.keyboardDidHideNotification,
+                     UIResponder.keyboardWillChangeFrameNotification, UIResponder.keyboardDidChangeFrameNotification] {
+            center.addObserver(self, selector: #selector(keyboardChanged(_:)), name: name, object: nil)
+        }
+    }
+
+    var diagnostic: String {
+        "keyboardTraceWillHide=\(willHideCount);keyboardTraceDidHide=\(didHideCount);keyboardTraceOffscreenFrames=\(offscreenFrameCount);keyboardTraceVisibleToHidden=\(visibleToHiddenCount);keyboardTraceVisible=\(visible);keyboardTraceVisibleHeight=\(Int(visibleHeight.rounded()))"
+    }
+
+    @objc private func keyboardChanged(_ notification: Notification) {
+        switch notification.name {
+        case UIResponder.keyboardWillHideNotification: increment(&willHideCount)
+        case UIResponder.keyboardDidHideNotification: increment(&didHideCount)
+        case UIResponder.keyboardWillChangeFrameNotification, UIResponder.keyboardDidChangeFrameNotification: break
+        default: return
+        }
+
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
+            .flatMap({ $0.windows }).first(where: { $0.isKeyWindow && !$0.isHidden }) else {
+            if notification.name == UIResponder.keyboardDidHideNotification { updateVisibility(false, height: 0) }
+            return
+        }
+        if let screen = notification.object as? UIScreen, screen !== window.screen { return }
+        guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
+            if notification.name == UIResponder.keyboardDidHideNotification { updateVisibility(false, height: 0) }
+            return
+        }
+        let localFrame = window.convert(frame, from: window.screen.coordinateSpace)
+        let intersection = window.bounds.intersection(localFrame)
+        let height = intersection.isNull ? 0 : max(0, intersection.height)
+        let isVisible = height > window.safeAreaInsets.bottom + 1
+        if height <= window.safeAreaInsets.bottom + 1 { increment(&offscreenFrameCount) }
+        updateVisibility(isVisible, height: height)
+    }
+
+    private func updateVisibility(_ next: Bool, height: CGFloat) {
+        if visible && !next { increment(&visibleToHiddenCount) }
+        visible = next
+        visibleHeight = height
+    }
+
+    private func increment(_ value: inout Int) {
+        if value < 9_999 { value += 1 }
     }
 }
 

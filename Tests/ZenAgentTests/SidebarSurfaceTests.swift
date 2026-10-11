@@ -49,6 +49,41 @@ struct SidebarSurfaceTests {
         #expect(host.surfaceView.bounds == bounds && host.contentController === child)
     }
 
+    @Test("the shifted conversation surface follows UIKit's containing-window corner radius")
+    func sidebarSurfaceUsesNativeContainerConcentricCornerRadius() throws {
+        let scene = try #require(UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive })
+        let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
+        let host = ConversationSurfaceViewController(content: Color.clear, request: .full)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKey()
+        }
+
+        host.view.layoutIfNeeded()
+        let reference = UIView(frame: window.bounds)
+        reference.cornerConfiguration = .uniformCorners(radius: .containerConcentric())
+        reference.backgroundColor = .clear
+        reference.isUserInteractionEnabled = false
+        window.addSubview(reference)
+        window.layoutIfNeeded()
+        let expectedRadius = reference.effectiveRadius(corner: .topLeft)
+
+        host.setSidebar(offset: 60, settlement: nil, completion: nil)
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+
+        #expect(expectedRadius > 0, "UIKit must resolve the public container-concentric probe in this window")
+        #expect(abs(host.surfaceView.layer.cornerRadius - expectedRadius) <= 0.5,
+                "The translated foreground Surface must use the window's resolved corner radius")
+    }
+
     @Test func liveNavigationBlocksLiftUntilItsMatchingNativeCompletion() throws {
         let state = WorkspaceNavigationState()
         let lift = SurfaceLiftController()

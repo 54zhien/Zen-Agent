@@ -266,6 +266,65 @@ struct WorkspaceComposerDockTests {
     }
 }
 
+@MainActor
+final class NativeKeyboardTransitionEvidence {
+    struct Event {
+        let name: Notification.Name
+        let endFrame: CGRect?
+    }
+
+    private var observers: [NSObjectProtocol] = []
+    private(set) var events: [Event] = []
+    private let window: UIWindow
+
+    init(window: UIWindow) {
+        self.window = window
+        let center = NotificationCenter.default
+        let names: [Notification.Name] = [
+            UIResponder.keyboardWillShowNotification,
+            UIResponder.keyboardDidShowNotification,
+            UIResponder.keyboardWillHideNotification,
+            UIResponder.keyboardDidHideNotification,
+            UIResponder.keyboardWillChangeFrameNotification,
+            UIResponder.keyboardDidChangeFrameNotification
+        ]
+        observers = names.map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
+                MainActor.assumeIsolated { self?.events.append(Event(name: name, endFrame: frame)) }
+            }
+        }
+    }
+
+    func mark() -> Int { events.count }
+    func events(since offset: Int) -> [Event] { Array(events.dropFirst(offset)) }
+
+    var hasStableVisibleDidShow: Bool {
+        guard let didShow = events.lastIndex(where: { $0.name == UIResponder.keyboardDidShowNotification }) else { return false }
+        let afterDidShow = events.dropFirst(didShow + 1)
+        guard !afterDidShow.contains(where: {
+            $0.name == UIResponder.keyboardWillHideNotification || $0.name == UIResponder.keyboardDidHideNotification
+        }),
+        let latestFrame = events.last(where: { $0.endFrame != nil })?.endFrame else { return false }
+        let localFrame = window.convert(latestFrame, from: window.screen.coordinateSpace)
+        let intersection = window.bounds.intersection(localFrame)
+        return !intersection.isNull && intersection.height > window.safeAreaInsets.bottom + 1
+    }
+
+    var summary: String { summary(events) }
+    func summary(_ values: [Event]) -> String {
+        values.map { event in
+            let frame = event.endFrame.map { " frame=\(Int($0.minX)),\(Int($0.minY)),\(Int($0.width)),\(Int($0.height))" } ?? ""
+            return event.name.rawValue + frame
+        }.joined(separator: "; ")
+    }
+
+    func stop() {
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        observers.removeAll()
+    }
+}
+
 /// Observe only the unexpected loss, after it happens. No focus request, timer,
 /// warmup or logging is added to the native transfer being checked.
 @MainActor

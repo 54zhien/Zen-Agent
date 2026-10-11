@@ -231,6 +231,8 @@ struct AppShellWiringTests {
         window.rootViewController = host; window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil; previousKeyWindow?.makeKeyAndVisible() }
         let loss = NativeFocusLossEvidence()
+        let keyboard = NativeKeyboardTransitionEvidence(window: window)
+        defer { keyboard.stop() }
         let observer = NotificationCenter.default.addObserver(forName: UITextView.textDidEndEditingNotification,
             object: nil, queue: .main) { notification in
                 // Notification is not Sendable; only the UIKit reference crosses isolation.
@@ -248,10 +250,14 @@ struct AppShellWiringTests {
         #expect(editors(in: host.view).count == 1)
         #expect(editors(in: host.view).first?.text == "other focus draft")
         let originalOtherEditor = editors(in: host.view).first
+        #expect(fixture.model.splitWorkspace?.activeSlot == .bottom)
         try #require(originalOtherEditor?.becomeFirstResponder() == true)
         try await Task.sleep(for: .milliseconds(250))
         try #require(originalOtherEditor?.isFirstResponder == true)
         try #require(other.draft.presentationState == .editing)
+        for _ in 0..<60 where !keyboard.hasStableVisibleDidShow { try await Task.sleep(for: .milliseconds(25)) }
+        try #require(keyboard.hasStableVisibleDidShow,
+            "the transfer probe must begin after the real keyboard finished showing; events=\(keyboard.summary)")
         _ = other.updateComposition(isComposing: true)
         fixture.model.selectSplitSlot(.top)
         #expect(fixture.model.splitWorkspace?.activeSlot == .bottom, "Uncommitted input cannot be detached")
@@ -286,6 +292,7 @@ struct AppShellWiringTests {
             try #require(source.draft.presentationState == .compact)
         }
         loss.arm(expectedText: "source focus draft")
+        let topTransferStart = keyboard.mark()
         fixture.model.selectSplitSlot(.top)
         #expect(source.draft.presentationState == .editing,
                 "Pane selection must publish focus intent even when its incoming Composer was Compact")
@@ -295,7 +302,17 @@ struct AppShellWiringTests {
         try await Task.sleep(for: .milliseconds(250))
         #expect(editors(in: host.view).first?.isFirstResponder == true, "source handoff; loss=\(loss.receipt)")
         #expect(source.draft.presentationState == .editing)
+        let topTransferEvents = keyboard.events(since: topTransferStart)
+        #expect(!topTransferEvents.contains { $0.name == UIResponder.keyboardWillHideNotification },
+            "selecting the upper Split Pane must not start keyboard dismissal; events=\(keyboard.summary(topTransferEvents))")
+        #expect(!topTransferEvents.contains { $0.name == UIResponder.keyboardDidHideNotification },
+            "the keyboard must remain visible through upper Pane focus transfer; events=\(keyboard.summary(topTransferEvents))")
+        #expect(!topTransferEvents.contains { ($0.endFrame?.height ?? 1) <= 0 },
+            "the keyboard frame must not collapse to zero during upper Pane focus transfer; events=\(keyboard.summary(topTransferEvents))")
+        #expect(source.draft.selection == ComposerSelection(range: 0..<6)
+            && other.draft.selection == ComposerSelection(range: 6..<11))
         loss.arm(expectedText: "other focus draft")
+        let bottomTransferStart = keyboard.mark()
         fixture.model.selectSplitSlot(.bottom)
         for _ in 0..<60 where editors(in: host.view).first?.text != "other focus draft" { try await Task.sleep(for: .milliseconds(25)) }
         #expect(editors(in: host.view).count == 1)
@@ -305,6 +322,15 @@ struct AppShellWiringTests {
         #expect(originalOtherEditor?.isFirstResponder == true, "secondary handoff; loss=\(loss.receipt)")
         #expect(other.draft.presentationState == .editing)
         #expect(source.draft.text == "source focus draft" && other.draft.text == "other focus draft")
+        let bottomTransferEvents = keyboard.events(since: bottomTransferStart)
+        #expect(!bottomTransferEvents.contains { $0.name == UIResponder.keyboardWillHideNotification },
+            "returning to the lower Split Pane must not start keyboard dismissal; events=\(keyboard.summary(bottomTransferEvents))")
+        #expect(!bottomTransferEvents.contains { $0.name == UIResponder.keyboardDidHideNotification },
+            "the keyboard must remain visible through lower Pane focus transfer; events=\(keyboard.summary(bottomTransferEvents))")
+        #expect(!bottomTransferEvents.contains { ($0.endFrame?.height ?? 1) <= 0 },
+            "the keyboard frame must not collapse to zero during lower Pane focus transfer; events=\(keyboard.summary(bottomTransferEvents))")
+        #expect(source.draft.selection == ComposerSelection(range: 0..<6)
+            && other.draft.selection == ComposerSelection(range: 6..<11))
     }
 
     @Test("secondary Pane New and Recent replace that Pane while source stays live")

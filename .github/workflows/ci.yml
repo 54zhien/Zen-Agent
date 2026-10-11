@@ -26,6 +26,7 @@ jobs:
 
   pad-workspace:
     name: iPad workspace axis
+    if: github.ref_name != 'codex/sidebar-keyboard-continuity'
     needs: repo-hygiene
     runs-on: macos-26
     timeout-minutes: 20
@@ -373,7 +374,10 @@ jobs:
           python3 -B .github/scripts/test_stage5_test_profile.py
           TEST_SCOPE=$(python3 -B .github/scripts/stage5_test_profile.py)
           TEST_ARGS=(test)
-          if [ "$TEST_SCOPE" = "review-red" ]; then
+          if [ "$GITHUB_REF_NAME" = "codex/sidebar-keyboard-continuity" ]; then
+            echo "::notice::Targeted sidebar appearance and continuous keyboard regression; not the final full gate."
+            TEST_ARGS+=(-only-testing:ZenAgentTests/WorkspaceComposerDockTests -only-testing:ZenAgentTests/AppShellWiringTests -only-testing:ZenAgentTests/SidebarSurfaceTests -only-testing:ZenAgentUITests/SidebarAppearanceUITests -only-testing:ZenAgentUITests/SplitContainerUITests/testSharedComposerKeepsFocusWhenTappingOppositeMessageBody)
+          elif [ "$TEST_SCOPE" = "review-red" ]; then
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
             TEST_ARGS+=(-only-testing:ZenAgentTests)
           elif [ "$TEST_SCOPE" = "orientation-red" ]; then
@@ -750,7 +754,7 @@ jobs:
           cat "$SUMMARY"
 
       - name: Export native failure attachments
-        if: failure()
+        if: failure() || github.ref_name == 'codex/sidebar-keyboard-continuity'
         continue-on-error: true
         shell: bash
         run: |
@@ -762,6 +766,17 @@ jobs:
               --output-path "$RUNNER_TEMP/native-ui-attachments" \
               2>&1 | tee "$RUNNER_TEMP/native-ui-attachments.log"
           fi
+
+      - name: Upload sidebar and keyboard review evidence
+        if: always() && github.ref_name == 'codex/sidebar-keyboard-continuity'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidebar-keyboard-review
+          path: |
+            ${{ runner.temp }}/ZenAgentTests.log
+            ${{ runner.temp }}/native-ui-attachments
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload test results on failure
         if: failure()

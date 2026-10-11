@@ -34,23 +34,44 @@ final class SplitContainerUITests: XCTestCase {
             XCTFail("Expected the keyboard to be open before the content tap")
             return
         }
+        guard let beforeUpperBodyTap = keyboardTransitionSnapshot(in: sourceProbe.value as? String) else {
+            XCTFail("Expected the native probe to expose keyboard transition evidence")
+            return
+        }
+        XCTAssertTrue(beforeUpperBodyTap.visible, "The transition check must begin with a visible keyboard")
+        XCTAssertGreaterThan(beforeUpperBodyTap.visibleHeight, 0,
+                             "The transition check must begin with a nonzero keyboard frame")
         guard tapVisibleMessage() else { return }
         expect { (input.value as? String) != "secondary content-tap draft" }
+        assertKeyboardRemainedVisible(since: beforeUpperBodyTap, probe: sourceProbe,
+                                      transition: "lower-to-upper message-body tap")
         guard app.keyboards.firstMatch.exists,
               (sourceProbe.value as? String)?.contains("focused=true;") == true else {
             XCTFail("Opposite message-body tap must transfer focus without another editor tap: \(sourceProbe.value ?? "missing probe")")
             return
         }
         input.typeText("source content-tap draft")
+        guard let beforeLowerPaneTap = keyboardTransitionSnapshot(in: sourceProbe.value as? String) else {
+            XCTFail("Expected keyboard transition evidence before returning to the lower Pane")
+            return
+        }
         app.activateWorkspacePane("preview-ui-10")
         expect { (input.value as? String) == "secondary content-tap draft" }
+        assertKeyboardRemainedVisible(since: beforeLowerPaneTap, probe: sourceProbe,
+                                      transition: "upper-to-lower Pane tap")
         guard app.keyboards.firstMatch.exists,
               (secondaryProbe.value as? String)?.contains("focused=true;") == true else {
             XCTFail("Blank-margin control must preserve focus: \(secondaryProbe.value ?? "missing probe")")
             return
         }
+        guard let beforeSecondUpperBodyTap = keyboardTransitionSnapshot(in: sourceProbe.value as? String) else {
+            XCTFail("Expected keyboard transition evidence before the second upper message-body tap")
+            return
+        }
         guard tapVisibleMessage() else { return }
         expect { (input.value as? String) == "source content-tap draft" }
+        assertKeyboardRemainedVisible(since: beforeSecondUpperBodyTap, probe: sourceProbe,
+                                      transition: "lower-to-upper repeated message-body tap")
         XCTAssertTrue(app.keyboards.firstMatch.exists)
         XCTAssertTrue((sourceProbe.value as? String)?.contains("focused=true;") == true,
                       "Repeated content switching must retain focus: \(sourceProbe.value ?? "missing probe")")
@@ -354,6 +375,57 @@ final class SplitContainerUITests: XCTestCase {
         for id in ["surface-native-interaction-probe", "split-secondary-native-interaction-probe"] {
             print("SPLIT_NATIVE \(stage) \(id): \(String(describing: app.otherElements[id].value))")
         }
+    }
+
+    private struct KeyboardTransitionSnapshot {
+        let willHideCount: Int
+        let didHideCount: Int
+        let offscreenFrameCount: Int
+        let visibleToHiddenCount: Int
+        let visible: Bool
+        let visibleHeight: Int
+    }
+
+    private func keyboardTransitionSnapshot(in value: String?) -> KeyboardTransitionSnapshot? {
+        guard let value else { return nil }
+        let fields = Dictionary(value.split(separator: ";").compactMap { field -> (String, String)? in
+            let pair = field.split(separator: "=", maxSplits: 1)
+            guard pair.count == 2 else { return nil }
+            return (String(pair[0]), String(pair[1]))
+        }, uniquingKeysWith: { _, latest in latest })
+        guard let willHide = fields["keyboardTraceWillHide"].flatMap(Int.init),
+              let didHide = fields["keyboardTraceDidHide"].flatMap(Int.init),
+              let offscreenFrames = fields["keyboardTraceOffscreenFrames"].flatMap(Int.init),
+              let visibleToHidden = fields["keyboardTraceVisibleToHidden"].flatMap(Int.init),
+              let visibleText = fields["keyboardTraceVisible"],
+              visibleText == "true" || visibleText == "false",
+              let visibleHeight = fields["keyboardTraceVisibleHeight"].flatMap(Int.init) else { return nil }
+        return KeyboardTransitionSnapshot(willHideCount: willHide, didHideCount: didHide,
+            offscreenFrameCount: offscreenFrames, visibleToHiddenCount: visibleToHidden,
+            visible: visibleText == "true", visibleHeight: visibleHeight)
+    }
+
+    @MainActor
+    private func assertKeyboardRemainedVisible(since before: KeyboardTransitionSnapshot,
+                                               probe: XCUIElement,
+                                               transition: String,
+                                               file: StaticString = #filePath,
+                                               line: UInt = #line) {
+        guard let after = keyboardTransitionSnapshot(in: probe.value as? String) else {
+            XCTFail("Missing keyboard transition evidence after \(transition)", file: file, line: line)
+            return
+        }
+        XCTAssertEqual(after.willHideCount, before.willHideCount,
+                       "\(transition) must not request keyboard dismissal", file: file, line: line)
+        XCTAssertEqual(after.didHideCount, before.didHideCount,
+                       "\(transition) must not hide the keyboard", file: file, line: line)
+        XCTAssertEqual(after.offscreenFrameCount, before.offscreenFrameCount,
+                       "\(transition) must not move the keyboard offscreen", file: file, line: line)
+        XCTAssertEqual(after.visibleToHiddenCount, before.visibleToHiddenCount,
+                       "\(transition) must not transition the keyboard from visible to hidden", file: file, line: line)
+        XCTAssertTrue(after.visible, "The keyboard must still be visible after \(transition)", file: file, line: line)
+        XCTAssertGreaterThan(after.visibleHeight, 0,
+                             "The keyboard frame must remain visible after \(transition)", file: file, line: line)
     }
 
     @MainActor
