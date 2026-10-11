@@ -598,6 +598,22 @@ struct ConversationTimelineView: View {
         }
 
         pendingAppliedScroll = request
+        // A larger viewport can leave the old offset beyond the new bottom.
+        // Let native layout clamp it instead of issuing another scroll command:
+        // that command dismisses UITextView's selection menu during keyboard hide.
+        // Keep the request pending until a real geometry sample reaches its target.
+        if case .scrollToBottom = request.action,
+           geometry.isUsableForPane,
+           (reachedTarget(for: request, geometry: geometry)
+            || geometry.offset > max(0, geometry.contentHeight - geometry.viewportHeight)) {
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" {
+                print("SPLIT_CONTENT_BOTTOM_LAYOUT uptime=\(CACurrentMediaTime());conversation=\(projection.conversationID);sequence=\(request.sequence);viewport=\(geometry.viewportHeight);content=\(geometry.contentHeight);offset=\(geometry.offset)")
+            }
+            #endif
+            acknowledgeAppliedScrollIfReady(geometry)
+            return
+        }
         #if DEBUG
         if ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" {
             print("SPLIT_CONTENT_SCROLL uptime=\(CACurrentMediaTime());conversation=\(projection.conversationID);sequence=\(request.sequence);action=\(request.action);restoreTarget=\(String(describing: restoreTarget));viewport=\(geometry.viewportHeight);offset=\(geometry.offset)")
@@ -640,6 +656,11 @@ struct ConversationTimelineView: View {
               reachedTarget(for: request, geometry: geometry)
         else { return }
 
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" {
+            print("SPLIT_CONTENT_SCROLL_ACK uptime=\(CACurrentMediaTime());conversation=\(projection.conversationID);sequence=\(request.sequence);viewport=\(geometry.viewportHeight);content=\(geometry.contentHeight);offset=\(geometry.offset)")
+        }
+        #endif
         pendingAppliedScroll = nil
         _ = scrollBridge.pane.updateReading(.programmaticScrolled(geometry: geometry))
         scrollBridge.pane.markScrollApplied(sequence: request.sequence)

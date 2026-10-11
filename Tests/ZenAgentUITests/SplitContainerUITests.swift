@@ -108,6 +108,7 @@ final class SplitContainerUITests: XCTestCase {
                       "Double tap must retain native word selection and its Copy action")
         XCTAssertEqual(input.value as? String, "double tap destination draft",
                        "Word selection must preserve this Pane's draft")
+        assertTimelineConvergedToBottom(app)
 
         // Re-enter the Composer after a native selection, then activate that
         // same body. A retained range must not turn a Pane tap into focus loss.
@@ -120,6 +121,7 @@ final class SplitContainerUITests: XCTestCase {
         stableMessage.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5)).doubleTap()
         XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 5),
                       "Selection must remain available after returning from the Composer")
+        assertTimelineConvergedToBottom(app)
     }
 
     @MainActor
@@ -146,6 +148,7 @@ final class SplitContainerUITests: XCTestCase {
         XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 5),
                       "Prompt text must retain native word selection")
         XCTAssertEqual(input.value as? String, "source prompt draft")
+        assertTimelineConvergedToBottom(app)
     }
 
     @MainActor
@@ -168,6 +171,7 @@ final class SplitContainerUITests: XCTestCase {
         XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 5),
                       "Double tapping the active Prompt must preserve native Copy")
         XCTAssertEqual(input.value as? String, "active prompt selection draft")
+        assertTimelineConvergedToBottom(app)
     }
 
     @MainActor
@@ -350,6 +354,52 @@ final class SplitContainerUITests: XCTestCase {
         for id in ["surface-native-interaction-probe", "split-secondary-native-interaction-probe"] {
             print("SPLIT_NATIVE \(stage) \(id): \(String(describing: app.otherElements[id].value))")
         }
+    }
+
+    @MainActor
+    private func assertTimelineConvergedToBottom(_ app: XCUIApplication,
+                                                 file: StaticString = #filePath,
+                                                 line: UInt = #line) {
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        let copy = app.menuItems["Copy"]
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            guard copy.exists,
+                  let value = probe.value as? String,
+                  value.contains(";request=nil;"),
+                  value.contains(";mode=followingBottom;"),
+                  let metrics = self.timelineScrollMetrics(in: value) else { return false }
+            return abs(metrics.offset - max(0, metrics.contentHeight - metrics.viewport)) <= 0.5
+        }, object: nil)
+        let result = XCTWaiter.wait(for: [settled], timeout: 10)
+        XCTAssertEqual(result, .completed,
+                       "The Copy menu must remain available while the native Timeline acknowledges its measured bottom: \(probe.value ?? "missing probe")",
+                       file: file, line: line)
+        XCTAssertTrue(copy.exists, "The native Copy menu must remain available through the scroll wait",
+                      file: file, line: line)
+        guard result == .completed,
+              let value = probe.value as? String,
+              let metrics = timelineScrollMetrics(in: value) else { return }
+        XCTAssertTrue(value.contains(";request=nil;"), file: file, line: line)
+        XCTAssertTrue(value.contains(";mode=followingBottom;"), file: file, line: line)
+        XCTAssertLessThanOrEqual(abs(metrics.offset - max(0, metrics.contentHeight - metrics.viewport)), 0.5,
+                                 "The latest native geometry must be at bottom: \(value)",
+                                 file: file, line: line)
+        XCTAssertTrue(copy.exists, "The native Copy menu must remain available through scroll acknowledgement",
+                      file: file, line: line)
+    }
+
+    private func timelineScrollMetrics(in value: String) -> (viewport: Double, contentHeight: Double, offset: Double)? {
+        guard let viewport = diagnosticNumber(after: ";ready=true;viewport=", in: value),
+              let contentSize = value.range(of: "content=("),
+              let contentHeight = diagnosticNumber(after: ", ", in: String(value[contentSize.upperBound...])),
+              let offset = diagnosticNumber(after: ";offset=Optional(", in: value) else { return nil }
+        return (viewport, contentHeight, offset)
+    }
+
+    private func diagnosticNumber(after marker: String, in value: String) -> Double? {
+        guard let markerRange = value.range(of: marker) else { return nil }
+        let suffix = value[markerRange.upperBound...]
+        return Double(String(suffix.prefix { "0123456789.+-".contains($0) }))
     }
 
     @MainActor

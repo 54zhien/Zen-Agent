@@ -378,7 +378,7 @@ jobs:
           if [ "$GITHUB_REF_NAME" = "codex/split-content-tap-diagnostic" ] || [ "$GITHUB_REF_NAME" = "codex/fix-split-content-focus" ]; then
             echo "::notice::UI-only menu/drag observation and original body regression; unit target and Pad intentionally excluded; not a full gate."
             TEST_SCHEME=DIAGNOSTIC_SplitContainerUITests
-            TEST_ARGS+=(-only-testing:ZenAgentUITests/SplitContainerUITests/testMessageBodyLongPressStillSelectsAndDragsAQuote -only-testing:ZenAgentUITests/SplitContainerUITests/testMessageBodyDoubleTapStillSelectsText -only-testing:ZenAgentUITests/SplitContainerUITests/testPromptTapKeepsComposerFocusAndDoubleTapStillSelectsText -only-testing:ZenAgentUITests/SplitContainerUITests/testActivePromptDoubleTapPresentsNativeCopyMenu -only-testing:ZenAgentUITests/SplitContainerUITests/testSharedComposerKeepsFocusWhenTappingOppositeMessageBody)
+            TEST_ARGS+=(-only-testing:ZenAgentUITests/SplitContainerUITests/testMessageBodyLongPressStillSelectsAndDragsAQuote -only-testing:ZenAgentUITests/SplitContainerUITests/testMessageBodyDoubleTapStillSelectsText -only-testing:ZenAgentUITests/SplitContainerUITests/testPromptTapKeepsComposerFocusAndDoubleTapStillSelectsText -only-testing:ZenAgentUITests/SplitContainerUITests/testActivePromptDoubleTapPresentsNativeCopyMenu -only-testing:ZenAgentUITests/SplitContainerUITests/testSharedComposerKeepsFocusWhenTappingOppositeMessageBody -only-testing:ZenAgentUITests/SplitContainerUITests/testActivePaneBlankTapStillDismissesTheKeyboard -only-testing:ZenAgentUITests/SplitContainerUITests/testSharedBottomComposerFollowsContentTapWithoutSharingDrafts)
           elif [ "$TEST_SCOPE" = "review-red" ]; then
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
             TEST_ARGS+=(-only-testing:ZenAgentTests)
@@ -770,7 +770,7 @@ jobs:
           fi
 
       - name: Export focused application interaction evidence
-        if: failure() && github.ref_name == 'codex/fix-split-content-focus'
+        if: always() && github.ref_name == 'codex/fix-split-content-focus'
         shell: bash
         run: |
           set -euo pipefail
@@ -780,7 +780,7 @@ jobs:
             grep -nF 'SPLIT_CONTENT_' "$source" || true
           done < <(find "$output" -type f -name 'StandardOutputAndStandardError-com.zhien.zen.txt' -print0)
       - uses: actions/upload-artifact@v4
-        if: failure() && github.ref_name == 'codex/fix-split-content-focus'
+        if: always() && github.ref_name == 'codex/fix-split-content-focus'
         with:
           name: content-focus-diagnostics
           path: ${{ runner.temp }}/ContentFocusDiagnostics
