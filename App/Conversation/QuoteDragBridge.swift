@@ -32,7 +32,7 @@ struct QuoteSelectableText: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView()
+        let textView = QuoteTextView()
         textView.delegate = context.coordinator
         textView.textDragDelegate = context.coordinator
         textView.backgroundColor = .clear
@@ -54,6 +54,7 @@ struct QuoteSelectableText: UIViewRepresentable {
             )
             tap.delegate = context.coordinator
             tap.cancelsTouchesInView = false
+            textView.contentTapGestureRecognizer = tap
             textView.addGestureRecognizer(tap)
         }
 
@@ -295,5 +296,25 @@ struct QuoteSelectableText: UIViewRepresentable {
 enum QuoteDropRegion {
     static func contains(_ point: CGPoint, in frame: CGRect) -> Bool {
         frame.contains(point)
+    }
+}
+
+/// A body tap activates its Pane; acquiring a text responder is reserved for
+/// selection. UIKit's noneditable single-tap interaction otherwise runs after
+/// the Pane's Composer handoff and resigns that newly installed editor.
+@MainActor
+final class QuoteTextView: UITextView {
+    weak var contentTapGestureRecognizer: UITapGestureRecognizer?
+
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if !isFirstResponder,
+           let tap = gestureRecognizer as? UITapGestureRecognizer,
+           tap.view === self, tap !== contentTapGestureRecognizer,
+           tap.numberOfTapsRequired == 1, tap.numberOfTouchesRequired == 1 {
+            return false
+        }
+        // Preserve selection gestures, an existing text responder's dismissal
+        // tap, and the app-owned Prompt Capsule expansion action.
+        return super.gestureRecognizerShouldBegin(gestureRecognizer)
     }
 }

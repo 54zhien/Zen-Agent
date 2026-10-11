@@ -187,7 +187,7 @@ struct AppShellWiringTests {
         #expect(fixture.model.pane?.session === kept)
     }
 
-    @Test("one shared Split editor follows the active Pane and protects composition", .serialized, arguments: [false, true])
+    @Test("one shared Split editor follows the active Pane and preserves live input gestures", .serialized, arguments: [false, true])
     func splitNativeFocusTransfer(incomingCompact: Bool) async throws {
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
@@ -197,7 +197,33 @@ struct AppShellWiringTests {
         let source = try #require(fixture.model.pane?.composer)
         let other = try #require(fixture.model.splitPane?.composer)
         source.draft.text = "source focus draft"
+        source.draft.selection = ComposerSelection(range: 0..<6)
         other.draft.text = "other focus draft"
+        other.draft.selection = ComposerSelection(range: 6..<11)
+        let sourceReference = QuoteReference(
+            id: "source-focus-reference",
+            source: QuoteSourceLocator(
+                sourceConversationID: "focus-source",
+                sourceMessageID: "source-message",
+                sourcePartID: "source-part",
+                range: QuoteTextRange(utf16Start: 0, utf16Length: 6)
+            ),
+            snapshot: "source",
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+        let otherReference = QuoteReference(
+            id: "other-focus-reference",
+            source: QuoteSourceLocator(
+                sourceConversationID: "focus-other",
+                sourceMessageID: "other-message",
+                sourcePartID: "other-part",
+                range: QuoteTextRange(utf16Start: 0, utf16Length: 5)
+            ),
+            snapshot: "other",
+            createdAt: Date(timeIntervalSince1970: 2)
+        )
+        source.draft.references = [sourceReference]
+        other.draft.references = [otherReference]
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
@@ -230,6 +256,31 @@ struct AppShellWiringTests {
         fixture.model.selectSplitSlot(.top)
         #expect(fixture.model.splitWorkspace?.activeSlot == .bottom, "Uncommitted input cannot be detached")
         _ = other.updateComposition(isComposing: false)
+        let sourceDraftBeforeDragGuards = source.draft
+        let otherDraftBeforeDragGuards = other.draft
+
+        _ = other.handle(.selectionHandleDragChanged(true))
+        loss.arm()
+        fixture.model.selectSplitSlot(.top)
+        #expect(fixture.model.splitWorkspace?.activeSlot == .bottom, "A selection-handle drag cannot be detached")
+        #expect(source.draft == sourceDraftBeforeDragGuards)
+        #expect(other.draft == otherDraftBeforeDragGuards)
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(originalOtherEditor?.isFirstResponder == true, "selection-handle drag must not blur the outgoing editor")
+        #expect(loss.receipt == "no end-editing notification")
+        _ = other.handle(.selectionHandleDragChanged(false))
+
+        _ = other.handle(.quoteDragPhaseChanged(.active))
+        loss.arm()
+        fixture.model.selectSplitSlot(.top)
+        #expect(fixture.model.splitWorkspace?.activeSlot == .bottom, "A Quote drag cannot be detached")
+        #expect(source.draft == sourceDraftBeforeDragGuards)
+        #expect(other.draft == otherDraftBeforeDragGuards)
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(originalOtherEditor?.isFirstResponder == true, "Quote drag must not blur the outgoing editor")
+        #expect(loss.receipt == "no end-editing notification")
+        _ = other.handle(.quoteDragPhaseChanged(.idle))
+
         if incomingCompact {
             _ = source.updateCollapseProgress(.fullyCollapsed)
             try #require(source.draft.presentationState == .compact)

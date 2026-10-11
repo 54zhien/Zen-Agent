@@ -57,6 +57,47 @@ final class SplitContainerUITests: XCTestCase {
     }
 
     @MainActor
+    func testMessageBodyLongPressStillSelectsAndDragsAQuote() {
+        let app = launchedOccupiedSplit()
+        let input = app.textViews["conversation-composer-input"]
+        input.tap()
+        input.typeText("quote destination draft")
+        let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        let messages = source.textViews.matching(NSPredicate(
+            format: "value BEGINSWITH %@", "Assistant response"))
+        guard let message = messages.allElementsBoundByIndex.first(where: {
+            $0.isHittable && $0.frame.height > 0 && source.frame.intersects($0.frame)
+        }) else { XCTFail("Expected selectable source text"); return }
+        let word = message.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5))
+        word.press(forDuration: 0.8)
+        let copy = app.buttons["Copy"]
+        guard copy.waitForExistence(timeout: 5) else {
+            XCTFail("Long press must retain native text selection and its Copy action")
+            return
+        }
+        XCTAssertEqual(input.value as? String, "quote destination draft",
+                       "Selecting text must not replace the active input owner")
+        word.press(forDuration: 0.8, thenDragTo: input.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+        XCTAssertTrue(app.buttons["移除引用"].waitForExistence(timeout: 5),
+                      "The native selected range must still produce a Quote drop")
+        XCTAssertEqual(input.value as? String, "quote destination draft")
+    }
+
+    @MainActor
+    func testActivePaneBlankTapStillDismissesTheKeyboard() {
+        let app = launchedOccupiedSplit()
+        let input = app.textViews["conversation-composer-input"]
+        input.tap()
+        input.typeText("explicit blur draft")
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        app.activateWorkspacePane("preview-ui-10")
+        expect { !app.keyboards.firstMatch.exists }
+        XCTAssertEqual(input.value as? String, "explicit blur draft")
+        let probe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
+        XCTAssertTrue((probe.value as? String)?.contains("focused=false;") == true)
+    }
+
+    @MainActor
     func testSharedBottomComposerFollowsContentTapWithoutSharingDrafts() {
         let app = launchedOccupiedSplit()
         let input = app.textViews["conversation-composer-input"]

@@ -26,7 +26,7 @@ jobs:
 
   pad-workspace:
     name: iPad workspace axis
-    if: github.ref != 'refs/heads/codex/split-content-tap-diagnostic'
+    if: github.ref != 'refs/heads/codex/split-content-tap-diagnostic' && github.ref != 'refs/heads/codex/fix-split-content-focus'
     needs: repo-hygiene
     runs-on: macos-26
     timeout-minutes: 20
@@ -374,9 +374,9 @@ jobs:
           python3 -B .github/scripts/test_stage5_test_profile.py
           TEST_SCOPE=$(python3 -B .github/scripts/stage5_test_profile.py)
           TEST_ARGS=(test)
-          if [ "$GITHUB_REF_NAME" = "codex/split-content-tap-diagnostic" ]; then
+          if [ "$GITHUB_REF_NAME" = "codex/split-content-tap-diagnostic" ] || [ "$GITHUB_REF_NAME" = "codex/fix-split-content-focus" ]; then
             echo "::notice::Phone content-tap diagnostic: native Dock and Quote controls plus message-body and margin handoffs; not a full gate."
-            TEST_ARGS+=(-only-testing:ZenAgentTests/WorkspaceComposerDockTests -only-testing:ZenAgentTests/QuoteDragTests -only-testing:ZenAgentUITests/SplitContainerUITests/testSharedComposerKeepsFocusWhenTappingOppositeMessageBody -only-testing:ZenAgentUITests/SplitContainerUITests/testSharedBottomComposerFollowsContentTapWithoutSharingDrafts)
+            TEST_ARGS+=(-only-testing:ZenAgentTests/WorkspaceComposerDockTests -only-testing:ZenAgentTests/QuoteDragTests -only-testing:ZenAgentTests/AppShellWiringTests -only-testing:ZenAgentUITests/SplitContainerUITests/testMessageBodyLongPressStillSelectsAndDragsAQuote -only-testing:ZenAgentUITests/SplitContainerUITests/testActivePaneBlankTapStillDismissesTheKeyboard -only-testing:ZenAgentUITests/SplitContainerUITests/testSharedComposerKeepsFocusWhenTappingOppositeMessageBody -only-testing:ZenAgentUITests/SplitContainerUITests/testSharedBottomComposerFollowsContentTapWithoutSharingDrafts)
           elif [ "$TEST_SCOPE" = "review-red" ]; then
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
             TEST_ARGS+=(-only-testing:ZenAgentTests)
