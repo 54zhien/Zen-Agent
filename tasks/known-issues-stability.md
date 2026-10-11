@@ -303,6 +303,24 @@ and the Pad test prints the first Sidebar receipt immediately after that one
 gesture. All superclass calls, production admission and original assertions
 remain unchanged. This repairs the observation gap; it is not a Sidebar fix.
 
+`447066b`, run `38121244437`, passed the focused Phone and actual Pad diagnostics.
+Pad job `114416266610` now records the correct first edge: touch (1.5,309.5),
+first movement (8,309.5), ended at (111.5,309.5), native state Changed then Ended.
+No competing recognizer remained at completion. This successful trace cannot
+identify the initiator of the earlier failed touch.
+
+The next diagnostic adds six independent process-cold first-edge samples,
+alternating landscape orientations after the original isolated axis case. Each
+sample gets one gesture and keeps any failed assertion; there are no test retry
+or iteration flags. This diagnostic-only matrix is not a repaired product gate.
+The already passing unchanged Phone Sidebar UI group is not repeated in this
+next observation run; native observer and pending-focus unit regressions remain.
+
+The production repair head `f72e653`, run `38119405773`, Phone job `114410862161`
+completed successfully: 1,072 Swift tests in 167 suites, 20 XCTest units, and 61
+Phone UI cases with one expected Pad-only skip. Both pending-focus arguments
+passed. The same run's Pad first-Sidebar failure remains the overall gate result.
+
 - [ ] Record each confirmed root, RED SHA/run/assertion and minimal repair.
 - [ ] Obtain GREEN on the same behavioral regression before the next repair.
 - [x] Restore the formal full CI selection after temporary diagnostics.

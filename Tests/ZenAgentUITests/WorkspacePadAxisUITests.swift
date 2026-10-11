@@ -96,6 +96,29 @@ final class WorkspacePadAxisUITests: XCTestCase {
     }
 
     @MainActor
+    func testRepeatedColdSceneFirstSidebarReceipts() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            throw XCTSkip("The cold-scene diagnostic needs an iPad simulator")
+        }
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let orientations: [UIDeviceOrientation] = [.landscapeLeft, .landscapeRight]
+        for sample in 0..<6 {
+            let app = XCUIApplication()
+            app.terminate()
+            let orientation = orientations[sample % orientations.count]
+            XCUIDevice.shared.orientation = orientation
+            app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+            app.launch()
+            // Each fresh process receives exactly one edge gesture. Assertions
+            // from every sample remain failures; no sample is a retry for a pass.
+            app.openWorkspaceSidebar()
+            let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+            print("PAD_COLD_EDGE_SAMPLE index=\(sample);orientation=\(orientation.rawValue);native=\(probe.exists ? String(describing: probe.value) : "missing probe")")
+            app.terminate()
+        }
+    }
+
+    @MainActor
     private func selectAxis(_ title: String, in app: XCUIApplication) {
         let handle = app.descendants(matching: .any)["split-divider-handle"]
         handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.8)

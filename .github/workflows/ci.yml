@@ -400,7 +400,7 @@ jobs:
           fi
           if [ "$GITHUB_REF_NAME" = "codex/known-issues-sidebar-diagnostic" ]; then
             echo "::notice::Native edge delivery observation; the preceding full Phone gate continues separately."
-            TEST_ARGS=(test -only-testing:ZenAgentTests/WorkspaceSidebarInteractionTests -only-testing:ZenAgentTests/ComposerOverlayFocusTests -only-testing:ZenAgentUITests/SidebarUITests)
+            TEST_ARGS=(test -only-testing:ZenAgentTests/WorkspaceSidebarInteractionTests -only-testing:ZenAgentTests/ComposerOverlayFocusTests)
           fi
           touch "$RUNNER_TEMP/test-start.marker"
 
