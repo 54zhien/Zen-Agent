@@ -124,6 +124,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private let sidebarShadowOpacity: Float = 0.2
     private let sidebarShadowRadius: CGFloat = 18
     private let sidebarShadowHorizontalOffset: CGFloat = 8
+    private var sidebarShadowDirection: CGFloat = -1
 #if DEBUG
     // Tests pause the real animator so a busy simulator cannot skip settlement.
     var liftAnimatorForTesting: UIViewPropertyAnimator? { animator }
@@ -350,6 +351,8 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         if let displayedShadowAlpha { sidebarShadowView.alpha = CGFloat(displayedShadowAlpha) }
         sidebarOffset = offset
         sidebarSettlement = settlement
+        // Keep the exposed side while a closing settlement targets zero offset.
+        if offset != 0 { sidebarShadowDirection = offset > 0 ? -1 : 1 }
         // Lift alone owns transform. Navigation changes center while the native
         // bounds and hosting child's original safe area remain unchanged.
         let center = CGPoint(x: view.bounds.midX + offset, y: view.bounds.midY)
@@ -470,7 +473,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         sidebarShadowView.transform = surfaceView.transform
         sidebarShadowView.layer.cornerRadius = radius
         sidebarShadowView.layer.maskedCorners = roundedCorners
-        sidebarShadowView.layer.shadowOffset = CGSize(width: -sidebarShadowHorizontalOffset, height: 0)
+        sidebarShadowView.layer.shadowOffset = CGSize(width: sidebarShadowDirection * sidebarShadowHorizontalOffset, height: 0)
         let shadowCorners: UIRectCorner = squareBottom
             ? UIRectCorner.topLeft.union(.topRight) : .allCorners
         sidebarShadowView.layer.shadowPath = UIBezierPath(roundedRect: sidebarShadowView.bounds,
