@@ -599,6 +599,16 @@ struct ConversationTimelineView: View {
 
         pendingAppliedScroll = request
         #if DEBUG
+        if ProcessInfo.processInfo.environment["ZEN_SELECTION_SCROLL_CONTROL"] == "1",
+           surfaceLift?.hasSelection == true,
+           case .scrollToBottom = request.action {
+            // Diagnostic intervention only: leave UIKit's own layout/clamping
+            // intact and isolate app-issued bottom-scroll requests.
+            print("SPLIT_CONTENT_SCROLL_SUPPRESSED uptime=\(CACurrentMediaTime());conversation=\(projection.conversationID);sequence=\(request.sequence);viewport=\(geometry.viewportHeight);offset=\(geometry.offset)")
+            pendingAppliedScroll = nil
+            scrollBridge.pane.markScrollApplied(sequence: request.sequence)
+            return
+        }
         if ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" {
             print("SPLIT_CONTENT_SCROLL uptime=\(CACurrentMediaTime());conversation=\(projection.conversationID);sequence=\(request.sequence);action=\(request.action);restoreTarget=\(String(describing: restoreTarget));viewport=\(geometry.viewportHeight);offset=\(geometry.offset)")
         }

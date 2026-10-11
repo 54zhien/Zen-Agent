@@ -356,7 +356,10 @@ final class SplitContainerUITests: XCTestCase {
     private func launchedOccupiedSplit(usingDrag: Bool = false, observeContentFocus: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
-        if observeContentFocus { app.launchEnvironment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] = "1" }
+        if observeContentFocus {
+            app.launchEnvironment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] = "1"
+            app.launchEnvironment["ZEN_SELECTION_SCROLL_CONTROL"] = "1"
+        }
         app.launch()
         if usingDrag {
             let editor = app.textViews["conversation-composer-input"]
