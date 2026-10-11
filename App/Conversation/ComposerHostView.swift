@@ -686,6 +686,11 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         configuration?.onFocus(true)
     }
     func textViewDidEndEditing(_ textView: UITextView) {
+#if DEBUG
+        if ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" {
+            print("SPLIT_CONTENT_END state=\(currentState);focused=\(editor.isFirstResponder);stack=\(Thread.callStackSymbols.prefix(24).joined(separator: " | "))")
+        }
+#endif
         recordOverlayFocusEvent("didEndEditing")
         configuration?.onFocus(false)
     }

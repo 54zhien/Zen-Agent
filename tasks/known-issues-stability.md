@@ -13,6 +13,15 @@ This is a test-only hypothesis on top of f72e653, not another confirmed root.
 The diagnostic branch temporarily selects Dock/Quote native tests and the two
 handoff UI cases; Pad is intentionally skipped and the result is not a full gate.
 
+Content-tap behavioral RED: db2ea4758f350565f54154cc304e2ce242a7c1e8,
+run 38124430504, Phone job 114425762446. Fourteen tests in two native suites and
+the unchanged margin UI handoff passed. The new UI case hit Assistant response
+18 (a native TextView), recorded blank=false, switched to the source editor but
+left it Resting and unfocused. Exactly one focus assertion failed after real
+application/test compilation; no host restart. Next, fixture-gated DEBUG stack
+and model-state observations establish whether native resignation precedes Pane
+selection. They do not change recognition, responder requests or model events.
+
 The owner requested investigation of current known issues, serial root-cause
 repairs, then a whole-project review and native stability/functionality checks.
 This is a new authorization; historical deferrals remain evidence, not closure.
