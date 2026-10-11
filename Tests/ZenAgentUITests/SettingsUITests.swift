@@ -185,9 +185,9 @@ final class SettingsUITests: XCTestCase {
         for enabled in [false, true] {
             var readyReceipt = ""
             expect {
-                let absent = !app.descendants(matching: .any)["settings-page"].exists
+                guard !app.descendants(matching: .any)["settings-page"].exists else { return false }
                 readyReceipt = probe.value as? String ?? "missing"
-                return absent && readyReceipt.contains("liftReady=true")
+                return readyReceipt.contains("liftReady=true")
             }
             expect { (inkProbe.value as? String)?.contains(";flowKeys=0;") == true }
             let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))

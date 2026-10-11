@@ -141,6 +141,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     func setWorkspaceInputSuppressed(_ suppressed: Bool) {
+#if DEBUG
+        liftInteraction?.recordHostLifecycle("suppression=\(suppressed);interactionBefore=\(isUserInteractionEnabled)")
+#endif
         workspaceInputSuppressed = suppressed
         isUserInteractionEnabled = !suppressed
         accessibilityElementsHidden = suppressed
@@ -263,6 +266,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+#if DEBUG
+        liftInteraction?.recordHostLifecycle("window=\(String(describing: window.map { ObjectIdentifier($0) }))")
+#endif
         consumeOverlayFocusIfReady()
         guard let shelfController else { return }
         if window != nil {
@@ -272,6 +278,13 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             shelfController.removeFromParent()
         }
     }
+
+#if DEBUG
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        liftInteraction?.recordHostLifecycle("superview=\(String(describing: superview.map { type(of: $0) }))")
+    }
+#endif
 
     override func layoutSubviews() {
         super.layoutSubviews()

@@ -22,6 +22,8 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
 #if DEBUG
     private let recordsUITestGestures = ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1"
     private var gestureTrace: [String] = []
+    private weak var observedTouch: UITouch?
+    private var recordedFirstChange = false
 #endif
 
     init(surface: UIView, editor: UITextView, nativeInput: @escaping () -> SurfaceLiftEligibility) {
@@ -72,8 +74,23 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
     // before input alone cannot explain a later native gesture refusal.
     private func recordGesture(_ event: String) {
         guard recordsUITestGestures else { return }
-        gestureTrace.append("\(event);phase=\(String(describing: configuration?.driver.state.phase));progress=\(configuration?.driver.state.progress ?? 0);input=\(input)")
+        let peers = (observedTouch?.gestureRecognizers ?? []).sorted {
+            let left = $0.state == .began || $0.state == .changed
+            let right = $1.state == .began || $1.state == .changed
+            return left && !right
+        }.prefix(16).map { peer in
+            let view = peer.view.map { String(String(describing: type(of: $0)).prefix(96)) } ?? "nil"
+            return "\(String(describing: type(of: peer))):\(peer.state.rawValue):\(peer.isEnabled):\(view)"
+        }.joined(separator: ",")
+        gestureTrace.append("\(event);phase=\(String(describing: configuration?.driver.state.phase));progress=\(configuration?.driver.state.progress ?? 0);input=\(input);touchPhase=\(observedTouch?.phase.rawValue ?? -1);peers=[\(peers)]")
         if gestureTrace.count > 12 { gestureTrace.removeFirst(gestureTrace.count - 12) }
+    }
+#endif
+
+#if DEBUG
+    func recordHostLifecycle(_ event: String) {
+        guard configuration?.driver.state.phase == .armed || configuration?.driver.state.phase == .lifting else { return }
+        recordGesture("host=\(event)")
     }
 #endif
 
@@ -111,6 +128,7 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         let accepted = touch.view === surface
 #if DEBUG
+        if recordsUITestGestures { observedTouch = touch }
         recordGesture("receive=\(accepted);view=\(String(describing: touch.view.map { type(of: $0) }))")
 #endif
         return accepted
@@ -121,12 +139,21 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
         let point = gesture.location(in: window)
         switch gesture.state {
         case .began:
+#if DEBUG
+            recordedFirstChange = false
+#endif
             origin = configuration.driver.arm(input, conversationID: configuration.conversationID) ? point : nil
 #if DEBUG
             recordGesture("began;point=\(point);origin=\(String(describing: origin))")
 #endif
         case .changed:
             guard let origin else { return }
+#if DEBUG
+            if !recordedFirstChange {
+                recordGesture("firstChanged;point=\(point)")
+                recordedFirstChange = true
+            }
+#endif
             if !configuration.driver.drag(upwardDistance: Double(origin.y - point.y),
                                           eligibility: input, locationInWindow: point) {
 #if DEBUG
@@ -137,6 +164,11 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
         case .ended, .cancelled, .failed:
 #if DEBUG
             recordGesture("terminal=\(gesture.state.rawValue);point=\(point);origin=\(String(describing: origin))")
+            // Emit only after recognition has terminated, so evidence collection
+            // does not add console work during the held gesture.
+            if recordsUITestGestures {
+                print("LIFT_TERMINAL_RECEIPT recognizer=\(ObjectIdentifier(recognizer));trace=[\(gestureTrace.joined(separator: " | "))]")
+            }
 #endif
             defer { origin = nil }
             guard let origin else { return }
