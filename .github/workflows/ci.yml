@@ -400,7 +400,7 @@ jobs:
           fi
           if [ "$GITHUB_REF_NAME" = "codex/known-issues-focus-diagnostic" ]; then
             echo "::notice::Focused bridge-order regression and real shell transfer; the full gate runs separately."
-            TEST_ARGS=(test -only-testing:ZenAgentTests/WorkspaceComposerDockTests -only-testing:ZenAgentTests/AppShellWiringTests)
+            TEST_ARGS=(test -only-testing:ZenAgentTests/WorkspaceComposerDockTests -only-testing:ZenAgentTests/AppShellWiringTests -only-testing:ZenAgentTests/ComposerHostIntegrationTests -only-testing:ZenAgentTests/ComposerExitLayoutTests -only-testing:ZenAgentTests/ComposerPresentationReducerTests -only-testing:ZenAgentTests/ComposerViewContractTests -only-testing:ZenAgentUITests/SplitContainerUITests/testSharedBottomComposerFollowsContentTapWithoutSharingDrafts)
           fi
           touch "$RUNNER_TEMP/test-start.marker"
 

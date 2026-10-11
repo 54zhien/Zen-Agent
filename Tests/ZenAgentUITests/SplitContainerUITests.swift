@@ -14,11 +14,24 @@ final class SplitContainerUITests: XCTestCase {
         input.tap(); input.typeText("upper draft stays upper")
         app.activateWorkspacePane("preview-ui-10")
         expect { !(input.value as? String ?? "").contains("upper draft stays upper") }
-        input.tap(); input.typeText("lower draft stays lower")
+        let secondaryProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
+        guard app.keyboards.firstMatch.exists,
+              (secondaryProbe.value as? String)?.contains("focused=true;") == true else {
+            XCTFail("Switching Pane must retain input focus without another editor tap: \(secondaryProbe.value ?? "missing probe")")
+            return
+        }
+        input.typeText("lower draft stays lower")
         app.activateWorkspacePane("preview-ui-11")
         expect { (input.value as? String) == "upper draft stays upper" }
+        let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertTrue((sourceProbe.value as? String)?.contains("focused=true;") == true,
+                      "Returning to source must keep focus: \(sourceProbe.value ?? "missing probe")")
         app.activateWorkspacePane("preview-ui-10")
         expect { (input.value as? String) == "lower draft stays lower" }
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertTrue((secondaryProbe.value as? String)?.contains("focused=true;") == true,
+                      "Returning to secondary must keep focus: \(secondaryProbe.value ?? "missing probe")")
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         XCTAssertGreaterThan(input.frame.minY, divider.frame.maxY)
     }

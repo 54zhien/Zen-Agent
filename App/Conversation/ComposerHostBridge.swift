@@ -4,7 +4,7 @@ import UIKit
 @MainActor
 struct ComposerHostBridge: UIViewRepresentable {
     let configuration: ComposerHostView.Configuration
-    let focused: Bool
+    let focusRequested: () -> Bool
     var conversationID = ""
     @Environment(\.workspaceInputSuppressed) private var suppressed
     @Environment(\.workspaceComposerDock) private var dock
@@ -20,7 +20,7 @@ struct ComposerHostBridge: UIViewRepresentable {
     func updateUIView(_ uiView: ComposerHostPortal, context: Context) { configure(uiView) }
 
     private func configure(_ view: ComposerHostPortal) {
-        view.update(configuration: configuration, focused: focused, suppressed: suppressed,
+        view.update(configuration: configuration, focusRequested: focusRequested, suppressed: suppressed,
                     ownerID: conversationID, usesDock: usesDock, dock: dock, isActivePane: isActivePane)
     }
     static func dismantleUIView(_ view: ComposerHostPortal, coordinator: ()) { view.unmount() }

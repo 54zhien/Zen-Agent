@@ -56,7 +56,7 @@ struct WorkspaceComposerDockTests {
         defer { loss.armed = false; NotificationCenter.default.removeObserver(observer) }
         dock.configure(container: container, activeID: "a", visible: true)
         func update(_ portal: ComposerHostPortal, id: String, editing: Bool, active: Bool = true) {
-            portal.update(configuration: configuration(text: id, editing: editing), focused: editing,
+            portal.update(configuration: configuration(text: id, editing: editing), focusRequested: { editing },
                 suppressed: false, ownerID: id, usesDock: true, dock: dock, isActivePane: active)
         }
         update(a, id: "a", editing: true); update(b, id: "b", editing: false)
@@ -102,7 +102,7 @@ struct WorkspaceComposerDockTests {
             portal.update(configuration: configuration(text: id, editing: editing, onFocus: { focused in
                 let event: ComposerPresentationEvent = focused ? .textAreaTapped : .keyboardDismissed
                 _ = controller.handle(event)
-            }), focused: editing, suppressed: false, ownerID: id, usesDock: true,
+            }), focusRequested: { controller.draft.presentationState == .editing }, suppressed: false, ownerID: id, usesDock: true,
                 dock: dock, isActivePane: active)
         }
         update(a, id: "a", controller: outgoing, active: true)
@@ -157,14 +157,15 @@ struct WorkspaceComposerDockTests {
         incoming.draft.text = "incoming draft"
         root.view.addSubview(a); root.view.addSubview(b); root.view.addSubview(container)
         dock.configure(container: container, activeID: "a", visible: true)
-        a.update(configuration: configuration(text: "outgoing draft", editing: true), focused: true,
+        a.update(configuration: configuration(text: "outgoing draft", editing: true), focusRequested: { true },
             suppressed: false, ownerID: "a", usesDock: true, dock: dock)
         // SwiftUI can evaluate a value before UIKit transfers the responder.
         // Keep that value while the real delegate publishes the newer intent.
         let pendingConfiguration = configuration(text: incoming.draft.text, editing: false, onFocus: { focused in
             _ = incoming.handle(focused ? .textAreaTapped : .keyboardDismissed)
         })
-        b.update(configuration: pendingConfiguration, focused: false, suppressed: false,
+        let pendingFocus = { incoming.draft.presentationState == .editing }
+        b.update(configuration: pendingConfiguration, focusRequested: pendingFocus, suppressed: false,
             ownerID: "b", usesDock: true, dock: dock)
         try await Task.sleep(for: .milliseconds(250))
         try #require(a.composer.editor.isFirstResponder)
@@ -173,7 +174,7 @@ struct WorkspaceComposerDockTests {
         try #require(incoming.draft.presentationState == .editing)
         // There has not yet been a bridge update containing focused=true.
         if explicitBlur { _ = incoming.handle(.conversationBackgroundTapped) }
-        b.update(configuration: pendingConfiguration, focused: false, suppressed: false,
+        b.update(configuration: pendingConfiguration, focusRequested: pendingFocus, suppressed: false,
             ownerID: "b", usesDock: true, dock: dock)
         #expect(b.composer.editor.isFirstResponder == !explicitBlur,
                 "a stale resting render must not issue a new keyboard-dismissal intent")
@@ -202,7 +203,7 @@ struct WorkspaceComposerDockTests {
         let container = ComposerDockContainer(frame: root.view.bounds)
         let portal = ComposerHostPortal(frame: root.view.bounds)
         dock.configure(container: container, activeID: "pending", visible: true)
-        portal.update(configuration: configuration(text: "retained", editing: true), focused: true,
+        portal.update(configuration: configuration(text: "retained", editing: true), focusRequested: { true },
             suppressed: false, ownerID: "pending", usesDock: true, dock: dock)
         try #require(portal.composer.superview === container && portal.composer.window == nil)
         #expect(!portal.composer.editor.isFirstResponder)
@@ -215,7 +216,7 @@ struct WorkspaceComposerDockTests {
         #expect(portal.composer.editor.isFirstResponder)
         #expect(portal.composer.editor.text == "retained")
 
-        portal.update(configuration: configuration(text: "retained", editing: false), focused: false,
+        portal.update(configuration: configuration(text: "retained", editing: false), focusRequested: { false },
             suppressed: false, ownerID: "pending", usesDock: true, dock: dock)
         #expect(!portal.composer.editor.isFirstResponder)
         dock.configure(container: container, activeID: "pending", visible: true)

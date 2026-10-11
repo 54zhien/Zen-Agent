@@ -46,6 +46,8 @@ This is a new authorization; historical deferrals remain evidence, not closure.
 9. Rename prefill: `AppSpaceConversationActions.title` still returns an empty
    stored title while the Card displays the first-message provisional title.
    Preserve full manual titles and reuse the bounded summary for the fallback.
+10. A stale bridge focus snapshot can undo a newer native Dock transfer. This is
+    distinct from the historical delayed keyboard-arbiter resignation in Issue 4.
 
 ## Evidence
 
@@ -132,9 +134,9 @@ stack only after unexpected B end-editing; its operations, timings and assertion
 are unchanged. The Settings test retains the post-drag Sidebar receipt and Lift
 retains its original-driver trace across transport teardown.
 
-The owner reports that native input faults also occur on an iPhone 15 Pro Max
-and reports iOS 27.2. The exact fault/operation chain, app build and system-version
-confirmation have been requested. The observed CI uses Xcode 26.6 (17F113) and
+The owner reports Split switching losing input focus on an iPhone 15 Pro Max
+and reports iOS 27.2. The exact operation chain, app build and system-version
+confirmation remain unavailable. The observed CI uses Xcode 26.6 (17F113) and
 an iPhone 17 Pro simulator on iOS 26.2; it is not a matching device-system receipt.
 Issues 2–4 cannot be dismissed as simulator-only or closed by passing CI.
 
@@ -154,9 +156,40 @@ Issues 2–4 cannot be dismissed as simulator-only or closed by passing CI.
 - App Space metadata and navigation: Rename fallback is corrected; the three
   native input stability questions above remain open and block an all-fixed claim.
 
-No additional actionable source defect was confirmed in this pass. This is a
-review of the candidate diff and high-risk module boundaries, supported by the
-native regression suite; it is not proof of every possible device behavior.
+The subsequent focus investigation confirmed Issue 10 below. This is a review of
+the candidate diff and high-risk module boundaries, supported by the native
+regression suite; it is not proof of every possible device behavior.
+
+### Bridge focus snapshot regression
+
+Test-only `6c83fdb3c60ee57714fbe25e7b6e2116ee84f41d` ran independently on
+`codex/known-issues-focus-diagnostic` so the full `b893487` run was not cancelled.
+Run `38114488287`, Phone job `114396586140`, compiled and ran 99 tests in two
+suites with one Swift start. Exactly three assertions failed in the stale-blur
+case: immediate native focus, controller Editing, and settled native focus.
+The explicit new blur control passed. The strengthened real AppShell test also
+passed its actual focus and IME guard assertions; this alone does not reproduce
+the owner's physical-device incident.
+
+The old bridge captured a Bool while the incoming controller was resting.
+Native Dock handoff then synchronously published Editing, but a pending bridge
+update replayed that old false value and called `resignFirstResponder`, whose
+delegate overwrote the controller back to Resting. The candidate passes a live
+focus projection of the existing controller through the bridge and reads it at
+the application boundary, including after Dock registration callbacks. There is
+no second focus owner, timer, forced-refocus loop or delay. The regression's API
+arguments now supply that projection; operations and assertions are retained.
+An explicit blur before any focused bridge refresh must still apply.
+
+The end-to-end Split test previously tapped the incoming editor again before
+typing, masking a possible handoff failure. It now requires native focus and
+keyboard continuity without that extra tap, in both switch directions. The next
+diagnostic includes it and the existing Composer/IME/layout regressions. The
+temporary branch-only selector must be removed before the final full gate.
+
+Native GREEN for Issue 10 is pending. It must not be used to close Issues 2–4.
+The preceding full head's actual iPad case passed in 86.511 seconds (job
+`114395487417`); its full Phone gate is still running at this record update.
 
 - [ ] Record each confirmed root, RED SHA/run/assertion and minimal repair.
 - [ ] Obtain GREEN on the same behavioral regression before the next repair.

@@ -38,7 +38,7 @@ struct ConversationComposerView: View {
 
     var body: some View {
         ComposerHostBridge(configuration: hostConfiguration,
-                           focused: controller.draft.presentationState == .editing,
+                           focusRequested: { controller.draft.presentationState == .editing },
                            conversationID: conversationID)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .task(id: conversationID) { await observeRunProjection() }

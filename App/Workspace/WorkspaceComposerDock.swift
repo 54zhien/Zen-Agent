@@ -82,7 +82,7 @@ final class ComposerHostPortal: UIView {
     private(set) var usesDock = false
     private weak var dock: WorkspaceComposerDockState?
     private weak var driver: SurfaceLiftController?
-    private var requestedFocus = false
+    private var focusRequested: () -> Bool = { false }
     private var inputSuppressed = false
     private var isActivePane = true
 
@@ -92,10 +92,10 @@ final class ComposerHostPortal: UIView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func update(configuration: ComposerHostView.Configuration, focused: Bool, suppressed: Bool,
+    func update(configuration: ComposerHostView.Configuration, focusRequested: @escaping () -> Bool, suppressed: Bool,
                 ownerID: String, usesDock: Bool, dock: WorkspaceComposerDockState?, isActivePane: Bool = true) {
         self.ownerID = ownerID; self.usesDock = usesDock
-        self.requestedFocus = focused; self.inputSuppressed = suppressed; self.isActivePane = isActivePane
+        self.focusRequested = focusRequested; self.inputSuppressed = suppressed; self.isActivePane = isActivePane
         self.driver = configuration.liftInteraction?.driver
         self.dock = dock
         composer.configure(configuration)
@@ -109,7 +109,11 @@ final class ComposerHostPortal: UIView {
         if usesDock {
             guard composer.superview is ComposerDockContainer, isActivePane || transferring else { return }
         }
-        let focused = requestedFocus || transferring
+        // Native handoff publishes Editing synchronously, after SwiftUI may
+        // already have evaluated this bridge. Read its current owner at the
+        // application boundary, including after register/install callbacks.
+        // A later explicit blur still wins even before the next render arrives.
+        let focused = focusRequested() || transferring
         if focused || allowResignation { composer.requestFocus(focused) }
     }
     func embed() {
@@ -145,10 +149,9 @@ final class ComposerDockContainer: UIView {
     private weak var portal: ComposerHostPortal?
     func install(_ incoming: ComposerHostPortal) {
         guard portal !== incoming || incoming.composer.superview !== self else {
-            // Native transfer may publish focus before the bridge updates its
-            // cached intent. Reinstalling the same owner must not replay that
-            // old blur. Positive requests can still need retry after window
-            // attachment; Portal.update applies actual new blur requests.
+            // A layout-only refresh is not a new blur request. Positive intent
+            // can still need retry after window attachment; Portal.update
+            // reconciles the owner's current intent, including explicit blur.
             incoming.registerExternalOwner()
             incoming.applyFocusIfAttached(allowResignation: false)
             return
