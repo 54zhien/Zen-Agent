@@ -1,7 +1,4 @@
 import SwiftUI
-#if DEBUG
-import QuartzCore
-#endif
 
 private struct ConversationTimelineViewport: Equatable {
     let geometry: ScrollGeometry
@@ -372,9 +369,6 @@ struct ConversationTimelineView: View {
 
         guard let scrollBridge else { return }
 #if DEBUG
-        if ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" {
-            print("SPLIT_CONTENT_GEOMETRY uptime=\(CACurrentMediaTime());conversation=\(projection.conversationID);viewport=\(geometry.viewportHeight);offset=\(geometry.offset);content=\(geometry.contentHeight);clearance=\(bottomComposerClearance);userScroll=\(isUserDrivenScroll);mode=\(scrollBridge.pane.readingPosition.mode)")
-        }
         if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1",
            case .reading(let anchor, _) = scrollBridge.pane.readingPosition.mode {
             print("PREVIEW_READING_GEOMETRY viewport=\(geometry.viewportHeight) offset=\(geometry.offset) turnFrame=\(String(describing: turnFrames[anchor.runID])) anchor=\(anchor.relativeViewportOffset) phase=\(String(describing: surfaceLiftPhaseForDiagnostic)) clearance=\(bottomComposerClearance)")
@@ -606,19 +600,9 @@ struct ConversationTimelineView: View {
            geometry.isUsableForPane,
            (reachedTarget(for: request, geometry: geometry)
             || geometry.offset > max(0, geometry.contentHeight - geometry.viewportHeight)) {
-            #if DEBUG
-            if ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" {
-                print("SPLIT_CONTENT_BOTTOM_LAYOUT uptime=\(CACurrentMediaTime());conversation=\(projection.conversationID);sequence=\(request.sequence);viewport=\(geometry.viewportHeight);content=\(geometry.contentHeight);offset=\(geometry.offset)")
-            }
-            #endif
             acknowledgeAppliedScrollIfReady(geometry)
             return
         }
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" {
-            print("SPLIT_CONTENT_SCROLL uptime=\(CACurrentMediaTime());conversation=\(projection.conversationID);sequence=\(request.sequence);action=\(request.action);restoreTarget=\(String(describing: restoreTarget));viewport=\(geometry.viewportHeight);offset=\(geometry.offset)")
-        }
-        #endif
         var transaction = Transaction()
         transaction.animation = nil
         withTransaction(transaction) {
@@ -656,11 +640,6 @@ struct ConversationTimelineView: View {
               reachedTarget(for: request, geometry: geometry)
         else { return }
 
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" {
-            print("SPLIT_CONTENT_SCROLL_ACK uptime=\(CACurrentMediaTime());conversation=\(projection.conversationID);sequence=\(request.sequence);viewport=\(geometry.viewportHeight);content=\(geometry.contentHeight);offset=\(geometry.offset)")
-        }
-        #endif
         pendingAppliedScroll = nil
         _ = scrollBridge.pane.updateReading(.programmaticScrolled(geometry: geometry))
         scrollBridge.pane.markScrollApplied(sequence: request.sequence)

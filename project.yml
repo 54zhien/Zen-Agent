@@ -116,18 +116,6 @@ targets:
 
 schemes:
 
-  DIAGNOSTIC_SplitContainerUITests:
-    build:
-      targets:
-        ZenAgent: all
-        ZenAgentUITests: [test]
-    run:
-      config: Debug
-    test:
-      config: Debug
-      targets:
-        - ZenAgentUITests
-
   ZenAgent:
     build:
       targets:

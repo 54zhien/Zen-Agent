@@ -228,11 +228,6 @@ struct QuoteSelectableText: UIViewRepresentable {
             _ textDraggableView: any UIView & UITextDraggable,
             itemsForDrag dragRequest: any UITextDragRequest
         ) -> [UIDragItem] {
-            #if DEBUG
-            if let textView = textDraggableView as? UITextView {
-                recordEditMenu("dragRequest selected=\(dragRequest.isSelected) existing=\(dragRequest.existingItems.count)", textView: textView)
-            }
-            #endif
             guard dragRequest.existingItems.isEmpty,
                   dragRequest.isSelected,
                   let textView = textDraggableView as? UITextView
@@ -246,9 +241,6 @@ struct QuoteSelectableText: UIViewRepresentable {
             let provider = NSItemProvider(object: drag.reference.snapshot as NSString)
             let item = UIDragItem(itemProvider: provider)
             item.localObject = drag
-            #if DEBUG
-            recordEditMenu("dragItemAccepted", textView: textView)
-            #endif
             return [item]
         }
 
@@ -273,32 +265,6 @@ struct QuoteSelectableText: UIViewRepresentable {
                 parent.onSelectionHandleDragChanged(false)
             }
         }
-
-        #if DEBUG
-        func textView(_ textView: UITextView, willPresentEditMenuWith animator: any UIEditMenuInteractionAnimating) {
-            recordEditMenu("willPresent", textView: textView)
-        }
-
-        func textView(_ textView: UITextView, willDismissEditMenuWith animator: any UIEditMenuInteractionAnimating) {
-            recordEditMenu("willDismiss", textView: textView)
-        }
-
-        private func recordEditMenu(_ event: String, textView: UITextView) {
-            guard ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" else { return }
-            var ancestor = textView.superview
-            var scrolls: [String] = []
-            while let view = ancestor {
-                if let scroll = view as? UIScrollView {
-                    scrolls.append("offset=\(scroll.contentOffset),bounds=\(scroll.bounds)")
-                }
-                ancestor = view.superview
-            }
-            print("SPLIT_CONTENT_MENU event=\(event);uptime=\(CACurrentMediaTime());conversation=\(parent.source.conversationID);message=\(parent.source.messageID);part=\(parent.source.partID);first=\(textView.isFirstResponder);selection=\(textView.selectedRange);frame=\(textView.frame);bounds=\(textView.bounds);scrolls=\(scrolls)")
-            if event == "willDismiss" {
-                print("SPLIT_CONTENT_MENU_STACK uptime=\(CACurrentMediaTime());stack=\(Thread.callStackSymbols.prefix(35).joined(separator: " | "))")
-            }
-        }
-        #endif
 
         @objc
         func selectionPanChanged(_ recognizer: UIPanGestureRecognizer) {
@@ -337,18 +303,6 @@ enum QuoteDropRegion {
 final class QuoteTextView: UITextView {
     weak var presentationTap: UITapGestureRecognizer?
 
-    #if DEBUG
-    private func record(_ event: String) {
-        guard ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" else { return }
-        let peers: String = (gestureRecognizers ?? []).map { gesture in
-            let taps = (gesture as? UITapGestureRecognizer).map { "taps=\($0.numberOfTapsRequired),touches=\($0.numberOfTouchesRequired)" } ?? "notTap"
-            return "\(type(of: gesture)):state=\(gesture.state.rawValue),\(taps),ownView=\(gesture.view === self)"
-        }.joined(separator: " | ")
-        print("SPLIT_CONTENT_BODY event=\(event);uptime=\(CACurrentMediaTime());first=\(isFirstResponder);selection=\(selectedRange);peers=[\(peers)]")
-    }
-
-    #endif
-
     override func becomeFirstResponder() -> Bool {
         // A read-only body's single tap activates its Pane. UIKit's later text
         // interaction must not take the responder from the transferred Composer.
@@ -361,18 +315,8 @@ final class QuoteTextView: UITextView {
                 && tap.numberOfTapsRequired == 1 && tap.numberOfTouchesRequired == 1
         }
         if !isEditable, !isFirstResponder, hasRecognizedSingleTap {
-            #if DEBUG
-            record("declinedSingleTap")
-            #endif
             return false
         }
-        #if DEBUG
-        record("beforeBecome")
-        #endif
-        let result = super.becomeFirstResponder()
-        #if DEBUG
-        record("afterBecome=\(result)")
-        #endif
-        return result
+        return super.becomeFirstResponder()
     }
 }

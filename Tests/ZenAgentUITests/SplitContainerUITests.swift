@@ -3,7 +3,7 @@ import XCTest
 final class SplitContainerUITests: XCTestCase {
     @MainActor
     func testSharedComposerKeepsFocusWhenTappingOppositeMessageBody() {
-        let app = launchedOccupiedSplit(observeContentFocus: true)
+        let app = launchedOccupiedSplit()
         let input = app.textViews["conversation-composer-input"]
         input.tap()
         input.typeText("secondary content-tap draft")
@@ -58,7 +58,7 @@ final class SplitContainerUITests: XCTestCase {
 
     @MainActor
     func testMessageBodyLongPressStillSelectsAndDragsAQuote() {
-        let app = launchedOccupiedSplit(observeContentFocus: true)
+        let app = launchedOccupiedSplit()
         let input = app.textViews["conversation-composer-input"]
         input.tap()
         input.typeText("quote destination draft")
@@ -90,7 +90,7 @@ final class SplitContainerUITests: XCTestCase {
 
     @MainActor
     func testMessageBodyDoubleTapStillSelectsText() {
-        let app = launchedOccupiedSplit(observeContentFocus: true)
+        let app = launchedOccupiedSplit()
         app.activateWorkspacePane("preview-ui-11")
         let input = app.textViews["conversation-composer-input"]
         input.tap()
@@ -126,7 +126,7 @@ final class SplitContainerUITests: XCTestCase {
 
     @MainActor
     func testPromptTapKeepsComposerFocusAndDoubleTapStillSelectsText() {
-        let app = launchedOccupiedSplit(observeContentFocus: true)
+        let app = launchedOccupiedSplit()
         let input = app.textViews["conversation-composer-input"]
         input.tap()
         input.typeText("prompt destination draft")
@@ -153,7 +153,7 @@ final class SplitContainerUITests: XCTestCase {
 
     @MainActor
     func testActivePromptDoubleTapPresentsNativeCopyMenu() {
-        let app = launchedOccupiedSplit(observeContentFocus: true)
+        let app = launchedOccupiedSplit()
         app.activateWorkspacePane("preview-ui-11")
         let input = app.textViews["conversation-composer-input"]
         input.tap()
@@ -403,10 +403,9 @@ final class SplitContainerUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchedOccupiedSplit(usingDrag: Bool = false, observeContentFocus: Bool = false) -> XCUIApplication {
+    private func launchedOccupiedSplit(usingDrag: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
-        if observeContentFocus { app.launchEnvironment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] = "1" }
         app.launch()
         if usingDrag {
             let editor = app.textViews["conversation-composer-input"]

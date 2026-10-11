@@ -1,8 +1,5 @@
 import SwiftUI
 import UIKit
-#if DEBUG
-import QuartzCore
-#endif
 
 @MainActor
 final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDelegate,
@@ -659,11 +656,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     @objc private func keyboardWillChange(_ notification: Notification) {
         guard window != nil else { return }
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" {
-            print("SPLIT_CONTENT_KEYBOARD uptime=\(CACurrentMediaTime());first=\(editor.isFirstResponder);endFrame=\(String(describing: notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey]));state=\(currentState)")
-        }
-        #endif
         if keyboardTransitionOwned || editor.isFirstResponder {
             configuration?.onKeyboardWillChange()
         }
@@ -694,11 +686,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         configuration?.onFocus(true)
     }
     func textViewDidEndEditing(_ textView: UITextView) {
-#if DEBUG
-        if ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" {
-            print("SPLIT_CONTENT_END state=\(currentState);focused=\(editor.isFirstResponder);stack=\(Thread.callStackSymbols.prefix(24).joined(separator: " | "))")
-        }
-#endif
         recordOverlayFocusEvent("didEndEditing")
         configuration?.onFocus(false)
     }
@@ -716,10 +703,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     func dropInteraction(_ interaction: UIDropInteraction,
                          canHandle session: any UIDropSession) -> Bool {
-        #if DEBUG
-        recordQuoteDrop("canHandle", session: session)
-        #endif
-        return session.localDragSession != nil
+        session.localDragSession != nil
             && session.items.contains { $0.localObject is InternalQuoteDrag }
     }
 
@@ -744,9 +728,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     func dropInteraction(_ interaction: UIDropInteraction,
                          performDrop session: any UIDropSession) {
-        #if DEBUG
-        recordQuoteDrop("performDrop", session: session)
-        #endif
         defer { setQuotePhase(.idle) }
         guard let configuration,
               dropFrame.contains(session.location(in: self)) else { return }
@@ -777,18 +758,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     private func updateQuotePhase(_ session: any UIDropSession) {
-        #if DEBUG
-        recordQuoteDrop("update", session: session)
-        #endif
         setQuotePhase(dropFrame.contains(session.location(in: self)) ? .overDropZone : .active)
     }
-
-    #if DEBUG
-    private func recordQuoteDrop(_ event: String, session: any UIDropSession) {
-        guard ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" else { return }
-        print("SPLIT_CONTENT_DROP event=\(event);uptime=\(CACurrentMediaTime());local=\(session.localDragSession != nil);internalItems=\(session.items.filter { $0.localObject is InternalQuoteDrag }.count);point=\(session.location(in: self));frame=\(dropFrame);phase=\(quotePhase)")
-    }
-    #endif
 
     private func setQuotePhase(_ phase: ComposerQuoteDragPhase) {
         guard phase != quotePhase else { return }

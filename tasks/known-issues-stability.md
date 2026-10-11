@@ -41,9 +41,49 @@ locator defect: the captured accessibility tree exposes MenuItem Copy, while
 the test queried Button Copy. Correct the query; selection was actually present,
 but Quote drag was not reached. The new candidate also adds double-tap word
 selection and non-touch responder/selection controls. Original body assertions
-remain unchanged. Candidate GREEN and the full gate are still pending.
-The temporary focused workflow is not a complete gate. Final exact-HEAD
-receipts are stored outside the checkout to avoid self-reference.
+remain unchanged.
+
+Candidate `9d16aaa`, run `38130144526`, passed the original body regression
+(42.127 seconds), margin transfer, blank blur, and 108 Swift tests in four suites.
+The run still failed added selection controls. Later `4e30ac4`, run
+`38132893574`, again passed the original body case (41.540 seconds); it supplied
+native menu/drag diagnostics rather than a full gate. Removing the focus veto
+in control `7fe1f70`, run `38131845521`, restored the original body failure while
+retaining the Copy/Quote failures. Those failures were not caused solely by the
+body focus repair.
+
+Menu dismissal has a separate recorded path: during keyboard hide, the viewport
+grows while following-bottom emits new scroll commands. The native menu dismiss
+stack enters through the SwiftUI hosting scroll view's content-offset update.
+Control `6228027`, run `38133891725`, suppresses those app commands only for
+diagnosis. UIKit itself clamps offset 1840.333 to the new bottom 1673, and the
+active Prompt Copy control passes. The production repair skips a bottom command
+when usable geometry already meets the existing target tolerance or lies beyond
+the new bottom. It retains the request until actual geometry satisfies the
+normal acknowledgement; anchor and maintained-bottom actions are unchanged.
+
+The Quote failure was also traced: the old synthetic drag start engaged native
+selection-range adjustment, never the text drag delegate. Starting inside the
+selected word instead of near its handle passes in `6228027` (53.082 seconds),
+with native item capture, host performDrop, Quote chip and original draft intact.
+No production drag path was changed to obtain this result.
+
+Run `38133891725` remains failed: Sidebar setup prevented the body-double test,
+and an initial Composer keyboard connection failure prevented the original body
+test before any message tap. Its didEnd stack is UIKit's remote-keyboard
+failed-connection path; the underlying connection failure is not explained.
+These are retained failures, not passing body controls or a simulator exemption.
+
+Candidate `850d7e9`, run `38135417462`, passed all seven native UI cases with
+zero failures in 405.348 seconds, including the original body case (81.386
+seconds). Copy controls also require actual bottom geometry and no pending
+request while the menu remains available. Application evidence records offset
+1840.333 left pending, then native geometry at 1673 followed by the normal ACK;
+the native menu presents afterward. This focused run intentionally excludes
+the unit target and Pad, so it is not the full gate. Final exact-HEAD full receipts
+are stored outside the checkout to avoid self-reference. Focused CI is not the
+formal full gate; temporary observers and selectors are removed before freezing
+the final source and preparing the separately authorized unsigned device IPA.
 
 Settings first-Lift cancellation, the earlier first-Sidebar failures, and the
 historical delayed focus loss remain separate unresolved evidence. Neither a
@@ -75,7 +115,7 @@ The owner requested investigation of current known issues, serial root-cause
 repairs, then a whole-project review and native stability/functionality checks.
 This is a new authorization; historical deferrals remain evidence, not closure.
 
-## Ownership and baseline
+## Initial ownership and baseline (historical)
 
 - Own worktree: `C:/Users/Azusa/.codex/worktrees/known-issues-stability/Zen-Agent`.
 - Own final branch: `codex/known-issues-stability-final`; the earlier
@@ -85,7 +125,9 @@ This is a new authorization; historical deferrals remain evidence, not closure.
 - Main observed at start: `52a456bb53d10360aa6d485202f4bd05e2c6bdbf`.
 - Blueprint intent: recorded approved `3b4b22c0df91be668406127c84c1822b359883c0`.
 - Other worktrees, original diagnostic/S6 branches and main are not edit targets.
-- No later Stage features, tool enablement, merge or IPA is needed for this repair.
+- The initial slice excluded later Stage features, tool enablement, merge and IPA.
+  The current continuation above additionally authorizes an unsigned device IPA
+  after native repair verification; it does not authorize a merge or later Stage.
 
 ## Issue register and serial execution
 

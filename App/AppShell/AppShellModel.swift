@@ -221,11 +221,6 @@ final class AppShellModel {
         guard let split = splitWorkspace, split.activeSlot != slot else { return }
         let outgoing = split.activeSlot == split.sourceSlot ? pane : splitPane
         let incoming = slot == split.sourceSlot ? pane : splitPane
-#if DEBUG
-        if ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" {
-            print("SPLIT_CONTENT_SELECT from=\(split.activeSlot);to=\(slot);outgoing=\(String(describing: outgoing?.composer.draft.presentationState));incoming=\(String(describing: incoming?.composer.draft.presentationState))")
-        }
-#endif
         guard let incoming, outgoing?.composer.isComposing != true,
               outgoing?.composer.isSelectionHandleDragging != true,
               outgoing?.composer.quoteDragPhase == .idle else { return }

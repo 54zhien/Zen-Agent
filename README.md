@@ -44,7 +44,7 @@ As of 2026-10-11, Stage 5's reviewed baseline is integrated on `main` through
 [PR #35](https://github.com/54zhien/Zen-Agent/pull/35) at
 `52a456bb53d10360aa6d485202f4bd05e2c6bdbf`. This checkout additionally contains
 the S6-01 Policy foundation and S6-02 frozen-intent work, followed by the
-`codex/known-issues-stability` repair candidate. These branch changes are not
+`codex/fix-split-content-focus` repair candidate. These branch changes are not
 yet main integration or physical-device acceptance. Current known defects,
 root-cause evidence and verification boundaries are tracked in
 [the stability repair record](tasks/known-issues-stability.md).
