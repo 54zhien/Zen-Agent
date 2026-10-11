@@ -74,6 +74,18 @@ This is a new authorization; historical deferrals remain evidence, not closure.
   prefill. These are not executed until explicitly selected by a native run.
   The Settings failure message also captures the post-drag Sidebar probe; the
   old receipt contained only the pre-drag value. No gesture, wait or retry changes.
+- Issue 1 native GREEN: `bdc7c7526362a5e1d0f1dbe94e36cd80c87a9bf0`,
+  run `38111570030`, Phone job `114388075687`: all three handler boundaries passed,
+  including correct empty-peer String output. The workflow is RED for Issue 5.
+- Issue 5 behavioral RED on that same head/run: idle control released; cached
+  coordinator and completed Send each retained Router/Pane/Runtime/database;
+  a separately retained active Runtime retained Router/Pane after shell release.
+  Ten expected assertions failed; active execution itself still completed.
+  The original `formal-configure.sqlite` vnode warnings also reproduced.
+- Issue 5 candidate weakly captures the presentation Router in both Runtime
+  callbacks. Dependencies/AppShell still own Router, and Runtime retains its own
+  active operations and persistence acknowledgement. No fixture delay/cleanup
+  suppression is used. Native release, active completion and warning checks pending.
 
 ## Verification and review
 
