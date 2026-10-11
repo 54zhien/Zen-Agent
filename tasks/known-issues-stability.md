@@ -48,6 +48,9 @@ This is a new authorization; historical deferrals remain evidence, not closure.
    Preserve full manual titles and reuse the bounded summary for the fallback.
 10. A stale bridge focus snapshot can undo a newer native Dock transfer. This is
     distinct from the historical delayed keyboard-arbiter resignation in Issue 4.
+11. Split selection sends `textAreaTapped` to an incoming Compact Composer. The
+    reducer only accepts that event from Resting; Compact needs `compactTapped`.
+    Prove the model's focus intent before UIKit can accidentally rescue it.
 
 ## Evidence
 
@@ -187,9 +190,20 @@ keyboard continuity without that extra tap, in both switch directions. The next
 diagnostic includes it and the existing Composer/IME/layout regressions. The
 temporary branch-only selector must be removed before the final full gate.
 
-Native GREEN for Issue 10 is pending. It must not be used to close Issues 2–4.
+Issue 10 native GREEN: `848d85208160bded66be21a143de617dcd49bc30`, run
+`38115219514`, Phone job `114398690346`. All 122 tests in six suites passed in
+26.701 seconds, including both stale-render/new-blur arguments and the original
+focus regression. The actual Split UI test passed in 52.250 seconds without the
+extra editor tap. There was one Swift start, no host restart and TEST SUCCEEDED.
+This must not be used to close Issues 2–4.
 The preceding full head's actual iPad case passed in 86.511 seconds (job
 `114395487417`); its full Phone gate is still running at this record update.
+
+The next test-only change adds Resting/Compact arguments to the real shell
+focus regression and checks the target's Editing intent immediately after
+selection, before UIKit handoff. The Compact precondition is established and
+required immediately before selection so layout cannot silently turn the
+fixture back into Resting. The production selection code is unchanged for RED.
 
 - [ ] Record each confirmed root, RED SHA/run/assertion and minimal repair.
 - [ ] Obtain GREEN on the same behavioral regression before the next repair.

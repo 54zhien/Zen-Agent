@@ -187,8 +187,8 @@ struct AppShellWiringTests {
         #expect(fixture.model.pane?.session === kept)
     }
 
-    @Test("one shared Split editor follows the active Pane and protects composition")
-    func splitNativeFocusTransfer() async throws {
+    @Test("one shared Split editor follows the active Pane and protects composition", arguments: [false, true])
+    func splitNativeFocusTransfer(incomingCompact: Bool) async throws {
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
         try fixture.store.database.write { db in try Fixtures.conversation(id: "focus-other").insert(db) }
@@ -220,7 +220,13 @@ struct AppShellWiringTests {
         fixture.model.selectSplitSlot(.top)
         #expect(fixture.model.splitWorkspace?.activeSlot == .bottom, "Uncommitted input cannot be detached")
         _ = other.updateComposition(isComposing: false)
+        if incomingCompact {
+            _ = source.updateCollapseProgress(.fullyCollapsed)
+            try #require(source.draft.presentationState == .compact)
+        }
         fixture.model.selectSplitSlot(.top)
+        #expect(source.draft.presentationState == .editing,
+                "Pane selection must publish focus intent even when its incoming Composer was Compact")
         for _ in 0..<60 where editors(in: host.view).first?.text != "source focus draft" { try await Task.sleep(for: .milliseconds(25)) }
         #expect(editors(in: host.view).count == 1)
         #expect(editors(in: host.view).first?.text == "source focus draft")
