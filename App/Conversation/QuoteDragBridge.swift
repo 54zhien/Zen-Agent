@@ -54,7 +54,6 @@ struct QuoteSelectableText: UIViewRepresentable {
             )
             tap.delegate = context.coordinator
             tap.cancelsTouchesInView = false
-            textView.contentTapGestureRecognizer = tap
             textView.addGestureRecognizer(tap)
         }
 
@@ -299,22 +298,30 @@ enum QuoteDropRegion {
     }
 }
 
-/// A body tap activates its Pane; acquiring a text responder is reserved for
-/// selection. UIKit's noneditable single-tap interaction otherwise runs after
-/// the Pane's Composer handoff and resigns that newly installed editor.
+#if DEBUG
 @MainActor
 final class QuoteTextView: UITextView {
-    weak var contentTapGestureRecognizer: UITapGestureRecognizer?
+    private func record(_ event: String) {
+        guard ProcessInfo.processInfo.environment["ZEN_SPLIT_CONTENT_FOCUS_DIAGNOSTIC"] == "1" else { return }
+        let peers: String = (gestureRecognizers ?? []).map { gesture in
+            let taps = (gesture as? UITapGestureRecognizer).map { "taps=\($0.numberOfTapsRequired),touches=\($0.numberOfTouchesRequired)" } ?? "notTap"
+            return "\(type(of: gesture)):state=\(gesture.state.rawValue),\(taps),ownView=\(gesture.view === self)"
+        }.joined(separator: " | ")
+        print("SPLIT_CONTENT_BODY event=\(event);text=\((text ?? "").prefix(48));first=\(isFirstResponder);selection=\(selectedRange);peers=[\(peers)]")
+    }
 
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        if !isFirstResponder,
-           let tap = gestureRecognizer as? UITapGestureRecognizer,
-           tap.view === self, tap !== contentTapGestureRecognizer,
-           tap.numberOfTapsRequired == 1, tap.numberOfTouchesRequired == 1 {
-            return false
-        }
-        // Preserve selection gestures, an existing text responder's dismissal
-        // tap, and the app-owned Prompt Capsule expansion action.
+        record("shouldBegin=\(type(of: gestureRecognizer))")
         return super.gestureRecognizerShouldBegin(gestureRecognizer)
     }
+
+    override func becomeFirstResponder() -> Bool {
+        record("beforeBecome")
+        let result = super.becomeFirstResponder()
+        record("afterBecome=\(result)")
+        return result
+    }
 }
+#else
+private typealias QuoteTextView = UITextView
+#endif

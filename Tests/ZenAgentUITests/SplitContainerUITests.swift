@@ -58,7 +58,7 @@ final class SplitContainerUITests: XCTestCase {
 
     @MainActor
     func testMessageBodyLongPressStillSelectsAndDragsAQuote() {
-        let app = launchedOccupiedSplit()
+        let app = launchedOccupiedSplit(observeContentFocus: true)
         let input = app.textViews["conversation-composer-input"]
         input.tap()
         input.typeText("quote destination draft")

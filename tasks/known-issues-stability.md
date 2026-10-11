@@ -1,5 +1,47 @@
 # Known issues stability repair — 2026-10-11
 
+## Current continuation: native message-body focus
+
+The owner authorized continuation from the 2026-10-11 handoff, including an
+unsigned device IPA after repair verification. The active repair branch is
+`codex/fix-split-content-focus`, based on production candidate `f72e653` through
+the existing body-tap diagnostic `b775fa7`. Historical pending entries below are
+chronological receipts, not current passing claims.
+
+Two compiled native UI REDs (`db2ea475`, run `38124430504`, and `b775fa7`, run
+`38125268566`) reproduce the same real message-body tap losing the Composer
+responder. The unchanged margin tap passes. The original application stdout
+was exported from artifact `11697760988` by evidence-only run `38127305191`:
+
+1. `SPLIT_CONTENT_SELECT` still sees outgoing Editing and incoming Resting.
+2. The incoming Dock editor becomes first responder; the outgoing editor's
+   didEndEditing stack is the expected `ComposerDockContainer.install` transfer.
+3. `UITextNonEditableInteraction.oneFingerTapInUneditable` then acquires a
+   responder for the message body and resigns the newly installed Composer.
+
+This disproves the earlier hypothesis of outgoing focus loss preceding Pane
+selection. The first candidate attempted the read-only Quote text view's public
+`UIView.gestureRecognizerShouldBegin` admission hook. It did not prevent the
+original native focus loss, so that behavioral veto was removed. The next
+observation records actual view-hook calls and public recognizer states at
+`becomeFirstResponder` before choosing a different interception boundary. AppShell and Dock focus transfer, IME guards, native blur
+callbacks and text selection remain the existing owners. There is no refocus,
+second tap, retry, new delay, private selector or global keyboard suppression.
+
+The initial repair candidate `656f4ed`, run `38127709745`, retains the failing
+UI case and adds native long-press selection/Quote drop and explicit blank-tap
+blur controls. The real model handoff test also asserts selection/Quote-drag
+vetoes preserve both complete drafts and the outgoing native responder. Native
+result failed: 107 Swift tests in three suites passed, as did margin transfer
+and explicit blank blur, but the original body focus assertion and new
+long-press Copy control failed. One native Swift run and no host restart.
+This is not repair GREEN. The temporary focused workflow is not a complete gate.
+Final exact-HEAD receipts are stored outside the checkout to avoid self-reference.
+
+Settings first-Lift cancellation, the earlier first-Sidebar failures, and the
+historical delayed focus loss remain separate unresolved evidence. Neither a
+later passing diagnostic nor this different causal repair closes them.
+
 ## Device clarification: opposite content tap
 
 The owner clarified the physical-device sequence: while the keyboard is open,

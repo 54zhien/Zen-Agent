@@ -767,6 +767,23 @@ jobs:
               2>&1 | tee "$RUNNER_TEMP/native-ui-attachments.log"
           fi
 
+      - name: Export focused application interaction evidence
+        if: failure() && github.ref_name == 'codex/fix-split-content-focus'
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/ContentFocusDiagnostics"
+          xcrun xcresulttool export diagnostics --path "$RUNNER_TEMP/ZenAgentTests.xcresult" --output-path "$output"
+          while IFS= read -r -d '' source; do
+            grep -nF 'SPLIT_CONTENT_' "$source" || true
+          done < <(find "$output" -type f -name 'StandardOutputAndStandardError-com.zhien.zen.txt' -print0)
+      - uses: actions/upload-artifact@v4
+        if: failure() && github.ref_name == 'codex/fix-split-content-focus'
+        with:
+          name: content-focus-diagnostics
+          path: ${{ runner.temp }}/ContentFocusDiagnostics
+          retention-days: 7
+
       - name: Upload test results on failure
         if: failure()
         uses: actions/upload-artifact@v4
