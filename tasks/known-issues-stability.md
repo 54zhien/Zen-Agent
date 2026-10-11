@@ -68,6 +68,12 @@ This is a new authorization; historical deferrals remain evidence, not closure.
   cached coordinator, completed Send, and an active Runtime outliving presentation.
   Recorder GREEN and ownership RED are assessed by their individual suite results;
   no whole-workflow GREEN is inferred from a partially passing diagnostic run.
+- Next test-only preparations cover Issues 6, 7 and 9: corrupt/future intent
+  disk reopen (including an actual waiting-for-approval Run), byte-distinct
+  aggregate Policy identity, and provisional/empty/full-manual/deleted Rename
+  prefill. These are not executed until explicitly selected by a native run.
+  The Settings failure message also captures the post-drag Sidebar probe; the
+  old receipt contained only the pre-drag value. No gesture, wait or retry changes.
 
 ## Verification and review
 

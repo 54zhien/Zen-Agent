@@ -7,7 +7,19 @@ import Testing
 struct ToolIntentContinuationTests {
     @Test(arguments: [ToolCallState.succeeded, .prepared, .approved, .waitingForApproval])
     func diskReopenPreservesV1TerminalAndRejectsV1Pending(state: ToolCallState) async throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("s6-v1-\(UUID().uuidString).sqlite")
+        let url = try Fixtures.scratchPath(name: "legacy-intent.sqlite")
+        defer { Fixtures.cleanUp(url) }
+        try await checkDiskReopen(at: url, state: state, format: "legacy")
+    }
+
+    @Test(arguments: [ToolCallState.prepared, .approved, .waitingForApproval], ["corrupt", "future"])
+    func diskReopenRejectsUnreadablePendingIntentBeforeTranscriptRebuild(state: ToolCallState, format: String) async throws {
+        let url = try Fixtures.scratchPath(name: "unreadable-intent.sqlite")
+        defer { Fixtures.cleanUp(url) }
+        try await checkDiskReopen(at: url, state: state, format: format)
+    }
+
+    private func checkDiskReopen(at url: URL, state: ToolCallState, format: String) async throws {
         let runID = "s6-\(UUID().uuidString)"
         let callID = "call-\(runID)"
         let ledger = SideEffectLedger()
@@ -34,13 +46,20 @@ struct ToolIntentContinuationTests {
             try first.store.recordStep(Fixtures.step(stepID: "step-\(runID)", runID: runID))
             try first.store.transitionRun(id: runID, expectedState: .preparing, to: .requestingModel)
             try first.store.transitionRun(id: runID, expectedState: .requestingModel, to: .toolRequested)
-            try first.store.transitionRun(id: runID, expectedState: .toolRequested, to: .executingTools)
+            let initialRunState: RunState = state == .waitingForApproval || state == .approved
+                ? .waitingForApproval : .executingTools
+            try first.store.transitionRun(id: runID, expectedState: .toolRequested, to: initialRunState)
             var intent = try tool.prepare(callID: callID, argumentsJSON: "{}")
-            intent.formatVersion = 1
-            intent.policyAction = nil
-            intent.resourceScope = nil
-            intent.destinationScope = nil
-            originalJSON = String(decoding: try JSONEncoder().encode(intent), as: UTF8.self)
+            if format == "legacy" {
+                intent.formatVersion = 1
+                intent.policyAction = nil
+                intent.resourceScope = nil
+                intent.destinationScope = nil
+            } else {
+                intent.formatVersion = 999
+            }
+            originalJSON = format == "corrupt" ? "{"
+                : String(decoding: try JSONEncoder().encode(intent), as: UTF8.self)
             try first.store.createToolCall(ToolCallRecord(id: callID, agentRunID: runID, action: descriptor.id,
                 state: state == .succeeded ? .prepared : state, executionIntent: originalJSON, attempt: 1,
                 providerCallID: "provider-\(callID)", batchID: "batch-\(runID)-0-1", batchSequence: 0,
@@ -60,24 +79,33 @@ struct ToolIntentContinuationTests {
             scripts: [.events([.textDelta("continued"), .finish(.stop)])]), credentials: credentials,
             toolRegistry: try ToolRegistry(tools: [tool]))
         let report = try await runtime.reconcileColdStartRuns()
-        #expect(report.continuedRunIDs == [runID])
+        if format == "legacy" { #expect(report.continuedRunIDs == [runID]) }
+        else { #expect(report.settledRunIDs == [runID]) }
         // Bound the RED waiting path: an old approval must not stay in an invisible wait.
         for _ in 0..<100 {
             if try reopened.run(id: runID)?.state.isTerminal == true { break }
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(try reopened.run(id: runID)?.state == .completed)
+        #expect(try reopened.run(id: runID)?.state == (format == "legacy" ? .completed : .failed))
         if try reopened.run(id: runID)?.state.isActive == true { try await runtime.stop(runID: runID) }
         try await runtime.waitForCompletion(runID: runID)
         #expect(await ledger.snapshot().isEmpty)
         #expect(try reopened.toolCalls(inRun: runID).map(\.id) == [callID])
         #expect(try reopened.toolCall(id: callID)?.executionIntent == originalJSON)
+        #expect(try reopened.toolCall(id: callID)?.attempt == 1)
         #expect(try reopened.toolCall(id: callID)?.state == (state == .succeeded ? .succeeded : .rejected))
-        let expected = state == .succeeded ? "historical result" : ToolIntentFailure.legacyIntentRequiresReapproval.resultContent
+        let failure: ToolIntentFailure = format == "corrupt" ? .malformedIntent
+            : format == "future" ? .unsupportedVersion : .legacyIntentRequiresReapproval
+        let expected = state == .succeeded ? "historical result" : failure.resultContent
         #expect(try reopened.toolResult(toolCallID: callID)?.payload == expected)
         let requests = await providerLedger.requestsSnapshot()
-        #expect(requests.count == 1)
-        #expect(requests.first?.messages.contains(.toolResult(toolCallID: "provider-\(callID)", content: expected)) == true)
+        if format == "legacy" {
+            #expect(requests.count == 1)
+            #expect(requests.first?.messages.contains(.toolResult(toolCallID: "provider-\(callID)", content: expected)) == true)
+        } else {
+            #expect(requests.isEmpty)
+            #expect(try reopened.run(id: runID)?.endReason == .unrecoverable)
+        }
     }
 
     @Test func invalidArgumentsPersistStableOriginalResult() async throws {

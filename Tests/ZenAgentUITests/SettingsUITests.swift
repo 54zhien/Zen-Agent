@@ -421,7 +421,7 @@ final class SettingsUITests: XCTestCase {
         guard settings.waitForExistence(timeout: 5),
               settings.wait(for: \.isEnabled, toEqual: true, timeout: 5),
               settings.wait(for: \.isHittable, toEqual: true, timeout: 5) else {
-            XCTFail("Native Settings destination is unavailable")
+            XCTFail("Native Settings destination is unavailable. Post-gesture native receipt: \(String(describing: probe.value))")
             return false
         }
         settings.tap()
