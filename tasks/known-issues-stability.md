@@ -89,6 +89,30 @@ This is a new authorization; historical deferrals remain evidence, not closure.
 
 ## Verification and review
 
+`4e8f58729cdfd390bdfb37edaed5c61c3521290a`, run `38112323592`, Phone job
+`114390295830`, built successfully and ran 1,070 Swift tests in 167 suites plus
+20 XCTest unit tests and the four original Settings predecessors. There was one
+Swift run start and no host restart. The expected total of 25 assertions failed:
+
+- Issue 5 GREEN: all shell release and active Runtime persistence cases passed;
+  `formal-configure.sqlite` vnode-unlinked warnings no longer appeared. Persisted
+  empty Configure also passed. This closes the reproduced ownership defect.
+- Issue 6: legacy and corrupt/future real disk reopen cases all passed, including
+  actual waiting-for-approval Runs. This adds coverage; no source repair was needed.
+- Issue 7 RED: aggregate identity equality produced 23 assertions merging
+  byte-distinct Unicode identities. Explicit byte equality now covers all raw
+  identity fields and preserves every other member comparison. Intent validation
+  reuses the corrected metadata equality instead of a duplicate comparison.
+- Issue 9 RED: provisional and empty title prefill failed; full manual and deleted
+  controls passed. Source repair waits for Issue 7 GREEN.
+- The original Dock focus function and all four selected Settings UI cases passed.
+  They do not establish a root cause for Issues 2–4. iPad job `114390295783` passed
+  its actual native axis case in 115.722 seconds.
+
+The next diagnostic selects Policy/intent regression suites plus ownership,
+receipt and Rename cases. It intentionally still exposes Issue 9; final full
+selection will be restored after the serial fixes.
+
 - [ ] Record each confirmed root, RED SHA/run/assertion and minimal repair.
 - [ ] Obtain GREEN on the same behavioral regression before the next repair.
 - [ ] Restore the formal full CI selection after temporary diagnostics.

@@ -60,6 +60,8 @@ struct ComposerLiftDiagnosticTests {
         } else {
             input.configure(.init(driver: replacement, conversationID: "replacement", eligibility: { $0 }))
         }
+        // Teardown can destroy the transport without delivering a final callback.
+        #expect(driver.lastNativeLiftReceipt.contains("began;"))
         sample.sample = .cancelled
         _ = input.perform(action, with: sample)
 

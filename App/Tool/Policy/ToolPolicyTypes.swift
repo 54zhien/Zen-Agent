@@ -97,6 +97,19 @@ struct ToolPolicyCallContext: Sendable, Equatable {
     let authorizationIsAvailable: Bool
     let subjectIsAvailable: Bool
 
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        ToolPolicyIdentity.equals(lhs.toolCallID, rhs.toolCallID)
+            && ToolPolicyIdentity.equals(lhs.agentRunID, rhs.agentRunID)
+            && lhs.subject == rhs.subject
+            && ToolPolicyIdentity.equals(lhs.toolID, rhs.toolID)
+            && ToolPolicyIdentity.equals(lhs.actionID, rhs.actionID)
+            && ToolPolicyIdentity.equals(lhs.descriptorRevision, rhs.descriptorRevision)
+            && ToolPolicyIdentity.equals(lhs.intentBinding, rhs.intentBinding)
+            && lhs.resource == rhs.resource && lhs.destination == rhs.destination
+            && lhs.authorizationIsAvailable == rhs.authorizationIsAvailable
+            && lhs.subjectIsAvailable == rhs.subjectIsAvailable
+    }
+
     var hasValidIdentity: Bool {
         guard ToolPolicyIdentity.isValid(toolCallID), ToolPolicyIdentity.isValid(agentRunID), subject.isValid,
               ToolPolicyIdentity.isValid(toolID), ToolPolicyIdentity.isValid(actionID),
@@ -109,6 +122,16 @@ struct ToolPolicyCallContext: Sendable, Equatable {
 enum ToolGrantKind: Sendable, Equatable {
     case once(toolCallID: String, agentRunID: String, intentBinding: String)
     case conversation
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        switch (lhs, rhs) {
+        case (.conversation, .conversation): true
+        case (.once(let a, let r, let i), .once(let b, let s, let j)):
+            ToolPolicyIdentity.equals(a, b) && ToolPolicyIdentity.equals(r, s)
+                && ToolPolicyIdentity.equals(i, j)
+        default: false
+        }
+    }
 }
 
 enum ToolGrantValidity: Sendable, Equatable {
@@ -130,12 +153,28 @@ struct ToolScopedGrant: Sendable, Equatable {
     /// A conversation grant can authorize future calls without matching this
     /// origin; an already waiting call needs its own explicit approval witness.
     let issuedFor: ToolGrantApprovalBinding?
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.kind == rhs.kind && lhs.subject == rhs.subject
+            && ToolPolicyIdentity.equals(lhs.toolID, rhs.toolID)
+            && ToolPolicyIdentity.equals(lhs.actionID, rhs.actionID)
+            && ToolPolicyIdentity.equals(lhs.descriptorRevision, rhs.descriptorRevision)
+            && lhs.resource == rhs.resource && lhs.destination == rhs.destination
+            && lhs.validity == rhs.validity && lhs.revocationEpoch == rhs.revocationEpoch
+            && lhs.issuedFor == rhs.issuedFor
+    }
 }
 
 struct ToolGrantApprovalBinding: Sendable, Equatable {
     let toolCallID: String
     let agentRunID: String
     let intentBinding: String
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        ToolPolicyIdentity.equals(lhs.toolCallID, rhs.toolCallID)
+            && ToolPolicyIdentity.equals(lhs.agentRunID, rhs.agentRunID)
+            && ToolPolicyIdentity.equals(lhs.intentBinding, rhs.intentBinding)
+    }
 
     func binds(_ call: ToolPolicyCallContext) -> Bool {
         ToolPolicyIdentity.equals(toolCallID, call.toolCallID)
@@ -183,6 +222,17 @@ struct ToolPolicyActionMetadata: Codable, Sendable, Equatable {
     let resourceRequirement: ToolPolicyResourceRequirement
     let egressRequirement: ToolPolicyEgressRequirement
 
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        ToolPolicyIdentity.equals(lhs.toolID, rhs.toolID)
+            && ToolPolicyIdentity.equals(lhs.actionID, rhs.actionID)
+            && ToolPolicyIdentity.equals(lhs.descriptorRevision, rhs.descriptorRevision)
+            && lhs.risk == rhs.risk
+            && lhs.allowsAutomaticApproval == rhs.allowsAutomaticApproval
+            && lhs.allowsConversationGrant == rhs.allowsConversationGrant
+            && lhs.resourceRequirement == rhs.resourceRequirement
+            && lhs.egressRequirement == rhs.egressRequirement
+    }
+
     var isKnown: Bool {
         risk != .unknown && resourceRequirement != .unknown && egressRequirement != .unknown
     }
@@ -209,6 +259,13 @@ struct ToolPolicySnapshot: Sendable, Equatable {
     /// It advances on relevant policy/cap/grant tightening, never on widening.
     let revocationEpoch: UInt64
 
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        ToolPolicyIdentity.equals(lhs.toolID, rhs.toolID)
+            && ToolPolicyIdentity.equals(lhs.actionID, rhs.actionID)
+            && ToolPolicyIdentity.equals(lhs.descriptorRevision, rhs.descriptorRevision)
+            && lhs.mode == rhs.mode && lhs.revocationEpoch == rhs.revocationEpoch
+    }
+
     func bindsLogicalAction(_ call: ToolPolicyCallContext) -> Bool {
         ToolPolicyIdentity.equals(toolID, call.toolID) && ToolPolicyIdentity.equals(actionID, call.actionID)
     }
@@ -227,6 +284,10 @@ enum ToolPolicyAdmissionDisposition: Sendable, Equatable {
 struct ToolPolicyAdmission: Sendable, Equatable {
     let disposition: ToolPolicyAdmissionDisposition
     let intentBinding: String
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.disposition == rhs.disposition && ToolPolicyIdentity.equals(lhs.intentBinding, rhs.intentBinding)
+    }
 }
 
 struct ToolPolicyEvaluationInput: Sendable, Equatable {
@@ -242,6 +303,15 @@ struct ToolPolicyEvaluationInput: Sendable, Equatable {
     let resolvedDestination: ToolDestinationScope
     let resolvedIntentBinding: String
     let grants: [ToolScopedGrant]
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.action == rhs.action && lhs.safetyCap == rhs.safetyCap
+            && lhs.policyAtCreation == rhs.policyAtCreation && lhs.admission == rhs.admission
+            && lhs.currentPolicy == rhs.currentPolicy && lhs.call == rhs.call
+            && lhs.resolvedResource == rhs.resolvedResource && lhs.resolvedDestination == rhs.resolvedDestination
+            && ToolPolicyIdentity.equals(lhs.resolvedIntentBinding, rhs.resolvedIntentBinding)
+            && lhs.grants == rhs.grants
+    }
 }
 
 enum ToolPolicyReason: Sendable, Equatable {

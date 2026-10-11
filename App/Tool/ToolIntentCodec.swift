@@ -35,7 +35,7 @@ enum ToolIntentCodec {
               ToolPolicyIdentity.equals(action.descriptorRevision, descriptor.revision)
         else { throw ToolIntentFailure.actionChanged }
         let registered = descriptor.actions.filter { ToolPolicyIdentity.equals($0.actionID, action.actionID) }
-        guard registered.count == 1, matches(action, registered[0]) else { throw ToolIntentFailure.actionChanged }
+        guard registered.count == 1, action == registered[0] else { throw ToolIntentFailure.actionChanged }
         guard let resource = intent.resourceScope, let destination = intent.destinationScope,
               action.resourceRequirement.accepts(resource), action.egressRequirement.accepts(destination),
               resourceAliasMatches(resource, intent.targetIdentity),
@@ -82,16 +82,6 @@ enum ToolIntentCodec {
     }
 
     private struct Version: Decodable { let formatVersion: Int }
-
-    private static func matches(_ a: ToolPolicyActionMetadata, _ b: ToolPolicyActionMetadata) -> Bool {
-        // Aggregate Equatable has text semantics; authority identities use bytes.
-        ToolPolicyIdentity.equals(a.toolID, b.toolID)
-            && ToolPolicyIdentity.equals(a.actionID, b.actionID)
-            && ToolPolicyIdentity.equals(a.descriptorRevision, b.descriptorRevision)
-            && a.risk == b.risk && a.allowsAutomaticApproval == b.allowsAutomaticApproval
-            && a.allowsConversationGrant == b.allowsConversationGrant
-            && a.resourceRequirement == b.resourceRequirement && a.egressRequirement == b.egressRequirement
-    }
 
     private static func resourceAliasMatches(_ scope: ToolResourceScope, _ alias: String?) -> Bool {
         switch scope {

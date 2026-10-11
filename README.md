@@ -40,7 +40,17 @@ its `Design/ADR/`; engineering/tooling trade-offs belong to this repository's
 
 ## Status
 
-As of 2026-10-05:
+As of 2026-10-11, Stage 5's reviewed baseline is integrated on `main` through
+[PR #35](https://github.com/54zhien/Zen-Agent/pull/35) at
+`52a456bb53d10360aa6d485202f4bd05e2c6bdbf`. This checkout additionally contains
+the S6-01 Policy foundation and S6-02 frozen-intent work, followed by the
+`codex/known-issues-stability` repair candidate. These branch changes are not
+yet main integration or physical-device acceptance. Current known defects,
+root-cause evidence and verification boundaries are tracked in
+[the stability repair record](tasks/known-issues-stability.md).
+
+The following is the historical 2026-10-05 slice snapshot. Its individual PR
+states describe that date; use the current integration receipt above for main.
 
 - Stage 0 and Stage 1 are closed; Stage 2 Runtime and Tool boundaries are on `main`.
 - Stage 3 W1 wires the real App shell and text send/history. PR #12 added the
