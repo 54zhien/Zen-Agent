@@ -2,6 +2,61 @@ import XCTest
 
 final class SplitContainerUITests: XCTestCase {
     @MainActor
+    func testSharedComposerKeepsFocusWhenTappingOppositeMessageBody() {
+        let app = launchedOccupiedSplit()
+        let input = app.textViews["conversation-composer-input"]
+        input.tap()
+        input.typeText("secondary content-tap draft")
+        let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        let secondaryProbe = app.descendants(matching: .any)["split-secondary-native-interaction-probe"]
+
+        // The existing switch regression taps the Timeline margin. Hit an
+        // actual selectable message instead: its native text interactions can
+        // participate in responder arbitration before the Pane tap ends.
+        func tapVisibleMessage() -> Bool {
+            let messages = source.descendants(matching: .any).matching(NSPredicate(
+                format: "value BEGINSWITH %@ OR label BEGINSWITH %@",
+                "Assistant response", "Assistant response"))
+            guard let message = messages.allElementsBoundByIndex.first(where: {
+                $0.isHittable && $0.frame.height > 0 && source.frame.intersects($0.frame)
+            }) else {
+                XCTFail("Expected a visible seeded message body without scrolling or refocusing")
+                return false
+            }
+            print("SPLIT_BODY_TARGET type=\(message.elementType.rawValue);frame=\(message.frame);value=\(String(describing: message.value))")
+            message.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5)).tap()
+            recordNativeSurfaces(app, stage: "after opposite message body tap")
+            return true
+        }
+
+        guard app.keyboards.firstMatch.exists else {
+            XCTFail("Expected the keyboard to be open before the content tap")
+            return
+        }
+        guard tapVisibleMessage() else { return }
+        expect { (input.value as? String) != "secondary content-tap draft" }
+        guard app.keyboards.firstMatch.exists,
+              (sourceProbe.value as? String)?.contains("focused=true;") == true else {
+            XCTFail("Opposite message-body tap must transfer focus without another editor tap: \(sourceProbe.value ?? "missing probe")")
+            return
+        }
+        input.typeText("source content-tap draft")
+        app.activateWorkspacePane("preview-ui-10")
+        expect { (input.value as? String) == "secondary content-tap draft" }
+        guard app.keyboards.firstMatch.exists,
+              (secondaryProbe.value as? String)?.contains("focused=true;") == true else {
+            XCTFail("Blank-margin control must preserve focus: \(secondaryProbe.value ?? "missing probe")")
+            return
+        }
+        guard tapVisibleMessage() else { return }
+        expect { (input.value as? String) == "source content-tap draft" }
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertTrue((sourceProbe.value as? String)?.contains("focused=true;") == true,
+                      "Repeated content switching must retain focus: \(sourceProbe.value ?? "missing probe")")
+    }
+
+    @MainActor
     func testSharedBottomComposerFollowsContentTapWithoutSharingDrafts() {
         let app = launchedOccupiedSplit()
         let input = app.textViews["conversation-composer-input"]

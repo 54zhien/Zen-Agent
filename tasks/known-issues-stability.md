@@ -1,5 +1,18 @@
 # Known issues stability repair — 2026-10-11
 
+## Device clarification: opposite content tap
+
+The owner clarified the physical-device sequence: while the keyboard is open,
+tap the other Conversation's content, then focus is lost. This narrows the
+investigation to Pane selection, not axis switching or Split exit. The earlier
+UI handoff regression taps a Timeline margin at x=0.97; the new diagnostic also
+taps a visible seeded assistant message body, exercising native selectable text
+before Pane activation. It preserves a margin-tap control, separate drafts,
+keyboard and native focus assertions, with no second editor tap or retry.
+This is a test-only hypothesis on top of f72e653, not another confirmed root.
+The diagnostic branch temporarily selects Dock/Quote native tests and the two
+handoff UI cases; Pad is intentionally skipped and the result is not a full gate.
+
 The owner requested investigation of current known issues, serial root-cause
 repairs, then a whole-project review and native stability/functionality checks.
 This is a new authorization; historical deferrals remain evidence, not closure.
