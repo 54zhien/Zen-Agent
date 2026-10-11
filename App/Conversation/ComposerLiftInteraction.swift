@@ -44,12 +44,19 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
     deinit { NotificationCenter.default.removeObserver(self) }
 
     func configure(_ configuration: Configuration?) {
+#if DEBUG
+        let tracingRefresh = recognizer.state == .began || recognizer.state == .changed
+        if tracingRefresh { recordGesture("configureBefore;enabled=\(recognizer.isEnabled);nextInstalled=\(configuration != nil)") }
+#endif
         if self.configuration?.driver !== configuration?.driver {
             self.configuration?.driver.invalidate()
             origin = nil
         }
         self.configuration = configuration
         recognizer.isEnabled = configuration != nil
+#if DEBUG
+        if tracingRefresh { recordGesture("configureAfter;gesture=\(recognizer.state.rawValue);enabled=\(recognizer.isEnabled)") }
+#endif
         checkReadiness()
     }
 

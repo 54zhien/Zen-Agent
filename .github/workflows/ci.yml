@@ -374,10 +374,7 @@ jobs:
           TEST_SCOPE=$(python3 -B .github/scripts/stage5_test_profile.py)
           TEST_ARGS=(test)
           if [ "$GITHUB_REF_NAME" = "codex/diag-s6-02-settings-first-lift" ]; then
-            # Reproduce the original immediate Settings predecessors; no unrelated focus case.
-            TEST_ARGS+=(-only-testing:ZenAgentUITests/SettingsUITests/testAppSpacePersistedUnconfiguredConversationHasFormalConfigure
-                        -only-testing:ZenAgentUITests/SettingsUITests/testEmptyStartupConfiguresItsNewOwnerThroughSettingsAndCommitsOnlyOnSend
-                        -only-testing:ZenAgentUITests/SettingsUITests/testExistingAccountExplicitlyConfiguresOnlyTheCurrentConversation
+            TEST_ARGS+=(-only-testing:ZenAgentTests/ComposerHostIntegrationTests
                         -only-testing:ZenAgentUITests/SettingsUITests/testInkControlsPersistAndLiftReturnsTheSameConversationOwner)
           fi
           if [ "$TEST_SCOPE" = "review-red" ]; then

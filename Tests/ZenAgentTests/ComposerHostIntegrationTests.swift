@@ -1,5 +1,6 @@
 import Testing
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 import SwiftUI
 
 @testable import ZenAgent
@@ -147,6 +148,52 @@ struct ComposerHostIntegrationTests {
         NotificationCenter.default.post(name: UIResponder.keyboardDidChangeFrameNotification,
                                         object: window.screen, userInfo: info)
         #expect(!host.nativeLiftInput.keyboardTransitioning)
+    }
+
+    @Test("Refreshing the same resting Composer preserves a recognized first Lift")
+    func recognizedLiftSurvivesRestingConfigurationRefresh() async throws {
+        let surface = ConversationSurfaceViewController(content: Text("same Conversation"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = surface
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        surface.view.layoutIfNeeded()
+        let child = surface.contentController
+        let host = ComposerHostView(frame: child.view.bounds)
+        child.view.addSubview(host)
+        let driver = SurfaceLiftController()
+        driver.bind(surface)
+        var config = configuration(text: "retained draft")
+        config.liftInteraction = .init(driver: driver, conversationID: "same-conversation", eligibility: { $0 })
+        host.configure(config)
+        host.layoutIfNeeded()
+        let editor = host.editor
+        func nativeLift(in view: UIView) -> UILongPressGestureRecognizer? {
+            if let gesture = view.gestureRecognizers?.compactMap({ $0 as? UILongPressGestureRecognizer }).first {
+                return gesture
+            }
+            return view.subviews.lazy.compactMap { nativeLift(in: $0) }.first
+        }
+        let gesture = try #require(nativeLift(in: host))
+        #require(driver.canArm(host.nativeLiftInput))
+        // UIKit's documented subclass state transition delivers the real native
+        // action on the next run-loop turn; the Surface state is never assigned.
+        gesture.state = .began
+        for _ in 0..<20 where driver.state.phase == .full {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #require(driver.state.phase == .armed)
+        #require(gesture.state == .began)
+        host.configure(config)
+        #expect(gesture.state == .began, "A refresh with unchanged ownership must not cancel the recognized gesture")
+        try await Task.sleep(for: .milliseconds(10))
+        #expect(driver.state.phase == .armed)
+        #expect(driver.drag(upwardDistance: 220, eligibility: host.nativeLiftInput))
+        #expect(driver.end(animated: false)?.destination == .card)
+        #expect(driver.state.phase == .card)
+        #expect(surface.contentController === child)
+        #expect(host.editor === editor && editor.text == "retained draft")
+        driver.invalidate()
     }
 
     @Test("teardown releases the native Lift recognizer and editor")
