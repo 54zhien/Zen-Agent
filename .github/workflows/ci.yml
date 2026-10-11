@@ -24,8 +24,60 @@ permissions:
 
 jobs:
 
+  decode-original-pad:
+    name: Decode original Pad failure evidence
+    if: github.ref_name == 'codex/known-issues-evidence-decode'
+    needs: repo-hygiene
+    runs-on: macos-26
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: '11694846370'
+          github-token: ${{ github.token }}
+          run-id: '38119405773'
+          path: ${{ runner.temp }}/original-pad-evidence
+      - name: Decode the original first-edge failure interval
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_root="$RUNNER_TEMP/original-pad-evidence"
+          output="$RUNNER_TEMP/pad-decoded-evidence"
+          export_root="$RUNNER_TEMP/pad-diagnostics-export"
+          mkdir -p "$output"
+          bundle=$(find "$source_root" -type d -name '*.xcresult' -print -quit)
+          test -n "$bundle"
+          printf 'Original run: 38119405773\nOriginal job: 114410862167\nOriginal artifact: 11694846370\nBundle: %s\n' "$bundle" > "$output/provenance.txt"
+          xcrun xcresulttool get log --path "$bundle" --type console \
+            > "$output/console.log" 2> "$output/console.stderr" || true
+          xcrun xcresulttool export diagnostics --path "$bundle" --output-path "$export_root" \
+            > "$output/export.log" 2> "$output/export.stderr" || true
+          mkdir -p "$export_root"
+          find "$export_root" -type f > "$output/export-files.txt"
+          count=0
+          while IFS= read -r -d '' archive; do
+            count=$((count + 1))
+            printf '%s\n' "$archive" >> "$output/archives.txt"
+            /usr/bin/log show --archive "$archive" --style compact --timezone UTC \
+              --info --debug --no-pager --color none \
+              --start '2026-10-11 07:01:00' --end '2026-10-11 07:02:00' \
+              > "$output/original-window-$count.log" 2> "$output/original-window-$count.stderr" || true
+          done < <(find "$export_root" -type d -name '*.logarchive' -print0)
+          printf 'Decoded archives: %s\n' "$count" >> "$output/provenance.txt"
+          cat "$output/provenance.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: original-pad-decoded-evidence
+          path: ${{ runner.temp }}/pad-decoded-evidence
+          retention-days: 7
+
   pad-workspace:
     name: iPad workspace axis
+    if: github.ref_name != 'codex/known-issues-evidence-decode'
     needs: repo-hygiene
     runs-on: macos-26
     timeout-minutes: 20
@@ -299,6 +351,7 @@ jobs:
   # macOS 26 / Xcode 26 is required by the iOS 26 deployment target.
   # -------------------------------------------------------------------------
   build-and-test:
+    if: github.ref_name != 'codex/known-issues-evidence-decode'
     name: Build and test
     needs: repo-hygiene
     runs-on: macos-26
