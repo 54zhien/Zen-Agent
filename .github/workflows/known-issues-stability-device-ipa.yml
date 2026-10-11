@@ -1,0 +1,282 @@
+name: Known issues stability unsigned device IPA
+
+# Frozen repaired source; this workflow-only commit runs the full native gate
+# before building its unsigned device package.
+on:
+  push:
+    branches:
+      - codex/known-issues-stability-ipa-ae719e45cdab
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: known-issues-stability-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FROZEN_SOURCE_SHA: "ae719e45cdabc332d00a34c223adc40c3058598c"
+  FROZEN_SOURCE_TREE: "8658e4f5ea6d474fc1f47fb2d613a637f192917e"
+  EXPECTED_PACKAGE_BRANCH: "codex/known-issues-stability-ipa-ae719e45cdab"
+  PACKAGE_WORKFLOW_PATH: ".github/workflows/known-issues-stability-device-ipa.yml"
+
+jobs:
+  package:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify frozen source ancestor and packaging-only diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$FROZEN_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'Replace FROZEN_SOURCE_SHA with the full SHA of the frozen repaired source.' >&2
+            exit 1
+          }
+          [[ "$FROZEN_SOURCE_TREE" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'Replace FROZEN_SOURCE_TREE with that source commit tree SHA.' >&2
+            exit 1
+          }
+          [[ "$EXPECTED_PACKAGE_BRANCH" != *'__'* ]] || {
+            echo 'Replace EXPECTED_PACKAGE_BRANCH with the source-specific packaging branch.' >&2
+            exit 1
+          }
+          expected_branch="codex/known-issues-stability-ipa-${FROZEN_SOURCE_SHA:0:12}"
+          test "$EXPECTED_PACKAGE_BRANCH" = "$expected_branch"
+          test "$GITHUB_REF_NAME" = "$EXPECTED_PACKAGE_BRANCH"
+          case "$GITHUB_REF_NAME" in
+            codex/known-issues-stability-ipa-*) ;;
+            *) echo 'Packaging must run only on its dedicated branch.' >&2; exit 1 ;;
+          esac
+          case "$GITHUB_REF_NAME" in
+            codex/fix-split-content-focus|codex/split-content-tap-diagnostic)
+              echo 'The repair branches use narrowed diagnostic CI.' >&2
+              exit 1
+              ;;
+          esac
+
+          git cat-file -e "$FROZEN_SOURCE_SHA^{commit}"
+          actual_tree=$(git rev-parse "$FROZEN_SOURCE_SHA^{tree}")
+          test "$actual_tree" = "$FROZEN_SOURCE_TREE" || {
+            echo "Frozen source tree mismatch: expected $FROZEN_SOURCE_TREE, got $actual_tree" >&2
+            exit 1
+          }
+          test "$(git merge-base HEAD "$FROZEN_SOURCE_SHA")" = "$FROZEN_SOURCE_SHA"
+
+          actual=$(git diff --no-renames --name-only "$FROZEN_SOURCE_SHA" HEAD | LC_ALL=C sort)
+          expected="$PACKAGE_WORKFLOW_PATH"
+          test "$actual" = "$expected" || {
+            echo 'Unexpected changes relative to the frozen source C:' >&2
+            diff -u <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") >&2 || true
+            exit 1
+          }
+
+      - name: Wait for full CI on this exact packaging commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # This branch name is outside CI's two diagnostic-only branches and
+          # outside the codex/s5-* temporary-profile family, so CI selects full.
+          deadline=$((SECONDS + 3600))
+          while (( SECONDS < deadline )); do
+            response=$(gh api --method GET \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+              -f head_sha="$GITHUB_SHA" \
+              -f branch="$GITHUB_REF_NAME" \
+              -f event=push \
+              -F per_page=100)
+            run=$(jq -c \
+              --arg sha "$GITHUB_SHA" \
+              --arg branch "$GITHUB_REF_NAME" \
+              '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == $branch and .event == "push")] | sort_by([.run_number, .run_attempt]) | last // empty' \
+              <<< "$response")
+
+            if [[ -n "$run" ]]; then
+              run_attempt=$(jq -r '.run_attempt // empty' <<< "$run")
+              ci_url=$(jq -r '.html_url // empty' <<< "$run")
+              if [[ "$run_attempt" != "1" ]]; then
+                echo "Full CI must pass on its original push attempt; refusing run attempt ${run_attempt:-missing}: $ci_url" >&2
+                exit 1
+              fi
+              status=$(jq -r '.status' <<< "$run")
+              if [[ "$status" == completed ]]; then
+                conclusion=$(jq -r '.conclusion' <<< "$run")
+                ci_id=$(jq -r '.id' <<< "$run")
+                if [[ "$conclusion" != success ]]; then
+                  echo "Full CI did not pass ($conclusion): $ci_url" >&2
+                  exit 1
+                fi
+                [[ "$ci_url" == https://github.com/* ]] || exit 1
+                ci_attempt_url="${ci_url}/attempts/${run_attempt}"
+                {
+                  echo "CI_FULL_RUN_URL=$ci_attempt_url"
+                  echo "CI_FULL_RUN_ID=$ci_id"
+                  echo "CI_FULL_RUN_ATTEMPT=$run_attempt"
+                } >> "$GITHUB_ENV"
+                echo "Full CI passed for $GITHUB_SHA attempt $run_attempt: $ci_attempt_url"
+                exit 0
+              fi
+              echo "Waiting for CI run $GITHUB_SHA (status: $status)"
+            else
+              echo "Waiting for CI to register push $GITHUB_SHA"
+            fi
+            sleep 30
+          done
+          echo 'Timed out waiting for full CI on the packaging commit.' >&2
+          exit 1
+
+      - name: Toolchain versions
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build unsigned Debug device app with System Sans
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project ZenAgent.xcodeproj \
+            -scheme ZenAgent \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            -sdk iphoneos \
+            -derivedDataPath "$RUNNER_TEMP/ZenAgentDeviceDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='DEBUG ZEN_DEVICE_TEST'
+
+      - name: Strip Anthropic Sans and package the unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/ZenAgentDeviceDerivedData/Build/Products/Debug-iphoneos/ZenAgent.app"
+          test -d "$app"
+          test -f "$app/Anthropic Sans.ttf"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")" = 'com.zhien.zen'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist")" = '26.0'
+          test "$(/usr/bin/lipo -archs "$app/ZenAgent")" = 'arm64'
+          if /usr/bin/codesign -dv "$app" >/dev/null 2>&1; then
+            echo 'App unexpectedly contains a code signature' >&2
+            exit 1
+          fi
+
+          build_id="${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          stage="$RUNNER_TEMP/ZenAgentDeviceStage"
+          output="$RUNNER_TEMP/ZenAgentDeviceOutput"
+          verify="$RUNNER_TEMP/ZenAgentDeviceVerify"
+          mkdir -p "$stage/Payload" "$output/LICENSES" "$verify"
+          /usr/bin/ditto "$app" "$stage/Payload/ZenAgent.app"
+          python3 - "$stage" "$stage/Payload/ZenAgent.app" "$build_id" <<'PY'
+          import os
+          from pathlib import Path
+          import plistlib
+          import re
+          import sys
+
+          stage_root = Path(sys.argv[1]).resolve()
+          staged_app = Path(sys.argv[2]).resolve()
+          build_id = sys.argv[3]
+          expected_stage = Path(os.environ["RUNNER_TEMP"]).resolve() / "ZenAgentDeviceStage"
+          assert stage_root == expected_stage
+          assert staged_app == stage_root / "Payload" / "ZenAgent.app"
+          assert staged_app.is_dir()
+          font_path = staged_app / "Anthropic Sans.ttf"
+          assert font_path.is_file()
+          font_path.unlink()
+          assert not font_path.exists()
+
+          assert re.fullmatch(r"[0-9]+(?:\.[0-9]+){0,2}", build_id), build_id
+          plist_path = staged_app / "Info.plist"
+          assert plist_path.is_file()
+          with plist_path.open("rb") as file:
+              info = plistlib.load(file)
+          fonts = info.get("UIAppFonts")
+          assert isinstance(fonts, list)
+          assert fonts.count("Anthropic Sans.ttf") == 1, fonts
+          info["UIAppFonts"] = [font for font in fonts if font != "Anthropic Sans.ttf"]
+          info["CFBundleVersion"] = build_id
+          with plist_path.open("wb") as file:
+              plistlib.dump(info, file)
+          PY
+
+          ipa_name="ZenAgent-KnownIssues-Stability-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}.ipa"
+          ipa="$output/$ipa_name"
+          (cd "$stage" && /usr/bin/zip -qry "$ipa" Payload)
+          /usr/bin/unzip -tq "$ipa"
+          /usr/bin/unzip -q "$ipa" -d "$verify"
+
+          packaged_app="$verify/Payload/ZenAgent.app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$packaged_app/Info.plist")" = 'com.zhien.zen'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$packaged_app/Info.plist")" = '26.0'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$packaged_app/Info.plist")" = "$build_id"
+          test "$(/usr/bin/lipo -archs "$packaged_app/ZenAgent")" = 'arm64'
+          if /usr/bin/codesign -dv "$packaged_app" >/dev/null 2>&1; then
+            echo 'Packaged app unexpectedly contains a code signature' >&2
+            exit 1
+          fi
+          if /usr/bin/unzip -Z1 "$ipa" | grep -qi 'anthropic'; then
+            echo 'Anthropic resource remains in the IPA' >&2
+            exit 1
+          fi
+          python3 - "$ipa" "$build_id" <<'PY'
+          import plistlib
+          import sys
+          import zipfile
+
+          ipa, build_id = sys.argv[1:]
+          with zipfile.ZipFile(ipa) as archive:
+              names = archive.namelist()
+              assert "Payload/ZenAgent.app/Info.plist" in names
+              assert not any("anthropic" in name.lower() for name in names)
+              info = plistlib.loads(archive.read("Payload/ZenAgent.app/Info.plist"))
+          assert info["CFBundleVersion"] == build_id
+          assert info["CFBundleIdentifier"] == "com.zhien.zen"
+          assert info["MinimumOSVersion"] == "26.0"
+          assert "Anthropic Sans.ttf" not in info["UIAppFonts"]
+          assert "SourceHanSerifSC-VF.ttf" in info["UIAppFonts"]
+          assert "JetBrainsMono-Regular.ttf" in info["UIAppFonts"]
+          PY
+
+          cp Resources/Fonts/LICENSE-SourceHanSerif.txt "$output/LICENSES/"
+          cp Resources/Fonts/LICENSE-JetBrainsMono.txt "$output/LICENSES/"
+          ipa_sha256=$(/usr/bin/shasum -a 256 "$ipa" | /usr/bin/awk '{print $1}')
+          (cd "$output" && /usr/bin/shasum -a 256 "$ipa_name" > SHA256SUMS.txt)
+          {
+            echo "Frozen product/test source SHA: $FROZEN_SOURCE_SHA"
+            echo "Frozen product/test source tree: $FROZEN_SOURCE_TREE"
+            echo "Packaging commit SHA: $GITHUB_SHA"
+            echo "Packaging tree: $(git rev-parse HEAD^{tree})"
+            echo "Full-CI-tested packaging head SHA: $GITHUB_SHA"
+            echo "Full CI run ID: $CI_FULL_RUN_ID"
+            echo "Full CI run attempt: $CI_FULL_RUN_ATTEMPT"
+            echo "Full CI run: $CI_FULL_RUN_URL"
+            echo "Workflow run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "CFBundleVersion: $build_id"
+            echo "IPA SHA-256: $ipa_sha256"
+            echo 'Variant: unsigned Debug device build, DEBUG ZEN_DEVICE_TEST, System Sans interface font'
+            echo 'Bundle ID: com.zhien.zen'
+            echo 'Minimum iOS: 26.0'
+            echo 'Architecture: arm64'
+            xcodebuild -version
+          } > "$output/BUILD-INFO.txt"
+
+      - name: Upload unsigned IPA and provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZenAgent-KnownIssues-Stability-device-ipa-${{ github.run_number }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ZenAgentDeviceOutput/
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
