@@ -97,6 +97,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
 @MainActor
 final class ConversationSurfaceViewController<Content: View>: UIViewController {
     let contentController: SurfaceHostingController<Content>
+    private let topEdgeController = UIHostingController(rootView: ConversationTopEdgeMaterial())
     private var restingCornerRadius: CGFloat = 0
     let surfaceView = SurfaceClipView()
     private let sidebarShadowView = UIView()
@@ -164,6 +165,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             fields.append("contentFrame=\(contentController.view.convert(contentController.view.bounds, to: window))")
             fields.append("contentSafeArea=\(contentController.view.safeAreaInsets)")
             fields.append("surfaceFrame=\(surfaceView.convert(surfaceView.bounds, to: window))")
+            fields.append("topEdgeFrame=\(topEdgeController.view.convert(topEdgeController.view.bounds, to: window))")
             func scrollViews(in node: UIView) -> [UIScrollView] {
                 let own = (node as? UIScrollView).flatMap { $0 is UITextView ? nil : $0 }.map { [$0] } ?? []
                 return own + node.subviews.flatMap { scrollViews(in: $0) }
@@ -261,6 +263,13 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         ]
         NSLayoutConstraint.activate(contentConstraints)
         contentController.didMove(toParent: self)
+        addChild(topEdgeController)
+        let topEdge = topEdgeController.view!
+        topEdge.backgroundColor = .clear
+        topEdge.isUserInteractionEnabled = false
+        topEdge.accessibilityElementsHidden = true
+        surfaceView.addSubview(topEdge)
+        topEdgeController.didMove(toParent: self)
     }
 
     override func viewDidLayoutSubviews() {
@@ -270,6 +279,11 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         let center = CGPoint(x: view.bounds.midX + sidebarOffset, y: view.bounds.midY)
         if surfaceView.bounds != bounds { surfaceView.bounds = bounds }
         if surfaceView.center != center { surfaceView.center = center }
+        // Use the untransformed host's actual safe area. A lower Split pane and
+        // landscape have no status area; Lift and Sidebar move this decoration
+        // with the Surface, independently of the retained timeline's layout.
+        topEdgeController.view.frame = CGRect(x: 0, y: 0, width: bounds.width,
+            height: min(bounds.height, view.safeAreaInsets.top))
         if workspaceVisible { contentController.preserveContainerSafeArea(view.safeAreaInsets) }
         // onAppear may restore Card before a usable viewport exists. Notify the
         // first layout too, so that Card's first Return has a resolved Lift target.
@@ -415,6 +429,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         if workspaceVisible { contentController.preserveContainerSafeArea(view.safeAreaInsets) }
+        view.setNeedsLayout()
     }
 
     @discardableResult
@@ -617,7 +632,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
                 contentView.removeFromSuperview()
             }
         } else if contentView.superview == nil {
-            surfaceView.addSubview(contentView)
+            surfaceView.insertSubview(contentView, belowSubview: topEdgeController.view)
             NSLayoutConstraint.activate(contentConstraints)
             workspaceVisible = true
             contentController.suspendsContainerInsets = false

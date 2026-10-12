@@ -15,9 +15,13 @@ final class SidebarAppearanceUITests: XCTestCase {
         }
         XCTAssertGreaterThan(radius, 0)
         if let readable = rect("timelineVisibleFrame", from: native),
+           let topEdge = rect("topEdgeFrame", from: native),
            let safeTop = metric("windowSafeTop", from: native) {
             XCTAssertEqual(readable.minY, app.frame.minY + safeTop, accuracy: 1,
-                           "The native soft edge must preserve the existing readable top inset")
+                           "The status-area fade must preserve the existing readable top inset")
+            XCTAssertEqual(topEdge.minY, app.frame.minY, accuracy: 1)
+            XCTAssertEqual(topEdge.height, safeTop, accuracy: 1)
+            XCTAssertEqual(topEdge.width, app.frame.width, accuracy: 1)
         } else {
             XCTFail("The native readable viewport must be measurable")
         }

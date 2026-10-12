@@ -33,22 +33,6 @@ private struct ConversationTimelineTurnFramesKey: PreferenceKey {
     }
 }
 
-private struct ConversationTopScrollEdge: ViewModifier {
-    func body(content: Content) -> some View {
-        GeometryReader { geometry in
-            content
-                .safeAreaBar(edge: .top, spacing: 0) {
-                    Color.clear.frame(height: geometry.safeAreaInsets.top).accessibilityHidden(true)
-                }
-                // Give the native edge a real status-area extent while preserving
-                // the same readable inset; do not add a second toolbar-height gap.
-                .ignoresSafeArea(.container, edges: .top)
-                .scrollEdgeEffectStyle(.soft, for: .all)
-                .scrollEdgeEffectHidden(false, for: .top)
-        }
-    }
-}
-
 /// The conversation reading surface inside a reusable Pane.
 ///
 /// The app-root choice for the first-launch / zero-conversation state remains with its host.
@@ -339,7 +323,7 @@ struct ConversationTimelineView: View {
                     applyScrollRequest(request)
                 }
             }
-            .modifier(ConversationTopScrollEdge())
+            .scrollEdgeEffectStyle(.soft, for: .all)
         }
         .onChange(of: conversationApprovals) { _, refreshedApprovals in
             if let selectedApproval,

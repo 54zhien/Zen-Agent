@@ -390,7 +390,9 @@ final class SettingsUITests: XCTestCase {
         }
         XCTAssertFalse(app.descendants(matching: .any)["sidebar-rail"].exists)
         let agent = app.buttons["settings-agent"]
-        if !agent.isHittable { page.swipeUp() }
+        // Put real Form rows beneath the native bar so the captured soft edge
+        // can be assessed; an unscrolled empty header cannot show the effect.
+        page.swipeUp()
         let rootCapture = XCTAttachment(screenshot: app.screenshot())
         rootCapture.name = "Settings root native scroll edge"
         rootCapture.lifetime = .keepAlways

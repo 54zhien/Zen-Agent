@@ -65,7 +65,9 @@ final class WorkspaceReturnReceiptUITests: XCTestCase {
         let editor = app.textViews["conversation-composer-input"]
         editor.tap()
         editor.typeText("selected owner after receipt")
-        XCTAssertTrue((editor.value as? String)?.contains("selected owner after receipt") == true)
+        let enteredText = editor.value as? String
+        print("RETURN_RECEIPT_INPUT value=\(String(describing: enteredText));native=\(targetProbe.value ?? "missing")")
+        XCTAssertTrue(enteredText?.contains("selected owner after receipt") == true)
     }
 
     private func editorIdentity(_ diagnostic: String?) -> String? {
