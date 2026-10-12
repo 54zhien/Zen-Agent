@@ -203,6 +203,9 @@ struct ConversationTimelineView: View {
                 let frames = measurement.viewportFrames
                 turnFrames = frames
                 turnContentTops = measurement.contentTops
+#if DEBUG
+                recordReadingRestoreForUITest("frames")
+#endif
                 // Lazy/native Turn measurements can change after scrollTo was
                 // issued. The same logical request then needs a corrected target;
                 // treating its sequence as already issued strands restoration.
@@ -290,12 +293,18 @@ struct ConversationTimelineView: View {
             }
             .onChange(of: surfaceLift?.state.phase) { _, phase in
                 guard phase == .full, acceptsReadingGeometry, let scrollBridge, let latestScrollGeometry else { return }
+#if DEBUG
+                recordReadingRestoreForUITest("full")
+#endif
                 scrollBridge.endHeightChange()
                 pendingAppliedScroll = nil
                 _ = scrollBridge.pane.updateReading(.geometryChanged(geometry: latestScrollGeometry, anchor: nil))
                 applyPendingScrollIfReady()
             }
             .onChange(of: scrollBridge?.pane.scrollRequest) { _, request in
+#if DEBUG
+                recordReadingRestoreForUITest("request")
+#endif
                 guard let request else {
                     pendingAppliedScroll = nil
                     materializingSequence = nil
@@ -367,6 +376,9 @@ struct ConversationTimelineView: View {
         let previousGeometry = latestScrollGeometry
         let previousBottomReferenceTurn = latestBottomReferenceTurn
         latestScrollGeometry = geometry
+#if DEBUG
+        recordReadingRestoreForUITest("geometry", geometry: geometry)
+#endif
 
         guard let scrollBridge else { return }
 #if DEBUG
@@ -561,6 +573,9 @@ struct ConversationTimelineView: View {
     }
 
     private func applyScrollRequest(_ request: ConversationPaneScrollRequest) {
+#if DEBUG
+        recordReadingRestoreForUITest("apply")
+#endif
         guard acceptsScrollRequests, let scrollBridge,
               scrollBridge.pane.scrollRequest?.sequence == request.sequence,
               (!isUserDrivenScroll || scrollBridge.hasDividerLease),
@@ -593,6 +608,9 @@ struct ConversationTimelineView: View {
         }
 
         pendingAppliedScroll = request
+#if DEBUG
+        recordReadingRestoreForUITest("issue", geometry: geometry, issuedTarget: restoreTarget)
+#endif
         // A larger viewport can leave the old offset beyond the new bottom.
         // Let native layout clamp it instead of issuing another scroll command:
         // that command dismisses UITextView's selection menu during keyboard hide.
@@ -626,6 +644,9 @@ struct ConversationTimelineView: View {
                 scrollPosition.scrollTo(y: CGFloat(targetOffset))
             }
         }
+#if DEBUG
+        recordReadingRestoreForUITest("command", geometry: geometry, issuedTarget: restoreTarget)
+#endif
         acknowledgeAppliedScrollIfReady(geometry)
     }
 
@@ -641,6 +662,9 @@ struct ConversationTimelineView: View {
               reachedTarget(for: request, geometry: geometry)
         else { return }
 
+#if DEBUG
+        recordReadingRestoreForUITest("ack", geometry: geometry)
+#endif
         pendingAppliedScroll = nil
         _ = scrollBridge.pane.updateReading(.programmaticScrolled(geometry: geometry))
         scrollBridge.pane.markScrollApplied(sequence: request.sequence)
@@ -653,6 +677,31 @@ struct ConversationTimelineView: View {
         }
 #endif
     }
+
+#if DEBUG
+    private func recordReadingRestoreForUITest(_ event: String, geometry: ScrollGeometry? = nil,
+                                               issuedTarget: Double? = nil) {
+        guard ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1",
+              let scrollBridge,
+              case .reading(let anchor, _) = scrollBridge.pane.readingPosition.mode else { return }
+        let request = scrollBridge.pane.scrollRequest
+        let geometry = geometry ?? latestScrollGeometry
+        let runID: String
+        if let request, case .restoreAnchor(let requestedAnchor) = request.action {
+            runID = requestedAnchor.runID
+        } else {
+            runID = anchor.runID
+        }
+        let resolvedTop = geometry.flatMap {
+            restorationTurnTop(runID, sequence: request?.sequence ?? 0, geometry: $0)
+        }
+        // ObservationIgnored storage keeps diagnostic sampling from publishing
+        // another SwiftUI update while native remount geometry is converging.
+        scrollBridge.recordReadingRestoreForUITest(
+            "event=\(event),request=\(String(describing: request)),applied=\(String(describing: pendingAppliedScroll?.sequence)),materializing=\(String(describing: materializingSequence)),phase=\(activeScrollPhase),lift=\(String(describing: surfaceLift?.state.phase)),accepts=\(acceptsScrollRequests),geometry=\(String(describing: geometry)),frame=\(String(describing: turnFrames[runID])),contentTop=\(String(describing: turnContentTops[runID])),resolvedTop=\(String(describing: resolvedTop)),issuedTarget=\(String(describing: issuedTarget)),positionY=\(String(describing: scrollPosition.y)),positionPoint=\(String(describing: scrollPosition.point))"
+        )
+    }
+#endif
 
     private func restorationTurnTop(_ runID: String, sequence: UInt64, geometry: ScrollGeometry) -> Double? {
         // Missing lazy targets need a content-relative measurement after the ID jump.
