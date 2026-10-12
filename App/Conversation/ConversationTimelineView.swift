@@ -371,6 +371,17 @@ struct ConversationTimelineView: View {
         )
     }
 
+    static func measuredTurnTop(viewportTop: Double, contentTop: Double,
+                                geometry: ScrollGeometry) -> Double? {
+        let turnTop = viewportTop + geometry.offset
+        // The two Turn coordinates come from one Preference measurement, while
+        // ScrollGeometry arrives separately. Do not issue or acknowledge a target
+        // made from a new offset and an old frame (or the reverse).
+        guard turnTop.isFinite, contentTop.isFinite,
+              abs(turnTop - contentTop) <= 0.5 else { return nil }
+        return turnTop
+    }
+
     private func handleScrollGeometryChange(_ geometry: ScrollGeometry) {
         guard surfaceLift?.isWorkspaceVisible != false else { return }
         let previousGeometry = latestScrollGeometry
@@ -587,6 +598,9 @@ struct ConversationTimelineView: View {
         var restoreTarget: Double?
         if case let .restoreAnchor(turnAnchor) = request.action {
             guard let turnTop = restorationTurnTop(turnAnchor.runID, sequence: request.sequence, geometry: geometry) else {
+                // A measured but stale Turn needs its matching geometry callback,
+                // not another identity jump that would disturb the current read.
+                guard turnFrames[turnAnchor.runID] == nil else { return }
                 // Lazy children have no measured frame until they enter layout.
                 // Materialize by stable Turn identity before precise offset repair.
                 guard materializingSequence != request.sequence,
@@ -707,7 +721,9 @@ struct ConversationTimelineView: View {
         // Missing lazy targets need a content-relative measurement after the ID jump.
         // Existing visible/keyboard restoration keeps its established transport.
         if materializingSequence == sequence { return turnContentTops[runID] }
-        return turnTops(in: turnFrames, geometry: geometry)[runID]
+        guard let frame = turnFrames[runID], let contentTop = turnContentTops[runID] else { return nil }
+        return Self.measuredTurnTop(viewportTop: Double(frame.minY), contentTop: contentTop,
+                                    geometry: geometry)
     }
 
     private func reachedTarget(for request: ConversationPaneScrollRequest, geometry: ScrollGeometry) -> Bool {

@@ -29,4 +29,27 @@ struct ConversationScrollGeometryTests {
         #expect(geometry.offset == 1795)
         #expect(geometry.distanceFromBottom == 0)
     }
+
+    @Test func remountWaitsForTheTurnMeasurementAtTheNewScrollOffset() throws {
+        // Native deep-remount trace: the offset callback preceded its Turn frame.
+        let geometry = ZenAgent.ScrollGeometry(viewportHeight: 704, contentHeight: 39683,
+                                               offset: 19967.333333333332)
+        let contentTop = 20107.999999999993
+        #expect(ConversationTimelineView.measuredTurnTop(viewportTop: 143.33333333332484,
+            contentTop: contentTop, geometry: geometry) == nil)
+
+        let measuredTop = try #require(ConversationTimelineView.measuredTurnTop(
+            viewportTop: 140.6666666666606, contentTop: contentTop, geometry: geometry))
+        let target = try #require(AnchorResolver.restoreTarget(
+            anchor: TurnAnchor(runID: "reading-turn", relativeViewportOffset: 0.2),
+            turnTop: measuredTop, geometry: geometry))
+        #expect(abs(target - 19967.2) < 0.000001)
+    }
+
+    @Test func aNewTurnMeasurementCannotAcknowledgeAnOlderScrollOffset() {
+        let oldGeometry = ZenAgent.ScrollGeometry(viewportHeight: 704, contentHeight: 39707,
+                                                  offset: 19964.666666666668)
+        #expect(ConversationTimelineView.measuredTurnTop(viewportTop: 140.6666666666606,
+            contentTop: 20107.999999999993, geometry: oldGeometry) == nil)
+    }
 }
