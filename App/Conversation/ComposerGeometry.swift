@@ -92,7 +92,8 @@ enum ComposerGeometry {
         let concentricInset = windowCornerRadius - restingHeight / 2
         let alignsWithWindow = windowCornerRadius > 0 && concentricInset >= 0
             && availableHeight >= restingHeight
-            && width - 2 * concentricInset >= 2 * accessoryHitWidth + reliableHitSize
+            && width - 2 * concentricInset >= 2 * accessoryHitWidth
+                + 2 * restingHorizontalInset + reliableHitSize
         let restingInset = alignsWithWindow ? concentricInset : restingEdgeInset
         // The keyboard guide already includes the bottom safe area when resting.
         // Subtract it once so both lower corner centers coincide with the window's.

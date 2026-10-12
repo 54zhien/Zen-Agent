@@ -57,7 +57,7 @@ struct ConversationSearchView: View {
         }
         .scrollEdgeEffectStyle(.soft, for: .all)
         .scrollDismissesKeyboard(.never)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .safeAreaBar(edge: .bottom, spacing: 0) {
             HStack(spacing: 8) {
                 SearchQueryInput(text: model.query,
                     font: Typography.uiFont(for: .interfaceBody, compatibleWith: UITraitCollection(
@@ -72,7 +72,6 @@ struct ConversationSearchView: View {
                 .accessibilityLabel("退出搜索").accessibilityIdentifier("conversation-search-close")
             }
             .padding(.horizontal, 16).padding(.vertical, 8)
-            .background(Color(uiColor: .systemBackground))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: .systemBackground))

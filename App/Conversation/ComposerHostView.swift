@@ -296,17 +296,23 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         consumeOverlayFocusIfReady()
         let radius = restingWindowCornerRadius
         let restingGeometryChanged = motion.phase == .resting
-            && (radius != lastWindowCornerRadius || safeAreaInsets.bottom != lastBottomSafeAreaInset)
+            && (radius != lastWindowCornerRadius || restingBottomSafeAreaInset != lastBottomSafeAreaInset)
         guard bounds.width > 0, bounds.width != lastHostWidth || restingGeometryChanged else { return }
         lastHostWidth = bounds.width
         lastWindowCornerRadius = radius
-        lastBottomSafeAreaInset = safeAreaInsets.bottom
+        lastBottomSafeAreaInset = restingBottomSafeAreaInset
         render(animated: false)
     }
 
     private var restingWindowCornerRadius: CGFloat {
         guard let window, abs(bounds.width - window.bounds.width) < 0.5 else { return 0 }
         return windowCornerGeometry.radius(in: window)
+    }
+
+    private var restingBottomSafeAreaInset: CGFloat {
+        // A SwiftUI representable can report zero local insets while its
+        // keyboard guide still reserves the window's home-indicator area.
+        window?.safeAreaInsets.bottom ?? safeAreaInsets.bottom
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
@@ -467,7 +473,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             measuredTextHeight: measuredHeight, lineHeight: configuration.font.lineHeight,
             collapseProgress: configuration.collapseProgress,
             windowCornerRadius: restingWindowCornerRadius,
-            bottomSafeAreaInset: safeAreaInsets.bottom
+            bottomSafeAreaInset: restingBottomSafeAreaInset
         )
         let editingEndpoint = ComposerMorphGeometry.endpoint(
             .editing, containerWidth: width, availableHeight: available,

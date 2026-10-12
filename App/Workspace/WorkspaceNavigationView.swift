@@ -67,7 +67,7 @@ struct WorkspaceNavigationView<Content: View>: View {
                            height: keepsFullConversationViewport ? nil : geometry.size.height)
                     // Only the single page spans behind the moving keyboard.
                     // Split, the Rail, and overlays retain the keyboard-safe viewport.
-                    .ignoresSafeArea(.keyboard, edges: keepsFullConversationViewport ? .bottom : [])
+                    .ignoresSafeArea(.all, edges: keepsFullConversationViewport ? .bottom : [])
                     .accessibilityHidden(state.overlay != nil)
                     .accessibilityElement(children: .contain)
                     .accessibilityActions {

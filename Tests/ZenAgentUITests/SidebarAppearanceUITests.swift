@@ -53,6 +53,10 @@ final class SidebarAppearanceUITests: XCTestCase {
         XCTAssertEqual(before.maxY, app.frame.maxY, accuracy: 1)
         XCTAssertEqual(after.maxY, before.maxY, accuracy: 1,
                        "The outer page must cover the whole window while its inner timeline and native Composer avoid the keyboard")
+        XCTAssertEqual(after.minY, before.minY, accuracy: 1)
+        XCTAssertEqual(after.height, before.height, accuracy: 1)
+        XCTAssertEqual(after.minX, before.minX, accuracy: 1)
+        XCTAssertEqual(after.width, before.width, accuracy: 1)
     }
 
     @MainActor

@@ -400,6 +400,7 @@ jobs:
           fi
           echo "::notice::Visual refinement diagnostic: focused native geometry and appearance regressions; not the full gate."
           TEST_ARGS=(test -only-testing:ZenAgentTests/ComposerGeometryTests -only-testing:ZenAgentTests/ComposerMorphGeometryTests -only-testing:ZenAgentTests/ComposerHostIntegrationTests -only-testing:ZenAgentTests/SidebarSurfaceTests -only-testing:ZenAgentUITests/SidebarAppearanceUITests -only-testing:ZenAgentUITests/ComposerMotionUITests -only-testing:ZenAgentUITests/ConversationSearchUITests -only-testing:ZenAgentUITests/SettingsUITests/testSettingsReachesSoulAndClosingRestoresTheConversationDraft)
+          TEST_ARGS+=(-only-testing:ZenAgentUITests/WorkspaceRotationUITests/testLandscapeEditsBelongToTheLastActivePaneAndPortraitRestoresBoth -only-testing:ZenAgentUITests/FilesWorkspaceUITests)
           touch "$RUNNER_TEMP/test-start.marker"
           xcrun simctl io "$UDID" recordVideo --codec=h264 "$RUNNER_TEMP/visual-refinement.mp4" > "$RUNNER_TEMP/visual-refinement-recording.log" 2>&1 &
           RECORDING_PID=$!

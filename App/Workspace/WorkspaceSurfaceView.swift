@@ -108,7 +108,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
                                 spatiallyAvailable: sidebarSpatiallyAvailable,
                                 windowInsets: navigationInsets,
                                 windowCornerRadius: layoutContext?.windowCornerRadius ?? 0,
-                                keepsFullConversationViewport: model?.splitWorkspace == nil,
+                                keepsFullConversationViewport: keepsFullConversationViewport,
                                 context: sidebarContext) {
         ZStack(alignment: .topLeading) {
             AppSpaceInkView(appearance: model?.appearance,
@@ -543,6 +543,11 @@ struct WorkspaceSurfaceView<Content: View>: View {
     private var devicePresentation: WorkspaceDevicePresentation {
         WorkspaceDevicePresentation.resolve(isPad: layoutContext?.isPad ?? false,
             size: layoutContext?.windowSize ?? .zero, split: model?.splitWorkspace)
+    }
+
+    private var keepsFullConversationViewport: Bool {
+        if case .split = devicePresentation { return false }
+        return true
     }
 
     private func configurePreview(_ controller: SurfaceLiftController,

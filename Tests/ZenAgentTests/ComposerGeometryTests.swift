@@ -20,7 +20,7 @@ struct ComposerGeometryTests {
 
     @Test("oversized text and narrow containers retain a usable resting layout")
     func windowAlignmentFallsBackWhenItCannotFit() {
-        let samples: [(CGFloat, CGFloat)] = [(402, 120), (140, 22)]
+        let samples: [(CGFloat, CGFloat)] = [(402, 120), (140, 22), (194, 22)]
         for (width, lineHeight) in samples {
             let plain = ComposerGeometry.resolve(state: .resting, containerWidth: width,
                 availableHeight: 840, measuredTextHeight: lineHeight, scaledLineHeight: lineHeight,

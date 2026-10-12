@@ -175,6 +175,11 @@ struct ConversationTimelineView: View {
                         value: ConversationTimelineTurnMeasurements(layoutRevision: layoutRevision))
                 }
             }
+            // Extend the native edge treatment into the existing status-bar
+            // safe area without reserving space for an app toolbar.
+            .safeAreaBar(edge: .top, spacing: 0) {
+                Color.clear.frame(height: 0).accessibilityHidden(true)
+            }
             .scrollEdgeEffectStyle(.soft, for: .all)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear.frame(height: bottomComposerClearance)
