@@ -55,6 +55,7 @@ struct ConversationSearchView: View {
             .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
             .padding(24).padding(.top, 20)
         }
+        .scrollEdgeEffectStyle(.soft, for: .all)
         .scrollDismissesKeyboard(.never)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack(spacing: 8) {

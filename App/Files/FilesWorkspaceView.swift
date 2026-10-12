@@ -71,6 +71,7 @@ struct FilesWorkspaceView: View {
                 }
             }
             .listStyle(.plain)
+            .scrollEdgeEffectStyle(.soft, for: .all)
         }
         .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
         .frame(maxWidth: .infinity, maxHeight: .infinity)

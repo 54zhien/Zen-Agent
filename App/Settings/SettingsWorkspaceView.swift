@@ -51,6 +51,7 @@ struct SettingsWorkspaceView: View {
             .navigationTitle("设置")
             .settingsCloseToolbar()
         }
+        .scrollEdgeEffectStyle(.soft, for: .all)
         .accessibilityIdentifier("settings-page")
         .environment(\.settingsCloseControl, SettingsCloseControl(focus: focus,
             blocked: isSetupPresented, close: onClose))

@@ -7,6 +7,8 @@ struct WorkspaceNavigationView<Content: View>: View {
     let context: () -> WorkspaceSidebarNativeContext?
     let spatiallyAvailable: Bool
     let windowInsets: EdgeInsets
+    let windowCornerRadius: CGFloat
+    let keepsFullConversationViewport: Bool
     let content: Content
     let model: AppShellModel?
     let captureFocus: () -> ComposerOverlayFocus?
@@ -18,23 +20,25 @@ struct WorkspaceNavigationView<Content: View>: View {
     init(state: WorkspaceNavigationState, model: AppShellModel? = nil,
          captureFocus: @escaping () -> ComposerOverlayFocus? = { nil },
          canConfigureNew: @escaping (String) -> Bool = { _ in false }, spatiallyAvailable: Bool,
-         windowInsets: EdgeInsets = EdgeInsets(),
+         windowInsets: EdgeInsets = EdgeInsets(), windowCornerRadius: CGFloat = 0,
+         keepsFullConversationViewport: Bool = false,
          context: @escaping () -> WorkspaceSidebarNativeContext?, @ViewBuilder content: () -> Content) {
         self.state = state
         self.model = model; self.captureFocus = captureFocus
         self.canConfigureNew = canConfigureNew
         self.spatiallyAvailable = spatiallyAvailable
         self.windowInsets = windowInsets
+        self.windowCornerRadius = windowCornerRadius
+        self.keepsFullConversationViewport = keepsFullConversationViewport
         self.context = context
         self.content = content()
     }
 
     var body: some View {
         GeometryReader { geometry in
-            // The full viewport deliberately ignores container safe areas. Use
-            // the actual scene Window insets for controls, not this reader's zeroes.
-            let travel = min(geometry.size.width, 60 + windowInsets.leading)
-            ZStack(alignment: .leading) {
+            let rail = SidebarRailLayout(windowInsets: windowInsets, cornerRadius: windowCornerRadius)
+            let travel = min(geometry.size.width, rail.width)
+            ZStack(alignment: .topLeading) {
                 if state.progress > 0 || state.settlementID != nil {
                     SidebarRailView(availableRoutes: !state.isDragging && state.settlementID == nil ? overlays?.availableRoutes ?? [] : [],
                         conversationActions: !state.isDragging && state.settlementID == nil ? state.conversationActions : [],
@@ -42,9 +46,9 @@ struct WorkspaceNavigationView<Content: View>: View {
                         onSelect: { route in
                             overlays?.enter(route, eligible: context()?.allowsOpening == true, captureFocus: captureFocus)
                         })
-                        .padding(.leading, windowInsets.leading)
-                        .padding(.top, windowInsets.top)
-                        .padding(.bottom, windowInsets.bottom)
+                        .padding(.leading, rail.leading)
+                        .padding(.top, rail.top)
+                        .padding(.bottom, rail.bottom)
                         .frame(width: travel, height: geometry.size.height)
                         // The retained native hosts occupy the full SwiftUI
                         // viewport. Reveal only the exposed part of the Rail
@@ -59,7 +63,11 @@ struct WorkspaceNavigationView<Content: View>: View {
                         .zIndex(1)
                 }
                 content
-                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .frame(width: geometry.size.width,
+                           height: keepsFullConversationViewport ? nil : geometry.size.height)
+                    // Only the single page spans behind the moving keyboard.
+                    // Split, the Rail, and overlays retain the keyboard-safe viewport.
+                    .ignoresSafeArea(.keyboard, edges: keepsFullConversationViewport ? .bottom : [])
                     .accessibilityHidden(state.overlay != nil)
                     .accessibilityElement(children: .contain)
                     .accessibilityActions {
@@ -92,6 +100,7 @@ struct WorkspaceNavigationView<Content: View>: View {
                         .transition(.opacity).zIndex(100)
                 }
             }
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: state.overlay)
             .background(Color(uiColor: .systemBackground))
             .background(WorkspaceSidebarGestureBridge(state: state, travel: travel,

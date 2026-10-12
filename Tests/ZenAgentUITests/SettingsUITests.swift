@@ -391,6 +391,10 @@ final class SettingsUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["sidebar-rail"].exists)
         let agent = app.buttons["settings-agent"]
         if !agent.isHittable { page.swipeUp() }
+        let rootCapture = XCTAttachment(screenshot: app.screenshot())
+        rootCapture.name = "Settings root native scroll edge"
+        rootCapture.lifetime = .keepAlways
+        add(rootCapture)
         XCTAssertTrue(agent.waitForExistence(timeout: 5))
         agent.tap()
         let soul = app.buttons["settings-soul"]
@@ -401,6 +405,10 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(input.waitForExistence(timeout: 5))
         input.tap()
         input.typeText("Use concise responses.")
+        let inputCapture = XCTAttachment(screenshot: app.screenshot())
+        inputCapture.name = "Settings Soul native scroll edge and keyboard"
+        inputCapture.lifetime = .keepAlways
+        add(inputCapture)
         app.buttons["settings-soul-save"].tap()
         let saved = app.staticTexts["settings-soul-save-status"]
         XCTAssertTrue(saved.waitForExistence(timeout: 5))

@@ -16,7 +16,9 @@ struct ComposerMorphGeometry {
         availableHeight: CGFloat,
         measuredTextHeight: CGFloat,
         lineHeight: CGFloat,
-        collapseProgress: ComposerCollapseProgress
+        collapseProgress: ComposerCollapseProgress,
+        windowCornerRadius: CGFloat = 0,
+        bottomSafeAreaInset: CGFloat = 0
     ) -> Self {
         let layout = ComposerGeometry.resolve(
             state: state,
@@ -24,7 +26,9 @@ struct ComposerMorphGeometry {
             availableHeight: availableHeight,
             measuredTextHeight: measuredTextHeight,
             scaledLineHeight: lineHeight,
-            collapseProgress: collapseProgress
+            collapseProgress: collapseProgress,
+            windowCornerRadius: windowCornerRadius,
+            bottomSafeAreaInset: bottomSafeAreaInset
         )
         let origin = layout.outerFrame.origin
         func local(_ frame: CGRect?) -> CGRect {

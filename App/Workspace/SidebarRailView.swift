@@ -1,5 +1,26 @@
 import SwiftUI
 
+struct SidebarRailLayout {
+    static let contentWidth: CGFloat = 60
+    let leading: CGFloat
+    let top: CGFloat
+    let bottom: CGFloat
+    var width: CGFloat { Self.contentWidth + leading }
+
+    init(windowInsets: EdgeInsets, cornerRadius: CGFloat) {
+        if cornerRadius > Self.contentWidth / 2 {
+            // Keep the existing 48-point controls and the six-point inner gap.
+            leading = cornerRadius - Self.contentWidth / 2
+            top = cornerRadius - 24
+            bottom = cornerRadius - 24
+        } else {
+            leading = windowInsets.leading
+            top = windowInsets.top + 16
+            bottom = windowInsets.bottom + 16
+        }
+    }
+}
+
 @MainActor
 struct SidebarRailView: View {
     let availableRoutes: Set<WorkspaceOverlayRoute>
@@ -34,10 +55,10 @@ struct SidebarRailView: View {
                 }
             }
             .scrollIndicators(.hidden)
+            .scrollEdgeEffectStyle(.soft, for: .all)
             destination(.settings, symbol: "gearshape", label: "设置", identifier: "sidebar-settings")
         }
-        .padding(.vertical, 16)
-        .frame(width: 60)
+        .frame(width: SidebarRailLayout.contentWidth)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("sidebar-rail")
     }
@@ -45,6 +66,7 @@ struct SidebarRailView: View {
     private func action(_ action: WorkspaceConversationAction, symbol: String, label: String, identifier: String) -> some View {
         Button { onAction(action) } label: {
             Image(systemName: symbol).font(.system(size: 21)).frame(width: 48, height: 48)
+                .contentShape(Rectangle())
                 .glassEffect(.regular.interactive(), in: Circle())
         }
         .buttonStyle(.plain).foregroundStyle(.primary)

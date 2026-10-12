@@ -55,6 +55,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var measuredFont: UIFont?
     private var measuredHeight: CGFloat = 0
     private var lastHostWidth: CGFloat = -1
+    private let windowCornerGeometry = WindowCornerGeometry()
+    private var lastWindowCornerRadius: CGFloat = -1
+    private var lastBottomSafeAreaInset: CGFloat = -1
     private var lastReportedClearance: CGFloat = -1
     var measuredClearance: CGFloat { max(62, lastReportedClearance) }
     private weak var textCarrier: UIView?
@@ -291,9 +294,19 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         updateGeometryProbe()
         liftInteraction.checkReadiness()
         consumeOverlayFocusIfReady()
-        guard bounds.width > 0, bounds.width != lastHostWidth else { return }
+        let radius = restingWindowCornerRadius
+        let restingGeometryChanged = motion.phase == .resting
+            && (radius != lastWindowCornerRadius || safeAreaInsets.bottom != lastBottomSafeAreaInset)
+        guard bounds.width > 0, bounds.width != lastHostWidth || restingGeometryChanged else { return }
         lastHostWidth = bounds.width
+        lastWindowCornerRadius = radius
+        lastBottomSafeAreaInset = safeAreaInsets.bottom
         render(animated: false)
+    }
+
+    private var restingWindowCornerRadius: CGFloat {
+        guard let window, abs(bounds.width - window.bounds.width) < 0.5 else { return 0 }
+        return windowCornerGeometry.radius(in: window)
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
@@ -452,7 +465,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let layout = ComposerMorphGeometry.endpoint(
             state, containerWidth: width, availableHeight: available,
             measuredTextHeight: measuredHeight, lineHeight: configuration.font.lineHeight,
-            collapseProgress: configuration.collapseProgress
+            collapseProgress: configuration.collapseProgress,
+            windowCornerRadius: restingWindowCornerRadius,
+            bottomSafeAreaInset: safeAreaInsets.bottom
         )
         let editingEndpoint = ComposerMorphGeometry.endpoint(
             .editing, containerWidth: width, availableHeight: available,

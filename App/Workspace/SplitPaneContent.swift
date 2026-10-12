@@ -61,6 +61,7 @@ struct SplitEmptyPanePicker: View {
                     }
                     .scrollIndicators(.hidden)
                     .scrollTargetBehavior(.viewAligned)
+                    .scrollEdgeEffectStyle(.soft, for: .all)
                     Spacer(minLength: 0)
                 }
                 .padding(12)

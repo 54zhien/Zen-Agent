@@ -388,6 +388,7 @@ struct ProviderSetupView: View {
                 }
             }
         }
+        .scrollEdgeEffectStyle(.soft, for: .all)
         .onDisappear { model.apiKey = "" }
     }
 }

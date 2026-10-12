@@ -107,6 +107,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                                 canConfigureNew: canConfigureNew,
                                 spatiallyAvailable: sidebarSpatiallyAvailable,
                                 windowInsets: navigationInsets,
+                                windowCornerRadius: layoutContext?.windowCornerRadius ?? 0,
+                                keepsFullConversationViewport: model?.splitWorkspace == nil,
                                 context: sidebarContext) {
         ZStack(alignment: .topLeading) {
             AppSpaceInkView(appearance: model?.appearance,
@@ -181,8 +183,6 @@ struct WorkspaceSurfaceView<Content: View>: View {
 #endif
         }
         }
-        // Split shares the keyboard-safe viewport; each retained Composer's
-        // native keyboard guide still owns its controls inside that Pane.
         .ignoresSafeArea(.container)
         .onAppear {
             if let model {
@@ -366,7 +366,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     private func sidebarTranslation(in geometry: GeometryProxy) -> CGFloat {
-        CGFloat(navigation.progress) * min(geometry.size.width, 60 + navigationInsets.leading)
+        CGFloat(navigation.progress) * min(geometry.size.width,
+            SidebarRailLayout(windowInsets: navigationInsets,
+                cornerRadius: layoutContext?.windowCornerRadius ?? 0).width)
             * (layoutDirection == .rightToLeft ? -1 : 1)
     }
 

@@ -175,6 +175,7 @@ struct ConversationTimelineView: View {
                         value: ConversationTimelineTurnMeasurements(layoutRevision: layoutRevision))
                 }
             }
+            .scrollEdgeEffectStyle(.soft, for: .all)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear.frame(height: bottomComposerClearance)
             }

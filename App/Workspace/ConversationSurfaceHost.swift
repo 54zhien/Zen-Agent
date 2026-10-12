@@ -118,9 +118,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private var sidebarSettlement: UUID?
     private var sidebarAnimator: UIViewPropertyAnimator?
     private var squareBottomCorners = false
-    private weak var cachedCornerWindow: UIWindow?
-    private var cachedCornerWindowBounds: CGRect?
-    private var cachedWindowCornerRadius: CGFloat = 0
+    private let windowCornerGeometry = WindowCornerGeometry()
     private let sidebarShadowOpacity: Float = 0.2
     private let sidebarShadowRadius: CGFloat = 18
     private let sidebarShadowHorizontalOffset: CGFloat = 8
@@ -492,25 +490,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     private func windowConcentricCornerRadius() -> CGFloat {
         guard let window = view.window else { return 0 }
-        if cachedCornerWindow === window, cachedCornerWindowBounds == window.bounds {
-            return cachedWindowCornerRadius
-        }
-
-        let reference = UIView(frame: window.bounds)
-        reference.backgroundColor = .clear
-        reference.isUserInteractionEnabled = false
-        reference.isAccessibilityElement = false
-        reference.accessibilityElementsHidden = true
-        reference.cornerConfiguration = .uniformCorners(radius: .containerConcentric())
-        window.addSubview(reference)
-        reference.layoutIfNeeded()
-        let radius = reference.effectiveRadius(corner: .topLeft)
-        reference.removeFromSuperview()
-
-        cachedCornerWindow = window
-        cachedCornerWindowBounds = window.bounds
-        cachedWindowCornerRadius = radius.isFinite ? max(0, radius) : 0
-        return cachedWindowCornerRadius
+        return windowCornerGeometry.radius(in: window)
     }
 
     func setLiftInteraction(_ phase: SurfaceLiftState.Phase, returnAction: @escaping () -> Bool) {

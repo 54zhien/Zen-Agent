@@ -49,7 +49,9 @@ enum ComposerGeometry {
         availableHeight: CGFloat,
         measuredTextHeight: CGFloat,
         scaledLineHeight: CGFloat,
-        collapseProgress: ComposerCollapseProgress
+        collapseProgress: ComposerCollapseProgress,
+        windowCornerRadius: CGFloat = 0,
+        bottomSafeAreaInset: CGFloat = 0
     ) -> ComposerLayout {
         let width = max(0, containerWidth)
         let height = max(0, availableHeight)
@@ -70,7 +72,9 @@ enum ComposerGeometry {
             availableHeight: height,
             lineHeight: lineHeight,
             progress: CGFloat(collapseProgress.value),
-            reservesAccessories: state == .resting
+            reservesAccessories: state == .resting,
+            windowCornerRadius: windowCornerRadius,
+            bottomSafeAreaInset: bottomSafeAreaInset
         )
     }
 
@@ -79,14 +83,25 @@ enum ComposerGeometry {
         availableHeight: CGFloat,
         lineHeight: CGFloat,
         progress: CGFloat,
-        reservesAccessories: Bool
+        reservesAccessories: Bool,
+        windowCornerRadius: CGFloat,
+        bottomSafeAreaInset: CGFloat
     ) -> ComposerLayout {
-        let restingWidth = max(0, width - 2 * restingEdgeInset)
+        let restingHeight = max(restingMinHeight, lineHeight + 2 * restingVerticalInset)
+            + restingGrowth
+        let concentricInset = windowCornerRadius - restingHeight / 2
+        let alignsWithWindow = windowCornerRadius > 0 && concentricInset >= 0
+            && availableHeight >= restingHeight
+            && width - 2 * concentricInset >= 2 * accessoryHitWidth + reliableHitSize
+        let restingInset = alignsWithWindow ? concentricInset : restingEdgeInset
+        // The keyboard guide already includes the bottom safe area when resting.
+        // Subtract it once so both lower corner centers coincide with the window's.
+        let restingGap = alignsWithWindow
+            ? concentricInset - max(0, bottomSafeAreaInset) : restingBottomSpacing
+        let restingWidth = max(0, width - 2 * restingInset)
         let compactWidth = max(0, width - 2 * restingBaseEdgeInset) * compactWidthFraction
         let outerWidth = interpolate(restingWidth, compactWidth, progress)
 
-        let restingHeight = max(restingMinHeight, lineHeight + 2 * restingVerticalInset)
-            + restingGrowth
         let compactTextHeight = lineHeight * compactFontScale
         let compactHeight = max(
             compactMinHeight,
@@ -96,7 +111,7 @@ enum ComposerGeometry {
             interpolate(restingHeight, compactHeight, progress),
             availableHeight
         )
-        let bottomSpacing = interpolate(restingBottomSpacing, compactBottomSpacing, progress)
+        let bottomSpacing = interpolate(restingGap, compactBottomSpacing, progress)
         let originX = (width - outerWidth) / 2
         let originY = max(0, availableHeight - bottomSpacing - outerHeight)
         let outerFrame = CGRect(x: originX, y: originY, width: outerWidth, height: outerHeight)

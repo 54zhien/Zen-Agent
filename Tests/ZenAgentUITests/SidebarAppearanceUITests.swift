@@ -14,6 +14,7 @@ final class SidebarAppearanceUITests: XCTestCase {
             return
         }
         XCTAssertGreaterThan(radius, 0)
+        attach(app.screenshot(), named: "Resting Composer and Conversation scroll edge")
         print("CONCENTRIC resting=\(frame);composerRadius=\(composerRadius);windowRadius=\(radius)")
         XCTAssertEqual(frame.minX + composerRadius, app.frame.minX + radius, accuracy: 1)
         XCTAssertEqual(frame.maxY - composerRadius, app.frame.maxY - radius, accuracy: 1)
@@ -23,6 +24,8 @@ final class SidebarAppearanceUITests: XCTestCase {
         let bottom = app.buttons["sidebar-settings"].frame
         attach(app.screenshot(), named: "Window corner alignment")
         print("CONCENTRIC top=\(top);bottom=\(bottom);window=\(app.frame);radius=\(radius)")
+        XCTAssertEqual(top.width, 48, accuracy: 1)
+        XCTAssertEqual(top.height, 48, accuracy: 1)
         XCTAssertEqual(top.midX, app.frame.minX + radius, accuracy: 1)
         XCTAssertEqual(top.midY, app.frame.minY + radius, accuracy: 1)
         XCTAssertEqual(bottom.midX, app.frame.minX + radius, accuracy: 1)

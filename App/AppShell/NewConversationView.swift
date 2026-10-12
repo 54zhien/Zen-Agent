@@ -244,6 +244,7 @@ struct NewConversationView: View {
                     }
                 }
                 .listStyle(.plain)
+                .scrollEdgeEffectStyle(.soft, for: .all)
                 .safeAreaInset(edge: .top) {
                     if let failure = recentOpenFailure {
                         VStack(alignment: .leading, spacing: 8) {
