@@ -161,7 +161,11 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         fields.append("timeline=\(liftController?.workspacePaneDiagnostic?() ?? "unbound")")
         if let window = view.window {
             fields.append("windowSafeTop=\(window.safeAreaInsets.top)")
+            fields.append("windowCornerRadius=\(windowConcentricCornerRadius())")
             fields.append("hostFrame=\(view.convert(view.bounds, to: window))")
+            fields.append("contentFrame=\(contentController.view.convert(contentController.view.bounds, to: window))")
+            fields.append("contentSafeArea=\(contentController.view.safeAreaInsets)")
+            fields.append("surfaceFrame=\(surfaceView.convert(surfaceView.bounds, to: window))")
             func scrollViews(in node: UIView) -> [UIScrollView] {
                 let own = (node as? UIScrollView).flatMap { $0 is UITextView ? nil : $0 }.map { [$0] } ?? []
                 return own + node.subviews.flatMap { scrollViews(in: $0) }

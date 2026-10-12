@@ -3,6 +3,56 @@ import UIKit
 
 final class SidebarAppearanceUITests: XCTestCase {
     @MainActor
+    func testRestingControlsShareTheWindowCornerCenters() {
+        let app = launchLightAppearance()
+        let native = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        let composer = app.descendants(matching: .any)["composer-geometry-probe"]
+        guard let radius = metric("windowCornerRadius", from: native),
+              let frame = rect("surfaceRect", from: composer),
+              let composerRadius = metric("corner", from: composer) else {
+            XCTFail("Native window and Composer geometry must be available")
+            return
+        }
+        XCTAssertGreaterThan(radius, 0)
+        print("CONCENTRIC resting=\(frame);composerRadius=\(composerRadius);windowRadius=\(radius)")
+        XCTAssertEqual(frame.minX + composerRadius, app.frame.minX + radius, accuracy: 1)
+        XCTAssertEqual(frame.maxY - composerRadius, app.frame.maxY - radius, accuracy: 1)
+
+        app.openWorkspaceSidebar()
+        let top = app.buttons["new-conversation-new"].frame
+        let bottom = app.buttons["sidebar-settings"].frame
+        attach(app.screenshot(), named: "Window corner alignment")
+        print("CONCENTRIC top=\(top);bottom=\(bottom);window=\(app.frame);radius=\(radius)")
+        XCTAssertEqual(top.midX, app.frame.minX + radius, accuracy: 1)
+        XCTAssertEqual(top.midY, app.frame.minY + radius, accuracy: 1)
+        XCTAssertEqual(bottom.midX, app.frame.minX + radius, accuracy: 1)
+        XCTAssertEqual(bottom.midY, app.frame.maxY - radius, accuracy: 1)
+    }
+
+    @MainActor
+    func testSingleSurfaceRemainsFullHeightWhenItsKeyboardOpens() {
+        let app = launchLightAppearance()
+        let native = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        guard let before = rect("hostFrame", from: native) else {
+            XCTFail("The retained native Surface frame must be available")
+            return
+        }
+        app.textViews["conversation-composer-input"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        guard let after = rect("hostFrame", from: native) else {
+            XCTFail("The retained native Surface must remain mounted")
+            return
+        }
+        let composer = app.descendants(matching: .any)["composer-geometry-probe"]
+        attach(app.screenshot(), named: "Single Conversation with native keyboard")
+        print("SINGLE_KEYBOARD before=\(before);after=\(after);composer=\(composer.value ?? "missing")")
+        print("SINGLE_KEYBOARD_NATIVE \(native.value ?? "missing")")
+        XCTAssertEqual(before.maxY, app.frame.maxY, accuracy: 1)
+        XCTAssertEqual(after.maxY, before.maxY, accuracy: 1,
+                       "The outer page must cover the whole window while its inner timeline and native Composer avoid the keyboard")
+    }
+
+    @MainActor
     func testLightAppearanceSidebarRailUsesLightSurface() {
         let app = launchLightAppearance()
         app.openWorkspaceSidebar()
@@ -92,9 +142,30 @@ final class SidebarAppearanceUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleInterfaceStyle", "Light"]
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         return app
+    }
+
+    @MainActor
+    private func metric(_ key: String, from element: XCUIElement) -> CGFloat? {
+        guard let value = element.value as? String,
+              let field = value.components(separatedBy: ";").first(where: { $0.hasPrefix(key + "=") }),
+              let number = Double(field.dropFirst(key.count + 1)) else { return nil }
+        return CGFloat(number)
+    }
+
+    @MainActor
+    private func rect(_ key: String, from element: XCUIElement) -> CGRect? {
+        guard let value = element.value as? String,
+              let start = value.range(of: key + "=("),
+              let end = value[start.upperBound...].firstIndex(of: ")") else { return nil }
+        let values = value[start.upperBound..<end].split(separator: ",").compactMap {
+            Double($0.trimmingCharacters(in: .whitespaces))
+        }
+        guard values.count == 4 else { return nil }
+        return CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
     }
 
     @MainActor

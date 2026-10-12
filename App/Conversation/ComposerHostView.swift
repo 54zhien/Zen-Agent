@@ -563,7 +563,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
                                to: window).y
         let surfaceBottom = surface.convert(CGPoint(x: 0, y: surface.bounds.maxY),
                                             to: window).y
-        geometryProbe.accessibilityValue = "root=\(rootBottom);guide=\(guideTop);surface=\(surfaceBottom)"
+        geometryProbe.accessibilityValue = "root=\(rootBottom);guide=\(guideTop);surface=\(surfaceBottom);surfaceRect=\(surface.convert(surface.bounds, to: window));corner=\(surface.effectiveRadius(corner: .bottomLeft))"
     }
 
     private func reportClearance(_ clearance: CGFloat) {
