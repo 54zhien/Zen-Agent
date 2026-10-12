@@ -14,6 +14,13 @@ final class SidebarAppearanceUITests: XCTestCase {
             return
         }
         XCTAssertGreaterThan(radius, 0)
+        if let readable = rect("timelineVisibleFrame", from: native),
+           let safeTop = metric("windowSafeTop", from: native) {
+            XCTAssertEqual(readable.minY, app.frame.minY + safeTop, accuracy: 1,
+                           "The native soft edge must preserve the existing readable top inset")
+        } else {
+            XCTFail("The native readable viewport must be measurable")
+        }
         attach(app.screenshot(), named: "Resting Composer and Conversation scroll edge")
         print("CONCENTRIC resting=\(frame);composerRadius=\(composerRadius);windowRadius=\(radius)")
         XCTAssertEqual(frame.minX + composerRadius, app.frame.minX + radius, accuracy: 1)

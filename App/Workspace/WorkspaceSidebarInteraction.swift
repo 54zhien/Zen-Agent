@@ -101,6 +101,9 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
                    context: @escaping () -> WorkspaceSidebarNativeContext?) {
         self.state = state
         self.readContext = context
+#if DEBUG
+        state.nativeGestureSnapshot = { [weak self] in self?.gestureSnapshot() ?? "detached" }
+#endif
         self.travel = max(1, travel)
         self.sign = isRightToLeft ? -1 : 1
         let edges: UIRectEdge = isRightToLeft ? .right : .left
@@ -111,6 +114,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         }
         attach()
         if edgeTouchOwner != nil, !sameOwner(edgeTouchOwner) {
+            record("configure cleared edge owner captured=\(String(describing: edgeTouchOwner)),currentHost=\(String(describing: readContext?()?.hostID)),currentPane=\(String(describing: readContext?()?.paneID))")
             edgeTouchOwner = nil; edgeTouchOrigin = nil
         }
         if captured != nil, !sameOwner(captured) {
@@ -142,6 +146,9 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         record("attach bounds=\(window.bounds),edgeView=\(type(of: edgeView)),edgeBounds=\(edgeView.bounds),orientation=\(geometry?.orientation.rawValue ?? 0),edge=\(edge.edges.rawValue)")
     }
     func detach() {
+        if edgeTouchOwner != nil || edge.state != .possible {
+            record("detach edge state=\(edge.state.rawValue),captured=\(String(describing: edgeTouchOwner)),origin=\(String(describing: edgeTouchOrigin))")
+        }
         attachedEdgeView?.removeGestureRecognizer(edge)
         for recognizer in [reverse, closeTap] { attachedWindow?.removeGestureRecognizer(recognizer) }
         attachedWindow = nil
@@ -171,6 +178,20 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     private func kind(_ gesture: UIGestureRecognizer) -> String {
         gesture === edge ? "edge" : gesture === reverse ? "reverse" : "tap"
     }
+
+#if DEBUG
+    private func gestureSnapshot() -> String {
+        guard let window = attachedWindow else { return "no-window" }
+        let current = readContext?()
+        var scroll: UIScrollView?
+        var hit = edgeTouchOrigin.flatMap { window.hitTest($0, with: nil) }
+        while let view = hit {
+            if let candidate = view as? UIScrollView { scroll = candidate; break }
+            hit = view.superview
+        }
+        return "edgeState=\(edge.state.rawValue),translation=\(edge.translation(in: window)),velocity=\(edge.velocity(in: window)),location=\(edge.location(in: window)),origin=\(String(describing: edgeTouchOrigin)),captured=\(String(describing: edgeTouchOwner)),currentHost=\(String(describing: current?.hostID)),currentPane=\(String(describing: current?.paneID)),window=\(ObjectIdentifier(window)),scrollPan=\(scroll.map { "state=\($0.panGestureRecognizer.state.rawValue),translation=\($0.panGestureRecognizer.translation(in: window))" } ?? "none")"
+    }
+#endif
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if gestureRecognizer === edge { edgeTouchOwner = nil; edgeTouchOrigin = nil; edgeRejected = false }
@@ -216,7 +237,10 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         record("shouldBegin \(kind(gestureRecognizer)) raw=\(gestureRecognizer.state.rawValue)")
         guard let state, let current = readContext?(), current.window === attachedWindow,
-              !state.isDragging, state.settlementID == nil else { return false }
+              !state.isDragging, state.settlementID == nil else {
+            record("begin \(kind(gestureRecognizer)) rejected context/window/drag/settlement")
+            return false
+        }
         if gestureRecognizer === closeTap {
             let admitted = state.isOpen && current.allowsClosing && sameOwner(tapOwner)
             record("tap begin admitted=\(admitted),sameOwner=\(sameOwner(tapOwner))")
@@ -227,19 +251,32 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         record("velocity \(kind(gestureRecognizer)) \(velocity),opening=\(current.allowsOpening),closing=\(current.allowsClosing)")
         var direction = velocity
         if gestureRecognizer === edge {
-            guard !state.isOpen, current.allowsOpening, sameOwner(edgeTouchOwner) else { return false }
+            let ownerMatches = sameOwner(edgeTouchOwner)
+            record("begin edge open=\(state.isOpen),allows=\(current.allowsOpening),ownerMatches=\(ownerMatches),captured=\(String(describing: edgeTouchOwner)),currentHost=\(current.hostID),currentPane=\(current.paneID),window=\(ObjectIdentifier(current.window))")
+            guard !state.isOpen, current.allowsOpening, ownerMatches else {
+                record("begin edge rejected admission")
+                return false
+            }
             // A coalesced native edge pan can begin with zero velocity and
             // translation. Its admitted initial touch still records direction.
             if velocity == .zero { direction = edgeDisplacement(pan, in: current.window) }
             // UIKit may ask before updating either motion sample. Admit the
             // owned native edge provisionally; changedEdge waits for actual
             // horizontal opening motion before starting navigation state.
-            if direction == .zero { return true }
+            if direction == .zero {
+                record("begin edge admitted provisionally")
+                return true
+            }
         }
         record("direction \(kind(gestureRecognizer)) \(direction)")
-        guard direction.x.isFinite, direction.y.isFinite, abs(direction.x) > abs(direction.y) * 1.1 else { return false }
-        return gestureRecognizer === edge ? (!state.isOpen && current.allowsOpening && direction.x * sign > 0)
+        guard direction.x.isFinite, direction.y.isFinite, abs(direction.x) > abs(direction.y) * 1.1 else {
+            record("begin \(kind(gestureRecognizer)) rejected nonhorizontal/nonfinite motion")
+            return false
+        }
+        let admitted = gestureRecognizer === edge ? (!state.isOpen && current.allowsOpening && direction.x * sign > 0)
             : (state.isOpen && current.allowsClosing && direction.x * sign < 0)
+        record("begin \(kind(gestureRecognizer)) admitted=\(admitted)")
+        return admitted
     }
 
     private func edgeDisplacement(_ pan: UIPanGestureRecognizer, in window: UIWindow) -> CGPoint {
