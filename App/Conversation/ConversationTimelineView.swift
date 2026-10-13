@@ -74,6 +74,8 @@ struct ConversationTimelineView: View {
     @State private var materializationRequest: ConversationPaneScrollRequest?
     @State private var materializedRunID: String?
     @State private var materializedObservation: ConversationMaterializedScrollObservation?
+    // Only onScrollGeometryChange writes this producer baseline. Phase context
+    // supplies a separate observation and must not relabel a stale callback.
     @State private var latestNativeScrollOffset: Double?
     @State private var dividerMaterialization: DividerTurnMaterialization?
     @State private var latestBottomReferenceTurn: (runID: String, turnTop: Double)?
@@ -295,7 +297,6 @@ struct ConversationTimelineView: View {
                     let geometry = Self.paneGeometry(from: context.geometry)
                     if isWorkspaceGeometryReady, geometry.isUsableForPane {
                         latestScrollGeometry = geometry
-                        latestNativeScrollOffset = geometry.offset
                     }
                 }
                 guard acceptsReadingGeometry else { return }

@@ -179,6 +179,38 @@ struct ConversationScrollGeometryTests {
             anchor: anchor, layoutRevision: 7, workspaceRevision: 3) == nil)
     }
 
+    @Test func postUserPhaseMeasurementKeepsTheOffsetProducersOriginalBaseline() throws {
+        let pane = try makeReadingPane()
+        let original = TurnAnchor(runID: "reading-turn", relativeViewportOffset: 0.2)
+        pane.restoreAnchorForUITest(original)
+        let canceled = try #require(pane.scrollRequest)
+        let phaseGeometry = matchedObservation().geometry
+        let userAnchor = try #require(AnchorResolver.captureAnchor(runID: original.runID,
+            turnTop: 20107.999999999993, geometry: phaseGeometry))
+        _ = pane.updateReading(.userScrolled(geometry: phaseGeometry, anchor: userAnchor))
+        pane.markScrollApplied(sequence: canceled.sequence)
+        #expect(pane.scrollRequest == nil)
+
+        // Phase context N2 and the callback producer N1 are different sources.
+        // A fresh post-idle pair supplies N2 while retaining producer baseline N1.
+        let observation = matchedObservation()
+        let producer = ZenAgent.ScrollGeometry(viewportHeight: 704, contentHeight: 39680,
+                                                offset: observation.nativeOffset)
+        let merged = try #require(observation.mergingMetadata(from: producer,
+            previousNativeOffset: producer.offset, anchor: userAnchor,
+            layoutRevision: 7, workspaceRevision: 3))
+        #expect(merged.offset == phaseGeometry.offset)
+        _ = pane.updateReading(.geometryChanged(geometry: merged, anchor: nil))
+        let request = try #require(pane.scrollRequest)
+        let target = try #require(AnchorResolver.restoreTarget(
+            anchor: userAnchor, turnTop: observation.contentTop, geometry: merged))
+        #expect(abs(target - merged.offset) <= 0.5)
+        _ = pane.updateReading(.programmaticScrolled(geometry: merged))
+        pane.markScrollApplied(sequence: request.sequence)
+        #expect(pane.scrollRequest == nil)
+        #expect(pane.readingPosition.mode == .reading(anchor: userAnchor, pendingTurns: []))
+    }
+
     @Test func observationsCannotCrossRunLayoutAttachmentOrViewport() {
         let observation = matchedObservation()
         let native = ZenAgent.ScrollGeometry(viewportHeight: 704, contentHeight: 39707,
