@@ -69,6 +69,7 @@ struct ConversationTimelineView: View {
     @State private var turnContentTops: [String: Double] = [:]
     @State private var materializingSequence: UInt64?
     @State private var materializationRequest: ConversationPaneScrollRequest?
+    @State private var materializedRunID: String?
     @State private var dividerMaterialization: DividerTurnMaterialization?
     @State private var latestBottomReferenceTurn: (runID: String, turnTop: Double)?
     @State private var activeScrollPhase: ScrollPhase = .idle
@@ -81,6 +82,7 @@ struct ConversationTimelineView: View {
                     guard acceptsScrollRequests, let request, case .restoreAnchor(let anchor) = request.action else { return }
                     var transaction = Transaction()
                     transaction.animation = nil
+                    materializedRunID = anchor.runID
                     withTransaction(transaction) { proxy.scrollTo(anchor.runID, anchor: .top) }
                 }
                 .onChange(of: dividerMaterialization) { _, request in
@@ -374,11 +376,13 @@ struct ConversationTimelineView: View {
     static func measuredTurnTop(viewportTop: Double, contentTop: Double,
                                 geometry: ScrollGeometry,
                                 usesMaterializedContentCoordinates: Bool = false) -> Double? {
+        guard contentTop.isFinite else { return nil }
+        if usesMaterializedContentCoordinates { return contentTop }
         let turnTop = viewportTop + geometry.offset
         // The two Turn coordinates come from one Preference measurement, while
         // ScrollGeometry arrives separately. Do not issue or acknowledge a target
         // made from a new offset and an old frame (or the reverse).
-        guard turnTop.isFinite, contentTop.isFinite,
+        guard turnTop.isFinite,
               abs(turnTop - contentTop) <= 0.5 else { return nil }
         return turnTop
     }
@@ -598,7 +602,7 @@ struct ConversationTimelineView: View {
 
         var restoreTarget: Double?
         if case let .restoreAnchor(turnAnchor) = request.action {
-            guard let turnTop = restorationTurnTop(turnAnchor.runID, sequence: request.sequence, geometry: geometry) else {
+            guard let turnTop = restorationTurnTop(turnAnchor.runID, geometry: geometry) else {
                 // A measured but stale Turn needs its matching geometry callback,
                 // not another identity jump that would disturb the current read.
                 guard turnFrames[turnAnchor.runID] == nil else { return }
@@ -708,23 +712,25 @@ struct ConversationTimelineView: View {
             runID = anchor.runID
         }
         let resolvedTop = geometry.flatMap {
-            restorationTurnTop(runID, sequence: request?.sequence ?? 0, geometry: $0)
+            restorationTurnTop(runID, geometry: $0)
         }
         // ObservationIgnored storage keeps diagnostic sampling from publishing
         // another SwiftUI update while native remount geometry is converging.
         scrollBridge.recordReadingRestoreForUITest(
-            "event=\(event),request=\(String(describing: request)),applied=\(String(describing: pendingAppliedScroll?.sequence)),materializing=\(String(describing: materializingSequence)),phase=\(activeScrollPhase),lift=\(String(describing: surfaceLift?.state.phase)),accepts=\(acceptsScrollRequests),geometry=\(String(describing: geometry)),frame=\(String(describing: turnFrames[runID])),contentTop=\(String(describing: turnContentTops[runID])),resolvedTop=\(String(describing: resolvedTop)),issuedTarget=\(String(describing: issuedTarget)),positionY=\(String(describing: scrollPosition.y)),positionPoint=\(String(describing: scrollPosition.point))"
+            "event=\(event),request=\(String(describing: request)),applied=\(String(describing: pendingAppliedScroll?.sequence)),materializing=\(String(describing: materializingSequence)),materialized=\(String(describing: materializedRunID)),phase=\(activeScrollPhase),lift=\(String(describing: surfaceLift?.state.phase)),accepts=\(acceptsScrollRequests),geometry=\(String(describing: geometry)),frame=\(String(describing: turnFrames[runID])),contentTop=\(String(describing: turnContentTops[runID])),resolvedTop=\(String(describing: resolvedTop)),issuedTarget=\(String(describing: issuedTarget)),positionY=\(String(describing: scrollPosition.y)),positionPoint=\(String(describing: scrollPosition.point))"
         )
     }
 #endif
 
-    private func restorationTurnTop(_ runID: String, sequence: UInt64, geometry: ScrollGeometry) -> Double? {
-        // Missing lazy targets need a content-relative measurement after the ID jump.
-        // Existing visible/keyboard restoration keeps its established transport.
-        if materializingSequence == sequence { return turnContentTops[runID] }
+    private func restorationTurnTop(_ runID: String, geometry: ScrollGeometry) -> Double? {
+        // A lazy ID jump can outlive its first ACK: final viewport/layout changes
+        // issue new restore sequences while the viewport frame is still stale.
+        // Retain this target's content-coordinate source for the mounted Timeline,
+        // using current measurements; other targets keep the coherence check.
         guard let frame = turnFrames[runID], let contentTop = turnContentTops[runID] else { return nil }
         return Self.measuredTurnTop(viewportTop: Double(frame.minY), contentTop: contentTop,
-                                    geometry: geometry)
+                                    geometry: geometry,
+                                    usesMaterializedContentCoordinates: materializedRunID == runID)
     }
 
     private func reachedTarget(for request: ConversationPaneScrollRequest, geometry: ScrollGeometry) -> Bool {
@@ -736,7 +742,7 @@ struct ConversationTimelineView: View {
         case .scrollToBottom:
             targetOffset = max(0, geometry.contentHeight - geometry.viewportHeight)
         case .restoreAnchor(let turnAnchor):
-            guard let turnTop = restorationTurnTop(turnAnchor.runID, sequence: request.sequence, geometry: geometry),
+            guard let turnTop = restorationTurnTop(turnAnchor.runID, geometry: geometry),
                   let target = AnchorResolver.restoreTarget(
                     anchor: turnAnchor,
                     turnTop: turnTop,
