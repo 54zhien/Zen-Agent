@@ -12,8 +12,28 @@ final class SplitResizeUITests: XCTestCase {
     }
 
     @MainActor
-    private func dragClosedSplitAllowsSidebar(toTop: Bool) {
+    func testDragClosureWhileReadingAllowsTheFirstSidebarSwipe() {
+        dragClosedSplitAllowsSidebar(toTop: false, reading: true)
+    }
+
+    @MainActor
+    func testDragClosureWithVisibleKeyboardAllowsTheFirstSidebarSwipe() {
+        dragClosedSplitAllowsSidebar(toTop: false, keyboard: true)
+    }
+
+    @MainActor
+    private func dragClosedSplitAllowsSidebar(toTop: Bool, reading: Bool = false, keyboard: Bool = false) {
         let app = occupiedSplit()
+        if reading {
+            let position = app.buttons["preview-reading-position"]
+            position.tap()
+            expect { (position.value as? String) == "settled" }
+        }
+        if keyboard {
+            app.activateWorkspacePane("preview-ui-11")
+            app.textViews["conversation-composer-input"].tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        }
         let divider = app.descendants(matching: .any)["split-divider"]
         let handle = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let destination = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: toTop ? 0.015 : 0.985))

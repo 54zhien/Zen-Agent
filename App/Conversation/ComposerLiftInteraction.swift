@@ -14,6 +14,7 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
     private weak var editor: UITextView?
     private weak var keyboardWindow: UIWindow?
     private let nativeInput: () -> SurfaceLiftEligibility
+    private let feedback: ComposerLiftFeedback
     private var configuration: Configuration?
     private var origin: CGPoint?
     private(set) var keyboardTransitioning = false
@@ -31,6 +32,7 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
         self.surface = surface
         self.editor = editor
         self.nativeInput = nativeInput
+        feedback = ComposerLiftFeedback(surface: surface)
         super.init()
         recognizer.addTarget(self, action: #selector(gestureChanged(_:)))
         recognizer.delegate = self
@@ -52,6 +54,7 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
         if tracingRefresh { recordGesture("configureBefore;enabled=\(recognizer.isEnabled);nextInstalled=\(configuration != nil)") }
 #endif
         if self.configuration?.driver !== configuration?.driver {
+            feedback.setReady(false)
             self.configuration?.driver.invalidate()
             origin = nil
         }
@@ -105,6 +108,7 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
 
     func checkReadiness() {
         if !input.allowsLift {
+            feedback.setReady(false)
             let driver = configuration?.driver
             let returning = driver?.state.phase == .settling
                 && driver?.state.pendingSettlement?.destination == .full
@@ -140,6 +144,9 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
     }
 
     @objc private func gestureChanged(_ gesture: UILongPressGestureRecognizer) {
+        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
+            feedback.setReady(false)
+        }
 #if DEBUG
         if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
             let point = surface?.window.map { gesture.location(in: $0) }
@@ -156,6 +163,7 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
             diagnosticDriver = configuration.driver
 #endif
             origin = configuration.driver.arm(input, conversationID: configuration.conversationID) ? point : nil
+            feedback.setReady(origin != nil)
 #if DEBUG
             recordGesture("began;point=\(point);origin=\(String(describing: origin))")
 #endif
@@ -174,6 +182,7 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
 #endif
                 self.origin = nil
             }
+            feedback.setReady(configuration.driver.state.phase == .armed && self.origin != nil)
         case .ended, .cancelled, .failed:
             defer { origin = nil }
             guard let origin else { return }

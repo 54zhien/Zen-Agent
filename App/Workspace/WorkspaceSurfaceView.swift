@@ -425,8 +425,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
             restingCornerRadius: corner, squareBottomCorners: squareBottomCorners, sidebarOffset: sidebarOffset,
             sidebarSettlement: navigation.settlementID,
             onSidebarSettled: settled,
-            onNativeLayout: { [weak model] receipt in
+            onNativeLayout: { [weak model, weak resize] receipt in
                 guard let model else { return }
+                resize?.nativeLayout(receipt, context: layoutContext, slot: slot, model: model)
                 returnPresentation.nativeLayout(receipt, slot: slot, currentContext: layoutContext,
                     model: model, visibilityRevision: driver.workspaceVisibilityRevision)
             }) { hosted }

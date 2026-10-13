@@ -375,7 +375,7 @@ jobs:
           TEST_ARGS=(test)
           if [ "$TEST_SCOPE" = "device-feedback-red" ]; then
             echo "::notice::Device feedback diagnostic only; final exact-head full gate is still required."
-            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SidebarAppearanceUITests -only-testing:ZenAgentUITests/SplitResizeUITests/testDragToTopClosesSplitAndImmediatelyAllowsSidebar -only-testing:ZenAgentUITests/SplitResizeUITests/testDragToBottomClosesSplitAndImmediatelyAllowsSidebar)
+            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SidebarAppearanceUITests -only-testing:ZenAgentUITests/SplitResizeUITests/testDragToTopClosesSplitAndImmediatelyAllowsSidebar -only-testing:ZenAgentUITests/SplitResizeUITests/testDragToBottomClosesSplitAndImmediatelyAllowsSidebar -only-testing:ZenAgentUITests/SplitResizeUITests/testDragClosureWhileReadingAllowsTheFirstSidebarSwipe -only-testing:ZenAgentUITests/SplitResizeUITests/testDragClosureWithVisibleKeyboardAllowsTheFirstSidebarSwipe)
           elif [ "$TEST_SCOPE" = "review-red" ]; then
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
             TEST_ARGS+=(-only-testing:ZenAgentTests)
@@ -753,7 +753,7 @@ jobs:
           cat "$SUMMARY"
 
       - name: Export native failure attachments
-        if: failure()
+        if: failure() || github.ref_name == 'codex/s5-device-feedback-20261013'
         continue-on-error: true
         shell: bash
         run: |
@@ -767,7 +767,7 @@ jobs:
           fi
 
       - name: Upload test results on failure
-        if: failure()
+        if: failure() || github.ref_name == 'codex/s5-device-feedback-20261013'
         uses: actions/upload-artifact@v4
         with:
           name: xcresult

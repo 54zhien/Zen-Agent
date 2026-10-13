@@ -47,6 +47,7 @@ struct WorkspaceNavigationView<Content: View>: View {
                             overlays?.enter(route, eligible: context()?.allowsOpening == true, captureFocus: captureFocus)
                         })
                         .padding(.leading, rail.leading)
+                        .padding(.trailing, rail.leading)
                         .padding(.top, rail.top)
                         .padding(.bottom, rail.bottom)
                         .frame(width: travel, height: geometry.size.height)

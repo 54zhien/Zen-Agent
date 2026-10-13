@@ -5,11 +5,12 @@ struct SidebarRailLayout {
     let leading: CGFloat
     let top: CGFloat
     let bottom: CGFloat
-    var width: CGFloat { Self.contentWidth + leading }
+    var width: CGFloat { Self.contentWidth + leading * 2 }
 
     init(windowInsets: EdgeInsets, cornerRadius: CGFloat) {
         if cornerRadius > Self.contentWidth / 2 {
-            // Keep the existing 48-point controls and the six-point inner gap.
+            // The 48-point control stays concentric with the window; its gap
+            // to the translated page equals its gap to the window edge.
             leading = cornerRadius - Self.contentWidth / 2
             top = cornerRadius - 24
             bottom = cornerRadius - 24
@@ -55,7 +56,8 @@ struct SidebarRailView: View {
                 }
             }
             .scrollIndicators(.hidden)
-            .scrollEdgeEffectStyle(.soft, for: .all)
+            .scrollClipDisabled()
+            .scrollEdgeEffectHidden(true, for: .all)
             destination(.settings, symbol: "gearshape", label: "设置", identifier: "sidebar-settings")
         }
         .frame(width: SidebarRailLayout.contentWidth)

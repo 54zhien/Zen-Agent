@@ -259,6 +259,7 @@ struct ConversationTimelineView: View {
                                              workspaceRevision: workspaceRevision,
                                              layoutRevision: layoutRevision)
             } action: { previous, viewport in
+                surfaceLift?.invalidateTopEdge?()
 #if DEBUG
                 scrollBridge?.nativeGeometryDiagnostic = "offset=\(viewport.nativeGeometry.contentOffset);content=\(viewport.nativeGeometry.contentSize);insets=\(viewport.nativeGeometry.contentInsets);container=\(viewport.nativeGeometry.containerSize);visible=\(viewport.nativeGeometry.visibleRect)"
 #endif
@@ -369,7 +370,10 @@ struct ConversationTimelineView: View {
                     applyScrollRequest(request)
                 }
             }
-            .scrollEdgeEffectStyle(.soft, for: .all)
+            .scrollClipDisabled()
+            .scrollEdgeEffectStyle(.soft, for: .bottom)
+            .scrollEdgeEffectHidden(true, for: .top)
+            .onChange(of: projection) { _, _ in surfaceLift?.invalidateTopEdge?() }
         }
         .onChange(of: conversationApprovals) { _, refreshedApprovals in
             if let selectedApproval,

@@ -97,7 +97,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
 @MainActor
 final class ConversationSurfaceViewController<Content: View>: UIViewController {
     let contentController: SurfaceHostingController<Content>
-    private let topEdgeController = UIHostingController(rootView: ConversationTopEdgeMaterial())
+    let topEdge = ConversationTopEdgeMaterial(frame: .zero)
     private var restingCornerRadius: CGFloat = 0
     let surfaceView = SurfaceClipView()
     private let sidebarShadowView = UIView()
@@ -165,7 +165,8 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             fields.append("contentFrame=\(contentController.view.convert(contentController.view.bounds, to: window))")
             fields.append("contentSafeArea=\(contentController.view.safeAreaInsets)")
             fields.append("surfaceFrame=\(surfaceView.convert(surfaceView.bounds, to: window))")
-            fields.append("topEdgeFrame=\(topEdgeController.view.convert(topEdgeController.view.bounds, to: window))")
+            fields.append("topEdgeFrame=\(topEdge.convert(topEdge.bounds, to: window))")
+            fields.append("topEdgeCaptures=\(topEdge.captureCount)")
             func scrollViews(in node: UIView) -> [UIScrollView] {
                 let own = (node as? UIScrollView).flatMap { $0 is UITextView ? nil : $0 }.map { [$0] } ?? []
                 return own + node.subviews.flatMap { scrollViews(in: $0) }
@@ -236,7 +237,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         view.backgroundColor = .clear
         surfaceView.layer.cornerCurve = .continuous
         surfaceView.clipsToBounds = true
-        sidebarShadowView.backgroundColor = .clear
+        sidebarShadowView.backgroundColor = .systemBackground
         sidebarShadowView.isUserInteractionEnabled = false
         sidebarShadowView.isAccessibilityElement = false
         sidebarShadowView.accessibilityElementsHidden = true
@@ -263,13 +264,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         ]
         NSLayoutConstraint.activate(contentConstraints)
         contentController.didMove(toParent: self)
-        addChild(topEdgeController)
-        let topEdge = topEdgeController.view!
-        topEdge.backgroundColor = .clear
-        topEdge.isUserInteractionEnabled = false
-        topEdge.accessibilityElementsHidden = true
         surfaceView.addSubview(topEdge)
-        topEdgeController.didMove(toParent: self)
+        topEdge.configure(source: contentView, safeTop: view.safeAreaInsets.top)
+        contentController.onContentLayout = { [weak topEdge] in topEdge?.invalidate() }
     }
 
     override func viewDidLayoutSubviews() {
@@ -282,8 +279,10 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         // Use the untransformed host's actual safe area. A lower Split pane and
         // landscape have no status area; Lift and Sidebar move this decoration
         // with the Surface, independently of the retained timeline's layout.
-        topEdgeController.view.frame = CGRect(x: 0, y: 0, width: bounds.width,
-            height: min(bounds.height, view.safeAreaInsets.top))
+        topEdge.frame = CGRect(x: 0, y: 0, width: bounds.width,
+            height: view.safeAreaInsets.top > 0
+                ? min(bounds.height, view.safeAreaInsets.top + ConversationTopEdgeMaterial.fadeHeight) : 0)
+        topEdge.configure(source: contentController.view, safeTop: view.safeAreaInsets.top)
         if workspaceVisible { contentController.preserveContainerSafeArea(view.safeAreaInsets) }
         // onAppear may restore Card before a usable viewport exists. Notify the
         // first layout too, so that Card's first Return has a resolved Lift target.
@@ -475,7 +474,6 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     private func updateSurfaceDecoration() {
         let windowRadius = restingCornerRadius == 0 && isStableFullSurface
-            && (sidebarOffset != 0 || sidebarSettlement != nil)
             ? windowConcentricCornerRadius() : 0
         let radius = max(restingCornerRadius, max(presentation.cornerRadius, windowRadius))
         let squareBottom = squareBottomCorners && isStableFullSurface
@@ -491,11 +489,10 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         sidebarShadowView.layer.cornerRadius = radius
         sidebarShadowView.layer.maskedCorners = roundedCorners
         sidebarShadowView.layer.shadowOffset = CGSize(width: sidebarShadowDirection * sidebarShadowHorizontalOffset, height: 0)
-        let shadowCorners: UIRectCorner = squareBottom
-            ? UIRectCorner.topLeft.union(.topRight) : .allCorners
-        sidebarShadowView.layer.shadowPath = UIBezierPath(roundedRect: sidebarShadowView.bounds,
-            byRoundingCorners: shadowCorners,
-            cornerRadii: CGSize(width: radius, height: radius)).cgPath
+        // Cast the same continuous corner silhouette as the foreground. A
+        // circular UIBezierPath leaves grey wedges between the two curves.
+        sidebarShadowView.layer.shadowPath = nil
+        sidebarShadowView.overrideUserInterfaceStyle = contentController.traitCollection.userInterfaceStyle
         sidebarShadowView.isHidden = !workspaceVisible || returnProxyHidden
             || (sidebarOffset == 0 && sidebarSettlement == nil)
         if sidebarAnimator == nil {
@@ -619,6 +616,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     func setWorkspaceVisible(_ visible: Bool) {
         loadViewIfNeeded()
+        topEdge.setWorkspaceVisible(visible)
         let contentView = contentController.view!
         if !visible {
             // A nested hosting accessibility tree can remain discoverable despite
@@ -632,7 +630,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
                 contentView.removeFromSuperview()
             }
         } else if contentView.superview == nil {
-            surfaceView.insertSubview(contentView, belowSubview: topEdgeController.view)
+            surfaceView.insertSubview(contentView, belowSubview: topEdge)
             NSLayoutConstraint.activate(contentConstraints)
             workspaceVisible = true
             contentController.suspendsContainerInsets = false
@@ -969,9 +967,15 @@ final class SurfaceClipView: UIView {
 
 @MainActor
 final class SurfaceHostingController<Content: View>: UIHostingController<Content> {
+    var onContentLayout: (() -> Void)?
     var suspendsContainerInsets = false
     private var containerInsets: UIEdgeInsets?
     private var isAdjustingInsets = false
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        onContentLayout?()
+    }
 
     func preserveContainerSafeArea(_ insets: UIEdgeInsets) {
         containerInsets = insets

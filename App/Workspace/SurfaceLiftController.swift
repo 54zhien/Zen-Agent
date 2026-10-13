@@ -16,6 +16,7 @@ final class SurfaceLiftController {
     @ObservationIgnored var sidebarNativeContext: (() -> (hostID: ObjectIdentifier, window: UIWindow,
         allowsOpening: Bool, allowsClosing: Bool, surfaceView: UIView)?)?
     @ObservationIgnored var captureOverlayFocus: ((@escaping () -> Bool) -> ComposerOverlayFocus?)?
+    @ObservationIgnored var invalidateTopEdge: (() -> Void)?
     private(set) var heldReturnCardLabel: String?
     var nativeHostIdentity: ObjectIdentifier? { hostID }
     private(set) var retainsAppSpaceViewport = false
@@ -142,6 +143,7 @@ final class SurfaceLiftController {
         host.loadViewIfNeeded()
         hostID = ObjectIdentifier(host)
         host.liftController = self
+        invalidateTopEdge = { [weak host] in host?.topEdge.invalidate() }
         captureOverlayFocus = { [weak host] valid in host?.captureOverlayFocus(ownerIsCurrent: valid) }
         sidebarNativeContext = { [weak self, weak host] in
             guard let self, let host, let window = host.view.window else { return nil }
@@ -370,6 +372,7 @@ final class SurfaceLiftController {
         hostID = nil
         sidebarNativeContext = nil
         captureOverlayFocus = nil
+        invalidateTopEdge = nil
         resolveTarget = nil
         resolveReturnPose = nil
         captureHostFrame = nil
