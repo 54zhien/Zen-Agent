@@ -185,7 +185,7 @@ struct ConversationScrollGeometryTests {
         pane.restoreAnchorForUITest(original)
         let canceled = try #require(pane.scrollRequest)
         let phaseGeometry = matchedObservation().geometry
-        let userAnchor = try #require(AnchorResolver.captureAnchor(runID: original.runID,
+        let userAnchor = try #require(AnchorResolver.capture(runID: original.runID,
             turnTop: 20107.999999999993, geometry: phaseGeometry))
         _ = pane.updateReading(.userScrolled(geometry: phaseGeometry, anchor: userAnchor))
         pane.markScrollApplied(sequence: canceled.sequence)
