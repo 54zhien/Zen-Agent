@@ -22,8 +22,10 @@ struct TopEdgeCaptureFailureTests {
         root.view.addSubview(edge)
         edge.configure(source: source, safeTop: 62)
         edge.layoutIfNeeded()
+        edge.image = try #require(UIImage(systemName: "square.fill"))
         edge.refreshIfNeeded()
         #expect(source.attempts == 1)
+        #expect(edge.image == nil, "failed fresh capture must not leave the previous content or theme visible")
         for _ in 0..<5 { edge.refreshIfNeeded() }
         #expect(source.attempts == 1 && edge.captureCount == 0)
         edge.invalidate()

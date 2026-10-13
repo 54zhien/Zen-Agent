@@ -67,7 +67,17 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var overlayFocusReason = "none"
 #if DEBUG
     private var overlayFocusEvents: [String] = []
+    private var dockEvents: [String] = []
 #endif
+
+    func recordDockEvent(_ event: String) {
+#if DEBUG
+        guard ProcessInfo.processInfo.environment["ZEN_COMPOSER_GEOMETRY_TEST"] == "1" else { return }
+        let parent = superview.map { String(describing: type(of: $0)) } ?? "nil"
+        dockEvents.append("\(event)[focused=\(editor.isFirstResponder),state=\(currentState),parent=\(parent),window=\(window != nil),bounds=\(bounds),guide=\(keyboardLayoutGuide.layoutFrame)]")
+        if dockEvents.count > 24 { dockEvents.removeFirst(dockEvents.count - 24) }
+#endif
+    }
 
     private func recordOverlayFocusEvent(_ event: String) {
 #if DEBUG
@@ -344,7 +354,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
 #if DEBUG
     var liftReadinessDiagnostic: String {
-        "\(liftInteraction.readinessDiagnostic);composerBounds=\(bounds);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder);overlayFocusEvents=\(overlayFocusEvents.joined(separator: " | "))"
+        "\(liftInteraction.readinessDiagnostic);composerBounds=\(bounds);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder);overlayFocusEvents=\(overlayFocusEvents.joined(separator: " | "));dockEvents=\(dockEvents.joined(separator: " | "))"
     }
 #endif
 
@@ -709,14 +719,17 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     func textViewDidBeginEditing(_ textView: UITextView) {
+        recordDockEvent("didBeginEditing")
         recordOverlayFocusEvent("didBeginEditing")
         liftInteraction.checkReadiness()
         keyboardTransitionOwned = true
         configuration?.onFocus(true)
     }
     func textViewDidEndEditing(_ textView: UITextView) {
+        recordDockEvent("didEndEditing-beforeFeedback")
         recordOverlayFocusEvent("didEndEditing")
         configuration?.onFocus(false)
+        recordDockEvent("didEndEditing-afterFeedback")
     }
     func textViewDidChange(_ textView: UITextView) { reportEditor() }
     func textViewDidChangeSelection(_ textView: UITextView) { reportEditor() }

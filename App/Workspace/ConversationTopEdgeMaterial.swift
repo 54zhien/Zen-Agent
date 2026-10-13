@@ -29,6 +29,7 @@ final class ConversationTopEdgeMaterial: UIImageView {
     private(set) var lastRenderMilliseconds = 0.0
 #if DEBUG
     func awaitRenderForTesting() async { await renderTask?.value }
+    var renderTaskForTesting: Task<Void, Never>? { renderTask }
 #endif
 
     override init(frame: CGRect) {

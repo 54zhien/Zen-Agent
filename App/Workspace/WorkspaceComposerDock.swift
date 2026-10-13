@@ -69,6 +69,7 @@ final class WorkspaceComposerDockState {
             measured(selected.composer.measuredClearance, ownerID: selected.ownerID)
         }
         for portal in live {
+            portal.composer.recordDockEvent("refresh-visible=\(visible)-usesDock=\(portal.usesDock)")
             if !portal.usesDock { portal.embed() }
             else if !visible || portal !== selected { portal.park() }
         }
@@ -94,6 +95,7 @@ final class ComposerHostPortal: UIView {
 
     func update(configuration: ComposerHostView.Configuration, focusRequested: @escaping () -> Bool, suppressed: Bool,
                 ownerID: String, usesDock: Bool, dock: WorkspaceComposerDockState?, isActivePane: Bool = true) {
+        composer.recordDockEvent("update-before-usesDock=\(usesDock)-focus=\(focusRequested())")
         self.ownerID = ownerID; self.usesDock = usesDock
         self.focusRequested = focusRequested; self.inputSuppressed = suppressed; self.isActivePane = isActivePane
         self.driver = configuration.liftInteraction?.driver
@@ -103,6 +105,7 @@ final class ComposerHostPortal: UIView {
         if let dock { dock.register(self) } else { embed() }
         applyFocusIfAttached()
         composer.consumeOverlayFocusIfReady()
+        composer.recordDockEvent("update-after-focus=\(focusRequested())")
     }
     func applyFocusIfAttached(transferring: Bool = false, allowResignation: Bool = true) {
         guard !inputSuppressed, composer.window != nil else { return }
@@ -119,15 +122,20 @@ final class ComposerHostPortal: UIView {
     func embed() {
         clearExternalOwner()
         guard composer.superview !== self else { return }
+        composer.recordDockEvent("embed-before-focus=\(focusRequested())")
         composer.removeFromSuperview()
+        composer.recordDockEvent("embed-removed-focus=\(focusRequested())")
         composer.frame = bounds
         addSubview(composer)
         setNeedsLayout()
         applyFocusIfAttached()
+        composer.recordDockEvent("embed-attached-focus=\(focusRequested())")
     }
     func park() {
+        composer.recordDockEvent("park-before-focus=\(focusRequested())")
         clearExternalOwner()
         composer.removeFromSuperview()
+        composer.recordDockEvent("park-after-focus=\(focusRequested())")
     }
     func registerExternalOwner() { driver?.externalComposer = composer }
     private func clearExternalOwner() {

@@ -375,7 +375,7 @@ jobs:
           TEST_ARGS=(test)
           if [ "$TEST_SCOPE" = "device-feedback-red" ]; then
             echo "::notice::Device feedback diagnostic only; final exact-head full gate is still required."
-            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SidebarAppearanceUITests -only-testing:ZenAgentUITests/SurfaceLiftUITests -only-testing:ZenAgentUITests/SplitResizeUITests/testDragToTopClosesSplitAndImmediatelyAllowsSidebar -only-testing:ZenAgentUITests/SplitResizeUITests/testDragToBottomClosesSplitAndImmediatelyAllowsSidebar -only-testing:ZenAgentUITests/SplitResizeUITests/testDragClosureWhileReadingAllowsTheFirstSidebarSwipe -only-testing:ZenAgentUITests/SplitResizeUITests/testDragClosureWithVisibleKeyboardAllowsTheFirstSidebarSwipe)
+            TEST_ARGS+=(-only-testing:ZenAgentTests/ConversationTopEdgeBlurTests -only-testing:ZenAgentTests/TopEdgeCaptureFailureTests -only-testing:ZenAgentUITests/SidebarAppearanceUITests/testDarkProgressiveTopAndActuallyExpandedSidebar -only-testing:ZenAgentUITests/SplitResizeUITests/testDragClosureWithVisibleKeyboardAllowsTheFirstSidebarSwipe)
           elif [ "$TEST_SCOPE" = "review-red" ]; then
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
             TEST_ARGS+=(-only-testing:ZenAgentTests)

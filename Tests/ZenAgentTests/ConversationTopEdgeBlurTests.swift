@@ -63,8 +63,19 @@ struct ConversationTopEdgeBlurTests {
         edge.refreshIfNeeded()
         await edge.awaitRenderForTesting()
         #expect(edge.captureCount == 2)
-        edge.setWorkspaceVisible(false)
+        edge.invalidate()
         edge.refreshIfNeeded()
+        edge.setWorkspaceVisible(false)
+        await edge.awaitRenderForTesting()
+        edge.refreshIfNeeded()
+        #expect(edge.image == nil && edge.captureCount == 2,
+            "a pending result must not repaint a hidden or detached owner")
+        edge.setWorkspaceVisible(true)
+        edge.refreshIfNeeded()
+        let pending = try #require(edge.renderTaskForTesting)
+        edge.removeFromSuperview()
+        #expect(pending.isCancelled, "a detached owner must release its pending worker slot")
+        await pending.value
         #expect(edge.image == nil && edge.captureCount == 2)
     }
 

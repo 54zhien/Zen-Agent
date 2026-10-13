@@ -4,7 +4,22 @@ import UIKit
 final class SidebarAppearanceUITests: XCTestCase {
     @MainActor
     func testDarkProgressiveTopAndActuallyExpandedSidebar() {
-        let app = launchLightAppearance(dark: true)
+        let app = launchLightAppearance()
+        app.openWorkspaceSidebar()
+        app.buttons["sidebar-settings"].tap()
+        let page = app.descendants(matching: .any)["settings-page"]
+        XCTAssertTrue(page.waitForExistence(timeout: 10))
+        let appearance = app.buttons["外观"].firstMatch
+        if !appearance.isHittable { page.swipeUp() }
+        XCTAssertTrue(appearance.waitForExistence(timeout: 10))
+        appearance.tap()
+        let picker = app.buttons["settings-appearance-picker"].firstMatch
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        picker.tap()
+        app.buttons["深色"].tap()
+        XCTAssertTrue("\(picker.label) \(picker.value ?? "")".contains("深色"))
+        app.buttons["settings-close"].tap()
+        XCTAssertTrue(page.wait(for: \.exists, toEqual: false, timeout: 10))
         let native = app.descendants(matching: .any)["surface-native-interaction-probe"]
         let rendered = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             (self.metric("topEdgeCaptures", from: native) ?? 0) > 0
