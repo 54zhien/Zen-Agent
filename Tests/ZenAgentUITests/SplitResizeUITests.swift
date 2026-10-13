@@ -63,6 +63,8 @@ final class SplitResizeUITests: XCTestCase {
             let receipt = native.value as? String ?? "missing"
             XCTAssertEqual(editorIdentity(receipt), focusedEditorIdentity)
             XCTAssertTrue(receipt.contains(";focused=true;"), "The surviving native editor must keep focus")
+            XCTAssertTrue(receipt.contains("composerSettled: true"),
+                          "The relocated Composer must settle against its actual keyboard anchor")
             XCTAssertEqual(receipt.components(separatedBy: ";").first { $0.hasPrefix("keyboardTraceWillHide=") },
                            keyboardHideCount, "Native relocation must not start a keyboard dismissal")
             XCTAssertTrue(app.keyboards.firstMatch.exists)

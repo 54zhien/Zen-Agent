@@ -385,7 +385,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
 #if DEBUG
     var liftReadinessDiagnostic: String {
-        "\(liftInteraction.readinessDiagnostic);composerBounds=\(bounds);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);activeKeyboardGuide=\(activeKeyboardFrame);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder);overlayFocusEvents=\(overlayFocusEvents.joined(separator: " | "));dockEvents=\(dockEvents.joined(separator: " | "))"
+        "\(liftInteraction.readinessDiagnostic);composerBounds=\(bounds);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);activeKeyboardGuide=\(activeKeyboardFrame);keyboardConstraintActive=\(bottomConstraint.isActive);keyboardConstraintInRoot=\(keyboardAnchorView?.constraints.contains { $0 === bottomConstraint } ?? false);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder);overlayFocusEvents=\(overlayFocusEvents.joined(separator: " | "));dockEvents=\(dockEvents.joined(separator: " | "))"
     }
 #endif
 
@@ -546,6 +546,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             self.shelfController?.view.frame = CGRect(x: 0, y: -self.shelfHeight,
                                                       width: layout.size.width,
                                                       height: self.shelfHeight)
+            // The bottom constraint belongs to the common root ancestor, not
+            // this moved Composer. Layout that owner after updating the endpoint
+            // so Dock-to-portal relocation cannot leave a stale surface origin.
+            self.keyboardAnchorView?.layoutIfNeeded()
             self.layoutIfNeeded()
             self.updateGeometryProbe()
         }

@@ -11,14 +11,29 @@ struct WorkspaceComposerDockTests {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
-        let root = UIHostingController(rootView: ComposerHostBridge(
-            configuration: configuration(text: "hidden keyboard", editing: false), focusRequested: { false }))
-        root.safeAreaRegions = []
+        let root = ComposerDockTestRoot()
         window.rootViewController = root; window.makeKeyAndVisible()
         defer {
             window.endEditing(true); window.isHidden = true
             window.rootViewController = nil; previous?.makeKeyAndVisible()
         }
+        for _ in 0..<40 where !root.didAppear { try await Task.sleep(for: .milliseconds(25)) }
+        try #require(root.didAppear && window.isKeyWindow)
+        // A visible child wholly inside its parent's safe area has genuinely
+        // zero UIKit insets. SwiftUI safeAreaRegions alone does not establish
+        // that native precondition for the representable's Composer.
+        let bridge = UIHostingController(rootView: ComposerHostBridge(
+            configuration: configuration(text: "hidden keyboard", editing: false), focusRequested: { false }))
+        root.addChild(bridge)
+        root.view.addSubview(bridge.view)
+        bridge.view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            bridge.view.topAnchor.constraint(equalTo: root.view.safeAreaLayoutGuide.topAnchor),
+            bridge.view.bottomAnchor.constraint(equalTo: root.view.safeAreaLayoutGuide.bottomAnchor),
+            bridge.view.leadingAnchor.constraint(equalTo: root.view.safeAreaLayoutGuide.leadingAnchor),
+            bridge.view.trailingAnchor.constraint(equalTo: root.view.safeAreaLayoutGuide.trailingAnchor)
+        ])
+        bridge.didMove(toParent: root)
         func portal(in view: UIView) -> ComposerHostPortal? {
             if let value = view as? ComposerHostPortal { return value }
             return view.subviews.lazy.compactMap { portal(in: $0) }.first
