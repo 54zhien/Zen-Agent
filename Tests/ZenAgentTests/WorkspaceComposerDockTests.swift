@@ -38,9 +38,9 @@ struct WorkspaceComposerDockTests {
         try #require(portal.composer.editor.isFirstResponder)
         let editor = portal.composer.editor
         if explicitBlur { _ = owner.handle(.conversationBackgroundTapped) }
-        if dockFirst { dock.configure(container: container, activeID: "survivor", visible: false) }
+        if dockFirst { dock.configure(container: container, activeID: "survivor", visible: false, returnsToPortals: true) }
         update(usesDock: false)
-        if !dockFirst { dock.configure(container: container, activeID: "survivor", visible: false) }
+        if !dockFirst { dock.configure(container: container, activeID: "survivor", visible: false, returnsToPortals: true) }
         #expect(portal.composer.superview === portal)
         #expect(editor === portal.composer.editor && editor.text == "surviving draft")
         #expect(editor.isFirstResponder == !explicitBlur)

@@ -291,6 +291,9 @@ struct ConversationTimelineView: View {
                 handleScrollGeometryChange(geometry)
             }
             .onScrollPhaseChange { _, phase, context in
+#if DEBUG
+                surfaceLift?.setTopEdgeScrolling?(phase != .idle)
+#endif
                 let wasUserDriven = isUserDrivenScroll
                 activeScrollPhase = phase
                 if wasUserDriven || isUserDrivenScroll {

@@ -30,6 +30,11 @@ final class ConversationTopEdgeMaterial: UIImageView {
 #if DEBUG
     func awaitRenderForTesting() async { await renderTask?.value }
     var renderTaskForTesting: Task<Void, Never>? { renderTask }
+    var samplingDiagnostic: String {
+        "topEdgePending=\(renderTask != nil);topEdgeDirty=\(dirty);topEdgeScrollCaptures=\(scrollCaptureCount)"
+    }
+    var scrolling = false
+    private var scrollCaptureCount = 0
 #endif
 
     override init(frame: CGRect) {
@@ -73,7 +78,18 @@ final class ConversationTopEdgeMaterial: UIImageView {
         invalidate()
     }
 
-    func invalidate() { revision &+= 1; dirty = true; updateClock() }
+    // Owner, theme and output geometry changes invalidate pending pixels.
+    func invalidate() {
+        revision &+= 1
+        image = nil
+        renderTask?.cancel()
+        dirty = true
+        updateClock()
+    }
+
+    // Content changes request the next sample without starving the in-flight
+    // snapshot of this same visible owner during continuous native scrolling.
+    func invalidateContent() { dirty = true; updateClock() }
     @objc private func pause() { suspended = true; updateClock() }
     @objc private func resume() { suspended = false; invalidate() }
 
@@ -175,6 +191,9 @@ final class ConversationTopEdgeMaterial: UIImageView {
             self.image = UIImage(cgImage: result.image, scale: scale, orientation: .up)
             self.lastRenderMilliseconds = result.milliseconds
             self.captureCount += 1
+#if DEBUG
+            if self.scrolling { self.scrollCaptureCount += 1 }
+#endif
         }
     }
 }

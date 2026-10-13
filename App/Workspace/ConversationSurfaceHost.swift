@@ -167,6 +167,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             fields.append("surfaceFrame=\(surfaceView.convert(surfaceView.bounds, to: window))")
             fields.append("topEdgeFrame=\(topEdge.convert(topEdge.bounds, to: window))")
             fields.append("topEdgeCaptures=\(topEdge.captureCount)")
+            fields.append(topEdge.samplingDiagnostic)
             fields.append("topEdgeAttempts=\(topEdge.captureAttempts);topEdgeFailures=\(topEdge.captureFailures);topEdgeCaptureMs=\(topEdge.lastCaptureMilliseconds);topEdgeRenderMs=\(topEdge.lastRenderMilliseconds)")
             func scrollViews(in node: UIView) -> [UIScrollView] {
                 let own = (node as? UIScrollView).flatMap { $0 is UITextView ? nil : $0 }.map { [$0] } ?? []
@@ -272,7 +273,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             topEdge.setWorkspaceVisible(false)
         }
 #endif
-        contentController.onContentLayout = { [weak topEdge] in topEdge?.invalidate() }
+        contentController.onContentLayout = { [weak topEdge] in topEdge?.invalidateContent() }
     }
 
     override func viewDidLayoutSubviews() {

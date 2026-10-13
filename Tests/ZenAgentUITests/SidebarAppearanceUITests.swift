@@ -3,6 +3,35 @@ import UIKit
 
 final class SidebarAppearanceUITests: XCTestCase {
     @MainActor
+    func testCustomTopReusesIdlePixelsAndUpdatesDuringNativeScrolling() {
+        let app = launchLightAppearance()
+        let native = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let value = native.value as? String ?? ""
+            return (self.metric("topEdgeCaptures", from: native) ?? 0) > 0
+                && value.contains("topEdgePending=false;") && value.contains("topEdgeDirty=false;")
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
+        let idleCount = metric("topEdgeCaptures", from: native)
+        let unexpected = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.metric("topEdgeCaptures", from: native) != idleCount
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [unexpected], timeout: 1), .timedOut,
+                       "An unchanged visible page must reuse its captured strip")
+        let duringScroll = metric("topEdgeScrollCaptures", from: native) ?? 0
+        let timeline = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        XCTAssertTrue(timeline.isHittable)
+        timeline.swipeDown(velocity: .slow)
+        let progressed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (self.metric("topEdgeScrollCaptures", from: native) ?? 0) > duringScroll
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [progressed], timeout: 10), .completed,
+                       "At least one result must commit while the native scroll phase is active")
+        print("TOP_EDGE_NATIVE_SCROLL \(native.value ?? "missing")")
+        attach(app.screenshot(), named: "Custom top after real native scrolling")
+    }
+
+    @MainActor
     func testDarkProgressiveTopAndActuallyExpandedSidebar() {
         let app = launchLightAppearance()
         app.openWorkspaceSidebar()

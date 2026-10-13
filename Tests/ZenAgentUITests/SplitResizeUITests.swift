@@ -22,17 +22,36 @@ final class SplitResizeUITests: XCTestCase {
     }
 
     @MainActor
+    func testDragClosureKeepsFocusedSecondaryAndAllowsTheFirstSidebarSwipe() {
+        dragClosedSplitAllowsSidebar(toTop: true, keyboard: true)
+    }
+
+    @MainActor
     private func dragClosedSplitAllowsSidebar(toTop: Bool, reading: Bool = false, keyboard: Bool = false) {
         let app = occupiedSplit()
+        let native = app.descendants(matching: .any)[toTop && keyboard
+            ? "split-secondary-native-interaction-probe" : "surface-native-interaction-probe"]
+        var focusedEditorIdentity: String?
+        var keyboardHideCount: String?
+        var focusedDraft: String?
         if reading {
             let position = app.buttons["preview-reading-position"]
             position.tap()
             expect { (position.value as? String) == "settled" }
         }
         if keyboard {
-            app.activateWorkspacePane("preview-ui-11")
-            app.textViews["conversation-composer-input"].tap()
+            app.activateWorkspacePane(toTop ? "preview-ui-10" : "preview-ui-11")
+            let editor = app.textViews["conversation-composer-input"]
+            editor.tap()
             XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+            editor.typeText("保留输入")
+            expect { (editor.value as? String)?.contains("保留输入") == true }
+            focusedDraft = editor.value as? String
+            focusedEditorIdentity = editorIdentity(native.value as? String)
+            keyboardHideCount = (native.value as? String)?.components(separatedBy: ";")
+                .first { $0.hasPrefix("keyboardTraceWillHide=") }
+            XCTAssertNotNil(focusedEditorIdentity)
+            XCTAssertNotNil(keyboardHideCount)
         }
         let divider = app.descendants(matching: .any)["split-divider"]
         let handle = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
@@ -40,6 +59,18 @@ final class SplitResizeUITests: XCTestCase {
         handle.press(forDuration: 0.15, thenDragTo: destination)
         expect { !divider.exists && app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
         printDiagnostics(app, context: "after drag closure before Sidebar")
+        if keyboard {
+            let receipt = native.value as? String ?? "missing"
+            XCTAssertEqual(editorIdentity(receipt), focusedEditorIdentity)
+            XCTAssertTrue(receipt.contains(";focused=true;"), "The surviving native editor must keep focus")
+            XCTAssertEqual(receipt.components(separatedBy: ";").first { $0.hasPrefix("keyboardTraceWillHide=") },
+                           keyboardHideCount, "Native relocation must not start a keyboard dismissal")
+            XCTAssertTrue(app.keyboards.firstMatch.exists)
+            XCTAssertEqual(app.textViews["conversation-composer-input"].value as? String, focusedDraft)
+            XCTAssertLessThanOrEqual(app.textViews["conversation-composer-input"].frame.maxY,
+                                     app.keyboards.firstMatch.frame.minY,
+                                     "The surviving editor must remain above the visible keyboard")
+        }
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.005, dy: 0.45))
         edge.press(forDuration: 0.08, thenDragTo: edge.withOffset(CGVector(dx: 170, dy: 0)))
         let settings = app.buttons["sidebar-settings"]

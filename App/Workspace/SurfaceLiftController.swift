@@ -31,6 +31,7 @@ final class SurfaceLiftController {
     var minimumCardSize = CGSize(width: 220, height: 300)
 #if DEBUG
     @ObservationIgnored var lastNativeLiftReceipt = ""
+    @ObservationIgnored var setTopEdgeScrolling: ((Bool) -> Void)?
 #endif
     @ObservationIgnored private var hostID: ObjectIdentifier?
     @ObservationIgnored private var interactiveDistance = 0.0
@@ -143,7 +144,10 @@ final class SurfaceLiftController {
         host.loadViewIfNeeded()
         hostID = ObjectIdentifier(host)
         host.liftController = self
-        invalidateTopEdge = { [weak host] in host?.topEdge.invalidate() }
+        invalidateTopEdge = { [weak host] in host?.topEdge.invalidateContent() }
+#if DEBUG
+        setTopEdgeScrolling = { [weak host] in host?.topEdge.scrolling = $0 }
+#endif
         captureOverlayFocus = { [weak host] valid in host?.captureOverlayFocus(ownerIsCurrent: valid) }
         sidebarNativeContext = { [weak self, weak host] in
             guard let self, let host, let window = host.view.window else { return nil }
@@ -373,6 +377,9 @@ final class SurfaceLiftController {
         sidebarNativeContext = nil
         captureOverlayFocus = nil
         invalidateTopEdge = nil
+#if DEBUG
+        setTopEdgeScrolling = nil
+#endif
         resolveTarget = nil
         resolveReturnPose = nil
         captureHostFrame = nil

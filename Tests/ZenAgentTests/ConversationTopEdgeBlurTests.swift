@@ -101,12 +101,32 @@ struct ConversationTopEdgeBlurTests {
         edge.refreshIfNeeded()
         await edge.awaitRenderForTesting()
         #expect(edge.captureCount == 2)
+        edge.invalidateContent()
+        edge.refreshIfNeeded()
+        let oldTheme = try #require(edge.renderTaskForTesting)
+        window.overrideUserInterfaceStyle = style == .light ? .dark : .light
+        root.view.layoutIfNeeded()
+        #expect(oldTheme.isCancelled, "theme changes must cancel the pending old-theme snapshot")
+        await oldTheme.value
+        #expect(edge.captureCount == 2 && edge.image == nil)
+        source.setNeedsDisplay()
+        _ = UIGraphicsImageRenderer(size: source.bounds.size).image { _ in
+            _ = source.drawHierarchy(in: source.bounds, afterScreenUpdates: true)
+        }
+        edge.refreshIfNeeded()
+        await edge.awaitRenderForTesting()
+        let newTheme = try #require(edge.image)
+        let changedPixels = try pixels(newTheme,
+            rect: CGRect(x: source.bounds.width - 8, y: 30, width: 2, height: 2))
+        let changedBrightness = changedPixels.reduce(0, +) / Double(changedPixels.count)
+        #expect(style == .light ? changedBrightness < 0.1 : changedBrightness > 0.9)
+        #expect(edge.captureCount == 3)
         edge.invalidate()
         edge.refreshIfNeeded()
         edge.setWorkspaceVisible(false)
         await edge.awaitRenderForTesting()
         edge.refreshIfNeeded()
-        #expect(edge.image == nil && edge.captureCount == 2,
+        #expect(edge.image == nil && edge.captureCount == 3,
             "a pending result must not repaint a hidden or detached owner")
         edge.setWorkspaceVisible(true)
         edge.refreshIfNeeded()
@@ -114,7 +134,7 @@ struct ConversationTopEdgeBlurTests {
         edge.removeFromSuperview()
         #expect(pending.isCancelled, "a detached owner must release its pending worker slot")
         await pending.value
-        #expect(edge.image == nil && edge.captureCount == 2)
+        #expect(edge.image == nil && edge.captureCount == 3)
     }
 
     private func variance(_ image: UIImage, y: CGFloat) throws -> Double {

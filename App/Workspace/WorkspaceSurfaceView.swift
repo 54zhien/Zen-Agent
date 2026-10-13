@@ -335,7 +335,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 visible: model?.splitWorkspace != nil && navigation.overlay == nil
                     && model?.previewContent.isPresented != true && returnPresentation.phase == nil
                     && (activeSurfaceSlot == nil || [.armed, .lifting].contains(activeLift.state.phase)
-                        || activeLift.state.pendingSettlement?.destination == .card))
+                        || activeLift.state.pendingSettlement?.destination == .card),
+                returnsToPortals: model?.splitWorkspace == nil)
                 .offset(x: sidebarTranslation(in: geometry))
                 .animation(sidebarAnimation, value: navigation.progress)
         }
