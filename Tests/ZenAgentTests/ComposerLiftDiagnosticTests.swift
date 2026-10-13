@@ -17,6 +17,38 @@ private final class DiagnosticLongPressSample: UILongPressGestureRecognizer {
 @Suite("Composer Lift diagnostic lifetime", .serialized)
 @MainActor
 struct ComposerLiftDiagnosticTests {
+    @Test("accepted long press visibly arms the Composer and cancellation removes its animation")
+    func acceptedPressHasVisibleFeedback() throws {
+        let host = ConversationSurfaceViewController(content: Color.clear)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let surface = UIView(frame: CGRect(x: 40, y: 680, width: 300, height: 70))
+        let editor = UITextView()
+        host.view.addSubview(surface)
+        surface.addSubview(editor)
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        defer { driver.unbind(host) }
+        let input = ComposerLiftInteraction(surface: surface, editor: editor,
+            nativeInput: { SurfaceLiftEligibility() })
+        input.configure(.init(driver: driver, conversationID: "feedback", eligibility: { $0 }))
+        let sample = DiagnosticLongPressSample()
+        sample.sample = .began
+        _ = input.perform(NSSelectorFromString("gestureChanged:"), with: sample)
+        try #require(driver.state.phase == .armed)
+        let feedback = try #require(surface.layer.sublayers?.first { $0.name == "zen-composer-lift-ready" })
+        #expect(feedback.opacity > 0)
+        #expect(!(feedback.animationKeys() ?? []).isEmpty)
+        #expect(surface.transform == .identity, "feedback must not invalidate native Composer layout readiness")
+        sample.sample = .cancelled
+        _ = input.perform(NSSelectorFromString("gestureChanged:"), with: sample)
+        #expect(driver.state.phase == .full)
+        #expect(feedback.opacity == 0 && (feedback.animationKeys() ?? []).isEmpty)
+    }
+
     @Test("the original driver retains terminal evidence after native transport loses its attachment",
           arguments: ["window", "configuration", "replacement"])
     func terminalReceiptSurvivesTransportLoss(boundary: String) throws {

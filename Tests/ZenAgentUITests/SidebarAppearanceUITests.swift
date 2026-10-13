@@ -20,7 +20,8 @@ final class SidebarAppearanceUITests: XCTestCase {
             XCTAssertEqual(readable.minY, app.frame.minY + safeTop, accuracy: 1,
                            "The status-area fade must preserve the existing readable top inset")
             XCTAssertEqual(topEdge.minY, app.frame.minY, accuracy: 1)
-            XCTAssertEqual(topEdge.height, safeTop, accuracy: 1)
+            XCTAssertEqual(topEdge.height, safeTop + 48, accuracy: 1,
+                           "Progressive blur must extend below the status area and taper over actual content")
             XCTAssertEqual(topEdge.width, app.frame.width, accuracy: 1)
         } else {
             XCTFail("The native readable viewport must be measurable")
@@ -41,6 +42,11 @@ final class SidebarAppearanceUITests: XCTestCase {
         XCTAssertEqual(top.midY, app.frame.minY + radius, accuracy: 1)
         XCTAssertEqual(bottom.midX, app.frame.minX + radius, accuracy: 1)
         XCTAssertEqual(bottom.midY, app.frame.maxY - radius, accuracy: 1)
+        guard let sheet = rect("surfaceFrame", from: native) else {
+            XCTFail("The translated native sheet must expose its frame")
+            return
+        }
+        XCTAssertEqual(sheet.minX - top.maxX, top.minX - app.frame.minX, accuracy: 1)
     }
 
     @MainActor

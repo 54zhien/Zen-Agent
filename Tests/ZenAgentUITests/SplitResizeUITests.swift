@@ -2,6 +2,35 @@ import XCTest
 
 final class SplitResizeUITests: XCTestCase {
     @MainActor
+    func testDragToTopClosesSplitAndImmediatelyAllowsSidebar() {
+        dragClosedSplitAllowsSidebar(toTop: true)
+    }
+
+    @MainActor
+    func testDragToBottomClosesSplitAndImmediatelyAllowsSidebar() {
+        dragClosedSplitAllowsSidebar(toTop: false)
+    }
+
+    @MainActor
+    private func dragClosedSplitAllowsSidebar(toTop: Bool) {
+        let app = occupiedSplit()
+        let divider = app.descendants(matching: .any)["split-divider"]
+        let handle = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let destination = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: toTop ? 0.015 : 0.985))
+        handle.press(forDuration: 0.15, thenDragTo: destination)
+        expect { !divider.exists && app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
+        printDiagnostics(app, context: "after drag closure before Sidebar")
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.005, dy: 0.45))
+        edge.press(forDuration: 0.08, thenDragTo: edge.withOffset(CGVector(dx: 170, dy: 0)))
+        let settings = app.buttons["sidebar-settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 10), "The first edge swipe after drag closure must open Sidebar")
+        printDiagnostics(app, context: "after drag closure Sidebar swipe")
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
     func testExplicitCloseTopKeepsTheSecondaryConversationEditable() {
         closePane(action: "关闭上方窗格", survivorID: "preview-ui-10", retiredID: "preview-ui-11")
     }
