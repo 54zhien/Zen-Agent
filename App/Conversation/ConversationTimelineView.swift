@@ -370,7 +370,7 @@ struct ConversationTimelineView: View {
                     applyScrollRequest(request)
                 }
             }
-            .scrollClipDisabled()
+            .scrollClipDisabled(overdrawsStatusArea)
             .scrollEdgeEffectStyle(.soft, for: .bottom)
             .scrollEdgeEffectHidden(true, for: .top)
             .onChange(of: projection) { _, _ in surfaceLift?.invalidateTopEdge?() }
@@ -391,6 +391,14 @@ struct ConversationTimelineView: View {
 
     private var scrollCoordinateSpace: String {
         "conversation-timeline-scroll-\(projection.conversationID)"
+    }
+
+    private var overdrawsStatusArea: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.environment["ZEN_TIMELINE_CLIPPED_DIAGNOSTIC"] != "1"
+#else
+        true
+#endif
     }
 
     private var contentCoordinateSpace: String {

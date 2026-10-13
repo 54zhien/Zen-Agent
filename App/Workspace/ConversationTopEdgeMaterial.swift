@@ -21,6 +21,10 @@ final class ConversationTopEdgeMaterial: UIImageView {
     private let clockTarget = TopEdgeDisplayLinkTarget()
     private let fade = CAGradientLayer()
     private(set) var captureCount = 0
+    private(set) var captureAttempts = 0
+    private(set) var captureFailures = 0
+    private(set) var lastCaptureMilliseconds = 0.0
+    private(set) var lastRenderMilliseconds = 0.0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -118,12 +122,17 @@ final class ConversationTopEdgeMaterial: UIImageView {
         }
         guard let renderer else { return }
         var complete = false
+        captureAttempts += 1
+        let captureStart = CACurrentMediaTime()
         let captured = renderer.image { context in
             color.setFill()
             context.fill(CGRect(origin: .zero, size: size))
             complete = source.drawHierarchy(in: source.bounds, afterScreenUpdates: false)
         }
+        lastCaptureMilliseconds = (CACurrentMediaTime() - captureStart) * 1000
+        if !complete { captureFailures += 1 }
         guard complete, let input = captured.cgImage else { return }
+        let renderStart = CACurrentMediaTime()
         let original = CIImage(cgImage: input)
         let extra = max(0, size.height - bounds.height) * scale
         let gradient = CIFilter.linearGradient()
@@ -139,6 +148,7 @@ final class ConversationTopEdgeMaterial: UIImageView {
         guard let output = blur.outputImage,
               let rendered = Self.context.createCGImage(output, from: crop) else { return }
         image = UIImage(cgImage: rendered, scale: scale, orientation: .up)
+        lastRenderMilliseconds = (CACurrentMediaTime() - renderStart) * 1000
         captureCount += 1
         dirty = false
     }

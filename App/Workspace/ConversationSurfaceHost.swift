@@ -167,6 +167,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             fields.append("surfaceFrame=\(surfaceView.convert(surfaceView.bounds, to: window))")
             fields.append("topEdgeFrame=\(topEdge.convert(topEdge.bounds, to: window))")
             fields.append("topEdgeCaptures=\(topEdge.captureCount)")
+            fields.append("topEdgeAttempts=\(topEdge.captureAttempts);topEdgeFailures=\(topEdge.captureFailures);topEdgeCaptureMs=\(topEdge.lastCaptureMilliseconds);topEdgeRenderMs=\(topEdge.lastRenderMilliseconds)")
             func scrollViews(in node: UIView) -> [UIScrollView] {
                 let own = (node as? UIScrollView).flatMap { $0 is UITextView ? nil : $0 }.map { [$0] } ?? []
                 return own + node.subviews.flatMap { scrollViews(in: $0) }
@@ -266,6 +267,11 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         contentController.didMove(toParent: self)
         surfaceView.addSubview(topEdge)
         topEdge.configure(source: contentView, safeTop: view.safeAreaInsets.top)
+#if DEBUG
+        if ProcessInfo.processInfo.environment["ZEN_TOP_CAPTURE_DISABLED_DIAGNOSTIC"] == "1" {
+            topEdge.setWorkspaceVisible(false)
+        }
+#endif
         contentController.onContentLayout = { [weak topEdge] in topEdge?.invalidate() }
     }
 
@@ -616,7 +622,11 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     func setWorkspaceVisible(_ visible: Bool) {
         loadViewIfNeeded()
+#if DEBUG
+        topEdge.setWorkspaceVisible(visible && ProcessInfo.processInfo.environment["ZEN_TOP_CAPTURE_DISABLED_DIAGNOSTIC"] != "1")
+#else
         topEdge.setWorkspaceVisible(visible)
+#endif
         let contentView = contentController.view!
         if !visible {
             // A nested hosting accessibility tree can remain discoverable despite

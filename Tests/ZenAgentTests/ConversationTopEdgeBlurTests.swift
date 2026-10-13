@@ -88,3 +88,4 @@ struct ConversationTopEdgeBlurTests {
         return stride(from: 0, to: bytes.count, by: 4).map { Double(bytes[$0]) / 255 }
     }
 }
+
