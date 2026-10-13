@@ -36,7 +36,7 @@ struct WorkspaceComposerDockTests {
         try #require(root.view.keyboardLayoutGuide.layoutFrame.maxY > 0)
         try #require(root.view.keyboardLayoutGuide.layoutFrame.height <= root.view.safeAreaInsets.bottom + 1)
         #expect(!composer.nativeLiftInput.keyboardVisible)
-        #expect(composer.nativeLiftInput.canBeginSurfaceLift)
+        #expect(composer.nativeLiftInput.allowsLift)
     }
 
     @Test("surviving editor returns from Dock without turning native relocation into blur", arguments: [false, true], [false, true])
