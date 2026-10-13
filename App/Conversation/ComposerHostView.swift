@@ -251,6 +251,13 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         liftInteraction = ComposerLiftInteraction(surface: surface, editor: editor) { [weak self] in
             self?.nativeLiftInput ?? SurfaceLiftEligibility(composerSettled: false)
         }
+#if DEBUG
+        liftInteraction.nativeReadinessDiagnostic = { [weak self] in
+            guard let self else { return "detached" }
+            let displayed = self.surface.layer.presentation()?.frame ?? self.surface.frame
+            return "motion=\(self.motion.phase),mounted=\(self.window != nil),bounds=\(self.bounds),surface=\(self.surface.frame),displayed=\(displayed),guide=\(self.keyboardLayoutGuide.layoutFrame),bottom=\(self.bottomConstraint.constant),gap=\(self.keyboardGap),radius=\(self.restingWindowCornerRadius),safeBottom=\(self.restingBottomSafeAreaInset),nativeSettled=\(self.nativeLiftInput.composerSettled)"
+        }
+#endif
         tap.require(toFail: liftInteraction.recognizer)
         surface.addGestureRecognizer(tap)
         NotificationCenter.default.addObserver(

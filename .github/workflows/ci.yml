@@ -398,6 +398,10 @@ jobs:
             echo "::notice::Stage 5 resize diagnostics: all unit tests and SplitResize UI; full slice gate remains required."
             TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SplitResizeUITests)
           fi
+          if [ "$GITHUB_REF_NAME" = "codex/split-lift-readiness-diagnostic-20261013" ]; then
+            echo "::notice::Bounded Split Lift layout diagnosis; full gate remains required."
+            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SplitContainerUITests -only-testing:ZenAgentUITests/PreviewHandoffUITests)
+          fi
           touch "$RUNNER_TEMP/test-start.marker"
 
           set +e
