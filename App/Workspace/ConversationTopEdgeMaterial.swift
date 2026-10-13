@@ -77,7 +77,11 @@ final class ConversationTopEdgeMaterial: UIImageView {
     @objc private func pause() { suspended = true; updateClock() }
     @objc private func resume() { suspended = false; invalidate() }
 
-    override func didMoveToWindow() { super.didMoveToWindow(); invalidate() }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { image = nil; renderTask?.cancel() }
+        invalidate()
+    }
     override func layoutSubviews() {
         super.layoutSubviews()
         CATransaction.begin()
@@ -144,7 +148,11 @@ final class ConversationTopEdgeMaterial: UIImageView {
         }
         lastCaptureMilliseconds = (CACurrentMediaTime() - captureStart) * 1000
         if !complete { captureFailures += 1 }
-        guard complete, let input = captured.cgImage else { return }
+        guard complete, let input = captured.cgImage else {
+            image = nil
+            backgroundColor = color
+            return
+        }
         let ticket = revision
         let sourceID = ObjectIdentifier(source)
         let windowID = ObjectIdentifier(window)
@@ -158,8 +166,12 @@ final class ConversationTopEdgeMaterial: UIImageView {
             defer { self.updateClock() }
             guard !Task.isCancelled, self.visible, !self.suspended, self.revision == ticket,
                   self.source.map(ObjectIdentifier.init) == sourceID,
-                  self.window.map(ObjectIdentifier.init) == windowID, self.bounds == frame,
-                  let result else { return }
+                  self.window.map(ObjectIdentifier.init) == windowID, self.bounds == frame else { return }
+            guard let result else {
+                self.image = nil
+                self.backgroundColor = .systemBackground
+                return
+            }
             self.image = UIImage(cgImage: result.image, scale: scale, orientation: .up)
             self.lastRenderMilliseconds = result.milliseconds
             self.captureCount += 1

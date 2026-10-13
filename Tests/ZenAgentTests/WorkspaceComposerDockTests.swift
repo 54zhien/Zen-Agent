@@ -5,6 +5,50 @@ import UIKit
 @Suite("Shared Composer native lifecycle", .serialized)
 @MainActor
 struct WorkspaceComposerDockTests {
+    @Test("surviving editor returns from Dock without turning native relocation into blur", arguments: [false, true], [false, true])
+    func focusedSurvivorReturnsToPortal(dockFirst: Bool, explicitBlur: Bool) async throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let root = ComposerDockTestRoot()
+        window.rootViewController = root; window.makeKeyAndVisible()
+        defer {
+            window.endEditing(true); window.isHidden = true
+            window.rootViewController = nil; previous?.makeKeyAndVisible()
+        }
+        for _ in 0..<40 where !root.didAppear { try await Task.sleep(for: .milliseconds(25)) }
+        try #require(root.didAppear && window.isKeyWindow)
+        let dock = WorkspaceComposerDockState()
+        let container = ComposerDockContainer(frame: root.view.bounds)
+        let portal = ComposerHostPortal(frame: root.view.bounds)
+        let owner = ComposerController(configuration: nil)
+        owner.draft.text = "surviving draft"
+        _ = owner.handle(.textAreaTapped)
+        root.view.addSubview(portal); root.view.addSubview(container)
+        dock.configure(container: container, activeID: "survivor", visible: true)
+        func update(usesDock: Bool) {
+            portal.update(configuration: configuration(text: owner.draft.text,
+                editing: owner.draft.presentationState == .editing, onFocus: { focused in
+                    _ = owner.handle(focused ? .textAreaTapped : .keyboardDismissed)
+                }), focusRequested: { owner.draft.presentationState == .editing },
+                suppressed: false, ownerID: "survivor", usesDock: usesDock, dock: dock)
+        }
+        update(usesDock: true)
+        try await Task.sleep(for: .milliseconds(250))
+        try #require(portal.composer.editor.isFirstResponder)
+        let editor = portal.composer.editor
+        if explicitBlur { _ = owner.handle(.conversationBackgroundTapped) }
+        if dockFirst { dock.configure(container: container, activeID: "survivor", visible: false) }
+        update(usesDock: false)
+        if !dockFirst { dock.configure(container: container, activeID: "survivor", visible: false) }
+        #expect(portal.composer.superview === portal)
+        #expect(editor === portal.composer.editor && editor.text == "surviving draft")
+        #expect(editor.isFirstResponder == !explicitBlur)
+        #expect((owner.draft.presentationState == .editing) == !explicitBlur)
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(editor.isFirstResponder == !explicitBlur)
+    }
+
     @Test("A parked resting Composer restores its window endpoint before the next input")
     func parkedConfigurationRestoresWindowEndpoint() throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)

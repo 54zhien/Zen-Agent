@@ -1,5 +1,6 @@
 import UIKit
 import Testing
+import SwiftUI
 @testable import ZenAgent
 
 @MainActor
@@ -19,6 +20,43 @@ private final class BlurStripeView: UIView {
 @Suite("Actual progressive content blur", .serialized)
 @MainActor
 struct ConversationTopEdgeBlurTests {
+    @Test("native scrolling keeps rendering for the current owner before scrolling stops")
+    func scrollingDoesNotStarveCurrentOwner() async throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive })
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let scroll = UIScrollView()
+        scroll.contentSize = CGSize(width: window.bounds.width, height: 1600)
+        let stripes = BlurStripeView(frame: CGRect(origin: .zero, size: scroll.contentSize))
+        scroll.addSubview(stripes)
+        let host = ConversationSurfaceViewController(content: BlurScrollFixture(scroll: scroll))
+        window.rootViewController = host; window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previousKey?.makeKey() }
+        host.view.layoutIfNeeded()
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        let edge = host.topEdge
+        try #require(edge.bounds.height > 0)
+        // Complete the real hierarchy's first paint before exercising the
+        // production scroll invalidation callback and asynchronous worker.
+        _ = UIGraphicsImageRenderer(size: host.contentController.view.bounds.size).image { _ in
+            _ = host.contentController.view.drawHierarchy(in: host.contentController.view.bounds, afterScreenUpdates: true)
+        }
+        for sample in 1...3 {
+            let before = edge.captureCount
+            driver.invalidateTopEdge?()
+            edge.refreshIfNeeded()
+            try #require(edge.renderTaskForTesting != nil)
+            scroll.setContentOffset(CGPoint(x: 0, y: CGFloat(sample) * 24), animated: false)
+            driver.invalidateTopEdge?()
+            await edge.awaitRenderForTesting()
+            #expect(edge.captureCount > before,
+                "content changes during a pending render must not prevent all visible-owner commits")
+            #expect(edge.image != nil)
+        }
+    }
+
     @Test(arguments: [UIUserInterfaceStyle.light, .dark])
     func actualPixelsTaperAndRespectAppearance(style: UIUserInterfaceStyle) async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
@@ -101,4 +139,11 @@ struct ConversationTopEdgeBlurTests {
         try #require(drawn)
         return stride(from: 0, to: bytes.count, by: 4).map { Double(bytes[$0]) / 255 }
     }
+}
+
+@MainActor
+private struct BlurScrollFixture: UIViewRepresentable {
+    let scroll: UIScrollView
+    func makeUIView(context: Context) -> UIScrollView { scroll }
+    func updateUIView(_ view: UIScrollView, context: Context) {}
 }

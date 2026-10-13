@@ -263,6 +263,7 @@ final class SplitResizeUITests: XCTestCase {
     private func occupiedSplit() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
         app.launch()
         app.openWorkspaceSidebar()
         let entry = app.buttons["split-entry"]
