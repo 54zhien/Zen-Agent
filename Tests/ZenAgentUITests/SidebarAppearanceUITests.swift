@@ -19,6 +19,10 @@ final class SidebarAppearanceUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [unexpected], timeout: 1), .timedOut,
                        "An unchanged visible page must reuse its captured strip")
         let duringScroll = metric("topEdgeScrollCaptures", from: native) ?? 0
+        guard let beforeOffset = nativeScrollOffset(from: native) else {
+            XCTFail("The native timeline must expose its actual scroll offset")
+            return
+        }
         let timeline = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         XCTAssertTrue(timeline.isHittable)
         timeline.swipeDown(velocity: .slow)
@@ -27,6 +31,11 @@ final class SidebarAppearanceUITests: XCTestCase {
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [progressed], timeout: 10), .completed,
                        "At least one result must commit while the native scroll phase is active")
+        guard let afterOffset = nativeScrollOffset(from: native) else {
+            XCTFail("The retained native timeline offset must remain measurable")
+            return
+        }
+        XCTAssertNotEqual(afterOffset.y, beforeOffset.y, "The real timeline must move during the gesture")
         print("TOP_EDGE_NATIVE_SCROLL \(native.value ?? "missing")")
         attach(app.screenshot(), named: "Custom top after real native scrolling")
     }
@@ -266,6 +275,19 @@ final class SidebarAppearanceUITests: XCTestCase {
               let field = value.components(separatedBy: ";").first(where: { $0.hasPrefix(key + "=") }),
               let number = Double(field.dropFirst(key.count + 1)) else { return nil }
         return CGFloat(number)
+    }
+
+    @MainActor
+    private func nativeScrollOffset(from element: XCUIElement) -> CGPoint? {
+        guard let value = element.value as? String,
+              let scroll = value.range(of: "nativeScroll="),
+              let start = value[scroll.upperBound...].range(of: ";offset=("),
+              let end = value[start.upperBound...].firstIndex(of: ")") else { return nil }
+        let values = value[start.upperBound..<end].split(separator: ",").compactMap {
+            Double($0.trimmingCharacters(in: .whitespaces))
+        }
+        guard values.count == 2 else { return nil }
+        return CGPoint(x: values[0], y: values[1])
     }
 
     @MainActor

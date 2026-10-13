@@ -30,10 +30,39 @@ final class ConversationTopEdgeMaterial: UIImageView {
 #if DEBUG
     func awaitRenderForTesting() async { await renderTask?.value }
     var renderTaskForTesting: Task<Void, Never>? { renderTask }
+    var beforeRenderForTesting: (@MainActor () async -> Void)?
+    var sourceIdentityForTesting: ObjectIdentifier? { source.map(ObjectIdentifier.init) }
     var samplingDiagnostic: String {
-        "topEdgePending=\(renderTask != nil);topEdgeDirty=\(dirty);topEdgeScrollCaptures=\(scrollCaptureCount)"
+        "topEdgePending=\(renderTask != nil);topEdgeDirty=\(dirty);topEdgeScrollCaptures=\(scrollCaptureCount);topEdgeScrollFrameIntervals=\(scrollFrameIntervals);topEdgeScrollMeanGapMs=\(scrollFrameIntervals > 0 ? scrollFrameTotalMs / Double(scrollFrameIntervals) : 0);topEdgeScrollMaxGapMs=\(scrollFrameMaxMs)"
     }
-    var scrolling = false
+    var scrolling = false {
+        didSet {
+            guard scrolling != oldValue else { return }
+            scrollFrameLink?.invalidate(); scrollFrameLink = nil
+            lastScrollFrame = nil
+            guard scrolling, window != nil else { return }
+            scrollFrameIntervals = 0; scrollFrameTotalMs = 0; scrollFrameMaxMs = 0
+            let link = CADisplayLink(target: clockTarget, selector: #selector(TopEdgeDisplayLinkTarget.scrollFrame(_:)))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+            link.add(to: .main, forMode: .common)
+            scrollFrameLink = link
+        }
+    }
+    private var scrollFrameLink: CADisplayLink?
+    private var lastScrollFrame: CFTimeInterval?
+    private var scrollFrameIntervals = 0
+    private var scrollFrameTotalMs = 0.0
+    private var scrollFrameMaxMs = 0.0
+    func recordScrollFrame(_ link: CADisplayLink) {
+        guard scrolling else { link.invalidate(); return }
+        if let previous = lastScrollFrame {
+            let gap = (link.timestamp - previous) * 1000
+            scrollFrameIntervals += 1
+            scrollFrameTotalMs += gap
+            scrollFrameMaxMs = max(scrollFrameMaxMs, gap)
+        }
+        lastScrollFrame = link.timestamp
+    }
     private var scrollCaptureCount = 0
 #endif
 
@@ -74,6 +103,9 @@ final class ConversationTopEdgeMaterial: UIImageView {
     func setWorkspaceVisible(_ value: Bool) {
         guard visible != value else { updateClock(); return }
         visible = value
+#if DEBUG
+        if !value { scrolling = false }
+#endif
         if !value { image = nil; renderTask?.cancel() }
         invalidate()
     }
@@ -90,11 +122,20 @@ final class ConversationTopEdgeMaterial: UIImageView {
     // Content changes request the next sample without starving the in-flight
     // snapshot of this same visible owner during continuous native scrolling.
     func invalidateContent() { dirty = true; updateClock() }
-    @objc private func pause() { suspended = true; updateClock() }
+    @objc private func pause() {
+        suspended = true
+#if DEBUG
+        scrolling = false
+#endif
+        updateClock()
+    }
     @objc private func resume() { suspended = false; invalidate() }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+#if DEBUG
+        if window == nil { scrolling = false }
+#endif
         if window == nil { image = nil; renderTask?.cancel() }
         invalidate()
     }
@@ -175,7 +216,14 @@ final class ConversationTopEdgeMaterial: UIImageView {
         let frame = bounds
         let payload = TopEdgeBlurInput(image: input, safeTop: safeTop, height: bounds.height,
             captureHeight: size.height, scale: scale)
+#if DEBUG
+        let beforeRender = beforeRenderForTesting
+        let capturedWhileScrolling = scrolling
+#endif
         renderTask = Task { [weak self] in
+#if DEBUG
+            await beforeRender?()
+#endif
             let result = await Self.worker.render(payload)
             guard let self else { return }
             self.renderTask = nil
@@ -192,7 +240,7 @@ final class ConversationTopEdgeMaterial: UIImageView {
             self.lastRenderMilliseconds = result.milliseconds
             self.captureCount += 1
 #if DEBUG
-            if self.scrolling { self.scrollCaptureCount += 1 }
+            if capturedWhileScrolling && self.scrolling { self.scrollCaptureCount += 1 }
 #endif
         }
     }
@@ -244,4 +292,10 @@ private final class TopEdgeDisplayLinkTarget: NSObject {
         guard let owner else { link.invalidate(); return }
         owner.refreshIfNeeded()
     }
+#if DEBUG
+    @objc func scrollFrame(_ link: CADisplayLink) {
+        guard let owner else { link.invalidate(); return }
+        owner.recordScrollFrame(link)
+    }
+#endif
 }

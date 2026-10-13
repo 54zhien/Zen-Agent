@@ -45,6 +45,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var widthConstraint: NSLayoutConstraint!
     private var heightConstraint: NSLayoutConstraint!
     private var bottomConstraint: NSLayoutConstraint!
+    private weak var keyboardAnchorWindow: UIWindow?
     private var configuration: Configuration?
     private var currentState: ComposerPresentationState = .resting
     private var keyboardTiming: (duration: TimeInterval, options: UIView.AnimationOptions)?
@@ -54,7 +55,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var measuredWidth: CGFloat = -1
     private var measuredFont: UIFont?
     private var measuredHeight: CGFloat = 0
-    private var lastHostWidth: CGFloat = -1
+    private var lastHostSize = CGSize.zero
     private let windowCornerGeometry = WindowCornerGeometry()
     private var lastWindowCornerRadius: CGFloat = -1
     private var lastBottomSafeAreaInset: CGFloat = -1
@@ -279,6 +280,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        bindKeyboardAnchor()
         if window != nil {
             // A parked bridge can render its detached fallback while these
             // cached window metrics still describe the previous attachment.
@@ -300,12 +302,36 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         }
     }
 
-#if DEBUG
     override func didMoveToSuperview() {
         super.didMoveToSuperview()
+        bindKeyboardAnchor()
+#if DEBUG
         liftInteraction?.recordHostLifecycle("superview=\(String(describing: superview.map { type(of: $0) }))")
-    }
 #endif
+    }
+
+    private func bindKeyboardAnchor() {
+        guard bottomConstraint != nil else { return }
+        let nextWindow = superview?.window
+        guard keyboardAnchorWindow !== nextWindow || !bottomConstraint.isActive else { return }
+        let spacing = bottomConstraint.constant
+        bottomConstraint.isActive = false
+        keyboardAnchorWindow = nextWindow
+        // The focused editor can move from the shared dock through a shortened
+        // Split portal into Single without a keyboard-frame notification. Keep
+        // its anchor in that same native Window instead of the old local guide.
+        let guide = nextWindow?.keyboardLayoutGuide ?? keyboardLayoutGuide
+        guide.usesBottomSafeArea = true
+        guide.followsUndockedKeyboard = false
+        bottomConstraint = surface.bottomAnchor.constraint(equalTo: guide.topAnchor, constant: spacing)
+        bottomConstraint.isActive = true
+        setNeedsLayout()
+    }
+
+    private var activeKeyboardFrame: CGRect {
+        guard let window, keyboardAnchorWindow === window else { return keyboardLayoutGuide.layoutFrame }
+        return convert(window.keyboardLayoutGuide.layoutFrame, from: window)
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -315,8 +341,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let radius = restingWindowCornerRadius
         let restingGeometryChanged = motion.phase == .resting
             && (radius != lastWindowCornerRadius || restingBottomSafeAreaInset != lastBottomSafeAreaInset)
-        guard bounds.width > 0, bounds.width != lastHostWidth || restingGeometryChanged else { return }
-        lastHostWidth = bounds.width
+        guard bounds.width > 0, bounds.size != lastHostSize || restingGeometryChanged else { return }
+        lastHostSize = bounds.size
         lastWindowCornerRadius = radius
         lastBottomSafeAreaInset = restingBottomSafeAreaInset
         render(animated: false)
@@ -354,12 +380,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
 #if DEBUG
     var liftReadinessDiagnostic: String {
-        "\(liftInteraction.readinessDiagnostic);composerBounds=\(bounds);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder);overlayFocusEvents=\(overlayFocusEvents.joined(separator: " | "));dockEvents=\(dockEvents.joined(separator: " | "))"
+        "\(liftInteraction.readinessDiagnostic);composerBounds=\(bounds);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);activeKeyboardGuide=\(activeKeyboardFrame);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder);overlayFocusEvents=\(overlayFocusEvents.joined(separator: " | "));dockEvents=\(dockEvents.joined(separator: " | "))"
     }
 #endif
 
     var keyboardGap: CGFloat {
-        keyboardLayoutGuide.layoutFrame.minY - surface.frame.maxY
+        activeKeyboardFrame.minY - surface.frame.maxY
     }
 
     var nativeLiftInput: SurfaceLiftEligibility {
@@ -379,7 +405,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         return SurfaceLiftEligibility(isEditing: currentState == .editing || editor.isFirstResponder,
             hasMarkedText: editor.markedTextRange != nil,
             keyboardVisible: liftInteraction.keyboardVisible
-                || bounds.maxY - keyboardLayoutGuide.layoutFrame.minY > safeAreaInsets.bottom + 1,
+                || bounds.maxY - activeKeyboardFrame.minY > safeAreaInsets.bottom + 1,
             keyboardTransitioning: liftInteraction.keyboardTransitioning,
             composerSettled: settled, selectionActive: false, quoteDragActive: quotePhase != .idle)
     }
@@ -474,7 +500,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private func render(animated: Bool, generation: Int? = nil) {
         guard let configuration, bounds.width > 0 else { return }
         let width = bounds.width
-        let available = max(0, min(bounds.height, keyboardLayoutGuide.layoutFrame.minY))
+        let available = max(0, min(bounds.height, activeKeyboardFrame.minY))
         let editWidth = max(1, width - 2 * ComposerGeometry.edgeInset - 24)
         if measuredRevision != textRevision || abs(measuredWidth - editWidth) > 0.5
             || measuredFont != configuration.font {
@@ -598,7 +624,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         guard geometryProbe.superview != nil, let window else { return }
         geometryProbe.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
         let rootBottom = convert(CGPoint(x: 0, y: bounds.maxY), to: window).y
-        let guideTop = convert(CGPoint(x: 0, y: keyboardLayoutGuide.layoutFrame.minY),
+        let guideTop = convert(CGPoint(x: 0, y: activeKeyboardFrame.minY),
                                to: window).y
         let surfaceBottom = surface.convert(CGPoint(x: 0, y: surface.bounds.maxY),
                                             to: window).y

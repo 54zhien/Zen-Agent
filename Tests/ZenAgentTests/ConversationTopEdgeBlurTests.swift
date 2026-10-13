@@ -106,13 +106,16 @@ struct ConversationTopEdgeBlurTests {
         let oldTheme = try #require(edge.renderTaskForTesting)
         window.overrideUserInterfaceStyle = style == .light ? .dark : .light
         root.view.layoutIfNeeded()
+        // UIKit applies its trait notifications as part of the native update.
+        // Flush that update before checking cancellation, not just the request.
+        source.setNeedsDisplay()
+        _ = UIGraphicsImageRenderer(size: root.view.bounds.size).image { _ in
+            _ = root.view.drawHierarchy(in: root.view.bounds, afterScreenUpdates: true)
+        }
+        #expect(edge.traitCollection.userInterfaceStyle == window.overrideUserInterfaceStyle)
         #expect(oldTheme.isCancelled, "theme changes must cancel the pending old-theme snapshot")
         await oldTheme.value
         #expect(edge.captureCount == 2 && edge.image == nil)
-        source.setNeedsDisplay()
-        _ = UIGraphicsImageRenderer(size: source.bounds.size).image { _ in
-            _ = source.drawHierarchy(in: source.bounds, afterScreenUpdates: true)
-        }
         edge.refreshIfNeeded()
         await edge.awaitRenderForTesting()
         let newTheme = try #require(edge.image)
