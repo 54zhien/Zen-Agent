@@ -25,7 +25,6 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
     private weak var diagnosticDriver: SurfaceLiftController?
     private weak var observedTouch: UITouch?
     private var recordedFirstChange = false
-    var nativeReadinessDiagnostic: (() -> String)?
 #endif
 
     init(surface: UIView, editor: UITextView, nativeInput: @escaping () -> SurfaceLiftEligibility) {
@@ -85,7 +84,7 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
             return "\(String(describing: type(of: peer))):\(peer.state.rawValue):\(peer.isEnabled):\(view)"
         }.joined(separator: ",")
         let driver = diagnosticDriver ?? configuration?.driver
-        gestureTrace.append("\(event);phase=\(String(describing: driver?.state.phase));progress=\(driver?.state.progress ?? 0);input=\(input);nativeLayout=\(nativeReadinessDiagnostic?() ?? "unavailable");touchPhase=\(observedTouch?.phase.rawValue ?? -1);peers=[\(peers)]")
+        gestureTrace.append("\(event);phase=\(String(describing: driver?.state.phase));progress=\(driver?.state.progress ?? 0);input=\(input);touchPhase=\(observedTouch?.phase.rawValue ?? -1);peers=[\(peers)]")
         if gestureTrace.count > 12 { gestureTrace.removeFirst(gestureTrace.count - 12) }
         // The native transport can disappear during handoff. Keep bounded,
         // observation-ignored evidence on the driver that began this gesture.
