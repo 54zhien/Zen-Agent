@@ -305,7 +305,7 @@ jobs:
     # FULL37317707058 passed all 954 Swift, 20 XCTest and 56 UI tests and
     # printed TEST SUCCEEDED, but the 45-minute job deadline cancelled cleanup.
     # This job headroom changes no per-test timeout, retry or suite selection.
-    timeout-minutes: 55
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@v4
 
