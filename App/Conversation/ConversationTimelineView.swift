@@ -372,7 +372,8 @@ struct ConversationTimelineView: View {
     }
 
     static func measuredTurnTop(viewportTop: Double, contentTop: Double,
-                                geometry: ScrollGeometry) -> Double? {
+                                geometry: ScrollGeometry,
+                                usesMaterializedContentCoordinates: Bool = false) -> Double? {
         let turnTop = viewportTop + geometry.offset
         // The two Turn coordinates come from one Preference measurement, while
         // ScrollGeometry arrives separately. Do not issue or acknowledge a target
