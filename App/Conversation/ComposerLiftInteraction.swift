@@ -107,12 +107,14 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
     }
 
     func checkReadiness() {
-        if !input.allowsLift {
+        let current = input
+        if !current.allowsLift {
             feedback.setReady(false)
             let driver = configuration?.driver
             let returning = driver?.state.phase == .settling
                 && driver?.state.pendingSettlement?.destination == .full
 #if DEBUG
+            driver?.recordReturnReadinessForTesting(current, protected: returning)
             if driver?.state.phase == .armed || driver?.state.phase == .lifting {
                 recordGesture("readinessInvalidated")
             }

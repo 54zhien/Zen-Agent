@@ -131,7 +131,27 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private var sidebarShadowDirection: CGFloat = -1
 #if DEBUG
     // Tests pause the real animator so a busy simulator cannot skip settlement.
-    var liftAnimatorForTesting: UIViewPropertyAnimator? { animator }
+    var liftAnimatorForTesting: UIViewPropertyAnimator? {
+        if recordsLiftLifecycleForTesting {
+            let now = ProcessInfo.processInfo.systemUptime
+            if let previous = lastAnimatorSampleForTesting {
+                maxAnimatorSampleGapForTesting = max(maxAnimatorSampleGapForTesting, now - previous)
+            }
+            lastAnimatorSampleForTesting = now
+            animatorSampleCountForTesting += 1
+            if lastAnimatorPresenceForTesting != (animator != nil) {
+                recordLiftLifecycle("sample present=\(animator != nil)")
+                lastAnimatorPresenceForTesting = animator != nil
+            }
+        }
+        return animator
+    }
+    var recordsLiftLifecycleForTesting = false
+    private(set) var liftLifecycleForTesting: [String] = []
+    private var lastAnimatorSampleForTesting: TimeInterval?
+    private var lastAnimatorPresenceForTesting: Bool?
+    private(set) var animatorSampleCountForTesting = 0
+    private(set) var maxAnimatorSampleGapForTesting = 0.0
 
     var visibilityDiagnostic: String {
         "visible=\(workspaceVisible),hidden=\(view.isHidden),axHidden=\(contentController.view.accessibilityElementsHidden),suppressed=\(inputSuppressed),proxyHidden=\(returnProxyHidden)"
@@ -679,6 +699,12 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func cancelLiftAnimation() {
+        recordLiftLifecycle("cancel animator=\(animator != nil),identity=\(String(describing: animationIdentity))")
+#if DEBUG
+        if recordsLiftLifecycleForTesting, animator != nil {
+            recordLiftLifecycle("cancel-stack bounds=\(view.bounds),insets=\(view.safeAreaInsets),window=\(view.window != nil),key=\(view.window?.isKeyWindow == true),stack=\(Thread.callStackSymbols.prefix(12).joined(separator: " / "))")
+        }
+#endif
         animationIdentity = nil
         animator?.stopAnimation(true)
         animator = nil
@@ -727,10 +753,12 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     func animateLift(target: SurfaceGeometry.Pose, from: Double, to: Double,
                      restingPose: SurfaceGeometry.Pose = .full,
                      animated: Bool, completion: @escaping (Bool) -> Void) {
+        recordLiftLifecycle("request from=\(from),to=\(to),animated=\(animated),reduceMotion=\(UIAccessibility.isReduceMotionEnabled),animationsEnabled=\(UIView.areAnimationsEnabled)")
         cancelLiftAnimation()
         _ = apply(.init(from: restingPose, to: target, progress: CGFloat(from)))
         guard animated, !UIAccessibility.isReduceMotionEnabled, abs(to - from) > 0.000001 else {
             let applied = apply(.init(from: restingPose, to: target, progress: CGFloat(to)))
+            recordLiftLifecycle("synchronous-finish applied=\(applied)")
             completion(applied)
             return
         }
@@ -743,7 +771,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         }
         animation.isManualHitTestingEnabled = true
         animator = animation
+        recordLiftLifecycle("create id=\(identity),duration=0.28")
         animation.addCompletion { [weak self] position in
+            self?.recordLiftLifecycle("completion id=\(identity),position=\(position.rawValue),identityMatches=\(self?.animationIdentity == identity)")
             guard let self, self.animationIdentity == identity else { return }
             self.animationIdentity = nil
             self.animator = nil
@@ -752,10 +782,12 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             completion(position == .end)
         }
         animation.startAnimation()
+        recordLiftLifecycle("started id=\(identity),state=\(animation.state.rawValue),running=\(animation.isRunning)")
     }
 
     func convergeLift(to pose: SurfaceGeometry.Pose, animated: Bool,
                       completion: @escaping (Bool) -> Void) {
+        recordLiftLifecycle("converge animated=\(animated),reduceMotion=\(UIAccessibility.isReduceMotionEnabled)")
         // A reversed settlement starts at visible pixels, not the animator's
         // cached endpoint or a scalar projected onto a different Lift path.
         if animator != nil, let visible = surfaceView.layer.presentation() {
@@ -784,7 +816,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         }
         animation.isManualHitTestingEnabled = true
         animator = animation
+        recordLiftLifecycle("create id=\(identity),duration=0.12")
         animation.addCompletion { [weak self] position in
+            self?.recordLiftLifecycle("completion id=\(identity),position=\(position.rawValue),identityMatches=\(self?.animationIdentity == identity)")
             guard let self, self.animationIdentity == identity else { return }
             self.animationIdentity = nil
             self.animator = nil
@@ -793,6 +827,15 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             completion(position == .end)
         }
         animation.startAnimation()
+        recordLiftLifecycle("started id=\(identity),state=\(animation.state.rawValue),running=\(animation.isRunning)")
+    }
+
+    private func recordLiftLifecycle(_ event: @autoclosure () -> String) {
+#if DEBUG
+        guard recordsLiftLifecycleForTesting else { return }
+        liftLifecycleForTesting.append("\(ProcessInfo.processInfo.systemUptime):\(event())")
+        if liftLifecycleForTesting.count > 24 { liftLifecycleForTesting.removeFirst(liftLifecycleForTesting.count - 24) }
+#endif
     }
 
     override var childForStatusBarStyle: UIViewController? { contentController }
