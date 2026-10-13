@@ -147,6 +147,17 @@ struct WorkspaceComposerDockTests {
         #expect(composer.surfaceFrame == original)
         #expect(composer.nativeLiftInput.composerSettled)
         #expect(composer.editor === editor && composer.editor.text == "parked draft")
+
+        // A same-size reparent changes coordinates without a size callback or
+        // keyboard notification. Its window-aligned endpoint must still update.
+        let translated = UIView(frame: root.view.bounds.offsetBy(dx: 0, dy: 40))
+        root.view.addSubview(translated)
+        composer.frame = translated.bounds
+        translated.addSubview(composer)
+        composer.layoutIfNeeded()
+        #expect(composer.surfaceFrame.offsetBy(dx: 0, dy: 40) == original)
+        #expect(composer.nativeLiftInput.composerSettled)
+        #expect(composer.editor === editor && composer.editor.text == "parked draft")
     }
 
     @Test func parkedEditorReceivesKeyboardDismissalFromItsWindow() throws {

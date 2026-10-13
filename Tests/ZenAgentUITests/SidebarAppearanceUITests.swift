@@ -3,6 +3,36 @@ import UIKit
 
 final class SidebarAppearanceUITests: XCTestCase {
     @MainActor
+    func testKeyboardDismissalKeepsComposerMorphSettlement() {
+        let app = launchLightAppearance()
+        let native = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        let editor = app.textViews["conversation-composer-input"]
+        editor.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        editor.typeText("保留草稿\n第二行\n第三行")
+        func phaseIs(_ expected: String) -> Bool {
+            (native.value as? String)?.components(separatedBy: ";")
+                .first { $0.hasPrefix("composerMotionPhase=") } == "composerMotionPhase=" + expected
+        }
+        let editing = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in phaseIs("editing") }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [editing], timeout: 10), .completed)
+        let draft = editor.value as? String
+        if let guide = rect("activeKeyboardGuide", from: native) {
+            XCTAssertGreaterThan(guide.height, 1, "The real visible keyboard must update the native guide")
+        } else { XCTFail("The native keyboard guide must be measurable") }
+        let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
+        let resting = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in phaseIs("resting") }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [resting], timeout: 10), .completed)
+        XCTAssertEqual(editor.value as? String, draft)
+        if let gap = metric("keyboardGap", from: native), let spacing = metric("bottomSpacing", from: native) {
+            XCTAssertEqual(gap, spacing, accuracy: 0.5)
+        } else { XCTFail("The settled native keyboard gap must be measurable") }
+        print("COMPOSER_KEYBOARD_MORPH \(native.value ?? "missing")")
+        attach(app.screenshot(), named: "Composer settles after real keyboard dismissal")
+    }
+
+    @MainActor
     func testNativeScrollTimingWithTopSamplingDisabledControl() {
         let app = launchLightAppearance(captureDisabled: true)
         let native = app.descendants(matching: .any)["surface-native-interaction-probe"]
