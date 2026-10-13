@@ -1,6 +1,26 @@
 import XCTest
 
 final class SplitResizeUITests: XCTestCase {
+    func testLiveComposerReceiptIgnoresHistoricalEligibility() {
+        for field in ["eligibility", "sidebarEligibility"] {
+            let currentFalse = "host=fixture;\(field)=SurfaceLiftEligibility(isEditing: true, composerSettled: false);liftTrace=[input=SurfaceLiftEligibility(composerSettled: true)]"
+            let currentTrue = "host=fixture;\(field)=SurfaceLiftEligibility(isEditing: true, composerSettled: true);liftTrace=[input=SurfaceLiftEligibility(composerSettled: false)]"
+            XCTAssertEqual(composerSettled(in: currentFalse, field: field), false)
+            XCTAssertEqual(composerSettled(in: currentTrue, field: field), true)
+            XCTAssertNil(composerSettled(in: "host=fixture;liftTrace=[input=SurfaceLiftEligibility(composerSettled: true)]", field: field))
+        }
+    }
+
+    private func composerSettled(in receipt: String, field: String) -> Bool? {
+        guard let current = receipt.components(separatedBy: ";").first(where: { $0.hasPrefix(field + "=") }),
+              let marker = current.range(of: "composerSettled: ") else { return nil }
+        switch current[marker.upperBound...].prefix(while: { $0 != "," && $0 != ")" }) {
+        case "true": return true
+        case "false": return false
+        default: return nil
+        }
+    }
+
     @MainActor
     func testDragToTopClosesSplitAndImmediatelyAllowsSidebar() {
         dragClosedSplitAllowsSidebar(toTop: true)
@@ -63,8 +83,18 @@ final class SplitResizeUITests: XCTestCase {
             let receipt = native.value as? String ?? "missing"
             XCTAssertEqual(editorIdentity(receipt), focusedEditorIdentity)
             XCTAssertTrue(receipt.contains(";focused=true;"), "The surviving native editor must keep focus")
-            XCTAssertTrue(receipt.contains("composerSettled: true"),
+            XCTAssertEqual(composerSettled(in: receipt, field: "sidebarEligibility"), true,
                           "The relocated Composer must settle against its actual keyboard anchor")
+            func metric(_ key: String) -> Double? {
+                receipt.components(separatedBy: ";").first { $0.hasPrefix(key + "=") }
+                    .flatMap { Double($0.dropFirst(key.count + 1)) }
+            }
+            if let gap = metric("keyboardGap"), let spacing = metric("bottomSpacing") {
+                XCTAssertEqual(gap, spacing, accuracy: 0.5,
+                               "The actual surface bottom must remain pinned to its keyboard guide")
+            } else {
+                XCTFail("The live keyboard anchor gap must be measurable")
+            }
             XCTAssertEqual(receipt.components(separatedBy: ";").first { $0.hasPrefix("keyboardTraceWillHide=") },
                            keyboardHideCount, "Native relocation must not start a keyboard dismissal")
             XCTAssertTrue(app.keyboards.firstMatch.exists)

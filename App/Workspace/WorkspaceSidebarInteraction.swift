@@ -315,7 +315,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         if otherGestureRecognizer is UIScreenEdgePanGestureRecognizer {
-            record("priority excluded edge peer id=\(ObjectIdentifier(otherGestureRecognizer)),state=\(otherGestureRecognizer.state.rawValue),view=\(String(describing: otherGestureRecognizer.view.map { type(of: $0) }))")
+            record("priority sender=\(kind(gestureRecognizer)) excluded edge peer id=\(ObjectIdentifier(otherGestureRecognizer)),state=\(otherGestureRecognizer.state.rawValue),view=\(String(describing: otherGestureRecognizer.view.map { type(of: $0) }))")
             return false
         }
         guard otherGestureRecognizer !== edge, otherGestureRecognizer !== reverse,

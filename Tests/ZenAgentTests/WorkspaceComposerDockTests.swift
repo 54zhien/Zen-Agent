@@ -132,6 +132,21 @@ struct WorkspaceComposerDockTests {
                 "reattaching the same resting owner must not leave its detached fallback endpoint")
         #expect(composer.nativeLiftInput.composerSettled)
         #expect(composer.editor === editor && composer.editor.text == "parked draft")
+
+        // The surviving secondary first returns through a short manually
+        // framed portal, which later expands to Single without changing owner.
+        let portal = UIView(frame: CGRect(x: 0, y: root.view.bounds.midY,
+            width: root.view.bounds.width, height: root.view.bounds.height / 2))
+        root.view.addSubview(portal)
+        composer.frame = portal.bounds
+        portal.addSubview(composer)
+        composer.layoutIfNeeded()
+        portal.frame = root.view.bounds
+        composer.frame = portal.bounds
+        composer.layoutIfNeeded()
+        #expect(composer.surfaceFrame == original)
+        #expect(composer.nativeLiftInput.composerSettled)
+        #expect(composer.editor === editor && composer.editor.text == "parked draft")
     }
 
     @Test func parkedEditorReceivesKeyboardDismissalFromItsWindow() throws {

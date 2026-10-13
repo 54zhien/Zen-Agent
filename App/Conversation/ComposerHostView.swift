@@ -385,7 +385,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
 #if DEBUG
     var liftReadinessDiagnostic: String {
-        "\(liftInteraction.readinessDiagnostic);composerBounds=\(bounds);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);activeKeyboardGuide=\(activeKeyboardFrame);keyboardConstraintActive=\(bottomConstraint.isActive);keyboardConstraintInRoot=\(keyboardAnchorView?.constraints.contains { $0 === bottomConstraint } ?? false);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder);overlayFocusEvents=\(overlayFocusEvents.joined(separator: " | "));dockEvents=\(dockEvents.joined(separator: " | "))"
+        "\(liftInteraction.readinessDiagnostic);sidebarEligibility=\(nativeSidebarInput);composerBounds=\(bounds);composerWindowFrame=\(window.map { convert(bounds, to: $0) } ?? .zero);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);activeKeyboardGuide=\(activeKeyboardFrame);keyboardRootGuide=\(keyboardAnchorView?.keyboardLayoutGuide.layoutFrame ?? .zero);keyboardConstraintActive=\(bottomConstraint.isActive);keyboardConstraintInRoot=\(keyboardAnchorView?.constraints.contains { $0 === bottomConstraint } ?? false);keyboardGap=\(keyboardGap);bottomSpacing=\(-bottomConstraint.constant);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder);overlayFocusEvents=\(overlayFocusEvents.joined(separator: " | "));dockEvents=\(dockEvents.joined(separator: " | "))"
     }
 #endif
 
@@ -549,6 +549,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             // The bottom constraint belongs to the common root ancestor, not
             // this moved Composer. Layout that owner after updating the endpoint
             // so Dock-to-portal relocation cannot leave a stale surface origin.
+            // A same-valued constraint constant does not dirty that ancestor
+            // when SwiftUI moves the manually framed portal beneath it.
+            if abs(self.keyboardGap - layout.bottomSpacing) > 0.5
+                || abs(self.surface.frame.height - layout.size.height) > 0.5 {
+                self.keyboardAnchorView?.setNeedsLayout()
+            }
             self.keyboardAnchorView?.layoutIfNeeded()
             self.layoutIfNeeded()
             self.updateGeometryProbe()
