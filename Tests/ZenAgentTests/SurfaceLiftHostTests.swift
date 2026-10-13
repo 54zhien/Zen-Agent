@@ -105,14 +105,6 @@ struct SurfaceLiftHostTests {
     }
 
     @Test func settlingSurfaceActivationReversesAndReturnReentryIsIdempotent() async throws {
-        try await settlingActivation(captureDisabled: false)
-    }
-
-    @Test func settlingSurfaceActivationWithTopCaptureDisabledControl() async throws {
-        try await settlingActivation(captureDisabled: true)
-    }
-
-    private func settlingActivation(captureDisabled: Bool) async throws {
         let host = ConversationSurfaceViewController(content: Text("production activation"))
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
@@ -121,7 +113,6 @@ struct SurfaceLiftHostTests {
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
         host.view.layoutIfNeeded()
-        if captureDisabled { host.topEdge.setWorkspaceVisible(false) }
         let child = host.contentController
         let driver = SurfaceLiftController()
         driver.bind(host)

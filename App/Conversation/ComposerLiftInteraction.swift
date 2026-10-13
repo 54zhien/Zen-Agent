@@ -115,7 +115,6 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
                 || (driver?.state.phase == .settling
                     && driver?.state.pendingSettlement?.destination == .full)
 #if DEBUG
-            driver?.recordReturnReadinessForTesting(current, protected: returning)
             if driver?.state.phase == .armed || driver?.state.phase == .lifting {
                 recordGesture("readinessInvalidated")
             }

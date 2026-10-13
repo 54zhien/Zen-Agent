@@ -76,9 +76,6 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     private var edgeTouchOwner: Owner?
     private var edgeTouchOrigin: CGPoint?
     private var edgeRejected = false
-#if DEBUG
-    private var observedEdgeTouch: UITouch?
-#endif
 
     override convenience init(frame: CGRect) {
         self.init(frame: frame, edge: UIScreenEdgePanGestureRecognizer())
@@ -163,9 +160,6 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         edgeTouchOwner = nil
         edgeTouchOrigin = nil
         edgeRejected = false
-#if DEBUG
-        observedEdgeTouch = nil
-#endif
         if let state, state.blocksLift || state.isOpen { state.reset() }
     }
 
@@ -186,18 +180,6 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     }
 
 #if DEBUG
-    private func edgePeerSnapshot(in window: UIWindow) -> String {
-        func peers(in view: UIView) -> [UIScreenEdgePanGestureRecognizer] {
-            (view.gestureRecognizers ?? []).compactMap { $0 as? UIScreenEdgePanGestureRecognizer }
-                + view.subviews.flatMap { peers(in: $0) }
-        }
-        return peers(in: window).filter { $0 !== edge }.prefix(12).map { peer in
-            let view = peer.view.map { "\(type(of: $0)):\(ObjectIdentifier($0))" } ?? "nil"
-            let delegate = peer.delegate.map { String(describing: type(of: $0)) } ?? "nil"
-            return "id=\(ObjectIdentifier(peer)),type=\(type(of: peer)),edges=\(peer.edges.rawValue),state=\(peer.state.rawValue),enabled=\(peer.isEnabled),view=\(view),delegate=\(delegate)"
-        }.joined(separator: " | ")
-    }
-
     private func gestureSnapshot() -> String {
         guard let window = attachedWindow else { return "no-window" }
         let current = readContext?()
@@ -207,18 +189,12 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             if let candidate = view as? UIScrollView { scroll = candidate; break }
             hit = view.superview
         }
-        let touchPeers = (observedEdgeTouch?.gestureRecognizers ?? []).prefix(16).map {
-            "id=\(ObjectIdentifier($0)),type=\(type(of: $0)),state=\($0.state.rawValue),enabled=\($0.isEnabled)"
-        }.joined(separator: " | ")
-        return "edgeState=\(edge.state.rawValue),translation=\(edge.translation(in: window)),velocity=\(edge.velocity(in: window)),location=\(edge.location(in: window)),origin=\(String(describing: edgeTouchOrigin)),captured=\(String(describing: edgeTouchOwner)),currentHost=\(String(describing: current?.hostID)),currentPane=\(String(describing: current?.paneID)),window=\(ObjectIdentifier(window)),edgePeers=[\(edgePeerSnapshot(in: window))],touchPhase=\(observedEdgeTouch?.phase.rawValue ?? -1),touchPeers=[\(touchPeers)],scrollPan=\(scroll.map { "state=\($0.panGestureRecognizer.state.rawValue),translation=\($0.panGestureRecognizer.translation(in: window))" } ?? "none")"
+        return "edgeState=\(edge.state.rawValue),translation=\(edge.translation(in: window)),velocity=\(edge.velocity(in: window)),location=\(edge.location(in: window)),origin=\(String(describing: edgeTouchOrigin)),captured=\(String(describing: edgeTouchOwner)),currentHost=\(String(describing: current?.hostID)),currentPane=\(String(describing: current?.paneID)),window=\(ObjectIdentifier(window)),scrollPan=\(scroll.map { "state=\($0.panGestureRecognizer.state.rawValue),translation=\($0.panGestureRecognizer.translation(in: window))" } ?? "none")"
     }
 #endif
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if gestureRecognizer === edge { edgeTouchOwner = nil; edgeTouchOrigin = nil; edgeRejected = false }
-#if DEBUG
-        if gestureRecognizer === edge { observedEdgeTouch = touch }
-#endif
         guard let window = attachedWindow, let current = readContext?(), current.window === window,
               convert(bounds, to: window).contains(touch.location(in: window)) else {
             record("recv \(kind(gestureRecognizer)) rejected context=\(readContext?() != nil),anchor=\(bounds),window=\(window === attachedWindow)")
@@ -226,9 +202,6 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         }
         record("recv \(kind(gestureRecognizer)) opening=\(current.allowsOpening),closing=\(current.allowsClosing),point=\(touch.location(in: window)),anchor=\(convert(bounds, to: window))")
         if gestureRecognizer === edge {
-#if DEBUG
-            record("recv edge peers=[\(edgePeerSnapshot(in: current.window))]")
-#endif
             let eligible = state?.isOpen == false && current.allowsOpening
             let x = touch.location(in: window).x
             let distance = sign > 0 ? x - window.bounds.minX : window.bounds.maxX - x
@@ -314,12 +287,9 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        if otherGestureRecognizer is UIScreenEdgePanGestureRecognizer {
-            record("priority sender=\(kind(gestureRecognizer)) excluded edge peer id=\(ObjectIdentifier(otherGestureRecognizer)),state=\(otherGestureRecognizer.state.rawValue),view=\(String(describing: otherGestureRecognizer.view.map { type(of: $0) }))")
-            return false
-        }
         guard otherGestureRecognizer !== edge, otherGestureRecognizer !== reverse,
               otherGestureRecognizer !== closeTap,
+              !(otherGestureRecognizer is UIScreenEdgePanGestureRecognizer),
               let state, !state.isDragging, state.settlementID == nil,
               let current = readContext?(), current.window === attachedWindow,
               let otherView = otherGestureRecognizer.view, otherView.window === current.window else { return false }

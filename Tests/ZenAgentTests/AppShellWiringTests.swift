@@ -1390,17 +1390,11 @@ struct AppShellWiringTests {
         let driver = SurfaceLiftController()
         let host = ConversationSurfaceViewController(content:
             NewConversationView(model: fixture.model).environment(\.surfaceLiftController, driver))
-        driver.recordsReturnLifecycleForTesting = true
-        host.recordsLiftLifecycleForTesting = true
-        func printLifecycle(_ label: String) {
-            print("PREVIEW_RETURN_LIFECYCLE \(label) phase=\(driver.state.phase);pane=\(fixture.model.pane != nil);preview=\(fixture.model.previewContent.isPresented);prepared=\(fixture.model.previewContent.prepared != nil);samples=\(host.animatorSampleCountForTesting);maxSampleGap=\(host.maxAnimatorSampleGapForTesting);driver=[\(driver.returnLifecycleForTesting.joined(separator: " | "))];host=[\(host.liftLifecycleForTesting.joined(separator: " | "))]")
-        }
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
-        defer { printLifecycle("before-window-cleanup") }
         host.view.layoutIfNeeded()
         driver.bind(host)
         driver.configurePreview(enter: { fixture.model.enterPreview() },
@@ -1413,7 +1407,6 @@ struct AppShellWiringTests {
         #expect(fixture.model.pane == nil)
         #expect(driver.returnToFull())
         for _ in 0..<100 where host.liftAnimatorForTesting == nil { try await Task.sleep(for: .milliseconds(5)) }
-        if host.liftAnimatorForTesting == nil { printLifecycle("animator-missing-before-require") }
         let animator = try #require(host.liftAnimatorForTesting)
         animator.pauseAnimation()
         animator.fractionComplete = 0.2

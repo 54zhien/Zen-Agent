@@ -7,8 +7,6 @@ from pathlib import Path
 def test_scope(profile, branch):
     if not branch.startswith("codex/s5-") or profile is None:
         return "full"
-    if profile == {"mode": "device-feedback-red"} and branch == "codex/s5-device-feedback-20261013":
-        return "device-feedback-red"
     if profile == {"mode": "orientation-red"} and branch == "codex/s5-11-device-presentation":
         return "orientation-red"
     if profile == {"mode": "sidebar-red"} and branch == "codex/s5-12-sidebar":

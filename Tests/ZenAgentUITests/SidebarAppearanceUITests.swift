@@ -33,20 +33,6 @@ final class SidebarAppearanceUITests: XCTestCase {
     }
 
     @MainActor
-    func testNativeScrollTimingWithTopSamplingDisabledControl() {
-        let app = launchLightAppearance(captureDisabled: true)
-        let native = app.descendants(matching: .any)["surface-native-interaction-probe"]
-        let before = nativeScrollOffset(from: native)
-        let timeline = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
-        XCTAssertTrue(timeline.isHittable)
-        timeline.swipeDown(velocity: .slow)
-        XCTAssertNotEqual(nativeScrollOffset(from: native)?.y, before?.y)
-        XCTAssertEqual(metric("topEdgeCaptures", from: native), 0)
-        XCTAssertGreaterThan(metric("topEdgeScrollFrameIntervals", from: native) ?? 0, 0)
-        print("TOP_EDGE_DISABLED_SCROLL_TIMING \(native.value ?? "missing")")
-    }
-
-    @MainActor
     func testCustomTopReusesIdlePixelsAndUpdatesDuringNativeScrolling() {
         let app = launchLightAppearance()
         let native = app.descendants(matching: .any)["surface-native-interaction-probe"]
@@ -119,26 +105,6 @@ final class SidebarAppearanceUITests: XCTestCase {
             return
         }
         XCTAssertLessThan(luminance, 0.2)
-    }
-    @MainActor
-    func testSidebarEdgeWithTopSamplingDisabledControl() {
-        let app = launchLightAppearance(captureDisabled: true)
-        app.openWorkspaceSidebar()
-        XCTAssertTrue(app.buttons["sidebar-settings"].exists)
-    }
-
-    @MainActor
-    func testSidebarEdgeWithTimelineClippingControl() {
-        let app = launchLightAppearance(timelineClipped: true)
-        app.openWorkspaceSidebar()
-        XCTAssertTrue(app.buttons["sidebar-settings"].exists)
-    }
-
-    @MainActor
-    func testSidebarEdgeWithBothControls() {
-        let app = launchLightAppearance(captureDisabled: true, timelineClipped: true)
-        app.openWorkspaceSidebar()
-        XCTAssertTrue(app.buttons["sidebar-settings"].exists)
     }
     @MainActor
     func testRestingControlsShareTheWindowCornerCenters() {
@@ -300,14 +266,11 @@ final class SidebarAppearanceUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchLightAppearance(captureDisabled: Bool = false, timelineClipped: Bool = false,
-                                      dark: Bool = false) -> XCUIApplication {
+    private func launchLightAppearance() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments += ["-AppleInterfaceStyle", dark ? "Dark" : "Light"]
+        app.launchArguments += ["-AppleInterfaceStyle", "Light"]
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
-        if captureDisabled { app.launchEnvironment["ZEN_TOP_CAPTURE_DISABLED_DIAGNOSTIC"] = "1" }
-        if timelineClipped { app.launchEnvironment["ZEN_TIMELINE_CLIPPED_DIAGNOSTIC"] = "1" }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         return app

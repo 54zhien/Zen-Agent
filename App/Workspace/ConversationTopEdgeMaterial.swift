@@ -34,36 +34,9 @@ final class ConversationTopEdgeMaterial: UIImageView {
     var beforeRenderForTesting: (@MainActor () async -> Void)?
     var sourceIdentityForTesting: ObjectIdentifier? { source.map(ObjectIdentifier.init) }
     var samplingDiagnostic: String {
-        "topEdgePending=\(renderTask != nil);topEdgeDirty=\(dirty);topEdgeScrollCaptures=\(scrollCaptureCount);topEdgeScrollFrameIntervals=\(scrollFrameIntervals);topEdgeScrollMeanGapMs=\(scrollFrameIntervals > 0 ? scrollFrameTotalMs / Double(scrollFrameIntervals) : 0);topEdgeScrollMaxGapMs=\(scrollFrameMaxMs)"
+        "topEdgePending=\(renderTask != nil);topEdgeDirty=\(dirty);topEdgeScrollCaptures=\(scrollCaptureCount)"
     }
-    var scrolling = false {
-        didSet {
-            guard scrolling != oldValue else { return }
-            scrollFrameLink?.invalidate(); scrollFrameLink = nil
-            lastScrollFrame = nil
-            guard scrolling, window != nil else { return }
-            scrollFrameIntervals = 0; scrollFrameTotalMs = 0; scrollFrameMaxMs = 0
-            let link = CADisplayLink(target: clockTarget, selector: #selector(TopEdgeDisplayLinkTarget.scrollFrame(_:)))
-            link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
-            link.add(to: .main, forMode: .common)
-            scrollFrameLink = link
-        }
-    }
-    private var scrollFrameLink: CADisplayLink?
-    private var lastScrollFrame: CFTimeInterval?
-    private var scrollFrameIntervals = 0
-    private var scrollFrameTotalMs = 0.0
-    private var scrollFrameMaxMs = 0.0
-    func recordScrollFrame(_ link: CADisplayLink) {
-        guard scrolling else { link.invalidate(); return }
-        if let previous = lastScrollFrame {
-            let gap = (link.timestamp - previous) * 1000
-            scrollFrameIntervals += 1
-            scrollFrameTotalMs += gap
-            scrollFrameMaxMs = max(scrollFrameMaxMs, gap)
-        }
-        lastScrollFrame = link.timestamp
-    }
+    var scrolling = false
     private var scrollCaptureCount = 0
 #endif
 
@@ -302,10 +275,4 @@ private final class TopEdgeDisplayLinkTarget: NSObject {
         guard let owner else { link.invalidate(); return }
         owner.refreshIfNeeded()
     }
-#if DEBUG
-    @objc func scrollFrame(_ link: CADisplayLink) {
-        guard let owner else { link.invalidate(); return }
-        owner.recordScrollFrame(link)
-    }
-#endif
 }

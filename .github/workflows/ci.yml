@@ -28,8 +28,8 @@ jobs:
     name: iPad workspace axis
     needs: repo-hygiene
     runs-on: macos-26
-    # Native Axis completed in 126s on 1ec7313, but build/startup made the
-    # complete job exceed 20m. Preserve test waits and allow that full run.
+    # Native Axis passed in 126s, but build/startup exceeded the former 20m job budget.
+    # Preserve test waits and allow the complete job to finish.
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -375,10 +375,7 @@ jobs:
           python3 -B .github/scripts/test_stage5_test_profile.py
           TEST_SCOPE=$(python3 -B .github/scripts/stage5_test_profile.py)
           TEST_ARGS=(test)
-          if [ "$TEST_SCOPE" = "device-feedback-red" ]; then
-            echo "::notice::Device feedback diagnostic only; final exact-head full gate is still required."
-            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SidebarAppearanceUITests/testKeyboardDismissalKeepsComposerMorphSettlement -only-testing:ZenAgentUITests/SidebarAppearanceUITests/testCustomTopReusesIdlePixelsAndUpdatesDuringNativeScrolling -only-testing:ZenAgentUITests/SidebarAppearanceUITests/testNativeScrollTimingWithTopSamplingDisabledControl -only-testing:ZenAgentUITests/SplitResizeUITests/testLiveComposerReceiptIgnoresHistoricalEligibility -only-testing:ZenAgentUITests/SplitResizeUITests/testDragClosureKeepsFocusedSecondaryAndAllowsTheFirstSidebarSwipe -only-testing:ZenAgentUITests/SplitResizeUITests/testDragClosureWithVisibleKeyboardAllowsTheFirstSidebarSwipe)
-          elif [ "$TEST_SCOPE" = "review-red" ]; then
+          if [ "$TEST_SCOPE" = "review-red" ]; then
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
             TEST_ARGS+=(-only-testing:ZenAgentTests)
           elif [ "$TEST_SCOPE" = "orientation-red" ]; then
@@ -754,8 +751,8 @@ jobs:
 
           cat "$SUMMARY"
 
-      - name: Export native failure attachments
-        if: failure() || github.ref_name == 'codex/s5-device-feedback-20261013'
+      - name: Export native test attachments
+        if: always()
         continue-on-error: true
         shell: bash
         run: |
@@ -768,8 +765,8 @@ jobs:
               2>&1 | tee "$RUNNER_TEMP/native-ui-attachments.log"
           fi
 
-      - name: Upload test results on failure
-        if: failure() || github.ref_name == 'codex/s5-device-feedback-20261013'
+      - name: Upload native test evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: xcresult

@@ -17,15 +17,19 @@ private final class DiagnosticLongPressSample: UILongPressGestureRecognizer {
 @Suite("Composer Lift diagnostic lifetime", .serialized)
 @MainActor
 struct ComposerLiftDiagnosticTests {
-    @Test("accepted long press visibly arms the Composer and cancellation removes its animation")
-    func acceptedPressHasVisibleFeedback() throws {
+    @Test("accepted long press visibly arms the Composer and cancellation removes its animation",
+          arguments: [UIUserInterfaceStyle.light, .dark])
+    func acceptedPressHasVisibleFeedback(style: UIUserInterfaceStyle) throws {
         let host = ConversationSurfaceViewController(content: Color.clear)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.overrideUserInterfaceStyle = style
         window.rootViewController = host
         window.isHidden = false
         defer { window.isHidden = true; window.rootViewController = nil }
         host.view.layoutIfNeeded()
         let surface = UIView(frame: CGRect(x: 40, y: 680, width: 300, height: 70))
+        surface.backgroundColor = .systemBackground
+        surface.cornerConfiguration = .corners(radius: .containerConcentric(minimum: 22))
         let editor = UITextView()
         host.view.addSubview(surface)
         surface.addSubview(editor)
@@ -35,6 +39,21 @@ struct ComposerLiftDiagnosticTests {
         let input = ComposerLiftInteraction(surface: surface, editor: editor,
             nativeInput: { SurfaceLiftEligibility() })
         input.configure(.init(driver: driver, conversationID: "feedback", eligibility: { $0 }))
+        let originalFrame = surface.frame
+        let originalBounds = surface.bounds
+        func capture(_ phase: String) throws {
+            let renderer = UIGraphicsImageRenderer(size: CGSize(width: 340, height: 110))
+            var complete = false
+            let picture = renderer.image { context in
+                UIColor.systemBackground.resolvedColor(with: surface.traitCollection).setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 340, height: 110))
+                complete = surface.drawHierarchy(in: CGRect(x: 20, y: 20, width: 300, height: 70),
+                                                  afterScreenUpdates: true)
+            }
+            try #require(complete)
+            let bytes = try #require(picture.pngData())
+            Attachment.record(bytes, named: "Composer-feedback-\(style == .dark ? "dark" : "light")-\(phase).png")
+        }
         let sample = DiagnosticLongPressSample()
         sample.sample = .began
         _ = input.perform(NSSelectorFromString("gestureChanged:"), with: sample)
@@ -43,10 +62,14 @@ struct ComposerLiftDiagnosticTests {
         #expect(feedback.opacity > 0)
         #expect(!(feedback.animationKeys() ?? []).isEmpty)
         #expect(surface.transform == .identity, "feedback must not invalidate native Composer layout readiness")
+        #expect(surface.frame == originalFrame && surface.bounds == originalBounds)
+        try capture("armed")
         sample.sample = .cancelled
         _ = input.perform(NSSelectorFromString("gestureChanged:"), with: sample)
         #expect(driver.state.phase == .full)
         #expect(feedback.opacity == 0 && (feedback.animationKeys() ?? []).isEmpty)
+        #expect(surface.frame == originalFrame && surface.bounds == originalBounds)
+        try capture("cancelled")
     }
 
     @Test("the original driver retains terminal evidence after native transport loses its attachment",

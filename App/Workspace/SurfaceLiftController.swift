@@ -32,12 +32,7 @@ final class SurfaceLiftController {
 #if DEBUG
     @ObservationIgnored var lastNativeLiftReceipt = ""
     @ObservationIgnored var setTopEdgeScrolling: ((Bool) -> Void)?
-    @ObservationIgnored var recordsReturnLifecycleForTesting = false
-    @ObservationIgnored private(set) var returnLifecycleForTesting: [String] = []
     var returnTaskForTesting: Task<Void, Never>? { returnTask }
-    func recordReturnReadinessForTesting(_ input: SurfaceLiftEligibility, protected: Bool) {
-        recordReturnLifecycle("readiness-rejected input=\(input),protected=\(protected)")
-    }
 #endif
     @ObservationIgnored private var hostID: ObjectIdentifier?
     @ObservationIgnored private var interactiveDistance = 0.0
@@ -472,7 +467,6 @@ final class SurfaceLiftController {
     }
     @discardableResult
     func returnToFull(animated: Bool = true) -> Bool {
-        recordReturnLifecycle("request phase=\(state.phase),animated=\(animated),operation=\(returnOperation != nil),preview=\(previewIsPresented?() == true)")
         guard !overlayPresented, presentedOverlay?() != true else { return false }
         guard state.phase == .card || state.phase == .split || state.phase == .settling || state.phase == .lifting else { return false }
         if previewIsPresented?() == true, state.phase == .card, let prepareFull {
@@ -480,10 +474,8 @@ final class SurfaceLiftController {
             let operation = UUID()
             let binding = hostID
             returnOperation = operation
-            recordReturnLifecycle("prepare-start id=\(operation),binding=\(String(describing: binding))")
             returnTask = Task { [weak self] in
                 let ready = await prepareFull()
-                self?.recordReturnLifecycle("prepare-end id=\(operation),ready=\(ready),cancelled=\(Task.isCancelled),phase=\(String(describing: self?.state.phase)),operationMatches=\(self?.returnOperation == operation)")
                 guard let self, self.returnOperation == operation else { return }
                 self.returnTask = nil
                 self.returnOperation = nil
@@ -520,21 +512,13 @@ final class SurfaceLiftController {
     }
 
     private func startReturn(animated: Bool) {
-        recordReturnLifecycle("start-return phase=\(state.phase),animated=\(animated)")
         guard let settlement = state.requestReturn(visibleProgress: hasInteractivePose ? state.progress : capture?()) else { return }
-        recordReturnLifecycle("settlement id=\(settlement.identity),destination=\(settlement.destination),start=\(settlement.startProgress)")
         acceptedSplitIntent = nil
         interaction?(state.phase)
         animate?(settlement, animated)
     }
 
     private func cancelReturn() {
-        recordReturnLifecycle("cancel-return phase=\(state.phase),operation=\(returnOperation != nil),pending=\(String(describing: state.pendingSettlement?.destination))")
-#if DEBUG
-        if recordsReturnLifecycleForTesting, returnOperation != nil {
-            recordReturnLifecycle("cancel-return-stack=\(Thread.callStackSymbols.prefix(12).joined(separator: " / "))")
-        }
-#endif
         cancelExternalReturn?()
         pendingViewportReturn = nil
         committingViewportReturn = false
@@ -563,11 +547,6 @@ final class SurfaceLiftController {
     }
 
     func invalidate() {
-#if DEBUG
-        if recordsReturnLifecycleForTesting {
-            recordReturnLifecycle("invalidate phase=\(state.phase),operation=\(returnOperation != nil),stack=\(Thread.callStackSymbols.prefix(12).joined(separator: " / "))")
-        }
-#endif
         hasInteractivePose = false
         cancelReturn()
         clearSplitTargeting()
@@ -589,14 +568,6 @@ final class SurfaceLiftController {
         target = nil
     }
     func refreshCardAccessibility() { interaction?(state.phase) }
-
-    private func recordReturnLifecycle(_ event: @autoclosure () -> String) {
-#if DEBUG
-        guard recordsReturnLifecycleForTesting else { return }
-        returnLifecycleForTesting.append("\(ProcessInfo.processInfo.systemUptime):\(event())")
-        if returnLifecycleForTesting.count > 24 { returnLifecycleForTesting.removeFirst(returnLifecycleForTesting.count - 24) }
-#endif
-    }
 
     private func updatePresentation() {
         if let splitPreviewPose { _ = presentSplit?(splitPreviewPose) }
