@@ -20,7 +20,7 @@ private final class BlurStripeView: UIView {
 @MainActor
 struct ConversationTopEdgeBlurTests {
     @Test(arguments: [UIUserInterfaceStyle.light, .dark])
-    func actualPixelsTaperAndRespectAppearance(style: UIUserInterfaceStyle) throws {
+    func actualPixelsTaperAndRespectAppearance(style: UIUserInterfaceStyle) async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive })
         let previousKey = scene.windows.first { $0.isKeyWindow }
@@ -44,6 +44,7 @@ struct ConversationTopEdgeBlurTests {
         edge.layoutIfNeeded()
         let start = CFAbsoluteTimeGetCurrent()
         edge.refreshIfNeeded()
+        await edge.awaitRenderForTesting()
         let image = try #require(edge.image)
         #expect(edge.captureCount == 1)
         let top = try variance(image, y: 20)
@@ -56,9 +57,11 @@ struct ConversationTopEdgeBlurTests {
         print("TOP_EDGE_RENDER style=\(style.rawValue);captureMs=\((CFAbsoluteTimeGetCurrent() - start) * 1000);topVariance=\(top);bottomVariance=\(bottom);background=\(brightness)")
         edge.layoutIfNeeded()
         edge.refreshIfNeeded()
+        await edge.awaitRenderForTesting()
         #expect(edge.captureCount == 1, "idle layout must reuse the strip")
         edge.invalidate()
         edge.refreshIfNeeded()
+        await edge.awaitRenderForTesting()
         #expect(edge.captureCount == 2)
         edge.setWorkspaceVisible(false)
         edge.refreshIfNeeded()
@@ -88,4 +91,3 @@ struct ConversationTopEdgeBlurTests {
         return stride(from: 0, to: bytes.count, by: 4).map { Double(bytes[$0]) / 255 }
     }
 }
-

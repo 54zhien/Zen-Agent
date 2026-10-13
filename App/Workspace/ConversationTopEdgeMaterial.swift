@@ -7,7 +7,7 @@ import CoreImage.CIFilterBuiltins
 @MainActor
 final class ConversationTopEdgeMaterial: UIImageView {
     static let fadeHeight: CGFloat = 48
-    private static let context = CIContext(options: [.cacheIntermediates: false])
+    private static let worker = TopEdgeBlurWorker()
     private weak var source: UIView?
     private var safeTop: CGFloat = 0
     private var visible = true
@@ -17,6 +17,8 @@ final class ConversationTopEdgeMaterial: UIImageView {
     private var rendererSize = CGSize.zero
     private var rendererScale: CGFloat = 0
     private var lastBounds = CGRect.zero
+    private var revision: UInt64 = 0
+    private var renderTask: Task<Void, Never>?
     private var displayLink: CADisplayLink?
     private let clockTarget = TopEdgeDisplayLinkTarget()
     private let fade = CAGradientLayer()
@@ -25,6 +27,9 @@ final class ConversationTopEdgeMaterial: UIImageView {
     private(set) var captureFailures = 0
     private(set) var lastCaptureMilliseconds = 0.0
     private(set) var lastRenderMilliseconds = 0.0
+#if DEBUG
+    func awaitRenderForTesting() async { await renderTask?.value }
+#endif
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -63,11 +68,11 @@ final class ConversationTopEdgeMaterial: UIImageView {
     func setWorkspaceVisible(_ value: Bool) {
         guard visible != value else { updateClock(); return }
         visible = value
-        if !value { image = nil }
+        if !value { image = nil; renderTask?.cancel() }
         invalidate()
     }
 
-    func invalidate() { dirty = true; updateClock() }
+    func invalidate() { revision &+= 1; dirty = true; updateClock() }
     @objc private func pause() { suspended = true; updateClock() }
     @objc private func resume() { suspended = false; invalidate() }
 
@@ -84,7 +89,7 @@ final class ConversationTopEdgeMaterial: UIImageView {
     }
 
     private func updateClock() {
-        let active = visible && !suspended && window != nil && source?.window === window
+        let active = dirty && renderTask == nil && visible && !suspended && window != nil && source?.window === window
             && UIApplication.shared.applicationState == .active
             && bounds.width > 0 && bounds.height > 0 && safeTop > 0
         guard active else { displayLink?.invalidate(); displayLink = nil; return }
@@ -96,9 +101,13 @@ final class ConversationTopEdgeMaterial: UIImageView {
     }
 
     func refreshIfNeeded() {
-        guard dirty, visible, !suspended, let source, let window,
+        guard dirty, renderTask == nil, visible, !suspended, let source, let window,
               source.window === window, bounds.width > 0, bounds.height > 0 else { return }
         guard UIApplication.shared.applicationState == .active else { return }
+        // A failed snapshot consumes its invalidation too. Only a new content,
+        // layout or theme event may retry, never an idle display-link loop.
+        dirty = false
+        defer { updateClock() }
         let color = UIColor.systemBackground.resolvedColor(with: source.traitCollection)
         if UIAccessibility.isReduceTransparencyEnabled {
             image = nil
@@ -110,7 +119,10 @@ final class ConversationTopEdgeMaterial: UIImageView {
         // Convolution reads real content below the fade instead of smearing a
         // cropped edge. A modest strip bounds both capture and GPU allocation.
         let size = CGSize(width: bounds.width, height: min(source.bounds.height, bounds.height + 32))
-        let scale = window.screen.scale
+        // The strip is blurred rather than read as text. Point-resolution
+        // sampling bounds snapshot and convolution work; the final alpha fade
+        // reveals the original Retina content without a sharp resampling seam.
+        let scale: CGFloat = 1
         if rendererSize != size || rendererScale != scale {
             let format = UIGraphicsImageRendererFormat()
             format.scale = scale
@@ -132,25 +144,64 @@ final class ConversationTopEdgeMaterial: UIImageView {
         lastCaptureMilliseconds = (CACurrentMediaTime() - captureStart) * 1000
         if !complete { captureFailures += 1 }
         guard complete, let input = captured.cgImage else { return }
-        let renderStart = CACurrentMediaTime()
-        let original = CIImage(cgImage: input)
-        let extra = max(0, size.height - bounds.height) * scale
+        let ticket = revision
+        let sourceID = ObjectIdentifier(source)
+        let windowID = ObjectIdentifier(window)
+        let frame = bounds
+        let payload = TopEdgeBlurInput(image: input, safeTop: safeTop, height: bounds.height,
+            captureHeight: size.height, scale: scale)
+        renderTask = Task { [weak self] in
+            let result = await Self.worker.render(payload)
+            guard let self else { return }
+            self.renderTask = nil
+            defer { self.updateClock() }
+            guard !Task.isCancelled, self.visible, !self.suspended, self.revision == ticket,
+                  self.source.map(ObjectIdentifier.init) == sourceID,
+                  self.window.map(ObjectIdentifier.init) == windowID, self.bounds == frame,
+                  let result else { return }
+            self.image = UIImage(cgImage: result.image, scale: scale, orientation: .up)
+            self.lastRenderMilliseconds = result.milliseconds
+            self.captureCount += 1
+        }
+    }
+}
+
+// CGImage is an immutable, retained snapshot. No UIView, CGContext or mutable
+// bitmap storage crosses from the main actor to the serial image worker.
+private struct TopEdgeBlurInput: @unchecked Sendable {
+    let image: CGImage
+    let safeTop: CGFloat
+    let height: CGFloat
+    let captureHeight: CGFloat
+    let scale: CGFloat
+}
+
+private struct TopEdgeBlurOutput: @unchecked Sendable {
+    let image: CGImage
+    let milliseconds: Double
+}
+
+private actor TopEdgeBlurWorker {
+    private let context = CIContext(options: [.cacheIntermediates: false])
+
+    func render(_ input: TopEdgeBlurInput) -> TopEdgeBlurOutput? {
+        guard !Task.isCancelled else { return nil }
+        let start = CACurrentMediaTime()
+        let original = CIImage(cgImage: input.image)
+        let extra = max(0, input.captureHeight - input.height) * input.scale
         let gradient = CIFilter.linearGradient()
         gradient.point0 = CGPoint(x: 0, y: extra)
-        gradient.point1 = CGPoint(x: 0, y: max(extra + 1, size.height * scale - safeTop * scale))
+        gradient.point1 = CGPoint(x: 0, y: max(extra + 1, input.captureHeight * input.scale - input.safeTop * input.scale))
         gradient.color0 = CIColor(red: 0, green: 0, blue: 0)
         gradient.color1 = CIColor(red: 1, green: 1, blue: 1)
         let blur = CIFilter.maskedVariableBlur()
         blur.inputImage = original.clampedToExtent()
         blur.mask = gradient.outputImage?.cropped(to: original.extent)
-        blur.radius = Float(16 * scale)
-        let crop = CGRect(x: 0, y: extra, width: original.extent.width, height: bounds.height * scale)
-        guard let output = blur.outputImage,
-              let rendered = Self.context.createCGImage(output, from: crop) else { return }
-        image = UIImage(cgImage: rendered, scale: scale, orientation: .up)
-        lastRenderMilliseconds = (CACurrentMediaTime() - renderStart) * 1000
-        captureCount += 1
-        dirty = false
+        blur.radius = Float(16 * input.scale)
+        let crop = CGRect(x: 0, y: extra, width: original.extent.width, height: input.height * input.scale)
+        guard let output = blur.outputImage, !Task.isCancelled,
+              let rendered = context.createCGImage(output, from: crop), !Task.isCancelled else { return nil }
+        return TopEdgeBlurOutput(image: rendered, milliseconds: (CACurrentMediaTime() - start) * 1000)
     }
 }
 

@@ -3,6 +3,27 @@ import UIKit
 
 final class SidebarAppearanceUITests: XCTestCase {
     @MainActor
+    func testDarkProgressiveTopAndActuallyExpandedSidebar() {
+        let app = launchLightAppearance(dark: true)
+        let native = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        let rendered = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (self.metric("topEdgeCaptures", from: native) ?? 0) > 0
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [rendered], timeout: 10), .completed)
+        attach(app.screenshot(), named: "Dark full page progressive top")
+        app.openWorkspaceSidebar()
+        XCTAssertTrue(app.buttons["sidebar-settings"].isHittable)
+        let capture = app.screenshot()
+        attach(capture, named: "Dark actually expanded Sidebar and continuous corners")
+        let rail = app.descendants(matching: .any)["sidebar-rail"]
+        guard let luminance = sampledLuminance(capture, appFrame: app.frame,
+            at: CGPoint(x: rail.frame.midX, y: rail.frame.midY)) else {
+            XCTFail("The expanded dark Sidebar must have measurable pixels")
+            return
+        }
+        XCTAssertLessThan(luminance, 0.2)
+    }
+    @MainActor
     func testSidebarEdgeWithTopSamplingDisabledControl() {
         let app = launchLightAppearance(captureDisabled: true)
         app.openWorkspaceSidebar()
@@ -182,9 +203,10 @@ final class SidebarAppearanceUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchLightAppearance(captureDisabled: Bool = false, timelineClipped: Bool = false) -> XCUIApplication {
+    private func launchLightAppearance(captureDisabled: Bool = false, timelineClipped: Bool = false,
+                                      dark: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments += ["-AppleInterfaceStyle", "Light"]
+        app.launchArguments += ["-AppleInterfaceStyle", dark ? "Dark" : "Light"]
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
         if captureDisabled { app.launchEnvironment["ZEN_TOP_CAPTURE_DISABLED_DIAGNOSTIC"] = "1" }
