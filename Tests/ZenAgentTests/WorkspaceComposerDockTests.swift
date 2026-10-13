@@ -5,6 +5,42 @@ import UIKit
 @Suite("Shared Composer native lifecycle", .serialized)
 @MainActor
 struct WorkspaceComposerDockTests {
+    @Test("A parked resting Composer restores its window endpoint before the next input")
+    func parkedConfigurationRestoresWindowEndpoint() throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let root = ComposerDockTestRoot()
+        window.rootViewController = root
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previous?.makeKeyAndVisible()
+        }
+        root.view.layoutIfNeeded()
+        let composer = ComposerHostView(frame: root.view.bounds)
+        root.view.addSubview(composer)
+        let resting = configuration(text: "parked draft", editing: false)
+        composer.configure(resting)
+        composer.layoutIfNeeded()
+        let original = composer.surfaceFrame
+        let editor = composer.editor
+        try #require(composer.nativeLiftInput.composerSettled)
+
+        // The bridge configures a parked portal before register/install mounts
+        // it again. Its window-dependent endpoint must be recomputed on attach.
+        composer.removeFromSuperview()
+        try #require(composer.window == nil)
+        composer.configure(resting)
+        root.view.addSubview(composer)
+        composer.layoutIfNeeded()
+        #expect(composer.surfaceFrame == original,
+                "reattaching the same resting owner must not leave its detached fallback endpoint")
+        #expect(composer.nativeLiftInput.composerSettled)
+        #expect(composer.editor === editor && composer.editor.text == "parked draft")
+    }
+
     @Test func parkedEditorReceivesKeyboardDismissalFromItsWindow() throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         // This observes screen-scoped notifications, not native focus. Keep the

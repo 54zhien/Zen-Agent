@@ -174,6 +174,8 @@ final class SplitContainerUITests: XCTestCase {
 
     @MainActor
     func testActivePromptDoubleTapPresentsNativeCopyMenu() {
+        let monitor = monitorSimulatorNotificationBanner()
+        defer { removeUIInterruptionMonitor(monitor) }
         let app = launchedOccupiedSplit()
         app.activateWorkspacePane("preview-ui-11")
         let input = app.textViews["conversation-composer-input"]
@@ -248,11 +250,7 @@ final class SplitContainerUITests: XCTestCase {
     func testSecondaryLiftSurvivesDeletingTheOppositePaneAndReturnsToEditableSingle() {
         // The system's default interruption handler waits out notification
         // banners, which can consume the real ten-second Undo window.
-        let monitor = addUIInterruptionMonitor(withDescription: "Dismiss simulator notification banner") { banner in
-            guard banner.identifier == "NotificationShortLookView" else { return false }
-            banner.swipeUp()
-            return !banner.exists
-        }
+        let monitor = monitorSimulatorNotificationBanner()
         defer { removeUIInterruptionMonitor(monitor) }
         let app = launchedOccupiedSplit()
         let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
@@ -368,6 +366,15 @@ final class SplitContainerUITests: XCTestCase {
         let expectedY = anchorFrame.minY + (sourcePane.frame.height - sourceHeight) * 0.2
         XCTAssertEqual(requested.frame.minY, expectedY, accuracy: 3,
                        "The remounted Timeline must apply its queued anchor using the new viewport")
+    }
+
+    @MainActor
+    private func monitorSimulatorNotificationBanner() -> NSObjectProtocol {
+        addUIInterruptionMonitor(withDescription: "Dismiss simulator notification banner") { banner in
+            guard banner.identifier == "NotificationShortLookView" else { return false }
+            banner.swipeUp()
+            return !banner.exists
+        }
     }
 
     @MainActor
