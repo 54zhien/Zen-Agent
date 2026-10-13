@@ -3,6 +3,20 @@ import UIKit
 
 final class SidebarAppearanceUITests: XCTestCase {
     @MainActor
+    func testNativeScrollTimingWithTopSamplingDisabledControl() {
+        let app = launchLightAppearance(captureDisabled: true)
+        let native = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        let before = nativeScrollOffset(from: native)
+        let timeline = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        XCTAssertTrue(timeline.isHittable)
+        timeline.swipeDown(velocity: .slow)
+        XCTAssertNotEqual(nativeScrollOffset(from: native)?.y, before?.y)
+        XCTAssertEqual(metric("topEdgeCaptures", from: native), 0)
+        XCTAssertGreaterThan(metric("topEdgeScrollFrameIntervals", from: native) ?? 0, 0)
+        print("TOP_EDGE_DISABLED_SCROLL_TIMING \(native.value ?? "missing")")
+    }
+
+    @MainActor
     func testCustomTopReusesIdlePixelsAndUpdatesDuringNativeScrolling() {
         let app = launchLightAppearance()
         let native = app.descendants(matching: .any)["surface-native-interaction-probe"]

@@ -1,10 +1,44 @@
 import Testing
 import UIKit
+import SwiftUI
 @testable import ZenAgent
 
 @Suite("Shared Composer native lifecycle", .serialized)
 @MainActor
 struct WorkspaceComposerDockTests {
+    @Test("hidden window keyboard guide safe area must not block Lift in a zero-inset bridge")
+    func hiddenKeyboardWithZeroLocalInsetsRemainsLiftEligible() async throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let root = UIHostingController(rootView: ComposerHostBridge(
+            configuration: configuration(text: "hidden keyboard", editing: false), focusRequested: { false }))
+        root.safeAreaRegions = []
+        window.rootViewController = root; window.makeKeyAndVisible()
+        defer {
+            window.endEditing(true); window.isHidden = true
+            window.rootViewController = nil; previous?.makeKeyAndVisible()
+        }
+        func portal(in view: UIView) -> ComposerHostPortal? {
+            if let value = view as? ComposerHostPortal { return value }
+            return view.subviews.lazy.compactMap { portal(in: $0) }.first
+        }
+        var native: ComposerHostPortal?
+        for _ in 0..<40 where native == nil {
+            root.view.layoutIfNeeded()
+            native = portal(in: root.view)
+            if native == nil { try await Task.sleep(for: .milliseconds(25)) }
+        }
+        let composer = try #require(native?.composer)
+        try await Task.sleep(for: .milliseconds(250))
+        window.layoutIfNeeded(); composer.layoutIfNeeded()
+        try #require(window.safeAreaInsets.bottom > 0 && composer.safeAreaInsets.bottom == 0)
+        try #require(root.view.keyboardLayoutGuide.layoutFrame.maxY > 0)
+        try #require(root.view.keyboardLayoutGuide.layoutFrame.height <= root.view.safeAreaInsets.bottom + 1)
+        #expect(!composer.nativeLiftInput.keyboardVisible)
+        #expect(composer.nativeLiftInput.canBeginSurfaceLift)
+    }
+
     @Test("surviving editor returns from Dock without turning native relocation into blur", arguments: [false, true], [false, true])
     func focusedSurvivorReturnsToPortal(dockFirst: Bool, explicitBlur: Bool) async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)

@@ -9,6 +9,7 @@ final class ConversationTopEdgeMaterial: UIImageView {
     static let fadeHeight: CGFloat = 48
     private static let worker = TopEdgeBlurWorker()
     private weak var source: UIView?
+    private var contentOwner: ObjectIdentifier?
     private var safeTop: CGFloat = 0
     private var visible = true
     private var suspended = false
@@ -98,6 +99,15 @@ final class ConversationTopEdgeMaterial: UIImageView {
             invalidate()
         }
         updateClock()
+    }
+
+    func setContentOwner(_ value: ObjectIdentifier?) {
+        guard contentOwner != value else { return }
+        contentOwner = value
+#if DEBUG
+        scrolling = false
+#endif
+        invalidate()
     }
 
     func setWorkspaceVisible(_ value: Bool) {

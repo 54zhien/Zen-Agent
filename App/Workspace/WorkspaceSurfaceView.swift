@@ -431,6 +431,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 resize?.nativeLayout(receipt, context: layoutContext, slot: slot, model: model)
                 returnPresentation.nativeLayout(receipt, slot: slot, currentContext: layoutContext,
                     model: model, visibilityRevision: driver.workspaceVisibilityRevision)
+            }, contentOwner: model.flatMap {
+                (slot == $0.sourceSurfaceSlot ? $0.pane : $0.splitPane).map(ObjectIdentifier.init)
             }) { hosted }
         return surface
         .frame(width: frame.width, height: frame.height)

@@ -43,8 +43,7 @@ struct TopEdgeOwnerContinuityTests {
         edge.image = try #require(UIImage(systemName: "square.fill"))
         edge.refreshIfNeeded()
         let pending = try #require(edge.renderTaskForTesting)
-        for _ in 0..<40 where !gate.hasWaiter { await Task.yield() }
-        try #require(gate.hasWaiter)
+        await gate.awaitEntered()
         let source = try #require(edge.sourceIdentityForTesting)
         let frame = edge.bounds
         let count = edge.captureCount
@@ -88,10 +87,17 @@ struct TopEdgeOwnerContinuityTests {
 private final class OwnerBlurGate {
     private var open = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
-    var hasWaiter: Bool { !waiters.isEmpty }
+    private var entryWaiter: CheckedContinuation<Void, Never>?
+    func awaitEntered() async {
+        guard waiters.isEmpty else { return }
+        await withCheckedContinuation { entryWaiter = $0 }
+    }
     func wait() async {
         guard !open else { return }
-        await withCheckedContinuation { waiters.append($0) }
+        await withCheckedContinuation {
+            waiters.append($0)
+            entryWaiter?.resume(); entryWaiter = nil
+        }
     }
     func releaseOne() {
         guard !waiters.isEmpty else { return }
@@ -99,6 +105,7 @@ private final class OwnerBlurGate {
     }
     func releaseAll() {
         open = true
+        entryWaiter?.resume(); entryWaiter = nil
         let pending = waiters
         waiters.removeAll()
         pending.forEach { $0.resume() }

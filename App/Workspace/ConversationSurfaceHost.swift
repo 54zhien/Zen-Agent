@@ -17,6 +17,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var sidebarSettlement: UUID?
     var onSidebarSettled: ((UUID) -> Void)?
     var onNativeLayout: ((WorkspaceNativeLayoutReceipt?) -> Void)?
+    var contentOwner: ObjectIdentifier?
     let content: Content
 
     init(request: SurfaceGeometry.Request = .full, liftController: SurfaceLiftController? = nil,
@@ -29,6 +30,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
          sidebarOffset: CGFloat = 0, sidebarSettlement: UUID? = nil,
          onSidebarSettled: ((UUID) -> Void)? = nil,
          onNativeLayout: ((WorkspaceNativeLayoutReceipt?) -> Void)? = nil,
+         contentOwner: ObjectIdentifier? = nil,
          @ViewBuilder content: () -> Content) {
         self.request = request
         self.liftController = liftController
@@ -44,11 +46,13 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         self.sidebarSettlement = sidebarSettlement
         self.onSidebarSettled = onSidebarSettled
         self.onNativeLayout = onNativeLayout
+        self.contentOwner = contentOwner
         self.content = content()
     }
 
     func makeUIViewController(context: Context) -> ConversationSurfaceViewController<Content> {
         let controller = ConversationSurfaceViewController(content: content, request: request)
+        controller.topEdge.setContentOwner(contentOwner)
         liftController?.bind(controller)
         controller.bindBrowse(browseController)
         controller.bindDeletion(deleteAction, isPending: isDeletionPending)
@@ -63,6 +67,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: ConversationSurfaceViewController<Content>, context: Context) {
+        controller.topEdge.setContentOwner(contentOwner)
         // Content is installed once. Its own observed state drives updates; progress
         // must not replace the hosting root or invalidate the Timeline each frame.
         if let liftController {

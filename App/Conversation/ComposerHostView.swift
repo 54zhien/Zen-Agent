@@ -45,7 +45,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var widthConstraint: NSLayoutConstraint!
     private var heightConstraint: NSLayoutConstraint!
     private var bottomConstraint: NSLayoutConstraint!
-    private weak var keyboardAnchorWindow: UIWindow?
+    private weak var keyboardAnchorView: UIView?
     private var configuration: Configuration?
     private var currentState: ComposerPresentationState = .resting
     private var keyboardTiming: (duration: TimeInterval, options: UIView.AnimationOptions)?
@@ -313,14 +313,17 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private func bindKeyboardAnchor() {
         guard bottomConstraint != nil else { return }
         let nextWindow = superview?.window
-        guard keyboardAnchorWindow !== nextWindow || !bottomConstraint.isActive else { return }
+        let root = nextWindow?.rootViewController?.view
+        let nextAnchor = root?.window === nextWindow ? root : nil
+        guard keyboardAnchorView !== nextAnchor || !bottomConstraint.isActive else { return }
         let spacing = bottomConstraint.constant
         bottomConstraint.isActive = false
-        keyboardAnchorWindow = nextWindow
+        keyboardAnchorView = nextAnchor
         // The focused editor can move from the shared dock through a shortened
         // Split portal into Single without a keyboard-frame notification. Keep
-        // its anchor in that same native Window instead of the old local guide.
-        let guide = nextWindow?.keyboardLayoutGuide ?? keyboardLayoutGuide
+        // its anchor in that Window's stable root view instead of the old local
+        // guide. UIWindow itself does not provide a tracked keyboard rectangle.
+        let guide = nextAnchor?.keyboardLayoutGuide ?? keyboardLayoutGuide
         guide.usesBottomSafeArea = true
         guide.followsUndockedKeyboard = false
         bottomConstraint = surface.bottomAnchor.constraint(equalTo: guide.topAnchor, constant: spacing)
@@ -329,8 +332,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     private var activeKeyboardFrame: CGRect {
-        guard let window, keyboardAnchorWindow === window else { return keyboardLayoutGuide.layoutFrame }
-        return convert(window.keyboardLayoutGuide.layoutFrame, from: window)
+        guard let host = keyboardAnchorView, let window, host.window === window else {
+            return keyboardLayoutGuide.layoutFrame
+        }
+        return convert(host.keyboardLayoutGuide.layoutFrame, from: host)
     }
 
     override func layoutSubviews() {
