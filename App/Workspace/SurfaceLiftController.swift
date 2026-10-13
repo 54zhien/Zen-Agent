@@ -34,6 +34,7 @@ final class SurfaceLiftController {
     @ObservationIgnored var setTopEdgeScrolling: ((Bool) -> Void)?
     @ObservationIgnored var recordsReturnLifecycleForTesting = false
     @ObservationIgnored private(set) var returnLifecycleForTesting: [String] = []
+    var returnTaskForTesting: Task<Void, Never>? { returnTask }
     func recordReturnReadinessForTesting(_ input: SurfaceLiftEligibility, protected: Bool) {
         recordReturnLifecycle("readiness-rejected input=\(input),protected=\(protected)")
     }

@@ -111,16 +111,19 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
         if !current.allowsLift {
             feedback.setReady(false)
             let driver = configuration?.driver
-            let returning = driver?.state.phase == .settling
-                && driver?.state.pendingSettlement?.destination == .full
+            let returning = driver?.isPreparingReturn == true
+                || (driver?.state.phase == .settling
+                    && driver?.state.pendingSettlement?.destination == .full)
 #if DEBUG
             driver?.recordReturnReadinessForTesting(current, protected: returning)
             if driver?.state.phase == .armed || driver?.state.phase == .lifting {
                 recordGesture("readinessInvalidated")
             }
 #endif
-            // A freshly remounted editor must finish layout before it can start
-            // another Lift. That readiness does not cancel an existing Return.
+            // A remounted editor must settle before the next Lift. Its temporary
+            // native readiness cannot cancel Return preparation (still Card) or
+            // the subsequent Full settlement. Explicit invalidation still owns
+            // scene, navigation and cancellation changes on the driver.
             if !returning { driver?.invalidate(); origin = nil }
         }
         editor?.accessibilityCustomActions = configuration != nil

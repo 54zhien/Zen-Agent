@@ -6,6 +6,71 @@ import SwiftUI
 @Suite("Shared Composer native lifecycle", .serialized)
 @MainActor
 struct WorkspaceComposerDockTests {
+    @Test("temporary unmounted Composer readiness preserves Return preparation; explicit cancellation still wins",
+          arguments: [false, true])
+    func returnPreparationSurvivesDetachedComposer(explicitCancellation: Bool) async throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let host = ConversationSurfaceViewController(content: Text("prepared Return"))
+        window.rootViewController = host; window.makeKeyAndVisible()
+        host.view.layoutIfNeeded()
+        let driver = SurfaceLiftController()
+        let gate = ReturnReadinessGate()
+        var preview = false, prepared = false
+        var commits = 0, cancellations = 0
+        defer {
+            gate.release(); driver.unbind(host)
+            window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible()
+        }
+        driver.bind(host)
+        driver.configurePreview(enter: { preview = true; return true }, prepare: {
+            await gate.wait()
+            guard !Task.isCancelled else { return false }
+            prepared = true
+            return true
+        }, commit: {
+            commits += 1; prepared = false; preview = false
+            return true
+        }, cancel: { cancellations += 1; prepared = false }, isPresented: { preview }, label: { "Return" })
+        driver.configureReturnDestination { size, _ in CGRect(origin: .zero, size: size) }
+        let composer = ComposerHostView(frame: host.view.bounds)
+        host.view.addSubview(composer)
+        var config = configuration(text: "retained draft", editing: false)
+        config.liftInteraction = .init(driver: driver, conversationID: "prepared-return", eligibility: { $0 })
+        composer.configure(config); composer.layoutIfNeeded()
+        try #require(driver.arm(SurfaceLiftEligibility()))
+        try #require(driver.drag(upwardDistance: 220, eligibility: SurfaceLiftEligibility()))
+        try #require(driver.end(animated: false)?.destination == .card)
+        try #require(driver.returnToFull(animated: false))
+        await gate.waitUntilStarted()
+        let task = try #require(driver.returnTaskForTesting)
+        try #require(driver.isPreparingReturn && driver.state.phase == .card)
+        let before = cancellations
+        composer.removeFromSuperview()
+        try #require(composer.window == nil && !composer.nativeLiftInput.composerSettled)
+        composer.configure(config)
+        #expect(driver.isPreparingReturn && driver.state.phase == .card)
+        #expect(cancellations == before && !prepared && commits == 0)
+        if explicitCancellation {
+            driver.invalidate()
+            #expect(!driver.isPreparingReturn && driver.state.phase == .card)
+            #expect(cancellations == before + 1 && !prepared)
+        }
+        gate.release()
+        await task.value
+        #expect(commits == (explicitCancellation ? 0 : 1))
+        if explicitCancellation {
+            #expect(driver.state.phase == .card && driver.state.pendingSettlement == nil)
+        } else {
+            // Preparation completes before the native viewport handoff task.
+            #expect(driver.state.phase == .full
+                || (driver.state.phase == .settling && driver.state.pendingSettlement?.destination == .full))
+        }
+        #expect(preview == explicitCancellation && !prepared)
+        #expect(composer.editor.text == "retained draft")
+    }
+
     @Test("hidden window keyboard guide safe area must not block Lift in a zero-inset bridge")
     func hiddenKeyboardWithZeroLocalInsetsRemainsLiftEligible() async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
@@ -519,3 +584,23 @@ private final class ComposerDockTestRoot: UIViewController {
 }
 
 @MainActor private final class DockWindowKeyChanges { var count = 0 }
+
+@MainActor
+private final class ReturnReadinessGate {
+    private var started = false
+    private var released = false
+    private var start: CheckedContinuation<Void, Never>?
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    func wait() async {
+        started = true; start?.resume(); start = nil
+        guard !released else { return }
+        await withCheckedContinuation { releaseContinuation = $0 }
+    }
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { start = $0 }
+    }
+    func release() {
+        released = true; releaseContinuation?.resume(); releaseContinuation = nil
+    }
+}
