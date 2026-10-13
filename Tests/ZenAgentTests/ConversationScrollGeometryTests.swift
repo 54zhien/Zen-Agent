@@ -78,4 +78,23 @@ struct ConversationScrollGeometryTests {
             anchor: anchor, turnTop: convergedTop, geometry: converged))
         #expect(abs(converged.offset - convergedTarget) <= 0.5)
     }
+
+    @Test func freshTurnMeasurementReceivesTheCompletedScrollWithoutAnotherOffsetCallback() throws {
+        // Full CI38355408743: this frame and content coordinate agree with the
+        // native UIScrollView, but the last offset callback remained at 19964.6667.
+        let cached = ZenAgent.ScrollGeometry(viewportHeight: 704, contentHeight: 39707,
+                                              offset: 19964.666666666668)
+        let observed = try #require(ConversationTimelineView.measuredRestorationGeometry(
+            viewportTop: 140.6666666666606, contentTop: 20107.999999999993,
+            measuredViewportHeight: 704, geometry: cached))
+        #expect(abs(observed.offset - 19967.333333333332) < 0.000001)
+    }
+
+    @Test func aFreshViewportCannotAcknowledgeThePreviousViewportTarget() {
+        let previousViewport = ZenAgent.ScrollGeometry(viewportHeight: 716, contentHeight: 39707,
+                                                        offset: 19964.666666666668)
+        #expect(ConversationTimelineView.measuredRestorationGeometry(
+            viewportTop: 143.33333333332484, contentTop: 20107.999999999993,
+            measuredViewportHeight: 704, geometry: previousViewport) == nil)
+    }
 }

@@ -18,6 +18,8 @@ private struct ConversationTimelineTurnMeasurements: Equatable, Sendable {
     var viewportFrames: [String: CGRect] = [:]
     var contentTops: [String: Double] = [:]
     var layoutRevision: UInt64 = 0
+    var turnViewportDiagnostics: [String: String] = [:]
+    var viewportRootDiagnostic: String? = nil
 }
 
 private struct ConversationTimelineTurnFramesKey: PreferenceKey {
@@ -30,6 +32,8 @@ private struct ConversationTimelineTurnFramesKey: PreferenceKey {
         guard next.layoutRevision == value.layoutRevision else { return }
         value.viewportFrames.merge(next.viewportFrames, uniquingKeysWith: { _, latest in latest })
         value.contentTops.merge(next.contentTops, uniquingKeysWith: { _, latest in latest })
+        value.turnViewportDiagnostics.merge(next.turnViewportDiagnostics, uniquingKeysWith: { _, latest in latest })
+        if let diagnostic = next.viewportRootDiagnostic { value.viewportRootDiagnostic = diagnostic }
     }
 }
 
@@ -70,6 +74,10 @@ struct ConversationTimelineView: View {
     @State private var materializingSequence: UInt64?
     @State private var materializationRequest: ConversationPaneScrollRequest?
     @State private var materializedRunID: String?
+#if DEBUG
+    @State private var turnViewportDiagnostics: [String: String] = [:]
+    @State private var viewportRootDiagnostic: String?
+#endif
     @State private var dividerMaterialization: DividerTurnMaterialization?
     @State private var latestBottomReferenceTurn: (runID: String, turnTop: Double)?
     @State private var activeScrollPhase: ScrollPhase = .idle
@@ -156,11 +164,7 @@ struct ConversationTimelineView: View {
                             GeometryReader { geometry in
                                 Color.clear.preference(
                                     key: ConversationTimelineTurnFramesKey.self,
-                                    value: ConversationTimelineTurnMeasurements(
-                                        viewportFrames: [turn.runID: geometry.frame(in: .named(scrollCoordinateSpace))],
-                                        contentTops: [turn.runID: Double(geometry.frame(in: .named(contentCoordinateSpace)).minY)],
-                                        layoutRevision: layoutRevision
-                                    )
+                                    value: turnMeasurements(geometry, runID: turn.runID)
                                 )
                             }
                         }
@@ -177,6 +181,17 @@ struct ConversationTimelineView: View {
                         value: ConversationTimelineTurnMeasurements(layoutRevision: layoutRevision))
                 }
             }
+#if DEBUG
+            .background {
+                if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
+                    GeometryReader { viewport in
+                        Color.clear.preference(key: ConversationTimelineTurnFramesKey.self,
+                            value: ConversationTimelineTurnMeasurements(layoutRevision: layoutRevision,
+                                viewportRootDiagnostic: "size=\(viewport.size),safe=\(viewport.safeAreaInsets),usableHeight=\(viewport.size.height - viewport.safeAreaInsets.top - viewport.safeAreaInsets.bottom)"))
+                    }
+                }
+            }
+#endif
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear.frame(height: bottomComposerClearance)
             }
@@ -206,6 +221,8 @@ struct ConversationTimelineView: View {
                 turnFrames = frames
                 turnContentTops = measurement.contentTops
 #if DEBUG
+                turnViewportDiagnostics = measurement.turnViewportDiagnostics
+                viewportRootDiagnostic = measurement.viewportRootDiagnostic
                 recordReadingRestoreForUITest("frames")
 #endif
                 // Lazy/native Turn measurements can change after scrollTo was
@@ -385,6 +402,28 @@ struct ConversationTimelineView: View {
         guard turnTop.isFinite,
               abs(turnTop - contentTop) <= 0.5 else { return nil }
         return turnTop
+    }
+
+    static func measuredRestorationGeometry(viewportTop: Double, contentTop: Double,
+                                            measuredViewportHeight: Double,
+                                            geometry: ScrollGeometry) -> ScrollGeometry? {
+        guard geometry.isUsableForPane, viewportTop.isFinite, contentTop.isFinite,
+              measuredViewportHeight.isFinite, measuredViewportHeight > 0,
+              abs(measuredViewportHeight - geometry.viewportHeight) <= 0.5 else { return nil }
+        return geometry
+    }
+
+    private func turnMeasurements(_ geometry: GeometryProxy, runID: String) -> ConversationTimelineTurnMeasurements {
+        var measurement = ConversationTimelineTurnMeasurements(
+            viewportFrames: [runID: geometry.frame(in: .named(scrollCoordinateSpace))],
+            contentTops: [runID: Double(geometry.frame(in: .named(contentCoordinateSpace)).minY)],
+            layoutRevision: layoutRevision)
+#if DEBUG
+        if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
+            measurement.turnViewportDiagnostics[runID] = "named=\(String(describing: geometry.bounds(of: .named(scrollCoordinateSpace)))),builtin=\(String(describing: geometry.bounds(of: .scrollView))),safe=\(geometry.safeAreaInsets)"
+        }
+#endif
+        return measurement
     }
 
     private func handleScrollGeometryChange(_ geometry: ScrollGeometry) {
@@ -719,6 +758,9 @@ struct ConversationTimelineView: View {
         scrollBridge.recordReadingRestoreForUITest(
             "event=\(event),request=\(String(describing: request)),applied=\(String(describing: pendingAppliedScroll?.sequence)),materializing=\(String(describing: materializingSequence)),materialized=\(String(describing: materializedRunID)),phase=\(activeScrollPhase),lift=\(String(describing: surfaceLift?.state.phase)),accepts=\(acceptsScrollRequests),geometry=\(String(describing: geometry)),frame=\(String(describing: turnFrames[runID])),contentTop=\(String(describing: turnContentTops[runID])),resolvedTop=\(String(describing: resolvedTop)),issuedTarget=\(String(describing: issuedTarget)),positionY=\(String(describing: scrollPosition.y)),positionPoint=\(String(describing: scrollPosition.point))"
         )
+        if event == "frames" {
+            scrollBridge.recordReadingRestoreForUITest("viewport-measurement run=\(runID),turn=\(String(describing: turnViewportDiagnostics[runID])),root=\(String(describing: viewportRootDiagnostic))")
+        }
     }
 #endif
 
