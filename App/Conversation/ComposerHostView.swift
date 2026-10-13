@@ -276,6 +276,14 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        if window != nil {
+            // A parked bridge can render its detached fallback while these
+            // cached window metrics still describe the previous attachment.
+            // Recompute the resting endpoint even when window and width match.
+            lastWindowCornerRadius = -1
+            lastBottomSafeAreaInset = -1
+            setNeedsLayout()
+        }
 #if DEBUG
         liftInteraction?.recordHostLifecycle("window=\(String(describing: window.map { ObjectIdentifier($0) }))")
 #endif
