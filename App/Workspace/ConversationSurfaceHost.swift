@@ -622,10 +622,6 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func setWorkspaceVisible(_ visible: Bool) {
-#if DEBUG
-        OverlayLifecycleDiagnostic.record("surface.visible.enter.\(visible)", "host=\(ObjectIdentifier(self));value=\(visible)")
-        defer { OverlayLifecycleDiagnostic.record("surface.visible.exit.\(visible)", "host=\(ObjectIdentifier(self));value=\(visible)") }
-#endif
         loadViewIfNeeded()
         topEdge.setWorkspaceVisible(visible)
         let contentView = contentController.view!
@@ -686,10 +682,6 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func resetLiftPresentation() {
-#if DEBUG
-        OverlayLifecycleDiagnostic.record("surface.reset.enter", "host=\(ObjectIdentifier(self));transform=\(surfaceView.transform)")
-        defer { OverlayLifecycleDiagnostic.record("surface.reset.exit", "host=\(ObjectIdentifier(self))") }
-#endif
         cancelLiftAnimation()
         // A transient zero viewport cannot resolve pixels, but the next layout
         // must still use Full instead of resurrecting the interrupted request.
