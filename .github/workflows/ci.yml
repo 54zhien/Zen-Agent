@@ -376,9 +376,8 @@ jobs:
           TEST_SCOPE=$(python3 -B .github/scripts/stage5_test_profile.py)
           TEST_ARGS=(test)
           if [ "$TEST_SCOPE" = overlay-lifecycle ]; then
-            echo 'Diagnostic focused overlay lifecycle and native process sample; not the final full gate.'
+            echo 'Diagnostic remaining Settings native release lifecycle; not the final full gate.'
             TEST_ARGS+=(-only-testing:ZenAgentTests
-              -only-testing:ZenAgentUITests/ConversationSearchUITests
               -only-testing:ZenAgentUITests/SettingsUITests/testSettingsReachesSoulAndClosingRestoresTheConversationDraft)
           fi
           if [ "$TEST_SCOPE" = native-layout-candidate ]; then

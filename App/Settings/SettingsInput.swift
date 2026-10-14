@@ -16,6 +16,9 @@ final class SettingsInputFocus {
     }
 
     func began(_ responder: UIResponder) {
+#if DEBUG
+        OverlayLifecycleDiagnostic.record("settings.began", "focus=\(ObjectIdentifier(self));responder=\(ObjectIdentifier(responder));first=\(responder.isFirstResponder);closing=\(isClosing);cancelled=\(isCancelled)")
+#endif
         guard !isClosing, !isCancelled else { responder.resignFirstResponder(); return }
         self.responder = responder; revision &+= 1
     }
@@ -31,16 +34,28 @@ final class SettingsInputFocus {
     }
     func release(then callback: @escaping () -> Void) {
 #if DEBUG
-        OverlayLifecycleDiagnostic.record("settings.release", "focus=\(ObjectIdentifier(self));closing=\(isClosing);responder=\(String(describing: responder.map(ObjectIdentifier.init)));first=\(responder?.isFirstResponder ?? false);completion=\(completion != nil)")
+        OverlayLifecycleDiagnostic.record("settings.release", "focus=\(ObjectIdentifier(self));closing=\(isClosing);responder=\(String(describing: responder.map(ObjectIdentifier.init)));first=\(responder?.isFirstResponder ?? false);completion=\(completion != nil);cancelled=\(isCancelled);marked=\(hasMarkedText);markedEmpty=\(String(describing: (responder as? any UITextInput)?.markedTextRange?.isEmpty))")
 #endif
-        guard !isClosing, !isCancelled, !hasMarkedText else { return }
+        guard !isClosing, !isCancelled, !hasMarkedText else {
+#if DEBUG
+            OverlayLifecycleDiagnostic.record("settings.release.blocked", "closing=\(isClosing);cancelled=\(isCancelled);marked=\(hasMarkedText)")
+#endif
+            return
+        }
         isClosing = true
         guard let responder else { callback(); return }
         completion = callback
         // The flag clears before didEndEditing. Only this presentation's
         // matching delegate acknowledgement can restore the Composer.
+#if DEBUG
+        OverlayLifecycleDiagnostic.record("settings.release.ready", "focus=\(ObjectIdentifier(self));first=\(responder.isFirstResponder);tracked=\(self.responder === responder);completion=\(completion != nil);textDelegate=\(String(describing: (responder as? UITextView)?.delegate.map { ObjectIdentifier($0 as AnyObject) }));editable=\((responder as? UITextView)?.isEditable ?? false)")
+#endif
         guard responder.isFirstResponder else { return }
-        if !responder.resignFirstResponder() {
+        let released = responder.resignFirstResponder()
+#if DEBUG
+        OverlayLifecycleDiagnostic.record("settings.release.result", "focus=\(ObjectIdentifier(self));released=\(released);first=\(responder.isFirstResponder);tracked=\(self.responder === responder);completion=\(completion != nil);textDelegate=\(String(describing: (responder as? UITextView)?.delegate.map { ObjectIdentifier($0 as AnyObject) }));editable=\((responder as? UITextView)?.isEditable ?? false)")
+#endif
+        if !released {
             completion = nil; isClosing = false
         }
     }
