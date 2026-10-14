@@ -122,6 +122,12 @@ struct SettingsNativeInputCloseTests {
         }
         #expect(closes == 1)
         #expect(!input.isFirstResponder)
+        for _ in 0..<30 where input.isUserInteractionEnabled {
+            root.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(!input.isUserInteractionEnabled, "The closing presentation rejects new input")
+        #expect(input.isEditable, "Close must not disable the native editing mode during resignation")
         #expect(state.instructions == edited)
         focus.release { closes += 1 }
         #expect(closes == 1, "Close remains idempotent for the same presentation")

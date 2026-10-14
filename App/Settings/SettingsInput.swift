@@ -143,7 +143,12 @@ struct SettingsInstructionsInput: UIViewRepresentable {
         let font = Typography.uiFont(for: .interfaceBody, compatibleWith: UITraitCollection(
             preferredContentSizeCategory: Typography.contentSizeCategory(for: dynamicTypeSize)))
         if view.font != font { view.font = font }
-        view.isEditable = !focus.isClosing && !focus.isCancelled
+        // Closing can update this bridge synchronously inside native resignation.
+        // Turning editability off there can suppress didEndEditing and strand
+        // the matching acknowledgement. Block input without changing that mode.
+        let editable = !focus.isCancelled
+        if view.isEditable != editable { view.isEditable = editable }
+        view.isUserInteractionEnabled = !focus.isClosing && !focus.isCancelled
         if view.markedTextRange == nil, view.text != text { view.text = text }
     }
     static func dismantleUIView(_ view: UITextView, coordinator: Coordinator) {
