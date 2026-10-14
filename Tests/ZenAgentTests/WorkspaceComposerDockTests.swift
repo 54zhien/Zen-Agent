@@ -6,6 +6,48 @@ import SwiftUI
 @Suite("Shared Composer native lifecycle", .serialized)
 @MainActor
 struct WorkspaceComposerDockTests {
+    @Test("a lifted native Surface keeps its Composer layout in source coordinates")
+    func visualSurfacePoseDoesNotMoveTheHiddenKeyboardAnchor() async throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let host = ConversationSurfaceViewController(content: Color.clear)
+        let driver = SurfaceLiftController()
+        window.rootViewController = host; window.makeKeyAndVisible()
+        defer {
+            driver.unbind(host); window.isHidden = true
+            window.rootViewController = nil; previous?.makeKeyAndVisible()
+        }
+        host.view.layoutIfNeeded()
+        driver.bind(host)
+        let composer = ComposerHostView(frame: host.surfaceView.convert(
+            host.view.safeAreaLayoutGuide.layoutFrame, from: host.view))
+        host.surfaceView.addSubview(composer)
+        var config = configuration(text: "source coordinates", editing: false)
+        config.liftInteraction = .init(driver: driver, conversationID: "source-layout", eligibility: { $0 })
+        composer.configure(config); composer.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(250))
+        composer.frame = host.surfaceView.convert(host.view.safeAreaLayoutGuide.layoutFrame, from: host.view)
+        host.view.layoutIfNeeded(); composer.layoutIfNeeded()
+        try #require(composer.nativeLiftInput.allowsLift)
+        let original = composer.surfaceFrame
+        let gap = composer.keyboardGap
+        let generation = composer.motionGeneration
+        try #require(driver.arm(composer.nativeLiftInput))
+        try #require(driver.drag(upwardDistance: 80, eligibility: composer.nativeLiftInput))
+        try #require(!host.surfaceView.transform.isIdentity)
+        print("NATIVE_LIFT_ANCHOR original=\(original);frame=\(composer.surfaceFrame);beforeGap=\(gap);gap=\(composer.keyboardGap);input=\(composer.nativeLiftInput)")
+        #expect(composer.surfaceFrame == original)
+        #expect(composer.motionGeneration == generation)
+        #expect(abs(composer.keyboardGap - gap) <= 0.5)
+        #expect(composer.nativeLiftInput.composerSettled)
+        #expect(!composer.nativeLiftInput.keyboardVisible)
+        // Exercise the same bridge refresh that rejected the real first drag.
+        composer.configure(config)
+        #expect(driver.state.phase == .lifting)
+        #expect(composer.editor.text == "source coordinates")
+    }
+
     @Test("temporary unmounted Composer readiness preserves Return preparation; explicit cancellation still wins",
           arguments: [false, true])
     func returnPreparationSurvivesDetachedComposer(explicitCancellation: Bool) async throws {

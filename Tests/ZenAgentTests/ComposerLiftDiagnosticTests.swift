@@ -36,7 +36,10 @@ struct ComposerLiftDiagnosticTests {
         try #require(surface.traitCollection.userInterfaceStyle == style)
         // Resolve after attachment so the recorded fixture uses its actual
         // inherited appearance even before UIKit refreshes dynamic layer colors.
-        surface.backgroundColor = UIColor.systemBackground.resolvedColor(with: surface.traitCollection)
+        let background = UIColor.systemBackground.resolvedColor(with: surface.traitCollection)
+        surface.backgroundColor = background
+        host.view.backgroundColor = background
+        host.surfaceView.backgroundColor = background
         let driver = SurfaceLiftController()
         driver.bind(host)
         defer { driver.unbind(host) }

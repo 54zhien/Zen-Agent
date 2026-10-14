@@ -108,6 +108,10 @@ struct WorkspaceNavigationView<Content: View>: View {
                 isRightToLeft: direction == .rightToLeft, context: context))
         }
         .ignoresSafeArea(.container)
+        // Request the admitted Rail edge explicitly from UIKit. Keep the
+        // preference through the contact/settlement, then release it for the
+        // open Rail, unavailable Surface and overlay boundaries.
+        .defersSystemGestures(on: defersLeadingSystemGestures ? .leading : [])
         .onAppear {
             if overlays == nil, let model, let store = model.workspaceStore {
                 overlays = WorkspaceOverlayCoordinator(store: store, shell: model, navigation: state)
@@ -118,5 +122,11 @@ struct WorkspaceNavigationView<Content: View>: View {
             }
         }
         .onDisappear { overlays?.reset(); state.onReset = nil; state.onConfigureNew = nil }
+    }
+
+    private var defersLeadingSystemGestures: Bool {
+        guard spatiallyAvailable, state.overlay == nil else { return false }
+        return (!state.isOpen && context()?.allowsOpening == true)
+            || state.isDragging || state.settlementID != nil
     }
 }
