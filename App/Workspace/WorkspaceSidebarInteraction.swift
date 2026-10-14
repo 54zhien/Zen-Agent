@@ -11,6 +11,7 @@ import UIKit.UIGestureRecognizerSubclass
 private final class WorkspaceSidebarEdgeDiagnostic: UIScreenEdgePanGestureRecognizer {
     private var attempt = 0
     private var beganAt: TimeInterval = 0
+    private var deferralAtBegan: UInt = 0
     private var phases: [String: Int] = [:]
     private var phaseSamples: [String: String] = [:]
     private var decisions: [String] = []
@@ -22,7 +23,7 @@ private final class WorkspaceSidebarEdgeDiagnostic: UIScreenEdgePanGestureRecogn
     }
 
     private var currentSnapshot: String {
-        "attempt=\(attempt);beganAt=\(beganAt);phases=\(phases);samples=\(phaseSamples);reset=[\(resets.joined(separator: " | "))];decisions=[\(decisions.joined(separator: " | "))]"
+        "attempt=\(attempt);beganAt=\(beganAt);rootDeferral=\(deferralAtBegan);phases=\(phases);samples=\(phaseSamples);reset=[\(resets.joined(separator: " | "))];decisions=[\(decisions.joined(separator: " | "))]"
     }
 
     private var motion: String {
@@ -39,6 +40,7 @@ private final class WorkspaceSidebarEdgeDiagnostic: UIScreenEdgePanGestureRecogn
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         attempt += 1; beganAt = ProcessInfo.processInfo.systemUptime
+        deferralAtBegan = view?.window?.rootViewController?.preferredScreenEdgesDeferringSystemGestures.rawValue ?? 0
         phases.removeAll(); phaseSamples.removeAll()
         let before = motion
         super.touchesBegan(touches, with: event)

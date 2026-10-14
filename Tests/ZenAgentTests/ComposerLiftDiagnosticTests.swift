@@ -33,6 +33,10 @@ struct ComposerLiftDiagnosticTests {
         let editor = UITextView()
         host.view.addSubview(surface)
         surface.addSubview(editor)
+        try #require(surface.traitCollection.userInterfaceStyle == style)
+        // Resolve after attachment so the recorded fixture uses its actual
+        // inherited appearance even before UIKit refreshes dynamic layer colors.
+        surface.backgroundColor = UIColor.systemBackground.resolvedColor(with: surface.traitCollection)
         let driver = SurfaceLiftController()
         driver.bind(host)
         defer { driver.unbind(host) }
@@ -47,8 +51,11 @@ struct ComposerLiftDiagnosticTests {
             let picture = renderer.image { context in
                 UIColor.systemBackground.resolvedColor(with: surface.traitCollection).setFill()
                 context.fill(CGRect(x: 0, y: 0, width: 340, height: 110))
-                complete = surface.drawHierarchy(in: CGRect(x: 20, y: 20, width: 300, height: 70),
-                                                  afterScreenUpdates: true)
+                // Capture the native parent at 1:1 geometry: the upward cue sits
+                // outside the Composer's bounds and belongs in the armed picture.
+                complete = host.view.drawHierarchy(in: CGRect(x: 20 - surface.frame.minX,
+                    y: 20 - surface.frame.minY, width: host.view.bounds.width,
+                    height: host.view.bounds.height), afterScreenUpdates: true)
             }
             try #require(complete)
             let bytes = try #require(picture.pngData())
