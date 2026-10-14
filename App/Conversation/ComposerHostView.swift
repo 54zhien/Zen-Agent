@@ -341,7 +341,30 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         guard let host = keyboardAnchorView, let window, host.window === window else {
             return keyboardLayoutGuide.layoutFrame
         }
-        return convert(host.keyboardLayoutGuide.layoutFrame, from: host)
+        let guide = host.keyboardLayoutGuide.layoutFrame
+        guard let source = configuration?.liftInteraction?.driver.nativeLayoutSurface?(),
+              source.window === window, isDescendant(of: source), !source.transform.isIdentity else {
+            return convert(guide, from: host)
+        }
+        // A lifted Surface changes presentation, not the Composer's source
+        // layout. Undo only that owned visual transform in the conversion;
+        // ordinary portal origins and real Window keyboard movement still apply.
+        let anchor = CGPoint(x: source.bounds.minX + source.bounds.width * source.layer.anchorPoint.x,
+                             y: source.bounds.minY + source.bounds.height * source.layer.anchorPoint.y)
+        let layoutCoordinates = CGAffineTransform(translationX: -anchor.x, y: -anchor.y)
+            .concatenating(source.transform)
+            .concatenating(CGAffineTransform(translationX: anchor.x, y: anchor.y))
+        let layoutGuide = source.convert(guide, from: host).applying(layoutCoordinates)
+        return convert(layoutGuide, from: source)
+    }
+
+    private var windowKeyboardVisible: Bool {
+        guard let host = keyboardAnchorView, let window, host.window === window else {
+            return bounds.maxY - keyboardLayoutGuide.layoutFrame.minY > safeAreaInsets.bottom + 1
+        }
+        // A Window guide containing only its home-indicator inset is not a
+        // keyboard, even when the local host is shifted or visually lifted.
+        return host.keyboardLayoutGuide.layoutFrame.height > window.safeAreaInsets.bottom + 1
     }
 
     override func layoutSubviews() {
@@ -428,8 +451,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             && abs(keyboardGap - renderedBottomSpacing) <= 0.5
         return SurfaceLiftEligibility(isEditing: currentState == .editing || editor.isFirstResponder,
             hasMarkedText: editor.markedTextRange != nil,
-            keyboardVisible: liftInteraction.keyboardVisible
-                || bounds.maxY - activeKeyboardFrame.minY > safeAreaInsets.bottom + 1,
+            keyboardVisible: liftInteraction.keyboardVisible || windowKeyboardVisible,
             keyboardTransitioning: liftInteraction.keyboardTransitioning,
             composerSettled: settled, selectionActive: false, quoteDragActive: quotePhase != .idle)
     }

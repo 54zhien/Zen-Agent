@@ -111,7 +111,8 @@ struct WorkspaceNavigationView<Content: View>: View {
         // Request the admitted Rail edge explicitly from UIKit. Keep the
         // preference through the contact/settlement, then release it for the
         // open Rail, unavailable Surface and overlay boundaries.
-        .defersSystemGestures(on: defersLeadingSystemGestures ? .leading : [])
+        .defersSystemGestures(on: defersLeadingSystemGestures
+            ? (direction == .rightToLeft ? .trailing : .leading) : [])
         .onAppear {
             if overlays == nil, let model, let store = model.workspaceStore {
                 overlays = WorkspaceOverlayCoordinator(store: store, shell: model, navigation: state)

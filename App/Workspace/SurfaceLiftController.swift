@@ -15,6 +15,7 @@ final class SurfaceLiftController {
     var workspaceNavigationActive: Bool { workspaceNavigation?.blocksLift == true }
     @ObservationIgnored var sidebarNativeContext: (() -> (hostID: ObjectIdentifier, window: UIWindow,
         allowsOpening: Bool, allowsClosing: Bool, surfaceView: UIView)?)?
+    @ObservationIgnored private(set) var nativeLayoutSurface: (() -> UIView?)?
     @ObservationIgnored var captureOverlayFocus: ((@escaping () -> Bool) -> ComposerOverlayFocus?)?
     @ObservationIgnored var invalidateTopEdge: (() -> Void)?
     private(set) var heldReturnCardLabel: String?
@@ -145,6 +146,7 @@ final class SurfaceLiftController {
         host.loadViewIfNeeded()
         hostID = ObjectIdentifier(host)
         host.liftController = self
+        nativeLayoutSurface = { [weak host] in host?.surfaceView }
         invalidateTopEdge = { [weak host] in host?.topEdge.invalidateContent() }
 #if DEBUG
         setTopEdgeScrolling = { [weak host] in host?.topEdge.scrolling = $0 }
@@ -376,6 +378,7 @@ final class SurfaceLiftController {
         host.liftController = nil
         hostID = nil
         sidebarNativeContext = nil
+        nativeLayoutSurface = nil
         captureOverlayFocus = nil
         invalidateTopEdge = nil
 #if DEBUG
