@@ -5,7 +5,7 @@ name: Known issues stability unsigned device IPA
 on:
   push:
     branches:
-      - codex/known-issues-stability-ipa-5f8336e11fc2
+      - codex/known-issues-stability-ipa-ecc7e0627726
 
 permissions:
   actions: read
@@ -16,9 +16,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FROZEN_SOURCE_SHA: "5f8336e11fc2f5790d7a5ce06d800e727309137b"
-  FROZEN_SOURCE_TREE: "d8717ecce83a103fe59096cc2ff2b7db5eb6c981"
-  EXPECTED_PACKAGE_BRANCH: "codex/known-issues-stability-ipa-5f8336e11fc2"
+  FROZEN_SOURCE_SHA: "ecc7e06277261145dd2a22211c30618589e2a3ee"
+  FROZEN_SOURCE_TREE: "9d8d9aa8fbbe88f2a156a11fc16cc70bf7638dde"
+  EXPECTED_PACKAGE_BRANCH: "codex/known-issues-stability-ipa-ecc7e0627726"
   PACKAGE_WORKFLOW_PATH: ".github/workflows/known-issues-stability-device-ipa.yml"
 
 jobs:
