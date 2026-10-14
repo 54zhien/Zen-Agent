@@ -1,5 +1,85 @@
 import SwiftUI
 import UIKit
+#if DEBUG
+import UIKit.UIGestureRecognizerSubclass
+#endif
+
+#if DEBUG
+/// Observe UIKit's real transition/prevention seam without replacing its decision.
+/// Only the existing native UI fixture uses this transport; no touch is retained.
+@MainActor
+private final class WorkspaceSidebarEdgeDiagnostic: UIScreenEdgePanGestureRecognizer {
+    private var attempt = 0
+    private var beganAt: TimeInterval = 0
+    private var phases: [String: Int] = [:]
+    private var phaseSamples: [String: String] = [:]
+    private var decisions: [String] = []
+    private var resets: [String] = []
+
+    var snapshot: String {
+        "attempt=\(attempt);beganAt=\(beganAt);phases=\(phases);samples=\(phaseSamples);reset=[\(resets.joined(separator: " | "))];decisions=[\(decisions.joined(separator: " | "))]"
+    }
+
+    private var motion: String {
+        let window = view?.window
+        return "state=\(state.rawValue),translation=\(translation(in: window)),velocity=\(velocity(in: window)),location=\(location(in: window))"
+    }
+
+    private func observe(_ phase: String, before: String) {
+        phases[phase, default: 0] += 1
+        let sample = "before{\(before)},after{\(motion)}"
+        if phaseSamples[phase + "First"] == nil { phaseSamples[phase + "First"] = sample }
+        phaseSamples[phase + "Last"] = sample
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        attempt += 1; beganAt = ProcessInfo.processInfo.systemUptime
+        phases.removeAll(); phaseSamples.removeAll()
+        let before = motion
+        super.touchesBegan(touches, with: event)
+        observe("began", before: before)
+    }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        let before = motion
+        super.touchesMoved(touches, with: event)
+        observe("moved", before: before)
+    }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        let before = motion
+        super.touchesEnded(touches, with: event)
+        observe("ended", before: before)
+    }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        let before = motion
+        super.touchesCancelled(touches, with: event)
+        observe("cancelled", before: before)
+    }
+    override func reset() {
+        resets.append("attempt=\(attempt),at=\(ProcessInfo.processInfo.systemUptime)," + motion)
+        if resets.count > 4 { resets.removeFirst() }
+        super.reset()
+    }
+
+    private func decision(_ method: String, peer: UIGestureRecognizer, result: Bool) -> Bool {
+        let peerView = peer.view.map { "\(type(of: $0)):\(ObjectIdentifier($0))" } ?? "nil"
+        decisions.append("attempt=\(attempt),at=\(ProcessInfo.processInfo.systemUptime),\(method)=\(result),own=\(state.rawValue),peer=\(ObjectIdentifier(peer)):\(type(of: peer)),peerState=\(peer.state.rawValue),view=\(peerView)")
+        if decisions.count > 48 { decisions.removeFirst() }
+        return result
+    }
+    override func canPrevent(_ peer: UIGestureRecognizer) -> Bool {
+        decision("canPrevent", peer: peer, result: super.canPrevent(peer))
+    }
+    override func canBePrevented(by peer: UIGestureRecognizer) -> Bool {
+        decision("canBePrevented", peer: peer, result: super.canBePrevented(by: peer))
+    }
+    override func shouldRequireFailure(of peer: UIGestureRecognizer) -> Bool {
+        decision("requiresFailure", peer: peer, result: super.shouldRequireFailure(of: peer))
+    }
+    override func shouldBeRequiredToFail(by peer: UIGestureRecognizer) -> Bool {
+        decision("requiredToFail", peer: peer, result: super.shouldBeRequiredToFail(by: peer))
+    }
+}
+#endif
 
 @MainActor
 struct WorkspaceSidebarNativeContext {
@@ -78,7 +158,14 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     private var edgeRejected = false
 
     override convenience init(frame: CGRect) {
-        self.init(frame: frame, edge: UIScreenEdgePanGestureRecognizer())
+#if DEBUG
+        let edge: UIScreenEdgePanGestureRecognizer = ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1"
+            && UIDevice.current.userInterfaceIdiom == .pad
+            ? WorkspaceSidebarEdgeDiagnostic() : UIScreenEdgePanGestureRecognizer()
+#else
+        let edge = UIScreenEdgePanGestureRecognizer()
+#endif
+        self.init(frame: frame, edge: edge)
     }
 
     init(frame: CGRect, edge: UIScreenEdgePanGestureRecognizer) {
@@ -189,7 +276,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             if let candidate = view as? UIScrollView { scroll = candidate; break }
             hit = view.superview
         }
-        return "edgeState=\(edge.state.rawValue),translation=\(edge.translation(in: window)),velocity=\(edge.velocity(in: window)),location=\(edge.location(in: window)),origin=\(String(describing: edgeTouchOrigin)),captured=\(String(describing: edgeTouchOwner)),currentHost=\(String(describing: current?.hostID)),currentPane=\(String(describing: current?.paneID)),window=\(ObjectIdentifier(window)),scrollPan=\(scroll.map { "state=\($0.panGestureRecognizer.state.rawValue),translation=\($0.panGestureRecognizer.translation(in: window))" } ?? "none")"
+        return "edgeState=\(edge.state.rawValue),translation=\(edge.translation(in: window)),velocity=\(edge.velocity(in: window)),location=\(edge.location(in: window)),origin=\(String(describing: edgeTouchOrigin)),captured=\(String(describing: edgeTouchOwner)),currentHost=\(String(describing: current?.hostID)),currentPane=\(String(describing: current?.paneID)),window=\(ObjectIdentifier(window)),scrollPan=\(scroll.map { "state=\($0.panGestureRecognizer.state.rawValue),translation=\($0.panGestureRecognizer.translation(in: window))" } ?? "none"),edgeNativeTrace=[\((edge as? WorkspaceSidebarEdgeDiagnostic)?.snapshot ?? "disabled")]"
     }
 #endif
 
