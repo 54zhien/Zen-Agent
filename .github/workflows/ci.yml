@@ -439,6 +439,11 @@ jobs:
           if [ "$TEST_SCOPE" = overlay-lifecycle ]; then
             touch "$RUNNER_TEMP/overlay-stall.stop"
             wait "$OVERLAY_MONITOR_PID" || true
+            APP_DATA=$(xcrun simctl get_app_container "$UDID" com.zhien.zen data 2>/dev/null || true)
+            if [ -n "$APP_DATA" ]; then
+              find "$APP_DATA/Library/Caches" -maxdepth 1 -name 'overlay-lifecycle-*.log' \
+                -exec cp -p {} "$RUNNER_TEMP/overlay-stall/" \; || true
+            fi
           fi
           set -e
 

@@ -45,6 +45,9 @@ final class SettingsInputFocus {
         }
     }
     func detach(_ responder: UIResponder) {
+#if DEBUG
+        OverlayLifecycleDiagnostic.record("settings.detach", "focus=\(ObjectIdentifier(self));matches=\(self.responder === responder);closing=\(isClosing);first=\(responder.isFirstResponder);completion=\(completion != nil)")
+#endif
         if self.responder === responder {
             completion = nil; self.responder = nil; revision &+= 1
         }

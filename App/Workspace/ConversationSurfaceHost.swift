@@ -623,8 +623,8 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     func setWorkspaceVisible(_ visible: Bool) {
 #if DEBUG
-        OverlayLifecycleDiagnostic.record("surface.visible.enter", "host=\(ObjectIdentifier(self));value=\(visible)")
-        defer { OverlayLifecycleDiagnostic.record("surface.visible.exit", "host=\(ObjectIdentifier(self));value=\(visible)") }
+        OverlayLifecycleDiagnostic.record("surface.visible.enter.\(visible)", "host=\(ObjectIdentifier(self));value=\(visible)")
+        defer { OverlayLifecycleDiagnostic.record("surface.visible.exit.\(visible)", "host=\(ObjectIdentifier(self));value=\(visible)") }
 #endif
         loadViewIfNeeded()
         topEdge.setWorkspaceVisible(visible)
@@ -637,6 +637,11 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             contentController.suspendsContainerInsets = true
             workspaceVisible = false
             if contentView.superview != nil {
+                // UIKit otherwise resigns the editor inside removeFromSuperview,
+                // after its pinned hosting constraints have been deactivated.
+                // Keyboard tracking can synchronously lay out that half-detached
+                // tree. Finish the native focus handoff while it is still intact.
+                _ = findComposer(in: contentView)?.editor.resignFirstResponder()
                 NSLayoutConstraint.deactivate(contentConstraints)
                 contentView.removeFromSuperview()
             }

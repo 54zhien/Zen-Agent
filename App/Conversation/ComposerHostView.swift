@@ -159,7 +159,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     func setWorkspaceInputSuppressed(_ suppressed: Bool) {
 #if DEBUG
-        OverlayLifecycleDiagnostic.record("composer.suppress", "host=\(ObjectIdentifier(self));value=\(suppressed);focused=\(editor.isFirstResponder);window=\(String(describing: window.map(ObjectIdentifier.init)))")
+        OverlayLifecycleDiagnostic.record("composer.suppress.\(suppressed)", "host=\(ObjectIdentifier(self));value=\(suppressed);focused=\(editor.isFirstResponder);window=\(String(describing: window.map(ObjectIdentifier.init)))")
 #endif
 #if DEBUG
         liftInteraction?.recordHostLifecycle("suppression=\(suppressed);interactionBefore=\(isUserInteractionEnabled)")
