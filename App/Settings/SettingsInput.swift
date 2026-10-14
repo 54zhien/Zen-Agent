@@ -21,12 +21,18 @@ final class SettingsInputFocus {
     }
     func changed() { revision &+= 1 }
     func ended(_ responder: UIResponder) {
+#if DEBUG
+        OverlayLifecycleDiagnostic.record("settings.ended", "focus=\(ObjectIdentifier(self));responder=\(ObjectIdentifier(responder));matches=\(self.responder === responder);completion=\(completion != nil)")
+#endif
         guard self.responder === responder else { return }
         self.responder = nil; revision &+= 1
         let callback = completion; completion = nil
         callback?()
     }
     func release(then callback: @escaping () -> Void) {
+#if DEBUG
+        OverlayLifecycleDiagnostic.record("settings.release", "focus=\(ObjectIdentifier(self));closing=\(isClosing);responder=\(String(describing: responder.map(ObjectIdentifier.init)));first=\(responder?.isFirstResponder ?? false);completion=\(completion != nil)")
+#endif
         guard !isClosing, !isCancelled, !hasMarkedText else { return }
         isClosing = true
         guard let responder else { callback(); return }

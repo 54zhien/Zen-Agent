@@ -23,6 +23,10 @@ final class WorkspaceOverlayCoordinator {
     }
 
     func enter(_ route: WorkspaceOverlayRoute, eligible: Bool, captureFocus: () -> ComposerOverlayFocus?) {
+#if DEBUG
+        OverlayLifecycleDiagnostic.record("overlay.enter", "route=\(route);eligible=\(eligible)")
+        defer { OverlayLifecycleDiagnostic.record("overlay.enter.end", "route=\(route)") }
+#endif
         guard let navigation, availableRoutes.contains(route) else { return }
         let catalog = route == .files ? shell?.makeFilesWorkspaceModel() : nil
         let settingsModel = route == .settings ? shell?.makeSettingsModel() : nil
@@ -52,6 +56,10 @@ final class WorkspaceOverlayCoordinator {
     }
 
     func close(expectedID: UUID? = nil) {
+#if DEBUG
+        OverlayLifecycleDiagnostic.record("overlay.close", "current=\(String(describing: navigation?.overlay));expected=\(String(describing: expectedID))")
+        defer { OverlayLifecycleDiagnostic.record("overlay.close.end", "current=\(String(describing: navigation?.overlay))") }
+#endif
         guard navigation?.overlay != nil,
               expectedID == nil || navigation?.overlayID == expectedID else { return }
         search.invalidate()

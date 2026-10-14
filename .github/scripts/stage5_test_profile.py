@@ -9,6 +9,8 @@ def test_scope(profile, branch):
         return "full"
     if profile == {"mode": "native-layout-candidate"} and branch == "codex/s5-device-feedback-pad-trace-20261014":
         return "native-layout-candidate"
+    if profile == {"mode": "overlay-lifecycle"} and branch == "codex/s5-device-feedback-pad-trace-20261014":
+        return "overlay-lifecycle"
     if profile == {"mode": "orientation-red"} and branch == "codex/s5-11-device-presentation":
         return "orientation-red"
     if profile == {"mode": "sidebar-red"} and branch == "codex/s5-12-sidebar":

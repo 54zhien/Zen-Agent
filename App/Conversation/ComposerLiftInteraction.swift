@@ -109,6 +109,9 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
     func checkReadiness() {
         let current = input
         if !current.allowsLift {
+#if DEBUG
+            OverlayLifecycleDiagnostic.record("readiness.reject", "input=\(current);phase=\(String(describing: configuration?.driver.state.phase))")
+#endif
             feedback.setReady(false)
             let driver = configuration?.driver
             let returning = driver?.isPreparingReturn == true

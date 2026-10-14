@@ -5,6 +5,7 @@ final class ConversationSearchUITests: XCTestCase {
     func testPlainExitRestoresTheSameNativeEditingOwner() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_OVERLAY_LIFECYCLE_TRACE"] = "1"
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         let editor = app.textViews["conversation-composer-input"]
@@ -40,6 +41,7 @@ final class ConversationSearchUITests: XCTestCase {
     func testExitRestoresTheOriginalDraftAndSelectionOpensTheResult() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_OVERLAY_LIFECYCLE_TRACE"] = "1"
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         let editor = app.textViews["conversation-composer-input"]

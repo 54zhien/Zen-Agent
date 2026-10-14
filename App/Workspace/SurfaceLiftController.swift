@@ -550,6 +550,10 @@ final class SurfaceLiftController {
     }
 
     func invalidate() {
+#if DEBUG
+        OverlayLifecycleDiagnostic.record("driver.invalidate.enter", "driver=\(ObjectIdentifier(self));phase=\(state.phase);overlay=\(overlayPresented)")
+        defer { OverlayLifecycleDiagnostic.record("driver.invalidate.exit", "driver=\(ObjectIdentifier(self));phase=\(state.phase)") }
+#endif
         hasInteractivePose = false
         cancelReturn()
         clearSplitTargeting()

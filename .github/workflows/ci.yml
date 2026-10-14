@@ -375,6 +375,12 @@ jobs:
           python3 -B .github/scripts/test_stage5_test_profile.py
           TEST_SCOPE=$(python3 -B .github/scripts/stage5_test_profile.py)
           TEST_ARGS=(test)
+          if [ "$TEST_SCOPE" = overlay-lifecycle ]; then
+            echo 'Diagnostic focused overlay lifecycle and native process sample; not the final full gate.'
+            TEST_ARGS+=(-only-testing:ZenAgentTests
+              -only-testing:ZenAgentUITests/ConversationSearchUITests
+              -only-testing:ZenAgentUITests/SettingsUITests/testSettingsReachesSoulAndClosingRestoresTheConversationDraft)
+          fi
           if [ "$TEST_SCOPE" = native-layout-candidate ]; then
             echo 'Diagnostic native-layout candidate: unit tests and affected production UI; not the full final gate.'
             TEST_ARGS+=(-only-testing:ZenAgentTests
@@ -414,6 +420,11 @@ jobs:
             TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SplitResizeUITests)
           fi
           touch "$RUNNER_TEMP/test-start.marker"
+          if [ "$TEST_SCOPE" = overlay-lifecycle ]; then
+            bash .github/scripts/capture_overlay_stall.sh "$RUNNER_TEMP/ZenAgentTests.log" \
+              "$RUNNER_TEMP/overlay-stall" "$RUNNER_TEMP/overlay-stall.stop" &
+            OVERLAY_MONITOR_PID=$!
+          fi
 
           set +e
           set -o pipefail
@@ -425,6 +436,10 @@ jobs:
             -resultBundlePath "$RUNNER_TEMP/ZenAgentTests.xcresult" \
             2>&1 | tee "$RUNNER_TEMP/ZenAgentTests.log"
           XCODE_STATUS=${PIPESTATUS[0]}
+          if [ "$TEST_SCOPE" = overlay-lifecycle ]; then
+            touch "$RUNNER_TEMP/overlay-stall.stop"
+            wait "$OVERLAY_MONITOR_PID" || true
+          fi
           set -e
 
           # This workflow makes exactly one xcodebuild test invocation, with one
@@ -788,6 +803,7 @@ jobs:
             ${{ runner.temp }}/ZenAgentTests.log
             ${{ runner.temp }}/native-ui-attachments
             ${{ runner.temp }}/native-ui-attachments.log
+            ${{ runner.temp }}/overlay-stall
             ${{ runner.temp }}/test-start.marker
             ${{ runner.temp }}/xcresult-console.log
             ${{ runner.temp }}/xcresult-console.stderr
