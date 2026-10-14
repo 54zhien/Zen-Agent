@@ -15,8 +15,13 @@ private final class WorkspaceSidebarEdgeDiagnostic: UIScreenEdgePanGestureRecogn
     private var phaseSamples: [String: String] = [:]
     private var decisions: [String] = []
     private var resets: [String] = []
+    private var firstAttempt = "pending"
 
     var snapshot: String {
+        "firstAttempt=[\(firstAttempt)];" + currentSnapshot
+    }
+
+    private var currentSnapshot: String {
         "attempt=\(attempt);beganAt=\(beganAt);phases=\(phases);samples=\(phaseSamples);reset=[\(resets.joined(separator: " | "))];decisions=[\(decisions.joined(separator: " | "))]"
     }
 
@@ -57,6 +62,7 @@ private final class WorkspaceSidebarEdgeDiagnostic: UIScreenEdgePanGestureRecogn
     override func reset() {
         resets.append("attempt=\(attempt),at=\(ProcessInfo.processInfo.systemUptime)," + motion)
         if resets.count > 4 { resets.removeFirst() }
+        if attempt == 1 { firstAttempt = currentSnapshot }
         super.reset()
     }
 
