@@ -1,5 +1,47 @@
 import SwiftUI
 
+@MainActor
+private struct SidebarRailProgressLayer: View {
+    let state: WorkspaceNavigationState
+    let availableRoutes: Set<WorkspaceOverlayRoute>
+    let layout: SidebarRailLayout
+    let travel: CGFloat
+    let height: CGFloat
+    let onSelect: (WorkspaceOverlayRoute) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let progress = CGFloat(state.progress)
+        let isDragging = state.isDragging
+        let settlementID = state.settlementID
+        let isInteractive = state.isOpen && !isDragging && settlementID == nil
+
+        if progress > 0 || settlementID != nil {
+            SidebarRailView(
+                availableRoutes: isInteractive ? availableRoutes : [],
+                conversationActions: isInteractive ? state.conversationActions : [],
+                onAction: state.perform,
+                onSelect: onSelect
+            )
+            .padding(.leading, layout.leading)
+            .padding(.trailing, layout.leading)
+            .padding(.top, layout.top)
+            .padding(.bottom, layout.bottom)
+            .frame(width: travel, height: height)
+            // The native Surface covers the full viewport; reveal only the exposed
+            // portion of the rail above its hit region.
+            .mask(alignment: .leading) {
+                Rectangle().frame(width: travel * progress)
+            }
+            .opacity(SidebarProgressPresentation.opacity(forProgress: Double(progress)))
+            .animation(reduceMotion || isDragging ? nil : .easeOut(duration: 0.22), value: progress)
+            .allowsHitTesting(isInteractive)
+            .accessibilityHidden(!isInteractive)
+            .zIndex(1)
+        }
+    }
+}
+
 /// Composition only: the retained native Surface owns its own translation.
 @MainActor
 struct WorkspaceNavigationView<Content: View>: View {
@@ -39,30 +81,12 @@ struct WorkspaceNavigationView<Content: View>: View {
             let rail = SidebarRailLayout(windowInsets: windowInsets, cornerRadius: windowCornerRadius)
             let travel = min(geometry.size.width, rail.width)
             ZStack(alignment: .topLeading) {
-                if state.progress > 0 || state.settlementID != nil {
-                    SidebarRailView(availableRoutes: !state.isDragging && state.settlementID == nil ? overlays?.availableRoutes ?? [] : [],
-                        conversationActions: !state.isDragging && state.settlementID == nil ? state.conversationActions : [],
-                        onAction: state.perform,
-                        onSelect: { route in
-                            overlays?.enter(route, eligible: context()?.allowsOpening == true, captureFocus: captureFocus)
-                        })
-                        .padding(.leading, rail.leading)
-                        .padding(.trailing, rail.leading)
-                        .padding(.top, rail.top)
-                        .padding(.bottom, rail.bottom)
-                        .frame(width: travel, height: geometry.size.height)
-                        // The retained native hosts occupy the full SwiftUI
-                        // viewport. Reveal only the exposed part of the Rail
-                        // above that hit region; its page background stays below
-                        // the translated Surfaces so their shadows remain visible.
-                        .mask(alignment: .leading) {
-                            Rectangle().frame(width: travel * CGFloat(state.progress))
-                        }
-                        .animation(reduceMotion || state.isDragging ? nil : .easeOut(duration: 0.22), value: state.progress)
-                        .allowsHitTesting(state.isOpen && !state.isDragging && state.settlementID == nil)
-                        .accessibilityHidden(!state.isOpen || state.isDragging || state.settlementID != nil)
-                        .zIndex(1)
-                }
+                SidebarRailProgressLayer(state: state,
+                    availableRoutes: overlays?.availableRoutes ?? [], layout: rail,
+                    travel: travel, height: geometry.size.height,
+                    onSelect: { route in
+                        overlays?.enter(route, eligible: context()?.allowsOpening == true, captureFocus: captureFocus)
+                    })
                 content
                     .frame(width: geometry.size.width,
                            height: keepsFullConversationViewport ? nil : geometry.size.height)
@@ -72,7 +96,8 @@ struct WorkspaceNavigationView<Content: View>: View {
                     .accessibilityHidden(state.overlay != nil)
                     .accessibilityElement(children: .contain)
                     .accessibilityActions {
-                        if spatiallyAvailable, !state.blocksLift {
+                        if spatiallyAvailable, !state.isOpen, !state.isDragging,
+                           state.settlementID == nil, state.overlay == nil {
                             Button("打开侧边栏") {
                                 _ = state.openSidebar(eligible: context()?.allowsOpening == true)
                             }

@@ -20,6 +20,45 @@ private final class BlurStripeView: UIView {
 @Suite("Actual progressive content blur", .serialized)
 @MainActor
 struct ConversationTopEdgeBlurTests {
+    @Test("Sidebar transport reuses its strip despite content invalidations and refreshes after release")
+    func sidebarTransportDoesNotCaptureOnTheMainThread() async throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive })
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let root = UIViewController()
+        window.rootViewController = root
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previousKey?.makeKey() }
+        root.view.layoutIfNeeded()
+        let source = BlurStripeView(frame: root.view.bounds)
+        root.view.addSubview(source)
+        _ = UIGraphicsImageRenderer(size: source.bounds.size).image { _ in
+            _ = source.drawHierarchy(in: source.bounds, afterScreenUpdates: true)
+        }
+        let edge = ConversationTopEdgeMaterial(frame: CGRect(x: 0, y: 0, width: source.bounds.width, height: 110))
+        root.view.addSubview(edge)
+        edge.configure(source: source, safeTop: 62)
+        edge.layoutIfNeeded()
+        edge.refreshIfNeeded()
+        await edge.awaitRenderForTesting()
+        let displayed = try #require(edge.image)
+        let attempts = edge.captureAttempts
+        let commits = edge.captureCount
+        edge.setNavigationActive(true)
+        for _ in 0..<40 {
+            edge.invalidateContent()
+            edge.refreshIfNeeded()
+        }
+        #expect(edge.captureAttempts == attempts, "Dragging must not snapshot the hierarchy on each navigation sample")
+        #expect(edge.image === displayed, "The visible owner retains its already-rendered glass while transported")
+        edge.setNavigationActive(false)
+        edge.refreshIfNeeded()
+        await edge.awaitRenderForTesting()
+        #expect(edge.captureAttempts == attempts + 1 && edge.captureCount == commits + 1,
+                "Release must consume the accumulated invalidations in one fresh sample")
+    }
+
     @Test("native scrolling keeps rendering for the current owner before scrolling stops")
     func scrollingDoesNotStarveCurrentOwner() async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }

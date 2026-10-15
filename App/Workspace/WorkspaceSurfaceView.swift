@@ -45,6 +45,21 @@ extension EnvironmentValues {
 }
 
 @MainActor
+private struct WorkspaceSidebarProgressReader<Content: View>: View {
+    let state: WorkspaceNavigationState
+    let travel: CGFloat
+    let direction: LayoutDirection
+    let content: (CGFloat, Bool, CGFloat) -> Content
+
+    var body: some View {
+        let progress = CGFloat(state.progress)
+        let isDragging = state.isDragging
+        let directionSign: CGFloat = direction == .rightToLeft ? -1 : 1
+        content(progress, isDragging, progress * travel * directionSign)
+    }
+}
+
+@MainActor
 struct WorkspaceSurfaceView<Content: View>: View {
     let content: Content
     private let contentForSlot: ((WorkspaceSurfaceSlot) -> Content)?
@@ -125,7 +140,13 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         .zIndex(4 - card.depth)
                 }
             }
-            GeometryReader { geometry in workspaceSurfaces(in: geometry) }
+            GeometryReader { geometry in
+                WorkspaceSidebarProgressReader(state: navigation,
+                    travel: sidebarTravel(in: geometry), direction: layoutDirection) { progress, isDragging, translation in
+                    workspaceSurfaces(in: geometry, sidebarProgress: progress,
+                        sidebarDragging: isDragging, sidebarTranslation: translation)
+                }
+            }
             .zIndex(4 - (browse.layout()?.cards.first { $0.item == browse.state.selected }?.depth ?? 0))
             if activeLift.splitTargetingVisible, let top = activeLift.splitTopFrame,
                let bottom = activeLift.splitBottomFrame, let guide = activeLift.splitGuideFrame {
@@ -284,11 +305,13 @@ struct WorkspaceSurfaceView<Content: View>: View {
         }
     }
 
-    private func workspaceSurfaces(in geometry: GeometryProxy) -> some View {
+    private func workspaceSurfaces(in geometry: GeometryProxy, sidebarProgress: CGFloat,
+                                   sidebarDragging: Bool, sidebarTranslation: CGFloat) -> some View {
         ZStack(alignment: .topLeading) {
             if model?.splitWorkspace != nil, activeSurfaceSlot == nil { Color.black }
-            if navigation.progress > 0 || navigation.settlementID != nil {
-                sidebarBackdrop(in: geometry)
+            if sidebarProgress > 0 || navigation.settlementID != nil {
+                sidebarBackdrop(in: geometry, progress: sidebarProgress,
+                    isDragging: sidebarDragging, translation: sidebarTranslation)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
@@ -302,7 +325,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
             }
 #endif
             ForEach(WorkspaceSurfaceSlot.allCases, id: \.self) { slot in
-                workspaceSurface(slot: slot, geometry: geometry)
+                workspaceSurface(slot: slot, geometry: geometry,
+                    sidebarProgress: sidebarProgress, sidebarDragging: sidebarDragging,
+                    sidebarOffset: sidebarTranslation)
             }
 
             if let model, let split = model.splitWorkspace,
@@ -318,14 +343,14 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         onNew: { _ = model.createNewInSplit() })
                         .frame(width: emptyFrame.width, height: emptyFrame.height)
                         .position(x: emptyFrame.midX, y: emptyFrame.midY)
-                        .offset(x: sidebarTranslation(in: geometry))
-                        .animation(sidebarAnimation, value: navigation.progress)
+                        .offset(x: sidebarTranslation)
+                        .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
                 }
                 if activeSurfaceSlot == nil, let layout = splitGeometry(in: geometry) {
                     divider(model: model, split: split, layout: layout)
                         .position(x: layout.divider.midX, y: layout.divider.midY)
-                        .offset(x: sidebarTranslation(in: geometry))
-                        .animation(sidebarAnimation, value: navigation.progress)
+                        .offset(x: sidebarTranslation)
+                        .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
                         .zIndex(20)
                 }
             }
@@ -337,8 +362,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     && (activeSurfaceSlot == nil || [.armed, .lifting].contains(activeLift.state.phase)
                         || activeLift.state.pendingSettlement?.destination == .card),
                 returnsToPortals: model?.splitWorkspace == nil)
-                .offset(x: sidebarTranslation(in: geometry))
-                .animation(sidebarAnimation, value: navigation.progress)
+                .offset(x: sidebarTranslation)
+                .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
         .background(WorkspaceLayoutObserver { context in
@@ -362,22 +387,21 @@ struct WorkspaceSurfaceView<Content: View>: View {
         })
     }
 
-    private var sidebarAnimation: Animation? {
-        reduceMotion || navigation.isDragging ? nil : .easeOut(duration: 0.22)
+    private func sidebarAnimation(isDragging: Bool) -> Animation? {
+        reduceMotion || isDragging ? nil : .easeOut(duration: 0.22)
     }
 
-    private func sidebarTranslation(in geometry: GeometryProxy) -> CGFloat {
-        CGFloat(navigation.progress) * min(geometry.size.width,
-            SidebarRailLayout(windowInsets: navigationInsets,
-                cornerRadius: layoutContext?.windowCornerRadius ?? 0).width)
-            * (layoutDirection == .rightToLeft ? -1 : 1)
+    private func sidebarTravel(in geometry: GeometryProxy) -> CGFloat {
+        min(geometry.size.width, SidebarRailLayout(windowInsets: navigationInsets,
+            cornerRadius: layoutContext?.windowCornerRadius ?? 0).width)
     }
 
-    private func sidebarBackdrop(in geometry: GeometryProxy) -> some View {
+    private func sidebarBackdrop(in geometry: GeometryProxy, progress: CGFloat,
+                                 isDragging: Bool, translation: CGFloat) -> some View {
         ZStack(alignment: .topLeading) {
             Color(uiColor: .systemBackground)
-            Color.black.opacity(0.28 * (1 - navigation.progress))
-                .animation(sidebarAnimation, value: navigation.progress)
+            Color.black.opacity(0.28 * (1 - progress))
+                .animation(sidebarAnimation(isDragging: isDragging), value: progress)
             if case .split(let axis) = devicePresentation, activeSurfaceSlot == nil,
                let layout = splitGeometry(in: geometry) {
                 // Preserve the black space around the divider-facing 24pt
@@ -386,13 +410,17 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     .frame(width: layout.divider.width + (axis == .leftRight ? 48 : 0),
                            height: layout.divider.height + (axis == .topBottom ? 48 : 0))
                     .position(x: layout.divider.midX, y: layout.divider.midY)
-                    .offset(x: sidebarTranslation(in: geometry))
-                    .animation(sidebarAnimation, value: navigation.progress)
+                    .offset(x: translation)
+                    .animation(sidebarAnimation(isDragging: isDragging), value: progress)
             }
         }
+        .opacity(SidebarProgressPresentation.opacity(forProgress: Double(progress)))
+        .animation(sidebarAnimation(isDragging: isDragging), value: progress)
     }
 
-    private func workspaceSurface(slot: WorkspaceSurfaceSlot, geometry: GeometryProxy) -> some View {
+    private func workspaceSurface(slot: WorkspaceSurfaceSlot, geometry: GeometryProxy,
+                                  sidebarProgress: CGFloat, sidebarDragging: Bool,
+                                  sidebarOffset: CGFloat) -> some View {
         let fullFrame = CGRect(origin: .zero, size: geometry.size)
         let driver = controller(for: slot)
         let frame = driver.retainsAppSpaceViewport ? fullFrame
@@ -401,7 +429,6 @@ struct WorkspaceSurfaceView<Content: View>: View {
         let suppressed = returnPresentation.suppressesTarget(slot)
         let surfaceBrowse: AppSpaceBrowseController? = model != nil && slot == (model?.previewSurfaceSlot ?? model?.sourceSurfaceSlot) ? browse : nil
         let corner: CGFloat = model?.splitWorkspace != nil && !driver.retainsAppSpaceViewport ? 24 : 0
-        let sidebarOffset = sidebarTranslation(in: geometry)
         // The proposed Workspace already avoids the keyboard. Only square an
         // exterior edge that actually reaches that shortened viewport; inner
         // corners and the black divider retain their normal geometry.
@@ -424,6 +451,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
             isWorkspaceVisible: visible, isInputSuppressed: suppressed,
             isReturnProxyHidden: returnPresentation.hidesOrigin(slot),
             restingCornerRadius: corner, squareBottomCorners: squareBottomCorners, sidebarOffset: sidebarOffset,
+            sidebarProgress: sidebarProgress, sidebarDragging: sidebarDragging,
             sidebarSettlement: navigation.settlementID,
             onSidebarSettled: settled,
             onNativeLayout: { [weak model, weak resize] receipt in

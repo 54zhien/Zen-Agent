@@ -107,11 +107,12 @@ final class SidebarAppearanceUITests: XCTestCase {
         XCTAssertLessThan(luminance, 0.2)
     }
     @MainActor
-    func testRestingControlsShareTheWindowCornerCenters() {
+    func testRestingComposerStaysConcentricAndSidebarControlsRespectSafeTop() {
         let app = launchLightAppearance()
         let native = app.descendants(matching: .any)["surface-native-interaction-probe"]
         let composer = app.descendants(matching: .any)["composer-geometry-probe"]
         guard let radius = metric("windowCornerRadius", from: native),
+              let safeTop = metric("windowSafeTop", from: native),
               let frame = rect("surfaceRect", from: composer),
               let composerRadius = metric("corner", from: composer) else {
             XCTFail("Native window and Composer geometry must be available")
@@ -120,7 +121,7 @@ final class SidebarAppearanceUITests: XCTestCase {
         XCTAssertGreaterThan(radius, 0)
         if let readable = rect("timelineVisibleFrame", from: native),
            let topEdge = rect("topEdgeFrame", from: native),
-           let safeTop = metric("windowSafeTop", from: native) {
+           safeTop > 0 {
             XCTAssertEqual(readable.minY, app.frame.minY + safeTop, accuracy: 1,
                            "The status-area fade must preserve the existing readable top inset")
             XCTAssertEqual(topEdge.minY, app.frame.minY, accuracy: 1)
@@ -138,14 +139,17 @@ final class SidebarAppearanceUITests: XCTestCase {
         app.openWorkspaceSidebar()
         let top = app.buttons["new-conversation-new"].frame
         let bottom = app.buttons["sidebar-settings"].frame
-        attach(app.screenshot(), named: "Window corner alignment")
-        print("CONCENTRIC top=\(top);bottom=\(bottom);window=\(app.frame);radius=\(radius)")
-        XCTAssertEqual(top.width, 48, accuracy: 1)
-        XCTAssertEqual(top.height, 48, accuracy: 1)
-        XCTAssertEqual(top.midX, app.frame.minX + radius, accuracy: 1)
-        XCTAssertEqual(top.midY, app.frame.minY + radius, accuracy: 1)
-        XCTAssertEqual(bottom.midX, app.frame.minX + radius, accuracy: 1)
-        XCTAssertEqual(bottom.midY, app.frame.maxY - radius, accuracy: 1)
+        attach(app.screenshot(), named: "Sidebar control size and safe-area spacing")
+        print("SIDEBAR_GEOMETRY top=\(top);bottom=\(bottom);window=\(app.frame);radius=\(radius)")
+        XCTAssertEqual(top.width, 56, accuracy: 1)
+        XCTAssertEqual(top.height, 56, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(top.minY, app.frame.minY + safeTop + 11,
+                                    "The first control must begin below the status area")
+        XCTAssertEqual(top.minY, app.frame.minY + max(safeTop + 12, radius - 28), accuracy: 1)
+        XCTAssertEqual(bottom.midX, top.midX, accuracy: 1,
+                       "The rail must keep its control column aligned from top to bottom")
+        XCTAssertEqual(top.minX - app.frame.minX, 20, accuracy: 1,
+                       "The portrait rail must keep a 20pt exposed-screen gap around its controls")
         guard let sheet = rect("surfaceFrame", from: native) else {
             XCTFail("The translated native sheet must expose its frame")
             return

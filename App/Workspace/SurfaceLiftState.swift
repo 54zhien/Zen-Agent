@@ -29,6 +29,9 @@ struct SurfaceLiftState: Equatable, Sendable {
     private(set) var progress: Double = 0
     private(set) var pendingSettlement: Settlement?
 
+    static let dragOnsetDistance = 12.0
+    static let fullDragDistance = 180.0
+
     mutating func arm(_ eligibility: SurfaceLiftEligibility) -> Bool {
         guard phase == .full, eligibility.allowsLift else { return false }
         phase = .armed
@@ -36,19 +39,32 @@ struct SurfaceLiftState: Equatable, Sendable {
     }
 
     mutating func drag(upwardDistance: Double, eligibility: SurfaceLiftEligibility) -> Bool {
+        drag(upwardDistance: upwardDistance, travel: max(0, upwardDistance), eligibility: eligibility)
+    }
+
+    mutating func drag(upwardDistance: Double, travel: Double,
+                       eligibility: SurfaceLiftEligibility) -> Bool {
         guard phase == .armed || phase == .lifting else { return false }
         guard eligibility.allowsLift else {
             interrupt()
             return false
         }
-        guard upwardDistance.isFinite else { return false }
+        guard upwardDistance.isFinite, travel.isFinite, travel >= 0 else { return false }
         // Calibration starts here; production comfort is measured on devices later.
-        let onset = 12.0
-        let fullDistance = 180.0
-        if phase == .armed, upwardDistance < onset { return true }
+        if phase == .armed, travel < Self.dragOnsetDistance { return true }
         phase = .lifting
-        progress = min(1, max(0, (upwardDistance - onset) / (fullDistance - onset)))
+        // Travel admits motion in every direction, while only upward travel
+        // advances the existing Card/Split progress and release thresholds.
+        progress = min(1, max(0,
+            (upwardDistance - Self.dragOnsetDistance)
+                / (Self.fullDragDistance - Self.dragOnsetDistance)))
         return true
+    }
+
+    static func presentationProgress(travel: Double) -> Double {
+        guard travel.isFinite else { return 0 }
+        return min(1, max(0,
+            (travel - dragOnsetDistance) / (fullDragDistance - dragOnsetDistance)))
     }
 
     mutating func end(cancelled: Bool = false) -> Settlement? {

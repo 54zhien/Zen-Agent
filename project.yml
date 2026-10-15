@@ -66,6 +66,8 @@ targets:
       properties:
         CFBundleDisplayName: Zen
         UILaunchScreen: {}
+        # Permit Core Animation to use the device's higher refresh rates.
+        CADisableMinimumFrameDurationOnPhone: true
         # Bare file names, with no `Fonts/` prefix: the resources above are copied
         # to the bundle root, so a subdirectory here would name nothing. This is
         # only the launch-time half of font wiring — `FontRegistry` re-registers the

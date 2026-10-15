@@ -69,6 +69,7 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
     var isInstalled: Bool { configuration != nil }
 
 #if DEBUG
+    var feedbackAnimatorForTesting: UIViewPropertyAnimator? { feedback.animatorForTesting }
     var isReadyForUITesting: Bool { configuration?.driver.canArm(input) == true }
     var readinessDiagnostic: String {
         "liftReady=\(isReadyForUITesting);eligibility=\(input);gesture=\(recognizer.state.rawValue);liftTrace=[\(gestureTrace.joined(separator: " | "))]"
@@ -130,6 +131,18 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
                                            selector: #selector(liftForAccessibility))] : nil
     }
 
+    func cancelForDetachment() {
+        feedback.resetForDetachment()
+        let driver = configuration?.driver
+        if driver?.state.phase == .armed || driver?.state.phase == .lifting {
+            driver?.invalidate()
+        }
+        origin = nil
+#if DEBUG
+        diagnosticDriver = nil
+#endif
+    }
+
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         let accepted = configuration?.driver.canArm(input) == true
 #if DEBUG
@@ -140,6 +153,7 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         let accepted = touch.view === surface
+        if accepted { feedback.prepare() }
 #if DEBUG
         if recordsUITestGestures { observedTouch = touch }
         recordGesture("receive=\(accepted);view=\(String(describing: touch.view.map { type(of: $0) }))")
@@ -179,7 +193,8 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
                 recordedFirstChange = true
             }
 #endif
-            if !configuration.driver.drag(upwardDistance: Double(origin.y - point.y),
+            let displacement = CGSize(width: point.x - origin.x, height: point.y - origin.y)
+            if !configuration.driver.drag(displacement: displacement,
                                           eligibility: input, locationInWindow: point) {
 #if DEBUG
                 recordGesture("dragRefused;point=\(point);origin=\(origin)")
@@ -200,7 +215,14 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
 
     static func finish(driver: SurfaceLiftController, origin: CGPoint, point: CGPoint,
                        eligibility: SurfaceLiftEligibility, cancelled: Bool) {
-        if !cancelled && !driver.drag(upwardDistance: Double(origin.y - point.y),
+        finish(driver: driver,
+            displacement: CGSize(width: point.x - origin.x, height: point.y - origin.y),
+            point: point, eligibility: eligibility, cancelled: cancelled)
+    }
+
+    static func finish(driver: SurfaceLiftController, displacement: CGSize, point: CGPoint,
+                       eligibility: SurfaceLiftEligibility, cancelled: Bool) {
+        if !cancelled && !driver.drag(displacement: displacement,
                                       eligibility: eligibility, locationInWindow: point) {
             driver.invalidate()
             return
@@ -210,7 +232,8 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
 
     @objc private func liftForAccessibility() -> Bool {
         guard let configuration, configuration.driver.arm(input) else { return false }
-        guard configuration.driver.drag(upwardDistance: 180, eligibility: input) else { return false }
+        guard configuration.driver.drag(displacement: CGSize(width: 0, height: -180),
+                                        eligibility: input) else { return false }
         _ = configuration.driver.end()
         return true
     }

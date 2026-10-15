@@ -7,31 +7,42 @@ import UIKit
 @MainActor
 private final class DiagnosticLongPressSample: UILongPressGestureRecognizer {
     var sample: UIGestureRecognizer.State = .possible
+    var point = CGPoint(x: 180, y: 700)
     override var state: UIGestureRecognizer.State {
         get { sample }
         set { sample = newValue }
     }
-    override func location(in view: UIView?) -> CGPoint { CGPoint(x: 180, y: 700) }
+    override func location(in view: UIView?) -> CGPoint { point }
 }
 
 @Suite("Composer Lift diagnostic lifetime", .serialized)
 @MainActor
 struct ComposerLiftDiagnosticTests {
-    @Test("accepted long press visibly arms the Composer and cancellation removes its animation",
+    @Test("accepted long press grows the Composer contents and cancellation restores them",
           arguments: [UIUserInterfaceStyle.light, .dark])
     func acceptedPressHasVisibleFeedback(style: UIUserInterfaceStyle) throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive })
+        let previousKey = scene.windows.first { $0.isKeyWindow }
         let host = ConversationSurfaceViewController(content: Color.clear)
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = style
         window.rootViewController = host
-        window.isHidden = false
-        defer { window.isHidden = true; window.rootViewController = nil }
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previousKey?.makeKey() }
         host.view.layoutIfNeeded()
         let surface = UIView(frame: CGRect(x: 40, y: 680, width: 300, height: 70))
         surface.backgroundColor = .systemBackground
         surface.cornerConfiguration = .corners(radius: .containerConcentric(minimum: 22))
         let editor = UITextView()
         host.view.addSubview(surface)
+        let glass = UIVisualEffectView(effect: UIGlassEffect(style: .regular))
+        glass.frame = surface.bounds
+        surface.addSubview(glass)
+        let label = UILabel(frame: surface.bounds.insetBy(dx: 24, dy: 12))
+        label.text = "说点什么吧"
+        label.textColor = .secondaryLabel
+        surface.addSubview(label)
         surface.addSubview(editor)
         try #require(surface.traitCollection.userInterfaceStyle == style)
         // Resolve after attachment so the recorded fixture uses its actual
@@ -54,8 +65,7 @@ struct ComposerLiftDiagnosticTests {
             let picture = renderer.image { context in
                 UIColor.systemBackground.resolvedColor(with: surface.traitCollection).setFill()
                 context.fill(CGRect(x: 0, y: 0, width: 340, height: 110))
-                // Capture the native parent at 1:1 geometry: the upward cue sits
-                // outside the Composer's bounds and belongs in the armed picture.
+                // Keep the enlarged glass and its halo in the native capture.
                 complete = host.view.drawHierarchy(in: CGRect(x: 20 - surface.frame.minX,
                     y: 20 - surface.frame.minY, width: host.view.bounds.width,
                     height: host.view.bounds.height), afterScreenUpdates: true)
@@ -64,22 +74,75 @@ struct ComposerLiftDiagnosticTests {
             let bytes = try #require(picture.pngData())
             Attachment.record(bytes, named: "Composer-feedback-\(style == .dark ? "dark" : "light")-\(phase).png")
         }
+        try capture("resting")
         let sample = DiagnosticLongPressSample()
         sample.sample = .began
         _ = input.perform(NSSelectorFromString("gestureChanged:"), with: sample)
         try #require(driver.state.phase == .armed)
-        let feedback = try #require(surface.layer.sublayers?.first { $0.name == "zen-composer-lift-ready" })
-        #expect(feedback.opacity > 0)
-        #expect(!(feedback.animationKeys() ?? []).isEmpty)
+        let readyTransform = surface.layer.sublayerTransform
+        #expect(readyTransform.m11 > 1 && readyTransform.m22 > 1)
+        #expect(surface.layer.sublayers?.contains { $0.name == "zen-composer-lift-ready" } != true)
         #expect(surface.transform == .identity, "feedback must not invalidate native Composer layout readiness")
         #expect(surface.frame == originalFrame && surface.bounds == originalBounds)
+        let animation = try #require(input.feedbackAnimatorForTesting)
+        animation.pauseAnimation()
+        animation.fractionComplete = 0.25
+        CATransaction.flush()
         try capture("armed")
+        let visibleScale = try #require(surface.layer.presentation()?.sublayerTransform)
+        #expect(visibleScale.m11 > 1 && visibleScale.m11 < readyTransform.m11,
+                "The actual backing tree must render an intermediate spring scale")
+        #expect(visibleScale.m22 > 1 && visibleScale.m22 < readyTransform.m22)
         sample.sample = .cancelled
         _ = input.perform(NSSelectorFromString("gestureChanged:"), with: sample)
+        let returning = try #require(input.feedbackAnimatorForTesting)
+        returning.stopAnimation(false)
+        returning.finishAnimation(at: .end)
+        CATransaction.flush()
         #expect(driver.state.phase == .full)
-        #expect(feedback.opacity == 0 && (feedback.animationKeys() ?? []).isEmpty)
+        #expect(CATransform3DEqualToTransform(surface.layer.sublayerTransform, CATransform3DIdentity))
         #expect(surface.frame == originalFrame && surface.bounds == originalBounds)
         try capture("cancelled")
+    }
+
+    @Test("native long press carries horizontal and vertical movement into the retained page")
+    func nativeGestureTransportsBothDisplacementAxes() throws {
+        let host = ConversationSurfaceViewController(content: Color.clear)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let surface = UIView(frame: CGRect(x: 40, y: 680, width: 300, height: 70))
+        let editor = UITextView()
+        host.view.addSubview(surface)
+        surface.addSubview(editor)
+
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        defer { driver.unbind(host) }
+        let input = ComposerLiftInteraction(surface: surface, editor: editor,
+            nativeInput: { SurfaceLiftEligibility() })
+        input.configure(.init(driver: driver, conversationID: "two-axis", eligibility: { $0 }))
+
+        let sample = DiagnosticLongPressSample()
+        let action = NSSelectorFromString("gestureChanged:")
+        sample.point = CGPoint(x: 180, y: 700)
+        sample.sample = .began
+        _ = input.perform(action, with: sample)
+        try #require(driver.state.phase == .armed)
+
+        sample.point = CGPoint(x: 222, y: 580)
+        sample.sample = .changed
+        _ = input.perform(action, with: sample)
+        #expect(driver.state.phase == .lifting)
+        #expect(abs(host.presentation.translation.width - 42) < 0.001)
+        #expect(abs(host.presentation.translation.height + 120) < 0.001)
+        #expect(abs(driver.state.progress - 108.0 / 168.0) < 0.000001)
+
+        input.cancelForDetachment()
+        #expect(driver.state.phase == .full)
+        #expect(CATransform3DEqualToTransform(surface.layer.sublayerTransform, CATransform3DIdentity))
     }
 
     @Test("the original driver retains terminal evidence after native transport loses its attachment",

@@ -1,53 +1,81 @@
 import UIKit
 
-/// Readiness decoration has no bearing on the Composer's measured layout.
+/// A short visual size cue that leaves the Composer's logical geometry untouched.
 @MainActor
 final class ComposerLiftFeedback {
     private weak var surface: UIView?
-    private let outline = CAShapeLayer()
-    private let haptic = UIImpactFeedbackGenerator(style: .light)
+    private let haptic = UIImpactFeedbackGenerator(style: .soft)
+    private var animator: UIViewPropertyAnimator?
     private var ready = false
+#if DEBUG
+    var animatorForTesting: UIViewPropertyAnimator? { animator }
+#endif
 
     init(surface: UIView) {
         self.surface = surface
-        outline.name = "zen-composer-lift-ready"
-        outline.fillColor = UIColor.clear.cgColor
-        outline.lineWidth = 1.5
-        outline.lineCap = .round
-        outline.lineJoin = .round
-        outline.opacity = 0
-        surface.layer.addSublayer(outline)
+        haptic.prepare()
+    }
+
+    func prepare() {
+        haptic.prepare()
     }
 
     func setReady(_ value: Bool) {
         guard ready != value else { return }
+        guard let surface else { ready = false; return }
         ready = value
-        outline.removeAllAnimations()
+
+        let visibleTransform = surface.layer.presentation()?.sublayerTransform
+            ?? surface.layer.sublayerTransform
+        animator?.stopAnimation(true)
+        animator = nil
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        outline.opacity = value ? 1 : 0
-        if value, let surface {
-            outline.frame = surface.bounds
-            outline.contentsScale = surface.window?.screen.scale ?? surface.traitCollection.displayScale
-            outline.strokeColor = surface.tintColor.resolvedColor(with: surface.traitCollection).cgColor
-            let radius = max(0, surface.effectiveRadius(corner: .topLeft) - 2)
-            let path = UIBezierPath(roundedRect: surface.bounds.insetBy(dx: 2, dy: 2), cornerRadius: radius)
-            path.move(to: CGPoint(x: surface.bounds.midX - 7, y: -7))
-            path.addLine(to: CGPoint(x: surface.bounds.midX, y: -13))
-            path.addLine(to: CGPoint(x: surface.bounds.midX + 7, y: -7))
-            outline.path = path.cgPath
-        }
+        surface.layer.sublayerTransform = visibleTransform
         CATransaction.commit()
-        guard value else { return }
-        haptic.impactOccurred(intensity: 0.55)
-        guard !UIAccessibility.isReduceMotionEnabled else { return }
-        let lift = CABasicAnimation(keyPath: "transform.translation.y")
-        lift.fromValue = 0
-        lift.toValue = -3
-        lift.duration = 0.55
-        lift.autoreverses = true
-        lift.repeatCount = .infinity
-        lift.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        outline.add(lift, forKey: "ready-lift")
+
+        let target = value
+            ? CATransform3DMakeScale(1.045, 1.045, 1)
+            : CATransform3DIdentity
+        let reduceMotion = UIAccessibility.isReduceMotionEnabled
+        guard !reduceMotion else {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            surface.layer.sublayerTransform = target
+            CATransaction.commit()
+            if value {
+                haptic.impactOccurred(intensity: 0.45)
+            }
+            haptic.prepare()
+            return
+        }
+
+        let next = UIViewPropertyAnimator(
+            duration: 0.26,
+            timingParameters: UISpringTimingParameters(dampingRatio: value ? 0.78 : 0.9)
+        )
+        next.addAnimations { [weak surface] in
+            surface?.layer.sublayerTransform = target
+        }
+        animator = next
+        next.startAnimation()
+        if value {
+            // The single soft impact lands with the spring that enlarges the glass.
+            haptic.impactOccurred(intensity: 0.45)
+        }
+        haptic.prepare()
+    }
+
+    /// Detachment can outlive UIKit's cancelled recognizer callback.
+    func resetForDetachment() {
+        ready = false
+        animator?.stopAnimation(true)
+        animator = nil
+        guard let surface else { haptic.prepare(); return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        surface.layer.sublayerTransform = CATransform3DIdentity
+        CATransaction.commit()
+        haptic.prepare()
     }
 }

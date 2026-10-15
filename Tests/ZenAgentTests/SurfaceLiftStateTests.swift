@@ -45,6 +45,36 @@ struct SurfaceLiftStateTests {
         #expect(state.phase == .card && state.progress == 1)
     }
 
+    @Test func travelInEitherHorizontalDirectionOrDownwardCanLiftButCannotCommitCard() throws {
+        for displacement in [CGSize(width: -48, height: 0),
+                             CGSize(width: 48, height: 0),
+                             CGSize(width: 0, height: 48)] {
+            var state = SurfaceLiftState()
+            #expect(state.arm(SurfaceLiftEligibility()))
+            let travel = hypot(Double(displacement.width), Double(displacement.height))
+            #expect(state.drag(upwardDistance: -Double(displacement.height), travel: travel,
+                               eligibility: SurfaceLiftEligibility()))
+            #expect(state.phase == .lifting)
+            #expect(state.progress == 0)
+
+            let settlement = try #require(state.end())
+            #expect(settlement.destination == .full)
+            #expect(state.complete(settlement, finished: true))
+            #expect(state.phase == .full && state.progress == 0)
+        }
+    }
+
+    @Test func diagonalTravelUsesMagnitudeForOnsetAndUpwardAxisForCommitProgress() {
+        var state = SurfaceLiftState()
+        #expect(state.arm(SurfaceLiftEligibility()))
+        #expect(state.drag(upwardDistance: 0, travel: 11.9, eligibility: SurfaceLiftEligibility()))
+        #expect(state.phase == .armed && state.progress == 0)
+        #expect(state.drag(upwardDistance: 0, travel: 12, eligibility: SurfaceLiftEligibility()))
+        #expect(state.phase == .lifting && state.progress == 0)
+        #expect(state.drag(upwardDistance: 96, travel: 120, eligibility: SurfaceLiftEligibility()))
+        #expect(abs(state.progress - 0.5) < 0.000001)
+    }
+
     @Test(arguments: [false, true])
     func cancellationOrShortDragReturnsFull(cancelled: Bool) throws {
         var state = SurfaceLiftState()

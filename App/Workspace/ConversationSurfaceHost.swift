@@ -14,6 +14,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var restingCornerRadius: CGFloat
     var squareBottomCorners: Bool
     var sidebarOffset: CGFloat
+    var sidebarProgress: CGFloat
+    var sidebarDragging: Bool
     var sidebarSettlement: UUID?
     var onSidebarSettled: ((UUID) -> Void)?
     var onNativeLayout: ((WorkspaceNativeLayoutReceipt?) -> Void)?
@@ -27,7 +29,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
          isWorkspaceVisible: Bool = true,
          isInputSuppressed: Bool = false, isReturnProxyHidden: Bool = false,
          restingCornerRadius: CGFloat = 0, squareBottomCorners: Bool = false,
-         sidebarOffset: CGFloat = 0, sidebarSettlement: UUID? = nil,
+         sidebarOffset: CGFloat = 0, sidebarProgress: CGFloat = 0, sidebarDragging: Bool = false,
+         sidebarSettlement: UUID? = nil,
          onSidebarSettled: ((UUID) -> Void)? = nil,
          onNativeLayout: ((WorkspaceNativeLayoutReceipt?) -> Void)? = nil,
          contentOwner: ObjectIdentifier? = nil,
@@ -43,6 +46,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         self.restingCornerRadius = restingCornerRadius
         self.squareBottomCorners = squareBottomCorners
         self.sidebarOffset = sidebarOffset
+        self.sidebarProgress = sidebarProgress
+        self.sidebarDragging = sidebarDragging
         self.sidebarSettlement = sidebarSettlement
         self.onSidebarSettled = onSidebarSettled
         self.onNativeLayout = onNativeLayout
@@ -62,7 +67,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.setReturnProxyHidden(isReturnProxyHidden)
         controller.setWorkspaceVisible(isWorkspaceVisible)
         controller.setSquareBottomCorners(squareBottomCorners)
-        controller.setSidebar(offset: sidebarOffset, settlement: sidebarSettlement, completion: onSidebarSettled)
+        controller.setSidebar(offset: sidebarOffset, progress: sidebarProgress, dragging: sidebarDragging,
+                              settlement: sidebarSettlement, completion: onSidebarSettled)
         return controller
     }
 
@@ -84,7 +90,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.setReturnProxyHidden(isReturnProxyHidden)
         controller.setWorkspaceVisible(isWorkspaceVisible)
         controller.setSquareBottomCorners(squareBottomCorners)
-        controller.setSidebar(offset: sidebarOffset, settlement: sidebarSettlement, completion: onSidebarSettled)
+        controller.setSidebar(offset: sidebarOffset, progress: sidebarProgress, dragging: sidebarDragging,
+                              settlement: sidebarSettlement, completion: onSidebarSettled)
         controller.scheduleNativeLayoutReceipt()
     }
 
@@ -105,7 +112,8 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     let topEdge = ConversationTopEdgeMaterial(frame: .zero)
     private var restingCornerRadius: CGFloat = 0
     let surfaceView = SurfaceClipView()
-    private let sidebarShadowView = UIView()
+    private let sidebarDecoration = SidebarSurfaceDecoration()
+    private var sidebarShadowView: UIView { sidebarDecoration.shadowView }
     private(set) var presentation = SurfaceGeometry.Presentation.full
     private var request = SurfaceGeometry.Request.full
     weak var liftController: SurfaceLiftController?
@@ -121,17 +129,17 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private let cropMask = UIView()
     private var animator: UIViewPropertyAnimator?
     private var sidebarOffset: CGFloat = 0
+    private var sidebarProgress: CGFloat = 0
+    private var sidebarDragging = false
     private var sidebarSettlement: UUID?
     private var sidebarAnimator: UIViewPropertyAnimator?
     private var squareBottomCorners = false
     private let windowCornerGeometry = WindowCornerGeometry()
-    private let sidebarShadowOpacity: Float = 0.2
-    private let sidebarShadowRadius: CGFloat = 18
-    private let sidebarShadowHorizontalOffset: CGFloat = 8
     private var sidebarShadowDirection: CGFloat = -1
 #if DEBUG
     // Tests pause the real animator so a busy simulator cannot skip settlement.
     var liftAnimatorForTesting: UIViewPropertyAnimator? { animator }
+    var sidebarSilhouetteBuildCount: Int { sidebarDecoration.silhouetteBuildCount }
 
     var visibilityDiagnostic: String {
         "visible=\(workspaceVisible),hidden=\(view.isHidden),axHidden=\(contentController.view.accessibilityElementsHidden),suppressed=\(inputSuppressed),proxyHidden=\(returnProxyHidden)"
@@ -244,17 +252,6 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         view.backgroundColor = .clear
         surfaceView.layer.cornerCurve = .continuous
         surfaceView.clipsToBounds = true
-        sidebarShadowView.backgroundColor = .systemBackground
-        sidebarShadowView.isUserInteractionEnabled = false
-        sidebarShadowView.isAccessibilityElement = false
-        sidebarShadowView.accessibilityElementsHidden = true
-        sidebarShadowView.layer.cornerCurve = .continuous
-        sidebarShadowView.layer.masksToBounds = false
-        sidebarShadowView.layer.shadowColor = UIColor.black.cgColor
-        sidebarShadowView.layer.shadowOpacity = sidebarShadowOpacity
-        sidebarShadowView.layer.shadowRadius = sidebarShadowRadius
-        sidebarShadowView.alpha = 0
-        sidebarShadowView.isHidden = true
         cropMask.backgroundColor = .black
         cropMask.layer.cornerCurve = .continuous
         view.addSubview(sidebarShadowView)
@@ -272,8 +269,13 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         NSLayoutConstraint.activate(contentConstraints)
         contentController.didMove(toParent: self)
         surfaceView.addSubview(topEdge)
+        sidebarDecoration.install(on: surfaceView)
         topEdge.configure(source: contentView, safeTop: view.safeAreaInsets.top)
         contentController.onContentLayout = { [weak topEdge] in topEdge?.invalidateContent() }
+        contentController.registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) { [weak self]
+            (_: SurfaceHostingController<Content>, _: UITraitCollection) in
+            self?.updateSurfaceDecoration()
+        }
     }
 
     override func viewDidLayoutSubviews() {
@@ -303,7 +305,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func scheduleNativeLayoutReceipt() {
-        guard onNativeLayout != nil else { return }
+        // Return/resize cannot start while Sidebar owns transport. Navigation
+        // samples must not allocate receipt tasks for an unchanged host frame.
+        guard onNativeLayout != nil, !sidebarDragging, sidebarSettlement == nil else { return }
         layoutReceiptGeneration &+= 1
         let generation = layoutReceiptGeneration
         Task { @MainActor [weak self] in
@@ -315,6 +319,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func setRestingCornerRadius(_ radius: CGFloat) {
+        guard restingCornerRadius != radius else { return }
         restingCornerRadius = radius
         updateSurfaceDecoration()
     }
@@ -357,9 +362,11 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         workspaceVisible && !inputSuppressed && !returnProxyHidden && !hasPresentedOverlay
     }
 
-    func setSidebar(offset: CGFloat, settlement: UUID?, completion: ((UUID) -> Void)?) {
-        guard offset.isFinite else { return }
-        guard sidebarOffset != offset || sidebarSettlement != settlement else {
+    func setSidebar(offset: CGFloat, progress: CGFloat = 0, dragging: Bool = false,
+                    settlement: UUID?, completion: ((UUID) -> Void)?) {
+        guard offset.isFinite, progress.isFinite else { return }
+        guard sidebarOffset != offset || sidebarSettlement != settlement
+                || sidebarProgress != progress || sidebarDragging != dragging else {
             updateSurfaceDecoration()
             return
         }
@@ -372,7 +379,10 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         if let displayedShadowCenter { sidebarShadowView.center = displayedShadowCenter }
         if let displayedShadowAlpha { sidebarShadowView.alpha = CGFloat(displayedShadowAlpha) }
         sidebarOffset = offset
+        sidebarProgress = min(1, max(0, progress))
+        sidebarDragging = dragging
         sidebarSettlement = settlement
+        topEdge.setNavigationActive(dragging || settlement != nil)
         // Keep the exposed side while a closing settlement targets zero offset.
         if offset != 0 { sidebarShadowDirection = offset > 0 ? -1 : 1 }
         // Lift alone owns transform. Navigation changes center while the native
@@ -383,6 +393,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             surfaceView.center = center
             sidebarShadowView.center = center
             sidebarShadowView.alpha = shadowAlpha
+            sidebarDecoration.applyAppearance(surface: surfaceView, progress: sidebarProgress, traits: contentController.traitCollection)
             updateSurfaceDecoration()
             return
         }
@@ -391,10 +402,12 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             surfaceView.center = center
             sidebarShadowView.center = center
             sidebarShadowView.alpha = shadowAlpha
+            sidebarDecoration.applyAppearance(surface: surfaceView, progress: sidebarProgress, traits: contentController.traitCollection)
             updateSurfaceDecoration()
             Task { @MainActor [weak self] in
                 await Task.yield()
                 guard self?.sidebarSettlement == settlement else { return }
+                self?.topEdge.setNavigationActive(false)
                 completion?(settlement)
             }
             return
@@ -403,12 +416,15 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             self?.surfaceView.center = center
             self?.sidebarShadowView.center = center
             self?.sidebarShadowView.alpha = shadowAlpha
+            guard let self else { return }
+            self.sidebarDecoration.applyAppearance(surface: self.surfaceView, progress: self.sidebarProgress, traits: self.contentController.traitCollection)
         }
         sidebarAnimator = animation
         updateSurfaceDecoration()
         animation.addCompletion { [weak self] position in
             guard let self, self.sidebarSettlement == settlement, position == .end else { return }
             self.sidebarAnimator = nil
+            self.topEdge.setNavigationActive(false)
             self.updateSurfaceDecoration()
             completion?(settlement)
         }
@@ -420,9 +436,13 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         sidebarAnimator = nil
         sidebarSettlement = nil
         sidebarOffset = 0
+        sidebarProgress = 0
+        sidebarDragging = false
+        topEdge.setNavigationActive(false)
         surfaceView.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
         sidebarShadowView.center = surfaceView.center
         sidebarShadowView.alpha = 0
+        sidebarDecoration.applyAppearance(surface: surfaceView, progress: 0, traits: contentController.traitCollection)
         updateSurfaceDecoration()
     }
 
@@ -480,9 +500,11 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     private func updateSurfaceDecoration() {
-        let windowRadius = restingCornerRadius == 0 && isStableFullSurface
-            ? windowConcentricCornerRadius() : 0
-        let radius = max(restingCornerRadius, max(presentation.cornerRadius, windowRadius))
+        // A floating pose already compensates for its own scale. Applying the
+        // resting Split radius as a minimum would enlarge corners on iPad.
+        let radius = presentation == .full
+            ? (restingCornerRadius > 0 ? restingCornerRadius : windowConcentricCornerRadius())
+            : presentation.cornerRadius
         let squareBottom = squareBottomCorners && isStableFullSurface
         let topCorners: CACornerMask = .layerMinXMinYCorner.union(.layerMaxXMinYCorner)
         let allCorners = topCorners.union(.layerMinXMaxYCorner).union(.layerMaxXMaxYCorner)
@@ -490,18 +512,16 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
         surfaceView.layer.cornerRadius = radius
         surfaceView.layer.maskedCorners = roundedCorners
-        sidebarShadowView.bounds = surfaceView.bounds
-        sidebarShadowView.center = surfaceView.center
-        sidebarShadowView.transform = surfaceView.transform
-        sidebarShadowView.layer.cornerRadius = radius
-        sidebarShadowView.layer.maskedCorners = roundedCorners
-        sidebarShadowView.layer.shadowOffset = CGSize(width: sidebarShadowDirection * sidebarShadowHorizontalOffset, height: 0)
-        // Cast the same continuous corner silhouette as the foreground. A
-        // circular UIBezierPath leaves grey wedges between the two curves.
-        sidebarShadowView.layer.shadowPath = nil
-        sidebarShadowView.overrideUserInterfaceStyle = contentController.traitCollection.userInterfaceStyle
-        sidebarShadowView.isHidden = !workspaceVisible || returnProxyHidden
-            || (sidebarOffset == 0 && sidebarSettlement == nil)
+        let shadowVisible = workspaceVisible && !returnProxyHidden
+            && (sidebarOffset != 0 || sidebarSettlement != nil)
+        if shadowVisible {
+            sidebarDecoration.updateGeometry(surface: surfaceView, radius: radius,
+                corners: roundedCorners, direction: sidebarShadowDirection)
+        }
+        if sidebarAnimator == nil {
+            sidebarDecoration.applyAppearance(surface: surfaceView, progress: sidebarProgress, traits: contentController.traitCollection)
+        }
+        sidebarShadowView.isHidden = !shadowVisible
         if sidebarAnimator == nil {
             sidebarShadowView.alpha = sidebarShadowAlpha(for: sidebarOffset)
         }

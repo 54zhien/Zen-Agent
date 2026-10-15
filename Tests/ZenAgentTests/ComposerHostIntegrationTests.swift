@@ -84,6 +84,67 @@ struct ComposerHostIntegrationTests {
         #expect(newCount == 1)
     }
 
+    @Test("readiness growth preserves the native Composer settled measurement") throws {
+        let (window, host) = installedHost()
+        defer { window.isHidden = true }
+        let surface = try #require(host.subviews.first)
+        let originalFrame = surface.frame
+        let originalBounds = surface.bounds
+        #expect(host.nativeLiftInput.composerSettled)
+
+        let feedback = ComposerLiftFeedback(surface: surface)
+        feedback.setReady(true)
+        #expect(surface.layer.sublayerTransform.m11 > 1)
+        #expect(surface.frame == originalFrame && surface.bounds == originalBounds)
+        #expect(host.nativeLiftInput.composerSettled)
+
+        feedback.setReady(false)
+        #expect(CATransform3DEqualToTransform(surface.layer.sublayerTransform, CATransform3DIdentity))
+        #expect(surface.frame == originalFrame && surface.bounds == originalBounds)
+        #expect(host.nativeLiftInput.composerSettled)
+    }
+
+    @Test("Composer action buttons keep clear 44-point targets and readable icons") throws {
+        let (window, host) = installedHost()
+        defer { window.isHidden = true }
+        host.configure(configuration(showsPlus: true))
+        host.layoutIfNeeded()
+
+        let plus = try #require(findButton(in: host, id: "conversation-composer-plus"))
+        let primary = try #require(findButton(in: host, id: "conversation-composer-send"))
+        let buttons = [plus, primary]
+        for button in buttons {
+            #expect(!button.isHidden)
+            #expect(button.bounds.width >= 44 && button.bounds.height >= 44)
+            #expect(button.backgroundColor == .clear)
+            #expect(button.tintColor == .label)
+            #expect(button.currentImage != nil)
+            #expect(button.point(inside: CGPoint(x: button.bounds.midX, y: button.bounds.midY), with: nil))
+        }
+    }
+
+    @Test("Composer bottom fade stays behind the input and ends at the active viewport bottom") throws {
+        let (window, host) = installedHost()
+        defer { window.isHidden = true }
+        host.layoutIfNeeded()
+
+        let fadeLayer = host.layer.sublayers?.first { $0.name == "zen-composer-bottom-fade" }
+            as? ComposerBottomFadeLayer
+        let fade = try #require(fadeLayer)
+        let surface = try #require(host.subviews.first)
+        #expect(fade.superlayer === host.layer)
+        #expect(host.layer.sublayers?.first === fade)
+        #expect(fade.frame.minY < surface.frame.minY)
+        #expect(abs(fade.frame.maxY - host.bounds.maxY) < 0.5)
+        #expect(abs(fade.frame.width - host.bounds.width) < 0.5)
+
+        let keyboardBottom = host.bounds.maxY - 240
+        fade.update(bounds: host.bounds, composerFrame: CGRect(x: 0, y: 500, width: host.bounds.width, height: 64),
+                    bottom: keyboardBottom, traits: host.traitCollection)
+        #expect(abs(fade.frame.maxY - keyboardBottom) < 0.5)
+        #expect(fade.frame.minY < fade.frame.maxY)
+    }
+
     @Test("text updates retarget an in-flight morph")
     func textChangeDuringMorphRetargets() {
         let (window, host) = installedHost()
@@ -198,13 +259,14 @@ struct ComposerHostIntegrationTests {
     private func configuration(
         text: String = "hello",
         state: ComposerPresentationState = .resting,
+        showsPlus: Bool = false,
         references: [QuoteReference] = [],
         onSend: @escaping () -> Void = {}
     ) -> ComposerHostView.Configuration {
         ComposerHostView.Configuration(
             text: text, selection: ComposerSelection(range: 0..<0),
             state: state, collapseProgress: .expanded,
-            font: .systemFont(ofSize: 16), showsPlus: false,
+            font: .systemFont(ofSize: 16), showsPlus: showsPlus,
             primary: .send(enabled: true), models: [],
             selectedModelID: ModelID(rawValue: "test-model"),
             errorMessage: nil, references: references,

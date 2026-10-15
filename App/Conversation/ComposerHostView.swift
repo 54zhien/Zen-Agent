@@ -31,6 +31,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     private let surface = UIView()
     private let glass: UIVisualEffectView
+    private let bottomFadeLayer = ComposerBottomFadeLayer()
     private let viewport = UIView()
     let editor = UITextView()
     let placeholder = UILabel()
@@ -187,6 +188,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         super.init(frame: frame)
         backgroundColor = .clear
         isOpaque = false
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) {
+            (host: ComposerHostView, _: UITraitCollection) in host.updateBottomFadeLayer()
+        }
+        layer.insertSublayer(bottomFadeLayer, at: 0)
         keyboardLayoutGuide.usesBottomSafeArea = true
         keyboardLayoutGuide.followsUndockedKeyboard = false
         surface.translatesAutoresizingMaskIntoConstraints = false
@@ -231,11 +236,11 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         for (button, symbol) in [(plus, "plus"), (primary, "arrow.up")] {
             button.setImage(UIImage(systemName: symbol), for: .normal)
             button.setPreferredSymbolConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 13, weight: .medium),
+                UIImage.SymbolConfiguration(pointSize: 21, weight: .medium),
                 forImageIn: .normal
             )
-            button.tintColor = .systemBackground
-            button.backgroundColor = .label
+            button.tintColor = .label
+            button.backgroundColor = .clear
             button.cornerConfiguration = .capsule()
             surface.addSubview(button)
         }
@@ -291,7 +296,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             lastWindowCornerRadius = -1
             lastBottomSafeAreaInset = -1
             setNeedsLayout()
+        } else {
+            liftInteraction?.cancelForDetachment()
         }
+        updateBottomFadeLayer()
 #if DEBUG
         liftInteraction?.recordHostLifecycle("window=\(String(describing: window.map { ObjectIdentifier($0) }))")
 #endif
@@ -312,6 +320,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         lastActiveKeyboardFrame = .null
         lastLocalKeyboardFrame = .null
         setNeedsLayout()
+        updateBottomFadeLayer()
 #if DEBUG
         liftInteraction?.recordHostLifecycle("superview=\(String(describing: superview.map { type(of: $0) }))")
 #endif
@@ -369,6 +378,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        updateBottomFadeLayer()
         updateGeometryProbe()
         liftInteraction.checkReadiness()
         consumeOverlayFocusIfReady()
@@ -393,6 +403,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             return
         }
         render(animated: false)
+    }
+
+    private func updateBottomFadeLayer() {
+        let bottom = windowKeyboardVisible ? activeKeyboardFrame.minY : bounds.maxY
+        bottomFadeLayer.update(bounds: bounds, composerFrame: surface.frame,
+                               bottom: bottom, traits: traitCollection)
     }
 
     private var restingWindowCornerRadius: CGFloat {
@@ -581,14 +597,15 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             self.reconcileKeyboardOffset()
             self.viewport.frame = targetViewport
             self.placeholder.alpha = state == .editing ? 0.62 : 1
-            self.plus.frame = layout.plus.insetBy(dx: 8, dy: 8)
-            self.primary.frame = layout.primary.insetBy(dx: 8, dy: 8)
+            self.plus.frame = layout.plus
+            self.primary.frame = layout.primary
             self.errorLabel.frame = CGRect(x: 0, y: -28,
                                            width: layout.size.width, height: 22)
             self.shelfController?.view.frame = CGRect(x: 0, y: -self.shelfHeight,
                                                       width: layout.size.width,
                                                       height: self.shelfHeight)
             self.layoutIfNeeded()
+            self.updateBottomFadeLayer()
             self.updateGeometryProbe()
         }
         let editorWidth = max(editWidth, targetViewport.width)

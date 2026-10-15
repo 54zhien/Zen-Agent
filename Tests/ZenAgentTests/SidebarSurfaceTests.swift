@@ -6,6 +6,25 @@ import Testing
 @Suite("Retained Sidebar native Surface")
 @MainActor
 struct SidebarSurfaceTests {
+    @Test("a floating window-concentric pose is not enlarged by the resting Split corner minimum")
+    func floatingCornersUseTheResolvedPose() {
+        let host = ConversationSurfaceViewController(content: Color.clear)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        host.setRestingCornerRadius(24)
+        let scale: CGFloat = 0.82
+        let visibleRadius: CGFloat = 18
+        let pose = SurfaceGeometry.Pose(scale: scale, translation: .zero, cornerRadius: visibleRadius / scale)
+        #expect(host.apply(.init(to: pose, progress: 1)))
+        #expect(abs(host.surfaceView.layer.cornerRadius * host.surfaceView.transform.a - visibleRadius) < 0.01,
+                "The physical window radius must survive the floating scale on iPad as well as iPhone")
+        #expect(host.sidebarSilhouetteBuildCount == 0,
+                "An invisible Sidebar must not rebuild shadow geometry during Lift")
+    }
+
     @Test("the exposed Rail receives native hit testing beneath a translated Full Surface")
     func exposedRailPassesTouchesToItsUnderlyingButton() {
         let root = UIViewController()

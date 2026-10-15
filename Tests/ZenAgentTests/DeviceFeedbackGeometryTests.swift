@@ -43,6 +43,65 @@ struct DeviceFeedbackGeometryTests {
         #expect(host.surfaceView.transform == .identity)
     }
 
+    @Test func interactiveLiftFollowsTheFingerOnBothAxesWithoutChangingVerticalProgress() throws {
+        let host = ConversationSurfaceViewController(content: Text("Two-axis retained page"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        defer { driver.unbind(host) }
+        let displacement = CGSize(width: 42, height: -120)
+        let input = SurfaceLiftEligibility()
+        #expect(driver.arm(input))
+        #expect(driver.drag(displacement: displacement, eligibility: input))
+
+        #expect(driver.state.phase == .lifting)
+        #expect(abs(driver.state.progress - 108.0 / 168.0) < 0.000001)
+        #expect(abs(host.presentation.translation.width - displacement.width) < 0.001)
+        #expect(abs(host.presentation.translation.height - displacement.height) < 0.001)
+        #expect(host.presentation.clipFraction == CGSize(width: 1, height: 1))
+        _ = driver.end(cancelled: true, animated: false)
+        #expect(driver.state.phase == .full)
+        #expect(host.surfaceView.transform == .identity)
+    }
+
+    @Test func nativeLiftAdmitsLeftRightAndDownwardTravelAndCancellationRestoresFull() throws {
+        let host = ConversationSurfaceViewController(content: Text("Directional retained page"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        defer { driver.unbind(host) }
+        let input = SurfaceLiftEligibility()
+        for displacement in [CGSize(width: -48, height: 0),
+                             CGSize(width: 48, height: 0),
+                             CGSize(width: 0, height: 48)] {
+            #expect(driver.arm(input))
+            #expect(driver.drag(displacement: displacement, eligibility: input))
+            #expect(driver.state.phase == .lifting)
+            #expect(driver.state.progress == 0)
+            #expect(abs(host.presentation.translation.width - displacement.width) < 0.001)
+            #expect(abs(host.presentation.translation.height - displacement.height) < 0.001)
+            let travel = hypot(Double(displacement.width), Double(displacement.height))
+            let visualProgress = SurfaceLiftState.presentationProgress(travel: travel)
+            #expect(abs(host.presentation.scale - (1 - visualProgress * 0.18)) < 0.001)
+
+            let settlement = try #require(driver.end(cancelled: true, animated: false))
+            #expect(settlement.destination == .full)
+            #expect(driver.state.phase == .full)
+            #expect(host.presentation == .full)
+            #expect(host.surfaceView.transform == .identity)
+        }
+    }
+
     @Test func splitSurfacesLeaveARealGutterOnBothAxes() throws {
         for axis in [SplitWorkspaceAxis.topBottom, .leftRight] {
             let layout = try #require(SplitWorkspaceGeometry(viewport: CGRect(x: 0, y: 0, width: 800, height: 900), ratio: 0.63, axis: axis))
