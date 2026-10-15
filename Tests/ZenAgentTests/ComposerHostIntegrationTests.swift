@@ -84,7 +84,8 @@ struct ComposerHostIntegrationTests {
         #expect(newCount == 1)
     }
 
-    @Test("readiness growth preserves the native Composer settled measurement") throws {
+    @Test("readiness growth preserves the native Composer settled measurement")
+    func readinessGrowthPreservesNativeSettledMeasurement() throws {
         let (window, host) = installedHost()
         defer { window.isHidden = true }
         let surface = try #require(host.subviews.first)
@@ -104,7 +105,8 @@ struct ComposerHostIntegrationTests {
         #expect(host.nativeLiftInput.composerSettled)
     }
 
-    @Test("Composer action buttons keep clear 44-point targets and readable icons") throws {
+    @Test("Composer action buttons keep clear 44-point targets and readable icons")
+    func actionButtonsKeepClearTargetsAndReadableIcons() throws {
         let (window, host) = installedHost()
         defer { window.isHidden = true }
         host.configure(configuration(showsPlus: true))
@@ -123,7 +125,8 @@ struct ComposerHostIntegrationTests {
         }
     }
 
-    @Test("Composer bottom fade stays behind the input and ends at the active viewport bottom") throws {
+    @Test("Composer bottom fade stays behind the input and ends at the active viewport bottom")
+    func bottomFadeFollowsActiveViewportBottom() throws {
         let (window, host) = installedHost()
         defer { window.isHidden = true }
         host.layoutIfNeeded()
