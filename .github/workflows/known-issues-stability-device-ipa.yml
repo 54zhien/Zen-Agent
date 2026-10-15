@@ -5,7 +5,7 @@ name: Known issues stability unsigned device IPA
 on:
   push:
     branches:
-      - codex/known-issues-stability-ipa-88f65eb849d7
+      - codex/known-issues-stability-ipa-56377f925434
 
 permissions:
   actions: read
@@ -16,9 +16,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FROZEN_SOURCE_SHA: "88f65eb849d7a8b64bf8cd15782951f2a97361c8"
-  FROZEN_SOURCE_TREE: "32c60e880eacc366ebc08b269e9bcd9368ea9374"
-  EXPECTED_PACKAGE_BRANCH: "codex/known-issues-stability-ipa-88f65eb849d7"
+  FROZEN_SOURCE_SHA: "56377f9254345f3b234b0617efc597cb8bf7253c"
+  FROZEN_SOURCE_TREE: "53d1bf3f93693788f0603dc9f0de5fbd68c2c364"
+  EXPECTED_PACKAGE_BRANCH: "codex/known-issues-stability-ipa-56377f925434"
   PACKAGE_WORKFLOW_PATH: ".github/workflows/known-issues-stability-device-ipa.yml"
 
 jobs:
@@ -84,7 +84,10 @@ jobs:
           set -euo pipefail
           # This branch name is outside CI's two diagnostic-only branches and
           # outside the codex/s5-* temporary-profile family, so CI selects full.
-          deadline=$((SECONDS + 3600))
+          # Full native CI already has a 65-minute job cap. The former 60-minute
+          # packaging wait expired before that job's original attempt completed.
+          # This only adds wait headroom; native tests and their limits stay fixed.
+          deadline=$((SECONDS + 4200))
           while (( SECONDS < deadline )); do
             response=$(gh api --method GET \
               "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
