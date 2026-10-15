@@ -37,8 +37,9 @@ struct SidebarDecorationTests {
         decoration.install(on: surface)
         let traits = UITraitCollection(traitsFrom: [UITraitCollection(userInterfaceStyle: style), UITraitCollection(displayScale: 3)])
         surface.alpha = 0.6
+        let browseAlpha = surface.alpha
         decoration.applyAppearance(surface: surface, progress: 0, traits: traits)
-        #expect(surface.alpha == 0.6, "An idle Sidebar must leave App Space's card depth opacity alone")
+        #expect(surface.alpha == browseAlpha, "An idle Sidebar must leave App Space's card depth opacity alone")
         decoration.applyAppearance(surface: surface, progress: 0.25, traits: traits)
         let early = surface.alpha
         decoration.applyAppearance(surface: surface, progress: 0.75, traits: traits)
@@ -51,7 +52,8 @@ struct SidebarDecorationTests {
         decoration.applyAppearance(surface: surface, progress: 0, traits: traits)
         #expect(surface.alpha == 1 && tint.alpha == 0 && surface.layer.borderWidth == 0)
         surface.alpha = 0.55
+        let restoredBrowseAlpha = surface.alpha
         decoration.applyAppearance(surface: surface, progress: 0, traits: traits)
-        #expect(surface.alpha == 0.55)
+        #expect(surface.alpha == restoredBrowseAlpha)
     }
 }

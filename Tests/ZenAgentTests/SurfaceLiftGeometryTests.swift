@@ -98,6 +98,9 @@ struct SurfaceLiftGeometryTests {
 
         #expect(abs(pose.scale - 0.91) < 0.000001)
         #expect(abs(pose.cornerRadius * pose.scale - 12) < 0.000001)
-        #expect(abs(pose.translation.height + 96) < 0.001)
+        #expect(abs(pose.translation.height + 96.0 / 800.0) < 0.000001)
+        let presentation = try #require(SurfaceGeometry.resolve(size: CGSize(width: 400, height: 800),
+            safeArea: .zero, request: .init(to: pose, progress: 1)))
+        #expect(abs(presentation.translation.height + 96) < 0.001)
     }
 }
