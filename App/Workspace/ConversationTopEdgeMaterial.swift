@@ -46,8 +46,13 @@ final class ConversationTopEdgeMaterial: UIImageView {
         accessibilityElementsHidden = true
         contentMode = .scaleToFill
         clockTarget.owner = self
-        fade.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
-        fade.locations = [0, 0.85, 1]
+        // Ease the glass out across the whole strip. A long opaque plateau
+        // followed by a short fade reads as a frosted band with a lower edge.
+        let stops = (0...8).map { Double($0) / 8 }
+        fade.colors = stops.map { progress in
+            UIColor.black.withAlphaComponent(CGFloat(1 - progress * progress * (3 - 2 * progress))).cgColor
+        }
+        fade.locations = stops.map { NSNumber(value: $0) }
         fade.startPoint = CGPoint(x: 0.5, y: 0)
         fade.endPoint = CGPoint(x: 0.5, y: 1)
         layer.mask = fade
@@ -254,13 +259,13 @@ private actor TopEdgeBlurWorker {
         let extra = max(0, input.captureHeight - input.height) * input.scale
         let gradient = CIFilter.linearGradient()
         gradient.point0 = CGPoint(x: 0, y: extra)
-        gradient.point1 = CGPoint(x: 0, y: max(extra + 1, input.captureHeight * input.scale - input.safeTop * input.scale))
+        gradient.point1 = CGPoint(x: 0, y: max(extra + 1, (input.captureHeight - input.safeTop * 0.25) * input.scale))
         gradient.color0 = CIColor(red: 0, green: 0, blue: 0)
         gradient.color1 = CIColor(red: 1, green: 1, blue: 1)
         let blur = CIFilter.maskedVariableBlur()
         blur.inputImage = original.clampedToExtent()
         blur.mask = gradient.outputImage?.cropped(to: original.extent)
-        blur.radius = Float(16 * input.scale)
+        blur.radius = Float(10 * input.scale)
         let crop = CGRect(x: 0, y: extra, width: original.extent.width, height: input.height * input.scale)
         guard let output = blur.outputImage, !Task.isCancelled,
               let rendered = context.createCGImage(output, from: crop), !Task.isCancelled else { return nil }
