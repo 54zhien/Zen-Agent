@@ -50,28 +50,36 @@ struct SurfaceLiftStateTests {
                              CGSize(width: 48, height: 0),
                              CGSize(width: 0, height: 48)] {
             var state = SurfaceLiftState()
-            #expect(state.arm(SurfaceLiftEligibility()))
+            let armed = state.arm(SurfaceLiftEligibility())
+            #expect(armed)
             let travel = hypot(Double(displacement.width), Double(displacement.height))
-            #expect(state.drag(upwardDistance: -Double(displacement.height), travel: travel,
-                               eligibility: SurfaceLiftEligibility()))
+            let dragged = state.drag(upwardDistance: -Double(displacement.height), travel: travel,
+                                     eligibility: SurfaceLiftEligibility())
+            #expect(dragged)
             #expect(state.phase == .lifting)
             #expect(state.progress == 0)
 
-            let settlement = try #require(state.end())
+            let ended = state.end()
+            let settlement = try #require(ended)
             #expect(settlement.destination == .full)
-            #expect(state.complete(settlement, finished: true))
+            let completed = state.complete(settlement, finished: true)
+            #expect(completed)
             #expect(state.phase == .full && state.progress == 0)
         }
     }
 
     @Test func diagonalTravelUsesMagnitudeForOnsetAndUpwardAxisForCommitProgress() {
         var state = SurfaceLiftState()
-        #expect(state.arm(SurfaceLiftEligibility()))
-        #expect(state.drag(upwardDistance: 0, travel: 11.9, eligibility: SurfaceLiftEligibility()))
+        let armed = state.arm(SurfaceLiftEligibility())
+        #expect(armed)
+        let belowOnset = state.drag(upwardDistance: 0, travel: 11.9, eligibility: SurfaceLiftEligibility())
+        #expect(belowOnset)
         #expect(state.phase == .armed && state.progress == 0)
-        #expect(state.drag(upwardDistance: 0, travel: 12, eligibility: SurfaceLiftEligibility()))
+        let atOnset = state.drag(upwardDistance: 0, travel: 12, eligibility: SurfaceLiftEligibility())
+        #expect(atOnset)
         #expect(state.phase == .lifting && state.progress == 0)
-        #expect(state.drag(upwardDistance: 96, travel: 120, eligibility: SurfaceLiftEligibility()))
+        let diagonal = state.drag(upwardDistance: 96, travel: 120, eligibility: SurfaceLiftEligibility())
+        #expect(diagonal)
         #expect(abs(state.progress - 0.5) < 0.000001)
     }
 
