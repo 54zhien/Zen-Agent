@@ -76,13 +76,6 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     private var edgeTouchOwner: Owner?
     private var edgeTouchOrigin: CGPoint?
     private var edgeRejected = false
-#if DEBUG
-    private var nativeTapReceipt = "nativeTapPoint=none"
-    private weak var nativeTapTarget: UIView?
-    private let nativeTapPeers = NSHashTable<UIGestureRecognizer>.weakObjects()
-    private var nativeTapPeerEvents: [String] = []
-    private var nativeTapBeganAt: TimeInterval = 0
-#endif
 
     override convenience init(frame: CGRect) {
         self.init(frame: frame, edge: UIScreenEdgePanGestureRecognizer())
@@ -153,10 +146,6 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
         record("attach bounds=\(window.bounds),edgeView=\(type(of: edgeView)),edgeBounds=\(edgeView.bounds),orientation=\(geometry?.orientation.rawValue ?? 0),edge=\(edge.edges.rawValue)")
     }
     func detach() {
-#if DEBUG
-        clearNativeTapObservers()
-        nativeTapTarget = nil
-#endif
         if edgeTouchOwner != nil || edge.state != .possible {
             record("detach edge state=\(edge.state.rawValue),captured=\(String(describing: edgeTouchOwner)),origin=\(String(describing: edgeTouchOrigin))")
         }
@@ -191,63 +180,6 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     }
 
 #if DEBUG
-    private func nativePeerDescription(_ recognizer: UIGestureRecognizer) -> String {
-        "\(type(of: recognizer))@\(ObjectIdentifier(recognizer)):state=\(recognizer.state.rawValue),enabled=\(recognizer.isEnabled),cancels=\(recognizer.cancelsTouchesInView)"
-    }
-
-    private func nativePeers(from target: UIView?) -> [UIGestureRecognizer] {
-        var node = target
-        var peers: [UIGestureRecognizer] = []
-        var levels = 0
-        while let view = node, levels < 14, peers.count < 32 {
-            peers.append(contentsOf: (view.gestureRecognizers ?? []).prefix(32 - peers.count))
-            node = view.superview
-            levels += 1
-        }
-        return peers
-    }
-
-    private func clearNativeTapObservers() {
-        for peer in nativeTapPeers.allObjects {
-            peer.removeTarget(self, action: #selector(nativePeerChanged(_:)))
-        }
-        nativeTapPeers.removeAllObjects()
-    }
-
-    @objc private func nativePeerChanged(_ recognizer: UIGestureRecognizer) {
-        nativeTapPeerEvents.append("dt=\(ProcessInfo.processInfo.systemUptime - nativeTapBeganAt),\(nativePeerDescription(recognizer))")
-        if nativeTapPeerEvents.count > 12 { nativeTapPeerEvents.removeFirst() }
-    }
-
-    private func recordNativeTap(_ touch: UITouch, window: UIWindow) {
-        guard ProcessInfo.processInfo.environment["ZEN_INK_UI_TEST"] == "1" else { return }
-        clearNativeTapObservers()
-        nativeTapPeerEvents.removeAll()
-        nativeTapTarget = touch.view
-        nativeTapBeganAt = ProcessInfo.processInfo.systemUptime
-        var node = touch.view
-        var ancestry: [String] = []
-        var scroll: UIScrollView?
-        while let view = node, ancestry.count < 14 {
-            ancestry.append(String(describing: type(of: view)))
-            if scroll == nil, let candidate = view as? UIScrollView, !(candidate is UITextView) {
-                scroll = candidate
-            }
-            node = view.superview
-        }
-        let scrolling = scroll.map {
-            "tracking=\($0.isTracking),dragging=\($0.isDragging),decelerating=\($0.isDecelerating),pan=\($0.panGestureRecognizer.state.rawValue),model=\($0.bounds.origin),visible=\(String(describing: $0.layer.presentation()?.bounds.origin))"
-        } ?? "none"
-        let peers = nativePeers(from: touch.view)
-        // Observe existing callbacks only; no new recognizer, failure relation,
-        // cancellation, or pre-touch query is introduced by this diagnostic.
-        for peer in peers where peer !== edge && peer !== reverse && peer !== closeTap {
-            nativeTapPeers.add(peer)
-            peer.addTarget(self, action: #selector(nativePeerChanged(_:)))
-        }
-        nativeTapReceipt = "nativeTapPoint=\(touch.location(in: window));nativeTapHit=\(ancestry.joined(separator: ">"));nativeTapScroll=\(scrolling);nativeTapLag=\(nativeTapBeganAt - touch.timestamp);nativeTapPeers=\(peers.map(nativePeerDescription).joined(separator: " | "))"
-    }
-
     private func gestureSnapshot() -> String {
         guard let window = attachedWindow else { return "no-window" }
         let current = readContext?()
@@ -257,7 +189,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             if let candidate = view as? UIScrollView { scroll = candidate; break }
             hit = view.superview
         }
-        return "edgeState=\(edge.state.rawValue),translation=\(edge.translation(in: window)),velocity=\(edge.velocity(in: window)),location=\(edge.location(in: window)),origin=\(String(describing: edgeTouchOrigin)),captured=\(String(describing: edgeTouchOwner)),currentHost=\(String(describing: current?.hostID)),currentPane=\(String(describing: current?.paneID)),window=\(ObjectIdentifier(window)),scrollPan=\(scroll.map { "state=\($0.panGestureRecognizer.state.rawValue),translation=\($0.panGestureRecognizer.translation(in: window))" } ?? "none");\(nativeTapReceipt);nativeTapPeerEvents=\(nativeTapPeerEvents.joined(separator: " | "));nativeTapPeersNow=\(nativePeers(from: nativeTapTarget).map(nativePeerDescription).joined(separator: " | "))"
+        return "edgeState=\(edge.state.rawValue),translation=\(edge.translation(in: window)),velocity=\(edge.velocity(in: window)),location=\(edge.location(in: window)),origin=\(String(describing: edgeTouchOrigin)),captured=\(String(describing: edgeTouchOwner)),currentHost=\(String(describing: current?.hostID)),currentPane=\(String(describing: current?.paneID)),window=\(ObjectIdentifier(window)),scrollPan=\(scroll.map { "state=\($0.panGestureRecognizer.state.rawValue),translation=\($0.panGestureRecognizer.translation(in: window))" } ?? "none")"
     }
 #endif
 
@@ -269,9 +201,6 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             return false
         }
         record("recv \(kind(gestureRecognizer)) opening=\(current.allowsOpening),closing=\(current.allowsClosing),point=\(touch.location(in: window)),anchor=\(convert(bounds, to: window))")
-#if DEBUG
-        if gestureRecognizer === closeTap { recordNativeTap(touch, window: window) }
-#endif
         if gestureRecognizer === edge {
             let eligible = state?.isOpen == false && current.allowsOpening
             let x = touch.location(in: window).x

@@ -1,6 +1,51 @@
 # Known issues stability repair — 2026-10-11
 
-## Current continuation: native message-body focus
+## Current scope: device glass and motion — 2026-10-15
+
+The owner requested stronger natural Gaussian glass at the top, a fade behind
+the Composer, larger safe-area-aware Sidebar controls, smoother Sidebar motion,
+glass enlargement and one soft haptic on long-press readiness, free two-axis
+card transport, screen-matched floating corners, progressive Sidebar/card
+opacity, a lighter outlined Dark card, and larger Composer symbols without
+black button fills. The upstream intent is recorded on Blueprint branch
+`codex/device-glass-motion-20261015` at `51b4dc33beec515c7d684d352060fbdeded1825e`;
+neither repository has been merged to main for this slice.
+
+The product/test source before temporary touch diagnostics is `88f65eb849d7`.
+Its packaging candidate `421813b841da` built successfully, passed 1,120 Swift
+tests, 20 app XCTest cases and the actual iPad case. Its original full run
+`38707241764` remains RED: 78 Phone cases passed, one Settings case failed, and
+the iPad-only Phone skip ran separately on iPad. Later artifact-cleanup timeout
+does not turn the native failure into a passing or infrastructure-only run.
+
+The earliest Settings failure preceded opening Settings: the first blank tap
+had no Timeline SpatialTap completion and did not dismiss the keyboard. Later
+Lift rejection correctly retained the keyboard eligibility guard. Read-only
+archive decode run `38724778838` inspected the saved original xcresult, without
+executing its app or tests again. At 09:11:52 UTC, XCTest synthesized down/up at
+`(394,387)`. BackBoard initialized two touch states for sender `102F270F000AD`,
+skipped seven events for its path 2, then cancelled that still-touching path
+when the virtual digitizer disappeared. Successful adjacent touches had one
+state and no remaining contact at removal. These are direct upstream input
+lifecycle anomalies and cancellation evidence. They do not expose the App's
+UITouch phase/hit view or establish whether a system edge gesture contributed.
+Do not infer a Settings, focus or Timeline repair from this failure.
+
+The owner confirmed that the same first blank tap dismisses the keyboard on
+their phone. Diagnostic runs `38716159968` and `38718872777` passed the original
+Settings case and then its complete seven-case class. The original UI-prefix
+diagnostic run `38722347334` passed all 24 original prefix cases, 1,120 Swift
+tests, 20 app tests and the actual iPad case without a host restart. The first
+blank tap completed and dismissed the keyboard. These are diagnostic receipts,
+not product repairs or replacements for the retained full RED.
+
+Temporary profiles, workflow selection and touch observers are removed from
+the clean candidate. A new exact-candidate full native gate and IPA provenance
+remain pending; final receipts live outside the checkout to avoid committing
+self-referential SHAs. Physical frame rate and haptic feel remain device
+acceptance, separate from simulator animation and lifecycle tests.
+
+## Historical continuation: native message-body focus
 
 The owner authorized continuation from the 2026-10-11 handoff, including an
 unsigned device IPA after repair verification. The active repair branch is

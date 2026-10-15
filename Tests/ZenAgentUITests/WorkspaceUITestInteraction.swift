@@ -50,7 +50,6 @@ extension XCUIApplication {
             XCTFail("Expected a native Timeline tap sequence and viewport", file: file, line: line)
             return
         }
-        defer { print("TIMELINE_BLANK_RECEIPT point=\(point) native=\(timelineBlankTapReceipt(probe))") }
         coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
             dx: point.x - frame.minX, dy: point.y - frame.minY)).tap()
         let dismissal = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
@@ -85,12 +84,5 @@ extension XCUIApplication {
     private func timelineTapSequence(_ probe: XCUIElement) -> UInt64? {
         (probe.value as? String)?.split(separator: ";").first { $0.hasPrefix("blankTapSequence=") }
             .flatMap { UInt64($0.dropFirst("blankTapSequence=".count)) }
-    }
-
-    private func timelineBlankTapReceipt(_ probe: XCUIElement) -> String {
-        let prefixes = ["nativeTap", "events=", "browse=", "recognizers=", "blankTapSequence=", "blankTap=", "blank=", "frames=",
-                        "focused=", "eligibility=", "editorFrame=", "composerSurface=", "presentationState="]
-        return (probe.value as? String ?? "missing").split(separator: ";")
-            .filter { field in prefixes.contains { field.hasPrefix($0) } }.joined(separator: ";")
     }
 }
