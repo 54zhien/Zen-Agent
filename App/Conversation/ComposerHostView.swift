@@ -406,9 +406,32 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     private func updateBottomFadeLayer() {
-        let bottom = windowKeyboardVisible ? activeKeyboardFrame.minY : bounds.maxY
-        bottomFadeLayer.update(bounds: bounds, composerFrame: surface.frame,
+        let viewport = bottomFadeViewport
+        let bottom = windowKeyboardVisible ? min(viewport.maxY, activeKeyboardFrame.minY) : viewport.maxY
+        bottomFadeLayer.update(bounds: viewport, composerFrame: surface.frame,
                                bottom: bottom, traits: traitCollection)
+    }
+
+    private var bottomFadeViewport: CGRect {
+        if superview is ComposerDockContainer, let root = keyboardAnchorView,
+           let window, root.window === window {
+            // The dock displays either Pane's input at the Workspace bottom.
+            // Extend through its home area without undoing the dock's horizontal
+            // Sidebar translation or borrowing the logical Pane's viewport.
+            let rootBounds = convert(root.bounds, from: root)
+            return CGRect(x: bounds.minX, y: rootBounds.minY,
+                          width: bounds.width, height: rootBounds.height)
+        }
+        var ancestor = superview
+        while let current = ancestor {
+            if let card = current as? SurfaceClipView {
+                // SwiftUI can size this host to the safe area. The decoration
+                // belongs to the full card, whose existing mask clips its Lift.
+                return convert(card.bounds, from: card)
+            }
+            ancestor = current.superview
+        }
+        return bounds
     }
 
     private var restingWindowCornerRadius: CGFloat {
@@ -443,7 +466,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
 #if DEBUG
     var liftReadinessDiagnostic: String {
-        "\(liftInteraction.readinessDiagnostic);sidebarEligibility=\(nativeSidebarInput);composerBounds=\(bounds);composerWindowFrame=\(window.map { convert(bounds, to: $0) } ?? .zero);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);activeKeyboardGuide=\(activeKeyboardFrame);keyboardRootGuide=\(keyboardAnchorView?.keyboardLayoutGuide.layoutFrame ?? .zero);keyboardConstraintActive=\(bottomConstraint.isActive);keyboardConstraintLocal=\(constraints.contains { $0 === bottomConstraint });keyboardConstraintOffset=\(bottomConstraint.constant);keyboardGap=\(keyboardGap);bottomSpacing=\(renderedBottomSpacing);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);composerMotionPhase=\(motion.phase);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder);overlayFocusEvents=\(overlayFocusEvents.joined(separator: " | "));dockEvents=\(dockEvents.joined(separator: " | "))"
+        "\(liftInteraction.readinessDiagnostic);sidebarEligibility=\(nativeSidebarInput);composerBounds=\(bounds);composerWindowFrame=\(window.map { convert(bounds, to: $0) } ?? .zero);bottomFadeWindowFrame=\(window.map { convert(bottomFadeLayer.frame, to: $0) } ?? .zero);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);activeKeyboardGuide=\(activeKeyboardFrame);keyboardRootGuide=\(keyboardAnchorView?.keyboardLayoutGuide.layoutFrame ?? .zero);keyboardConstraintActive=\(bottomConstraint.isActive);keyboardConstraintLocal=\(constraints.contains { $0 === bottomConstraint });keyboardConstraintOffset=\(bottomConstraint.constant);keyboardGap=\(keyboardGap);bottomSpacing=\(renderedBottomSpacing);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);composerMotionPhase=\(motion.phase);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder);overlayFocusEvents=\(overlayFocusEvents.joined(separator: " | "));dockEvents=\(dockEvents.joined(separator: " | "))"
     }
 #endif
 

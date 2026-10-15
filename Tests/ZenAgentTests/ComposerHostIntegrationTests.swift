@@ -149,8 +149,8 @@ struct ComposerHostIntegrationTests {
     }
 
     @Test("Bottom fade covers the owning card through its home safe area",
-          arguments: [UIUserInterfaceStyle.light, .dark], [0, 1, 2])
-    func bottomFadeCoversNativeCard(style: UIUserInterfaceStyle, pane: Int) throws {
+          arguments: [UIUserInterfaceStyle.light, .dark])
+    func bottomFadeCoversNativeCard(style: UIUserInterfaceStyle) throws {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         let root = UIViewController()
         root.overrideUserInterfaceStyle = style
@@ -161,10 +161,7 @@ struct ComposerHostIntegrationTests {
         let owner = ConversationSurfaceViewController(content: Color.clear, request: .full)
         root.addChild(owner)
         root.view.addSubview(owner.view)
-        let cardFrame = [CGRect(x: 0, y: 0, width: 402, height: 874),
-                         CGRect(x: 0, y: 0, width: 402, height: 400),
-                         CGRect(x: 0, y: 424, width: 402, height: 450)][pane]
-        owner.view.frame = cardFrame
+        owner.view.frame = root.view.bounds
         owner.didMove(toParent: root)
         owner.view.layoutIfNeeded()
         let card = owner.surfaceView
@@ -174,12 +171,13 @@ struct ComposerHostIntegrationTests {
         let content = UIView(frame: card.bounds)
         content.backgroundColor = UIColor.label.resolvedColor(with: card.traitCollection)
         card.addSubview(content)
-        let top: CGFloat = pane == 2 ? 0 : 62
-        let home: CGFloat = pane == 1 ? 0 : 34
-        let host = ComposerHostView(frame: CGRect(x: 0, y: top, width: 402,
-                                                  height: card.bounds.height - top - home))
+        let host = ComposerHostView(frame: CGRect(x: 0, y: 62, width: 402, height: 778))
         card.addSubview(host)
-        host.configure(configuration(text: "", state: .resting))
+        let driver = SurfaceLiftController()
+        driver.bind(owner)
+        var config = configuration(text: "", state: .resting)
+        config.liftInteraction = .init(driver: driver, conversationID: "full", eligibility: { $0 })
+        host.configure(config)
         host.layoutIfNeeded()
 
         let format = UIGraphicsImageRendererFormat()
@@ -197,12 +195,89 @@ struct ComposerHostIntegrationTests {
         let fade = try #require(host.layer.sublayers?.first { $0.name == "zen-composer-bottom-fade" })
         let end = host.convert(CGPoint(x: 201, y: fade.frame.maxY), to: card)
         #expect(abs(end.y - card.bounds.maxY) < 0.5,
-                "The upper Split must stop at its own edge; the lower and Full must include home safe area")
+                "The Full card must include the home safe area below its shorter Composer host")
         card.transform = CGAffineTransform(translationX: 35, y: -47).scaledBy(x: 0.8, y: 0.8)
         host.setNeedsLayout()
         host.layoutIfNeeded()
         let floatingEnd = host.convert(CGPoint(x: 201, y: fade.frame.maxY), to: card)
         #expect(abs(floatingEnd.y - card.bounds.maxY) < 0.5)
+    }
+
+    @Test("Shared dock fade follows its display viewport for either Split input owner",
+          arguments: [UIUserInterfaceStyle.light, .dark], [false, true])
+    func dockFadeFollowsDisplayViewport(style: UIUserInterfaceStyle, lower: Bool) throws {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        let root = UIViewController()
+        root.overrideUserInterfaceStyle = style
+        window.rootViewController = root
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        let owner = ConversationSurfaceViewController(content: Color.clear, request: .full)
+        root.addChild(owner)
+        root.view.addSubview(owner.view)
+        owner.view.frame = lower ? CGRect(x: 0, y: 424, width: 402, height: 450)
+                                 : CGRect(x: 0, y: 0, width: 402, height: 400)
+        owner.didMove(toParent: root)
+        owner.view.layoutIfNeeded()
+        let driver = SurfaceLiftController()
+        driver.bind(owner)
+        let portal = ComposerHostPortal(frame: lower ? CGRect(x: 0, y: 0, width: 402, height: 416)
+                                                     : CGRect(x: 0, y: 62, width: 402, height: 338))
+        owner.surfaceView.addSubview(portal)
+        var config = configuration(text: "", state: .resting)
+        let ownerID = lower ? "lower" : "upper"
+        config.liftInteraction = .init(driver: driver, conversationID: ownerID, eligibility: { $0 })
+        portal.update(configuration: config, focusRequested: { false }, suppressed: false,
+                      ownerID: ownerID, usesDock: true, dock: nil)
+        let marker = UIView(frame: CGRect(x: 0, y: 840, width: 402, height: 34))
+        marker.backgroundColor = UIColor.label.resolvedColor(with: root.traitCollection)
+        root.view.addSubview(marker)
+        let dock = ComposerDockContainer(frame: CGRect(x: 0, y: 62, width: 402, height: 778))
+        root.view.addSubview(dock)
+        dock.install(portal)
+        let host = portal.composer
+        let fade = try #require(host.layer.sublayers?.first { $0.name == "zen-composer-bottom-fade" })
+        #expect(host.superview === dock)
+        #expect(driver.nativeLayoutSurface?() === owner.surfaceView)
+        let dockEnd = host.convert(CGPoint(x: 201, y: fade.frame.maxY), to: root.view)
+        #expect(abs(dockEnd.y - root.view.bounds.maxY) < 0.5,
+                "Shared input is displayed at the Workspace bottom for either logical Pane owner")
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: root.view.bounds.size, format: format).image { context in
+            root.view.layer.render(in: context.cgContext)
+        }
+        let actual = try bottomPixel(image, at: CGPoint(x: 201, y: 872))
+        let page = UIColor.systemBackground.resolvedColor(with: root.traitCollection)
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        try #require(page.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
+        #expect(abs(actual[0] - red) < 0.05 && abs(actual[1] - green) < 0.05
+                && abs(actual[2] - blue) < 0.05)
+        dock.transform = CGAffineTransform(translationX: 96, y: 0)
+        host.setNeedsLayout()
+        host.layoutIfNeeded()
+        #expect(abs(fade.frame.minX - host.bounds.minX) < 0.5
+                && abs(fade.frame.width - host.bounds.width) < 0.5,
+                "The dock decoration must move with the card rather than cancel its Sidebar translation")
+        let movedFade = host.convert(fade.frame, to: root.view)
+        let movedHost = host.convert(host.bounds, to: root.view)
+        #expect(abs(movedFade.minX - movedHost.minX) < 0.5
+                && abs(movedFade.maxY - root.view.bounds.maxY) < 0.5)
+        dock.transform = .identity
+
+        portal.embed()
+        host.layoutIfNeeded()
+        #expect(host.superview === portal)
+        if lower {
+            let embeddedEnd = host.convert(CGPoint(x: 201, y: fade.frame.maxY), to: owner.surfaceView)
+            #expect(abs(embeddedEnd.y - owner.surfaceView.bounds.maxY) < 0.5)
+        } else {
+            // Stable Split parks this portal: the displayed input lives in the dock.
+            #expect(fade.isHidden)
+        }
+        dock.install(portal)
+        let returnedEnd = host.convert(CGPoint(x: 201, y: fade.frame.maxY), to: root.view)
+        #expect(abs(returnedEnd.y - root.view.bounds.maxY) < 0.5)
     }
 
     private func bottomPixel(_ image: UIImage, at point: CGPoint) throws -> [CGFloat] {

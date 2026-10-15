@@ -66,6 +66,12 @@ final class SidebarAppearanceUITests: XCTestCase {
             return
         }
         XCTAssertNotEqual(afterOffset.y, beforeOffset.y, "The real timeline must move during the gesture")
+        guard let bottomFade = rect("bottomFadeWindowFrame", from: native) else {
+            XCTFail("The actual SwiftUI-mounted Composer must expose its native fade frame")
+            return
+        }
+        XCTAssertEqual(bottomFade.maxY, app.frame.maxY, accuracy: 0.5,
+                       "The fade must cover the home safe area after actual timeline scrolling")
         print("TOP_EDGE_NATIVE_SCROLL \(native.value ?? "missing")")
         attach(app.screenshot(), named: "Custom top after real native scrolling")
     }

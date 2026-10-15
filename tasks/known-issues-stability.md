@@ -39,9 +39,40 @@ tests, 20 app tests and the actual iPad case without a host restart. The first
 blank tap completed and dismissed the keyboard. These are diagnostic receipts,
 not product repairs or replacements for the retained full RED.
 
-Temporary profiles, workflow selection and touch observers are removed from
-the clean candidate. A new exact-candidate full native gate and IPA provenance
-remain pending; final receipts live outside the checkout to avoid committing
+Temporary profiles, workflow selection and touch observers were removed from
+clean source `56377f925434`. Its workflow-only packaging candidate `de1c2cefb201`
+passed original full run `38726272805`: 1,120 Swift tests, 20 app XCTest cases,
+79 Phone UI cases and the actual iPad case, with only the expected iPad-only
+Phone skip and no test-host restart. IPA 8.1 was built and provenance-verified,
+but withheld after final screenshot review found a separate visual defect.
+
+The idle Full native receipt reports a 402x874 Surface and a Composer host at
+window `(0,62,402,778)`. The fade ended at y840, leaving the 34-point home safe
+area uncovered; the scrolling screenshot still exposes text there. This is an
+actual viewport-boundary defect. Test-only source `bedf1d4a5a8b` adds light/dark
+Full and upper/lower Split rendered-pixel regressions before changing production
+behavior. Its native run `38735814351` is preserved separately from the earlier
+input failure: 1,121 Swift tests ran once, with 18 issues confined to the new
+fixture; 20 app tests passed. The unchanged Full light/dark pixel assertions
+failed and their resting endpoints were each exactly 34 points short. Initial
+isolated Split fixtures and the unbound floating fixture were not faithful to
+production: Split uses the shared dock, and transformed keyboard conversion
+requires the real Lift binding. Those controls are replaced with the actual
+Portal/dock install/embed route for both logical owners and the bound Full
+Surface. The strict Full pixel/endpoint assertions remain unchanged. Shared-dock
+input remains at the Workspace bottom even when the
+upper Pane owns its draft, so its visual viewport must not use that logical
+Pane's bottom edge.
+
+The minimal repair chooses the nearest actual Surface bounds for embedded
+input, extending its existing sublayer through the card's home area. Shared-dock
+input uses the root viewport's converted vertical extent and keeps its local
+horizontal extent, so Sidebar translation is not cancelled. The existing
+keyboard-top limit, parent crop mask and reparent/layout callbacks remain the
+owners of clipping and movement. No focus behavior, timing or retry is added.
+Native GREEN and a new exact-candidate full gate remain required before delivery.
+
+Final exact-candidate receipts live outside the checkout to avoid committing
 self-referential SHAs. Physical frame rate and haptic feel remain device
 acceptance, separate from simulator animation and lifecycle tests.
 
