@@ -379,8 +379,22 @@ jobs:
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
             TEST_ARGS+=(-only-testing:ZenAgentTests)
           elif [ "$TEST_SCOPE" = "settings-hit-diagnostic" ]; then
-            echo "::notice::Bounded Settings blank-hit diagnostics: all unit tests and unchanged Settings scenarios including their preceding state; not the full gate."
-            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SettingsUITests)
+            echo "::notice::Bounded Settings blank-hit diagnostics: preserve the original full-run UI prefix through its first failure; not the full gate."
+            TEST_ARGS+=(-only-testing:ZenAgentTests
+              -only-testing:ZenAgentUITests/AppSpaceBrowseUITests
+              -only-testing:ZenAgentUITests/AppSpaceDeletionUITests
+              -only-testing:ZenAgentUITests/AppSpaceGeometryUITests
+              -only-testing:ZenAgentUITests/AppSpaceMetadataUITests
+              -only-testing:ZenAgentUITests/ComposerMotionUITests
+              -only-testing:ZenAgentUITests/ConversationReadingPositionUITests
+              -only-testing:ZenAgentUITests/ConversationSearchUITests
+              -only-testing:ZenAgentUITests/ConversationSurfaceUITests
+              -only-testing:ZenAgentUITests/FilesWorkspaceUITests
+              -only-testing:ZenAgentUITests/PreviewHandoffUITests
+              -only-testing:ZenAgentUITests/SettingsUITests/testAppSpacePersistedUnconfiguredConversationHasFormalConfigure
+              -only-testing:ZenAgentUITests/SettingsUITests/testEmptyStartupConfiguresItsNewOwnerThroughSettingsAndCommitsOnlyOnSend
+              -only-testing:ZenAgentUITests/SettingsUITests/testExistingAccountExplicitlyConfiguresOnlyTheCurrentConversation
+              -only-testing:ZenAgentUITests/SettingsUITests/testInkControlsPersistAndLiftReturnsTheSameConversationOwner)
           elif [ "$TEST_SCOPE" = "orientation-red" ]; then
             echo "::notice::S5-11 test-only RED: app build, complete unit target, rotation and cross-owner Return receipts; full prior-slice gate is separate."
             TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/WorkspaceRotationUITests -only-testing:ZenAgentUITests/WorkspaceReturnReceiptUITests)

@@ -88,7 +88,7 @@ extension XCUIApplication {
     }
 
     private func timelineBlankTapReceipt(_ probe: XCUIElement) -> String {
-        let prefixes = ["nativeTapPoint=", "nativeTapHit=", "nativeTapScroll=", "blankTapSequence=", "blankTap=", "blank=", "frames=",
+        let prefixes = ["nativeTap", "events=", "browse=", "recognizers=", "blankTapSequence=", "blankTap=", "blank=", "frames=",
                         "focused=", "eligibility=", "editorFrame=", "composerSurface=", "presentationState="]
         return (probe.value as? String ?? "missing").split(separator: ";")
             .filter { field in prefixes.contains { field.hasPrefix($0) } }.joined(separator: ";")
