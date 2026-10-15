@@ -378,9 +378,6 @@ jobs:
           if [ "$TEST_SCOPE" = "review-red" ]; then
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
             TEST_ARGS+=(-only-testing:ZenAgentTests)
-            if [ "$GITHUB_REF_NAME" = "codex/s5-bottom-fade-native-ui-20261015" ]; then
-              TEST_ARGS+=(-only-testing:ZenAgentUITests/SidebarAppearanceUITests/testCustomTopReusesIdlePixelsAndUpdatesDuringNativeScrolling)
-            fi
           elif [ "$TEST_SCOPE" = "orientation-red" ]; then
             echo "::notice::S5-11 test-only RED: app build, complete unit target, rotation and cross-owner Return receipts; full prior-slice gate is separate."
             TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/WorkspaceRotationUITests -only-testing:ZenAgentUITests/WorkspaceReturnReceiptUITests)

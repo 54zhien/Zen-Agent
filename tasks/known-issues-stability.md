@@ -70,7 +70,24 @@ input uses the root viewport's converted vertical extent and keeps its local
 horizontal extent, so Sidebar translation is not cancelled. The existing
 keyboard-top limit, parent crop mask and reparent/layout callbacks remain the
 owners of clipping and movement. No focus behavior, timing or retry is added.
-Native GREEN and a new exact-candidate full gate remain required before delivery.
+Repair `be2ba5fca63f` passed native run `38737835162`: 1,122 Swift tests in
+176 suites, 20 app tests and the actual iPad case, with one Swift run and no
+host restart. Its unchanged Full pixel/endpoint checks passed in both themes;
+the actual shared Portal/dock route passed four theme/owner combinations.
+Readiness-bound Full transport, reparenting and Sidebar translation retain
+their strict endpoint and pixel assertions.
+
+The temporary native hierarchy check `b2589b42f828`, run `38738082121`, kept
+the same product/test source and added only the original real scrolling UI
+case to that narrow selection. It passed 1,122 Swift tests, 20 app tests, that
+one Phone UI case and the actual iPad case without a restart. After the real
+swipe, the actual SwiftUI-mounted fade frame was window `(0,745,402,129)`, ending
+at y874 while the Composer host still ended at y840. Its retained screenshot
+was inspected: the fade covers through the home area instead of exposing the
+old dark text below it. This is targeted native evidence, not the full Phone
+UI gate. The temporary profile and exact-branch selector are now removed;
+formal full CI is restored byte for byte. A new exact-candidate full gate and
+new IPA provenance remain required before delivery.
 
 Final exact-candidate receipts live outside the checkout to avoid committing
 self-referential SHAs. Physical frame rate and haptic feel remain device
