@@ -50,10 +50,9 @@ extension XCUIApplication {
             XCTFail("Expected a native Timeline tap sequence and viewport", file: file, line: line)
             return
         }
-        print("TIMELINE_BLANK_BEFORE point=\(point) native=\(timelineBlankTapReceipt(probe))")
+        defer { print("TIMELINE_BLANK_RECEIPT point=\(point) native=\(timelineBlankTapReceipt(probe))") }
         coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
             dx: point.x - frame.minX, dy: point.y - frame.minY)).tap()
-        print("TIMELINE_BLANK_AFTER point=\(point) native=\(timelineBlankTapReceipt(probe))")
         let dismissal = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             !self.keyboards.firstMatch.exists && (self.timelineTapSequence(probe) ?? previous) > previous
         }, object: nil)
@@ -89,7 +88,7 @@ extension XCUIApplication {
     }
 
     private func timelineBlankTapReceipt(_ probe: XCUIElement) -> String {
-        let prefixes = ["blankCandidatePoint=", "blankCandidateHit=", "blankTapSequence=", "blankTap=",
+        let prefixes = ["nativeTapPoint=", "nativeTapHit=", "nativeTapScroll=", "blankTapSequence=", "blankTap=", "blank=", "frames=",
                         "focused=", "eligibility=", "editorFrame=", "composerSurface=", "presentationState="]
         return (probe.value as? String ?? "missing").split(separator: ";")
             .filter { field in prefixes.contains { field.hasPrefix($0) } }.joined(separator: ";")

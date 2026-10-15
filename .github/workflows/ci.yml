@@ -379,8 +379,8 @@ jobs:
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
             TEST_ARGS+=(-only-testing:ZenAgentTests)
           elif [ "$TEST_SCOPE" = "settings-hit-diagnostic" ]; then
-            echo "::notice::Bounded Settings blank-hit diagnostics: all unit tests and the unchanged Settings owner/Lift scenario; not the full gate."
-            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SettingsUITests/testInkControlsPersistAndLiftReturnsTheSameConversationOwner)
+            echo "::notice::Bounded Settings blank-hit diagnostics: all unit tests and unchanged Settings scenarios including their preceding state; not the full gate."
+            TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SettingsUITests)
           elif [ "$TEST_SCOPE" = "orientation-red" ]; then
             echo "::notice::S5-11 test-only RED: app build, complete unit target, rotation and cross-owner Return receipts; full prior-slice gate is separate."
             TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/WorkspaceRotationUITests -only-testing:ZenAgentUITests/WorkspaceReturnReceiptUITests)

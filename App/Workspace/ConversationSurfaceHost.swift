@@ -198,15 +198,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
                         y: scroll.bounds.minY + insets.top,
                         width: max(0, scroll.bounds.width - left - right),
                         height: max(0, scroll.bounds.height - insets.top - insets.bottom))
-                    let readableFrame = scroll.convert(readable, to: window)
-                    fields.append("timelineVisibleFrame=\(readableFrame)")
-                    if let editor = mounted.first {
-                        let editorFrame = editor.convert(editor.bounds, to: window)
-                        let blankCandidate = CGPoint(x: readableFrame.maxX - 8,
-                            y: min(readableFrame.maxY - 8, max(readableFrame.minY + 8, editorFrame.minY - 30)))
-                        fields.append("blankCandidatePoint=\(blankCandidate)")
-                        fields.append("blankCandidateHit=\(chain(window.hitTest(blankCandidate, with: nil)))")
-                    }
+                    fields.append("timelineVisibleFrame=\(scroll.convert(readable, to: window))")
                 }
                 let point = scroll.convert(CGPoint(x: scroll.bounds.minX + scroll.bounds.width * 0.98,
                     y: scroll.bounds.minY + scroll.bounds.height * 0.25), to: window)

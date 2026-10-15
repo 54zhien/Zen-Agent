@@ -76,6 +76,9 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     private var edgeTouchOwner: Owner?
     private var edgeTouchOrigin: CGPoint?
     private var edgeRejected = false
+#if DEBUG
+    private var nativeTapReceipt = "nativeTapPoint=none"
+#endif
 
     override convenience init(frame: CGRect) {
         self.init(frame: frame, edge: UIScreenEdgePanGestureRecognizer())
@@ -180,6 +183,24 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     }
 
 #if DEBUG
+    private func recordNativeTap(_ touch: UITouch, window: UIWindow) {
+        guard ProcessInfo.processInfo.environment["ZEN_INK_UI_TEST"] == "1" else { return }
+        var node = touch.view
+        var ancestry: [String] = []
+        var scroll: UIScrollView?
+        while let view = node, ancestry.count < 14 {
+            ancestry.append(String(describing: type(of: view)))
+            if scroll == nil, let candidate = view as? UIScrollView, !(candidate is UITextView) {
+                scroll = candidate
+            }
+            node = view.superview
+        }
+        let scrolling = scroll.map {
+            "tracking=\($0.isTracking),dragging=\($0.isDragging),decelerating=\($0.isDecelerating),pan=\($0.panGestureRecognizer.state.rawValue),model=\($0.bounds.origin),visible=\(String(describing: $0.layer.presentation()?.bounds.origin))"
+        } ?? "none"
+        nativeTapReceipt = "nativeTapPoint=\(touch.location(in: window));nativeTapHit=\(ancestry.joined(separator: ">"));nativeTapScroll=\(scrolling)"
+    }
+
     private func gestureSnapshot() -> String {
         guard let window = attachedWindow else { return "no-window" }
         let current = readContext?()
@@ -189,7 +210,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             if let candidate = view as? UIScrollView { scroll = candidate; break }
             hit = view.superview
         }
-        return "edgeState=\(edge.state.rawValue),translation=\(edge.translation(in: window)),velocity=\(edge.velocity(in: window)),location=\(edge.location(in: window)),origin=\(String(describing: edgeTouchOrigin)),captured=\(String(describing: edgeTouchOwner)),currentHost=\(String(describing: current?.hostID)),currentPane=\(String(describing: current?.paneID)),window=\(ObjectIdentifier(window)),scrollPan=\(scroll.map { "state=\($0.panGestureRecognizer.state.rawValue),translation=\($0.panGestureRecognizer.translation(in: window))" } ?? "none")"
+        return "edgeState=\(edge.state.rawValue),translation=\(edge.translation(in: window)),velocity=\(edge.velocity(in: window)),location=\(edge.location(in: window)),origin=\(String(describing: edgeTouchOrigin)),captured=\(String(describing: edgeTouchOwner)),currentHost=\(String(describing: current?.hostID)),currentPane=\(String(describing: current?.paneID)),window=\(ObjectIdentifier(window)),scrollPan=\(scroll.map { "state=\($0.panGestureRecognizer.state.rawValue),translation=\($0.panGestureRecognizer.translation(in: window))" } ?? "none");\(nativeTapReceipt)"
     }
 #endif
 
@@ -201,6 +222,9 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             return false
         }
         record("recv \(kind(gestureRecognizer)) opening=\(current.allowsOpening),closing=\(current.allowsClosing),point=\(touch.location(in: window)),anchor=\(convert(bounds, to: window))")
+#if DEBUG
+        if gestureRecognizer === closeTap { recordNativeTap(touch, window: window) }
+#endif
         if gestureRecognizer === edge {
             let eligible = state?.isOpen == false && current.allowsOpening
             let x = touch.location(in: window).x
