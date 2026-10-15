@@ -1,0 +1,79 @@
+name: Decode archived blank-tap event
+
+on:
+  push:
+    branches: [codex/device-glass-archived-event-decode-20261015]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  decode:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - name: Verify original failed run and artifact identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/54zhien/Zen-Agent/actions/runs/38707241764 > "$RUNNER_TEMP/original-run.json"
+          gh api repos/54zhien/Zen-Agent/actions/artifacts/11962476966 > "$RUNNER_TEMP/original-artifact.json"
+          jq -e '.head_sha == "421813b841dadaacddc50929de712d3f7677f513" and .run_attempt == 1' "$RUNNER_TEMP/original-run.json"
+          jq -e '.workflow_run.id == 38707241764 and .id == 11962476966 and .size_in_bytes == 358273388 and .digest == "sha256:823dc9076631bc17bce6eb3b35013d040d8b16ec6806b824034b9c781eafc16d"' "$RUNNER_TEMP/original-artifact.json"
+
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: 11962476966
+          run-id: 38707241764
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/archived-native
+
+      - name: Export saved diagnostics without executing the app or tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/decoded-event"
+          result=$(find "$RUNNER_TEMP/archived-native" -maxdepth 3 -type d -name ZenAgentTests.xcresult -print -quit)
+          test -n "$result"
+          xcodebuild -version > "$RUNNER_TEMP/decoded-event/toolchain.txt"
+          xcrun xcresulttool get log --path "$result" --type console \
+            > "$RUNNER_TEMP/decoded-event/console.log" \
+            2> "$RUNNER_TEMP/decoded-event/console.stderr" || true
+          xcrun xcresulttool export diagnostics --path "$result" --output-path "$RUNNER_TEMP/archived-diagnostics" \
+            > "$RUNNER_TEMP/decoded-event/export.log" \
+            2> "$RUNNER_TEMP/decoded-event/export.stderr"
+
+      - name: Decode the original first-tap time window
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The original test and recording use UTC. Read all processes in the
+          # bounded interval so a guessed process filter cannot discard the cause.
+          test "$(date +%z)" = '+0000'
+          count=0
+          while IFS= read -r -d '' archive; do
+            count=$((count + 1))
+            output="$RUNNER_TEMP/decoded-event/system-$count.log"
+            printf '%s\n' "$archive" >> "$RUNNER_TEMP/decoded-event/archives.txt"
+            /usr/bin/log show --archive "$archive" --style syslog --timezone local \
+              --start '2026-10-15 09:11:40' --end '2026-10-15 09:12:10' \
+              --info --debug --no-signpost --no-pager --color none \
+              > "$output" 2> "$output.stderr"
+          done < <(find "$RUNNER_TEMP/archived-diagnostics" -type d -name '*.logarchive' -print0)
+          printf 'Decoded archives: %s\n' "$count" | tee "$RUNNER_TEMP/decoded-event/summary.txt"
+          find "$RUNNER_TEMP/archived-diagnostics" -maxdepth 4 -type f \
+            > "$RUNNER_TEMP/decoded-event/exported-files.txt"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: archived-first-blank-tap
+          path: |
+            ${{ runner.temp }}/decoded-event/
+            ${{ runner.temp }}/original-run.json
+            ${{ runner.temp }}/original-artifact.json
+          if-no-files-found: error
+          retention-days: 7
