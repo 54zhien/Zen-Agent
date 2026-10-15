@@ -148,6 +148,79 @@ struct ComposerHostIntegrationTests {
         #expect(fade.frame.minY < fade.frame.maxY)
     }
 
+    @Test("Bottom fade covers the owning card through its home safe area",
+          arguments: [UIUserInterfaceStyle.light, .dark], [0, 1, 2])
+    func bottomFadeCoversNativeCard(style: UIUserInterfaceStyle, pane: Int) throws {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        let root = UIViewController()
+        root.overrideUserInterfaceStyle = style
+        window.rootViewController = root
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+
+        let owner = ConversationSurfaceViewController(content: Color.clear, request: .full)
+        root.addChild(owner)
+        root.view.addSubview(owner.view)
+        let cardFrame = [CGRect(x: 0, y: 0, width: 402, height: 874),
+                         CGRect(x: 0, y: 0, width: 402, height: 400),
+                         CGRect(x: 0, y: 424, width: 402, height: 450)][pane]
+        owner.view.frame = cardFrame
+        owner.didMove(toParent: root)
+        owner.view.layoutIfNeeded()
+        let card = owner.surfaceView
+        let page = UIColor.systemBackground.resolvedColor(with: card.traitCollection)
+        card.backgroundColor = page
+        // Contrasting native content continues behind the input to the card edge.
+        let content = UIView(frame: card.bounds)
+        content.backgroundColor = UIColor.label.resolvedColor(with: card.traitCollection)
+        card.addSubview(content)
+        let top: CGFloat = pane == 2 ? 0 : 62
+        let home: CGFloat = pane == 1 ? 0 : 34
+        let host = ComposerHostView(frame: CGRect(x: 0, y: top, width: 402,
+                                                  height: card.bounds.height - top - home))
+        card.addSubview(host)
+        host.configure(configuration(text: "", state: .resting))
+        host.layoutIfNeeded()
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: card.bounds.size, format: format).image { context in
+            card.layer.render(in: context.cgContext)
+        }
+        let actual = try bottomPixel(image, at: CGPoint(x: 201, y: card.bounds.maxY - 2))
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        try #require(page.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
+        #expect(abs(actual[0] - red) < 0.05 && abs(actual[1] - green) < 0.05
+                && abs(actual[2] - blue) < 0.05,
+                "The page-colored fade must cover content below the safe-area-sized Composer host")
+
+        let fade = try #require(host.layer.sublayers?.first { $0.name == "zen-composer-bottom-fade" })
+        let end = host.convert(CGPoint(x: 201, y: fade.frame.maxY), to: card)
+        #expect(abs(end.y - card.bounds.maxY) < 0.5,
+                "The upper Split must stop at its own edge; the lower and Full must include home safe area")
+        card.transform = CGAffineTransform(translationX: 35, y: -47).scaledBy(x: 0.8, y: 0.8)
+        host.setNeedsLayout()
+        host.layoutIfNeeded()
+        let floatingEnd = host.convert(CGPoint(x: 201, y: fade.frame.maxY), to: card)
+        #expect(abs(floatingEnd.y - card.bounds.maxY) < 0.5)
+    }
+
+    private func bottomPixel(_ image: UIImage, at point: CGPoint) throws -> [CGFloat] {
+        let original = try #require(image.cgImage)
+        let patch = try #require(original.cropping(to: CGRect(origin: point, size: CGSize(width: 1, height: 1))))
+        var bytes = [UInt8](repeating: 0, count: 4)
+        let drawn = bytes.withUnsafeMutableBytes { storage -> Bool in
+            guard let context = CGContext(data: storage.baseAddress, width: 1, height: 1,
+                bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
+            else { return false }
+            context.draw(patch, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            return true
+        }
+        try #require(drawn)
+        return bytes.prefix(3).map { CGFloat($0) / 255 }
+    }
+
     @Test("text updates retarget an in-flight morph")
     func textChangeDuringMorphRetargets() {
         let (window, host) = installedHost()
