@@ -3,6 +3,15 @@ from stage5_test_profile import test_scope
 
 
 class ProfileGuardTests(unittest.TestCase):
+    def test_settings_hit_diagnostic_is_fixed_to_its_evidence_branch(self):
+        profile = {"mode": "settings-hit-diagnostic"}
+        branch = "codex/s5-device-glass-hit-diagnostic-20261015"
+        self.assertEqual(test_scope(profile, branch), "settings-hit-diagnostic")
+        self.assertEqual(test_scope(None, branch), "full")
+        self.assertEqual(test_scope(profile, "main"), "full")
+        with self.assertRaises(ValueError):
+            test_scope(profile, "codex/s5-15-settings")
+
     def test_main_and_other_branches_always_include_ui(self):
         for branch in ["main", "codex/other", "feature/s5-resize"]:
             self.assertEqual(test_scope({"mode": "review-red"}, branch), "full")
