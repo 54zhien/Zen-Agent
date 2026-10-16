@@ -317,7 +317,26 @@ struct WorkspaceSurfaceView<Content: View>: View {
     private func workspaceSurfaces(in geometry: GeometryProxy, sidebarProgress: CGFloat,
                                    sidebarDragging: Bool, sidebarTranslation: CGFloat) -> some View {
         ZStack(alignment: .topLeading) {
-            if model?.splitWorkspace != nil, activeSurfaceSlot == nil { Color.black }
+            if model?.splitWorkspace != nil, activeSurfaceSlot == nil {
+                Color.black
+                if let layout = splitGeometry(in: geometry) {
+                    // The Panes stop at the keyboard, and their frames reach that
+                    // height before the keyboard finishes rising. Continue the page
+                    // surface below them so the rising keyboard never uncovers the
+                    // black Split backdrop.
+                    let lowest = max(layout.top.maxY, layout.bottom.maxY)
+                    // Side-by-side Panes share the bottom edge with the divider gap,
+                    // which must stay black; only stacked Panes tuck under the corners.
+                    let stacked = model?.splitWorkspace?.axis != .leftRight
+                    let start = lowest - (stacked ? SplitTargetingGeometry.paneCornerRadius : 0)
+                    Color(uiColor: .systemBackground)
+                        .frame(width: layout.viewport.width, height: max(1, geometry.size.height - start) + 600)
+                        .position(x: layout.viewport.midX,
+                                  y: start + (max(1, geometry.size.height - start) + 600) / 2)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
             if sidebarProgress > 0 || navigation.settlementID != nil {
                 sidebarBackdrop(in: geometry, progress: sidebarProgress,
                     isDragging: sidebarDragging, translation: sidebarTranslation)
