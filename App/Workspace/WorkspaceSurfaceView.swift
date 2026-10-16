@@ -421,9 +421,10 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
                 // The Dock's page-colored fade covers native Pane subviews. Keep
                 // their border above that fade, with one owner for each outline.
-                GeometryReader { geometry in
-                    dockedSidebarOutlines(in: geometry, progress: sidebarProgress, translation: sidebarTranslation)
-                }
+                // The paths already use the Workspace viewport. They need no
+                // independent geometry container above the native editor.
+                dockedSidebarOutlines(in: geometry, progress: sidebarProgress, translation: sidebarTranslation)
+                .frame(width: geometry.size.width, height: geometry.size.height)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
