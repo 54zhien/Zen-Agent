@@ -293,6 +293,9 @@ struct ComposerOverlayFocusTests {
             let input = composer.nativeLiftInput
             return input.composerSettled && !input.keyboardVisible && !input.keyboardTransitioning
         }
+        let returnedInput = composer.nativeLiftInput
+        try #require(!returnedInput.keyboardVisible && !returnedInput.keyboardTransitioning,
+                     "the keyboard transition must finish before comparing resting geometry")
         #expect(composer.nativeLiftInput.composerSettled,
                 "a finished overlay must not leave the retained Composer in a transport phase")
         #expect(composer.surfaceFrame == restingFrame)
