@@ -15,6 +15,8 @@ class ProfileGuardTests(unittest.TestCase):
 
     def test_orientation_red_selects_its_fixed_test_scope(self):
         self.assertEqual(test_scope({"mode": "orientation-red"}, "codex/s5-11-device-presentation"), "orientation-red")
+        self.assertEqual(test_scope({"mode": "orientation-red"}, "codex/s5-rotation-no-sheet-control"), "orientation-red")
+        self.assertEqual(test_scope({"mode": "orientation-red"}, "ui/polish-haptics-split-cards"), "full")
 
     def test_sidebar_red_is_fixed_to_its_slice_branch(self):
         profile = {"mode": "sidebar-red"}

@@ -152,18 +152,6 @@ struct WorkspaceNavigationView<Content: View>: View {
             .background(WorkspaceSidebarGestureBridge(state: state, travel: travel,
                 isRightToLeft: direction == .rightToLeft, context: context))
         }
-        .sheet(item: settingsPresentation, onDismiss: {
-            if let id = presentedSettingsID {
-                overlays?.settingsDidDismiss(expectedID: id)
-                presentedSettingsID = nil
-            }
-        }) { item in
-            SettingsWorkspaceView(model: item.model,
-                onClose: { overlays?.close(expectedID: item.id) },
-                onFiles: { overlays?.openFilesFromSettings(expectedID: item.id) })
-                .presentationDetents([.large])
-                .onAppear { presentedSettingsID = item.id }
-        }
         .ignoresSafeArea(.container)
         // Request the admitted Rail edge explicitly from UIKit. Keep the
         // preference through the contact/settlement, then release it for the
