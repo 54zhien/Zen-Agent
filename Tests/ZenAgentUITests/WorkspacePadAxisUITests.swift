@@ -56,7 +56,8 @@ final class WorkspacePadAxisUITests: XCTestCase {
         selectAxis("左右分屏", in: app)
         expect { source.frame.height > verticalHeight + 50 }
         expectLeasesReleased(sourceProbe, otherProbe)
-        XCTAssertEqual(source.frame.maxX + 12, other.frame.minX, accuracy: 3)
+        XCTAssertEqual(source.frame.maxX + 6, other.frame.minX, accuracy: 3,
+                       "Panes stay separated by the 6 pt divider gap")
         XCTAssertEqual(source.frame.height, other.frame.height, accuracy: 3)
         let widthBefore = source.frame.width
         let handle = app.descendants(matching: .any)["split-divider-handle"]

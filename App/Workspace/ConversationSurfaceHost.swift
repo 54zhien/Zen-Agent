@@ -141,8 +141,14 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private var squareBottomCorners = false
     private var displayCorners: CACornerMask = []
     // Rounds a resting Split Pane's display corners with the display radius
-    // while its divider-facing corners keep the smaller resting radius.
-    private let cornerMask = SurfaceCornerMaskView()
+    // while its divider-facing corners keep the smaller resting radius. It is a
+    // bare layer mask: `UIView.mask` would lay out the hosted SwiftUI content
+    // synchronously from inside a SwiftUI update and re-enter its graph.
+    private let cornerMask: CAShapeLayer = {
+        let layer = CAShapeLayer()
+        layer.fillColor = UIColor.black.cgColor
+        return layer
+    }()
     private let windowCornerGeometry = WindowCornerGeometry()
     private var sidebarShadowDirection: CGFloat = -1
 #if DEBUG
@@ -506,7 +512,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     private var isStableFullSurface: Bool {
         presentation == .full && surfaceView.transform == .identity && animator == nil
-            && !retainsAnimationMask && (surfaceView.mask == nil || surfaceView.mask === cornerMask)
+            && !retainsAnimationMask && surfaceView.mask == nil
     }
 
     private func sidebarShadowAlpha(for offset: CGFloat) -> CGFloat {
@@ -559,15 +565,19 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     private func updateCornerMask(_ radii: SurfaceCornerRadii) {
-        guard !radii.isUniform, surfaceView.mask == nil || surfaceView.mask === cornerMask else {
-            if surfaceView.mask === cornerMask { surfaceView.mask = nil }
+        // A crop installs its own `UIView.mask`, which replaces this layer mask.
+        guard !radii.isUniform, surfaceView.mask == nil else {
+            if surfaceView.layer.mask === cornerMask { surfaceView.layer.mask = nil }
             return
         }
         // The layer radius still clips the smaller corners; the mask adds the
         // larger display corners, so their intersection is the intended shape.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         cornerMask.frame = surfaceView.bounds
-        cornerMask.shape.path = radii.path(in: surfaceView.bounds)
-        if surfaceView.mask !== cornerMask { surfaceView.mask = cornerMask }
+        cornerMask.path = radii.path(in: surfaceView.bounds)
+        if surfaceView.layer.mask !== cornerMask { surfaceView.layer.mask = cornerMask }
+        CATransaction.commit()
     }
 
     private func windowConcentricCornerRadius() -> CGFloat {
@@ -909,19 +919,6 @@ private final class SurfaceHitView: UIView {
         let local = surfaceView.visiblePoint(fromParent: point)
         return surfaceView.point(inside: local, with: event) ? surfaceView : nil
     }
-}
-
-@MainActor
-private final class SurfaceCornerMaskView: UIView {
-    override class var layerClass: AnyClass { CAShapeLayer.self }
-    var shape: CAShapeLayer { layer as! CAShapeLayer }
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        shape.fillColor = UIColor.black.cgColor
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 }
 
 @MainActor
