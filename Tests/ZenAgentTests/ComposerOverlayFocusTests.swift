@@ -250,6 +250,41 @@ struct ComposerOverlayFocusTests {
         #expect(!host.editor.isFirstResponder)
     }
 
+    @Test("a retained Composer settles a blur delivered after its Surface detaches")
+    func detachedBlurSettlesBeforeTheSurfaceReturns() async throws {
+        let (window, composer) = installedHost()
+        let surface = ConversationSurfaceViewController(content: Text("retained content"))
+        window.rootViewController = surface
+        surface.view.layoutIfNeeded()
+        composer.frame = surface.contentController.view.bounds
+        surface.contentController.view.addSubview(composer)
+        composer.layoutIfNeeded()
+        let editor = composer.editor
+        let restingFrame = composer.surfaceFrame
+        defer { editor.resignFirstResponder(); window.isHidden = true; window.rootViewController = nil }
+        try #require(editor.becomeFirstResponder())
+        composer.configure(configuration(state: .editing))
+        await drain { composer.nativeSidebarInput.composerSettled }
+        try #require(composer.nativeSidebarInput.composerSettled)
+
+        surface.setWorkspaceVisible(false)
+        try #require(composer.window == nil && !editor.isFirstResponder)
+        composer.setWorkspaceInputSuppressed(true)
+        // SwiftUI can deliver the logical blur after the retained hosting tree
+        // has left the Window. Exercise that real configuration boundary.
+        composer.configure(configuration(state: .resting))
+        try await Task.sleep(for: .milliseconds(400))
+        surface.setWorkspaceVisible(true)
+        composer.setWorkspaceInputSuppressed(false)
+        composer.layoutIfNeeded()
+        await drain { composer.nativeLiftInput.composerSettled }
+        #expect(composer.nativeLiftInput.composerSettled,
+                "a finished overlay must not leave the retained Composer in a transport phase")
+        #expect(composer.surfaceFrame == restingFrame)
+        #expect(composer.editor === editor && editor.text == "same draft")
+        #expect(editor.becomeFirstResponder())
+    }
+
     private func installedHost(state: ComposerPresentationState = .resting,
                                onFocus: @escaping (Bool) -> Void = { _ in }) -> (UIWindow, ComposerHostView) {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
@@ -257,14 +292,19 @@ struct ComposerOverlayFocusTests {
         window.rootViewController = root; window.makeKeyAndVisible()
         let host = ComposerHostView(frame: root.view.bounds)
         root.view.addSubview(host)
-        host.configure(.init(text: "same draft", selection: .init(range: 0..<0), state: state,
+        host.configure(configuration(state: state, onFocus: onFocus))
+        host.layoutIfNeeded()
+        return (window, host)
+    }
+
+    private func configuration(state: ComposerPresentationState,
+                               onFocus: @escaping (Bool) -> Void = { _ in }) -> ComposerHostView.Configuration {
+        .init(text: "same draft", selection: .init(range: 0..<0), state: state,
             collapseProgress: .expanded, font: .systemFont(ofSize: 16), showsPlus: false,
             primary: .send(enabled: false), models: [], selectedModelID: nil, errorMessage: nil,
             references: [], onRemoveQuote: { _ in }, onAcceptQuote: { _ in }, onQuotePhase: { _ in },
             onText: { _, _, _ in }, onFocus: onFocus, onSend: {}, onStop: {}, onModel: { _ in },
-            onHeightChanged: { _ in }))
-        host.layoutIfNeeded()
-        return (window, host)
+            onHeightChanged: { _ in })
     }
 }
 

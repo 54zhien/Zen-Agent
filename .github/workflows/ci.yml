@@ -375,6 +375,10 @@ jobs:
           python3 -B .github/scripts/test_stage5_test_profile.py
           TEST_SCOPE=$(python3 -B .github/scripts/stage5_test_profile.py)
           TEST_ARGS=(test)
+          if [ "$GITHUB_REF_NAME" = "codex/files-detached-morph-probe" ]; then
+            echo '::notice::Detached Composer characterization only; not a full CI gate.'
+            TEST_ARGS+=(-only-testing:ZenAgentTests/ComposerOverlayFocusTests)
+          fi
           if [ "$GITHUB_REF_NAME" = "codex/files-close-focus-diagnostic" ]; then
             echo '::notice::Files close diagnostic only; not a full CI gate.'
             TEST_ARGS+=(
