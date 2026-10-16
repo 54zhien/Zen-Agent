@@ -246,15 +246,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         }
         plus.accessibilityIdentifier = "conversation-composer-plus"
         plus.accessibilityLabel = "更多操作"
-        // Give UIKit a native glass source for its button-to-menu morph.
-        // The Composer's shared glass backing alone is not a glass button.
-        var plusStyle = UIButton.Configuration.glass()
-        plusStyle.image = plus.image(for: .normal)
-        plusStyle.preferredSymbolConfigurationForImage = plus.preferredSymbolConfigurationForImage(in: .normal)
-        plusStyle.baseForegroundColor = .label
-        plusStyle.contentInsets = .zero
-        plusStyle.cornerStyle = .capsule
-        plus.configuration = plusStyle
         plus.showsMenuAsPrimaryAction = true
         primary.accessibilityIdentifier = "conversation-composer-send"
         primary.accessibilityLabel = "发送"
