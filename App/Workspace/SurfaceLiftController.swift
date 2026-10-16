@@ -667,13 +667,16 @@ final class SurfaceLiftController {
             clearSplitTargeting()
             return
         }
+        // Preserve ordinary Card travel before offering Split. Once admitted,
+        // keep both targets available while the finger returns to the lower half.
+        let progress = min(1, max(0, (upwardDistance - 220) / 80))
+        splitActivationProgress = max(splitActivationProgress, progress)
         // Target centers follow the actual full-bleed Pane frames, rather
         // than the safe-area midpoint, so the visible center and hit region agree.
-        splitActivationProgress = max(splitActivationProgress, state.progress)
         let viewport = CGRect(origin: .zero, size: sample.size)
         let update = splitTargeting.update(point: sample.point, viewport: viewport,
                                            liftProgress: splitActivationProgress)
-        splitTargetingVisible = splitActivationProgress >= 0.5
+        splitTargetingVisible = splitActivationProgress > 0
         splitTargetSlot = update.slot
         splitTopFrame = top.paneFrame
         splitBottomFrame = bottom.paneFrame
