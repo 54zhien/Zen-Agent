@@ -68,6 +68,16 @@ final class FilesWorkspaceUITests: XCTestCase {
 
     @MainActor
     func testFilesImportOpensTheSystemPickerAndCloseRestoresTheDraft() {
+        closeFilesRestoresTheDraft(importsFile: true)
+    }
+
+    @MainActor
+    func testFilesCloseWithoutAPickerRestoresTheDraft() {
+        closeFilesRestoresTheDraft(importsFile: false)
+    }
+
+    @MainActor
+    private func closeFilesRestoresTheDraft(importsFile: Bool) {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
@@ -97,16 +107,25 @@ final class FilesWorkspaceUITests: XCTestCase {
             return
         }
         XCTAssertTrue(app.staticTexts["files-workspace-empty"].exists)
-        app.buttons["files-import"].tap()
-        let importPicker = app.descendants(matching: .any)["files-native-import"]
-        XCTAssertTrue(importPicker.waitForExistence(timeout: 5))
-        cancelNativePicker(importPicker, in: app)
-        expect { !importPicker.exists }
-        XCTAssertTrue(workspace.exists)
-        XCTAssertTrue(app.staticTexts["files-workspace-empty"].exists,
-                      "Picker cancellation must not create a catalog asset")
+        if importsFile {
+            app.buttons["files-import"].tap()
+            let importPicker = app.descendants(matching: .any)["files-native-import"]
+            XCTAssertTrue(importPicker.waitForExistence(timeout: 5))
+            cancelNativePicker(importPicker, in: app)
+            expect { !importPicker.exists }
+            XCTAssertTrue(workspace.exists)
+            XCTAssertTrue(app.staticTexts["files-workspace-empty"].exists,
+                          "Picker cancellation must not create a catalog asset")
+        }
         app.buttons["files-workspace-close"].tap()
         expect { !workspace.exists }
+        if workspace.exists {
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "Files close did not retire the overlay"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+            print("FILES_CLOSE_FAILURE importsFile=\(importsFile) hierarchy=\(app.debugDescription)")
+        }
         expect { (probe.value as? String)?.contains("focused=true;") == true }
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         XCTAssertEqual(editorIdentity(probe.value as? String), identity)

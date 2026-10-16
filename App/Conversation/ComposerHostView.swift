@@ -298,6 +298,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             setNeedsLayout()
         } else {
             liftInteraction?.cancelForDetachment()
+            // A retained off-window editor has no visible morph to finish.
+            // Invalidate its completion before a later remount reuses the state.
+            motion.reset(to: currentState)
         }
         updateBottomFadeLayer()
 #if DEBUG
@@ -551,11 +554,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
                 editor.textContainer.maximumNumberOfLines = 0
                 editor.textContainer.lineBreakMode = .byWordWrapping
             }
-            if bounds.width > 0 {
+            if window != nil, bounds.width > 0 {
                 let token = motion.begin(next.state)
                 render(animated: true, generation: token)
             } else {
                 motion.reset(to: next.state)
+                render(animated: false)
             }
         } else {
             let geometryChanged = oldText != next.text || oldFont != next.font
