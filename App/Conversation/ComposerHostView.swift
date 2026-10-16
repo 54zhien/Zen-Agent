@@ -471,14 +471,21 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             if (button.layer.presentation()?.frame ?? button.frame).contains(local) { return button }
         }
         if (viewport.layer.presentation()?.frame ?? viewport.frame).contains(local) {
-            return editor
+            return liftInteraction.isInstalled && currentState != .editing ? surface : editor
         }
         return surface
     }
 
 #if DEBUG
+    private var accessibilityGeometryDiagnostic: String {
+        guard ProcessInfo.processInfo.environment["ZEN_ROTATION_AX_GEOMETRY"] == "1" else { return "" }
+        let screenFrame = window.map { editor.convert(editor.bounds, to: $0.screen.coordinateSpace) } ?? .zero
+        let fixedFrame = window.map { editor.convert(editor.bounds, to: $0.screen.fixedCoordinateSpace) } ?? .zero
+        return ";editorAXFrame=\(editor.accessibilityFrame);editorAXContainerFrame=\(editor.accessibilityFrameInContainerSpace);editorAXPoint=\(editor.accessibilityActivationPoint);editorAXElement=\(editor.isAccessibilityElement);editorAXHidden=\(editor.accessibilityElementsHidden);editorInteraction=\(editor.isUserInteractionEnabled);editorScreenFrame=\(screenFrame);editorFixedFrame=\(fixedFrame);screenBounds=\(window?.screen.bounds ?? .zero);screenFixedBounds=\(window?.screen.fixedCoordinateSpace.bounds ?? .zero);sceneOrientation=\(window?.windowScene?.interfaceOrientation.rawValue ?? -1)"
+    }
+
     var liftReadinessDiagnostic: String {
-        "\(liftInteraction.readinessDiagnostic);sidebarEligibility=\(nativeSidebarInput);composerBounds=\(bounds);composerWindowFrame=\(window.map { convert(bounds, to: $0) } ?? .zero);bottomFadeWindowFrame=\(window.map { convert(bottomFadeLayer.frame, to: $0) } ?? .zero);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);activeKeyboardGuide=\(activeKeyboardFrame);keyboardRootGuide=\(keyboardAnchorView?.keyboardLayoutGuide.layoutFrame ?? .zero);keyboardConstraintActive=\(bottomConstraint.isActive);keyboardConstraintLocal=\(constraints.contains { $0 === bottomConstraint });keyboardConstraintOffset=\(bottomConstraint.constant);keyboardGap=\(keyboardGap);bottomSpacing=\(renderedBottomSpacing);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);composerMotionPhase=\(motion.phase);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder);overlayFocusEvents=\(overlayFocusEvents.joined(separator: " | "));dockEvents=\(dockEvents.joined(separator: " | "))"
+        "\(liftInteraction.readinessDiagnostic);sidebarEligibility=\(nativeSidebarInput);composerBounds=\(bounds);composerWindowFrame=\(window.map { convert(bounds, to: $0) } ?? .zero);bottomFadeWindowFrame=\(window.map { convert(bottomFadeLayer.frame, to: $0) } ?? .zero);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);activeKeyboardGuide=\(activeKeyboardFrame);keyboardRootGuide=\(keyboardAnchorView?.keyboardLayoutGuide.layoutFrame ?? .zero);keyboardConstraintActive=\(bottomConstraint.isActive);keyboardConstraintLocal=\(constraints.contains { $0 === bottomConstraint });keyboardConstraintOffset=\(bottomConstraint.constant);keyboardGap=\(keyboardGap);bottomSpacing=\(renderedBottomSpacing);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);composerMotionPhase=\(motion.phase);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder);overlayFocusEvents=\(overlayFocusEvents.joined(separator: " | "));dockEvents=\(dockEvents.joined(separator: " | "))\(accessibilityGeometryDiagnostic)"
     }
 #endif
 
@@ -817,9 +824,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldReceive touch: UITouch) -> Bool {
-        guard let touched = touch.view else { return false }
-        return touched === surface || (currentState != .editing
-            && (touched === editor || touched.isDescendant(of: editor)))
+        touch.view === surface
     }
 
     @objc private func primaryTapped() {

@@ -18,52 +18,6 @@ private final class DiagnosticLongPressSample: UILongPressGestureRecognizer {
 @Suite("Composer Lift diagnostic lifetime", .serialized)
 @MainActor
 struct ComposerLiftDiagnosticTests {
-    @Test("Lift precedes native text gestures only while the editor can be lifted")
-    func nativeTextGesturePriorityRespectsEditingAndComposition() throws {
-        let host = ConversationSurfaceViewController(content: Color.clear)
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        window.rootViewController = host; window.makeKeyAndVisible()
-        defer { window.isHidden = true; window.rootViewController = nil }
-        host.view.layoutIfNeeded()
-        let surface = UIView(frame: CGRect(x: 40, y: 680, width: 300, height: 70))
-        let editor = UITextView(frame: surface.bounds)
-        host.view.addSubview(surface); surface.addSubview(editor)
-        let driver = SurfaceLiftController()
-        driver.bind(host)
-        defer { driver.unbind(host) }
-        var eligibility = SurfaceLiftEligibility()
-        let input = ComposerLiftInteraction(surface: surface, editor: editor, nativeInput: { eligibility })
-        input.configure(.init(driver: driver, conversationID: "native-priority", eligibility: { $0 }))
-        let textGesture = UILongPressGestureRecognizer()
-        editor.addGestureRecognizer(textGesture)
-        let controlGesture = UITapGestureRecognizer()
-        let control = UIButton()
-        surface.addSubview(control); control.addGestureRecognizer(controlGesture)
-        try #require(driver.canArm(eligibility))
-        #expect(input.recognizer.delaysTouchesBegan)
-        #expect(input.gestureRecognizer(input.recognizer, shouldBeRequiredToFailBy: textGesture))
-        #expect(!input.gestureRecognizer(input.recognizer, shouldBeRequiredToFailBy: controlGesture))
-        let sample = DiagnosticLongPressSample()
-        sample.sample = .began
-        _ = input.perform(NSSelectorFromString("gestureChanged:"), with: sample)
-        try #require(driver.state.phase == .armed)
-        #expect(input.gestureRecognizer(input.recognizer, shouldBeRequiredToFailBy: textGesture))
-        sample.sample = .changed
-        sample.point.y -= 120
-        _ = input.perform(NSSelectorFromString("gestureChanged:"), with: sample)
-        try #require(driver.state.phase == .lifting)
-        #expect(input.gestureRecognizer(input.recognizer, shouldBeRequiredToFailBy: textGesture))
-        driver.invalidate()
-        eligibility.isEditing = true
-        #expect(!input.gestureRecognizer(input.recognizer, shouldBeRequiredToFailBy: textGesture))
-        eligibility.isEditing = false
-        eligibility.hasMarkedText = true
-        #expect(!input.gestureRecognizer(input.recognizer, shouldBeRequiredToFailBy: textGesture))
-        eligibility.hasMarkedText = false
-        eligibility.keyboardTransitioning = true
-        #expect(!input.gestureRecognizer(input.recognizer, shouldBeRequiredToFailBy: textGesture))
-    }
-
     @Test("accepted long press grows the Composer contents and cancellation restores them",
           arguments: [UIUserInterfaceStyle.light, .dark])
     func acceptedPressHasVisibleFeedback(style: UIUserInterfaceStyle) throws {

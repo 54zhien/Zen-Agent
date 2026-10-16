@@ -27,11 +27,13 @@ final class WorkspaceRotationUITests: XCTestCase {
         expect { app.frame.width > app.frame.height }
         expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
         XCTAssertTrue(secondary.exists && input.isHittable, rotationInputReceipt(app))
+        print("ROTATION_RESTING_RECEIPT \(rotationInputReceipt(app))")
         XCTAssertFalse(source.exists)
         let restingFrame = hostFrame(secondaryProbe)
         XCTAssertNotNil(restingFrame)
         input.tap(); input.typeText(" landscape edit")
         XCTAssertTrue(app.keyboards.firstMatch.exists)
+        print("ROTATION_EDITING_RECEIPT \(rotationInputReceipt(app))")
         XCTAssertEqual(hostFrame(secondaryProbe), restingFrame,
                        "Landscape Single must keep its whole page behind the moving keyboard")
         dismissKeyboard(app, pane: secondary, editor: input, probe: secondaryProbe)
@@ -72,11 +74,22 @@ final class WorkspaceRotationUITests: XCTestCase {
         let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         XCTAssertTrue(source.exists && app.textViews["conversation-composer-input"].isHittable,
                       rotationInputReceipt(app))
+        print("ROTATION_RETURN_RESTING_RECEIPT \(rotationInputReceipt(app))")
+        let returnedInput = app.textViews["conversation-composer-input"]
+        let marker = "landscape returned draft"
+        returnedInput.tap()
+        returnedInput.typeText(marker)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertTrue((returnedInput.value as? String)?.contains(marker) == true)
+        print("ROTATION_RETURN_EDITING_RECEIPT \(rotationInputReceipt(app))")
+        let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        dismissKeyboard(app, pane: source, editor: returnedInput, probe: sourceProbe)
 
         XCUIDevice.shared.orientation = .portrait
         expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
         XCTAssertTrue(source.exists)
         XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch.exists)
+        XCTAssertTrue((app.textViews["conversation-composer-input"].value as? String)?.contains(marker) == true)
     }
 
     @MainActor
@@ -168,12 +181,14 @@ final class WorkspaceRotationUITests: XCTestCase {
     @MainActor
     private func rotationInputReceipt(_ app: XCUIApplication) -> String {
         let input = app.textViews["conversation-composer-input"]
-        let inputState = input.exists ? "frame=\(input.frame),hittable=\(input.isHittable)" : "missing"
+        let inputState = input.exists
+            ? "frame=\(input.frame),hittable=\(input.isHittable),center=\(input.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).screenPoint)"
+            : "missing"
         let probes = ["surface-native-interaction-probe", "split-secondary-native-interaction-probe"].map { id in
             let probe = app.descendants(matching: .any)[id]
             return "\(id)=\(probe.exists ? String(describing: probe.value) : "missing")"
         }.joined(separator: "\n")
-        return "app=\(app.frame);input=\(inputState)\n\(probes)"
+        return "orientation=\(XCUIDevice.shared.orientation.rawValue);app=\(app.frame);input=\(inputState)\n\(probes)"
     }
 
     @MainActor
