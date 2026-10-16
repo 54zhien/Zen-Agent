@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The empty Pane's chooser, laid out like Safari's tab overview: a two-column
-/// grid of page-shaped cards with their titles beneath, New first.
+/// The empty Pane's chooser, laid out like Safari's tab overview: a grid of
+/// page-shaped cards with their titles beneath, New first.
 @MainActor
 struct SplitEmptyPanePicker: View {
     let summaries: [RecentConversationSummary]
@@ -42,7 +42,9 @@ struct SplitEmptyPanePicker: View {
                             .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
                     }
                 }
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)],
+                // Adaptive like Safari's overview: two columns on a phone, more on a
+                // wide Pane, so a card never outgrows a half-height Split Pane.
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 14)],
                           alignment: .leading, spacing: 18) {
                     Button(action: onNew) {
                         SplitPickerCard(title: "新会话", isNew: true, unavailable: false)
