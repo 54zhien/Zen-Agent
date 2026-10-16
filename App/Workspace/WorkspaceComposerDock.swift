@@ -165,15 +165,6 @@ final class ComposerHostPortal: UIView {
 @MainActor
 final class ComposerDockContainer: UIView {
     private weak var portal: ComposerHostPortal?
-    func updateBottomCorners(radius: CGFloat) {
-        // Keep the fade inside the lowest Pane's display corners. Native bounds
-        // own this clipping across rotation; a separate SwiftUI shape mask can
-        // retain its portrait frame while its path has already rotated.
-        clipsToBounds = true
-        layer.cornerCurve = .continuous
-        layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-        layer.cornerRadius = max(0, radius)
-    }
     func install(_ incoming: ComposerHostPortal) {
         guard portal !== incoming || incoming.composer.superview !== self else {
             // A layout-only refresh is not a new blur request. Positive intent
@@ -210,10 +201,8 @@ struct WorkspaceComposerDock: UIViewRepresentable {
     let activeID: String?
     let visible: Bool
     let returnsToPortals: Bool
-    let bottomCornerRadius: CGFloat
     func makeUIView(context: Context) -> ComposerDockContainer { ComposerDockContainer() }
     func updateUIView(_ view: ComposerDockContainer, context: Context) {
-        view.updateBottomCorners(radius: bottomCornerRadius)
         state.configure(container: view, activeID: activeID, visible: visible, returnsToPortals: returnsToPortals)
     }
 }

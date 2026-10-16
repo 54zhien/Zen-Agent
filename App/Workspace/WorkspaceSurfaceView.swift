@@ -411,8 +411,11 @@ struct WorkspaceSurfaceView<Content: View>: View {
             ZStack {
                 WorkspaceComposerDock(state: composerDock, activeID: inputPane?.conversationID,
                     visible: showsWorkspaceComposerDock,
-                    returnsToPortals: model?.splitWorkspace == nil,
-                    bottomCornerRadius: dockCornerRadius)
+                    returnsToPortals: model?.splitWorkspace == nil)
+                    // The dock and its bottom fade belong to the lowest Pane's page:
+                    // round them with it instead of squaring its display corners.
+                    .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: dockCornerRadius,
+                        bottomTrailingRadius: dockCornerRadius, style: .continuous))
                     .opacity(dockLiftOpacity)
                     .offset(x: sidebarTranslation)
                     .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
