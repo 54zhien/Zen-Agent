@@ -481,7 +481,24 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         guard ProcessInfo.processInfo.environment["ZEN_ROTATION_AX_GEOMETRY"] == "1" else { return "" }
         let screenFrame = window.map { editor.convert(editor.bounds, to: $0.screen.coordinateSpace) } ?? .zero
         let fixedFrame = window.map { editor.convert(editor.bounds, to: $0.screen.fixedCoordinateSpace) } ?? .zero
-        return ";editorAXFrame=\(editor.accessibilityFrame);editorAXContainerFrame=\(editor.accessibilityFrameInContainerSpace);editorAXPoint=\(editor.accessibilityActivationPoint);editorAXElement=\(editor.isAccessibilityElement);editorAXHidden=\(editor.accessibilityElementsHidden);editorInteraction=\(editor.isUserInteractionEnabled);editorScreenFrame=\(screenFrame);editorFixedFrame=\(fixedFrame);screenBounds=\(window?.screen.bounds ?? .zero);screenFixedBounds=\(window?.screen.fixedCoordinateSpace.bounds ?? .zero);sceneOrientation=\(window?.windowScene?.interfaceOrientation.rawValue ?? -1)"
+        var chain: [String] = []
+        var ancestor: UIView? = editor
+        var clipped = window.map { editor.convert(editor.bounds, to: $0) } ?? .zero
+        var allBounds = clipped
+        while let view = ancestor, let window, chain.count < 16 {
+            let frame = view.convert(view.bounds, to: window)
+            allBounds = allBounds.intersection(frame)
+            if view.clipsToBounds || view.layer.masksToBounds { clipped = clipped.intersection(frame) }
+            let name = String(String(describing: type(of: view)).prefix(100))
+            chain.append("\(name){bounds=\(view.bounds),window=\(frame),clip=\(view.clipsToBounds),maskBounds=\(view.layer.masksToBounds),mask=\(view.layer.mask != nil),radius=\(view.layer.cornerRadius),hidden=\(view.isHidden),alpha=\(view.alpha),interaction=\(view.isUserInteractionEnabled),axElement=\(view.isAccessibilityElement),axHidden=\(view.accessibilityElementsHidden),axModal=\(view.accessibilityViewIsModal)}")
+            ancestor = view.superview
+        }
+        let activation = editor.accessibilityActivationPoint
+        let activationInWindow = window.map { $0.convert(activation, from: $0.screen.coordinateSpace) } ?? .zero
+        let fixedActivationInWindow = window.map { $0.convert(activation, from: $0.screen.fixedCoordinateSpace) } ?? .zero
+        let activationHit = window?.hitTest(activationInWindow, with: nil).map { String(describing: type(of: $0)) } ?? "nil"
+        let fixedActivationHit = window?.hitTest(fixedActivationInWindow, with: nil).map { String(describing: type(of: $0)) } ?? "nil"
+        return ";editorAXFrame=\(editor.accessibilityFrame);editorAXContainerFrame=\(editor.accessibilityFrameInContainerSpace);editorAXPoint=\(activation);editorAXElement=\(editor.isAccessibilityElement);editorAXHidden=\(editor.accessibilityElementsHidden);editorInteraction=\(editor.isUserInteractionEnabled);editorScreenFrame=\(screenFrame);editorFixedFrame=\(fixedFrame);screenBounds=\(window?.screen.coordinateSpace.bounds ?? .zero);screenFixedBounds=\(window?.screen.fixedCoordinateSpace.bounds ?? .zero);sceneOrientation=\(window?.windowScene?.interfaceOrientation.rawValue ?? -1);activationInWindow=\(activationInWindow);activationHit=\(activationHit);fixedActivationInWindow=\(fixedActivationInWindow);fixedActivationHit=\(fixedActivationHit);editorClipIntersection=\(clipped);editorAllBoundsIntersection=\(allBounds);editorClipChain=[\(chain.joined(separator: " | "))]"
     }
 
     var liftReadinessDiagnostic: String {

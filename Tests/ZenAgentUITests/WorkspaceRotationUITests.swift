@@ -31,7 +31,9 @@ final class WorkspaceRotationUITests: XCTestCase {
         XCTAssertFalse(source.exists)
         let restingFrame = hostFrame(secondaryProbe)
         XCTAssertNotNil(restingFrame)
-        input.tap(); input.typeText(" landscape edit")
+        tapEditorCenter(app, input: input)
+        expect { (secondaryProbe.value as? String)?.contains(";focused=true;") == true }
+        input.typeText(" landscape edit")
         XCTAssertTrue(app.keyboards.firstMatch.exists)
         print("ROTATION_EDITING_RECEIPT \(rotationInputReceipt(app))")
         XCTAssertEqual(hostFrame(secondaryProbe), restingFrame,
@@ -77,12 +79,13 @@ final class WorkspaceRotationUITests: XCTestCase {
         print("ROTATION_RETURN_RESTING_RECEIPT \(rotationInputReceipt(app))")
         let returnedInput = app.textViews["conversation-composer-input"]
         let marker = "landscape returned draft"
-        returnedInput.tap()
+        tapEditorCenter(app, input: returnedInput)
+        let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        expect { (sourceProbe.value as? String)?.contains(";focused=true;") == true }
         returnedInput.typeText(marker)
         XCTAssertTrue(app.keyboards.firstMatch.exists)
         XCTAssertTrue((returnedInput.value as? String)?.contains(marker) == true)
         print("ROTATION_RETURN_EDITING_RECEIPT \(rotationInputReceipt(app))")
-        let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         dismissKeyboard(app, pane: source, editor: returnedInput, probe: sourceProbe)
 
         XCUIDevice.shared.orientation = .portrait
@@ -176,6 +179,15 @@ final class WorkspaceRotationUITests: XCTestCase {
     private func editorTextLength(_ diagnostic: String?) -> Int? {
         diagnostic?.split(separator: ";").first { $0.hasPrefix("editorTextLength=") }
             .flatMap { Int($0.dropFirst("editorTextLength=".count)) }
+    }
+
+    @MainActor
+    private func tapEditorCenter(_ app: XCUIApplication, input: XCUIElement) {
+        let frame = input.frame
+        let point = app.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: frame.midX - app.frame.minX, dy: frame.midY - app.frame.minY))
+        print("ROTATION_PHYSICAL_TAP point=\(point.screenPoint)")
+        point.tap()
     }
 
     @MainActor
