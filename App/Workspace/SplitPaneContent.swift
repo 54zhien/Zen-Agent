@@ -68,7 +68,7 @@ struct SplitEmptyPanePicker: View {
         }
         .scrollIndicators(.hidden)
         .scrollEdgeEffectStyle(.soft, for: .all)
-        .background(Color(.systemGroupedBackground))
+        .background(Color(.systemBackground))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("split-empty-pane-picker")
     }

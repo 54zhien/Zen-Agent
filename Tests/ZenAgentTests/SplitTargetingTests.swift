@@ -6,6 +6,19 @@ import Testing
 struct SplitTargetingTests {
     private let viewport = CGRect(x: 0, y: 50, width: 400, height: 700)
 
+    @Test func halfScreenEdgesAndTheDividerDoNotFillAPane() {
+        var targeting = SplitTargetingState()
+        for point in [CGPoint(x: 200, y: 60), CGPoint(x: 200, y: 380),
+                      CGPoint(x: 200, y: 420), CGPoint(x: 200, y: 740),
+                      CGPoint(x: 15, y: 225), CGPoint(x: 385, y: 575)] {
+            #expect(targeting.update(point: point, viewport: viewport, liftProgress: 1).slot == nil)
+        }
+        #expect(targeting.update(point: CGPoint(x: 200, y: 225), viewport: viewport,
+                                 liftProgress: 1).slot == .top)
+        #expect(targeting.update(point: CGPoint(x: 200, y: 575), viewport: viewport,
+                                 liftProgress: 1).slot == .bottom)
+    }
+
     @Test func topBottomAndNeutralFollowTheFingerWithoutRepeatedEntry() {
         var targeting = SplitTargetingState()
         let top = CGPoint(x: 200, y: 180)

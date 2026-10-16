@@ -1,7 +1,7 @@
 import UIKit
 
 struct SplitWorkspaceGeometry {
-    /// The visible black gap between Panes. Its grab area is wider and lives
+    /// The visible gap between Panes. Its grab area is wider and lives
     /// on the divider handle, so thinning the gap never shrinks the target.
     static let dividerThickness: CGFloat = 6
 

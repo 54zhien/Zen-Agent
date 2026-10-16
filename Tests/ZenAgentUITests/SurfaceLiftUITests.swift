@@ -66,12 +66,12 @@ final class SurfaceLiftUITests: XCTestCase {
 
     @MainActor
     func testComposerDragTargetsTopSplit() {
-        assertSplitTarget(.init(dx: 0.5, dy: 0.18), expected: "top")
+        assertSplitTarget(.init(dx: 0.5, dy: 0.25), expected: "top")
     }
 
     @MainActor
     func testComposerDragTargetsBottomSplit() {
-        assertSplitTarget(.init(dx: 0.5, dy: 0.56), expected: "bottom")
+        assertSplitTarget(.init(dx: 0.5, dy: 0.75), expected: "bottom")
     }
 
     @MainActor

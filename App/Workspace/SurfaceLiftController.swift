@@ -667,16 +667,16 @@ final class SurfaceLiftController {
             clearSplitTargeting()
             return
         }
-        // The original 220 pt Card gesture remains intact. Continuing beyond it
-        // reveals Split targets; values are first-pass calibration for device review.
-        let progress = min(1, max(0, (upwardDistance - 220) / 80))
-        splitActivationProgress = max(splitActivationProgress, progress)
+        // The central target is the admission boundary. Requiring another
+        // 220 pt first would make the lower half's center unreachable on a
+        // direct upward drag from the Composer on smaller displays.
+        splitActivationProgress = max(splitActivationProgress, state.progress)
         let viewport = CGRect(x: sample.safeArea.left, y: sample.safeArea.top,
                               width: sample.size.width - sample.safeArea.left - sample.safeArea.right,
                               height: sample.size.height - sample.safeArea.top - sample.safeArea.bottom)
         let update = splitTargeting.update(point: sample.point, viewport: viewport,
                                            liftProgress: splitActivationProgress)
-        splitTargetingVisible = splitActivationProgress > 0
+        splitTargetingVisible = splitActivationProgress >= 0.5
         splitTargetSlot = update.slot
         splitTopFrame = top.paneFrame
         splitBottomFrame = bottom.paneFrame

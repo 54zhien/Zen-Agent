@@ -1,8 +1,8 @@
 import UIKit
 
 enum SurfaceLiftGeometry {
-    /// Interactive transport follows the finger; destination geometry is only
-    /// used after release. Uniform scale keeps the complete live page visible.
+    /// Interactive transport keeps the complete page visible, with bounded
+    /// vertical travel. Split targeting owns the separate half-screen morph.
     static func interactivePose(size: CGSize, safeArea: UIEdgeInsets,
                                 displacement: CGSize, progress: Double,
                                 windowCornerRadius: CGFloat) -> SurfaceGeometry.Pose? {
@@ -16,12 +16,17 @@ enum SurfaceLiftGeometry {
               displacement.width.isFinite, displacement.height.isFinite,
               progress.isFinite, windowCornerRadius.isFinite, windowCornerRadius >= 0 else { return nil }
         let fraction = min(1, max(0, progress))
-        let scale = 1 - CGFloat(fraction) * 0.18
+        let scale = 1 - CGFloat(fraction) * 0.34
+        // The finger still selects a target in window coordinates, while the
+        // page's center eases toward a bounded vertical displacement.
+        let verticalLimit = available.height * 0.12
+        let verticalTravel = verticalLimit * (1 - 1 / (1 + abs(displacement.height) / verticalLimit))
+            * (displacement.height < 0 ? -1 : 1)
         let maximumLocalRadius = min(size.width, size.height) / 2
         let renderedRadius = min(windowCornerRadius, maximumLocalRadius * scale)
         let pose = SurfaceGeometry.Pose(scale: scale,
             translation: CGSize(width: displacement.width / available.width,
-                                height: displacement.height / available.height),
+                                height: verticalTravel / available.height),
             cornerRadius: renderedRadius / scale)
         return pose.isValid ? pose : nil
     }

@@ -58,18 +58,21 @@ struct ConversationSearchView: View {
         .scrollEdgeEffectStyle(.soft, for: .all)
         .scrollDismissesKeyboard(.never)
         .safeAreaBar(edge: .bottom, spacing: 0) {
-            HStack(spacing: 8) {
-                SearchQueryInput(text: model.query,
-                    font: Typography.uiFont(for: .interfaceBody, compatibleWith: UITraitCollection(
-                        preferredContentSizeCategory: Typography.contentSizeCategory(for: dynamicTypeSize))),
-                    focus: inputFocus, onText: { model.query = $0 })
-                    .frame(maxWidth: .infinity)
-                    .padding(12).background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
-                    .accessibilityIdentifier("conversation-search-input")
-                Button { inputFocus.release(then: onClose) } label: {
-                    Image(systemName: "xmark").frame(width: 44, height: 44)
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    SearchQueryInput(text: model.query,
+                        font: Typography.uiFont(for: .interfaceBody, compatibleWith: UITraitCollection(
+                            preferredContentSizeCategory: Typography.contentSizeCategory(for: dynamicTypeSize))),
+                        focus: inputFocus, onText: { model.query = $0 })
+                        .frame(maxWidth: .infinity)
+                        .padding(12).glassEffect(.regular, in: .capsule)
+                        .accessibilityIdentifier("conversation-search-input")
+                    Button { inputFocus.release(then: onClose) } label: {
+                        Image(systemName: "xmark").frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.glass).buttonBorderShape(.circle)
+                    .accessibilityLabel("退出搜索").accessibilityIdentifier("conversation-search-close")
                 }
-                .accessibilityLabel("退出搜索").accessibilityIdentifier("conversation-search-close")
             }
             .padding(.horizontal, 16).padding(.vertical, 8)
         }

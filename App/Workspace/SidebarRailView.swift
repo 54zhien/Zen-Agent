@@ -1,6 +1,33 @@
 import SwiftUI
 import UIKit
 
+/// The Rail is composited above the full-viewport native host. Reveal only
+/// the area outside the moving page, including its rounded display corners.
+/// Fill with the even-odd rule, then clip to the Rail's bounds.
+struct SidebarRailRevealShape: Shape {
+    var pageSize: CGSize
+    var radius: CGFloat
+    var roundsBottom: Bool
+    var offset: CGFloat
+    var isRightToLeft: Bool
+
+    var animatableData: CGFloat {
+        get { offset }
+        set { offset = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let pageX = isRightToLeft ? rect.maxX - pageSize.width - offset : rect.minX + offset
+        let page = CGRect(x: pageX, y: rect.minY, width: pageSize.width, height: pageSize.height)
+        let bottom = roundsBottom ? radius : 0
+        let shape = UnevenRoundedRectangle(topLeadingRadius: radius, bottomLeadingRadius: bottom,
+            bottomTrailingRadius: bottom, topTrailingRadius: radius, style: .continuous)
+        var path = Path(rect)
+        path.addPath(shape.path(in: page))
+        return path
+    }
+}
+
 struct SidebarRailLayout {
     static let contentWidth: CGFloat = 64
     static let controlSize: CGFloat = 56
@@ -102,9 +129,6 @@ struct SidebarRailView: View {
             .disabled(!isInteractive)
             .foregroundStyle(.primary)
             .accessibilityLabel("分屏").accessibilityIdentifier("split-entry")
-        }
-        if conversationActions.contains(.configure) {
-            action(.configure, symbol: "slider.horizontal.3", label: "配置模型", identifier: "new-conversation-configure")
         }
         destination(.search, symbol: "magnifyingglass", label: "搜索", identifier: "sidebar-search")
         destination(.files, symbol: "folder", label: "文件", identifier: "sidebar-files")

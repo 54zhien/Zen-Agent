@@ -246,6 +246,15 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         }
         plus.accessibilityIdentifier = "conversation-composer-plus"
         plus.accessibilityLabel = "更多操作"
+        // Give UIKit a native glass source for its button-to-menu morph.
+        // The Composer's shared glass backing alone is not a glass button.
+        var plusStyle = UIButton.Configuration.glass()
+        plusStyle.image = plus.image(for: .normal)
+        plusStyle.preferredSymbolConfigurationForImage = plus.preferredSymbolConfigurationForImage(in: .normal)
+        plusStyle.baseForegroundColor = .label
+        plusStyle.contentInsets = .zero
+        plusStyle.cornerStyle = .capsule
+        plus.configuration = plusStyle
         plus.showsMenuAsPrimaryAction = true
         primary.accessibilityIdentifier = "conversation-composer-send"
         primary.accessibilityLabel = "发送"
@@ -744,12 +753,13 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             UIAction(title: title, image: UIImage(systemName: symbol), attributes: [.disabled]) { _ in }
         }
         let modelActions = configuration.models.map { model in
-            UIAction(title: model.displayName,
+            UIAction(title: model.displayName, image: UIImage(systemName: "cpu"),
                      state: model.id == configuration.selectedModelID ? .on : .off) { [weak self] _ in
                 self?.configuration?.onModel(model.id)
             }
         }
         let modelMenu = UIMenu(title: "模型", image: UIImage(systemName: "cpu"),
+                               options: [.singleSelection],
                                children: modelActions.isEmpty ? [disabled("模型", "cpu")] : modelActions)
         return UIMenu(children: [
             disabled("添加图片", "photo"), disabled("添加文件", "doc"),
@@ -940,10 +950,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 }
 
-/// A Composer glyph button. Its menu opens with the Composer's control haptic,
-/// and the menu's lift and dismissal previews show only the glyph: UIKit's
-/// default preview adds a translucent capsule platter that lingers under the
-/// icon after the menu closes.
+/// Keep UIKit's source and dismissal previews intact so a native glass button
+/// can morph into its menu. Only the Composer's control haptic is customized.
 @MainActor
 final class ComposerControlButton: UIButton {
     override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
@@ -951,23 +959,5 @@ final class ComposerControlButton: UIButton {
                                          animator: (any UIContextMenuInteractionAnimating)?) {
         super.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: animator)
         WorkspaceHaptics.shared.play(.control)
-    }
-
-    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
-        previewForHighlightingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
-        glyphPreview()
-    }
-
-    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
-        previewForDismissingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
-        glyphPreview()
-    }
-
-    private func glyphPreview() -> UITargetedPreview? {
-        guard window != nil else { return nil }
-        let parameters = UIPreviewParameters()
-        parameters.backgroundColor = .clear
-        parameters.shadowPath = UIBezierPath()
-        return UITargetedPreview(view: self, parameters: parameters)
     }
 }

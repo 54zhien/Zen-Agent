@@ -33,6 +33,7 @@ struct SettingsWorkspaceView: View {
                 }
                 Section("文件与存储") {
                     Button("文件") { focus.release(then: onFiles) }.disabled(model.storage == nil)
+                        .accessibilityIdentifier("settings-files")
                     NavigationLink { SettingsStorageView(model: model.storage) }
                         label: { Label("存储", systemImage: "internaldrive") }
                 }
@@ -57,6 +58,7 @@ struct SettingsWorkspaceView: View {
             blocked: isSetupPresented, close: onClose))
         .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
         .preferredColorScheme(model.appearance.appearance.colorScheme)
+        .interactiveDismissDisabled(focus.hasMarkedText || focus.isClosing || isSetupPresented)
         .task { await model.load() }
         .sheet(isPresented: $isSetupPresented, onDismiss: {
             setupFocus.cancel(); setup = nil

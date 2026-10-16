@@ -4,6 +4,32 @@ import Testing
 
 @Suite("Sidebar rail geometry and progress")
 struct SidebarRailLayoutTests {
+    @Test(arguments: [false, true])
+    func railRevealsTheAreaOutsideTheMovingPageCorners(isRightToLeft: Bool) {
+        let bounds = CGRect(x: 0, y: 0, width: 96, height: 874)
+        let mask = SidebarRailRevealShape(pageSize: CGSize(width: 402, height: 874),
+            radius: 62, roundsBottom: true, offset: 48, isRightToLeft: isRightToLeft)
+        let path = mask.path(in: bounds)
+        let cornerX: CGFloat = isRightToLeft ? 36 : 60
+        let exposedX: CGFloat = isRightToLeft ? 76 : 20
+        #expect(path.contains(CGPoint(x: cornerX, y: 2), eoFill: true))
+        #expect(path.contains(CGPoint(x: cornerX, y: 872), eoFill: true))
+        #expect(!path.contains(CGPoint(x: cornerX, y: 437), eoFill: true))
+        #expect(path.contains(CGPoint(x: exposedX, y: 437), eoFill: true))
+    }
+
+    @Test
+    func railDoesNotInventABottomCornerAtTheKeyboardEdge() {
+        let bounds = CGRect(x: 0, y: 0, width: 96, height: 539)
+        let single = SidebarRailRevealShape(pageSize: CGSize(width: 402, height: 874),
+            radius: 62, roundsBottom: true, offset: 48, isRightToLeft: false)
+        let split = SidebarRailRevealShape(pageSize: CGSize(width: 402, height: 539),
+            radius: 62, roundsBottom: false, offset: 48, isRightToLeft: false)
+        let behindPage = CGPoint(x: 60, y: 537)
+        #expect(!single.path(in: bounds).contains(behindPage, eoFill: true))
+        #expect(!split.path(in: bounds).contains(behindPage, eoFill: true))
+    }
+
     @Test(arguments: [CGFloat(48), 62, 72])
     func controlsHaveEqualScreenAndSheetGaps(radius: CGFloat) {
         let layout = SidebarRailLayout(windowInsets: EdgeInsets(), cornerRadius: radius)

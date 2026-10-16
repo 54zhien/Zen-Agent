@@ -5,6 +5,35 @@ import Testing
 @Suite("Sidebar native decoration ownership")
 @MainActor
 struct SidebarDecorationTests {
+    @Test(arguments: [false, true])
+    func pageAppearanceIsSharedByNativeAndPickerPages(dark: Bool) {
+        let closed = SidebarPageAppearance(progress: 0, dark: dark, reduceTransparency: false)
+        let open = SidebarPageAppearance(progress: 1, dark: dark, reduceTransparency: false)
+        #expect(closed.surfaceOpacity == 1 && closed.tintOpacity == 0 && closed.outlineOpacity == 0)
+        #expect(abs(open.surfaceOpacity - (dark ? 0.90 : 0.94)) < 0.001)
+        #expect(open.tintOpacity == (dark ? 0.08 : 0))
+        #expect(open.outlineOpacity == 1)
+        let accessible = SidebarPageAppearance(progress: 1, dark: dark, reduceTransparency: true)
+        #expect(accessible.surfaceOpacity == 1)
+    }
+
+    @Test
+    func dockCanOwnTheOutlineWithoutChangingThePageAppearance() throws {
+        let surface = UIView(frame: CGRect(x: 0, y: 0, width: 402, height: 400))
+        let decoration = SidebarSurfaceDecoration()
+        decoration.install(on: surface)
+        let outline = try #require(surface.subviews.first { $0.layer.name == "zen-sidebar-page-outline" })
+        let traits = UITraitCollection(userInterfaceStyle: .dark)
+        decoration.setOutlineExternallyDrawn(true)
+        decoration.applyAppearance(surface: surface, progress: 1, traits: traits)
+        #expect(outline.isHidden)
+        #expect(decoration.outlineAlpha == 1)
+        let pageAlpha = surface.alpha
+        decoration.setOutlineExternallyDrawn(false)
+        #expect(!outline.isHidden)
+        #expect(surface.alpha == pageAlpha)
+    }
+
     @Test("transport reuses a transparent shadow silhouette until its geometry changes")
     func translationDoesNotRebuildOrFillTheShadow() throws {
         let surface = UIView(frame: CGRect(x: 0, y: 0, width: 402, height: 874))

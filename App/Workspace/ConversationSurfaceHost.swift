@@ -17,6 +17,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var sidebarOffset: CGFloat
     var sidebarProgress: CGFloat
     var sidebarDragging: Bool
+    var sidebarOutlineExternallyDrawn: Bool
     var sidebarSettlement: UUID?
     var onSidebarSettled: ((UUID) -> Void)?
     var onNativeLayout: ((WorkspaceNativeLayoutReceipt?) -> Void)?
@@ -33,6 +34,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
          displayCorners: CACornerMask = [],
          sidebarOffset: CGFloat = 0, sidebarProgress: CGFloat = 0, sidebarDragging: Bool = false,
          sidebarSettlement: UUID? = nil,
+         sidebarOutlineExternallyDrawn: Bool = false,
          onSidebarSettled: ((UUID) -> Void)? = nil,
          onNativeLayout: ((WorkspaceNativeLayoutReceipt?) -> Void)? = nil,
          contentOwner: ObjectIdentifier? = nil,
@@ -51,6 +53,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         self.sidebarOffset = sidebarOffset
         self.sidebarProgress = sidebarProgress
         self.sidebarDragging = sidebarDragging
+        self.sidebarOutlineExternallyDrawn = sidebarOutlineExternallyDrawn
         self.sidebarSettlement = sidebarSettlement
         self.onSidebarSettled = onSidebarSettled
         self.onNativeLayout = onNativeLayout
@@ -71,6 +74,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.setWorkspaceVisible(isWorkspaceVisible)
         controller.setSquareBottomCorners(squareBottomCorners)
         controller.setDisplayCorners(displayCorners)
+        controller.setSidebarOutlineExternallyDrawn(sidebarOutlineExternallyDrawn)
         controller.setSidebar(offset: sidebarOffset, progress: sidebarProgress, dragging: sidebarDragging,
                               settlement: sidebarSettlement, completion: onSidebarSettled)
         return controller
@@ -95,6 +99,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.setWorkspaceVisible(isWorkspaceVisible)
         controller.setSquareBottomCorners(squareBottomCorners)
         controller.setDisplayCorners(displayCorners)
+        controller.setSidebarOutlineExternallyDrawn(sidebarOutlineExternallyDrawn)
         controller.setSidebar(offset: sidebarOffset, progress: sidebarProgress, dragging: sidebarDragging,
                               settlement: sidebarSettlement, completion: onSidebarSettled)
         controller.scheduleNativeLayoutReceipt()
@@ -267,6 +272,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         view.backgroundColor = .clear
         surfaceView.layer.cornerCurve = .continuous
         surfaceView.clipsToBounds = true
+        surfaceView.backgroundColor = .systemBackground
         cropMask.backgroundColor = .black
         cropMask.layer.cornerCurve = .continuous
         view.addSubview(sidebarShadowView)
@@ -520,6 +526,10 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         return min(1, abs(offset) / threshold)
     }
 
+    func setSidebarOutlineExternallyDrawn(_ value: Bool) {
+        sidebarDecoration.setOutlineExternallyDrawn(value)
+    }
+
     private func updateSurfaceDecoration() {
         // A floating pose already compensates for its own scale. Applying the
         // resting Split radius as a minimum would enlarge corners on iPad.
@@ -586,6 +596,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func setLiftInteraction(_ phase: SurfaceLiftState.Phase, returnAction: @escaping () -> Bool) {
+        if phase == .armed || phase == .lifting || phase == .split {
+            surfaceView.alpha = 1
+        }
         surfaceView.setCurrentEdgeVisible(phase == .card)
         let frozen = phase == .settling || phase == .card || phase == .split
         contentController.view.isUserInteractionEnabled = workspaceVisible && !frozen && !inputSuppressed && !returnProxyHidden

@@ -1,6 +1,20 @@
 import SwiftUI
 import UIKit
 
+/// Shared by native Conversation Surfaces and the SwiftUI Split picker.
+struct SidebarPageAppearance {
+    let surfaceOpacity: CGFloat
+    let tintOpacity: CGFloat
+    let outlineOpacity: CGFloat
+
+    init(progress: CGFloat, dark: Bool, reduceTransparency: Bool) {
+        let fraction = progress.isFinite ? min(1, max(0, progress)) : 0
+        surfaceOpacity = reduceTransparency ? 1 : 1 - fraction * (dark ? 0.10 : 0.06)
+        tintOpacity = dark ? fraction * 0.08 : 0
+        outlineOpacity = fraction
+    }
+}
+
 /// Per-corner radii of a Surface. A resting Split Pane rounds its display
 /// corners with the display radius and its divider-facing corners with the
 /// smaller Pane radius, which a single `CALayer.cornerRadius` cannot express.
@@ -98,6 +112,10 @@ final class SidebarSurfaceDecoration {
     /// Visible strength of the hairline drawn around the page while the Sidebar is open.
     var outlineAlpha: CGFloat { outlineView.alpha }
 
+    func setOutlineExternallyDrawn(_ value: Bool) {
+        outlineView.isHidden = value
+    }
+
     func updateGeometry(surface: UIView, radii: SurfaceCornerRadii, direction: CGFloat) {
         shadowView.bounds = surface.bounds
         shadowView.center = surface.center
@@ -123,12 +141,13 @@ final class SidebarSurfaceDecoration {
         // sidebar must not overwrite a browsed card's independent depth fade.
         guard fraction > 0 || ownsOpacity else { return }
         ownsOpacity = fraction > 0
-        let dark = traits.userInterfaceStyle == .dark
-        surface.alpha = UIAccessibility.isReduceTransparencyEnabled ? 1 : 1 - fraction * (dark ? 0.10 : 0.06)
-        tintView.alpha = dark ? fraction * 0.08 : 0
+        let appearance = SidebarPageAppearance(progress: fraction, dark: traits.userInterfaceStyle == .dark,
+            reduceTransparency: UIAccessibility.isReduceTransparencyEnabled)
+        surface.alpha = appearance.surfaceOpacity
+        tintView.alpha = appearance.tintOpacity
         // The same gray the Split divider fades into, so divider and outline
         // read as one line wrapping the page in both appearances.
         outlineView.shape.strokeColor = SidebarProgressPresentation.edgeColor(traits: traits).cgColor
-        outlineView.alpha = fraction
+        outlineView.alpha = appearance.outlineOpacity
     }
 }

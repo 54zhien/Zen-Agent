@@ -491,7 +491,7 @@ final class SplitContainerUITests: XCTestCase {
             XCTAssertTrue(editor.waitForExistence(timeout: 15))
             let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             start.press(forDuration: 0.7,
-                        thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)))
+                        thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
         } else {
             app.openWorkspaceSidebar()
         let entry = app.buttons["split-entry"]
@@ -585,7 +585,7 @@ final class SplitContainerUITests: XCTestCase {
         }
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7,
-                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)))
+                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
         let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
         let history = app.buttons["split-history-preview-ui-10"]
@@ -642,7 +642,7 @@ final class SplitContainerUITests: XCTestCase {
 
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7,
-                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)))
+                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
 
         XCTAssertTrue(app.descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)

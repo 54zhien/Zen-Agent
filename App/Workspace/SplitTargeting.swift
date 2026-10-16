@@ -28,11 +28,15 @@ struct SplitTargetingState {
             slot = nil
             return Update(slot: nil, enteredTarget: false)
         }
-        let midpoint = viewport.midY
-        // The quiet center band lets Card Lift remain a distinct gesture.
-        let band = viewport.height * 0.04
-        let next: SplitDropSlot? = point.y < midpoint - band ? .top
-            : point.y > midpoint + band ? .bottom : nil
+        // Fill only near each half's center. Crossing the divider or brushing
+        // a display edge must leave the compact Card under finger control.
+        let width = viewport.width * 0.6
+        let height = viewport.height * 0.2
+        func target(centerY: CGFloat) -> CGRect {
+            CGRect(x: viewport.midX - width / 2, y: centerY - height / 2, width: width, height: height)
+        }
+        let next: SplitDropSlot? = target(centerY: viewport.minY + viewport.height * 0.25).contains(point) ? .top
+            : target(centerY: viewport.minY + viewport.height * 0.75).contains(point) ? .bottom : nil
         let entered = next != nil && next != slot
         slot = next
         return Update(slot: next, enteredTarget: entered)
