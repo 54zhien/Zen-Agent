@@ -4,7 +4,7 @@ import SwiftUI
 import Observation
 @testable import ZenAgent
 
-@Suite("Native overlay responder restoration")
+@Suite("Native overlay responder restoration", .serialized)
 @MainActor
 struct ComposerOverlayFocusTests {
     @Test("teardown cancels an unacknowledged close before another field can deliver it")
@@ -252,19 +252,28 @@ struct ComposerOverlayFocusTests {
 
     @Test("a retained Composer settles a blur delivered after its Surface detaches")
     func detachedBlurSettlesBeforeTheSurfaceReturns() async throws {
-        let (window, composer) = installedHost()
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
         let surface = ConversationSurfaceViewController(content: Text("retained content"))
         window.rootViewController = surface
+        window.makeKeyAndVisible()
         surface.view.layoutIfNeeded()
-        composer.frame = surface.contentController.view.bounds
+        let composer = ComposerHostView(frame: surface.contentController.view.bounds)
         surface.contentController.view.addSubview(composer)
+        composer.configure(configuration(state: .resting))
         composer.layoutIfNeeded()
         let editor = composer.editor
         let restingFrame = composer.surfaceFrame
-        defer { editor.resignFirstResponder(); window.isHidden = true; window.rootViewController = nil }
+        defer {
+            editor.resignFirstResponder(); window.isHidden = true; window.rootViewController = nil
+            previous?.makeKeyAndVisible()
+        }
+        try #require(window.isKeyWindow && composer.window === window)
         try #require(editor.becomeFirstResponder())
         composer.configure(configuration(state: .editing))
         await drain { composer.nativeSidebarInput.composerSettled }
+        try #require(window.isKeyWindow && editor.isFirstResponder)
         try #require(composer.nativeSidebarInput.composerSettled)
 
         surface.setWorkspaceVisible(false)
@@ -274,6 +283,7 @@ struct ComposerOverlayFocusTests {
         // has left the Window. Exercise that real configuration boundary.
         composer.configure(configuration(state: .resting))
         try await Task.sleep(for: .milliseconds(400))
+        try #require(window.isKeyWindow)
         surface.setWorkspaceVisible(true)
         composer.setWorkspaceInputSuppressed(false)
         composer.layoutIfNeeded()
