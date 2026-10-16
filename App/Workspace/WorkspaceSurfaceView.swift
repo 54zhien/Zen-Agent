@@ -139,6 +139,15 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         .position(x: card.frame.midX, y: card.frame.midY)
                         .zIndex(4 - card.depth)
                 }
+                ForEach(cardTitleSlots(in: layout), id: \.item) { slot in
+                    AppSpaceCardTitle(title: slot.title, isNew: slot.item == .newConversation)
+                        .frame(width: slot.frame.width, alignment: .leading)
+                        .position(x: slot.frame.midX, y: slot.frame.midY)
+                        .opacity(slot.opacity)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                        .zIndex(4.5)
+                }
             }
             GeometryReader { geometry in
                 WorkspaceSidebarProgressReader(state: navigation,
@@ -789,6 +798,37 @@ struct WorkspaceSurfaceView<Content: View>: View {
             .clipShape(RoundedRectangle(cornerRadius: card.cornerRadius, style: .continuous))
     }
 
+    private struct CardTitleSlot {
+        let item: AppSpaceGeometry.Item
+        let title: String
+        let frame: CGRect
+        let opacity: Double
+    }
+
+    /// Titles sit above their cards as app names do in the system switcher. A
+    /// covered card's title is clipped to the strip of that card still showing.
+    private func cardTitleSlots(in layout: AppSpaceBrowseGeometry.Layout) -> [CardTitleSlot] {
+        let leadingLimit = browse.safeArea.left + 14
+        return layout.cards.compactMap { card in
+            guard card.depth > -1, card.depth < 2 else { return nil }
+            let cover = layout.cards
+                .filter { $0.depth < card.depth - 0.5 && $0.frame.minX > card.frame.minX }
+                .map(\.frame.minX).min()
+            let start = max(card.frame.minX + 4, leadingLimit)
+            let end = min(card.frame.maxX, (cover ?? .infinity) - 10)
+            guard end - start > 40 else { return nil }
+            let title: String
+            switch card.item {
+            case .newConversation: title = "新对话"
+            case .conversation(let id): title = browse.summaries.first { $0.id == id }?.title ?? ""
+            }
+            guard !title.isEmpty else { return nil }
+            return CardTitleSlot(item: card.item, title: title,
+                frame: CGRect(x: start, y: card.frame.minY - 30, width: end - start, height: 22),
+                opacity: card.opacity * (card.depth > 0.5 ? 0.8 : 1))
+        }
+    }
+
     private func updateMinimumSize() {
         browse.updateMinimumCardSize(CGSize(width: minimumWidth, height: minimumHeight))
         lift.minimumCardSize = CGSize(width: minimumWidth, height: minimumHeight)
@@ -1003,3 +1043,24 @@ struct SurfaceLiftUITestFixture: View {
     }
 }
 #endif
+
+/// The small label above an App Space card, like an app's name in the switcher.
+@MainActor
+private struct AppSpaceCardTitle: View {
+    let title: String
+    let isNew: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: isNew ? "plus.bubble.fill" : "text.bubble.fill")
+                .font(.system(size: 13, weight: .semibold))
+            Text(title)
+                .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .foregroundStyle(Color.white.opacity(0.92))
+        .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
+    }
+}

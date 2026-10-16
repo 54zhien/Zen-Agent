@@ -17,6 +17,7 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
     private let refreshAccessibility: () -> Void
     private var animator: UIViewPropertyAnimator?
     private var animationID: UUID?
+    private let windowCornerGeometry = WindowCornerGeometry()
 #if DEBUG
     var animatorForTesting: UIViewPropertyAnimator? { animator }
     private var diagnosticEvents: [String] = []
@@ -62,7 +63,8 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
             record("viewport=\(coordinates.bounds.size) insets=\(coordinates.safeAreaInsets) phase=\(controller.state.phase)")
         }
 #endif
-        controller.updateViewport(size: coordinates.bounds.size, safeArea: coordinates.safeAreaInsets)
+        controller.updateViewport(size: coordinates.bounds.size, safeArea: coordinates.safeAreaInsets,
+            displayCornerRadius: coordinates.window.map { windowCornerGeometry.radius(in: $0) } ?? 0)
     }
 
     func updateAvailability() {
@@ -135,7 +137,10 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
         guard isCurrentOwner, controller.state.phase == .dragging, let layout = controller.layout(),
               let from = layout.cards.first(where: { $0.item == controller.state.selected }) else { cancel(); return }
         let animated = !UIAccessibility.isReduceMotionEnabled
-        let settlement = withAnimation(animated ? .easeInOut(duration: 0.28) : nil) {
+        // SwiftUI projected cards and the native Current must share one curve to
+        // stay glued together; a fast-out, long-tail cubic reads like the system
+        // switcher's deceleration without either side overshooting the other.
+        let settlement = withAnimation(animated ? Self.settleAnimation : nil) {
             controller.end(velocity: velocity, travel: Double(layout.travel))
         }
         guard let settlement,
@@ -153,7 +158,8 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
         }
         let identity = UUID()
         animationID = identity
-        let animation = UIViewPropertyAnimator(duration: 0.28, curve: .easeInOut) { [weak self] in
+        let animation = UIViewPropertyAnimator(duration: Self.settleDuration,
+            controlPoint1: Self.settleControlPoints.0, controlPoint2: Self.settleControlPoints.1) { [weak self] in
             _ = self?.render(to)
         }
         animation.isManualHitTestingEnabled = true
@@ -166,6 +172,13 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
             self.announce(committed: committed)
         }
         animation.startAnimation()
+    }
+
+    static let settleDuration: TimeInterval = 0.42
+    static let settleControlPoints = (CGPoint(x: 0.2, y: 0.9), CGPoint(x: 0.22, y: 1))
+    static var settleAnimation: Animation {
+        .timingCurve(settleControlPoints.0.x, settleControlPoints.0.y,
+                     settleControlPoints.1.x, settleControlPoints.1.y, duration: settleDuration)
     }
 
     func cancel() {

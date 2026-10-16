@@ -14,10 +14,12 @@ enum AppSpaceBrowseGeometry {
     }
     static func resolve(size: CGSize, safeArea: UIEdgeInsets, historyIDs: [String],
                         current: AppSpaceGeometry.Item, offset: Double,
-                        minimumCardSize: CGSize, includesNew: Bool = false) -> Layout? {
+                        minimumCardSize: CGSize, includesNew: Bool = false,
+                        displayCornerRadius: CGFloat = 0) -> Layout? {
         guard offset.isFinite, abs(offset) <= 1, historyIDs.count <= 5,
               let resting = AppSpaceGeometry.resolve(size: size, safeArea: safeArea,
-                historyIDs: historyIDs, current: current, minimumCardSize: minimumCardSize),
+                historyIDs: historyIDs, current: current, minimumCardSize: minimumCardSize,
+                displayCornerRadius: displayCornerRadius),
               let base = resting.cards.first(where: { $0.item == current }) else { return nil }
         let items = historyIDs.map(AppSpaceGeometry.Item.conversation)
             + (includesNew || current == .newConversation ? [.newConversation] : [])
@@ -29,7 +31,8 @@ enum AppSpaceBrowseGeometry {
 
         func placements(selectedIndex: Int) -> [Card]? {
             guard let layout = AppSpaceGeometry.resolve(size: size, safeArea: safeArea,
-                historyIDs: historyIDs, current: items[selectedIndex], minimumCardSize: minimumCardSize) else { return nil }
+                historyIDs: historyIDs, current: items[selectedIndex], minimumCardSize: minimumCardSize,
+                displayCornerRadius: displayCornerRadius) else { return nil }
             return items.enumerated().map { index, item in
                 let depth = selectedIndex - index
                 if let card = layout.cards.first(where: { $0.item == item }) {
@@ -42,11 +45,9 @@ enum AppSpaceBrowseGeometry {
                     return Card(item: item, frame: base.frame.offsetBy(dx: travel * CGFloat(-depth), dy: 0),
                         cornerRadius: base.cornerRadius, opacity: 0, depth: Double(depth))
                 }
-                let scale = 1 - CGFloat(depth) * 0.04
+                let scale = 1 - CGFloat(depth) * AppSpaceGeometry.depthScaleStep
                 return Card(item: item,
-                    frame: CGRect(x: base.frame.minX - 28 * CGFloat(depth),
-                        y: base.frame.midY - base.frame.height * scale / 2,
-                        width: base.frame.width * scale, height: base.frame.height * scale),
+                    frame: AppSpaceGeometry.predecessorFrame(base: base.frame, depth: depth),
                     cornerRadius: base.cornerRadius * scale, opacity: 0, depth: Double(depth))
             }
         }

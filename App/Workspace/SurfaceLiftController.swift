@@ -199,13 +199,14 @@ final class SurfaceLiftController {
                 card: host.view.convert(destination, from: window), cornerRadius: 0, constrainedToSafeArea: false)
         }
         resolveTarget = { [weak self, weak host] minimum in
-            guard let host else { return nil }
-            let workspace = self?.splitWorkspacePresented == true ? host.view.window : nil
+            guard let self, let host else { return nil }
+            let workspace = self.splitWorkspacePresented ? host.view.window : nil
             let size = workspace?.bounds.size ?? host.view.bounds.size
             let safeArea = workspace?.safeAreaInsets ?? host.view.safeAreaInsets
+            let displayRadius = host.view.window.map { self.windowCornerGeometry.radius(in: $0) } ?? 0
             guard let placement = AppSpaceGeometry.resolve(size: size,
                     safeArea: safeArea, historyIDs: [], current: .newConversation,
-                    minimumCardSize: minimum)?.cards.last else { return nil }
+                    minimumCardSize: minimum, displayCornerRadius: displayRadius)?.cards.last else { return nil }
             let frame = workspace.map { host.view.convert(placement.frame, from: $0) } ?? placement.frame
             return SurfaceLiftGeometry.targetPose(size: host.view.bounds.size, safeArea: host.view.safeAreaInsets,
                 card: frame, cornerRadius: placement.cornerRadius, constrainedToSafeArea: workspace == nil)
