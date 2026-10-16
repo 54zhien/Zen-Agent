@@ -516,7 +516,7 @@ final class SplitContainerUITests: XCTestCase {
     }
 
     @MainActor
-    func testBottomDropPlacesTheEmptyPickerAboveTheSourcePane() {
+    func testOrdinaryLiftTowardTheLowerCenterOpensCardsBeforeSplit() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
@@ -528,9 +528,12 @@ final class SplitContainerUITests: XCTestCase {
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
         start.press(forDuration: 0.7,
                     thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)))
+        let card = app.descendants(matching: .any)["workspace-current-card"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        XCTAssertTrue(card.label.contains("Workspace conversation 11"))
         let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
-        XCTAssertTrue(picker.waitForExistence(timeout: 10))
-        XCTAssertLessThan(picker.frame.midY, editor.frame.midY)
+        XCTAssertFalse(picker.exists)
+        XCTAssertFalse(app.descendants(matching: .any)["split-secondary-pane"].exists)
     }
 
     @MainActor
@@ -555,6 +558,9 @@ final class SplitContainerUITests: XCTestCase {
         action.tap()
         let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        let sourceEditor = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(sourceEditor.exists)
+        XCTAssertLessThan(picker.frame.midY, sourceEditor.frame.midY)
         let newCard = app.buttons["split-new-conversation"]
         XCTAssertTrue(newCard.waitForExistence(timeout: 10))
         newCard.tap()
