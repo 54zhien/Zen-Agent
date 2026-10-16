@@ -40,173 +40,32 @@ its `Design/ADR/`; engineering/tooling trade-offs belong to this repository's
 
 ## Status
 
-As of 2026-10-05:
+As of 2026-10-16. `main` is at `52a456b` (Stage 5 baseline merge, 2026-10-09).
+This table is a summary: exact heads, CI run IDs, test counts and RED/GREEN
+evidence live in the linked records and their PRs, not here.
 
-- Stage 0 and Stage 1 are closed; Stage 2 Runtime and Tool boundaries are on `main`.
-- Stage 3 W1 wires the real App shell and text send/history. PR #12 added the
-  reading-position/keyboard repair and UI harness. The owner reported its device
-  Gate closed on 2026-09-27; D1–D7 observations and the exact installed build remain
-  unverified in [the device record](tasks/stage3-device-acceptance.md).
-- Stage 4 Prompt/Soul implementation passed its Gate and entered `main` through
-  PR #10. See [the closure record](tasks/stage4-closure.md).
-- [PR #14](https://github.com/54zhien/Zen-Agent/pull/14) is merged at `f775e63`:
-  cold-start Run recovery, Provider finish handling, offline history, and Send
-  activity timestamps. Its tested head is `8ee8516`; [PR CI](https://github.com/54zhien/Zen-Agent/actions/runs/36349052785)
-  and the build-settings guard passed. Device verification of these repairs is pending.
-- Stage 5 S5-01 is integrated on main through PR #16 at
-  d68195ed6b963f2380b1548ae47f6642852252c8. [Main CI](https://github.com/54zhien/Zen-Agent/actions/runs/36378968995)
-  passed; physical-device acceptance remains open in [the slice record](tasks/s5-01-surface-container.md).
-- S5-02 adds static App Space geometry and DEBUG samples; see
-  [the slice record](tasks/s5-02-static-geometry.md). Production navigation follows later slices.
-- S5-03 Lift/Return is integrated through PR #18 at `aeaa05c`.
-  [Main CI](https://github.com/54zhien/Zen-Agent/actions/runs/36401064255) passed
-  generation/build,689 Swift Testing,20 XCTest unit and11 UI tests. See
-  [the slice record](tasks/s5-03-lift-return.md); physical Gate A remains open.
-- S5-04 is integrated through [PR #19](https://github.com/54zhien/Zen-Agent/pull/19)
-  at `70c5c17`; [main CI](https://github.com/54zhien/Zen-Agent/actions/runs/36466689960) passed.
-  including Session/LRU ownership, bounded history previews and native-editor
-  Preview/Full handoff. One whole-branch review found three Important; a single
-  test-first fix pass has reproduced all three and added corrective source.
-  Inspect PR #19 for its tested head/tree and integration receipt. See
-  [the slice record](tasks/s5-04-preview-virtualization.md). Physical Gate A and
-  device memory/comfort remain open. Upstream S5-05 remains Card browse/snap.
-- H1 consistent history reads and cancellable Preview handoff are integrated
-  through [PR #20](https://github.com/54zhien/Zen-Agent/pull/20) at `3505a2e`.
-  [Main CI](https://github.com/54zhien/Zen-Agent/actions/runs/36531208778) passed
-  generation/build,740 Swift Testing,20 XCTest and14 UI tests. See
-  [the repair record](tasks/h1-history-handoff.md) for behavioral RED and failed
-  source runs; PR #20 holds the latest exact-tree CI, review and integration status.
-- H2 Preview error sources and localized unreadable summary rows are integrated
-  through [PR #21](https://github.com/54zhien/Zen-Agent/pull/21) at `eec3eb3`.
-  [Main CI](https://github.com/54zhien/Zen-Agent/actions/runs/36555411803) passed
-  generation/build,746 Swift Testing,20 XCTest and14 UI tests after independent
-  review and its test-first repair. See [the slice record](tasks/h2-preview-recovery-state.md).
-- The owner authorized S5-05 development before physical Gate A on 2026-09-29;
-  Gate A remains open. Card Browse / Snap is on unmerged
-  [PR #22](https://github.com/54zhien/Zen-Agent/pull/22), with generation/build,759 Swift Testing,20 XCTest and16 UI tests
-  passed at `9372dfe`, and independent review approved (no Critical/Important). See [the slice record](tasks/s5-05-card-browse-snap.md)
-  for bounded projection/selected Return ownership and RED evidence.
-  S5-06 New/Pin/Rename is implemented on stacked
-  [PR #23](https://github.com/54zhien/Zen-Agent/pull/23), based on unmerged PR #22.
-  Its first implementation candidate `9dcb508` passed full CI (778 Swift,20 XCTest,18 UI).
-  Independent review identified one Important (same-process draft navigation after New).
-  Its regression was reproduced before correction; repair candidate `99c323b` passed
-  [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36595377400)
-  (780 Swift,20 XCTest,18 UI). Final publication also applies the existing active-Run
-  protection to pristine-page retirement; the latest exact-head result and readiness
-  are recorded in PR #23 after its own full CI. One Rename prefill Minor is deferred.
-  See [the slice record](tasks/s5-06-new-pin-rename.md).
-- S5-07 Card Delete/Undo is on stacked draft
-  [PR #24](https://github.com/54zhien/Zen-Agent/pull/24). Its reviewed clock and
-  replacement-read repair source passed [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36624971027)
-  (802 Swift Testing, 20 XCTest, 19 UI). Its final source/test revision passed
-  [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36627442020)
-  (803 Swift Testing, 20 XCTest, 19 UI), including the mounted accessibility Delete
-  action. PR #24 holds the exact-head receipt after closure documentation.
-  See [the S5-07 record](tasks/s5-07-delete-undo.md).
-- S5-08 Split Targeting is on stacked draft
-  [PR #25](https://github.com/54zhien/Zen-Agent/pull/25). Native top/bottom
-  Composer drags, the live Surface preview and a captured Split drop intent
-  passed [initial full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36636116839)
-  (809 Swift Testing, 20 XCTest, 21 UI). Read-only review identified target
-  traversal, final-release sampling and accepted-Surface handoff gaps. The
-  repair's test-only [RED](https://github.com/54zhien/Zen-Agent/actions/runs/36638889365)
-  compiled and reproduced the traversal and handoff failures. A first repair
-  candidate passed build, 20 XCTest and 21 UI tests; one new Swift test needed
-  to await its native Return animation. The corrected tree passed
-  [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36642873825)
-  (814 Swift Testing, 20 XCTest, 21 UI). Re-review found two additional
-  handoff/animation interruption risks. Their test-first repair passed
-  [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/36659735487)
-  (816 Swift Testing, 20 XCTest, 21 UI), with the exact source/test tree recorded
-  in [the S5-08 record](tasks/s5-08-split-targeting.md).
-- S5-09 Split Container is implemented on stacked draft
-  [PR #26](https://github.com/54zhien/Zen-Agent/pull/26), unmerged.
-  Current exact tree `1d66027b2b4875245ffc492e011f6128798c3ab0` passed
-  [full CI](https://github.com/54zhien/Zen-Agent/actions/runs/37139550698)
-  (837 Swift Testing, 20 XCTest, 30 UI), including hidden-source restoration
-  against a changed native viewport. Parallel PR CI had an intermittent older
-  initial-Lift admission failure; it remains recorded in the PR and slice record.
-- S5-10 Divider resize/closure passed its full source gate on stacked draft
-  [PR #27](https://github.com/54zhien/Zen-Agent/pull/27), unmerged. Exact tree
-  `ba0268272439a59eb0f3fa43bd46618b34a89746` passed
-  [CI](https://github.com/54zhien/Zen-Agent/actions/runs/37163392220)
-  (852 Swift Testing, 20 XCTest, 35 UI); see [the slice record](tasks/s5-10-resize.md).
-- S5-11 device presentation passed its full source gate on stacked draft
-  [PR #28](https://github.com/54zhien/Zen-Agent/pull/28), unmerged. Exact tree
-  `96300c087a4d272d77b55c947336bcd9447b98a2` passed push37169724633 and
-  PR37169727362: generation/build,861 Swift Testing,20 XCTest,39 iPhone UI
-  (one expected Pad-only skip), plus one actual iPad axis test in each run.
-  See [the slice record](tasks/s5-11-rotation.md) for retained failed evidence.
-- S5-12 Sidebar is on stacked draft [PR #29](https://github.com/54zhien/Zen-Agent/pull/29).
-  Its full source gate passed on tree `6c1b9095f933b111590025a6d0aadd9a6bfe3bd1`,
-  remote `9218e8c7fc9e5a11baa53bafda4787fb962768c0`, push37180640443 and
-  PR37180642485: generation/build,873 Swift Testing,20 XCTest,46 phone UI
-  (one expected Pad-only skip), plus one actual Pad axis case in each run.
-  No retry/host restart; earlier failed evidence remains in the slice record.
-  S5-13 Search passed its full source gate on stacked draft
-  [PR #30](https://github.com/54zhien/Zen-Agent/pull/30), unmerged. Remote
-  `6a217da90153e04a5e0120195610aaae95ab9a35`, tree
-  `81dfd8c48e3cb17a453749432fc0f6272bbdcb24`, passed push37195522196 and
-  PR37195524247: generation/build,894 Swift Testing,20 XCTest,48 phone UI
-  (one expected Pad-only skip), plus one actual Pad axis case in each run.
-  Native query teardown preserves the original responder; no host restart/retry.
-  S5-14 Files passed its complete source gate on stacked draft
-  [PR #31](https://github.com/54zhien/Zen-Agent/pull/31), unmerged. Remote
-  `c9f6e2aa2e5e989c62cd7abe920f74815743c826`, tree
-  `c66db812610c4f84c2dc0c141a58492d067fbc5f`, passed push37222392865,
-  PR37222395611 and guard37222395686: XcodeGen/build,912 Swift/141 suites,
-  20 XCTest,50 phone UI (one expected Pad-only skip),actual Pad in both runs.
-  Native import/export cancellation preserves the original editor/draft/focus;
-  no test-host restart/retry. S5-15 Settings is implemented on stacked draft
-  [PR #32](https://github.com/54zhien/Zen-Agent/pull/32), unmerged. Targeted
-  remote48cc9424/tree83e2786d passed push37232428766,PR37232432060 and
-  guard37232432125: XcodeGen/build,930 Swift/147 suites,20 XCTest,three actual
-  Settings UI paths and actual Pad in both runs. Native Configure/first Send,
-  Soul save/focused Close, fresh-cache leases and account/default scope passed.
-  Profile-free FULL2d501a6b/tree437d5de4 closed the Settings code gate:
-  push37236474441,PR37236477630 and guard37236477646 passed930 Swift,
-  20 XCTest,53 phone UI with one expected skip and zero failures,actual Pad
-  in both runs; no host restart/retry. Prior PR37233523586's40-minute timeout
-  remains recorded; the accepted bounded45-minute cap preserves all tests.
-  S5-16 Visuals is implemented on stacked draft
-  [PR #33](https://github.com/54zhien/Zen-Agent/pull/33), unmerged. A fixed native
-  Ink canvas uses two keyed gradients and bounded reverse parallax with live
-  scene/Reduce Motion/power/thermal policy. Current alone gets a crop-fitted edge.
-  Compiled behavior RED and historical failures are in [the slice record](tasks/s5-16-visuals.md).
-  Native-switch candidate d05b532/treee77cdea passed both targeted runs
-  37245337008/37245338938:942 Swift/151 suites,20 XCTest,all4SettingsUI,
-  actualPad and guard, no host restart/retry. Provider Save hit-area repair
-  40c03f97/treedbac452f also passed both targeted runs37246708991/37246712273
-  with the same counts and actualPad/guard. Profile-free FULL source
-  db30ed60/tree79f55ccb passed push37247975877/PR37247978542 and guard:
-  942Swift/151suites,20XCTest,54phoneUI (one expected Pad-only skip,zero
-  failures),actualPad both, no host restart/retry. The Visuals code gate is
-  closed. The [fresh whole-stage review](tasks/stage5-code-review.md) found
-  no concrete Critical/Important/Minor code findings. See
-  [the current review handoff](tasks/stage5-review-handoff.md). The subsequent
-  documentation candidate's PR Pad run failed its global-app-frame landscape
-  readiness query. A focused test-observation correction uses the two live Pane
-  frames; its own exact-head FULL receipts are recorded in PR #33. The original
-  failure and focused review are retained. That PR's phone run also failed one
-  Browse initial Lift and its downstream swipe (all units and other UI passed).
-  Correct synthesized input is retained; bounded DEBUG test gesture evidence
-  was added without changing Lift policy or claiming the historical cause fixed.
-  The next PR Pad run also failed the timed Pane-frame predicate while all later
-  native behavior checks passed. The following candidate directly asserts the
-  first valid native geometry sample after both Pane existence gates; its own
-  FULL receipts and timing distinction are recorded in PR #33 and the handoff.
-- The owner subsequently directed all Stage 5 physical acceptance to take place
-  after Stage 5 development ends. Device gates remain open; the changed order
-  does not establish device memory, performance, input, comfort or VoiceOver acceptance.
-- Formal Settings IA and `Settings → Agent → Soul` are implemented in S5-15;
-  its full source gate passed at2d501a6b/tree437d5de4. Memory, Skills, MCP and
-  Subagent remain later stages.
+| Stage / slice | Code | Device acceptance | Record |
+|---|---|---|---|
+| Stage 0 — project baseline | on `main`, closed | — | [todo](tasks/todo.md) |
+| Stage 1 — Provider, persistence, prompt foundation | on `main`, closed | — | [closure](tasks/stage1-closure.md) |
+| Stage 2 — Runtime and Tool boundaries | on `main` | — | — |
+| Stage 3 — App shell, text send/history, reading position | on `main` | owner closed the Gate 2026-09-27; D1–D7 observations and installed build not recorded | [device record](tasks/stage3-device-acceptance.md) |
+| Stage 4 — Prompt / Soul | on `main` (PR #10), closed | — | [closure](tasks/stage4-closure.md) |
+| Run recovery / Provider finish repairs | on `main` (PR #14) | pending | [stage5 entry](tasks/stage5-entry.md) |
+| H1 / H2 history handoff and Preview recovery | on `main` (PR #20, #21) | pending | [H1](tasks/h1-history-handoff.md), [H2](tasks/h2-preview-recovery-state.md) |
+| Stage 5 S5-01 … S5-16 — App Space, Split, Sidebar, Search, Files, Settings, Visuals | on `main` (merge `52a456b`) | **all open** — the owner moved Stage 5 device acceptance to after Stage 5 development | per-slice `tasks/s5-*.md`, [review handoff](tasks/stage5-review-handoff.md) |
+| Stage 5 device feedback / known-issue stability | unmerged `codex/*` branches | in progress | branch PRs |
+| Stage 6 S6-01 tool policy, S6-02 action intent | unmerged branches `codex/s6-01-tool-policy`, `codex/s6-02-action-intent` | — | `tasks/s6-*.md` on those branches |
 
-The [Stage 5 entry record](tasks/stage5-entry.md) records the integrated baseline,
-CI evidence, remaining device checks, and design decisions needed by later slices.
-Use Git and CI for the current HEAD; evidence commits in these notes are historical
-checkpoints. CI does not establish device performance or accessibility acceptance.
+Known deferrals on `main`:
+
+- One intermittent Composer/focus defect is deferred by owner decision after
+  two bounded diagnostic attempts; its regression test stays enabled.
+- Memory, Skills, MCP and Subagent are later stages.
+
+CI passing does not establish device memory, performance, input, comfort or
+VoiceOver acceptance. Use Git and CI for the current HEAD; commit IDs inside
+task records are historical checkpoints.
 
 `App/Persistence/` remains a data layer. GRDB is confined to it, and the existing
 repository guard must continue to fail the build if that boundary is violated.
