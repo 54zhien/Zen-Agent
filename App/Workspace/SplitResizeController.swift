@@ -17,6 +17,7 @@ final class SplitResizeController {
     @ObservationIgnored private var minimum = 0.2
     @ObservationIgnored private var axisAnimationID: UUID?
     @ObservationIgnored private var destinationAxis: SplitWorkspaceAxis?
+    @ObservationIgnored private var closingLayoutAccepted = false
 #if DEBUG
     var diagnostic: String {
         "active=\(isActive),axisAnimation=\(String(describing: axisAnimationID)),rawRatio=\(rawRatio),pending=\(pending.sorted())"
@@ -104,19 +105,26 @@ final class SplitResizeController {
         }
         participants = [survivor]
         isClosing = true
-        withAnimation(.easeOut(duration: 0.18), completionCriteria: .removed) {
+        withAnimation(.easeOut(duration: 0.18)) {
             model.closeSplit(keeping: slot)
-        } completion: { [weak self, weak model] in
-            guard let self, self.token == id else { return }
-            guard let model, model.splitWorkspace == nil, model.pane === survivor else {
-                self.invalidate()
-                return
-            }
-            // The animation's intermediate sizes do not release the lease.
-            // Request a fresh measured layout only after its final size settles.
-            model.refreshWorkspaceLayout()
-            self.finishParticipants(revision: model.workspaceLayoutRevision)
         }
+    }
+
+    func nativeLayout(_ receipt: WorkspaceNativeLayoutReceipt?, context: WorkspaceLayoutContext?,
+                      slot: WorkspaceSurfaceSlot, model: AppShellModel) {
+        guard isClosing, !closingLayoutAccepted, token != nil, model.splitWorkspace == nil,
+              slot == model.sourceSurfaceSlot, model.pane === participants.first,
+              let receipt, let context, receipt.windowID == context.windowID,
+              abs(receipt.frame.minX - context.frame.minX) <= 0.5,
+              abs(receipt.frame.minY - context.frame.minY) <= 0.5,
+              abs(receipt.frame.width - context.frame.width) <= 0.5,
+              abs(receipt.frame.height - context.frame.height) <= 0.5 else { return }
+        // Removing the Divider can leave SwiftUI's .removed animation completion
+        // undelivered. The surviving native host proves the final Single bounds;
+        // its measured reading acknowledgement still owns release of the lease.
+        closingLayoutAccepted = true
+        model.refreshWorkspaceLayout()
+        finishParticipants(revision: model.workspaceLayoutRevision)
     }
 
     func adjust(model: AppShellModel, increment: Bool, minimumRatio: Double) {
@@ -163,6 +171,7 @@ final class SplitResizeController {
         closeIntent = nil
         isActive = false
         isClosing = false
+        closingLayoutAccepted = false
         axisAnimationID = nil
         destinationAxis = nil
     }

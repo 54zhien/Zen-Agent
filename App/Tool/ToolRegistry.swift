@@ -31,10 +31,11 @@ struct ToolDescriptor: Sendable, Equatable {
     var revision: String
     var sideEffect: ToolSideEffect
     var approvalRequirement: ToolApprovalRequirement
+    var actions: [ToolPolicyActionMetadata] = []
 }
 
 struct ToolExecutionIntent: Codable, Sendable, Equatable {
-    static let currentFormatVersion = 1
+    static let currentFormatVersion = 2
 
     var formatVersion: Int
     var toolID: String
@@ -43,6 +44,9 @@ struct ToolExecutionIntent: Codable, Sendable, Equatable {
     var targetIdentity: String?
     var destinationIdentity: String?
     var approvalDisclosure: ToolApprovalDisclosure? = nil
+    var policyAction: ToolPolicyActionMetadata? = nil
+    var resourceScope: ToolResourceScope? = nil
+    var destinationScope: ToolDestinationScope? = nil
 }
 
 struct ToolExecutionResult: Sendable, Equatable {
@@ -61,6 +65,19 @@ protocol ToolExecutable: Sendable {
         _ intent: ToolExecutionIntent,
         idempotencyKey: String
     ) async throws -> ToolExecutionResult
+
+    /// Trusted dependency check; may reject, never replace the frozen intent.
+    func validateDependencies(_ intent: ToolExecutionIntent) throws
+}
+
+extension ToolExecutable {
+    func validateDependencies(_ intent: ToolExecutionIntent) throws {
+        // A scoped executor must supply a trusted live resolver. Only stateless
+        // actions can prove their lack of mutable dependencies without one.
+        guard intent.resourceScope == .notRequired, intent.destinationScope == .notRequired else {
+            throw ToolIntentFailure.dependenciesChanged
+        }
+    }
 }
 
 enum ToolRegistryError: Error, Equatable, Sendable {

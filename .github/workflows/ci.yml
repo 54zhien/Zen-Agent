@@ -28,7 +28,9 @@ jobs:
     name: iPad workspace axis
     needs: repo-hygiene
     runs-on: macos-26
-    timeout-minutes: 20
+    # Native Axis passed in 126s, but build/startup exceeded the former 20m job budget.
+    # Preserve test waits and allow the complete job to finish.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: Install XcodeGen
@@ -305,7 +307,7 @@ jobs:
     # FULL37317707058 passed all 954 Swift, 20 XCTest and 56 UI tests and
     # printed TEST SUCCEEDED, but the 45-minute job deadline cancelled cleanup.
     # This job headroom changes no per-test timeout, retry or suite selection.
-    timeout-minutes: 55
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@v4
 
@@ -749,8 +751,8 @@ jobs:
 
           cat "$SUMMARY"
 
-      - name: Export native failure attachments
-        if: failure()
+      - name: Export native test attachments
+        if: always()
         continue-on-error: true
         shell: bash
         run: |
@@ -763,8 +765,8 @@ jobs:
               2>&1 | tee "$RUNNER_TEMP/native-ui-attachments.log"
           fi
 
-      - name: Upload test results on failure
-        if: failure()
+      - name: Upload native test evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: xcresult

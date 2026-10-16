@@ -96,7 +96,10 @@ struct I07RecordingTool: ToolExecutable {
             ]),
             revision: "i07-test-tool.v1",
             sideEffect: .externalWrite,
-            approvalRequirement: approvalRequirement
+            approvalRequirement: approvalRequirement,
+            actions: [ToolPolicyActionMetadata(toolID: id, actionID: id, descriptorRevision: "i07-test-tool.v1",
+                risk: .high, allowsAutomaticApproval: false, allowsConversationGrant: false,
+                resourceRequirement: .target, egressRequirement: .notRequired)]
         )
     }
 
@@ -106,14 +109,16 @@ struct I07RecordingTool: ToolExecutable {
     ) throws -> ToolExecutionIntent {
         let object = try ToolArgumentJSON.object(from: argumentsJSON)
         let normalized = try ToolArgumentJSON.normalizedObject(object)
-        return ToolExecutionIntent(
-            formatVersion: ToolExecutionIntent.currentFormatVersion,
-            toolID: descriptor.id,
-            descriptorRevision: descriptor.revision,
+        return try ToolIntentCodec.freeze(
+            descriptor: descriptor, actionID: descriptor.id,
             normalizedArgumentsJSON: normalized,
-            targetIdentity: callID,
-            destinationIdentity: nil
+            resource: .target(callID), destination: .notRequired
         )
+    }
+
+    func validateDependencies(_ intent: ToolExecutionIntent) throws {
+        // The recording fixture pins a virtual call target, never a live resource.
+        try ToolIntentCodec.validate(intent, descriptor: descriptor)
     }
 
     func execute(

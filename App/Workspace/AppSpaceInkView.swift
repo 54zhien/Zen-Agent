@@ -19,7 +19,7 @@ struct AppSpaceInkView: View {
         InkCanvas(policy: .resolve(enabled: isAppSpace && dark && (appearance?.inkEnabled ?? true),
             intensity: appearance?.inkIntensity ?? 0.45, offset: displacement,
             reduceMotion: reduceMotion, lowPower: lowPower, thermal: thermal,
-            sceneActive: scenePhase == .active), dark: dark)
+            sceneActive: scenePhase == .active), dark: dark, showsCardBackdrop: isAppSpace)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(false)
             .accessibilityHidden(!inkUITestProbeEnabled)
@@ -38,9 +38,10 @@ struct AppSpaceInkView: View {
 private struct InkCanvas: UIViewRepresentable {
     let policy: AppSpaceMotionPolicy
     let dark: Bool
+    let showsCardBackdrop: Bool
     func makeUIView(context: Context) -> AppSpaceInkNativeView { AppSpaceInkNativeView() }
     func updateUIView(_ uiView: AppSpaceInkNativeView, context: Context) {
-        uiView.configure(policy: policy, dark: dark)
+        uiView.configure(policy: policy, dark: dark, showsCardBackdrop: showsCardBackdrop)
     }
 }
 
@@ -88,11 +89,13 @@ final class AppSpaceInkNativeView: UIView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func configure(policy: AppSpaceMotionPolicy, dark: Bool) {
+    func configure(policy: AppSpaceMotionPolicy, dark: Bool, showsCardBackdrop: Bool = true) {
         self.policy = policy
         self.dark = dark
         overrideUserInterfaceStyle = dark ? .dark : .light
-        backgroundColor = dark ? UIColor(red: 0.035, green: 0.039, blue: 0.049, alpha: 1) : UIColor(red: 0.24, green: 0.25, blue: 0.28, alpha: 1)
+        backgroundColor = showsCardBackdrop
+            ? (dark ? UIColor(red: 0.035, green: 0.039, blue: 0.049, alpha: 1) : UIColor(red: 0.24, green: 0.25, blue: 0.28, alpha: 1))
+            : .systemBackground
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         ink.isHidden = !dark || !policy.showsInk

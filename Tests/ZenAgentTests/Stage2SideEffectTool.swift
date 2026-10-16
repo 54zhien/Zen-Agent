@@ -55,7 +55,10 @@ struct Stage2SideEffectTool: ToolExecutable {
             ]),
             revision: "1",
             sideEffect: .externalWrite,
-            approvalRequirement: .required
+            approvalRequirement: .required,
+            actions: [ToolPolicyActionMetadata(toolID: descriptorID, actionID: descriptorID, descriptorRevision: "1",
+                risk: .high, allowsAutomaticApproval: false, allowsConversationGrant: false,
+                resourceRequirement: .target, egressRequirement: .notRequired)]
         )
     }
 
@@ -67,13 +70,10 @@ struct Stage2SideEffectTool: ToolExecutable {
             throw ToolExecutionError.invalidArguments
         }
 
-        var intent = ToolExecutionIntent(
-            formatVersion: ToolExecutionIntent.currentFormatVersion,
-            toolID: descriptor.id,
-            descriptorRevision: descriptor.revision,
+        var intent = try ToolIntentCodec.freeze(
+            descriptor: descriptor, actionID: descriptor.id,
             normalizedArgumentsJSON: "{}",
-            targetIdentity: callID,
-            destinationIdentity: nil
+            resource: .target(callID), destination: .notRequired
         )
         intent.approvalDisclosure = ToolApprovalDisclosure(
             toolDisplayName: descriptor.displayName,
@@ -82,6 +82,11 @@ struct Stage2SideEffectTool: ToolExecutable {
             keyImpact: "Writes to an external system once"
         )
         return intent
+    }
+
+    func validateDependencies(_ intent: ToolExecutionIntent) throws {
+        // This fixture's virtual target has no mutable external backing object.
+        try ToolIntentCodec.validate(intent, descriptor: descriptor)
     }
 
     func execute(

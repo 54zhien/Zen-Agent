@@ -19,6 +19,26 @@ extension PersistenceStore {
         }
     }
 
+    /// Rejects only the original undispatched attempt and commits its result in
+    /// the same transaction. It never rewrites the frozen execution intent.
+    func rejectUndispatchedToolCall(
+        id: String, expectedAttempt: Int, result: ToolResultRecord, at now: Date = Date()
+    ) throws {
+        guard result.toolCallID == id else { throw PersistenceError.invalidTransition("rejection result identity mismatch") }
+        try database.write { db in
+            try db.execute(sql: """
+                UPDATE toolCall SET state = ?, updatedAt = ?
+                WHERE id = ? AND attempt = ? AND state IN (?, ?, ?, ?)
+                """, arguments: [ToolCallState.rejected.rawValue, now, id, expectedAttempt,
+                    ToolCallState.validated.rawValue, ToolCallState.waitingForApproval.rawValue,
+                    ToolCallState.approved.rawValue, ToolCallState.prepared.rawValue])
+            guard db.changesCount == 1 else {
+                throw PersistenceError.invalidTransition("rejection requires the original undispatched attempt")
+            }
+            try result.insert(db)
+        }
+    }
+
     /// Atomically creates a model-visible rejection for a call that never reached a
     /// registered executor. This is intentionally separate from `complete`: unknown
     /// tools remain an error at the direct ToolRuntime boundary, while a provider batch

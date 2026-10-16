@@ -23,6 +23,7 @@ struct WorkspaceLayoutContext: Equatable {
     let frame: CGRect
     let isPad: Bool
     var windowSafeAreaInsets: UIEdgeInsets = .zero
+    var windowCornerRadius: CGFloat = 0
 
     func requiresResizeCancellation(from previous: Self) -> Bool {
         windowID != previous.windowID || windowSize != previous.windowSize
@@ -54,6 +55,7 @@ struct WorkspaceLayoutObserver: UIViewRepresentable {
 @MainActor
 final class WorkspaceLayoutObserverView: UIView {
     var report: ((WorkspaceLayoutContext) -> Void)?
+    private let cornerGeometry = WindowCornerGeometry()
     private var generation: UInt64 = 0
     override func layoutSubviews() { super.layoutSubviews(); scheduleReport() }
     override func didMoveToWindow() { super.didMoveToWindow(); scheduleReport() }
@@ -66,7 +68,8 @@ final class WorkspaceLayoutObserverView: UIView {
                   self.bounds.width > 0, self.bounds.height > 0 else { return }
             self.report?(WorkspaceLayoutContext(windowID: ObjectIdentifier(window), windowSize: window.bounds.size,
                 frame: self.convert(self.bounds, to: window), isPad: self.traitCollection.userInterfaceIdiom == .pad,
-                windowSafeAreaInsets: window.safeAreaInsets))
+                windowSafeAreaInsets: window.safeAreaInsets,
+                windowCornerRadius: self.cornerGeometry.radius(in: window)))
         }
     }
 }

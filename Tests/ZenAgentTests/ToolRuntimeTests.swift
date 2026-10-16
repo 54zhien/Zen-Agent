@@ -226,7 +226,10 @@ private struct I06SideEffectTool: ToolExecutable {
             ]),
             revision: "1",
             sideEffect: .externalWrite,
-            approvalRequirement: approval
+            approvalRequirement: approval,
+            actions: [ToolPolicyActionMetadata(toolID: "side_effect", actionID: "side_effect", descriptorRevision: "1",
+                risk: .high, allowsAutomaticApproval: false, allowsConversationGrant: false,
+                resourceRequirement: .target, egressRequirement: .provider)]
         )
     }
 
@@ -235,14 +238,18 @@ private struct I06SideEffectTool: ToolExecutable {
         guard argumentsJSON == "{}" else {
             throw ToolExecutionError.invalidArguments
         }
-        return ToolExecutionIntent(
-            formatVersion: ToolExecutionIntent.currentFormatVersion,
-            toolID: descriptor.id,
-            descriptorRevision: descriptor.revision,
+        return try ToolIntentCodec.freeze(
+            descriptor: descriptor, actionID: descriptor.id,
             normalizedArgumentsJSON: "{}",
-            targetIdentity: "test-target",
-            destinationIdentity: "test-destination"
+            resource: .target("test-target"),
+            destination: .provider(instanceID: "test-provider", endpointIdentity: "test-destination")
         )
+    }
+
+    func validateDependencies(_ intent: ToolExecutionIntent) throws {
+        guard intent.resourceScope == .target("test-target"),
+              intent.destinationScope == .provider(instanceID: "test-provider", endpointIdentity: "test-destination")
+        else { throw ToolIntentFailure.dependenciesChanged }
     }
 
     func execute(

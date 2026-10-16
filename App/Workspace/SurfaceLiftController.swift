@@ -15,8 +15,11 @@ final class SurfaceLiftController {
     var workspaceNavigationActive: Bool { workspaceNavigation?.blocksLift == true }
     @ObservationIgnored var sidebarNativeContext: (() -> (hostID: ObjectIdentifier, window: UIWindow,
         allowsOpening: Bool, allowsClosing: Bool, surfaceView: UIView)?)?
+    @ObservationIgnored private(set) var nativeLayoutSurface: (() -> UIView?)?
     @ObservationIgnored var captureOverlayFocus: ((@escaping () -> Bool) -> ComposerOverlayFocus?)?
+    @ObservationIgnored var invalidateTopEdge: (() -> Void)?
     private(set) var heldReturnCardLabel: String?
+    @ObservationIgnored private let windowCornerGeometry = WindowCornerGeometry()
     var nativeHostIdentity: ObjectIdentifier? { hostID }
     private(set) var retainsAppSpaceViewport = false
     private(set) var splitTargetingVisible = false
@@ -28,15 +31,22 @@ final class SurfaceLiftController {
     private(set) var requestedSplitReturnSlot: SplitDropSlot?
     private var selectedSources: Set<String> = []
     var minimumCardSize = CGSize(width: 220, height: 300)
+#if DEBUG
+    @ObservationIgnored var lastNativeLiftReceipt = ""
+    @ObservationIgnored var setTopEdgeScrolling: ((Bool) -> Void)?
+    var returnTaskForTesting: Task<Void, Never>? { returnTask }
+#endif
     @ObservationIgnored private var hostID: ObjectIdentifier?
-    @ObservationIgnored private var interactiveDistance = 0.0
+    @ObservationIgnored private var interactiveDisplacement = CGSize.zero
+    @ObservationIgnored private var interactiveTravel = 0.0
     @ObservationIgnored private var hasInteractivePose = false
-    @ObservationIgnored private var presentInteractive: ((Double, Double) -> Bool)?
+    @ObservationIgnored private var presentInteractive: ((CGSize, Double) -> Bool)?
     @ObservationIgnored private var target: SurfaceGeometry.Pose?
     @ObservationIgnored private var resolveTarget: ((CGSize) -> SurfaceGeometry.Pose?)?
     @ObservationIgnored private var present: ((CGFloat) -> Bool)?
     @ObservationIgnored private var presentSplit: ((SurfaceGeometry.Pose) -> Bool)?
-    @ObservationIgnored private var splitSample: ((CGPoint) -> (point: CGPoint, size: CGSize, safeArea: UIEdgeInsets)?)?
+    @ObservationIgnored private var splitSample: ((CGPoint) -> (point: CGPoint, size: CGSize,
+        safeArea: UIEdgeInsets, windowCornerRadius: CGFloat)?)?
     @ObservationIgnored private var animate: ((SurfaceLiftState.Settlement, Bool) -> Void)?
     @ObservationIgnored private var capture: (() -> Double)?
     @ObservationIgnored private var cancel: (() -> Void)?
@@ -139,6 +149,11 @@ final class SurfaceLiftController {
         host.loadViewIfNeeded()
         hostID = ObjectIdentifier(host)
         host.liftController = self
+        nativeLayoutSurface = { [weak host] in host?.surfaceView }
+        invalidateTopEdge = { [weak host] in host?.topEdge.invalidateContent() }
+#if DEBUG
+        setTopEdgeScrolling = { [weak host] in host?.topEdge.scrolling = $0 }
+#endif
         captureOverlayFocus = { [weak host] valid in host?.captureOverlayFocus(ownerIsCurrent: valid) }
         sidebarNativeContext = { [weak self, weak host] in
             guard let self, let host, let window = host.view.window else { return nil }
@@ -150,7 +165,9 @@ final class SurfaceLiftController {
                 host.surfaceView)
         }
 #if DEBUG
-        nativeInteractionDiagnostic = { [weak host] in host?.interactionDiagnostic ?? "host released" }
+        nativeInteractionDiagnostic = { [weak host, weak self] in
+            (host?.interactionDiagnostic ?? "host released") + ";lastLiftReceipt=[\(self?.lastNativeLiftReceipt ?? "")]"
+        }
         nativeVisibilityDiagnostic = { [weak host] in host?.visibilityDiagnostic ?? "host released" }
 #endif
         detach = { [weak host] in host?.onViewportChanged = nil; host?.liftController = nil }
@@ -184,9 +201,13 @@ final class SurfaceLiftController {
             return SurfaceLiftGeometry.targetPose(size: host.view.bounds.size, safeArea: host.view.safeAreaInsets,
                 card: frame, cornerRadius: placement.cornerRadius, constrainedToSafeArea: workspace == nil)
         }
-        presentInteractive = { [weak host] distance, progress in
-            guard let host, let pose = SurfaceLiftGeometry.interactivePose(size: host.view.bounds.size,
-                safeArea: host.view.safeAreaInsets, upwardDistance: distance, progress: progress) else { return false }
+        let windowCornerGeometry = self.windowCornerGeometry
+        presentInteractive = { [weak host] displacement, progress in
+            guard let host else { return false }
+            let windowRadius = host.view.window.map { windowCornerGeometry.radius(in: $0) } ?? 0
+            guard let pose = SurfaceLiftGeometry.interactivePose(size: host.view.bounds.size,
+                    safeArea: host.view.safeAreaInsets, displacement: displacement, progress: progress,
+                    windowCornerRadius: windowRadius) else { return false }
             return host.apply(.init(to: pose, progress: 1))
         }
         present = { [weak self, weak host] progress in
@@ -197,7 +218,8 @@ final class SurfaceLiftController {
         presentSplit = { [weak host] pose in host?.apply(.init(to: pose, progress: 1)) ?? false }
         splitSample = { [weak host] point in
             guard let host, let window = host.view.window else { return nil }
-            return (host.view.convert(point, from: window), host.view.bounds.size, host.view.safeAreaInsets)
+            return (host.view.convert(point, from: window), host.view.bounds.size, host.view.safeAreaInsets,
+                    windowCornerGeometry.radius(in: window))
         }
         cancel = { [weak host] in
             host?.deletionInteraction?.cancel()
@@ -364,7 +386,12 @@ final class SurfaceLiftController {
         host.liftController = nil
         hostID = nil
         sidebarNativeContext = nil
+        nativeLayoutSurface = nil
         captureOverlayFocus = nil
+        invalidateTopEdge = nil
+#if DEBUG
+        setTopEdgeScrolling = nil
+#endif
         resolveTarget = nil
         resolveReturnPose = nil
         captureHostFrame = nil
@@ -402,7 +429,8 @@ final class SurfaceLiftController {
         lastSplitDropIntent = nil
         acceptedSplitIntent = nil
         sourceConversationID = conversationID
-        interactiveDistance = 0
+        interactiveDisplacement = .zero
+        interactiveTravel = 0
         hasInteractivePose = false
         originalPaneFrame = captureHostFrame?()
         target = pose
@@ -412,15 +440,28 @@ final class SurfaceLiftController {
     }
     func drag(upwardDistance: Double, eligibility: SurfaceLiftEligibility,
               locationInWindow: CGPoint? = nil) -> Bool {
+        guard upwardDistance.isFinite, CGFloat(upwardDistance).isFinite else { return false }
+        return drag(displacement: CGSize(width: 0, height: -max(0, CGFloat(upwardDistance))),
+                    eligibility: eligibility, locationInWindow: locationInWindow)
+    }
+
+    func drag(displacement: CGSize, eligibility: SurfaceLiftEligibility,
+              locationInWindow: CGPoint? = nil) -> Bool {
+        guard displacement.width.isFinite, displacement.height.isFinite else { return false }
+        let upwardDistance = -Double(displacement.height)
+        let travel = hypot(Double(displacement.width), Double(displacement.height))
+        guard upwardDistance.isFinite, travel.isFinite else { return false }
         guard state.phase == .armed || state.phase == .lifting else { return false }
-        let dragged = state.drag(upwardDistance: upwardDistance, eligibility: guarded(eligibility))
+        let dragged = state.drag(upwardDistance: upwardDistance, travel: travel,
+                                 eligibility: guarded(eligibility))
         if dragged, state.phase == .lifting {
-            interactiveDistance = upwardDistance
+            interactiveDisplacement = displacement
+            interactiveTravel = travel
             hasInteractivePose = true
         }
         if dragged, state.phase == .lifting, !splitWorkspacePresented, sourceConversationID != nil,
            let locationInWindow, let sample = splitSample?(locationInWindow) {
-            updateSplitTargeting(upwardDistance: upwardDistance, sample: sample)
+            updateSplitTargeting(upwardDistance: upwardDistance, displacement: displacement, sample: sample)
         } else {
             clearSplitTargeting()
         }
@@ -496,7 +537,8 @@ final class SurfaceLiftController {
     }
 
     private func startReturn(animated: Bool) {
-        guard let settlement = state.requestReturn(visibleProgress: hasInteractivePose ? state.progress : capture?()) else { return }
+        guard let settlement = state.requestReturn(visibleProgress: hasInteractivePose
+            ? interactivePresentationProgress : capture?()) else { return }
         acceptedSplitIntent = nil
         interaction?(state.phase)
         animate?(settlement, animated)
@@ -556,15 +598,20 @@ final class SurfaceLiftController {
     private func updatePresentation() {
         if let splitPreviewPose { _ = presentSplit?(splitPreviewPose) }
         else if state.phase == .lifting, hasInteractivePose {
-            _ = presentInteractive?(interactiveDistance, state.progress)
+            _ = presentInteractive?(interactiveDisplacement, interactivePresentationProgress)
         }
         else if state.phase == .split, let splitReturnPose { _ = presentSplit?(splitReturnPose) }
         else { _ = present?(CGFloat(state.progress)) }
         interaction?(state.phase)
     }
 
-    private func updateSplitTargeting(upwardDistance: Double,
-                                      sample: (point: CGPoint, size: CGSize, safeArea: UIEdgeInsets)) {
+    private var interactivePresentationProgress: Double {
+        max(state.progress, SurfaceLiftState.presentationProgress(travel: interactiveTravel))
+    }
+
+    private func updateSplitTargeting(upwardDistance: Double, displacement: CGSize,
+                                      sample: (point: CGPoint, size: CGSize, safeArea: UIEdgeInsets,
+                                               windowCornerRadius: CGFloat)) {
         guard upwardDistance.isFinite,
               let top = SplitTargetingGeometry.preview(slot: .top, progress: 1,
                   size: sample.size, safeArea: sample.safeArea),
@@ -592,7 +639,8 @@ final class SurfaceLiftController {
               let preview = SplitTargetingGeometry.preview(slot: slot, progress: 0.85,
                   size: sample.size, safeArea: sample.safeArea),
               let target = SurfaceLiftGeometry.interactivePose(size: sample.size, safeArea: sample.safeArea,
-                  upwardDistance: upwardDistance, progress: state.progress) else {
+                  displacement: displacement, progress: state.progress,
+                  windowCornerRadius: sample.windowCornerRadius) else {
             splitPreviewPose = nil
             splitFinalPose = nil
             return

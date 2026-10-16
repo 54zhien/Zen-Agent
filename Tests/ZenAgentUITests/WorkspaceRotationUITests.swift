@@ -28,7 +28,12 @@ final class WorkspaceRotationUITests: XCTestCase {
         expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
         XCTAssertTrue(secondary.exists && input.isHittable)
         XCTAssertFalse(source.exists)
+        let restingFrame = hostFrame(secondaryProbe)
+        XCTAssertNotNil(restingFrame)
         input.tap(); input.typeText(" landscape edit")
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertEqual(hostFrame(secondaryProbe), restingFrame,
+                       "Landscape Single must keep its whole page behind the moving keyboard")
         dismissKeyboard(app, pane: secondary, editor: input, probe: secondaryProbe)
 
         XCUIDevice.shared.orientation = .portrait
@@ -157,6 +162,12 @@ final class WorkspaceRotationUITests: XCTestCase {
     private func editorTextLength(_ diagnostic: String?) -> Int? {
         diagnostic?.split(separator: ";").first { $0.hasPrefix("editorTextLength=") }
             .flatMap { Int($0.dropFirst("editorTextLength=".count)) }
+    }
+
+    @MainActor
+    private func hostFrame(_ probe: XCUIElement) -> String? {
+        (probe.value as? String)?.split(separator: ";")
+            .first { $0.hasPrefix("hostFrame=") }.map(String.init)
     }
 
     @MainActor

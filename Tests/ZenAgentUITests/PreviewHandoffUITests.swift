@@ -64,6 +64,10 @@ final class PreviewHandoffUITests: XCTestCase {
         app.descendants(matching: .any)["workspace-current-card"].tap()
         expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" }
         expect { (position.value as? String) == "settled" && anchor.isHittable }
+        let nativeDiagnostic = app.otherElements["surface-native-interaction-probe"].value as? String ?? "missing"
+        for event in nativeDiagnostic.components(separatedBy: " | ") {
+            print("PREVIEW_READING_NATIVE deep=\(deep) \(event)")
+        }
         print("PREVIEW_READING_AFTER frame=\(anchor.frame) \(app.staticTexts["preview-reading-diagnostic"].label)")
         XCTAssertEqual(anchor.frame.width, original.width, accuracy: 3)
         XCTAssertEqual(anchor.frame.minY, original.minY, accuracy: 3)

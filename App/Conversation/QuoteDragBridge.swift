@@ -32,7 +32,7 @@ struct QuoteSelectableText: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView()
+        let textView = QuoteTextView()
         textView.delegate = context.coordinator
         textView.textDragDelegate = context.coordinator
         textView.backgroundColor = .clear
@@ -54,6 +54,7 @@ struct QuoteSelectableText: UIViewRepresentable {
             )
             tap.delegate = context.coordinator
             tap.cancelsTouchesInView = false
+            textView.presentationTap = tap
             textView.addGestureRecognizer(tap)
         }
 
@@ -295,5 +296,27 @@ struct QuoteSelectableText: UIViewRepresentable {
 enum QuoteDropRegion {
     static func contains(_ point: CGPoint, in frame: CGRect) -> Bool {
         frame.contains(point)
+    }
+}
+
+@MainActor
+final class QuoteTextView: UITextView {
+    weak var presentationTap: UITapGestureRecognizer?
+
+    override func becomeFirstResponder() -> Bool {
+        // A read-only body's single tap activates its Pane. UIKit's later text
+        // interaction must not take the responder from the transferred Composer.
+        // Intercept acquisition, not recognition: the native text interaction
+        // can bypass UIView.gestureRecognizerShouldBegin on this path.
+        // Long/double taps and non-touch requests still use native selection.
+        let hasRecognizedSingleTap = (gestureRecognizers ?? []).contains { gesture in
+            guard let tap = gesture as? UITapGestureRecognizer else { return false }
+            return tap !== presentationTap && tap.state == .ended
+                && tap.numberOfTapsRequired == 1 && tap.numberOfTouchesRequired == 1
+        }
+        if !isEditable, !isFirstResponder, hasRecognizedSingleTap {
+            return false
+        }
+        return super.becomeFirstResponder()
     }
 }

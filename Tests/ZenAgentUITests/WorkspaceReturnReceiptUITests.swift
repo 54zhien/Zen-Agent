@@ -65,7 +65,10 @@ final class WorkspaceReturnReceiptUITests: XCTestCase {
         let editor = app.textViews["conversation-composer-input"]
         editor.tap()
         editor.typeText("selected owner after receipt")
-        XCTAssertTrue((editor.value as? String)?.contains("selected owner after receipt") == true)
+        // Native key events can still be committing when typeText returns.
+        // Require the complete value through the same bounded state wait used
+        // for the retained owner's other asynchronous transitions above.
+        expect { (editor.value as? String)?.contains("selected owner after receipt") == true }
     }
 
     private func editorIdentity(_ diagnostic: String?) -> String? {

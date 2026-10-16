@@ -37,6 +37,7 @@ final class WorkspaceComposerDockState {
     @ObservationIgnored private var portals: [ObjectIdentifier: WeakPortal] = [:]
     @ObservationIgnored private var activeID: String?
     @ObservationIgnored private var visible = false
+    @ObservationIgnored private var returnsToPortals = false
 
     private final class WeakPortal {
         weak var value: ComposerHostPortal?
@@ -51,8 +52,10 @@ final class WorkspaceComposerDockState {
         portals[ObjectIdentifier(portal)] = nil
         portal.park()
     }
-    func configure(container: ComposerDockContainer, activeID: String?, visible: Bool) {
+    func configure(container: ComposerDockContainer, activeID: String?, visible: Bool,
+                   returnsToPortals: Bool = false) {
         self.container = container; self.activeID = activeID; self.visible = visible
+        self.returnsToPortals = returnsToPortals
         refresh()
     }
     func measured(_ value: CGFloat, ownerID: String) {
@@ -64,12 +67,14 @@ final class WorkspaceComposerDockState {
         let live = portals.values.compactMap(\.value)
         let selected = live.first { $0.usesDock && $0.ownerID == activeID }
         // Install the incoming responder before parking the outgoing one.
-        if visible, let selected, let container {
+        if !returnsToPortals, visible, let selected, let container {
             container.install(selected)
             measured(selected.composer.measuredClearance, ownerID: selected.ownerID)
         }
         for portal in live {
-            if !portal.usesDock { portal.embed() }
+            // Single returns the retained editors directly, even if the dock
+            // bridge arrives before each portal's usesDock=false update.
+            if returnsToPortals || !portal.usesDock { portal.embed() }
             else if !visible || portal !== selected { portal.park() }
         }
     }
@@ -82,7 +87,7 @@ final class ComposerHostPortal: UIView {
     private(set) var usesDock = false
     private weak var dock: WorkspaceComposerDockState?
     private weak var driver: SurfaceLiftController?
-    private var requestedFocus = false
+    private var focusRequested: () -> Bool = { false }
     private var inputSuppressed = false
     private var isActivePane = true
 
@@ -92,10 +97,12 @@ final class ComposerHostPortal: UIView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func update(configuration: ComposerHostView.Configuration, focused: Bool, suppressed: Bool,
+    func update(configuration: ComposerHostView.Configuration, focusRequested: @escaping () -> Bool, suppressed: Bool,
                 ownerID: String, usesDock: Bool, dock: WorkspaceComposerDockState?, isActivePane: Bool = true) {
+        let destinationChanged = self.usesDock != usesDock || self.ownerID != ownerID
+        if destinationChanged { composer.recordDockEvent("update-before-usesDock=\(usesDock)-focus=\(focusRequested())") }
         self.ownerID = ownerID; self.usesDock = usesDock
-        self.requestedFocus = focused; self.inputSuppressed = suppressed; self.isActivePane = isActivePane
+        self.focusRequested = focusRequested; self.inputSuppressed = suppressed; self.isActivePane = isActivePane
         self.driver = configuration.liftInteraction?.driver
         self.dock = dock
         composer.configure(configuration)
@@ -103,27 +110,42 @@ final class ComposerHostPortal: UIView {
         if let dock { dock.register(self) } else { embed() }
         applyFocusIfAttached()
         composer.consumeOverlayFocusIfReady()
+        if destinationChanged { composer.recordDockEvent("update-after-focus=\(focusRequested())") }
     }
     func applyFocusIfAttached(transferring: Bool = false, allowResignation: Bool = true) {
         guard !inputSuppressed, composer.window != nil else { return }
-        if usesDock {
+        if usesDock && !transferring {
             guard composer.superview is ComposerDockContainer, isActivePane || transferring else { return }
         }
-        let focused = requestedFocus || transferring
+        // Native handoff publishes Editing synchronously, after SwiftUI may
+        // already have evaluated this bridge. Read its current owner at the
+        // application boundary, including after register/install callbacks.
+        // A later explicit blur still wins even before the next render arrives.
+        let focused = focusRequested() || transferring
         if focused || allowResignation { composer.requestFocus(focused) }
     }
     func embed() {
         clearExternalOwner()
         guard composer.superview !== self else { return }
-        composer.removeFromSuperview()
+        composer.recordDockEvent("embed-before-focus=\(focusRequested())")
+        let transferFocus = composer.editor.isFirstResponder && focusRequested()
+            && window != nil && composer.window === window
+        // A same-window addSubview reparents directly. An explicit detach
+        // ends native editing before the live owner can reconcile the move.
         composer.frame = bounds
         addSubview(composer)
         setNeedsLayout()
-        applyFocusIfAttached()
+        composer.layoutIfNeeded()
+        applyFocusIfAttached(transferring: transferFocus)
+        if !focusRequested() { composer.requestFocus(false) }
+        composer.recordDockEvent("embed-attached-focus=\(focusRequested())")
     }
     func park() {
+        guard composer.superview != nil else { clearExternalOwner(); return }
+        composer.recordDockEvent("park-before-focus=\(focusRequested())")
         clearExternalOwner()
         composer.removeFromSuperview()
+        composer.recordDockEvent("park-after-focus=\(focusRequested())")
     }
     func registerExternalOwner() { driver?.externalComposer = composer }
     private func clearExternalOwner() {
@@ -145,10 +167,9 @@ final class ComposerDockContainer: UIView {
     private weak var portal: ComposerHostPortal?
     func install(_ incoming: ComposerHostPortal) {
         guard portal !== incoming || incoming.composer.superview !== self else {
-            // Native transfer may publish focus before the bridge updates its
-            // cached intent. Reinstalling the same owner must not replay that
-            // old blur. Positive requests can still need retry after window
-            // attachment; Portal.update applies actual new blur requests.
+            // A layout-only refresh is not a new blur request. Positive intent
+            // can still need retry after window attachment; Portal.update
+            // reconciles the owner's current intent, including explicit blur.
             incoming.registerExternalOwner()
             incoming.applyFocusIfAttached(allowResignation: false)
             return
@@ -179,8 +200,9 @@ struct WorkspaceComposerDock: UIViewRepresentable {
     let state: WorkspaceComposerDockState
     let activeID: String?
     let visible: Bool
+    let returnsToPortals: Bool
     func makeUIView(context: Context) -> ComposerDockContainer { ComposerDockContainer() }
     func updateUIView(_ view: ComposerDockContainer, context: Context) {
-        state.configure(container: view, activeID: activeID, visible: visible)
+        state.configure(container: view, activeID: activeID, visible: visible, returnsToPortals: returnsToPortals)
     }
 }

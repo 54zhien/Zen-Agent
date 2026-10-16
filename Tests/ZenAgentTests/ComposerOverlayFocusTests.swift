@@ -49,6 +49,31 @@ struct ComposerOverlayFocusTests {
         #expect(focusEvents.isEmpty, "software keyboard visibility is not the actual responder's focus")
     }
 
+    @Test("a completed keyboard hide cannot cancel a pending focus request", arguments: [false, true])
+    func keyboardHidePreservesPendingFocus(previouslyFocused: Bool) throws {
+        var focusEvents: [Bool] = []
+        let (window, host) = installedHost(state: .editing, onFocus: { focusEvents.append($0) })
+        defer { host.editor.resignFirstResponder(); window.isHidden = true; window.rootViewController = nil }
+        if previouslyFocused {
+            try #require(host.editor.becomeFirstResponder())
+            host.requestFocus(false)
+            #expect(focusEvents.last == false, "native resignation must still publish a real loss")
+        }
+        try #require(!host.editor.isFirstResponder)
+        focusEvents.removeAll()
+        // The configured Editing projection precedes application of the next
+        // focus request. An old/global hide must not synthesize a new blur here.
+        NotificationCenter.default.post(name: UIResponder.keyboardDidHideNotification,
+                                        object: window.screen)
+        #expect(focusEvents.isEmpty, "keyboard visibility cannot cancel pending native ownership")
+        host.requestFocus(true)
+        #expect(host.editor.isFirstResponder)
+        #expect(focusEvents.last == true)
+        host.requestFocus(false)
+        #expect(!host.editor.isFirstResponder)
+        #expect(focusEvents.last == false, "real delegate focus loss remains authoritative")
+    }
+
     @Test("Search ends its own editing before restore; hosting updates and teardown keep the responder")
     func searchHostingTeardownCannotRevokeTheRetainedComposer() async throws {
         let (window, composer) = installedHost()
@@ -121,8 +146,17 @@ struct ComposerOverlayFocusTests {
 
     @Test(arguments: [true, false])
     func retainedSurfaceMountRestoresAfterItsVisibilityGateOpens(inputBeforeMount: Bool) throws {
-        let (window, composer) = installedHost()
         let surface = ConversationSurfaceViewController(content: Text("retained content"))
+        surface.loadViewIfNeeded()
+        let content = surface.contentController.view!
+        var endedWithMountedConstraints: Bool?
+        let (window, composer) = installedHost(onFocus: { [weak surface, weak content] focused in
+            guard !focused, let surface, let content else { return }
+            endedWithMountedConstraints = content.superview === surface.surfaceView
+                && surface.surfaceView.constraints.filter {
+                    ($0.firstItem as? UIView) === content && $0.isActive
+                }.count == 4
+        })
         window.rootViewController = surface
         surface.view.layoutIfNeeded()
         composer.frame = surface.contentController.view.bounds
@@ -132,8 +166,15 @@ struct ComposerOverlayFocusTests {
         let editor = composer.editor
         #expect(editor.becomeFirstResponder())
         let token = try #require(composer.captureOverlayFocus(ownerIsCurrent: { true }))
-        composer.setWorkspaceInputSuppressed(true)
+        // The visibility boundary owns resignation before its constraints or
+        // hierarchy change, even when the portal suppression update arrives later.
         surface.setWorkspaceVisible(false)
+        #expect(endedWithMountedConstraints == true)
+        #expect(!editor.isFirstResponder && editor.window == nil)
+        #expect(!editor.isHidden && composer.isUserInteractionEnabled)
+        // Overlay suppression remains the portal's independent responsibility.
+        // Model its update arriving after the visibility boundary has detached.
+        composer.setWorkspaceInputSuppressed(true)
         token.restore()
         if inputBeforeMount {
             // The bridge can reopen input before its retained parent remounts.
@@ -151,6 +192,29 @@ struct ComposerOverlayFocusTests {
         }
         #expect(editor.isFirstResponder)
         #expect(composer.editor === editor && editor.text == "same draft")
+    }
+
+    @Test("visibility-only hide and remount does not persist overlay input suppression")
+    func visibilityOnlyRemountKeepsTheComposerUsable() throws {
+        let (window, composer) = installedHost()
+        let surface = ConversationSurfaceViewController(content: Text("retained content"))
+        window.rootViewController = surface
+        surface.view.layoutIfNeeded()
+        let content = surface.contentController.view!
+        content.addSubview(composer)
+        composer.frame = content.bounds
+        composer.layoutIfNeeded()
+        let editor = composer.editor
+        defer { editor.resignFirstResponder(); window.isHidden = true; window.rootViewController = nil }
+        try #require(editor.becomeFirstResponder())
+        surface.setWorkspaceVisible(false)
+        #expect(!editor.isFirstResponder && editor.window == nil)
+        surface.setWorkspaceVisible(true)
+        // No portal configuration or suppression update occurs in this path.
+        #expect(!editor.isHidden && composer.isUserInteractionEnabled)
+        #expect(editor.window === window && composer.editor === editor)
+        #expect(editor.becomeFirstResponder())
+        #expect(editor.text == "same draft")
     }
 
     @Test func restorationWaitsForInputAndKeepsTheActualEditor() throws {

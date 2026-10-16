@@ -27,7 +27,12 @@ Blueprint  ──defines intent──▶  Zen-Agent
 Zen-Agent-Blueprint @ 99d30b815651fe987bab9f88e269a84a89318625
 Owner-approved Stage 5 supplement @ e6d8c5f9919a83672bea670bc7e49339e5f5373c
 Device feedback corrections @ 3b4b22c0df91be668406127c84c1822b359883c0
+Device glass and motion owner ruling @ 51b4dc33beec515c7d684d352060fbdeded1825e
 ```
+
+The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
+not merged into Blueprint `main`. It records the 2026-10-15 owner request for
+two-axis interactive Lift, synchronized Composer feedback and layered Sidebar visuals.
 
 This is a snapshot of the design state this work started from, not a permanent
 version pin. Update it when the blueprint changes in a way that affects
@@ -40,7 +45,17 @@ its `Design/ADR/`; engineering/tooling trade-offs belong to this repository's
 
 ## Status
 
-As of 2026-10-05:
+As of 2026-10-11, Stage 5's reviewed baseline is integrated on `main` through
+[PR #35](https://github.com/54zhien/Zen-Agent/pull/35) at
+`52a456bb53d10360aa6d485202f4bd05e2c6bdbf`. This checkout additionally contains
+the S6-01 Policy foundation and S6-02 frozen-intent work, followed by the
+`codex/fix-split-content-focus` repair candidate. These branch changes are not
+yet main integration or physical-device acceptance. Current known defects,
+root-cause evidence and verification boundaries are tracked in
+[the stability repair record](tasks/known-issues-stability.md).
+
+The following is the historical 2026-10-05 slice snapshot. Its individual PR
+states describe that date; use the current integration receipt above for main.
 
 - Stage 0 and Stage 1 are closed; Stage 2 Runtime and Tool boundaries are on `main`.
 - Stage 3 W1 wires the real App shell and text send/history. PR #12 added the

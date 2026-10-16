@@ -45,6 +45,44 @@ struct SurfaceLiftStateTests {
         #expect(state.phase == .card && state.progress == 1)
     }
 
+    @Test func travelInEitherHorizontalDirectionOrDownwardCanLiftButCannotCommitCard() throws {
+        for displacement in [CGSize(width: -48, height: 0),
+                             CGSize(width: 48, height: 0),
+                             CGSize(width: 0, height: 48)] {
+            var state = SurfaceLiftState()
+            let armed = state.arm(SurfaceLiftEligibility())
+            #expect(armed)
+            let travel = hypot(Double(displacement.width), Double(displacement.height))
+            let dragged = state.drag(upwardDistance: -Double(displacement.height), travel: travel,
+                                     eligibility: SurfaceLiftEligibility())
+            #expect(dragged)
+            #expect(state.phase == .lifting)
+            #expect(state.progress == 0)
+
+            let ended = state.end()
+            let settlement = try #require(ended)
+            #expect(settlement.destination == .full)
+            let completed = state.complete(settlement, finished: true)
+            #expect(completed)
+            #expect(state.phase == .full && state.progress == 0)
+        }
+    }
+
+    @Test func diagonalTravelUsesMagnitudeForOnsetAndUpwardAxisForCommitProgress() {
+        var state = SurfaceLiftState()
+        let armed = state.arm(SurfaceLiftEligibility())
+        #expect(armed)
+        let belowOnset = state.drag(upwardDistance: 0, travel: 11.9, eligibility: SurfaceLiftEligibility())
+        #expect(belowOnset)
+        #expect(state.phase == .armed && state.progress == 0)
+        let atOnset = state.drag(upwardDistance: 0, travel: 12, eligibility: SurfaceLiftEligibility())
+        #expect(atOnset)
+        #expect(state.phase == .lifting && state.progress == 0)
+        let diagonal = state.drag(upwardDistance: 96, travel: 120, eligibility: SurfaceLiftEligibility())
+        #expect(diagonal)
+        #expect(abs(state.progress - 0.5) < 0.000001)
+    }
+
     @Test(arguments: [false, true])
     func cancellationOrShortDragReturnsFull(cancelled: Bool) throws {
         var state = SurfaceLiftState()

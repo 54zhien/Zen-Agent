@@ -31,6 +31,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     private let surface = UIView()
     private let glass: UIVisualEffectView
+    private let bottomFadeLayer = ComposerBottomFadeLayer()
     private let viewport = UIView()
     let editor = UITextView()
     let placeholder = UILabel()
@@ -45,6 +46,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var widthConstraint: NSLayoutConstraint!
     private var heightConstraint: NSLayoutConstraint!
     private var bottomConstraint: NSLayoutConstraint!
+    private var renderedBottomSpacing: CGFloat = 12
+    private weak var keyboardAnchorView: UIView?
     private var configuration: Configuration?
     private var currentState: ComposerPresentationState = .resting
     private var keyboardTiming: (duration: TimeInterval, options: UIView.AnimationOptions)?
@@ -54,7 +57,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var measuredWidth: CGFloat = -1
     private var measuredFont: UIFont?
     private var measuredHeight: CGFloat = 0
-    private var lastHostWidth: CGFloat = -1
+    private var lastHostSize = CGSize.zero
+    private var lastActiveKeyboardFrame = CGRect.null
+    private var lastLocalKeyboardFrame = CGRect.null
+    private let windowCornerGeometry = WindowCornerGeometry()
+    private var lastWindowCornerRadius: CGFloat = -1
+    private var lastBottomSafeAreaInset: CGFloat = -1
     private var lastReportedClearance: CGFloat = -1
     var measuredClearance: CGFloat { max(62, lastReportedClearance) }
     private weak var textCarrier: UIView?
@@ -64,7 +72,17 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var overlayFocusReason = "none"
 #if DEBUG
     private var overlayFocusEvents: [String] = []
+    private var dockEvents: [String] = []
 #endif
+
+    func recordDockEvent(_ event: String) {
+#if DEBUG
+        guard ProcessInfo.processInfo.environment["ZEN_COMPOSER_GEOMETRY_TEST"] == "1" else { return }
+        let parent = superview.map { String(describing: type(of: $0)) } ?? "nil"
+        dockEvents.append("\(event)[focused=\(editor.isFirstResponder),state=\(currentState),parent=\(parent),window=\(window != nil),bounds=\(bounds),guide=\(keyboardLayoutGuide.layoutFrame)]")
+        if dockEvents.count > 24 { dockEvents.removeFirst(dockEvents.count - 24) }
+#endif
+    }
 
     private func recordOverlayFocusEvent(_ event: String) {
 #if DEBUG
@@ -141,6 +159,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     func setWorkspaceInputSuppressed(_ suppressed: Bool) {
+#if DEBUG
+        liftInteraction?.recordHostLifecycle("suppression=\(suppressed);interactionBefore=\(isUserInteractionEnabled)")
+#endif
         workspaceInputSuppressed = suppressed
         isUserInteractionEnabled = !suppressed
         accessibilityElementsHidden = suppressed
@@ -167,6 +188,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         super.init(frame: frame)
         backgroundColor = .clear
         isOpaque = false
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) {
+            (host: ComposerHostView, _: UITraitCollection) in host.updateBottomFadeLayer()
+        }
+        layer.insertSublayer(bottomFadeLayer, at: 0)
         keyboardLayoutGuide.usesBottomSafeArea = true
         keyboardLayoutGuide.followsUndockedKeyboard = false
         surface.translatesAutoresizingMaskIntoConstraints = false
@@ -211,11 +236,11 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         for (button, symbol) in [(plus, "plus"), (primary, "arrow.up")] {
             button.setImage(UIImage(systemName: symbol), for: .normal)
             button.setPreferredSymbolConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 13, weight: .medium),
+                UIImage.SymbolConfiguration(pointSize: 21, weight: .medium),
                 forImageIn: .normal
             )
-            button.tintColor = .systemBackground
-            button.backgroundColor = .label
+            button.tintColor = .label
+            button.backgroundColor = .clear
             button.cornerConfiguration = .capsule()
             surface.addSubview(button)
         }
@@ -263,6 +288,21 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        bindKeyboardAnchor()
+        if window != nil {
+            // A parked bridge can render its detached fallback while these
+            // cached window metrics still describe the previous attachment.
+            // Recompute the resting endpoint even when window and width match.
+            lastWindowCornerRadius = -1
+            lastBottomSafeAreaInset = -1
+            setNeedsLayout()
+        } else {
+            liftInteraction?.cancelForDetachment()
+        }
+        updateBottomFadeLayer()
+#if DEBUG
+        liftInteraction?.recordHostLifecycle("window=\(String(describing: window.map { ObjectIdentifier($0) }))")
+#endif
         consumeOverlayFocusIfReady()
         guard let shelfController else { return }
         if window != nil {
@@ -273,14 +313,136 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         }
     }
 
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        bindKeyboardAnchor()
+        // Equal-sized portals can have different Window origins.
+        lastActiveKeyboardFrame = .null
+        lastLocalKeyboardFrame = .null
+        setNeedsLayout()
+        updateBottomFadeLayer()
+#if DEBUG
+        liftInteraction?.recordHostLifecycle("superview=\(String(describing: superview.map { type(of: $0) }))")
+#endif
+    }
+
+    private func bindKeyboardAnchor() {
+        guard bottomConstraint != nil else { return }
+        let nextWindow = superview?.window
+        let root = nextWindow?.rootViewController?.view
+        let nextAnchor = root?.window === nextWindow ? root : nil
+        guard keyboardAnchorView !== nextAnchor || !bottomConstraint.isActive else { return }
+        keyboardAnchorView = nextAnchor
+        // The focused editor can move from the shared dock through a shortened
+        // Split portal without a keyboard-frame notification. Read its stable
+        // root guide, but keep constraints within this UIKit layout owner: the
+        // cross-host constraint stayed active yet produced y=0 after relocation.
+        let guide = nextAnchor?.keyboardLayoutGuide ?? keyboardLayoutGuide
+        guide.usesBottomSafeArea = true
+        guide.followsUndockedKeyboard = false
+        bottomConstraint.isActive = true
+        lastActiveKeyboardFrame = .null
+        lastLocalKeyboardFrame = .null
+        setNeedsLayout()
+    }
+
+    private var activeKeyboardFrame: CGRect {
+        guard let host = keyboardAnchorView, let window, host.window === window else {
+            return keyboardLayoutGuide.layoutFrame
+        }
+        let guide = host.keyboardLayoutGuide.layoutFrame
+        guard let source = configuration?.liftInteraction?.driver.nativeLayoutSurface?(),
+              source.window === window, isDescendant(of: source), !source.transform.isIdentity else {
+            return convert(guide, from: host)
+        }
+        // A lifted Surface changes presentation, not the Composer's source
+        // layout. Undo only that owned visual transform in the conversion;
+        // ordinary portal origins and real Window keyboard movement still apply.
+        let anchor = CGPoint(x: source.bounds.minX + source.bounds.width * source.layer.anchorPoint.x,
+                             y: source.bounds.minY + source.bounds.height * source.layer.anchorPoint.y)
+        let layoutCoordinates = CGAffineTransform(translationX: -anchor.x, y: -anchor.y)
+            .concatenating(source.transform)
+            .concatenating(CGAffineTransform(translationX: anchor.x, y: anchor.y))
+        let layoutGuide = source.convert(guide, from: host).applying(layoutCoordinates)
+        return convert(layoutGuide, from: source)
+    }
+
+    private var windowKeyboardVisible: Bool {
+        guard let host = keyboardAnchorView, let window, host.window === window else {
+            return bounds.maxY - keyboardLayoutGuide.layoutFrame.minY > safeAreaInsets.bottom + 1
+        }
+        // A Window guide containing only its home-indicator inset is not a
+        // keyboard, even when the local host is shifted or visually lifted.
+        return host.keyboardLayoutGuide.layoutFrame.height > window.safeAreaInsets.bottom + 1
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        updateBottomFadeLayer()
         updateGeometryProbe()
         liftInteraction.checkReadiness()
         consumeOverlayFocusIfReady()
-        guard bounds.width > 0, bounds.width != lastHostWidth else { return }
-        lastHostWidth = bounds.width
+        let radius = restingWindowCornerRadius
+        let restingGeometryChanged = motion.phase == .resting
+            && (radius != lastWindowCornerRadius || restingBottomSafeAreaInset != lastBottomSafeAreaInset)
+        let activeFrame = activeKeyboardFrame
+        let localFrame = keyboardLayoutGuide.layoutFrame
+        let sizeChanged = bounds.size != lastHostSize
+        guard bounds.width > 0, sizeChanged || restingGeometryChanged
+            || activeFrame != lastActiveKeyboardFrame || localFrame != lastLocalKeyboardFrame else { return }
+        lastHostSize = bounds.size
+        lastActiveKeyboardFrame = activeFrame
+        lastLocalKeyboardFrame = localFrame
+        lastWindowCornerRadius = radius
+        lastBottomSafeAreaInset = restingBottomSafeAreaInset
+        if !sizeChanged, !restingGeometryChanged,
+           motion.phase == .expanding || motion.phase == .collapsing {
+            // Keyboard-only movement must not rewrite the morph endpoint or
+            // interrupt the generation whose completion settles Editing/Resting.
+            reconcileKeyboardOffset()
+            return
+        }
         render(animated: false)
+    }
+
+    private func updateBottomFadeLayer() {
+        let viewport = bottomFadeViewport
+        let bottom = windowKeyboardVisible ? min(viewport.maxY, activeKeyboardFrame.minY) : viewport.maxY
+        bottomFadeLayer.update(bounds: viewport, composerFrame: surface.frame,
+                               bottom: bottom, traits: traitCollection)
+    }
+
+    private var bottomFadeViewport: CGRect {
+        if superview is ComposerDockContainer, let root = keyboardAnchorView,
+           let window, root.window === window {
+            // The dock displays either Pane's input at the Workspace bottom.
+            // Extend through its home area without undoing the dock's horizontal
+            // Sidebar translation or borrowing the logical Pane's viewport.
+            let rootBounds = convert(root.bounds, from: root)
+            return CGRect(x: bounds.minX, y: rootBounds.minY,
+                          width: bounds.width, height: rootBounds.height)
+        }
+        var ancestor = superview
+        while let current = ancestor {
+            if let card = current as? SurfaceClipView {
+                // SwiftUI can size this host to the safe area. The decoration
+                // belongs to the full card, whose existing mask clips its Lift.
+                return convert(card.bounds, from: card)
+            }
+            ancestor = current.superview
+        }
+        return bounds
+    }
+
+    private var restingWindowCornerRadius: CGFloat {
+        guard let window, abs(bounds.width - window.bounds.width) < 0.5 else { return 0 }
+        return windowCornerGeometry.radius(in: window)
+    }
+
+    private var restingBottomSafeAreaInset: CGFloat {
+        // A SwiftUI representable can report zero local insets while its
+        // keyboard guide still reserves the window's home-indicator area.
+        window?.safeAreaInsets.bottom ?? safeAreaInsets.bottom
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
@@ -304,12 +466,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
 #if DEBUG
     var liftReadinessDiagnostic: String {
-        "\(liftInteraction.readinessDiagnostic);composerBounds=\(bounds);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder);overlayFocusEvents=\(overlayFocusEvents.joined(separator: " | "))"
+        "\(liftInteraction.readinessDiagnostic);sidebarEligibility=\(nativeSidebarInput);composerBounds=\(bounds);composerWindowFrame=\(window.map { convert(bounds, to: $0) } ?? .zero);bottomFadeWindowFrame=\(window.map { convert(bottomFadeLayer.frame, to: $0) } ?? .zero);keyboardGuide=\(keyboardLayoutGuide.layoutFrame);activeKeyboardGuide=\(activeKeyboardFrame);keyboardRootGuide=\(keyboardAnchorView?.keyboardLayoutGuide.layoutFrame ?? .zero);keyboardConstraintActive=\(bottomConstraint.isActive);keyboardConstraintLocal=\(constraints.contains { $0 === bottomConstraint });keyboardConstraintOffset=\(bottomConstraint.constant);keyboardGap=\(keyboardGap);bottomSpacing=\(renderedBottomSpacing);composerSurface=\(surface.frame);textViewport=\(viewport.frame);presentationState=\(currentState);composerMotionPhase=\(motion.phase);overlayFocusPending=\(overlayFocus != nil);overlayFocusValid=\(overlayFocus?.isValid ?? false);overlayFocusReason=\(overlayFocusReason);workspaceInputSuppressed=\(workspaceInputSuppressed);editorHidden=\(editor.isHidden);composerMounted=\(window != nil);editorSameWindow=\(editor.window === window);editorCanFocus=\(editor.canBecomeFirstResponder);overlayFocusEvents=\(overlayFocusEvents.joined(separator: " | "));dockEvents=\(dockEvents.joined(separator: " | "))"
     }
 #endif
 
     var keyboardGap: CGFloat {
-        keyboardLayoutGuide.layoutFrame.minY - surface.frame.maxY
+        activeKeyboardFrame.minY - surface.frame.maxY
     }
 
     var nativeLiftInput: SurfaceLiftEligibility {
@@ -325,11 +487,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let settled = settledPhase && window != nil && surface.bounds.width > 0
             && surface.bounds.height > 0 && abs(displayed.minY - surface.frame.minY) <= 0.5
             && abs(displayed.width - surface.frame.width) <= 0.5
-            && abs(keyboardGap + bottomConstraint.constant) <= 0.5
+            && abs(keyboardGap - renderedBottomSpacing) <= 0.5
         return SurfaceLiftEligibility(isEditing: currentState == .editing || editor.isFirstResponder,
             hasMarkedText: editor.markedTextRange != nil,
-            keyboardVisible: liftInteraction.keyboardVisible
-                || bounds.maxY - keyboardLayoutGuide.layoutFrame.minY > safeAreaInsets.bottom + 1,
+            keyboardVisible: liftInteraction.keyboardVisible || windowKeyboardVisible,
             keyboardTransitioning: liftInteraction.keyboardTransitioning,
             composerSettled: settled, selectionActive: false, quoteDragActive: quotePhase != .idle)
     }
@@ -424,7 +585,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private func render(animated: Bool, generation: Int? = nil) {
         guard let configuration, bounds.width > 0 else { return }
         let width = bounds.width
-        let available = max(0, min(bounds.height, keyboardLayoutGuide.layoutFrame.minY))
+        let available = max(0, min(bounds.height, activeKeyboardFrame.minY))
         let editWidth = max(1, width - 2 * ComposerGeometry.edgeInset - 24)
         if measuredRevision != textRevision || abs(measuredWidth - editWidth) > 0.5
             || measuredFont != configuration.font {
@@ -439,7 +600,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let layout = ComposerMorphGeometry.endpoint(
             state, containerWidth: width, availableHeight: available,
             measuredTextHeight: measuredHeight, lineHeight: configuration.font.lineHeight,
-            collapseProgress: configuration.collapseProgress
+            collapseProgress: configuration.collapseProgress,
+            windowCornerRadius: restingWindowCornerRadius,
+            bottomSafeAreaInset: restingBottomSafeAreaInset
         )
         let editingEndpoint = ComposerMorphGeometry.endpoint(
             .editing, containerWidth: width, availableHeight: available,
@@ -453,17 +616,19 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let apply = {
             self.widthConstraint.constant = layout.size.width
             self.heightConstraint.constant = layout.size.height
-            self.bottomConstraint.constant = -layout.bottomSpacing
+            self.renderedBottomSpacing = layout.bottomSpacing
+            self.reconcileKeyboardOffset()
             self.viewport.frame = targetViewport
             self.placeholder.alpha = state == .editing ? 0.62 : 1
-            self.plus.frame = layout.plus.insetBy(dx: 8, dy: 8)
-            self.primary.frame = layout.primary.insetBy(dx: 8, dy: 8)
+            self.plus.frame = layout.plus
+            self.primary.frame = layout.primary
             self.errorLabel.frame = CGRect(x: 0, y: -28,
                                            width: layout.size.width, height: 22)
             self.shelfController?.view.frame = CGRect(x: 0, y: -self.shelfHeight,
                                                       width: layout.size.width,
                                                       height: self.shelfHeight)
             self.layoutIfNeeded()
+            self.updateBottomFadeLayer()
             self.updateGeometryProbe()
         }
         let editorWidth = max(editWidth, targetViewport.width)
@@ -500,6 +665,14 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
                 finishTextLayout(state)
             }
         }
+    }
+
+    private func reconcileKeyboardOffset() {
+        // The local guide drives native keyboard animation. The converted root
+        // position corrects its stale post-transfer geometry without a constraint
+        // crossing SwiftUI hosts or changing the current morph endpoint.
+        bottomConstraint.constant = activeKeyboardFrame.minY
+            - keyboardLayoutGuide.layoutFrame.minY - renderedBottomSpacing
     }
 
     private func finishTextLayout(_ state: ComposerPresentationState) {
@@ -546,11 +719,11 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         guard geometryProbe.superview != nil, let window else { return }
         geometryProbe.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
         let rootBottom = convert(CGPoint(x: 0, y: bounds.maxY), to: window).y
-        let guideTop = convert(CGPoint(x: 0, y: keyboardLayoutGuide.layoutFrame.minY),
+        let guideTop = convert(CGPoint(x: 0, y: activeKeyboardFrame.minY),
                                to: window).y
         let surfaceBottom = surface.convert(CGPoint(x: 0, y: surface.bounds.maxY),
                                             to: window).y
-        geometryProbe.accessibilityValue = "root=\(rootBottom);guide=\(guideTop);surface=\(surfaceBottom)"
+        geometryProbe.accessibilityValue = "root=\(rootBottom);guide=\(guideTop);surface=\(surfaceBottom);surfaceRect=\(surface.convert(surface.bounds, to: window));corner=\(surface.effectiveRadius(corner: .bottomLeft))"
     }
 
     private func reportClearance(_ clearance: CGFloat) {
@@ -657,24 +830,27 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     @objc private func keyboardDidHide(_ notification: Notification) {
         guard window != nil else { return }
         recordOverlayFocusEvent("keyboardDidHide")
-        // This Window-wide notification can finish another editor's hide after
-        // our responder handoff, or accompany a hardware keyboard. Native
-        // focus wins; didEndEditing still reports a real loss of this editor.
+        // A Window-wide hide can finish an earlier transition while this editor
+        // is awaiting focus, even if it owned a previous keyboard transition.
+        // Only didEndEditing reports native focus loss; visibility cannot
+        // revoke a newer request or a hardware-keyboard responder.
         if !editor.isFirstResponder {
-            if currentState == .editing { configuration?.onFocus(false) }
             keyboardTransitionOwned = false
         }
     }
 
     func textViewDidBeginEditing(_ textView: UITextView) {
+        recordDockEvent("didBeginEditing")
         recordOverlayFocusEvent("didBeginEditing")
         liftInteraction.checkReadiness()
         keyboardTransitionOwned = true
         configuration?.onFocus(true)
     }
     func textViewDidEndEditing(_ textView: UITextView) {
+        recordDockEvent("didEndEditing-beforeFeedback")
         recordOverlayFocusEvent("didEndEditing")
         configuration?.onFocus(false)
+        recordDockEvent("didEndEditing-afterFeedback")
     }
     func textViewDidChange(_ textView: UITextView) { reportEditor() }
     func textViewDidChangeSelection(_ textView: UITextView) { reportEditor() }

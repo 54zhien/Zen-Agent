@@ -183,11 +183,17 @@ final class SettingsUITests: XCTestCase {
 
         let inkProbe = app.descendants(matching: .any)["app-space-ink-probe"]
         for enabled in [false, true] {
-            expect { !app.descendants(matching: .any)["settings-page"].exists
-                && (probe.value as? String)?.contains("liftReady=true") == true }
+            var readyReceipt = ""
+            expect {
+                guard !app.descendants(matching: .any)["settings-page"].exists else { return false }
+                readyReceipt = probe.value as? String ?? "missing"
+                return readyReceipt.contains("liftReady=true")
+            }
             expect { (inkProbe.value as? String)?.contains(";flowKeys=0;") == true }
             let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            print("SETTINGS_LIFT_BEFORE enabled=\(enabled) native=\(readyReceipt)")
             start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
+            print("SETTINGS_LIFT_AFTER enabled=\(enabled) native=\(probe.value as? String ?? "missing")")
             let card = app.descendants(matching: .any)["workspace-current-card"]
             expect { card.exists && card.label.contains("Workspace conversation 11") }
             expect { (probe.value as? String)?.contains(";edgeVisible=true;") == true }
@@ -384,7 +390,13 @@ final class SettingsUITests: XCTestCase {
         }
         XCTAssertFalse(app.descendants(matching: .any)["sidebar-rail"].exists)
         let agent = app.buttons["settings-agent"]
-        if !agent.isHittable { page.swipeUp() }
+        // Put real Form rows beneath the native bar so the captured soft edge
+        // can be assessed; an unscrolled empty header cannot show the effect.
+        page.swipeUp()
+        let rootCapture = XCTAttachment(screenshot: app.screenshot())
+        rootCapture.name = "Settings root native scroll edge"
+        rootCapture.lifetime = .keepAlways
+        add(rootCapture)
         XCTAssertTrue(agent.waitForExistence(timeout: 5))
         agent.tap()
         let soul = app.buttons["settings-soul"]
@@ -395,6 +407,10 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(input.waitForExistence(timeout: 5))
         input.tap()
         input.typeText("Use concise responses.")
+        let inputCapture = XCTAttachment(screenshot: app.screenshot())
+        inputCapture.name = "Settings Soul native scroll edge and keyboard"
+        inputCapture.lifetime = .keepAlways
+        add(inputCapture)
         app.buttons["settings-soul-save"].tap()
         let saved = app.staticTexts["settings-soul-save-status"]
         XCTAssertTrue(saved.waitForExistence(timeout: 5))
@@ -415,7 +431,7 @@ final class SettingsUITests: XCTestCase {
         guard settings.waitForExistence(timeout: 5),
               settings.wait(for: \.isEnabled, toEqual: true, timeout: 5),
               settings.wait(for: \.isHittable, toEqual: true, timeout: 5) else {
-            XCTFail("Native Settings destination is unavailable")
+            XCTFail("Native Settings destination is unavailable. Post-gesture native receipt: \(String(describing: probe.value))")
             return false
         }
         settings.tap()

@@ -121,15 +121,18 @@ struct AppAssembly {
         toolRegistry: ToolRegistry,
         managedFiles: ManagedFileStore? = nil
     ) -> ConversationRuntime {
+        // The shell owns presentation routing. A cached Send bridge retains
+        // Runtime; retaining Router here would cycle through its registered Pane
+        // and Session, keeping the database alive after the shell is discarded.
         ConversationRuntime(
             store: store,
             provider: provider,
             credentials: credentials,
-            onEvent: { event in
-                await router.handle(event)
+            onEvent: { [weak router] event in
+                await router?.handle(event)
             },
-            registerRecoveredRun: { runID, conversationID in
-                await router.registerRecoveredRun(
+            registerRecoveredRun: { [weak router] runID, conversationID in
+                await router?.registerRecoveredRun(
                     runID: runID,
                     conversationID: conversationID
                 )

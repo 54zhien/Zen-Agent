@@ -60,4 +60,47 @@ struct SurfaceLiftGeometryTests {
         #expect(SurfaceLiftGeometry.targetPose(size: size, safeArea: .zero, card: valid, cornerRadius: .nan) == nil)
         #expect(SurfaceLiftGeometry.targetPose(size: size, safeArea: .zero, card: valid, cornerRadius: 200) == nil)
     }
+
+    @Test func interactivePoseTracksBothAxesAndKeepsTheWindowCornerRadiusAtScreenSize() throws {
+        let size = CGSize(width: 400, height: 800)
+        let safeArea = UIEdgeInsets(top: 10, left: 20, bottom: 30, right: 40)
+        let displacement = CGSize(width: 36, height: -144)
+        let windowRadius: CGFloat = 56
+        let pose = try #require(SurfaceLiftGeometry.interactivePose(
+            size: size, safeArea: safeArea, displacement: displacement,
+            progress: 0.5, windowCornerRadius: windowRadius
+        ))
+
+        #expect(abs(pose.scale - 0.91) < 0.000001)
+        #expect(abs(pose.translation.width - displacement.width / 340) < 0.000001)
+        #expect(abs(pose.translation.height - displacement.height / 760) < 0.000001)
+        #expect(abs(pose.cornerRadius * pose.scale - windowRadius) < 0.000001)
+        #expect(pose.cornerRadius <= min(size.width, size.height) / 2)
+        #expect(pose.clipFraction == CGSize(width: 1, height: 1))
+    }
+
+    @Test func interactiveCornerRadiusStopsAtTheSourceSurfaceBounds() throws {
+        let size = CGSize(width: 30, height: 20)
+        let pose = try #require(SurfaceLiftGeometry.interactivePose(
+            size: size, safeArea: .zero, displacement: CGSize(width: 80, height: -80),
+            progress: 1, windowCornerRadius: 60
+        ))
+
+        #expect(pose.cornerRadius == 10)
+        #expect(pose.cornerRadius * pose.scale <= min(size.width, size.height) * pose.scale / 2)
+    }
+
+    @Test func scalarInteractiveGeometryKeepsItsExistingRenderedRadius() throws {
+        let pose = try #require(SurfaceLiftGeometry.interactivePose(
+            size: CGSize(width: 400, height: 800), safeArea: .zero,
+            upwardDistance: 96, progress: 0.5
+        ))
+
+        #expect(abs(pose.scale - 0.91) < 0.000001)
+        #expect(abs(pose.cornerRadius * pose.scale - 12) < 0.000001)
+        #expect(abs(pose.translation.height + 96.0 / 800.0) < 0.000001)
+        let presentation = try #require(SurfaceGeometry.resolve(size: CGSize(width: 400, height: 800),
+            safeArea: .zero, request: .init(to: pose, progress: 1)))
+        #expect(abs(presentation.translation.height + 96) < 0.001)
+    }
 }

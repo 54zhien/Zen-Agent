@@ -45,6 +45,21 @@ extension EnvironmentValues {
 }
 
 @MainActor
+private struct WorkspaceSidebarProgressReader<Content: View>: View {
+    let state: WorkspaceNavigationState
+    let travel: CGFloat
+    let direction: LayoutDirection
+    let content: (CGFloat, Bool, CGFloat) -> Content
+
+    var body: some View {
+        let progress = CGFloat(state.progress)
+        let isDragging = state.isDragging
+        let directionSign: CGFloat = direction == .rightToLeft ? -1 : 1
+        content(progress, isDragging, progress * travel * directionSign)
+    }
+}
+
+@MainActor
 struct WorkspaceSurfaceView<Content: View>: View {
     let content: Content
     private let contentForSlot: ((WorkspaceSurfaceSlot) -> Content)?
@@ -67,6 +82,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
     @State private var navigation = WorkspaceNavigationState()
     @State private var composerDock = WorkspaceComposerDockState()
     @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var minimumWidth = 220.0
     @ScaledMetric(relativeTo: .body) private var minimumHeight = 300.0
     @Environment(\.scenePhase) private var scenePhase
@@ -106,6 +122,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                                 canConfigureNew: canConfigureNew,
                                 spatiallyAvailable: sidebarSpatiallyAvailable,
                                 windowInsets: navigationInsets,
+                                windowCornerRadius: layoutContext?.windowCornerRadius ?? 0,
+                                keepsFullConversationViewport: keepsFullConversationViewport,
                                 context: sidebarContext) {
         ZStack(alignment: .topLeading) {
             AppSpaceInkView(appearance: model?.appearance,
@@ -122,7 +140,13 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         .zIndex(4 - card.depth)
                 }
             }
-            GeometryReader { geometry in workspaceSurfaces(in: geometry) }
+            GeometryReader { geometry in
+                WorkspaceSidebarProgressReader(state: navigation,
+                    travel: sidebarTravel(in: geometry), direction: layoutDirection) { progress, isDragging, translation in
+                    workspaceSurfaces(in: geometry, sidebarProgress: progress,
+                        sidebarDragging: isDragging, sidebarTranslation: translation)
+                }
+            }
             .zIndex(4 - (browse.layout()?.cards.first { $0.item == browse.state.selected }?.depth ?? 0))
             if activeLift.splitTargetingVisible, let top = activeLift.splitTopFrame,
                let bottom = activeLift.splitBottomFrame, let guide = activeLift.splitGuideFrame {
@@ -180,8 +204,6 @@ struct WorkspaceSurfaceView<Content: View>: View {
 #endif
         }
         }
-        // Split shares the keyboard-safe viewport; each retained Composer's
-        // native keyboard guide still owns its controls inside that Pane.
         .ignoresSafeArea(.container)
         .onAppear {
             if let model {
@@ -283,9 +305,16 @@ struct WorkspaceSurfaceView<Content: View>: View {
         }
     }
 
-    private func workspaceSurfaces(in geometry: GeometryProxy) -> some View {
+    private func workspaceSurfaces(in geometry: GeometryProxy, sidebarProgress: CGFloat,
+                                   sidebarDragging: Bool, sidebarTranslation: CGFloat) -> some View {
         ZStack(alignment: .topLeading) {
             if model?.splitWorkspace != nil, activeSurfaceSlot == nil { Color.black }
+            if sidebarProgress > 0 || navigation.settlementID != nil {
+                sidebarBackdrop(in: geometry, progress: sidebarProgress,
+                    isDragging: sidebarDragging, translation: sidebarTranslation)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
 #if DEBUG
             if (ProcessInfo.processInfo.environment["ZEN_SURFACE_LIFT_UI_TEST"] == "1"
                 || ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1"),
@@ -296,7 +325,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
             }
 #endif
             ForEach(WorkspaceSurfaceSlot.allCases, id: \.self) { slot in
-                workspaceSurface(slot: slot, geometry: geometry)
+                workspaceSurface(slot: slot, geometry: geometry,
+                    sidebarProgress: sidebarProgress, sidebarDragging: sidebarDragging,
+                    sidebarOffset: sidebarTranslation)
             }
 
             if let model, let split = model.splitWorkspace,
@@ -312,10 +343,14 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         onNew: { _ = model.createNewInSplit() })
                         .frame(width: emptyFrame.width, height: emptyFrame.height)
                         .position(x: emptyFrame.midX, y: emptyFrame.midY)
+                        .offset(x: sidebarTranslation)
+                        .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
                 }
                 if activeSurfaceSlot == nil, let layout = splitGeometry(in: geometry) {
                     divider(model: model, split: split, layout: layout)
                         .position(x: layout.divider.midX, y: layout.divider.midY)
+                        .offset(x: sidebarTranslation)
+                        .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
                         .zIndex(20)
                 }
             }
@@ -325,10 +360,10 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 visible: model?.splitWorkspace != nil && navigation.overlay == nil
                     && model?.previewContent.isPresented != true && returnPresentation.phase == nil
                     && (activeSurfaceSlot == nil || [.armed, .lifting].contains(activeLift.state.phase)
-                        || activeLift.state.pendingSettlement?.destination == .card))
-                .offset(x: CGFloat(navigation.progress) * min(geometry.size.width, 60 + navigationInsets.leading)
-                    * (layoutDirection == .rightToLeft ? -1 : 1))
-                .animation(.easeOut(duration: 0.16), value: navigation.progress)
+                        || activeLift.state.pendingSettlement?.destination == .card),
+                returnsToPortals: model?.splitWorkspace == nil)
+                .offset(x: sidebarTranslation)
+                .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
         .background(WorkspaceLayoutObserver { context in
@@ -352,7 +387,40 @@ struct WorkspaceSurfaceView<Content: View>: View {
         })
     }
 
-    private func workspaceSurface(slot: WorkspaceSurfaceSlot, geometry: GeometryProxy) -> some View {
+    private func sidebarAnimation(isDragging: Bool) -> Animation? {
+        reduceMotion || isDragging ? nil : .easeOut(duration: 0.22)
+    }
+
+    private func sidebarTravel(in geometry: GeometryProxy) -> CGFloat {
+        min(geometry.size.width, SidebarRailLayout(windowInsets: navigationInsets,
+            cornerRadius: layoutContext?.windowCornerRadius ?? 0).width)
+    }
+
+    private func sidebarBackdrop(in geometry: GeometryProxy, progress: CGFloat,
+                                 isDragging: Bool, translation: CGFloat) -> some View {
+        ZStack(alignment: .topLeading) {
+            Color(uiColor: .systemBackground)
+            Color.black.opacity(0.28 * (1 - progress))
+                .animation(sidebarAnimation(isDragging: isDragging), value: progress)
+            if case .split(let axis) = devicePresentation, activeSurfaceSlot == nil,
+               let layout = splitGeometry(in: geometry) {
+                // Preserve the black space around the divider-facing 24pt
+                // corners while the Sidebar page is exposed underneath.
+                Rectangle().fill(Color.black)
+                    .frame(width: layout.divider.width + (axis == .leftRight ? 48 : 0),
+                           height: layout.divider.height + (axis == .topBottom ? 48 : 0))
+                    .position(x: layout.divider.midX, y: layout.divider.midY)
+                    .offset(x: translation)
+                    .animation(sidebarAnimation(isDragging: isDragging), value: progress)
+            }
+        }
+        .opacity(SidebarProgressPresentation.opacity(forProgress: Double(progress)))
+        .animation(sidebarAnimation(isDragging: isDragging), value: progress)
+    }
+
+    private func workspaceSurface(slot: WorkspaceSurfaceSlot, geometry: GeometryProxy,
+                                  sidebarProgress: CGFloat, sidebarDragging: Bool,
+                                  sidebarOffset: CGFloat) -> some View {
         let fullFrame = CGRect(origin: .zero, size: geometry.size)
         let driver = controller(for: slot)
         let frame = driver.retainsAppSpaceViewport ? fullFrame
@@ -361,8 +429,14 @@ struct WorkspaceSurfaceView<Content: View>: View {
         let suppressed = returnPresentation.suppressesTarget(slot)
         let surfaceBrowse: AppSpaceBrowseController? = model != nil && slot == (model?.previewSurfaceSlot ?? model?.sourceSurfaceSlot) ? browse : nil
         let corner: CGFloat = model?.splitWorkspace != nil && !driver.retainsAppSpaceViewport ? 24 : 0
-        let sidebarOffset = CGFloat(navigation.progress) * min(geometry.size.width, 60 + navigationInsets.leading)
-            * (layoutDirection == .rightToLeft ? -1 : 1)
+        // The proposed Workspace already avoids the keyboard. Only square an
+        // exterior edge that actually reaches that shortened viewport; inner
+        // corners and the black divider retain their normal geometry.
+        let keyboardShortensViewport = layoutContext.map {
+            $0.windowSize.height - $0.frame.maxY > $0.windowSafeAreaInsets.bottom + 1
+        } ?? false
+        let squareBottomCorners = model?.splitWorkspace != nil && !driver.retainsAppSpaceViewport
+            && keyboardShortensViewport && abs(frame.maxY - fullFrame.maxY) < 1
         let settled: ((UUID) -> Void)?
         if slot == inputSurfaceSlot { settled = { navigation.completeSettlement($0) } }
         else { settled = nil }
@@ -376,13 +450,17 @@ struct WorkspaceSurfaceView<Content: View>: View {
             deleteAction: deleteAction, isDeletionPending: isDeletionPending,
             isWorkspaceVisible: visible, isInputSuppressed: suppressed,
             isReturnProxyHidden: returnPresentation.hidesOrigin(slot),
-            restingCornerRadius: corner, sidebarOffset: sidebarOffset,
+            restingCornerRadius: corner, squareBottomCorners: squareBottomCorners, sidebarOffset: sidebarOffset,
+            sidebarProgress: sidebarProgress, sidebarDragging: sidebarDragging,
             sidebarSettlement: navigation.settlementID,
             onSidebarSettled: settled,
-            onNativeLayout: { [weak model] receipt in
+            onNativeLayout: { [weak model, weak resize] receipt in
                 guard let model else { return }
+                resize?.nativeLayout(receipt, context: layoutContext, slot: slot, model: model)
                 returnPresentation.nativeLayout(receipt, slot: slot, currentContext: layoutContext,
                     model: model, visibilityRevision: driver.workspaceVisibilityRevision)
+            }, contentOwner: model.flatMap {
+                (slot == $0.sourceSurfaceSlot ? $0.pane : $0.splitPane).map(ObjectIdentifier.init)
             }) { hosted }
         return surface
         .frame(width: frame.width, height: frame.height)
@@ -497,6 +575,11 @@ struct WorkspaceSurfaceView<Content: View>: View {
     private var devicePresentation: WorkspaceDevicePresentation {
         WorkspaceDevicePresentation.resolve(isPad: layoutContext?.isPad ?? false,
             size: layoutContext?.windowSize ?? .zero, split: model?.splitWorkspace)
+    }
+
+    private var keepsFullConversationViewport: Bool {
+        if case .split = devicePresentation { return false }
+        return true
     }
 
     private func configurePreview(_ controller: SurfaceLiftController,
@@ -790,7 +873,10 @@ private struct SurfaceInteractionProbe: UIViewRepresentable {
         let view = SurfaceInteractionProbeView()
         view.isAccessibilityElement = true
         view.accessibilityIdentifier = identifier
-        view.readValue = { [weak driver] in driver?.nativeInteractionDiagnostic?() ?? "unbound" }
+        let keyboard = WorkspaceKeyboardTransitionTrace.shared
+        view.readValue = { [weak driver] in
+            "\(driver?.nativeInteractionDiagnostic?() ?? "unbound");\(keyboard.diagnostic)"
+        }
         return view
     }
     func updateUIView(_ uiView: SurfaceInteractionProbeView, context: Context) {}
@@ -814,6 +900,67 @@ private final class SurfaceInteractionProbeView: UIView {
     override var accessibilityValue: String? {
         get { readValue?() ?? super.accessibilityValue }
         set { super.accessibilityValue = newValue }
+    }
+}
+
+@MainActor
+private final class WorkspaceKeyboardTransitionTrace: NSObject {
+    static let shared = WorkspaceKeyboardTransitionTrace()
+
+    private(set) var willHideCount = 0
+    private(set) var didHideCount = 0
+    private(set) var offscreenFrameCount = 0
+    private(set) var visibleToHiddenCount = 0
+    private(set) var visible = false
+    private(set) var visibleHeight: CGFloat = 0
+
+    private override init() {
+        super.init()
+        let center = NotificationCenter.default
+        for name in [UIResponder.keyboardWillHideNotification, UIResponder.keyboardDidHideNotification,
+                     UIResponder.keyboardWillChangeFrameNotification, UIResponder.keyboardDidChangeFrameNotification] {
+            center.addObserver(self, selector: #selector(keyboardChanged(_:)), name: name, object: nil)
+        }
+    }
+
+    var diagnostic: String {
+        "keyboardTraceWillHide=\(willHideCount);keyboardTraceDidHide=\(didHideCount);keyboardTraceOffscreenFrames=\(offscreenFrameCount);keyboardTraceVisibleToHidden=\(visibleToHiddenCount);keyboardTraceVisible=\(visible);keyboardTraceVisibleHeight=\(Int(visibleHeight.rounded()))"
+    }
+
+    @objc private func keyboardChanged(_ notification: Notification) {
+        switch notification.name {
+        case UIResponder.keyboardWillHideNotification: increment(&willHideCount)
+        case UIResponder.keyboardDidHideNotification: increment(&didHideCount)
+        case UIResponder.keyboardWillChangeFrameNotification, UIResponder.keyboardDidChangeFrameNotification: break
+        default: return
+        }
+
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
+            .flatMap({ $0.windows }).first(where: { $0.isKeyWindow && !$0.isHidden }) else {
+            if notification.name == UIResponder.keyboardDidHideNotification { updateVisibility(false, height: 0) }
+            return
+        }
+        if let screen = notification.object as? UIScreen, screen !== window.screen { return }
+        guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
+            if notification.name == UIResponder.keyboardDidHideNotification { updateVisibility(false, height: 0) }
+            return
+        }
+        let localFrame = window.convert(frame, from: window.screen.coordinateSpace)
+        let intersection = window.bounds.intersection(localFrame)
+        let height = intersection.isNull ? 0 : max(0, intersection.height)
+        let isVisible = height > window.safeAreaInsets.bottom + 1
+        if height <= window.safeAreaInsets.bottom + 1 { increment(&offscreenFrameCount) }
+        updateVisibility(isVisible, height: height)
+    }
+
+    private func updateVisibility(_ next: Bool, height: CGFloat) {
+        if visible && !next { increment(&visibleToHiddenCount) }
+        visible = next
+        visibleHeight = height
+    }
+
+    private func increment(_ value: inout Int) {
+        if value < 9_999 { value += 1 }
     }
 }
 

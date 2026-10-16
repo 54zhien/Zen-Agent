@@ -217,7 +217,7 @@ final class AppShellModel {
         return true
     }
 
-    func selectSplitSlot(_ slot: SplitDropSlot) {
+    func selectSplitSlot(_ slot: SplitDropSlot, preservingNativeFocusTransfer: Bool = false) {
         guard let split = splitWorkspace, split.activeSlot != slot else { return }
         let outgoing = split.activeSlot == split.sourceSlot ? pane : splitPane
         let incoming = slot == split.sourceSlot ? pane : splitPane
@@ -226,8 +226,14 @@ final class AppShellModel {
               outgoing?.composer.quoteDragPhase == .idle else { return }
         let editing = outgoing?.composer.draft.presentationState == .editing
         if editing {
-            _ = outgoing?.composer.handle(.keyboardDismissed)
-            _ = incoming.composer.handle(.textAreaTapped)
+            // The old native responder must survive until the incoming editor claims it;
+            // didEndEditing owns outgoing cleanup.
+            if !preservingNativeFocusTransfer {
+                _ = outgoing?.composer.handle(.keyboardDismissed)
+            }
+            let event: ComposerPresentationEvent = incoming.composer.draft.presentationState == .compact
+                ? .compactTapped : .textAreaTapped
+            _ = incoming.composer.handle(event)
         }
         splitWorkspace?.select(slot)
     }

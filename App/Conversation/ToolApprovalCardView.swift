@@ -53,6 +53,7 @@ struct ToolApprovalCardView: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .scrollEdgeEffectStyle(.soft, for: .all)
         .accessibilityElement(children: .contain)
     }
 

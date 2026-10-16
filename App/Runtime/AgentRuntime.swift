@@ -27,6 +27,12 @@ enum AgentRuntimeError: Error, Equatable, Sendable {
 /// attempt guard.
 actor AgentRuntime {
 
+    func settleIncompatiblePendingTools(inRun runID: String) throws {
+        for call in try store.toolCalls(inRun: runID) {
+            _ = try toolRuntime.validatePendingIntent(toolCallID: call.id)
+        }
+    }
+
     private final class ContinuationBox: @unchecked Sendable {
         var value: AsyncThrowingStream<AgentEvent, Error>.Continuation?
     }
@@ -367,6 +373,8 @@ actor AgentRuntime {
                       call.batchSequence == frozenCall.batchSequence
                 else { throw RunRequestRebuildError.incompleteCommittedInput }
 
+                _ = try toolRuntime.validatePendingIntent(toolCallID: call.id)
+                call = try store.toolCall(id: call.id) ?? call
                 if call.state == .waitingForApproval {
                     await waitForToolDecision(toolCallID: call.id)
                     if stopRequested.contains(runID) || Task.isCancelled {

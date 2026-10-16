@@ -126,7 +126,12 @@ struct NewConversationView: View {
                         onUserFocus: {
                             guard lift?.state.phase == .full, lift?.workspaceResizeActive != true,
                                   workspaceNavigation?.blocksLift != true else { return }
-                            if let logicalSlot { model.selectSplitSlot(logicalSlot) }
+                            if let logicalSlot {
+                                model.selectSplitSlot(
+                                    logicalSlot,
+                                    preservingNativeFocusTransfer: composerDock != nil
+                                )
+                            }
                         }
                     )
                     // Native scroll geometry belongs to this Conversation's Pane.
@@ -239,6 +244,7 @@ struct NewConversationView: View {
                     }
                 }
                 .listStyle(.plain)
+                .scrollEdgeEffectStyle(.soft, for: .all)
                 .safeAreaInset(edge: .top) {
                     if let failure = recentOpenFailure {
                         VStack(alignment: .leading, spacing: 8) {

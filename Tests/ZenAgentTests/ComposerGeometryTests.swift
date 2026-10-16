@@ -5,6 +5,34 @@ import Testing
 
 @Suite("Composer geometry")
 struct ComposerGeometryTests {
+    @Test("resting corner centers follow the window instead of its safe-area edge")
+    func restingAlignsWithWindowCorners() {
+        for lineHeight in [CGFloat(22), CGFloat(42)] {
+            let layout = ComposerGeometry.resolve(state: .resting, containerWidth: 402,
+                availableHeight: 840, measuredTextHeight: lineHeight, scaledLineHeight: lineHeight,
+                collapseProgress: .expanded, windowCornerRadius: 62, bottomSafeAreaInset: 34)
+            let radius = ComposerShapeToken.minimumRadius(for: layout)
+            #expect(abs(layout.outerFrame.minX + radius - 62) < 0.01)
+            #expect(abs(layout.outerFrame.maxY - radius - (874 - 62)) < 0.01)
+            #expect(layout.textFrame.width >= ComposerGeometry.reliableHitSize)
+        }
+    }
+
+    @Test("oversized text and narrow containers retain a usable resting layout")
+    func windowAlignmentFallsBackWhenItCannotFit() {
+        let samples: [(CGFloat, CGFloat)] = [(402, 120), (140, 22), (194, 22)]
+        for (width, lineHeight) in samples {
+            let plain = ComposerGeometry.resolve(state: .resting, containerWidth: width,
+                availableHeight: 840, measuredTextHeight: lineHeight, scaledLineHeight: lineHeight,
+                collapseProgress: .expanded)
+            let concentric = ComposerGeometry.resolve(state: .resting, containerWidth: width,
+                availableHeight: 840, measuredTextHeight: lineHeight, scaledLineHeight: lineHeight,
+                collapseProgress: .expanded, windowCornerRadius: 62, bottomSafeAreaInset: 34)
+            #expect(concentric.outerFrame == plain.outerFrame)
+            #expect(concentric.bottomSpacing == plain.bottomSpacing)
+        }
+    }
+
     @Test("larger composer preserves the resting and editing corner centers")
     func enlargedEndpointsKeepCornerCenters() {
         for lineHeight in [CGFloat(22), CGFloat(42)] {
