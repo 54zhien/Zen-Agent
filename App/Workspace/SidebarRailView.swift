@@ -22,6 +22,17 @@ struct SidebarRailLayout {
                   windowInsets.top + Self.topSafeAreaPadding)
         bottom = windowInsets.bottom + Self.bottomSafeAreaPadding
     }
+
+    /// Settings shares the display corner's center, so its glass circle reads
+    /// as concentric with the screen. Too small a corner keeps the column slot.
+    func settingsPlacement(windowCornerRadius radius: CGFloat,
+                           isRightToLeft: Bool = false) -> (bottom: CGFloat, leadingShift: CGFloat) {
+        let half = Self.controlSize / 2
+        guard radius.isFinite, radius >= half + 8 else { return (bottom, 0) }
+        let columnLeading = leading + (Self.contentWidth - Self.controlSize) / 2
+        let shift = (radius - half) - columnLeading
+        return (radius - half, isRightToLeft ? -shift : shift)
+    }
 }
 
 enum SidebarProgressPresentation {
@@ -35,6 +46,10 @@ enum SidebarProgressPresentation {
 struct SidebarRailView: View {
     let availableRoutes: Set<WorkspaceOverlayRoute>
     var conversationActions: Set<WorkspaceConversationAction> = []
+    /// While the Rail is still moving its controls are inert but keep their
+    /// resting appearance; dimming them read as a half-loaded Sidebar.
+    var isInteractive = true
+    var settingsLeadingShift: CGFloat = 0
     var onAction: (WorkspaceConversationAction) -> Void = { _ in }
     let onSelect: (WorkspaceOverlayRoute) -> Void
 
@@ -54,7 +69,8 @@ struct SidebarRailView: View {
                                 .frame(width: SidebarRailLayout.controlSize, height: SidebarRailLayout.controlSize)
                                 .glassEffect(.regular.interactive(), in: Circle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(SidebarRailButtonStyle(unavailable: false))
+                        .disabled(!isInteractive)
                         .foregroundStyle(.primary)
                         .accessibilityLabel("分屏").accessibilityIdentifier("split-entry")
                     }
@@ -72,6 +88,7 @@ struct SidebarRailView: View {
             .mask { Rectangle().padding(.horizontal, -16).padding(.vertical, -8) }
             .scrollEdgeEffectHidden(true, for: .all)
             destination(.settings, symbol: "gearshape", label: "设置", identifier: "sidebar-settings")
+                .offset(x: settingsLeadingShift)
         }
         .frame(width: SidebarRailLayout.contentWidth)
         .accessibilityElement(children: .contain)
@@ -85,8 +102,9 @@ struct SidebarRailView: View {
                 .contentShape(Rectangle())
                 .glassEffect(.regular.interactive(), in: Circle())
         }
-        .buttonStyle(.plain).foregroundStyle(.primary)
-        .disabled(!conversationActions.contains(action))
+        .buttonStyle(SidebarRailButtonStyle(unavailable: !conversationActions.contains(action)))
+        .foregroundStyle(.primary)
+        .disabled(!isInteractive || !conversationActions.contains(action))
         .accessibilityLabel(label).accessibilityIdentifier(identifier)
     }
 
@@ -99,10 +117,24 @@ struct SidebarRailView: View {
                 .contentShape(Rectangle())
                 .glassEffect(.regular.interactive(), in: Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SidebarRailButtonStyle(unavailable: !availableRoutes.contains(route)))
         .foregroundStyle(.primary)
-        .disabled(!availableRoutes.contains(route))
+        .disabled(!isInteractive || !availableRoutes.contains(route))
         .accessibilityLabel(label)
         .accessibilityIdentifier(identifier)
+    }
+}
+
+/// Dims only a genuinely unavailable control. Inertness during Rail motion is
+/// expressed through `disabled` alone, so the glass stays solid while sliding.
+private struct SidebarRailButtonStyle: ButtonStyle {
+    let unavailable: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(unavailable ? 0.35 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.92 : 1)
+            .animation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0.3), value: configuration.isPressed)
     }
 }

@@ -7,8 +7,10 @@ private struct SidebarRailProgressLayer: View {
     let layout: SidebarRailLayout
     let travel: CGFloat
     let height: CGFloat
+    let windowCornerRadius: CGFloat
     let onSelect: (WorkspaceOverlayRoute) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.layoutDirection) private var direction
 
     var body: some View {
         let progress = CGFloat(state.progress)
@@ -17,16 +19,20 @@ private struct SidebarRailProgressLayer: View {
         let isInteractive = state.isOpen && !isDragging && settlementID == nil
 
         if progress > 0 || settlementID != nil {
+            let settings = layout.settingsPlacement(windowCornerRadius: windowCornerRadius,
+                                                    isRightToLeft: direction == .rightToLeft)
             SidebarRailView(
-                availableRoutes: isInteractive ? availableRoutes : [],
-                conversationActions: isInteractive ? state.conversationActions : [],
+                availableRoutes: availableRoutes,
+                conversationActions: state.conversationActions,
+                isInteractive: isInteractive,
+                settingsLeadingShift: settings.leadingShift,
                 onAction: state.perform,
                 onSelect: onSelect
             )
             .padding(.leading, layout.leading)
             .padding(.trailing, layout.leading)
             .padding(.top, layout.top)
-            .padding(.bottom, layout.bottom)
+            .padding(.bottom, settings.bottom)
             .frame(width: travel, height: height)
             // The native Surface covers the full viewport; reveal only the exposed
             // portion of the rail above its hit region.
@@ -84,6 +90,7 @@ struct WorkspaceNavigationView<Content: View>: View {
                 SidebarRailProgressLayer(state: state,
                     availableRoutes: overlays?.availableRoutes ?? [], layout: rail,
                     travel: travel, height: geometry.size.height,
+                    windowCornerRadius: windowCornerRadius,
                     onSelect: { route in
                         overlays?.enter(route, eligible: context()?.allowsOpening == true, captureFocus: captureFocus)
                     })

@@ -39,7 +39,7 @@ struct TypographyTokenTests {
             (.interfaceTitle, .interface, 20, .title3, nil),
             (.interfaceBody, .interface, 17, .body, nil),
             (.interfaceCaption, .interface, 13, .caption1, nil),
-            (.conversationPrompt, .content, 16, .body, 400),
+            (.conversationPrompt, .interface, 16, .body, nil),
             (.conversationBody, .content, 16, .body, 400),
             (.conversationHeading, .content, 20, .title3, 600),
             (.conversationQuote, .content, 16, .body, 400),

@@ -342,6 +342,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         onOpen: { id in Task { _ = await model.openInSplitResult(id: id) } },
                         onNew: { _ = model.createNewInSplit() })
                         .frame(width: emptyFrame.width, height: emptyFrame.height)
+                        .clipShape(RoundedRectangle(cornerRadius: SplitTargetingGeometry.paneCornerRadius,
+                                                    style: .continuous))
                         .position(x: emptyFrame.midX, y: emptyFrame.midY)
                         .offset(x: sidebarTranslation)
                         .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
@@ -428,7 +430,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
         let visible = surfaceIsVisible(slot)
         let suppressed = returnPresentation.suppressesTarget(slot)
         let surfaceBrowse: AppSpaceBrowseController? = model != nil && slot == (model?.previewSurfaceSlot ?? model?.sourceSurfaceSlot) ? browse : nil
-        let corner: CGFloat = model?.splitWorkspace != nil && !driver.retainsAppSpaceViewport ? 24 : 0
+        let corner: CGFloat = model?.splitWorkspace != nil && !driver.retainsAppSpaceViewport
+            ? SplitTargetingGeometry.paneCornerRadius : 0
         // The proposed Workspace already avoids the keyboard. Only square an
         // exterior edge that actually reaches that shortened viewport; inner
         // corners and the black divider retain their normal geometry.
@@ -746,10 +749,11 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     private func zone(_ frame: CGRect, selected: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
+        RoundedRectangle(cornerRadius: SplitTargetingGeometry.paneCornerRadius, style: .continuous)
             .strokeBorder(Color.white.opacity(selected ? 0.35 : 0.09), lineWidth: selected ? 1.5 : 1)
-            .background(RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .background(RoundedRectangle(cornerRadius: SplitTargetingGeometry.paneCornerRadius, style: .continuous)
                 .fill(Color.white.opacity(selected ? 0.07 : 0.025)))
+            .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0.15), value: selected)
             .frame(width: frame.width, height: frame.height)
             .position(x: frame.midX, y: frame.midY)
     }

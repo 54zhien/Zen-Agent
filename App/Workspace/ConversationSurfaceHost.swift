@@ -754,7 +754,11 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         updateCrop()
         let identity = UUID()
         animationIdentity = identity
-        let animation = UIViewPropertyAnimator(duration: 0.28, curve: .easeInOut) { [weak self] in
+        // Critically damped toward Full so the page never overshoots the screen;
+        // a slight spring toward a Card gives the landing its physical settle.
+        let animation = UIViewPropertyAnimator(duration: to > from ? 0.42 : 0.36,
+                                               dampingRatio: to > from ? 0.86 : 1)
+        animation.addAnimations { [weak self] in
             _ = self?.apply(.init(from: restingPose, to: target, progress: CGFloat(to)))
         }
         animation.isManualHitTestingEnabled = true
@@ -772,22 +776,25 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     func convergeLift(to pose: SurfaceGeometry.Pose, animated: Bool,
                       completion: @escaping (Bool) -> Void) {
-        // A reversed settlement starts at visible pixels, not the animator's
-        // cached endpoint or a scalar projected onto a different Lift path.
-        if animator != nil, let visible = surfaceView.layer.presentation() {
-            let available = CGSize(width: view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right,
-                height: view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom)
-            if available.width > 0, available.height > 0 {
-                let transform = visible.transform
-                let captured = SurfaceGeometry.Pose(scale: transform.m11,
-                    translation: CGSize(width: transform.m41 / available.width, height: transform.m42 / available.height),
-                    cornerRadius: visible.cornerRadius, clipFraction: presentation.clipFraction)
-                cancelLiftAnimation()
-                UIView.performWithoutAnimation { _ = apply(.init(to: captured, progress: 1), force: true) }
-            }
+        guard animated else {
+            captureVisibleLiftPose()
+            cancelLiftAnimation()
+            completion(apply(.init(to: pose, progress: 1)))
+            return
         }
+        // Full never overshoots the screen; a floating destination settles
+        // with a slight spring so the release reads as a physical landing.
+        morphLift(to: pose, response: pose == .full ? 0.34 : 0.42,
+                  dampingRatio: pose == .full ? 1 : 0.86, completion: completion)
+    }
+
+    /// Spring transport toward a pose. It always starts from the visible pixels
+    /// of any running transport, so repeated calls retarget without a jump.
+    func morphLift(to pose: SurfaceGeometry.Pose, response: TimeInterval, dampingRatio: CGFloat,
+                   completion: @escaping (Bool) -> Void) {
+        captureVisibleLiftPose()
         cancelLiftAnimation()
-        guard animated, !UIAccessibility.isReduceMotionEnabled else {
+        guard !UIAccessibility.isReduceMotionEnabled else {
             completion(apply(.init(to: pose, progress: 1)))
             return
         }
@@ -795,7 +802,8 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         updateCrop()
         let identity = UUID()
         animationIdentity = identity
-        let animation = UIViewPropertyAnimator(duration: 0.12, curve: .easeOut) { [weak self] in
+        let animation = UIViewPropertyAnimator(duration: response, dampingRatio: dampingRatio)
+        animation.addAnimations { [weak self] in
             _ = self?.apply(.init(to: pose, progress: 1))
         }
         animation.isManualHitTestingEnabled = true
@@ -809,6 +817,28 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             completion(position == .end)
         }
         animation.startAnimation()
+    }
+
+    var isMorphingLift: Bool { animator != nil }
+
+    // A reversed settlement starts at visible pixels, not the animator's
+    // cached endpoint or a scalar projected onto a different Lift path.
+    private func captureVisibleLiftPose() {
+        guard animator != nil, let visible = surfaceView.layer.presentation() else { return }
+        let available = CGSize(width: view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right,
+            height: view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom)
+        guard available.width > 0, available.height > 0 else { return }
+        let transform = visible.transform
+        let mask = cropMask.layer.presentation()?.bounds.size
+        let clip = mask.map { size in
+            CGSize(width: surfaceView.bounds.width > 0 ? min(1, max(0.0001, size.width / surfaceView.bounds.width)) : 1,
+                   height: surfaceView.bounds.height > 0 ? min(1, max(0.0001, size.height / surfaceView.bounds.height)) : 1)
+        } ?? presentation.clipFraction
+        let captured = SurfaceGeometry.Pose(scale: transform.m11,
+            translation: CGSize(width: transform.m41 / available.width, height: transform.m42 / available.height),
+            cornerRadius: max(0, visible.cornerRadius), clipFraction: clip)
+        cancelLiftAnimation()
+        UIView.performWithoutAnimation { _ = apply(.init(to: captured, progress: 1), force: true) }
     }
 
     override var childForStatusBarStyle: UIViewController? { contentController }

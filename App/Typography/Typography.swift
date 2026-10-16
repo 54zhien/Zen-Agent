@@ -66,7 +66,9 @@ enum Typography {
         case .interfaceCaption:
             return TypographyToken(face: .interface, pointSize: 13, textStyle: .caption1, weight: nil)
         case .conversationPrompt:
-            return TypographyToken(face: .content, pointSize: 16, textStyle: .body, weight: 400)
+            // The user's voice uses the interface face so it reads as a distinct, quieter
+            // speaker beside the serif reading body; size matches the body's rhythm.
+            return TypographyToken(face: .interface, pointSize: 16, textStyle: .body, weight: nil)
         case .conversationBody:
             return TypographyToken(face: .content, pointSize: 16, textStyle: .body, weight: 400)
         case .conversationHeading:
@@ -82,8 +84,10 @@ enum Typography {
 
     static func readingSpacing(for role: TypographyRole) -> (tracking: CGFloat, lineSpacing: CGFloat) {
         switch role {
-        case .conversationPrompt, .conversationBody, .conversationQuote:
-            return (tracking: 0.5, lineSpacing: 3)
+        case .conversationBody, .conversationQuote:
+            return (tracking: 0.5, lineSpacing: 5)
+        case .conversationPrompt:
+            return (tracking: 0, lineSpacing: 3)
         default:
             return (tracking: 0, lineSpacing: 0)
         }
