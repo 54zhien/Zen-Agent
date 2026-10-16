@@ -6,6 +6,50 @@ import SwiftUI
 @Suite("Shared Composer native lifecycle", .serialized)
 @MainActor
 struct WorkspaceComposerDockTests {
+    @Test("Dock outlines paint above the editor without adding an accessibility or hit-test view")
+    func outlinesAreNativeLayersAboveRetainedEditor() throws {
+        let container = ComposerDockContainer(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        let portal = ComposerHostPortal(frame: container.bounds)
+        container.install(portal)
+        let views = container.subviews
+        let frame = CGRect(x: 0, y: 440, width: 402, height: 434)
+        let radii = SurfaceCornerRadii(topLeft: 24, topRight: 24, bottomLeft: 62, bottomRight: 62)
+        container.updateOutlines([.init(frame: frame, radii: radii, opacity: 0.9)], animated: false)
+        let outline = try #require(container.layer.sublayers?.last as? CAShapeLayer)
+        #expect(container.subviews == views)
+        #expect(outline.name == "zen-dock-page-outline")
+        #expect(outline.frame == frame)
+        #expect(outline.fillColor == nil)
+        #expect(outline.lineWidth == SidebarSurfaceDecoration.outlineWidth)
+        #expect(outline.path?.boundingBoxOfPath == CGRect(origin: .zero, size: frame.size)
+            .insetBy(dx: outline.lineWidth / 2, dy: outline.lineWidth / 2))
+        #expect(abs(outline.opacity - 0.9) < 0.001)
+        let next = ComposerHostPortal(frame: container.bounds)
+        container.install(next)
+        #expect(container.layer.sublayers?.last === outline,
+                "Reparenting an editor must keep the border above its bottom fade")
+        #expect(next.composer.superview === container)
+        container.updateOutlines([], animated: false)
+        #expect(outline.superlayer == nil)
+        #expect(next.composer.superview === container)
+    }
+
+    @Test("both bottom-reaching Panes keep separate outlines through sidebar progress")
+    func outlineProgressDoesNotChangeGeometryOrEditorOwnership() throws {
+        let container = ComposerDockContainer(frame: CGRect(x: 0, y: 0, width: 874, height: 402))
+        let radii = SurfaceCornerRadii(uniform: 24, corners: [.layerMinXMinYCorner, .layerMinXMaxYCorner])
+        let frames = [CGRect(x: 0, y: 0, width: 434, height: 402),
+                      CGRect(x: 440, y: 0, width: 434, height: 402)]
+        for progress in [CGFloat(0), 0.4, 1, 0] {
+            container.updateOutlines(frames.map { .init(frame: $0, radii: radii, opacity: progress) }, animated: false)
+            let layers = try #require(container.layer.sublayers?.compactMap { $0 as? CAShapeLayer })
+            #expect(layers.count == 2)
+            #expect(layers.map(\.frame) == frames)
+            #expect(layers.allSatisfy { abs(CGFloat($0.opacity) - progress) < 0.001 })
+            #expect(container.subviews.isEmpty)
+        }
+    }
+
     @Test("a lifted native Surface keeps its Composer layout in source coordinates")
     func visualSurfacePoseDoesNotMoveTheHiddenKeyboardAnchor() async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)

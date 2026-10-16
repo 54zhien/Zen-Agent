@@ -408,25 +408,18 @@ struct WorkspaceSurfaceView<Content: View>: View {
         // the page continuation below them as it rises.
         .transaction(value: geometry.size.height) { $0.animation = nil }
         .overlay {
-            ZStack {
-                WorkspaceComposerDock(state: composerDock, activeID: inputPane?.conversationID,
-                    visible: showsWorkspaceComposerDock,
-                    returnsToPortals: model?.splitWorkspace == nil)
-                    // The dock and its bottom fade belong to the lowest Pane's page:
-                    // round them with it instead of squaring its display corners.
-                    .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: dockCornerRadius,
-                        bottomTrailingRadius: dockCornerRadius, style: .continuous))
-                    .opacity(dockLiftOpacity)
-                    .offset(x: sidebarTranslation)
-                    .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
-                // The Dock's page-colored fade covers native Pane subviews. Keep
-                // their border above that fade, with one owner for each outline.
-                GeometryReader { geometry in
-                    dockedSidebarOutlines(in: geometry, progress: sidebarProgress, translation: sidebarTranslation)
-                }
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
+            WorkspaceComposerDock(state: composerDock, activeID: inputPane?.conversationID,
+                visible: showsWorkspaceComposerDock,
+                returnsToPortals: model?.splitWorkspace == nil,
+                outlines: dockedSidebarOutlines(in: geometry, progress: sidebarProgress),
+                sidebarDragging: sidebarDragging)
+                // The dock and its bottom fade belong to the lowest Pane's page:
+                // round them with it instead of squaring its display corners.
+                .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: dockCornerRadius,
+                    bottomTrailingRadius: dockCornerRadius, style: .continuous))
+                .opacity(dockLiftOpacity)
+                .offset(x: sidebarTranslation)
+                .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
         .background(WorkspaceLayoutObserver { context in
@@ -478,25 +471,20 @@ struct WorkspaceSurfaceView<Content: View>: View {
         showsWorkspaceComposerDock && activeSurfaceSlot == nil && abs(frame.maxY - viewport.maxY) < 1
     }
 
-    @ViewBuilder
-    private func dockedSidebarOutlines(in geometry: GeometryProxy, progress: CGFloat, translation: CGFloat) -> some View {
+    private func dockedSidebarOutlines(in geometry: GeometryProxy, progress: CGFloat) -> [WorkspaceComposerDockOutline] {
         let viewport = CGRect(origin: .zero, size: geometry.size)
         let appearance = sidebarPageAppearance(progress: progress)
-        ForEach(WorkspaceSurfaceSlot.allCases, id: \.self) { slot in
+        return WorkspaceSurfaceSlot.allCases.compactMap { slot in
             let driver = controller(for: slot)
             let frame = driver.retainsAppSpaceViewport ? viewport
                 : splitFrame(in: geometry, slot: logicalSlot(for: slot)) ?? viewport
             if surfaceIsVisible(slot), !returnPresentation.suppressesTarget(slot),
                usesDockedSidebarOutline(frame: frame, viewport: viewport) {
-                paneShape(frame, in: viewport, squareBottom: keyboardShortensViewport)
-                    .strokeBorder(Color.primary.opacity(Double(SidebarProgressPresentation.edgeOpacity)),
-                        lineWidth: SidebarSurfaceDecoration.outlineWidth)
-                    .frame(width: frame.width, height: frame.height)
-                    .position(x: frame.midX, y: frame.midY)
-                    .opacity(Double(appearance.outlineOpacity * appearance.surfaceOpacity))
-                    .offset(x: translation)
-                    .animation(sidebarAnimation(isDragging: navigation.isDragging), value: progress)
+                return WorkspaceComposerDockOutline(frame: frame,
+                    radii: paneRadii(frame, in: viewport, squareBottom: keyboardShortensViewport),
+                    opacity: appearance.outlineOpacity * appearance.surfaceOpacity)
             }
+            return nil
         }
     }
 
@@ -845,6 +833,13 @@ struct WorkspaceSurfaceView<Content: View>: View {
     /// The SwiftUI twin of a resting native Pane's corners: display radius on
     /// the display's corners, Pane radius toward the divider.
     private func paneShape(_ frame: CGRect, in viewport: CGRect, squareBottom: Bool = false) -> UnevenRoundedRectangle {
+        let radii = paneRadii(frame, in: viewport, squareBottom: squareBottom)
+        return UnevenRoundedRectangle(topLeadingRadius: radii.topLeft,
+            bottomLeadingRadius: radii.bottomLeft, bottomTrailingRadius: radii.bottomRight,
+            topTrailingRadius: radii.topRight, style: .continuous)
+    }
+
+    private func paneRadii(_ frame: CGRect, in viewport: CGRect, squareBottom: Bool) -> SurfaceCornerRadii {
         let inner = SplitTargetingGeometry.paneCornerRadius
         let display = max(inner, layoutContext?.windowCornerRadius ?? 0)
         let corners = SplitWorkspaceGeometry.viewportCorners(of: frame, in: viewport)
@@ -852,9 +847,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
             if squareBottom, corner == .layerMinXMaxYCorner || corner == .layerMaxXMaxYCorner { return 0 }
             return corners.contains(corner) ? display : inner
         }
-        return UnevenRoundedRectangle(topLeadingRadius: r(.layerMinXMinYCorner),
-            bottomLeadingRadius: r(.layerMinXMaxYCorner), bottomTrailingRadius: r(.layerMaxXMaxYCorner),
-            topTrailingRadius: r(.layerMaxXMinYCorner), style: .continuous)
+        return SurfaceCornerRadii(topLeft: r(.layerMinXMinYCorner), topRight: r(.layerMaxXMinYCorner),
+            bottomLeft: r(.layerMinXMaxYCorner), bottomRight: r(.layerMaxXMaxYCorner))
     }
 
     private func splitTargetOverlay(top: CGRect, bottom: CGRect, guide: CGRect) -> some View {

@@ -163,8 +163,68 @@ final class ComposerHostPortal: UIView {
 }
 
 @MainActor
+struct WorkspaceComposerDockOutline {
+    let frame: CGRect
+    let radii: SurfaceCornerRadii
+    let opacity: CGFloat
+}
+
+@MainActor
 final class ComposerDockContainer: UIView {
     private weak var portal: ComposerHostPortal?
+    private var outlineLayers: [CAShapeLayer] = []
+    private var outlineGeometry: [WorkspaceComposerDockOutline] = []
+
+    /// Decoration stays in the existing native container. A full-viewport
+    /// SwiftUI drawing sibling can occlude the editor's AX hit test on rotation,
+    /// even when that sibling disables hit testing and accessibility.
+    func updateOutlines(_ outlines: [WorkspaceComposerDockOutline], animated: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        while outlineLayers.count > outlines.count { outlineLayers.removeLast().removeFromSuperlayer() }
+        while outlineLayers.count < outlines.count {
+            let outline = CAShapeLayer()
+            outline.name = "zen-dock-page-outline"
+            outline.fillColor = nil
+            outline.lineWidth = SidebarSurfaceDecoration.outlineWidth
+            outline.opacity = 0
+            outlineLayers.append(outline)
+        }
+        for (index, value) in outlines.enumerated() {
+            let outline = outlineLayers[index]
+            let opacity = Float(value.opacity)
+            let previous = outline.presentation()?.opacity ?? outline.opacity
+            if index >= outlineGeometry.count || outlineGeometry[index].frame != value.frame
+                || outlineGeometry[index].radii != value.radii {
+                outline.frame = value.frame
+                outline.path = value.radii.path(in: CGRect(origin: .zero, size: value.frame.size),
+                    inset: SidebarSurfaceDecoration.outlineWidth / 2)
+            }
+            outline.strokeColor = SidebarProgressPresentation.edgeColor(traits: traitCollection).cgColor
+            if outline.opacity != opacity {
+                outline.removeAnimation(forKey: "sidebar-opacity")
+                outline.opacity = opacity
+                if animated, !UIAccessibility.isReduceMotionEnabled {
+                    let fade = CABasicAnimation(keyPath: "opacity")
+                    fade.fromValue = previous
+                    fade.toValue = opacity
+                    fade.duration = 0.22
+                    fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    outline.add(fade, forKey: "sidebar-opacity")
+                }
+            }
+        }
+        outlineGeometry = outlines
+        keepOutlinesAboveEditor()
+        CATransaction.commit()
+    }
+
+    private func keepOutlinesAboveEditor() {
+        guard !(layer.sublayers ?? []).suffix(outlineLayers.count)
+            .elementsEqual(outlineLayers, by: { $0 === $1 }) else { return }
+        for outline in outlineLayers { layer.addSublayer(outline) }
+    }
+
     func install(_ incoming: ComposerHostPortal) {
         guard portal !== incoming || incoming.composer.superview !== self else {
             // A layout-only refresh is not a new blur request. Positive intent
@@ -179,6 +239,7 @@ final class ComposerDockContainer: UIView {
         incoming.composer.removeFromSuperview()
         incoming.composer.frame = bounds
         addSubview(incoming.composer)
+        keepOutlinesAboveEditor()
         portal = incoming
         incoming.registerExternalOwner()
         incoming.composer.layoutIfNeeded()
@@ -201,8 +262,11 @@ struct WorkspaceComposerDock: UIViewRepresentable {
     let activeID: String?
     let visible: Bool
     let returnsToPortals: Bool
+    var outlines: [WorkspaceComposerDockOutline] = []
+    var sidebarDragging = false
     func makeUIView(context: Context) -> ComposerDockContainer { ComposerDockContainer() }
     func updateUIView(_ view: ComposerDockContainer, context: Context) {
         state.configure(container: view, activeID: activeID, visible: visible, returnsToPortals: returnsToPortals)
+        view.updateOutlines(outlines, animated: !sidebarDragging && context.transaction.animation != nil)
     }
 }
