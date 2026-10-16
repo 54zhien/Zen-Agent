@@ -490,7 +490,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             allBounds = allBounds.intersection(frame)
             if view.clipsToBounds || view.layer.masksToBounds { clipped = clipped.intersection(frame) }
             let name = String(String(describing: type(of: view)).prefix(100))
-            chain.append("\(name){bounds=\(view.bounds),window=\(frame),clip=\(view.clipsToBounds),maskBounds=\(view.layer.masksToBounds),mask=\(view.layer.mask != nil),maskFrame=\(view.layer.mask?.frame ?? .zero),maskPath=\((view.layer.mask as? CAShapeLayer)?.path?.boundingBoxOfPath ?? .zero),radius=\(view.layer.cornerRadius),hidden=\(view.isHidden),alpha=\(view.alpha),interaction=\(view.isUserInteractionEnabled),axElement=\(view.isAccessibilityElement),axHidden=\(view.accessibilityElementsHidden),axModal=\(view.accessibilityViewIsModal)}")
+            chain.append("\(name){bounds=\(view.bounds),window=\(frame),clip=\(view.clipsToBounds),maskBounds=\(view.layer.masksToBounds),mask=\(view.layer.mask != nil),maskFrame=\(view.layer.mask?.frame ?? .zero),maskPath=\((view.layer.mask as? CAShapeLayer)?.path?.boundingBoxOfPath ?? .zero),hidden=\(view.isHidden),alpha=\(view.alpha),interaction=\(view.isUserInteractionEnabled),axElement=\(view.isAccessibilityElement),axHidden=\(view.accessibilityElementsHidden),axModal=\(view.accessibilityViewIsModal)}")
             ancestor = view.superview
         }
         let activation = editor.accessibilityActivationPoint
