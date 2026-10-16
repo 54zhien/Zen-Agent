@@ -370,14 +370,13 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         onOpen: { id in Task { _ = await model.openInSplitResult(id: id) } },
                         onNew: { _ = model.createNewInSplit() })
                         .frame(width: emptyFrame.width, height: emptyFrame.height)
-                        .clipShape(RoundedRectangle(cornerRadius: SplitTargetingGeometry.paneCornerRadius,
-                                                    style: .continuous))
+                        .clipShape(paneShape(emptyFrame, in: CGRect(origin: .zero, size: geometry.size)))
                         .position(x: emptyFrame.midX, y: emptyFrame.midY)
                         .offset(x: sidebarTranslation)
                         .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
                 }
                 if activeSurfaceSlot == nil, let layout = splitGeometry(in: geometry) {
-                    divider(model: model, split: split, layout: layout)
+                    divider(model: model, split: split, layout: layout, sidebarProgress: sidebarProgress)
                         .position(x: layout.divider.midX, y: layout.divider.midY)
                         .offset(x: sidebarTranslation)
                         .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
@@ -432,17 +431,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
             Color(uiColor: .systemBackground)
             Color.black.opacity(0.28 * (1 - progress))
                 .animation(sidebarAnimation(isDragging: isDragging), value: progress)
-            if case .split(let axis) = devicePresentation, activeSurfaceSlot == nil,
-               let layout = splitGeometry(in: geometry) {
-                // Preserve the black space around the divider-facing 24pt
-                // corners while the Sidebar page is exposed underneath.
-                Rectangle().fill(Color.black)
-                    .frame(width: layout.divider.width + (axis == .leftRight ? 48 : 0),
-                           height: layout.divider.height + (axis == .topBottom ? 48 : 0))
-                    .position(x: layout.divider.midX, y: layout.divider.midY)
-                    .offset(x: translation)
-                    .animation(sidebarAnimation(isDragging: isDragging), value: progress)
-            }
+            // Nothing dark stays behind the Panes: they fade slightly while the
+            // Sidebar opens, and a dark block would show through as gray.
+            // The divider itself carries the transition to a hairline.
         }
         .opacity(SidebarProgressPresentation.opacity(forProgress: Double(progress)))
         .animation(sidebarAnimation(isDragging: isDragging), value: progress)
@@ -468,6 +459,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
         } ?? false
         let squareBottomCorners = model?.splitWorkspace != nil && !driver.retainsAppSpaceViewport
             && keyboardShortensViewport && abs(frame.maxY - fullFrame.maxY) < 1
+        let displayCorners = corner > 0 ? SplitWorkspaceGeometry.viewportCorners(of: frame, in: fullFrame) : []
         let settled: ((UUID) -> Void)?
         if slot == inputSurfaceSlot { settled = { navigation.completeSettlement($0) } }
         else { settled = nil }
@@ -481,7 +473,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
             deleteAction: deleteAction, isDeletionPending: isDeletionPending,
             isWorkspaceVisible: visible, isInputSuppressed: suppressed,
             isReturnProxyHidden: returnPresentation.hidesOrigin(slot),
-            restingCornerRadius: corner, squareBottomCorners: squareBottomCorners, sidebarOffset: sidebarOffset,
+            restingCornerRadius: corner, squareBottomCorners: squareBottomCorners,
+            displayCorners: displayCorners, sidebarOffset: sidebarOffset,
             sidebarProgress: sidebarProgress, sidebarDragging: sidebarDragging,
             sidebarSettlement: navigation.settlementID,
             onSidebarSettled: settled,
@@ -727,13 +720,19 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     private func divider(model: AppShellModel, split: SplitWorkspaceState,
-                         layout: SplitWorkspaceGeometry) -> some View {
+                         layout: SplitWorkspaceGeometry, sidebarProgress: CGFloat) -> some View {
         let horizontal = split.axis == .leftRight
         let length = horizontal ? layout.viewport.width : layout.viewport.height
         let minimum = SplitWorkspaceGeometry.minimumRatio(height: length,
             preferredMinimum: horizontal ? minimumWidth : max(180, minimumHeight * 0.65))
+        let fade = min(1, max(0, sidebarProgress))
         return ZStack {
-            Rectangle().fill(Color.black)
+            // As the Sidebar opens the black gap thins out into the same hairline
+            // gray that outlines each Pane, in light and dark appearance alike.
+            ZStack {
+                Color.primary.opacity(SidebarProgressPresentation.edgeOpacity * fade)
+                Color.black.opacity(1 - fade)
+            }
                 .frame(width: layout.divider.width, height: layout.divider.height)
                 .allowsHitTesting(false)
             SplitDividerView(ratio: split.activeRatio, closeIntent: resize.closeIntent,
@@ -751,6 +750,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 resizeDiagnostic: resizeDiagnostic)
                 .frame(width: horizontal ? 28 : min(64, layout.viewport.width * 0.2),
                        height: horizontal ? min(64, layout.viewport.height * 0.2) : 28)
+                .opacity(1 - fade)
         }
         .frame(width: layout.divider.width, height: layout.divider.height)
         .accessibilityElement(children: .contain)
@@ -763,6 +763,18 @@ struct WorkspaceSurfaceView<Content: View>: View {
 #else
         return nil
 #endif
+    }
+
+    /// The SwiftUI twin of a resting native Pane's corners: display radius on
+    /// the display's corners, Pane radius toward the divider.
+    private func paneShape(_ frame: CGRect, in viewport: CGRect) -> UnevenRoundedRectangle {
+        let inner = SplitTargetingGeometry.paneCornerRadius
+        let display = max(inner, layoutContext?.windowCornerRadius ?? 0)
+        let corners = SplitWorkspaceGeometry.viewportCorners(of: frame, in: viewport)
+        func r(_ corner: CACornerMask) -> CGFloat { corners.contains(corner) ? display : inner }
+        return UnevenRoundedRectangle(topLeadingRadius: r(.layerMinXMinYCorner),
+            bottomLeadingRadius: r(.layerMinXMaxYCorner), bottomTrailingRadius: r(.layerMaxXMaxYCorner),
+            topTrailingRadius: r(.layerMaxXMinYCorner), style: .continuous)
     }
 
     private func splitTargetOverlay(top: CGRect, bottom: CGRect, guide: CGRect) -> some View {

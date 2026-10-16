@@ -22,6 +22,8 @@ final class WorkspaceHaptics {
         case splitTarget
         /// Release committed the Split.
         case splitCommit
+        /// A Composer control (More, Send, Stop) was pressed.
+        case control
     }
 
     private let rigid = UIImpactFeedbackGenerator(style: .rigid)
@@ -44,6 +46,7 @@ final class WorkspaceHaptics {
         case .landed: soft.impactOccurred(intensity: 0.75)
         case .splitTarget: rigid.impactOccurred(intensity: 0.9)
         case .splitCommit: medium.impactOccurred(intensity: 1)
+        case .control: rigid.impactOccurred(intensity: 0.6)
         }
         prepare()
     }

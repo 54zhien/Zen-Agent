@@ -35,8 +35,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private let viewport = UIView()
     let editor = UITextView()
     let placeholder = UILabel()
-    private let plus = UIButton(type: .system)
-    private let primary = UIButton(type: .system)
+    private let plus = ComposerControlButton(type: .system)
+    private let primary = ComposerControlButton(type: .system)
     private let errorLabel = UILabel()
     private let geometryProbe = UIView()
     private var shelfController: UIHostingController<QuoteShelfView>?
@@ -808,8 +808,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     @objc private func primaryTapped() {
         switch configuration?.primary {
-        case .send(let enabled) where enabled: configuration?.onSend()
-        case .stop(_, let enabled) where enabled: configuration?.onStop()
+        case .send(let enabled) where enabled:
+            WorkspaceHaptics.shared.play(.control)
+            configuration?.onSend()
+        case .stop(_, let enabled) where enabled:
+            WorkspaceHaptics.shared.play(.control)
+            configuration?.onStop()
         default: break
         }
     }
@@ -929,5 +933,37 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         quotePhase = phase
         liftInteraction.checkReadiness()
         configuration?.onQuotePhase(phase)
+    }
+}
+
+/// A Composer glyph button. Its menu opens with the Composer's control haptic,
+/// and the menu's lift and dismissal previews show only the glyph: UIKit's
+/// default preview adds a translucent capsule platter that lingers under the
+/// icon after the menu closes.
+@MainActor
+final class ComposerControlButton: UIButton {
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                         willDisplayMenuFor configuration: UIContextMenuConfiguration,
+                                         animator: (any UIContextMenuInteractionAnimating)?) {
+        super.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: animator)
+        WorkspaceHaptics.shared.play(.control)
+    }
+
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+        previewForHighlightingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
+        glyphPreview()
+    }
+
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+        previewForDismissingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
+        glyphPreview()
+    }
+
+    private func glyphPreview() -> UITargetedPreview? {
+        guard window != nil else { return nil }
+        let parameters = UIPreviewParameters()
+        parameters.backgroundColor = .clear
+        parameters.shadowPath = UIBezierPath()
+        return UITargetedPreview(view: self, parameters: parameters)
     }
 }

@@ -1,6 +1,10 @@
 import UIKit
 
 struct SplitWorkspaceGeometry {
+    /// The visible black gap between Panes. Its grab area is wider and lives
+    /// on the divider handle, so thinning the gap never shrinks the target.
+    static let dividerThickness: CGFloat = 6
+
     let viewport: CGRect
     let top: CGRect
     let bottom: CGRect
@@ -22,7 +26,7 @@ struct SplitWorkspaceGeometry {
                rect.maxX, rect.maxY].allSatisfy({ $0.isFinite }) else { return nil }
         viewport = rect
         let length = axis == .topBottom ? rect.height : rect.width
-        let gap = min(12, length * min(ratio, 1 - ratio))
+        let gap = min(Self.dividerThickness, length * min(ratio, 1 - ratio))
         if axis == .topBottom {
             let boundary = rect.minY + rect.height * ratio
             top = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: boundary - rect.minY - gap / 2)
@@ -37,6 +41,19 @@ struct SplitWorkspaceGeometry {
     }
 
     func frame(for slot: SplitDropSlot) -> CGRect { slot == .top ? top : bottom }
+
+    /// Corners of `frame` that sit on the viewport's own corners. Those follow
+    /// the display radius; corners facing the divider keep the Pane radius.
+    static func viewportCorners(of frame: CGRect, in viewport: CGRect) -> CACornerMask {
+        let left = abs(frame.minX - viewport.minX) < 1, right = abs(frame.maxX - viewport.maxX) < 1
+        let top = abs(frame.minY - viewport.minY) < 1, bottom = abs(frame.maxY - viewport.maxY) < 1
+        var corners: CACornerMask = []
+        if top && left { corners.insert(.layerMinXMinYCorner) }
+        if top && right { corners.insert(.layerMaxXMinYCorner) }
+        if bottom && left { corners.insert(.layerMinXMaxYCorner) }
+        if bottom && right { corners.insert(.layerMaxXMaxYCorner) }
+        return corners
+    }
 
     // Calibration starts from room for navigation, Composer and a reading area.
     // Very small windows reduce the minimum symmetrically instead of creating

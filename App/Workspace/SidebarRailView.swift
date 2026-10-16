@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SidebarRailLayout {
     static let contentWidth: CGFloat = 64
@@ -36,6 +37,14 @@ struct SidebarRailLayout {
 }
 
 enum SidebarProgressPresentation {
+    /// Opacity of the hairline gray that the Split divider fades into and that
+    /// outlines the page while the Sidebar is open, over `label` in both appearances.
+    static let edgeOpacity: CGFloat = 0.16
+
+    static func edgeColor(traits: UITraitCollection) -> UIColor {
+        UIColor.label.resolvedColor(with: traits).withAlphaComponent(edgeOpacity)
+    }
+
     static func opacity(forProgress progress: Double) -> Double {
         let clamped = progress.isFinite ? min(1, max(0, progress)) : 0
         return 0.25 + 0.75 * clamped
@@ -55,44 +64,50 @@ struct SidebarRailView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ScrollView(.vertical) {
-                VStack(spacing: 8) {
-                    action(.new, symbol: "square.and.pencil", label: "新会话", identifier: "new-conversation-new")
-                    action(.recent, symbol: "clock.arrow.circlepath", label: "最近会话", identifier: "new-conversation-recent")
-                    if conversationActions.contains(.splitTop) {
-                        Menu {
-                            Button("上方分屏") { onAction(.splitTop) }.accessibilityIdentifier("split-open-top")
-                            Button("下方分屏") { onAction(.splitBottom) }.accessibilityIdentifier("split-open-bottom")
-                        } label: {
-                            Image(systemName: "rectangle.split.2x1")
-                                .font(.system(size: SidebarRailLayout.iconSize))
-                                .frame(width: SidebarRailLayout.controlSize, height: SidebarRailLayout.controlSize)
-                                .glassEffect(.regular.interactive(), in: Circle())
-                        }
-                        .buttonStyle(SidebarRailButtonStyle(unavailable: false))
-                        .disabled(!isInteractive)
-                        .foregroundStyle(.primary)
-                        .accessibilityLabel("分屏").accessibilityIdentifier("split-entry")
-                    }
-                    if conversationActions.contains(.configure) {
-                        action(.configure, symbol: "slider.horizontal.3", label: "配置模型", identifier: "new-conversation-configure")
-                    }
-                    destination(.search, symbol: "magnifyingglass", label: "搜索", identifier: "sidebar-search")
-                    destination(.files, symbol: "folder", label: "文件", identifier: "sidebar-files")
+            // The column stays put. Only a window too short to hold every
+            // control falls back to scrolling instead of clipping one away.
+            ViewThatFits(in: .vertical) {
+                VStack(spacing: 8) { controls }
+                ScrollView(.vertical) {
+                    VStack(spacing: 8) { controls }
                 }
+                .scrollIndicators(.hidden)
+                .scrollClipDisabled()
+                .mask { Rectangle().padding(.horizontal, -16).padding(.vertical, -8) }
+                .scrollEdgeEffectHidden(true, for: .all)
             }
-            .scrollIndicators(.hidden)
-            .scrollClipDisabled()
-            // Keep the glass halo outside the narrow column without allowing
-            // scrolled controls to paint over the status area or Settings.
-            .mask { Rectangle().padding(.horizontal, -16).padding(.vertical, -8) }
-            .scrollEdgeEffectHidden(true, for: .all)
+            .frame(maxHeight: .infinity, alignment: .top)
             destination(.settings, symbol: "gearshape", label: "设置", identifier: "sidebar-settings")
                 .offset(x: settingsLeadingShift)
         }
         .frame(width: SidebarRailLayout.contentWidth)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("sidebar-rail")
+    }
+
+    @ViewBuilder private var controls: some View {
+        action(.new, symbol: "square.and.pencil", label: "新会话", identifier: "new-conversation-new")
+        action(.recent, symbol: "clock.arrow.circlepath", label: "最近会话", identifier: "new-conversation-recent")
+        if conversationActions.contains(.splitTop) {
+            Menu {
+                Button("上方分屏") { onAction(.splitTop) }.accessibilityIdentifier("split-open-top")
+                Button("下方分屏") { onAction(.splitBottom) }.accessibilityIdentifier("split-open-bottom")
+            } label: {
+                Image(systemName: "rectangle.split.2x1")
+                    .font(.system(size: SidebarRailLayout.iconSize))
+                    .frame(width: SidebarRailLayout.controlSize, height: SidebarRailLayout.controlSize)
+                    .glassEffect(.regular.interactive(), in: Circle())
+            }
+            .buttonStyle(SidebarRailButtonStyle(unavailable: false))
+            .disabled(!isInteractive)
+            .foregroundStyle(.primary)
+            .accessibilityLabel("分屏").accessibilityIdentifier("split-entry")
+        }
+        if conversationActions.contains(.configure) {
+            action(.configure, symbol: "slider.horizontal.3", label: "配置模型", identifier: "new-conversation-configure")
+        }
+        destination(.search, symbol: "magnifyingglass", label: "搜索", identifier: "sidebar-search")
+        destination(.files, symbol: "folder", label: "文件", identifier: "sidebar-files")
     }
 
     private func action(_ action: WorkspaceConversationAction, symbol: String, label: String, identifier: String) -> some View {

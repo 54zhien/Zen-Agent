@@ -13,6 +13,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var isReturnProxyHidden: Bool
     var restingCornerRadius: CGFloat
     var squareBottomCorners: Bool
+    var displayCorners: CACornerMask
     var sidebarOffset: CGFloat
     var sidebarProgress: CGFloat
     var sidebarDragging: Bool
@@ -29,6 +30,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
          isWorkspaceVisible: Bool = true,
          isInputSuppressed: Bool = false, isReturnProxyHidden: Bool = false,
          restingCornerRadius: CGFloat = 0, squareBottomCorners: Bool = false,
+         displayCorners: CACornerMask = [],
          sidebarOffset: CGFloat = 0, sidebarProgress: CGFloat = 0, sidebarDragging: Bool = false,
          sidebarSettlement: UUID? = nil,
          onSidebarSettled: ((UUID) -> Void)? = nil,
@@ -45,6 +47,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         self.isReturnProxyHidden = isReturnProxyHidden
         self.restingCornerRadius = restingCornerRadius
         self.squareBottomCorners = squareBottomCorners
+        self.displayCorners = displayCorners
         self.sidebarOffset = sidebarOffset
         self.sidebarProgress = sidebarProgress
         self.sidebarDragging = sidebarDragging
@@ -67,6 +70,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.setReturnProxyHidden(isReturnProxyHidden)
         controller.setWorkspaceVisible(isWorkspaceVisible)
         controller.setSquareBottomCorners(squareBottomCorners)
+        controller.setDisplayCorners(displayCorners)
         controller.setSidebar(offset: sidebarOffset, progress: sidebarProgress, dragging: sidebarDragging,
                               settlement: sidebarSettlement, completion: onSidebarSettled)
         return controller
@@ -90,6 +94,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.setReturnProxyHidden(isReturnProxyHidden)
         controller.setWorkspaceVisible(isWorkspaceVisible)
         controller.setSquareBottomCorners(squareBottomCorners)
+        controller.setDisplayCorners(displayCorners)
         controller.setSidebar(offset: sidebarOffset, progress: sidebarProgress, dragging: sidebarDragging,
                               settlement: sidebarSettlement, completion: onSidebarSettled)
         controller.scheduleNativeLayoutReceipt()
@@ -134,6 +139,10 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private var sidebarSettlement: UUID?
     private var sidebarAnimator: UIViewPropertyAnimator?
     private var squareBottomCorners = false
+    private var displayCorners: CACornerMask = []
+    // Rounds a resting Split Pane's display corners with the display radius
+    // while its divider-facing corners keep the smaller resting radius.
+    private let cornerMask = SurfaceCornerMaskView()
     private let windowCornerGeometry = WindowCornerGeometry()
     private var sidebarShadowDirection: CGFloat = -1
 #if DEBUG
@@ -324,6 +333,12 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         updateSurfaceDecoration()
     }
 
+    func setDisplayCorners(_ corners: CACornerMask) {
+        guard displayCorners != corners else { return }
+        displayCorners = corners
+        updateSurfaceDecoration()
+    }
+
     func setSquareBottomCorners(_ square: Bool) {
         guard squareBottomCorners != square else { return }
         squareBottomCorners = square
@@ -473,7 +488,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         let fraction = presentation.clipFraction
         let cropped = fraction != CGSize(width: 1, height: 1)
         guard cropped || retainsAnimationMask else {
-            surfaceView.mask = nil
+            if surfaceView.mask === cropMask { surfaceView.mask = nil }
             surfaceView.visibleRect = nil
             updateSurfaceDecoration()
             return
@@ -491,7 +506,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     private var isStableFullSurface: Bool {
         presentation == .full && surfaceView.transform == .identity && animator == nil
-            && !retainsAnimationMask && surfaceView.mask == nil
+            && !retainsAnimationMask && (surfaceView.mask == nil || surfaceView.mask === cornerMask)
     }
 
     private func sidebarShadowAlpha(for offset: CGFloat) -> CGFloat {
@@ -512,11 +527,12 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
         surfaceView.layer.cornerRadius = radius
         surfaceView.layer.maskedCorners = roundedCorners
+        let radii = cornerRadii(radius: radius, rounded: roundedCorners)
+        updateCornerMask(radii)
         let shadowVisible = workspaceVisible && !returnProxyHidden
             && (sidebarOffset != 0 || sidebarSettlement != nil)
         if shadowVisible {
-            sidebarDecoration.updateGeometry(surface: surfaceView, radius: radius,
-                corners: roundedCorners, direction: sidebarShadowDirection)
+            sidebarDecoration.updateGeometry(surface: surfaceView, radii: radii, direction: sidebarShadowDirection)
         }
         if sidebarAnimator == nil {
             sidebarDecoration.applyAppearance(surface: surfaceView, progress: sidebarProgress, traits: contentController.traitCollection)
@@ -525,6 +541,33 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         if sidebarAnimator == nil {
             sidebarShadowView.alpha = sidebarShadowAlpha(for: sidebarOffset)
         }
+    }
+
+    private func cornerRadii(radius: CGFloat, rounded: CACornerMask) -> SurfaceCornerRadii {
+        // Only a resting Pane has display corners; a lifted or cropped pose
+        // keeps one radius so its crop mask and Card edge stay concentric.
+        guard restingCornerRadius > 0, !displayCorners.isEmpty, isStableFullSurface else {
+            return SurfaceCornerRadii(uniform: radius, corners: rounded)
+        }
+        let display = max(radius, windowConcentricCornerRadius())
+        func value(_ corner: CACornerMask) -> CGFloat {
+            guard rounded.contains(corner) else { return 0 }
+            return displayCorners.contains(corner) ? display : radius
+        }
+        return SurfaceCornerRadii(topLeft: value(.layerMinXMinYCorner), topRight: value(.layerMaxXMinYCorner),
+            bottomLeft: value(.layerMinXMaxYCorner), bottomRight: value(.layerMaxXMaxYCorner))
+    }
+
+    private func updateCornerMask(_ radii: SurfaceCornerRadii) {
+        guard !radii.isUniform, surfaceView.mask == nil || surfaceView.mask === cornerMask else {
+            if surfaceView.mask === cornerMask { surfaceView.mask = nil }
+            return
+        }
+        // The layer radius still clips the smaller corners; the mask adds the
+        // larger display corners, so their intersection is the intended shape.
+        cornerMask.frame = surfaceView.bounds
+        cornerMask.shape.path = radii.path(in: surfaceView.bounds)
+        if surfaceView.mask !== cornerMask { surfaceView.mask = cornerMask }
     }
 
     private func windowConcentricCornerRadius() -> CGFloat {
@@ -866,6 +909,19 @@ private final class SurfaceHitView: UIView {
         let local = surfaceView.visiblePoint(fromParent: point)
         return surfaceView.point(inside: local, with: event) ? surfaceView : nil
     }
+}
+
+@MainActor
+private final class SurfaceCornerMaskView: UIView {
+    override class var layerClass: AnyClass { CAShapeLayer.self }
+    var shape: CAShapeLayer { layer as! CAShapeLayer }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        shape.fillColor = UIColor.black.cgColor
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 }
 
 @MainActor
