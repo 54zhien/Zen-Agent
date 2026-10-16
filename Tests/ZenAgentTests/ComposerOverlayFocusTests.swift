@@ -250,8 +250,8 @@ struct ComposerOverlayFocusTests {
         #expect(!host.editor.isFirstResponder)
     }
 
-    @Test("a retained Composer settles a blur delivered after its Surface detaches")
-    func detachedBlurSettlesBeforeTheSurfaceReturns() async throws {
+    @Test("a retained Composer settles an overlay blur across Surface detachment", arguments: [false, true])
+    func detachedBlurSettlesBeforeTheSurfaceReturns(blurBeforeDetachment: Bool) async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
@@ -276,12 +276,13 @@ struct ComposerOverlayFocusTests {
         try #require(window.isKeyWindow && editor.isFirstResponder)
         try #require(composer.nativeSidebarInput.composerSettled)
 
+        if blurBeforeDetachment { composer.configure(configuration(state: .resting)) }
         surface.setWorkspaceVisible(false)
         try #require(composer.window == nil && !editor.isFirstResponder)
         composer.setWorkspaceInputSuppressed(true)
-        // SwiftUI can deliver the logical blur after the retained hosting tree
-        // has left the Window. Exercise that real configuration boundary.
-        composer.configure(configuration(state: .resting))
+        // Characterize both sides of the detach boundary: an in-flight morph,
+        // and a logical blur delivered after the hosting tree leaves the Window.
+        if !blurBeforeDetachment { composer.configure(configuration(state: .resting)) }
         try await Task.sleep(for: .milliseconds(400))
         try #require(window.isKeyWindow)
         surface.setWorkspaceVisible(true)
