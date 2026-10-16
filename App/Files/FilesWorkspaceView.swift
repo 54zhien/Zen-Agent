@@ -69,7 +69,14 @@ struct FilesWorkspaceView: View {
                         Image(systemName: "plus").frame(width: 44, height: 44)
                     }
                     .disabled(model.isWorking).accessibilityLabel("导入文件").accessibilityIdentifier("files-import")
-                    Button(action: onClose) { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                    Button {
+#if DEBUG
+                        if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
+                            print("FILES_CLOSE_ACTION presentation=\(presentation != nil)")
+                        }
+#endif
+                        onClose()
+                    } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
                         .accessibilityLabel("关闭文件页面").accessibilityIdentifier("files-workspace-close")
                 }
                 .padding(.horizontal, 20).padding(.vertical, 8)
@@ -138,6 +145,11 @@ struct FilesWorkspaceView: View {
     }
 
     private func closePresentation(id: UUID) -> Bool {
+#if DEBUG
+        if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
+            print("FILES_PRESENTATION_CLOSE matches=\(presentation?.id == id)")
+        }
+#endif
         guard presentation?.id == id else { return false }
         presentation = nil; return true
     }

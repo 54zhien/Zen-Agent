@@ -377,7 +377,19 @@ jobs:
           TEST_ARGS=(test)
           if [ "$GITHUB_REF_NAME" = "codex/files-close-focus-diagnostic" ]; then
             echo '::notice::Files close diagnostic only; not a full CI gate.'
-            TEST_ARGS+=(-only-testing:ZenAgentTests/ComposerOverlayFocusTests -only-testing:ZenAgentUITests/FilesWorkspaceUITests)
+            TEST_ARGS+=(
+              -only-testing:ZenAgentTests
+              -only-testing:ZenAgentUITests/AppSpaceBrowseUITests
+              -only-testing:ZenAgentUITests/AppSpaceDeletionUITests
+              -only-testing:ZenAgentUITests/AppSpaceGeometryUITests
+              -only-testing:ZenAgentUITests/AppSpaceMetadataUITests
+              -only-testing:ZenAgentUITests/ComposerMotionUITests
+              -only-testing:ZenAgentUITests/ConversationReadingPositionUITests
+              -only-testing:ZenAgentUITests/ConversationSearchUITests
+              -only-testing:ZenAgentUITests/ConversationSurfaceUITests
+              -only-testing:ZenAgentUITests/FilesWorkspaceUITests/testFilesImportOpensTheSystemPickerAndCloseRestoresTheDraft
+              -only-testing:ZenAgentUITests/FilesWorkspaceUITests/testManagedPreviewAndExportUseTheNativePresentations
+            )
           fi
           if [ "$TEST_SCOPE" = "review-red" ]; then
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."

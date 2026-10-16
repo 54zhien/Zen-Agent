@@ -99,6 +99,11 @@ struct NativeFilePicker: UIViewControllerRepresentable {
             guard !finished, picker === controller else { return }
             finished = true
             let complete = { [self] in
+#if DEBUG
+                if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
+                    print("FILES_NATIVE_PICKER_COMPLETE invalidated=\(invalidated);cancelled=\(url == nil)")
+                }
+#endif
                 picker = nil
                 guard !invalidated else { return }
                 if let url { onPick(url) } else { onCancel() }

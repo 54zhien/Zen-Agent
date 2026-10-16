@@ -52,6 +52,11 @@ final class WorkspaceOverlayCoordinator {
     }
 
     func close(expectedID: UUID? = nil) {
+#if DEBUG
+        if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
+            print("FILES_CLOSE_COORDINATOR expected=\(String(describing: expectedID));current=\(String(describing: navigation?.overlayID));route=\(String(describing: navigation?.overlay));focus=\(focus != nil)")
+        }
+#endif
         guard navigation?.overlay != nil,
               expectedID == nil || navigation?.overlayID == expectedID else { return }
         search.invalidate()
@@ -60,6 +65,11 @@ final class WorkspaceOverlayCoordinator {
         navigation?.dismissOverlay()
         let captured = focus; focus = nil
         captured?.restore()
+#if DEBUG
+        if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
+            print("FILES_CLOSE_COORDINATOR_DONE route=\(String(describing: navigation?.overlay))")
+        }
+#endif
     }
 
     @discardableResult
