@@ -7,6 +7,24 @@ import SwiftUI
 @MainActor
 @Suite("Composer host wiring")
 struct ComposerHostIntegrationTests {
+    @Test("the resting editor stays the native hit target with Lift installed",
+          arguments: [CGSize(width: 390, height: 844), CGSize(width: 874, height: 402)])
+    func restingEditorRemainsTheHitTarget(size: CGSize) throws {
+        let (window, host) = installedHost(size: size)
+        defer { window.isHidden = true; window.rootViewController = nil }
+        var config = configuration(state: .resting)
+        config.liftInteraction = .init(driver: SurfaceLiftController(),
+                                      conversationID: "native-editor-hit", eligibility: { $0 })
+        host.configure(config)
+        host.layoutIfNeeded()
+        let point = host.editor.convert(CGPoint(x: host.editor.bounds.midX,
+                                                y: host.editor.bounds.midY), to: host)
+        #expect(host.hitTest(point, with: nil) === host.editor)
+        #expect(window.hitTest(host.convert(point, to: window), with: nil) === host.editor)
+        #expect(!host.editor.isFirstResponder)
+        #expect(host.editor.accessibilityIdentifier == "conversation-composer-input")
+    }
+
     @Test("Sidebar admits both native stable Composer phases", arguments: [ComposerPresentationState.resting, .editing])
     func sidebarAcceptsStableNativePhase(state: ComposerPresentationState) throws {
         let surface = ConversationSurfaceViewController(content: Color.clear, request: .full)
@@ -394,9 +412,10 @@ struct ComposerHostIntegrationTests {
     }
 
     private func installedHost(
-        initialState: ComposerPresentationState = .resting
+        initialState: ComposerPresentationState = .resting,
+        size: CGSize = CGSize(width: 390, height: 844)
     ) -> (UIWindow, ComposerHostView) {
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let window = UIWindow(frame: CGRect(origin: .zero, size: size))
         let controller = UIViewController()
         window.rootViewController = controller
         window.makeKeyAndVisible()

@@ -36,6 +36,9 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
         super.init()
         recognizer.addTarget(self, action: #selector(gestureChanged(_:)))
         recognizer.delegate = self
+        // Keep the editor as the actual hit target. A successful Lift consumes
+        // its initial touch; a short tap is delivered after Lift fails.
+        recognizer.delaysTouchesBegan = true
         recognizer.isEnabled = false
         surface.addGestureRecognizer(recognizer)
         for name in [UIResponder.keyboardWillChangeFrameNotification,
@@ -152,13 +155,29 @@ final class ComposerLiftInteraction: NSObject, UIGestureRecognizerDelegate {
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        let accepted = touch.view === surface
+        let editorTouch = touch.view.map { view in
+            editor.map { view === $0 || view.isDescendant(of: $0) } ?? false
+        } ?? false
+        let accepted = touch.view === surface || (editorTouch && configuration?.driver.canArm(input) == true)
         if accepted { feedback.prepare() }
 #if DEBUG
         if recordsUITestGestures { observedTouch = touch }
         recordGesture("receive=\(accepted);view=\(String(describing: touch.view.map { type(of: $0) }))")
 #endif
         return accepted
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        let current = input
+        guard gestureRecognizer === recognizer, let driver = configuration?.driver,
+              current.allowsLift,
+              driver.canArm(current) || (origin != nil
+                  && (driver.state.phase == .armed || driver.state.phase == .lifting)),
+              let editor, let view = otherGestureRecognizer.view else { return false }
+        // Native caret/selection gestures wait only while this touch can Lift.
+        // Editing, marked text and keyboard transitions retain native priority.
+        return view === editor || view.isDescendant(of: editor)
     }
 
     @objc private func gestureChanged(_ gesture: UILongPressGestureRecognizer) {

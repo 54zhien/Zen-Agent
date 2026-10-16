@@ -209,8 +209,24 @@ private final class CredentialMutationBarrier:
 
     private var overlap = false
     private var harnessFailed = false
+    private let startedAt = DispatchTime.now().uptimeNanoseconds
+    private var events: [String] = []
+
+    func record(_ event: String) {
+        let elapsed = (DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        if events.count < 24 { events.append("\(elapsed)ms:\(event)") }
+    }
+
+    var receipt: String {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return events.joined(separator: " | ")
+    }
 
     func holdFirstOperation() {
+        record("first.barrier")
         firstOperationReached.signal()
 
         guard
@@ -218,6 +234,7 @@ private final class CredentialMutationBarrier:
                 timeout: .now() + .seconds(5)
             ) == .success
         else {
+            record("competitor.start.timeout")
             stateLock.lock()
             harnessFailed = true
             stateLock.unlock()
@@ -229,6 +246,7 @@ private final class CredentialMutationBarrier:
                 timeout: .now() + .seconds(2)
             ) == .success
 
+        record("first.resume.overlap=\(didOverlap)")
         stateLock.lock()
         overlap = didOverlap
         stateLock.unlock()
@@ -241,10 +259,12 @@ private final class CredentialMutationBarrier:
     }
 
     func competitorDidStart() {
+        record("competitor.started")
         competitorStarted.signal()
     }
 
     func competitorDidCommit() {
+        record("competitor.committed")
         competitorCommitted.signal()
     }
 
@@ -375,14 +395,16 @@ struct CredentialMutationSerializationTests {
             label: "\(label).first"
         ).async {
             defer { group.leave() }
+            barrier.record("first.started")
             failures.capture(first)
+            barrier.record("first.finished")
         }
 
         guard barrier.waitForFirstOperation() else {
             barrier.markHarnessFailure()
 
             Issue.record(
-                "the first operation never reached its controlled barrier"
+                "the first operation never reached its controlled barrier: \(barrier.receipt)"
             )
 
             _ = group.wait(
@@ -405,6 +427,7 @@ struct CredentialMutationSerializationTests {
             barrier.competitorDidStart()
 
             failures.capture(second)
+            barrier.record("competitor.finished")
         }
 
         guard
@@ -415,7 +438,7 @@ struct CredentialMutationSerializationTests {
             barrier.markHarnessFailure()
 
             Issue.record(
-                "credential operations did not complete after the controlled barrier"
+                "credential operations did not complete after the controlled barrier: \(barrier.receipt)"
             )
 
             return failures

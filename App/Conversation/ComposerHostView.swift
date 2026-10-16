@@ -471,7 +471,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             if (button.layer.presentation()?.frame ?? button.frame).contains(local) { return button }
         }
         if (viewport.layer.presentation()?.frame ?? viewport.frame).contains(local) {
-            return liftInteraction.isInstalled && currentState != .editing ? surface : editor
+            return editor
         }
         return surface
     }
@@ -817,7 +817,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldReceive touch: UITouch) -> Bool {
-        touch.view === surface
+        guard let touched = touch.view else { return false }
+        return touched === surface || (currentState != .editing
+            && (touched === editor || touched.isDescendant(of: editor)))
     }
 
     @objc private func primaryTapped() {
