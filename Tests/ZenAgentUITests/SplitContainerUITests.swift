@@ -297,7 +297,7 @@ final class SplitContainerUITests: XCTestCase {
             return
         }
         split.tap()
-        XCTAssertTrue(app.otherElements["split-empty-pane-picker"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-11"].exists)
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
     }
@@ -528,7 +528,7 @@ final class SplitContainerUITests: XCTestCase {
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
         start.press(forDuration: 0.7,
                     thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.57)))
-        let picker = app.otherElements["split-empty-pane-picker"]
+        let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
         XCTAssertLessThan(picker.frame.midY, editor.frame.midY)
     }
@@ -553,7 +553,7 @@ final class SplitContainerUITests: XCTestCase {
             return
         }
         action.tap()
-        let picker = app.otherElements["split-empty-pane-picker"]
+        let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
         let newCard = app.buttons["split-new-conversation"]
         XCTAssertTrue(newCard.waitForExistence(timeout: 10))
@@ -586,7 +586,7 @@ final class SplitContainerUITests: XCTestCase {
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7,
                     thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)))
-        let picker = app.otherElements["split-empty-pane-picker"]
+        let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
@@ -617,7 +617,7 @@ final class SplitContainerUITests: XCTestCase {
             return
         }
         action.tap()
-        XCTAssertTrue(app.otherElements["split-empty-pane-picker"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10))
     }
 
     @MainActor
@@ -644,7 +644,7 @@ final class SplitContainerUITests: XCTestCase {
         start.press(forDuration: 0.7,
                     thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)))
 
-        XCTAssertTrue(app.otherElements["split-empty-pane-picker"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         XCTAssertTrue((editor.value as? String)?.contains("Split source draft") == true)
         XCTAssertTrue(editor.isHittable)

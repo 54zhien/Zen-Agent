@@ -152,8 +152,11 @@ final class SidebarAppearanceUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(top.minY, app.frame.minY + safeTop + 11,
                                     "The first control must begin below the status area")
         XCTAssertEqual(top.minY, app.frame.minY + max(safeTop + 12, radius - 28), accuracy: 1)
-        XCTAssertEqual(bottom.midX, top.midX, accuracy: 1,
-                       "The rail must keep its control column aligned from top to bottom")
+        // Settings shares the display corner's center when the corner is large
+        // enough to hold it; otherwise it keeps the control column.
+        let expectedSettingsMidX = radius >= 28 + 8 ? app.frame.minX + radius : top.midX
+        XCTAssertEqual(bottom.midX, expectedSettingsMidX, accuracy: 1,
+                       "Settings must be concentric with the display corner, or stay in the control column")
         XCTAssertEqual(top.minX - app.frame.minX, 20, accuracy: 1,
                        "The portrait rail must keep a 20pt exposed-screen gap around its controls")
         guard let sheet = rect("surfaceFrame", from: native) else {

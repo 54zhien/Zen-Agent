@@ -349,6 +349,14 @@ struct SurfaceLiftHostTests {
         #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
         #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
                             locationInWindow: CGPoint(x: 200, y: 160)))
+        // Entering a target springs the Surface toward the committed Pane. Release
+        // mid-spring, as a real finger does, so the accepted convergence still
+        // has visible travel to interrupt.
+        let targeting = try #require(host.liftAnimatorForTesting)
+        targeting.pauseAnimation()
+        targeting.fractionComplete = 0.25
+        CATransaction.flush()
+        try await Task.sleep(for: .milliseconds(40))
         let split = try #require(driver.end())
         #expect(split.destination == .split)
         let animator = try #require(host.liftAnimatorForTesting)
