@@ -272,7 +272,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         view.backgroundColor = .clear
         surfaceView.layer.cornerCurve = .continuous
         surfaceView.clipsToBounds = true
-        surfaceView.backgroundColor = .systemBackground
+
         cropMask.backgroundColor = .black
         cropMask.layer.cornerCurve = .continuous
         view.addSubview(sidebarShadowView)
