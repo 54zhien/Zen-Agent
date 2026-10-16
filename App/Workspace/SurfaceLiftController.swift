@@ -667,13 +667,10 @@ final class SurfaceLiftController {
             clearSplitTargeting()
             return
         }
-        // The central target is the admission boundary. Requiring another
-        // 220 pt first would make the lower half's center unreachable on a
-        // direct upward drag from the Composer on smaller displays.
+        // Target centers follow the actual full-bleed Pane frames, rather
+        // than the safe-area midpoint, so the visible center and hit region agree.
         splitActivationProgress = max(splitActivationProgress, state.progress)
-        let viewport = CGRect(x: sample.safeArea.left, y: sample.safeArea.top,
-                              width: sample.size.width - sample.safeArea.left - sample.safeArea.right,
-                              height: sample.size.height - sample.safeArea.top - sample.safeArea.bottom)
+        let viewport = CGRect(origin: .zero, size: sample.size)
         let update = splitTargeting.update(point: sample.point, viewport: viewport,
                                            liftProgress: splitActivationProgress)
         splitTargetingVisible = splitActivationProgress >= 0.5

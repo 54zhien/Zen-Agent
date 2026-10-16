@@ -26,7 +26,7 @@ final class WorkspaceRotationUITests: XCTestCase {
         XCUIDevice.shared.orientation = .landscapeLeft
         expect { app.frame.width > app.frame.height }
         expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
-        XCTAssertTrue(secondary.exists && input.isHittable)
+        XCTAssertTrue(secondary.exists && input.isHittable, rotationInputReceipt(app))
         XCTAssertFalse(source.exists)
         let restingFrame = hostFrame(secondaryProbe)
         XCTAssertNotNil(restingFrame)
@@ -70,7 +70,8 @@ final class WorkspaceRotationUITests: XCTestCase {
         card.tap()
         expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
         let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
-        XCTAssertTrue(source.exists && app.textViews["conversation-composer-input"].isHittable)
+        XCTAssertTrue(source.exists && app.textViews["conversation-composer-input"].isHittable,
+                      rotationInputReceipt(app))
 
         XCUIDevice.shared.orientation = .portrait
         expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
@@ -162,6 +163,17 @@ final class WorkspaceRotationUITests: XCTestCase {
     private func editorTextLength(_ diagnostic: String?) -> Int? {
         diagnostic?.split(separator: ";").first { $0.hasPrefix("editorTextLength=") }
             .flatMap { Int($0.dropFirst("editorTextLength=".count)) }
+    }
+
+    @MainActor
+    private func rotationInputReceipt(_ app: XCUIApplication) -> String {
+        let input = app.textViews["conversation-composer-input"]
+        let inputState = input.exists ? "frame=\(input.frame),hittable=\(input.isHittable)" : "missing"
+        let probes = ["surface-native-interaction-probe", "split-secondary-native-interaction-probe"].map { id in
+            let probe = app.descendants(matching: .any)[id]
+            return "\(id)=\(probe.exists ? String(describing: probe.value) : "missing")"
+        }.joined(separator: "\n")
+        return "app=\(app.frame);input=\(inputState)\n\(probes)"
     }
 
     @MainActor

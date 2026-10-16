@@ -527,7 +527,7 @@ final class SplitContainerUITests: XCTestCase {
         }
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
         start.press(forDuration: 0.7,
-                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.57)))
+                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)))
         let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
         XCTAssertLessThan(picker.frame.midY, editor.frame.midY)

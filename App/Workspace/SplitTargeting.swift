@@ -31,7 +31,7 @@ struct SplitTargetingState {
         // Fill only near each half's center. Crossing the divider or brushing
         // a display edge must leave the compact Card under finger control.
         let width = viewport.width * 0.6
-        let height = viewport.height * 0.2
+        let height = viewport.height * 0.1
         func target(centerY: CGFloat) -> CGRect {
             CGRect(x: viewport.midX - width / 2, y: centerY - height / 2, width: width, height: height)
         }

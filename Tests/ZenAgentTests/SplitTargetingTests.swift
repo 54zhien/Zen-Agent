@@ -10,7 +10,8 @@ struct SplitTargetingTests {
         var targeting = SplitTargetingState()
         for point in [CGPoint(x: 200, y: 60), CGPoint(x: 200, y: 380),
                       CGPoint(x: 200, y: 420), CGPoint(x: 200, y: 740),
-                      CGPoint(x: 15, y: 225), CGPoint(x: 385, y: 575)] {
+                      CGPoint(x: 15, y: 225), CGPoint(x: 385, y: 575),
+                      CGPoint(x: 200, y: 180), CGPoint(x: 200, y: 630)] {
             #expect(targeting.update(point: point, viewport: viewport, liftProgress: 1).slot == nil)
         }
         #expect(targeting.update(point: CGPoint(x: 200, y: 225), viewport: viewport,
@@ -21,8 +22,8 @@ struct SplitTargetingTests {
 
     @Test func topBottomAndNeutralFollowTheFingerWithoutRepeatedEntry() {
         var targeting = SplitTargetingState()
-        let top = CGPoint(x: 200, y: 180)
-        let bottom = CGPoint(x: 200, y: 630)
+        let top = CGPoint(x: 200, y: 225)
+        let bottom = CGPoint(x: 200, y: 575)
         let middle = CGPoint(x: 200, y: 400)
         #expect(targeting.update(point: top, viewport: viewport, liftProgress: 0.7)
             == .init(slot: .top, enteredTarget: true))
@@ -37,13 +38,13 @@ struct SplitTargetingTests {
 
     @Test func cancellationAndInvalidViewportCannotCommitATarget() {
         var targeting = SplitTargetingState()
-        #expect(targeting.update(point: CGPoint(x: 200, y: 180), viewport: viewport,
+        #expect(targeting.update(point: CGPoint(x: 200, y: 225), viewport: viewport,
                                  liftProgress: 0.2).slot == nil)
-        #expect(targeting.update(point: CGPoint(x: 200, y: 180), viewport: .zero,
+        #expect(targeting.update(point: CGPoint(x: 200, y: 225), viewport: .zero,
                                  liftProgress: 0.8).slot == nil)
-        #expect(targeting.update(point: CGPoint(x: CGFloat.nan, y: 180), viewport: viewport,
+        #expect(targeting.update(point: CGPoint(x: CGFloat.nan, y: 225), viewport: viewport,
                                  liftProgress: 0.8).slot == nil)
-        #expect(targeting.update(point: CGPoint(x: 200, y: 180), viewport: viewport,
+        #expect(targeting.update(point: CGPoint(x: 200, y: 225), viewport: viewport,
                                  liftProgress: 0.8).slot == .top)
         #expect(targeting.end(cancelled: true) == nil)
         #expect(targeting.end(cancelled: false) == nil)

@@ -3,7 +3,7 @@ import UIKit
 
 /// The Rail is composited above the full-viewport native host. Reveal only
 /// the area outside the moving page, including its rounded display corners.
-/// Fill with the even-odd rule, then clip to the Rail's bounds.
+/// Subtract the page's filled region, then clip to the Rail's bounds.
 struct SidebarRailRevealShape: Shape {
     var pageSize: CGSize
     var radius: CGFloat
@@ -22,9 +22,7 @@ struct SidebarRailRevealShape: Shape {
         let bottom = roundsBottom ? radius : 0
         let shape = UnevenRoundedRectangle(topLeadingRadius: radius, bottomLeadingRadius: bottom,
             bottomTrailingRadius: bottom, topTrailingRadius: radius, style: .continuous)
-        var path = Path(rect)
-        path.addPath(shape.path(in: page))
-        return path
+        return Path(rect).subtracting(shape.path(in: page), eoFill: true)
     }
 }
 
