@@ -319,7 +319,11 @@ struct WorkspaceSurfaceView<Content: View>: View {
         ZStack(alignment: .topLeading) {
             if model?.splitWorkspace != nil, activeSurfaceSlot == nil {
                 Color.black
-                if let layout = splitGeometry(in: geometry) {
+                // It is square, so it steps aside while the Sidebar exposes the
+                // lowest Pane's rounded display corners (unless the keyboard has
+                // already squared them).
+                if keyboardShortensViewport || (sidebarProgress == 0 && navigation.settlementID == nil),
+                   let layout = splitGeometry(in: geometry) {
                     // The Panes stop at the keyboard, and their frames reach that
                     // height before the keyboard finishes rising. Continue the page
                     // surface below them so the rising keyboard never uncovers the
@@ -384,6 +388,12 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 }
             }
         }
+        // Keyboard avoidance changes this proposed height inside the keyboard's
+        // animation. SwiftUI would animate the native Panes' centers while their
+        // bounds snap, opening black gaps between and below them; place the
+        // Panes at the keyboard-safe layout at once and let the keyboard cover
+        // the page continuation below them as it rises.
+        .transaction(value: geometry.size.height) { $0.animation = nil }
         .overlay {
             WorkspaceComposerDock(state: composerDock, activeID: inputPane?.conversationID,
                 visible: model?.splitWorkspace != nil && navigation.overlay == nil
@@ -391,6 +401,11 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     && (activeSurfaceSlot == nil || [.armed, .lifting].contains(activeLift.state.phase)
                         || activeLift.state.pendingSettlement?.destination == .card),
                 returnsToPortals: model?.splitWorkspace == nil)
+                // The dock and its bottom fade belong to the lowest Pane's page:
+                // round them with it instead of squaring its display corners.
+                .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: dockCornerRadius,
+                    bottomTrailingRadius: dockCornerRadius, style: .continuous))
+                .opacity(dockLiftOpacity)
                 .offset(x: sidebarTranslation)
                 .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
         }
@@ -414,6 +429,32 @@ struct WorkspaceSurfaceView<Content: View>: View {
             composerDock.isPad = context.isPad
             layoutState.context = context
         })
+    }
+
+    /// The keyboard-safe Workspace ends above the keyboard; its bottom edge is
+    /// then no longer the display's rounded edge.
+    private var keyboardShortensViewport: Bool {
+        layoutContext.map {
+            $0.windowSize.height - $0.frame.maxY > $0.windowSafeAreaInsets.bottom + 1
+        } ?? false
+    }
+
+    private var dockCornerRadius: CGFloat {
+        keyboardShortensViewport ? 0 : max(SplitTargetingGeometry.paneCornerRadius,
+                                           layoutContext?.windowCornerRadius ?? 0)
+    }
+
+    /// The shared Split editor cannot ride inside the lifted Pane mid-gesture:
+    /// re-parenting it would cancel the touch that drives Lift. It recedes as
+    /// the page rises so the Surface leaves on its own, and stays out while
+    /// the page settles into App Space.
+    private var dockLiftOpacity: Double {
+        guard model?.splitWorkspace != nil, activeSurfaceSlot != nil else { return 1 }
+        switch activeLift.state.phase {
+        case .armed: return 1
+        case .lifting: return max(0, 1 - activeLift.state.progress * 3)
+        default: return 0
+        }
     }
 
     private func sidebarAnimation(isDragging: Bool) -> Animation? {
@@ -454,9 +495,6 @@ struct WorkspaceSurfaceView<Content: View>: View {
         // The proposed Workspace already avoids the keyboard. Only square an
         // exterior edge that actually reaches that shortened viewport; inner
         // corners and the black divider retain their normal geometry.
-        let keyboardShortensViewport = layoutContext.map {
-            $0.windowSize.height - $0.frame.maxY > $0.windowSafeAreaInsets.bottom + 1
-        } ?? false
         let squareBottomCorners = model?.splitWorkspace != nil && !driver.retainsAppSpaceViewport
             && keyboardShortensViewport && abs(frame.maxY - fullFrame.maxY) < 1
         let displayCorners = corner > 0 ? SplitWorkspaceGeometry.viewportCorners(of: frame, in: fullFrame) : []
@@ -727,12 +765,11 @@ struct WorkspaceSurfaceView<Content: View>: View {
             preferredMinimum: horizontal ? minimumWidth : max(180, minimumHeight * 0.65))
         let fade = min(1, max(0, sidebarProgress))
         return ZStack {
-            // As the Sidebar opens the black gap thins out into the same hairline
-            // gray that outlines each Pane, in light and dark appearance alike.
-            ZStack {
-                Color.primary.opacity(SidebarProgressPresentation.edgeOpacity * fade)
-                Color.black.opacity(1 - fade)
-            }
+            // The gap paints nothing itself. It shows the same black Split
+            // backdrop as the space around the Panes' corners, so as the Sidebar
+            // backdrop fades in over both they change together; only the white
+            // Handle recedes on its own.
+            Color.clear
                 .frame(width: layout.divider.width, height: layout.divider.height)
                 .allowsHitTesting(false)
             SplitDividerView(ratio: split.activeRatio, closeIntent: resize.closeIntent,
