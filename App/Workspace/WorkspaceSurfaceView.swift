@@ -419,13 +419,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     .opacity(dockLiftOpacity)
                     .offset(x: sidebarTranslation)
                     .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
-                // The Dock's page-colored fade covers native Pane subviews. Keep
-                // their border above that fade, with one owner for each outline.
-                GeometryReader { geometry in
-                    dockedSidebarOutlines(in: geometry, progress: sidebarProgress, translation: sidebarTranslation)
-                }
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+
             }
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
