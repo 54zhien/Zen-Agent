@@ -68,10 +68,14 @@ final class ConversationPaneScrollBridge {
 
     private func recordHeight(_ event: String, geometry: ScrollGeometry? = nil) {
         guard ProcessInfo.processInfo.environment["ZEN_SPLIT_KEYBOARD_STRESS_UI_TEST"] == "1" else { return }
-        let entry = "\(event):h=\(String(describing: geometry?.viewportHeight));active=\(isHeightChangeActive);composer=\(composerHeightChangeActive);start=\(String(describing: heightChangeStartReadingPixelOffset));pixel=\(String(describing: composerReadingPixelOffset));mode=\(pane.readingPosition.mode)"
+        let entry = "\(event):h=\(String(describing: geometry?.viewportHeight));active=\(isHeightChangeActive);composer=\(composerHeightChangeActive);reducedH=\(String(describing: lastHeightReduction?.viewportHeight));markedH=\(String(describing: composerMarkedViewportHeight));start=\(String(describing: heightChangeStartReadingPixelOffset));pixel=\(String(describing: composerReadingPixelOffset));mode=\(pane.readingPosition.mode)"
         heightTrace.append(entry)
         // Keep the first transition as well as the most recent retargets.
         if heightTrace.count > 100 { heightTrace.remove(at: 30) }
+    }
+
+    func recordViewportGapForUITest(_ geometry: ScrollGeometry, suspendsReading: Bool, reason: String) {
+        recordHeight("viewport-gap-resume=\(suspendsReading)-\(reason)-sample=\(geometry)", geometry: geometry)
     }
 
     func recordReadingRestoreForUITest(_ event: String) {
@@ -318,9 +322,9 @@ final class ConversationPaneScrollBridge {
         bottomEdgeAnchor = nil
     }
 
-    func endHeightChange() {
+    func endHeightChange(file: StaticString = #fileID, line: UInt = #line) {
 #if DEBUG
-        recordHeight("end", geometry: snapshot?.geometry)
+        recordHeight("end@\(file):\(line)", geometry: snapshot?.geometry)
 #endif
         isHeightChangeActive = false
         bottomEdgeAnchor = nil
@@ -332,6 +336,9 @@ final class ConversationPaneScrollBridge {
     }
 
     func scrollBecameIdle(wasUserDriven: Bool, geometry: ScrollGeometry) {
+#if DEBUG
+        recordHeight("idle-user=\(wasUserDriven)", geometry: geometry)
+#endif
         // A programmatic scroll can become idle between the keyboard's native
         // viewport callback and its reading reduction. Clearing the capture here
         // would reinterpret an old normalized anchor in the new, smaller viewport.

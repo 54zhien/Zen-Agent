@@ -409,3 +409,30 @@ Additional Apple reference checked:
   non-Sendable macro parameter into an actor-isolated callback. Evaluate admission
   before asserting its Bool, as the existing Divider regressions do. No test was
   executed in that run; it supplies neither UI acceptance nor a passing build.
+
+### Further cancellation boundary found after native replay
+
+- Run 39106721530 at `1941003` built and passed all 38 focused unit declarations.
+  The three Sidebar cases (including the newly extended reopen→Split drag) and
+  source-top Conversation+picker case passed. Partial native evidence still
+  reproduces lower-picker y593→536.3 reading drift; numerical reduction guards
+  alone have not repaired it. Preserve this RED rather than treating unit green
+  or the extended Sidebar pass as complete acceptance.
+- Re-audit found an independent path: Timeline's combined visibility/revision/
+  usable-geometry guard marked `readingGeometryWasSuspended` for any unusable
+  ScrollView sample. Its next valid sample ends the capture, drops pending native
+  bookkeeping and requests geometry restoration before height continuation.
+  The old trace has no call-site reason, so this remains a candidate cause until
+  the next native replay; do not attribute its `end` conclusively to idle.
+- Split the guard: unchanged attachment/revision plus unusable geometry is a
+  missing sample and leaves the last valid reading/capture intact. True visibility,
+  ownership or layout changes retain suspension/resume cleanup, including when
+  their first geometry is unusable. No geometry, offset or tolerance is fabricated.
+- Add bounded debug gap reasons, idle provenance and compiler-provided end-call
+  locations to distinguish this path from genuine user scrolling or Lift return.
+  Keep the same 38 unit declarations and seven strengthened UI cases.
+- Complete run 39106721530 result: native build and all 38 selected unit
+  declarations passed; UI 5/7 passed, zero skipped. Both lower-source reading
+  cases remain RED, including the extended Sidebar-close/reopen reading check.
+  All three Sidebar cases and both upper-source Split cases passed. Full UI.log
+  and native summary are retained in `.tmp/keyboard-sidebar-selective8/`.

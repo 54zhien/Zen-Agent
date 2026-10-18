@@ -269,9 +269,25 @@ struct ConversationTimelineView: View {
                 // viewport still drains Run updates held while the Pane was hidden.
                 guard viewport.workspaceVisible, surfaceLift?.isWorkspaceVisible != false,
                       viewport.workspaceRevision == (surfaceLift?.workspaceVisibilityRevision ?? 0),
-                      viewport.layoutRevision == layoutRevision,
-                      viewport.geometry.isUsableForPane else {
+                      viewport.layoutRevision == layoutRevision else {
                     readingGeometryWasSuspended = true
+#if DEBUG
+                    scrollBridge?.recordViewportGapForUITest(viewport.geometry, suspendsReading: true,
+                        reason: "workspace-visible=\(viewport.workspaceVisible)-surface-visible=\(surfaceLift?.isWorkspaceVisible != false)-visibility=\(viewport.workspaceRevision)-expected=\(surfaceLift?.workspaceVisibilityRevision ?? 0)-layout=\(viewport.layoutRevision)-expected=\(layoutRevision)")
+#endif
+                    return
+                }
+                guard viewport.geometry.isUsableForPane else {
+                    // A keyboard resize can briefly have no usable ScrollView
+                    // height inside the same attached Pane. That is a missing
+                    // sample, not a Workspace return: retain its reading capture.
+                    let newAttachment = acceptedWorkspaceRevision != viewport.workspaceRevision
+                        || acceptedLayoutRevision != viewport.layoutRevision
+                    if newAttachment { readingGeometryWasSuspended = true }
+#if DEBUG
+                    scrollBridge?.recordViewportGapForUITest(viewport.geometry, suspendsReading: newAttachment,
+                        reason: "unusable")
+#endif
                     return
                 }
                 if !previous.workspaceVisible || (viewport.workspaceRevision > 0
@@ -532,6 +548,10 @@ struct ConversationTimelineView: View {
         // Session anchor until Full and ignore its transient predecessor viewport.
         guard acceptsReadingGeometry else {
             readingGeometryWasSuspended = true
+#if DEBUG
+            scrollBridge.recordViewportGapForUITest(geometry, suspendsReading: true,
+                reason: "presentation-ready=\(isWorkspaceGeometryReady)-phase=\(String(describing: surfaceLift?.state.phase))")
+#endif
             return
         }
         publishDividerViewport(geometry)
