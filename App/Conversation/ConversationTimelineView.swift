@@ -283,14 +283,6 @@ struct ConversationTimelineView: View {
                 acceptedWorkspaceRevision = viewport.workspaceRevision
                 if acceptedLayoutRevision != viewport.layoutRevision { pendingAppliedScroll = nil }
                 acceptedLayoutRevision = viewport.layoutRevision
-                if scrollBridge?.hasDividerLease == true,
-                   previous.geometry.viewportHeight != viewport.geometry.viewportHeight {
-                    // A resize command can reach UIKit before its final viewport
-                    // and get clamped to the previous bottom. That command's
-                    // sequence is still current, but its old layout is not an
-                    // acknowledgement; reissue it from this native measurement.
-                    pendingAppliedScroll = nil
-                }
                 if previous.geometry.offset != viewport.geometry.offset { materializedObservation = nil }
                 invalidateClampedMaterializedObservation(viewport.geometry)
                 let geometry = materializedGeometry(viewport.geometry, previousNativeOffset: previous.geometry.offset)

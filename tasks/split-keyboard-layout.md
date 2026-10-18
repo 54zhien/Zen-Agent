@@ -249,3 +249,35 @@ Additional Apple reference checked:
 - Completed rapid/Sidebar samples had no missing hosts, <0.17pt underfill and zero
   partition error; Watch now captured 100-111 real ticks with joint overlap. This
   does not make the failed UI selection pass.
+
+### Fourth focused result — audit remains RED
+
+- Run 39100303428 at `37f6482ab315ef4eeb0f7844fb6beaccc6ff935e` built
+  successfully and passed all 23 selected native tests (32 expanded executions).
+  UI summary: 7 executed, 3 passed, 4 failed, zero skipped. Full/iPad jobs were
+  skipped; there was no archive, signing/export or packaging action.
+- Source-top dual Conversation and Conversation+lower picker again completed
+  rapid reversals and actual Sidebar keyboard dismissal. The stable-editing
+  Sidebar case passed this time. Each completed rapid sequence delivered all 12
+  notifications and six retargets; no hosts were missing, max boundary error was
+  below 0.17pt, and partition error was floating-point zero. These are geometry
+  samples, not a claim about every rendered pixel.
+- The source-below Divider lease still did not release. In picker-above mode its
+  measured offset reached 1754 versus target 1759; in dual Conversation it remained
+  1736 versus 1759. Reading restoration still displaced the anchor about 56pt.
+  Dual Conversation/source-below never reached its pressure sequence because the
+  initial focus switch was blocked. Required placement coverage is incomplete.
+- Two additional Sidebar regressions failed: shifted blank-tap close succeeded,
+  but reopening the editor/keyboard timed out; the occupied-Split Sidebar case
+  could not enter its Split picker. These are retained as failed native results,
+  not waived or retried into a passing aggregate. Their causes remain unconfirmed.
+- Withdrew the unsuccessful lease-only pending-marker retry. It did not establish
+  correct restoration and is not left as a claimed fix. Keep the explicit resize
+  receipt assertion, bounded probes and peer/state diagnostics for the next repair.
+- Source SHA, summaries/tests JSON and attachment manifest are retained locally in
+  `.tmp/keyboard-sidebar-selective4/`; complete result bundles, logs and recording
+  remain in run 39100303428's artifact. The fourth recording has not received a
+  full pixel review. Earlier whole-video heuristic scans of runs 1-3 found no
+  large nearly-black band, but do not cover the blocked pressure sequence or
+  establish physical-device acceptance. No clean keyboard/Sidebar acceptance is
+  claimed from these failed runs.
