@@ -64,7 +64,7 @@ assert s['passedTests'] == s['totalTestCount'], 'Incomplete native test result'
 if sys.argv[2] == 'UI':
     assert s['totalTestCount'] == 7, 'Expected four Split scenarios and three focused Sidebar regressions'
 else:
-    assert s['totalTestCount'] == 26, 'Expected existing 23 tests plus three native viewport regressions'
+    assert s['totalTestCount'] == 27, 'Expected existing 23 tests plus four native viewport regressions'
 PY
 }
 

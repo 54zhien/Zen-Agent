@@ -67,5 +67,46 @@ struct ConversationNativeScrollViewportTests {
         scroll.contentSize.height = 2000
         #expect(!viewport.applyDividerOffset(1759, geometry: measured))
         #expect(scroll.contentOffset.y == 100)
+        scroll.contentSize.height = 2042
+        let inconsistent = ScrollGeometry(viewportHeight: 282.6, contentHeight: 2042.4, offset: 100)
+        #expect(!viewport.applyDividerOffset(1759.8, geometry: inconsistent))
+        #expect(scroll.contentOffset.y == 100)
+    }
+
+    @Test(arguments: [false, true])
+    func lateNativeLayoutRetriesOnlyTheCurrentLease(cancelled: Bool) async throws {
+        let root = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.rootViewController = root
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        let scroll = UIScrollView(frame: CGRect(x: 0, y: 0, width: 402, height: 414))
+        scroll.contentInsetAdjustmentBehavior = .never
+        root.view.addSubview(scroll)
+        scroll.contentInset.bottom = 108
+        scroll.contentSize = CGSize(width: 402, height: 2042)
+        scroll.contentOffset.y = 1736
+        let viewport = ConversationNativeScrollViewport()
+        let owner = UIView()
+        viewport.bind(scroll, owner: owner)
+        var leaseIsCurrent = true
+        var validations = 0
+        viewport.restoreDividerOffset(1759,
+            geometry: ScrollGeometry(viewportHeight: 283, contentHeight: 2042, offset: 1736),
+            whileCurrent: { validations += 1; return leaseIsCurrent })
+        #expect(scroll.contentOffset.y == 1736)
+        let beforeTick = validations
+        if cancelled { leaseIsCurrent = false }
+        scroll.frame.size.height = 391
+        // This test makes no second helper call: a real display tick must deliver
+        // the command when UIKit catches up, or discard the cancelled lease.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while (validations == beforeTick || (!cancelled && scroll.contentOffset.y != 1759)),
+              ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(validations > beforeTick, "The stimulus must include a real display tick")
+        #expect(scroll.contentOffset.y == (cancelled ? 1736 : 1759))
+        viewport.unbind(owner: owner)
     }
 }

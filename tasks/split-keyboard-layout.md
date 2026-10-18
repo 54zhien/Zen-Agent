@@ -315,3 +315,28 @@ Additional Apple reference checked:
 - Windows static checks passed (`git diff --check`, workflow YAML parse). Native
   generation/build and scoped tests remain required; this edit is not yet a fix
   verified by a fresh native run.
+
+### Preflight review corrections before native execution
+
+- Initial candidate f646321/run 39102227210 was cancelled before a complete native
+  result. It is not counted as build/test success. Review identified a combined
+  subpixel reachability bound and a missing guaranteed retry when UIKit layout is
+  later than SwiftUI geometry.
+- Check the target against the actual normalized native maximum within the same
+  0.5pt receipt tolerance; reject the 1759.8-vs-1759 unreachable composite-error
+  fixture rather than broadening acknowledgement. Clamp only a <=0.5pt endpoint
+  rounding difference to the actual native maximum.
+- Superseding the no-polling draft above: retain at most one current Divider pixel
+  command while native metrics catch up, with a two-second display-link wait in
+  common mode. A weak proxy prevents run-loop ownership of the viewport. Success,
+  cancellation, changed anchor/scroll/window identity, nil model request and lease
+  release stop the link. LeaseID/request-sequence validity is read from the weak
+  bridge before every attempt. Expiry stops work and records a bounded diagnostic;
+  a later real layout/request event may resubmit, without treating expiry as success.
+- Repeated submission of the same still-current target/geometry retains its wait
+  deadline. A command ID prevents a synchronous native callback from letting an
+  older completion cancel a replacement command.
+- The fourth viewport regression uses a real CADisplayLink tick: late 414→391
+  bounds apply without a second helper call, while a cancelled lease never moves
+  the native offset. Strict selection now expects 27 native declarations / seven
+  UI cases. These additions and all repairs still require native execution.

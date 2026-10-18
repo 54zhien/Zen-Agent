@@ -345,6 +345,7 @@ struct ConversationTimelineView: View {
                 recordReadingRestoreForUITest("request")
 #endif
                 guard let request else {
+                    nativeViewport.cancelDividerRestoration()
                     pendingAppliedScroll = nil
                     materializingSequence = nil
                     materializationRequest = nil
@@ -365,6 +366,7 @@ struct ConversationTimelineView: View {
             }
             .onChange(of: scrollBridge?.dividerLeaseID) { _, _ in
                 dividerMaterialization = nil
+                if scrollBridge?.hasDividerLease != true { nativeViewport.cancelDividerRestoration() }
                 if let latestScrollGeometry { repairDividerPosition(latestScrollGeometry) }
             }
             .onAppear {
@@ -620,6 +622,7 @@ struct ConversationTimelineView: View {
         acknowledgeAppliedScrollIfReady(geometry)
         applyPendingScrollIfReady()
         scrollBridge.acknowledgeDividerResize(revision: layoutRevision, geometry: geometry)
+        if !scrollBridge.hasDividerLease { nativeViewport.cancelDividerRestoration() }
     }
 
 #if DEBUG
@@ -764,10 +767,14 @@ struct ConversationTimelineView: View {
             case .scrollToBottom: target = max(0, geometry.contentHeight - geometry.viewportHeight)
             case .none: target = nil
             }
-            guard let target, nativeViewport.applyDividerOffset(target, geometry: geometry) else {
+            guard let target, let lease = scrollBridge.dividerLeaseID else {
                 pendingAppliedScroll = nil
                 return
             }
+            nativeViewport.restoreDividerOffset(target, geometry: geometry, whileCurrent: { [weak scrollBridge] in
+                scrollBridge?.dividerLeaseID == lease
+                    && scrollBridge?.pane.scrollRequest?.sequence == request.sequence
+            })
             // Only an observed geometry callback acknowledges arrival and ends
             // the lease. A command accepted by UIKit is not a reading receipt.
             acknowledgeAppliedScrollIfReady(geometry)
