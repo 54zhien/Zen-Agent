@@ -436,3 +436,34 @@ Additional Apple reference checked:
   cases remain RED, including the extended Sidebar-close/reopen reading check.
   All three Sidebar cases and both upper-source Split cases passed. Full UI.log
   and native summary are retained in `.tmp/keyboard-sidebar-selective8/`.
+
+### Native zero-height cause confirmed; repair the animation sampler separately
+
+- Run 39108807217 at `7ffe17b` built and passed all 38 selected unit declarations;
+  UI passed 5/7, with zero skipped. Both dual-conversation placements and all
+  three Sidebar cases passed. All reading restoration assertions now passed,
+  including both lower-source placements returning to y593 and the subsequent
+  Sidebar-close/reopen/dismiss check. Source identity, drafts and ratio passed.
+- The new native trace records repeated same-attachment viewport height zero
+  between heights 221 and 102.6667. Those samples now leave the 56.6-point capture
+  intact, and the resumed reduction normalizes it for each actual height. This
+  confirms the suspension guard as the reading-drift cause in this replay;
+  no change to user tracking/scroll cancellation was needed.
+- Two different animation-evidence failures remain, and this run remains RED:
+  upper-source picker case's Watch was armed at 08:01:56, but XCTest delayed edge
+  event synthesis until 08:02:13, after its 15-second pre-event finish timer;
+  lower-source picker case recorded 85 ticks, one keyboard event and 85 Sidebar
+  ticks but zero joint ticks inside UIKit's duration. Both cases retained correct
+  reading positions; neither is waived or retried. Complete summaries and UI.log
+  are retained in `.tmp/keyboard-sidebar-selective9/`.
+- The debug-only sampler now stays armed until an actual keyboard event; its
+  existing UI ten-second completion wait still fails if no event arrives. Start
+  its display link on arming so the first keyboard transition need not create a
+  new sampler. Count joint evidence only on real display ticks with Sidebar
+  translation during UIKit's reported keyboard interval, as before. Publish the
+  first keyboard duration and first post-event tick delay to distinguish missing
+  rendering evidence from a layout failure. Do not synthesize an overlapping tick.
+- Armed/running Watch cannot register twice. After the first keyboard event,
+  replacement timers respect the fixed five-second sampling deadline; dismantle
+  still cancels the task/display link/observer. The same 38 unit declarations and
+  seven UI cases remain selected, without changing assertions or tolerances.

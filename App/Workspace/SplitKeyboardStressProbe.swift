@@ -40,6 +40,11 @@ final class SplitKeyboardStressView: UIView {
     private var sidebarSamples = 0
     private var overlappingSamples = 0
     private var keyboardDeadline: CFTimeInterval = 0
+    private var firstKeyboardEventTime: CFTimeInterval?
+    private var firstKeyboardDuration: CFTimeInterval?
+    private var firstKeyboardSampleDelay: CFTimeInterval?
+    private var firstValidSampleDelay: CFTimeInterval?
+    private var firstSidebarSampleDelay: CFTimeInterval?
     private var observesSidebar = false
     private var captureGeneration = UUID()
     private var watchDeadline: CFTimeInterval = 0
@@ -104,9 +109,11 @@ final class SplitKeyboardStressView: UIView {
     }
 
     @objc private func watch() {
-        guard task == nil else { return }
+        guard task == nil, status != "armed", status != "running" else { return }
         beginSampling(sidebar: true)
-        finishWatch(after: .seconds(15))
+        // XCTest may delay synthesizing the edge gesture after this tap.
+        // Remain armed until a real keyboard event starts the bounded capture;
+        // the UI test still times out if that event never arrives.
     }
 
     private func finishWatch(after duration: Duration) {
@@ -135,10 +142,14 @@ final class SplitKeyboardStressView: UIView {
         samples = 0; requests = 0; missingSurfaces = 0
         keyboardEvents = 0; retargetedEvents = 0; sidebarSamples = 0; overlappingSamples = 0; keyboardDeadline = 0
         maxUnderfill = 0; maxPartitionError = 0; status = sidebar ? "armed" : "running"
+        firstKeyboardEventTime = nil; firstKeyboardDuration = nil; firstKeyboardSampleDelay = nil
+        firstValidSampleDelay = nil; firstSidebarSampleDelay = nil
         startButton.isEnabled = false; watchButton.isEnabled = false
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardChanged(_:)),
             name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
-        if !sidebar { startDisplayLink() }
+        // Keep the presentation sampler ready before the gesture's keyboard
+        // notification; creating it there can miss a short first transition.
+        startDisplayLink()
         publish()
     }
 
@@ -154,13 +165,18 @@ final class SplitKeyboardStressView: UIView {
         if now < keyboardDeadline { retargetedEvents += 1 }
         keyboardEvents += 1
         keyboardDeadline = now + ((notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0)
+        if firstKeyboardEventTime == nil {
+            firstKeyboardEventTime = now
+            firstKeyboardDuration = keyboardDeadline - now
+        }
         if observesSidebar {
             // XCTest can spend several seconds admitting/synthesizing the real
             // edge gesture. Arm first, then sample the keyboard event itself.
             status = "running"
             if watchDeadline == 0 { watchDeadline = now + 5 }
+            guard now < watchDeadline else { finish(); return }
             startDisplayLink()
-            finishWatch(after: .seconds(2))
+            finishWatch(after: .seconds(min(2, watchDeadline - now)))
         }
     }
 
@@ -183,7 +199,13 @@ final class SplitKeyboardStressView: UIView {
     }
 
     @objc private func sample() {
-        guard let window else { return }
+        // Arming readies the display link without traversing the window or
+        // publishing AX values while XCTest is still admitting its gesture.
+        guard let window, !observesSidebar || keyboardEvents > 0 else { return }
+        let now = CACurrentMediaTime()
+        if firstKeyboardSampleDelay == nil, let firstKeyboardEventTime {
+            firstKeyboardSampleDelay = now - firstKeyboardEventTime
+        }
         func visible(_ view: UIView) -> Bool {
             var ancestor: UIView? = view
             while let current = ancestor {
@@ -208,9 +230,12 @@ final class SplitKeyboardStressView: UIView {
             return abs((parent.layer.presentation() ?? parent.layer).affineTransform().tx) > 0.5
         }) {
             sidebarSamples += 1
+            if firstSidebarSampleDelay == nil, let firstKeyboardEventTime {
+                firstSidebarSampleDelay = now - firstKeyboardEventTime
+            }
             // Joint evidence from the same display tick, bounded by the timing
             // reported by UIKit; this is not a rendered keyboard-pixel sample.
-            if CACurrentMediaTime() < keyboardDeadline { overlappingSamples += 1 }
+            if now < keyboardDeadline { overlappingSamples += 1 }
         }
         var hosts: [CGRect] = []
         var horizontalShifts: [CGFloat] = []
@@ -232,6 +257,9 @@ final class SplitKeyboardStressView: UIView {
             maxUnderfill = errors.max() ?? maxUnderfill
         }
         let workspace = presented(self)
+        if firstValidSampleDelay == nil, let firstKeyboardEventTime {
+            firstValidSampleDelay = now - firstKeyboardEventTime
+        }
         let horizontal = axis == .leftRight
         hosts.sort { horizontal ? $0.midX < $1.midX : $0.midY < $1.midY }
         let length = horizontal ? workspace.width : workspace.height
@@ -247,7 +275,7 @@ final class SplitKeyboardStressView: UIView {
     }
 
     private func publish() {
-        diagnostic.accessibilityValue = "status=\(status);samples=\(samples);requests=\(requests);missing=\(missingSurfaces);underfill=\(maxUnderfill);partitionError=\(maxPartitionError);keyboardEvents=\(keyboardEvents);retargeted=\(retargetedEvents);sidebarSamples=\(sidebarSamples);overlap=\(overlappingSamples)"
+        diagnostic.accessibilityValue = "status=\(status);samples=\(samples);requests=\(requests);missing=\(missingSurfaces);underfill=\(maxUnderfill);partitionError=\(maxPartitionError);keyboardEvents=\(keyboardEvents);retargeted=\(retargetedEvents);sidebarSamples=\(sidebarSamples);overlap=\(overlappingSamples);firstKeyboardDuration=\(String(describing: firstKeyboardDuration));firstKeyboardSampleDelay=\(String(describing: firstKeyboardSampleDelay));firstValidSampleDelay=\(String(describing: firstValidSampleDelay));firstSidebarSampleDelay=\(String(describing: firstSidebarSampleDelay))"
     }
 }
 #endif
