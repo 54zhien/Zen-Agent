@@ -41,6 +41,7 @@ final class SplitKeyboardStressView: UIView {
     private var overlappingSamples = 0
     private var keyboardDeadline: CFTimeInterval = 0
     private var observesSidebar = false
+    private var captureGeneration = UUID()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -78,12 +79,14 @@ final class SplitKeyboardStressView: UIView {
         guard task == nil, let input = composer(), input.window === window,
               input.editor.markedTextRange == nil else { return }
         beginSampling()
+        let generation = captureGeneration
         task = Task { @MainActor [weak self, weak input] in
             do {
                 // Deliberately shorter than the normal transition. Real responder
                 // callbacks still update the existing Composer and workspace.
                 for index in 0..<12 {
                     guard let self, let input else { return }
+                    guard self.captureGeneration == generation else { return }
                     guard input === self.composer(), input.window === self.window,
                           !Task.isCancelled else { self.stop(); return }
                     input.requestFocus(index.isMultiple(of: 2))
@@ -91,35 +94,48 @@ final class SplitKeyboardStressView: UIView {
                     try await Task.sleep(for: .milliseconds(index.isMultiple(of: 3) ? 90 : 60))
                 }
                 try await Task.sleep(for: .milliseconds(600))
-                guard let self, !Task.isCancelled else { return }
+                guard let self, self.captureGeneration == generation, !Task.isCancelled else { return }
                 self.finish()
-            } catch { self?.stop() }
+            } catch {
+                if self?.captureGeneration == generation { self?.stop() }
+            }
         }
     }
 
     @objc private func watch() {
         guard task == nil else { return }
         beginSampling(sidebar: true)
+        finishWatch(after: .seconds(15))
+    }
+
+    private func finishWatch(after duration: Duration) {
+        task?.cancel()
+        let generation = captureGeneration
         task = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: .seconds(5))
-                guard !Task.isCancelled else { return }
-                self?.finish()
-            } catch { self?.stop() }
+            do { try await Task.sleep(for: duration) }
+            catch { return }
+            guard let self, self.captureGeneration == generation, !Task.isCancelled else { return }
+            self.finish()
         }
     }
 
     private func beginSampling(sidebar: Bool = false) {
         observesSidebar = sidebar
+        captureGeneration = UUID()
         samples = 0; requests = 0; missingSurfaces = 0
         keyboardEvents = 0; retargetedEvents = 0; sidebarSamples = 0; overlappingSamples = 0; keyboardDeadline = 0
-        maxUnderfill = 0; maxPartitionError = 0; status = "running"
+        maxUnderfill = 0; maxPartitionError = 0; status = sidebar ? "armed" : "running"
         startButton.isEnabled = false; watchButton.isEnabled = false
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardChanged(_:)),
             name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+        if !sidebar { startDisplayLink() }
+        publish()
+    }
+
+    private func startDisplayLink() {
+        guard displayLink == nil else { return }
         displayLink = CADisplayLink(target: self, selector: #selector(sample))
         displayLink?.add(to: .main, forMode: .common)
-        publish()
     }
 
     @objc private func keyboardChanged(_ notification: Notification) {
@@ -128,6 +144,13 @@ final class SplitKeyboardStressView: UIView {
         if now < keyboardDeadline { retargetedEvents += 1 }
         keyboardEvents += 1
         keyboardDeadline = now + ((notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0)
+        if observesSidebar {
+            // XCTest can spend several seconds admitting/synthesizing the real
+            // edge gesture. Arm first, then sample the keyboard event itself.
+            status = "running"
+            startDisplayLink()
+            finishWatch(after: .seconds(1))
+        }
     }
 
     private func finish() {
@@ -140,10 +163,11 @@ final class SplitKeyboardStressView: UIView {
     }
 
     func stop() {
+        captureGeneration = UUID()
         task?.cancel(); task = nil
         displayLink?.invalidate(); displayLink = nil
         NotificationCenter.default.removeObserver(self)
-        if status == "running" { status = "cancelled" }
+        if status == "running" || status == "armed" { status = "cancelled" }
         startButton.isEnabled = true; watchButton.isEnabled = true
         publish()
     }

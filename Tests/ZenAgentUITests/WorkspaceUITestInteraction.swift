@@ -100,7 +100,9 @@ extension XCUIApplication {
         XCTAssertTrue(readable.contains(point), file: file, line: line)
         XCTAssertTrue(pane.frame.contains(point), file: file, line: line)
         XCTAssertTrue(frame.contains(point), file: file, line: line)
-        XCTAssertLessThan(point.y, keyboards.firstMatch.frame.minY, file: file, line: line)
+        if keyboards.firstMatch.exists {
+            XCTAssertLessThan(point.y, keyboards.firstMatch.frame.minY, file: file, line: line)
+        }
         return point
     }
 

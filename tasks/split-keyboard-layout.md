@@ -133,3 +133,51 @@ Additional Apple reference checked:
   measures geometry, not black pixels or actual rendered keyboard pixels. Device
   or simulator execution/video remains required before asserting absence of black
   frames or animation conflict, especially under interactive keyboard dismissal.
+
+## Owner-approved focused native execution — 2026-10-18
+
+- Owner authorized only keyboard/Sidebar focused tests, with no package or full
+  suite. Added `workflow_dispatch` selection `test_scope=keyboard-sidebar` to the
+  existing CI workflow; its full build/test and iPad jobs are skipped for that
+  selection. The cheap repository hygiene job remains a prerequisite.
+- Candidate `7df054a52e55f3f3231dbb8c6529fc101403625b` was pushed with `[skip ci]`
+  to avoid automatic full runs, then explicitly dispatched as
+  https://github.com/54zhien/Zen-Agent/actions/runs/39095451685 .
+- Selected native suites: SplitKeyboardLayoutTests, SidebarSurfaceTests,
+  SidebarDecorationTests, WorkspaceNavigationStateTests and
+  ComposerMotionControllerTests. Selected UI tests: the four SplitKeyboardUITests
+  placement scenarios, plus stable-editing dismissal, shifted blank-tap closure
+  and occupied Split opposite-pane/shared-input closure. No test retry is enabled.
+- The scoped runner generates/builds for the simulator, records the selected UI
+  run, and uploads result bundles, summaries, attachments, logs, selectors and
+  candidate SHA. Split pressure metrics are retained as XCTest attachments and
+  console output. Execution result and video inspection are pending.
+
+### First focused native result (retained RED)
+
+- Run 39095451685 at `7df054a` generated and built successfully on Xcode 26,
+  iPhone 17 Pro simulator / iOS 26.4.1. The five native suites passed: 23 tests
+  (32 parameter-expanded executions), no failures/skips. UI: 7 executed,
+  2 passed / 5 failed, no skips. Original result bundle, logs and video remain
+  in that run's artifact; local copy is under `.tmp/keyboard-sidebar-run1/`.
+- Completed rapid samples recorded 12 keyboard notifications and 5–6 retargets,
+  no missing hosts, maximum Surface/content boundary error below 0.17 points,
+  partition error at floating-point zero. This does not make the failing UI run
+  green, nor establish the scenarios that did not reach sampling.
+- Diagnosed invalid test measurements: inactive parked editors have no mounted
+  native identity; an AX ScrollView rectangle can extend beyond a lower Pane;
+  the Divider's AX hit region is taller than its visual gap; and a closing-tap
+  helper still requested a keyboard rectangle after Sidebar had dismissed it.
+  Identity assertions now run when each original owner is mounted again; taps
+  use the measured native readable viewport; geometry uses the visual Divider
+  center/gap and a DEBUG window-coordinate keyboard guide. No geometry tolerance
+  was increased. Reading labels are checked by their real viewport intersection
+  and the existing four-point position tolerance, not AX activation-point support.
+- A five-second Watch expired before the real gesture in one run (0 keyboard
+  events). Watch now arms without a display link, starts sampling on the actual
+  keyboard notification and ends one second after the last notification, with a
+  bounded no-event watchdog and generation-checked cancellation. Joint overlap
+  assertions remain mandatory. The original failed Watch is retained as evidence.
+- These follow-up edits change test stimulus/measurement and DEBUG diagnostics;
+  the retained production keyboard/Sidebar transport is unchanged. A fresh run
+  of the same explicit unit/UI selection is required.

@@ -43,17 +43,17 @@ final class SplitKeyboardUITests: XCTestCase {
         expect { self.field("ratio", viewport) != nil && self.field("ratio", viewport) != "0.5" }
         let ratio = try XCTUnwrap(field("ratio", viewport))
         let editor = app.textViews["conversation-composer-input"]
-        app.activateWorkspacePane("preview-ui-11")
+        try activatePane(app, probe: sourceProbe)
         editor.tap(); editor.typeText("source keyboard viewport draft")
         let sourceIdentity = try XCTUnwrap(field("editorIdentity", sourceProbe))
         try dismissKeyboard(app, editor: editor, probe: sourceProbe)
         var otherIdentity: String?
         if occupied {
-            app.activateWorkspacePane("preview-ui-10")
+            try activatePane(app, probe: otherProbe)
             editor.tap(); editor.typeText("other keyboard viewport draft")
             otherIdentity = try XCTUnwrap(field("editorIdentity", otherProbe))
             try dismissKeyboard(app, editor: editor, probe: otherProbe)
-            app.activateWorkspacePane("preview-ui-11")
+            try activatePane(app, probe: sourceProbe)
         }
         let position = app.buttons["preview-reading-position"]
         XCTAssertTrue(position.exists); position.tap()
@@ -61,7 +61,7 @@ final class SplitKeyboardUITests: XCTestCase {
         let anchor = app.descendants(matching: .any).matching(NSPredicate(
             format: "label == %@ OR value == %@", "PREVIEW_READING_ANCHOR_10",
             "PREVIEW_READING_ANCHOR_10")).firstMatch
-        XCTAssertTrue(anchor.exists && anchor.isHittable)
+        XCTAssertTrue(anchor.exists && !anchor.frame.isEmpty)
         let bottomDistance = source.frame.maxY - anchor.frame.minY
         let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
         let restingSource = try XCTUnwrap(rect("surfaceFrame", sourceProbe))
@@ -73,15 +73,15 @@ final class SplitKeyboardUITests: XCTestCase {
         let activeIDs = occupied ? ["preview-ui-11", "preview-ui-10"] : ["preview-ui-11"]
 
         for activeID in activeIDs {
-            app.activateWorkspacePane(activeID)
             let activeProbe = activeID == "preview-ui-11" ? sourceProbe : otherProbe
+            try activatePane(app, probe: activeProbe)
+            let activeIdentity = activeID == "preview-ui-11" ? sourceIdentity : otherIdentity
             let draft = activeID == "preview-ui-11" ? "source keyboard viewport draft" : "other keyboard viewport draft"
             app.buttons["split-keyboard-stress-start"].tap()
             assertTransitionSamples(app, rapid: true)
             expect { !app.keyboards.firstMatch.exists }
             XCTAssertEqual(field("ratio", viewport), ratio)
-            XCTAssertEqual(field("editorIdentity", sourceProbe), sourceIdentity)
-            if occupied { XCTAssertEqual(field("editorIdentity", otherProbe), otherIdentity) }
+            XCTAssertEqual(field("editorIdentity", activeProbe), activeIdentity)
             XCTAssertTrue((editor.value as? String)?.contains(draft) == true)
             for _ in 0..<2 {
                 editor.tap()
@@ -103,16 +103,23 @@ final class SplitKeyboardUITests: XCTestCase {
                     // Settled geometry and the actual Composer gap must agree; merely
                     // observing keyboard existence can still sample an unfinished layout.
                     guard let gap = self.number("keyboardGap", activeProbe),
-                          let spacing = self.number("bottomSpacing", activeProbe) else { return false }
+                          let spacing = self.number("bottomSpacing", activeProbe),
+                          let keyboard = self.rect("keyboardWindowFrame", activeProbe),
+                          let savedRatio = Double(ratio) else { return false }
+                    let height = keyboard.minY - upper.minY
+                    let boundary = upper.minY + height * savedRatio
+                    let dividerGap = min(12, height * min(savedRatio, 1 - savedRatio))
                     return abs(upper.minY - min(restingSource.minY, restingOther.minY)) < 2
-                        && abs(upper.maxY - divider.frame.minY) < 2
-                        && abs(lower.minY - divider.frame.maxY) < 2
-                        && abs(lower.maxY - app.keyboards.firstMatch.frame.minY) < 2
+                        // The Divider's AX hit target is taller than its visual gap.
+                        && abs(upper.maxY - (boundary - dividerGap / 2)) < 2
+                        && abs(lower.minY - (boundary + dividerGap / 2)) < 2
+                        && abs(divider.frame.midY - boundary) < 2
+                        && abs(lower.maxY - keyboard.minY) < 2
                         && abs(gap - spacing) <= 0.5
                 }
+                print("SPLIT_ENDPOINT source=\(geometryDiagnostic(sourceProbe)) other=\(geometryDiagnostic(otherProbe));dividerAX=\(divider.frame);keyboardAX=\(app.keyboards.firstMatch.frame)")
                 XCTAssertEqual(field("ratio", viewport), ratio)
-                XCTAssertEqual(field("editorIdentity", sourceProbe), sourceIdentity)
-                if occupied { XCTAssertEqual(field("editorIdentity", otherProbe), otherIdentity) }
+                XCTAssertEqual(field("editorIdentity", activeProbe), activeIdentity)
                 XCTAssertTrue((editor.value as? String)?.contains(draft) == true)
                 try dismissKeyboard(app, editor: editor, probe: activeProbe)
                 expect {
@@ -127,16 +134,16 @@ final class SplitKeyboardUITests: XCTestCase {
                     }
                     return picker.exists && self.matches(picker.frame, restingOther)
                 }
-                expect { anchor.isHittable && abs(source.frame.maxY - anchor.frame.minY - bottomDistance) < 4 }
+                expect { self.readingIsRestored(anchor, pane: source, probe: sourceProbe, bottomDistance: bottomDistance) }
                 XCTAssertEqual(field("ratio", viewport), ratio)
             }
         }
         if occupied {
-            app.activateWorkspacePane("preview-ui-10")
+            try activatePane(app, probe: otherProbe)
             XCTAssertTrue((editor.value as? String)?.contains("other keyboard viewport draft") == true)
             XCTAssertEqual(field("editorIdentity", otherProbe), otherIdentity)
         }
-        app.activateWorkspacePane("preview-ui-11")
+        try activatePane(app, probe: sourceProbe)
         editor.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
         app.buttons["split-keyboard-watch-start"].tap()
@@ -158,6 +165,35 @@ final class SplitKeyboardUITests: XCTestCase {
         XCTAssertEqual(field("ratio", viewport), ratio)
         XCTAssertEqual(field("editorIdentity", sourceProbe), sourceIdentity)
         XCTAssertTrue((editor.value as? String)?.contains("source keyboard viewport draft") == true)
+    }
+
+    @MainActor
+    private func geometryDiagnostic(_ probe: XCUIElement) -> String {
+        ["surfaceFrame", "contentFrame", "keyboardWindowFrame", "keyboardGap", "bottomSpacing"]
+            .map { "\($0)=\(field($0, probe) ?? "unmounted")" }.joined(separator: ";")
+    }
+
+    @MainActor
+    private func activatePane(_ app: XCUIApplication, probe: XCUIElement) throws {
+        // AX ScrollView bounds can extend beyond the clipped lower Pane. Hit the
+        // actual native readable viewport instead of its untrimmed AX rectangle.
+        let readable = try XCTUnwrap(rect("timelineVisibleFrame", probe))
+        let point = CGPoint(x: readable.maxX - 8, y: readable.minY + min(32, readable.height / 3))
+        XCTAssertTrue(readable.contains(point))
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY)).tap()
+        expect { self.field("editorIdentity", probe) != nil }
+    }
+
+    @MainActor
+    private func readingIsRestored(_ anchor: XCUIElement, pane: XCUIElement,
+                                   probe: XCUIElement, bottomDistance: CGFloat) -> Bool {
+        guard anchor.exists, let readable = rect("timelineVisibleFrame", probe) else { return false }
+        let frame = anchor.frame
+        // A reading label need not provide an AX activation point. Its real
+        // viewport intersection and the existing four-point tolerance are required.
+        return !frame.isEmpty && readable.intersects(frame)
+            && abs(pane.frame.maxY - frame.minY - bottomDistance) < 4
     }
 
     @MainActor
