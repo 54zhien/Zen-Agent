@@ -403,3 +403,9 @@ Additional Apple reference checked:
   contacts include both lower placements with keyboard shown/hidden and filled
   surfaces. Phase-to-video wall-clock mapping is approximate and is not used to
   make per-transition timing claims. This does not waive the failed reading tests.
+
+- Candidate `93cc192` / run 39106095659 stopped at test compilation: Swift
+  Testing's expanded `#expect(beginDividerResize(... closure ...))` passed a
+  non-Sendable macro parameter into an actor-isolated callback. Evaluate admission
+  before asserting its Bool, as the existing Divider regressions do. No test was
+  executed in that run; it supplies neither UI acceptance nor a passing build.
