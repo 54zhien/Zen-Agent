@@ -307,7 +307,6 @@ struct ConversationTimelineView: View {
                 }
                 guard acceptsReadingGeometry else { return }
                 if scrollBridge?.hasDividerLease == true {
-                    if phase == .idle { scrollBridge?.endHeightChange() }
                     if let latestScrollGeometry { repairDividerPosition(latestScrollGeometry) }
                     return
                 }
@@ -322,7 +321,8 @@ struct ConversationTimelineView: View {
                         )
                     )
                 case .idle:
-                    scrollBridge?.endHeightChange()
+                    scrollBridge?.scrollBecameIdle(wasUserDriven: wasUserDriven,
+                        geometry: Self.paneGeometry(from: context.geometry))
                     applyPendingScrollIfReady()
                 case .decelerating, .animating:
                     break

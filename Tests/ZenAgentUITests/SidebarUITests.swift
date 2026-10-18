@@ -149,6 +149,12 @@ final class SidebarUITests: XCTestCase {
         app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
         XCTAssertEqual(editorIdentity(probe.value as? String), identity)
         XCTAssertTrue((editor.value as? String)?.contains("focused tap close") == true)
+        // Reusing the same native input after Sidebar closure must also retain
+        // its Lift recognizer and become eligible for the production Split drag.
+        app.openWorkspaceSplit()
+        XCTAssertTrue(app.descendants(matching: .any)["split-empty-pane-picker"].exists)
+        XCTAssertEqual(editorIdentity(probe.value as? String), identity)
+        XCTAssertTrue((editor.value as? String)?.contains("focused tap close") == true)
     }
 
     @MainActor

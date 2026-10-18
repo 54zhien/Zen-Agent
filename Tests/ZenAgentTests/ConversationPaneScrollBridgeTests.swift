@@ -7,6 +7,110 @@ import Foundation
 @MainActor
 struct ConversationPaneScrollBridgeTests {
 
+    @Test("a reading restoration materialized after a following-bottom resize receives its own pixel capture")
+    func restoredReadingSuppliesPreviouslyAbsentCapture() throws {
+        let pane = try makePane(conversationID: "reading-promotion",
+            turns: [ConversationTurn(runID: "reference", items: [.userText("read")])])
+        let bridge = pane.scrollBridge
+        let geometry = ScrollGeometry(viewportHeight: 283, contentHeight: 2042, offset: 978)
+        bridge.composerKeyboardWillChange()
+        bridge.beginHeightChange(geometry: geometry, bottomReferenceTurn: nil)
+        bridge.publishViewport(geometry, bottomReferenceTurn: ("reference", 1034.6))
+        bridge.continueHeightChange(geometry: geometry, turnTops: [:])
+        pane.restoreAnchorForUITest(TurnAnchor(runID: "reference", relativeViewportOffset: 0.2))
+        bridge.scrollBecameIdle(wasUserDriven: false, geometry: geometry)
+        #expect(bridge.isHeightChangeActive, "Same height alone cannot acknowledge a newly restored reading mode")
+        bridge.continueHeightChange(geometry: geometry, turnTops: ["reference": 1034.6])
+        bridge.composerKeyboardWillChange()
+        let shorter = ScrollGeometry(viewportHeight: 102.6666666667, contentHeight: 2042, offset: 978)
+        bridge.continueHeightChange(geometry: shorter, turnTops: ["reference": 1034.6])
+        let request = try #require(pane.scrollRequest)
+        guard case .restoreAnchor(let anchor) = request.action else {
+            Issue.record("A restored read must receive a reading capture")
+            return
+        }
+        #expect(abs(anchor.relativeViewportOffset * shorter.viewportHeight - 56.6) < 0.000001)
+    }
+
+    @Test("programmatic idle between native viewport arrival and reduction retains the keyboard reading capture")
+    func idleDuringKeyboardRetargetKeepsReadingPixels() throws {
+        let pane = try makePane(conversationID: "keyboard-idle",
+            turns: [ConversationTurn(runID: "reference", items: [.userText("read")])])
+        let bridge = pane.scrollBridge
+        let original = ScrollGeometry(viewportHeight: 283, contentHeight: 2042, offset: 978)
+        let turnTop = 1034.6
+        bridge.userScrolled(geometry: original, topVisibleTurn: ("reference", turnTop))
+        bridge.publishViewport(original, bottomReferenceTurn: ("reference", turnTop))
+        bridge.composerKeyboardWillChange()
+        bridge.scrollBecameIdle(wasUserDriven: false, geometry: original)
+        bridge.beginHeightChange(geometry: original, bottomReferenceTurn: ("reference", turnTop))
+        let intermediate = ScrollGeometry(viewportHeight: 221, contentHeight: 2042, offset: 978)
+        bridge.continueHeightChange(geometry: intermediate, turnTops: ["reference": turnTop])
+        let first = try #require(pane.scrollRequest)
+        guard case .restoreAnchor(let firstAnchor) = first.action else {
+            Issue.record("Idle before the first resize must not discard the keyboard intent")
+            return
+        }
+        #expect(abs(firstAnchor.relativeViewportOffset * intermediate.viewportHeight - 56.6) < 0.000001)
+        let native = ScrollGeometry(viewportHeight: 102.6666666667, contentHeight: 2042, offset: 978)
+        bridge.publishViewport(intermediate, bottomReferenceTurn: ("reference", turnTop))
+        bridge.composerKeyboardWillChange()
+        bridge.scrollBecameIdle(wasUserDriven: false, geometry: intermediate)
+        #expect(bridge.isHeightChangeActive, "A prior matching reduction cannot finish a new keyboard mark")
+        bridge.continueHeightChange(geometry: intermediate, turnTops: ["reference": turnTop])
+        bridge.scrollBecameIdle(wasUserDriven: false, geometry: intermediate)
+        #expect(bridge.isHeightChangeActive, "An unchanged Preference pass cannot finish an announced resize")
+        bridge.scrollBecameIdle(wasUserDriven: false, geometry: native)
+        #expect(bridge.isHeightChangeActive, "A phase callback can lead the published viewport")
+        bridge.publishViewport(native, bottomReferenceTurn: ("reference", turnTop))
+        bridge.scrollBecameIdle(wasUserDriven: false, geometry: intermediate)
+        #expect(bridge.isHeightChangeActive, "A published viewport can lead the phase callback")
+        bridge.scrollBecameIdle(wasUserDriven: false, geometry: native)
+        bridge.composerKeyboardWillChange()
+        bridge.beginHeightChange(geometry: native, bottomReferenceTurn: ("reference", turnTop))
+        for geometry in [native, intermediate, original] {
+            bridge.continueHeightChange(geometry: geometry, turnTops: ["reference": turnTop])
+            let request = try #require(pane.scrollRequest)
+            guard case .restoreAnchor(let anchor) = request.action else {
+                Issue.record("Keyboard retargeting must retain the reading Turn")
+                return
+            }
+            #expect(anchor.runID == "reference")
+            #expect(abs(anchor.relativeViewportOffset * geometry.viewportHeight - 56.6) < 0.000001)
+        }
+        #expect(bridge.isHeightChangeActive)
+        bridge.publishViewport(original, bottomReferenceTurn: ("reference", turnTop))
+        bridge.scrollBecameIdle(wasUserDriven: false, geometry: original)
+        #expect(!bridge.isHeightChangeActive, "Coherent programmatic idle still ends the completed capture")
+        bridge.beginHeightChange(geometry: original, bottomReferenceTurn: ("reference", turnTop))
+        bridge.scrollBecameIdle(wasUserDriven: true, geometry: native)
+        #expect(!bridge.isHeightChangeActive)
+    }
+
+    @Test("idle does not discard a Divider's captured reading pixels or release its lease")
+    func idleDoesNotCancelDividerReadingCapture() throws {
+        let pane = try makePane(conversationID: "divider-idle",
+            turns: [ConversationTurn(runID: "reference", items: [.userText("read")])])
+        let bridge = pane.scrollBridge
+        let initial = ScrollGeometry(viewportHeight: 283, contentHeight: 2042, offset: 978)
+        bridge.userScrolled(geometry: initial, topVisibleTurn: ("reference", 1034.6))
+        bridge.publishViewport(initial, bottomReferenceTurn: ("reference", 1034.6))
+        let id = UUID()
+        #expect(bridge.beginDividerResize(id: id, onComplete: { _ in }))
+        bridge.composerKeyboardWillChange()
+        bridge.scrollBecameIdle(wasUserDriven: true, geometry: initial)
+        let next = ScrollGeometry(viewportHeight: 221, contentHeight: 2042, offset: 978)
+        bridge.continueDividerResize(geometry: next, turnTops: ["reference": 1034.6], revision: 4)
+        let request = try #require(pane.scrollRequest)
+        guard case .restoreAnchor(let anchor) = request.action else {
+            Issue.record("Idle must not replace the composer's captured reading pixels with a bottom anchor")
+            return
+        }
+        #expect(abs(anchor.relativeViewportOffset * next.viewportHeight - 56.6) < 0.000001)
+        #expect(bridge.hasDividerLease)
+        bridge.invalidateDividerResize(id: id)
+    }
+
     @Test("an unmeasured lazy bottom reference cannot complete a new final Divider layout using its older target")
     func missingLazyTurnCannotAcknowledgeOldTarget() throws {
         let pane = try makePane(conversationID: "lazy-divider",

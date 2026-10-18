@@ -21,6 +21,7 @@ common=(-project ZenAgent.xcodeproj -scheme ZenAgent -configuration Debug
         -destination "id=$UDID" -derivedDataPath "$RUNNER_TEMP/KeyboardSidebarDerivedData"
         -parallel-testing-enabled NO)
 units=(-only-testing:ZenAgentTests/SplitKeyboardLayoutTests
+       -only-testing:ZenAgentTests/ConversationPaneScrollBridgeTests
        -only-testing:ZenAgentTests/ConversationNativeScrollViewportTests
        -only-testing:ZenAgentTests/SidebarSurfaceTests
        -only-testing:ZenAgentTests/SidebarDecorationTests
@@ -64,7 +65,7 @@ assert s['passedTests'] == s['totalTestCount'], 'Incomplete native test result'
 if sys.argv[2] == 'UI':
     assert s['totalTestCount'] == 7, 'Expected four Split scenarios and three focused Sidebar regressions'
 else:
-    assert s['totalTestCount'] == 27, 'Expected existing 23 tests plus four native viewport regressions'
+    assert s['totalTestCount'] == 38, 'Expected 27 prior focused tests plus eleven reading bridge regressions'
 PY
 }
 

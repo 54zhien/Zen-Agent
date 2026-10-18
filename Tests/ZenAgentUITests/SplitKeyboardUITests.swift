@@ -175,6 +175,19 @@ final class SplitKeyboardUITests: XCTestCase {
         XCTAssertEqual(field("ratio", viewport), ratio)
         XCTAssertEqual(field("editorIdentity", sourceProbe), sourceIdentity)
         XCTAssertTrue((editor.value as? String)?.contains("source keyboard viewport draft") == true)
+        let rail = app.descendants(matching: .any)["sidebar-rail"]
+        editor.tap()
+        expect { !rail.exists }
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "The Sidebar closing tap only closes the rail")
+        editor.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        expect { self.field("focused", sourceProbe) == "true" }
+        try dismissKeyboard(app, editor: editor, probe: sourceProbe)
+        expect { self.readingIsRestored(anchor, probe: sourceProbe, bottomDistance: bottomDistance) }
+        XCTAssertEqual(field("ratio", viewport), ratio)
+        XCTAssertEqual(field("editorIdentity", sourceProbe), sourceIdentity)
+        XCTAssertTrue((editor.value as? String)?.contains("source keyboard viewport draft") == true)
+        recordState("After Sidebar close and keyboard reopen", source: sourceProbe, other: otherProbe, divider: dividerHandle)
     }
 
     @MainActor

@@ -340,3 +340,66 @@ Additional Apple reference checked:
   bounds apply without a second helper call, while a cancelled lease never moves
   the native offset. Strict selection now expects 27 native declarations / seven
   UI cases. These additions and all repairs still require native execution.
+
+### Fifth focused result — Divider repaired, reading remains RED
+
+- Run 39102591056 at `5226b32a27353b9e8a6e6347dc81590cb9107dd9`
+  generated/built successfully; all 27 selected native declarations passed.
+  Seven UI cases executed, five passed, two failed, zero skipped. Full/iPad jobs
+  were skipped; no archive, signing/export or packaging ran.
+- Both lower-source placements now reached offset 1759 and released the Divider
+  lease, with zero native command wait expiries. All four Split placements reached
+  rapid keyboard reversal and actual Sidebar/keyboard overlap sampling. This
+  resolves the previously blocked coverage, not the independent reading failure.
+- Picker above/source below still displaced the reading label from y593 to about
+  y536.3. Dual Conversation/source below repeated that displacement and drifted
+  further when the other input owner was activated. Keep the original four-point
+  assertion; do not classify model-anchor drift as a screenshot-only discrepancy.
+- All three Sidebar cases passed this run. Earlier intermittent reopen/entry
+  failures remain evidence; one passing execution does not establish their cause.
+  Extend the existing reopen case through the subsequent production Split drag.
+- Next diagnostic retains bounded height transaction capture/continuation/end
+  events alongside the existing reading trace, and records state immediately after
+  rapid reversals. It changes neither UI stimulus nor acceptance tolerances.
+- Summaries, test trees, source SHA and attachment manifest are retained in
+  `.tmp/keyboard-sidebar-selective5/`; full bundles/logs/video remain in the run's
+  artifact. A fifth-recording pixel review is still outstanding.
+
+### Native diagnosis of repeated lower reading drift
+
+- Run 39104266338 (`4d46b67`, diagnostic-only candidate) retained the decisive
+  Picker-above trace: a capture of 4.431327 points, normalized for viewport 221,
+  is cleared at native viewport 102.666667 before the reading reduction. The next
+  begin multiplies that old ratio by the smaller viewport, reducing the capture
+  to 2.058596, then 0.956331 and so on. This is state drift, not AX-only geometry.
+  It generated/built successfully, passed 27 selected unit declarations and five
+  of seven UI cases (zero skipped); only the two lower-source reading cases failed.
+  All three Sidebar cases passed again. Complete summary/test trees and UI.log
+  are retained in `.tmp/keyboard-sidebar-selective6/`.
+- A separate earlier trace shows an inherited height transaction started while
+  following bottom and still held nil reading pixels after the older Turn was
+  restored at viewport 283. Retaining that nil forever would only hide drift at
+  the final endpoint; the reading pixels need to be captured once when present.
+- Repair boundary: programmatic scroll idle may end a Composer height capture
+  only after the current reading mode and both native viewport observations
+  (published snapshot and phase context) match the last processed height reduction.
+  Each new Composer mark invalidates that reduction proof. The announced height
+  must actually change before an unchanged Preference pass can certify completion;
+  idle before the first resize retains the mark too.
+  User scroll idle may supersede it; Divider idle cannot cancel its independent
+  receipt. Explicit user scrolling, Divider begin/cancel and presentation changes
+  retain their existing cancellation paths. A first materialized reading mode
+  supplies a missing pixel baseline; repeated notifications retain that baseline.
+- Three regressions reproduce native-arrival-before-reduction idle ordering in
+  both callback orders, mark-before-first-resize and same-height retarget ordering,
+  unchanged Preference rejection, coherent final idle completion, same-height changed-mode
+  rejection, missing reading baseline, and Divider idle isolation. Select the existing eight
+  bridge tests too: 38 declared native tests and the same seven UI cases, only.
+- Extend Sidebar reopen through a subsequent real Split drag, and all four Split
+  placements through Sidebar close/reopen/dismiss plus reading/draft/ratio checks.
+  No acceptance tolerance or timeout was broadened.
+- Fifth video: decoded all 8,824 frames with the existing central light-fixture
+  near-black-band heuristic; no candidates, max band three reduced pixels. Selected
+  contacts include both lower placements with keyboard shown/hidden and filled
+  surfaces. Phase-to-video wall-clock mapping is approximate and is not used to
+  make per-transition timing claims. This does not waive the failed reading tests.
