@@ -295,7 +295,6 @@ struct NewConversationView: View {
     private var sidebarActions: Set<WorkspaceConversationAction> {
         var result: Set<WorkspaceConversationAction> = [.new]
         if !model.recentConversations.isEmpty || model.recentListingError != nil { result.insert(.recent) }
-        if isSource, model.currentSettingsNewID == presentedID { result.insert(.configure) }
         return result
     }
     private func publishSidebarActions() {
@@ -308,13 +307,8 @@ struct NewConversationView: View {
             case .new:
                 if isSource { model.newConversation() } else { _ = model.createNewInSplit() }
             case .recent: isRecentConversationsPresented = true
-            case .configure: configureNew()
             }
         }
-    }
-
-    private func configureNew() {
-        workspaceNavigation?.onConfigureNew?(presentedID)
     }
 
     private func openRecentConversation(id: String) {

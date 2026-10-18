@@ -123,9 +123,6 @@ struct SidebarRailView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("sidebar-conversation-controls")
-        if conversationActions.contains(.configure) {
-            action(.configure, symbol: "slider.horizontal.3", label: "配置模型", identifier: "new-conversation-configure")
-        }
         destination(.files, symbol: "folder", label: "文件", identifier: "sidebar-files")
     }
 

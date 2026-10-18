@@ -530,7 +530,7 @@ final class SplitContainerUITests: XCTestCase {
         let source = app.descendants(matching: .any)["conversation-pane-preview-ui-11"]
         XCTAssertTrue(source.waitForExistence(timeout: 15))
         app.openWorkspaceSplit(sourceInTopPane: false)
-        let picker = app.otherElements["split-empty-pane-picker"]
+        let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
         let sourceEditor = app.textViews["conversation-composer-input"]
         XCTAssertTrue(sourceEditor.exists)
@@ -585,7 +585,7 @@ final class SplitContainerUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         app.openWorkspaceSplit()
-        XCTAssertTrue(app.otherElements["split-empty-pane-picker"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10))
     }
 
     @MainActor

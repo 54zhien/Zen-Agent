@@ -37,7 +37,8 @@ units=(-only-testing:ZenAgentTests/SplitKeyboardLayoutTests
        -only-testing:ZenAgentTests/WorkspaceDevicePresentationTests
        -only-testing:ZenAgentTests/WorkspaceComposerDockTests
        -only-testing:ZenAgentTests/ComposerOverlayFocusTests
-       -only-testing:ZenAgentTests/ComposerHostIntegrationTests)
+       -only-testing:ZenAgentTests/ComposerHostIntegrationTests
+       -only-testing:ZenAgentTests/SettingsScopeTests)
 ui=(-only-testing:ZenAgentUITests/SplitKeyboardUITests
     -only-testing:ZenAgentUITests/SidebarUITests/testStableEditingSidebarDismissesKeyboardWithoutChangingNativeOwner
     -only-testing:ZenAgentUITests/SidebarUITests/testShiftedBlankTapClosesRailWithoutRestoringTheDismissedKeyboard
@@ -48,7 +49,10 @@ ui=(-only-testing:ZenAgentUITests/SplitKeyboardUITests
     -only-testing:ZenAgentUITests/FilesWorkspaceUITests/testFilesCloseWithoutAPickerRestoresTheDraft
     -only-testing:ZenAgentUITests/WorkspaceRotationUITests/testLandscapeEditsBelongToTheLastActivePaneAndPortraitRestoresBoth
     -only-testing:ZenAgentUITests/WorkspaceRotationUITests/testLandscapeCardStackReturnsToTheSelectedExistingPaneWithoutDuplicatingIt
-    -only-testing:ZenAgentUITests/SplitContainerUITests/testOrdinaryLiftTowardTheLowerCenterOpensCardsBeforeSplit)
+    -only-testing:ZenAgentUITests/SplitContainerUITests/testOrdinaryLiftTowardTheLowerCenterOpensCardsBeforeSplit
+    -only-testing:ZenAgentUITests/SplitContainerUITests/testComposerBottomSplitCreatesANewSecondConversationAndClosesWithoutDeletingIt
+    -only-testing:ZenAgentUITests/SplitContainerUITests/testComposerTopSplitEntryOpensTheSameEmptyPanePicker
+    -only-testing:ZenAgentUITests/SettingsUITests/testEmptyStartupConfiguresItsNewOwnerThroughSettingsAndCommitsOnlyOnSend)
 printf '%s\n' "${units[@]}" "${ui[@]}" > "$evidence/selected-tests.txt"
 
 xcodebuild build-for-testing "${common[@]}" \
@@ -81,9 +85,9 @@ assert s['totalTestCount'] > 0, 'No tests executed'
 assert s['failedTests'] == 0 and s['skippedTests'] == 0, 'Failed or skipped native tests'
 assert s['passedTests'] == s['totalTestCount'], 'Incomplete native test result'
 if sys.argv[2] == 'UI':
-    assert s['totalTestCount'] == 14, 'Expected seven keyboard/Sidebar cases and seven UI restoration cases'
+    assert s['totalTestCount'] == 17, 'Expected seven keyboard/Sidebar and ten UI restoration cases'
 else:
-    assert s['totalTestCount'] == 141, 'Expected the selected native geometry, editor, outline and keyboard regressions'
+    assert s['totalTestCount'] == 148, 'Expected the selected native geometry, editor, outline and keyboard regressions'
 PY
 }
 

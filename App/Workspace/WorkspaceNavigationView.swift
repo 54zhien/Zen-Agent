@@ -175,12 +175,8 @@ struct WorkspaceNavigationView<Content: View>: View {
                 overlays = WorkspaceOverlayCoordinator(store: store, shell: model, navigation: state)
             }
             state.onReset = { [weak overlays] in overlays?.reset() }
-            state.onConfigureNew = { [weak overlays] id in
-                overlays?.enterNewSettings(id: id, eligible: model?.currentSettingsNewID == id,
-                    captureFocus: captureFocus)
-            }
         }
-        .onDisappear { overlays?.reset(); state.onReset = nil; state.onConfigureNew = nil }
+        .onDisappear { overlays?.reset(); state.onReset = nil }
     }
 
     private var settingsPresentation: Binding<SettingsPresentation?> {

@@ -37,14 +37,6 @@ final class WorkspaceOverlayCoordinator {
         settings = settingsModel
     }
 
-    func enterNewSettings(id: String, eligible: Bool, captureFocus: () -> ComposerOverlayFocus?) {
-        guard dismissingSettingsID == nil, eligible, shell?.currentSettingsNewID == id, let navigation,
-              let model = shell?.makeSettingsModel(configureNewID: id) else { return }
-        let captured = captureFocus()
-        guard navigation.presentNewSettings(eligible: eligible) else { captured?.cancel(); return }
-        focus?.cancel(); focus = captured; settings = model
-    }
-
     func openFilesFromSettings(expectedID: UUID) {
         guard let navigation, let catalog = shell?.makeFilesWorkspaceModel(),
               navigation.replaceSettingsWithFiles(expectedID: expectedID) else { return }

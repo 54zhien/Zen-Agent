@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-enum WorkspaceConversationAction: Hashable { case new, recent, configure }
+enum WorkspaceConversationAction: Hashable { case new, recent }
 
 enum WorkspaceOverlayRoute: Hashable { case search, files, settings }
 
@@ -18,7 +18,6 @@ enum WorkspaceSidebarEligibility {
 final class WorkspaceNavigationState {
     var conversationActions: Set<WorkspaceConversationAction> = []
     @ObservationIgnored var onConversationAction: ((WorkspaceConversationAction) -> Void)?
-    @ObservationIgnored var onConfigureNew: ((String) -> Void)?
     @ObservationIgnored private var pendingConversationAction: (() -> Void)?
     @ObservationIgnored var onReset: (() -> Void)?
     private(set) var progress = 0.0
@@ -110,13 +109,6 @@ final class WorkspaceNavigationState {
         pendingConversationAction = { handler(action) }
         closeSidebar()
     }
-    @discardableResult
-    func presentNewSettings(eligible: Bool) -> Bool {
-        guard eligible, !isOpen, progress == 0, !isDragging, settlementID == nil, overlay == nil else { return false }
-        overlay = .settings; overlayID = UUID()
-        return true
-    }
-
     @discardableResult
     func replaceSettingsWithFiles(expectedID: UUID) -> Bool {
         guard overlay == .settings, overlayID == expectedID else { return false }
