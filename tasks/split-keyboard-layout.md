@@ -219,3 +219,33 @@ Additional Apple reference checked:
 - Watch observes two seconds after the keyboard event, extending only to collect
   six real display ticks within a five-second bound. It no longer adds a synthetic
   final sample; keyboard/Sidebar joint-overlap assertions remain mandatory.
+
+### Third focused native result and bounded lease repair
+
+- Run 39098874606 at `e3cb053` generated and built successfully; 23 tests / five
+  native suites passed. UI: 4/7 passed, no skips. Both source-top Split cases and
+  two Sidebar regressions passed. Full/iPad jobs remained skipped; no package ran.
+- Native receipts confirm the source-below resize transaction is stuck at revision
+  3 (accepted/measured/ready), actual offset 1736 versus requested 1759, content
+  height 2042 and readable height 283. Both lower-source arrangements retain the
+  lease. A pending same-sequence request cannot reissue, while bridge completion
+  requires its target and nil request. 1736 exactly matches the preceding 306pt
+  viewport's bottom; this is consistent with an early native command being clamped.
+- Picker-above/source-below also showed actual reading-anchor displacement around
+  56pt after keyboard cycles while that resize lease remained active. It is not
+  dismissed as an AX measurement problem. First repair the confirmed transaction
+  deadlock and rerun the same placement/reading assertions.
+- The bounded repair clears only the applied-command marker when a native viewport
+  height changes during an existing Divider lease. It retains the logical request,
+  target and strict acknowledgement; the new native viewport can reissue it.
+  Keyboard transport outside a Divider transaction is unchanged. Native execution
+  must establish whether SwiftUI accepts the same numeric target again.
+- The stable-editing Sidebar regression also failed once: admission returned true
+  with matching owner, but UIKit delivered no recognizer action callback and the
+  edge returned to possible; neither detach nor navigation begin/dismiss occurred.
+  It passed in the first two runs. Root cause is unconfirmed; enrich peer/state
+  diagnostics and retain it in the same no-retry selection, without changing
+  gesture policy based on this single observation.
+- Completed rapid/Sidebar samples had no missing hosts, <0.17pt underfill and zero
+  partition error; Watch now captured 100-111 real ticks with joint overlap. This
+  does not make the failed UI selection pass.

@@ -306,7 +306,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             admitted = state.isOpen && current.allowsClosing
                 && current.containsClosingView(otherView)
         } else { admitted = false }
-        record("priority \(kind(gestureRecognizer)) over \(String(describing: type(of: otherGestureRecognizer)))=\(admitted),edgeOrigin=\(String(describing: edgeTouchOrigin)),edgeOwner=\(sameOwner(edgeTouchOwner))")
+        record("priority \(kind(gestureRecognizer)) over \(String(describing: type(of: otherGestureRecognizer)))=\(admitted),selfState=\(gestureRecognizer.state.rawValue),otherState=\(otherGestureRecognizer.state.rawValue),otherView=\(type(of: otherView)),underEdge=\(edge.view.map { otherView === $0 || otherView.isDescendant(of: $0) } ?? false),edgeOrigin=\(String(describing: edgeTouchOrigin)),edgeOwner=\(sameOwner(edgeTouchOwner))")
         return admitted
     }
 

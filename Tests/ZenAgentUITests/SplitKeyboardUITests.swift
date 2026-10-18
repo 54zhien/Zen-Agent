@@ -42,7 +42,7 @@ final class SplitKeyboardUITests: XCTestCase {
         handle.press(forDuration: 0.15, thenDragTo: handle.withOffset(CGVector(dx: 0, dy: 40)))
         expect { self.field("ratio", viewport) != nil && self.field("ratio", viewport) != "0.5" }
         let dividerHandle = app.descendants(matching: .any)["split-divider-handle"]
-        // A changed ratio precedes the two native reading receipts. Focus is
+        // A changed ratio precedes the native reading receipts. Focus is
         // intentionally blocked until that existing resize transaction closes.
         expect { (dividerHandle.value as? String)?.contains("liveResize=active=false") == true }
         recordState("After divider receipts", source: sourceProbe, other: otherProbe, divider: dividerHandle)
