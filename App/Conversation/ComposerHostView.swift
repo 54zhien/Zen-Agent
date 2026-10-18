@@ -4,15 +4,6 @@ import UIKit
 @MainActor
 final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDelegate,
                               UIGestureRecognizerDelegate {
-#if DEBUG
-    private static let animationDiagnosticRoots = NSHashTable<UIView>.weakObjects()
-    static var animationRootsForUITesting: [UIView] { animationDiagnosticRoots.allObjects }
-    private static func trackAnimationRoot(_ view: UIView) {
-        if ProcessInfo.processInfo.environment["ZEN_SPLIT_KEYBOARD_STRESS_UI_TEST"] == "1" {
-            animationDiagnosticRoots.add(view)
-        }
-    }
-#endif
     struct Configuration {
         let text: String
         let selection: ComposerSelection
@@ -196,9 +187,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         effect.isInteractive = false
         glass = UIVisualEffectView(effect: effect)
         super.init(frame: frame)
-#if DEBUG
-        Self.trackAnimationRoot(self)
-#endif
         backgroundColor = .clear
         isOpaque = false
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) {
@@ -708,9 +696,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let needsLocalHandoff = state != .editing && editor.contentOffset.y > 1
         let carrier = needsLocalHandoff ? viewport.snapshotView(afterScreenUpdates: false) : nil
         if let carrier {
-#if DEBUG
-            Self.trackAnimationRoot(carrier)
-#endif
             carrier.frame = viewport.bounds
             viewport.addSubview(carrier)
             textCarrier = carrier

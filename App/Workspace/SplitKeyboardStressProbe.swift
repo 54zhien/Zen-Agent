@@ -48,7 +48,6 @@ final class SplitKeyboardStressView: UIView {
     private var observesSidebar = false
     private var captureGeneration = UUID()
     private var watchDeadline: CFTimeInterval = 0
-    private var settledAnimations = "not-captured"
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -143,7 +142,6 @@ final class SplitKeyboardStressView: UIView {
         samples = 0; requests = 0; missingSurfaces = 0
         keyboardEvents = 0; retargetedEvents = 0; sidebarSamples = 0; overlappingSamples = 0; keyboardDeadline = 0
         maxUnderfill = 0; maxPartitionError = 0; status = sidebar ? "armed" : "running"
-        settledAnimations = "not-captured"
         firstKeyboardEventTime = nil; firstKeyboardDuration = nil; firstKeyboardSampleDelay = nil
         firstValidSampleDelay = nil; firstSidebarSampleDelay = nil
         startButton.isEnabled = false; watchButton.isEnabled = false
@@ -185,7 +183,6 @@ final class SplitKeyboardStressView: UIView {
     private func finish() {
         displayLink?.invalidate(); displayLink = nil
         NotificationCenter.default.removeObserver(self)
-        settledAnimations = animationDiagnostic()
         status = "done"; task = nil
         startButton.isEnabled = true; watchButton.isEnabled = true
         publish()
@@ -277,34 +274,8 @@ final class SplitKeyboardStressView: UIView {
         publish()
     }
 
-    private func animationDiagnostic() -> String {
-        var visited: Set<ObjectIdentifier> = []
-        var entries: [String] = []
-        var count = 0
-        func inspect(_ layer: CALayer) {
-            guard visited.insert(ObjectIdentifier(layer)).inserted else { return }
-            for key in layer.animationKeys() ?? [] {
-                guard let animation = layer.animation(forKey: key) else { continue }
-                count += 1
-                if entries.count < 80 {
-                    let owner = layer.delegate.map { String(describing: type(of: $0)) } ?? "CALayer"
-                    let path = (animation as? CAPropertyAnimation)?.keyPath ?? "group"
-                    entries.append("\(owner)/\(layer.name ?? "unnamed"):\(key):\(path):duration=\(animation.duration),repeat=\(animation.repeatCount),repeatDuration=\(animation.repeatDuration),speed=\(animation.speed),begin=\(animation.beginTime),now=\(layer.convertTime(CACurrentMediaTime(), from: nil)),layerSpeed=\(layer.speed),layerOffset=\(layer.timeOffset),removed=\(animation.isRemovedOnCompletion),fill=\(animation.fillMode.rawValue),hidden=\(layer.isHidden),bounds=\(layer.bounds)")
-                }
-            }
-            if let mask = layer.mask { inspect(mask) }
-            for child in layer.sublayers ?? [] { inspect(child) }
-        }
-        for scene in UIApplication.shared.connectedScenes {
-            guard let scene = scene as? UIWindowScene else { continue }
-            for window in scene.windows { inspect(window.layer) }
-        }
-        for root in ComposerHostView.animationRootsForUITesting { inspect(root.layer) }
-        return "count=\(count)[\(entries.joined(separator: " | "))]"
-    }
-
     private func publish() {
-        diagnostic.accessibilityValue = "status=\(status);samples=\(samples);requests=\(requests);missing=\(missingSurfaces);underfill=\(maxUnderfill);partitionError=\(maxPartitionError);keyboardEvents=\(keyboardEvents);retargeted=\(retargetedEvents);sidebarSamples=\(sidebarSamples);overlap=\(overlappingSamples);firstKeyboardDuration=\(String(describing: firstKeyboardDuration));firstKeyboardSampleDelay=\(String(describing: firstKeyboardSampleDelay));firstValidSampleDelay=\(String(describing: firstValidSampleDelay));firstSidebarSampleDelay=\(String(describing: firstSidebarSampleDelay));settledAnimations=\(settledAnimations)"
+        diagnostic.accessibilityValue = "status=\(status);samples=\(samples);requests=\(requests);missing=\(missingSurfaces);underfill=\(maxUnderfill);partitionError=\(maxPartitionError);keyboardEvents=\(keyboardEvents);retargeted=\(retargetedEvents);sidebarSamples=\(sidebarSamples);overlap=\(overlappingSamples);firstKeyboardDuration=\(String(describing: firstKeyboardDuration));firstKeyboardSampleDelay=\(String(describing: firstKeyboardSampleDelay));firstValidSampleDelay=\(String(describing: firstValidSampleDelay));firstSidebarSampleDelay=\(String(describing: firstSidebarSampleDelay))"
     }
 }
 #endif

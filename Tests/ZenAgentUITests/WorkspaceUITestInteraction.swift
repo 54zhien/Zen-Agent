@@ -31,7 +31,7 @@ extension XCUIApplication {
             return
         }
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        start.press(forDuration: 0.7,
+        start.press(forDuration: 1,
             thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
         let opened = descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10)
         XCTAssertTrue(opened, "Composer drag must open the Split picker", file: file, line: line)

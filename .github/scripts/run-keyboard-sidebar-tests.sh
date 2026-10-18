@@ -39,9 +39,14 @@ units=(-only-testing:ZenAgentTests/SplitKeyboardLayoutTests
        -only-testing:ZenAgentTests/ComposerOverlayFocusTests
        -only-testing:ZenAgentTests/ComposerHostIntegrationTests
        -only-testing:ZenAgentTests/SettingsScopeTests)
-# Temporary diagnostic profile. This gathers residual native animation keys after
-# both editors reverse focus; it is not the full keyboard matrix acceptance gate.
-ui=(-only-testing:ZenAgentUITests/SplitKeyboardUITests/testDiagnosticAnimationKeysAfterBothEditorsReverseKeyboard)
+# Reboot between cases so keyboard-service/animation-idle state cannot cross
+# application launches. All real input and presentation assertions stay enabled.
+ui=(-only-testing:ZenAgentUITests/SidebarAppearanceUITests/testLightSplitPickerRestoresThePageBackground
+    -only-testing:ZenAgentUITests/SplitKeyboardUITests/testConversationAndPickerFillTheKeyboardViewportAndKeepTheirState
+    -only-testing:ZenAgentUITests/SplitKeyboardUITests/testPickerAboveConversationRestoresItsViewportAfterKeyboardHides
+    -only-testing:ZenAgentUITests/SplitKeyboardUITests/testTwoConversationsKeepTheirDraftsReadingAndRatioAcrossKeyboardCycles
+    -only-testing:ZenAgentUITests/SplitKeyboardUITests/testTwoConversationsWithSourceBelowKeepTheirStateAcrossKeyboardCycles)
+test "${#ui[@]}" -eq 5
 printf '%s\n' "${units[@]}" "${ui[@]}" > "$evidence/selected-tests.txt"
 
 xcodebuild build-for-testing "${common[@]}" \
@@ -66,6 +71,10 @@ run_selected() {
     echo '::error::Native test host restarted; refusing partial evidence'
     return 1
   fi
+  if grep -Fq 'App animations complete notification not received' "$evidence/$phase.log"; then
+    echo '::error::Native animation-idle wait timed out; refusing to hide it behind a passing test result'
+    return 1
+  fi
   python3 - "$evidence/$phase-summary.json" "$phase" <<'PY'
 import json, sys
 s = json.load(open(sys.argv[1]))
@@ -73,8 +82,8 @@ print(json.dumps(s, indent=2))
 assert s['totalTestCount'] > 0, 'No tests executed'
 assert s['failedTests'] == 0 and s['skippedTests'] == 0, 'Failed or skipped native tests'
 assert s['passedTests'] == s['totalTestCount'], 'Incomplete native test result'
-if sys.argv[2] == 'UI':
-    assert s['totalTestCount'] == 1, 'Expected the isolated native-animation diagnostic'
+if sys.argv[2].startswith('UI-'):
+    assert s['totalTestCount'] == 1, 'Each isolated process must execute exactly its selected UI case'
 else:
     assert s['totalTestCount'] == 148, 'Expected the selected native geometry, editor, outline and keyboard regressions'
 PY
@@ -90,9 +99,30 @@ stop_video() {
   fi
 }
 trap stop_video EXIT
-xcrun simctl io "$UDID" recordVideo --codec=h264 "$evidence/keyboard-sidebar.mp4" \
-  > "$evidence/recording.log" 2>&1 &
-video_pid=$!
-run_selected UI "${ui[@]}"
-stop_video
-test -s "$evidence/keyboard-sidebar.mp4"
+for index in "${!ui[@]}"; do
+  phase="UI-$((index + 1))"
+  xcrun simctl shutdown "$UDID"
+  xcrun simctl bootstatus "$UDID" -b
+  xcrun simctl io "$UDID" recordVideo --codec=h264 "$evidence/keyboard-sidebar-$phase.mp4" \
+    > "$evidence/recording-$phase.log" 2>&1 &
+  video_pid=$!
+  run_selected "$phase" "${ui[$index]}"
+  stop_video
+  test -s "$evidence/keyboard-sidebar-$phase.mp4"
+done
+
+python3 - "$evidence" <<'PY'
+import json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+paths = sorted(root.glob('UI-*-summary.json'))
+assert len(paths) == 5, 'All five isolated cases must finish'
+cases = [json.loads(path.read_text()) for path in paths]
+assert all(s['totalTestCount'] == 1 and s['passedTests'] == 1
+           and s['failedTests'] == s['skippedTests'] == 0 for s in cases)
+assert sum(s['totalTestCount'] for s in cases) == 5
+report = {'result': 'Passed', 'totalTestCount': 5, 'passedTests': 5,
+          'failedTests': 0, 'skippedTests': 0,
+          'nativeSummaryFiles': [p.name for p in paths]}
+(root / 'UI-aggregate.json').write_text(json.dumps(report, indent=2) + '\n')
+print(json.dumps(report, indent=2))
+PY
