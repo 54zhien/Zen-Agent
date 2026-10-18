@@ -32,9 +32,16 @@ final class SplitKeyboardUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launchEnvironment["ZEN_SPLIT_KEYBOARD_STRESS_UI_TEST"] = "1"
+        if diagnosticOnly { app.launchEnvironment["ZEN_TOP_SOURCE_SPLIT_DIAGNOSTIC"] = "1" }
         if !sourceInTopPane { app.launchEnvironment["ZEN_BOTTOM_SOURCE_SPLIT_UI_TEST"] = "1" }
         app.launch()
-        app.openWorkspaceSplit(sourceInTopPane: sourceInTopPane)
+        if diagnosticOnly {
+            let setup = app.buttons["preview-top-source-split-diagnostic"]
+            XCTAssertTrue(setup.waitForExistence(timeout: 15)); setup.tap()
+            XCTAssertTrue(app.descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10))
+        } else {
+            app.openWorkspaceSplit(sourceInTopPane: sourceInTopPane)
+        }
         if occupied {
             let history = app.buttons["split-history-preview-ui-10"]
             XCTAssertTrue(history.waitForExistence(timeout: 10)); history.tap()

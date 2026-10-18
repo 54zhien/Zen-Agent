@@ -289,7 +289,7 @@ final class SplitKeyboardStressView: UIView {
                 if entries.count < 80 {
                     let owner = layer.delegate.map { String(describing: type(of: $0)) } ?? "CALayer"
                     let path = (animation as? CAPropertyAnimation)?.keyPath ?? "group"
-                    entries.append("\(owner)/\(layer.name ?? "unnamed"):\(key):\(path):duration=\(animation.duration),repeat=\(animation.repeatCount),repeatDuration=\(animation.repeatDuration),speed=\(animation.speed),begin=\(animation.beginTime),now=\(layer.convertTime(CACurrentMediaTime(), from: nil)),hidden=\(layer.isHidden),bounds=\(layer.bounds)")
+                    entries.append("\(owner)/\(layer.name ?? "unnamed"):\(key):\(path):duration=\(animation.duration),repeat=\(animation.repeatCount),repeatDuration=\(animation.repeatDuration),speed=\(animation.speed),begin=\(animation.beginTime),now=\(layer.convertTime(CACurrentMediaTime(), from: nil)),layerSpeed=\(layer.speed),layerOffset=\(layer.timeOffset),removed=\(animation.isRemovedOnCompletion),fill=\(animation.fillMode.rawValue),hidden=\(layer.isHidden),bounds=\(layer.bounds)")
                 }
             }
             if let mask = layer.mask { inspect(mask) }
@@ -299,6 +299,7 @@ final class SplitKeyboardStressView: UIView {
             guard let scene = scene as? UIWindowScene else { continue }
             for window in scene.windows { inspect(window.layer) }
         }
+        for root in ComposerHostView.animationRootsForUITesting { inspect(root.layer) }
         return "count=\(count)[\(entries.joined(separator: " | "))]"
     }
 
