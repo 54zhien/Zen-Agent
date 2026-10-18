@@ -145,6 +145,7 @@ final class SidebarUITests: XCTestCase {
         editor.tap()
         expect { app.keyboards.firstMatch.exists
             && (probe.value as? String)?.contains("focused=true;") == true }
+        receipt("focused-reopen", probe)
         app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
         XCTAssertEqual(editorIdentity(probe.value as? String), identity)
         XCTAssertTrue((editor.value as? String)?.contains("focused tap close") == true)
@@ -293,6 +294,16 @@ final class SidebarUITests: XCTestCase {
         let begin = value.range(of: ";sidebar=")?.upperBound ?? value.startIndex
         let end = value.range(of: ";timeline=", range: begin..<value.endIndex)?.lowerBound ?? value.endIndex
         print("SIDEBAR_RECEIPT \(label) \(value[begin..<end])")
+        let keys = ["focused", "editorFrame", "point", "hit", "presentationState", "composerMotionPhase",
+                    "workspaceInputSuppressed", "editorCanFocus", "dockEvents"]
+        let fields = value.components(separatedBy: ";").filter { item in
+            keys.contains { item.hasPrefix($0 + "=") }
+        }
+        print("SIDEBAR_INPUT \(label) \(fields.joined(separator: ";"))")
+        let attachment = XCTAttachment(string: value)
+        attachment.name = "Native Sidebar \(label)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor

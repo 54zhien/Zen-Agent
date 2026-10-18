@@ -81,6 +81,7 @@ struct ConversationTimelineView: View {
     @State private var latestBottomReferenceTurn: (runID: String, turnTop: Double)?
     @State private var activeScrollPhase: ScrollPhase = .idle
     @State private var pendingAppliedScroll: ConversationPaneScrollRequest?
+    @State private var nativeViewport = ConversationNativeScrollViewport()
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -175,6 +176,7 @@ struct ConversationTimelineView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .coordinateSpace(name: contentCoordinateSpace)
                 .background {
+                    ConversationScrollViewportReader(viewport: nativeViewport)
                     // Empty timelines also need a final layout receipt.
                     Color.clear.preference(key: ConversationTimelineTurnFramesKey.self,
                         value: ConversationTimelineTurnMeasurements(layoutRevision: layoutRevision))
@@ -582,7 +584,7 @@ struct ConversationTimelineView: View {
 
     private func publishReturnLayoutIfReady(_ geometry: ScrollGeometry) {
 #if DEBUG
-        scrollBridge?.timelineReceiptDiagnostic = "revision=\(layoutRevision);accepted=\(String(describing: acceptedLayoutRevision));measured=\(String(describing: measuredLayoutRevision));ready=\(acceptsReadingGeometry);viewport=\(geometry.viewportHeight)"
+        scrollBridge?.timelineReceiptDiagnostic = "revision=\(layoutRevision);accepted=\(String(describing: acceptedLayoutRevision));measured=\(String(describing: measuredLayoutRevision));ready=\(acceptsReadingGeometry);viewport=\(geometry.viewportHeight);nativeViewport=[\(nativeViewport.diagnostic)]"
 #endif
         guard acceptsReadingGeometry, acceptedLayoutRevision == layoutRevision,
               measuredLayoutRevision == layoutRevision, pendingAppliedScroll == nil else { return }
@@ -600,7 +602,7 @@ struct ConversationTimelineView: View {
 
     private func repairDividerPosition(_ geometry: ScrollGeometry) {
 #if DEBUG
-        scrollBridge?.timelineReceiptDiagnostic = "revision=\(layoutRevision);accepted=\(String(describing: acceptedLayoutRevision));measured=\(String(describing: measuredLayoutRevision));ready=\(acceptsReadingGeometry);viewport=\(geometry.viewportHeight)"
+        scrollBridge?.timelineReceiptDiagnostic = "revision=\(layoutRevision);accepted=\(String(describing: acceptedLayoutRevision));measured=\(String(describing: measuredLayoutRevision));ready=\(acceptsReadingGeometry);viewport=\(geometry.viewportHeight);nativeViewport=[\(nativeViewport.diagnostic)]"
 #endif
         guard acceptsReadingGeometry, let scrollBridge, scrollBridge.hasDividerLease,
               acceptedLayoutRevision == layoutRevision, measuredLayoutRevision == layoutRevision else { return }
@@ -713,11 +715,14 @@ struct ConversationTimelineView: View {
 #if DEBUG
         recordReadingRestoreForUITest("apply")
 #endif
+        // A Divider lease ends on measured arrival, so a newer native viewport
+        // may retry its still-pending command. The native bridge skips writes
+        // already at target; ordinary reading retains sequence deduplication.
         guard acceptsScrollRequests, let scrollBridge,
               scrollBridge.pane.scrollRequest?.sequence == request.sequence,
               (!isUserDrivenScroll || scrollBridge.hasDividerLease),
               (!scrollBridge.hasDividerLease || (acceptedLayoutRevision == layoutRevision && measuredLayoutRevision == layoutRevision)),
-              pendingAppliedScroll?.sequence != request.sequence,
+              (pendingAppliedScroll?.sequence != request.sequence || scrollBridge.hasDividerLease),
               let geometry = latestScrollGeometry
         else { return }
 
@@ -751,6 +756,23 @@ struct ConversationTimelineView: View {
 #if DEBUG
         recordReadingRestoreForUITest("issue", geometry: geometry, issuedTarget: restoreTarget)
 #endif
+        if scrollBridge.hasDividerLease {
+            let target: Double?
+            switch request.action {
+            case .restoreAnchor: target = restoreTarget
+            case .maintainBottomEdge(let offset): target = offset
+            case .scrollToBottom: target = max(0, geometry.contentHeight - geometry.viewportHeight)
+            case .none: target = nil
+            }
+            guard let target, nativeViewport.applyDividerOffset(target, geometry: geometry) else {
+                pendingAppliedScroll = nil
+                return
+            }
+            // Only an observed geometry callback acknowledges arrival and ends
+            // the lease. A command accepted by UIKit is not a reading receipt.
+            acknowledgeAppliedScrollIfReady(geometry)
+            return
+        }
         // A larger viewport can leave the old offset beyond the new bottom.
         // Let native layout clamp it instead of issuing another scroll command:
         // that command dismisses UITextView's selection menu during keyboard hide.

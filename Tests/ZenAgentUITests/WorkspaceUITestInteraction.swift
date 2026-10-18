@@ -21,8 +21,11 @@ extension XCUIApplication {
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7,
             thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: sourceInTopPane ? 0.18 : 0.56)))
-        XCTAssertTrue(descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10),
-                      "Composer drag must open the Split picker", file: file, line: line)
+        let opened = descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10)
+        XCTAssertTrue(opened, "Composer drag must open the Split picker", file: file, line: line)
+        if !opened {
+            print("SPLIT_ENTRY_FAILURE \(probe.value as? String ?? "missing native probe")")
+        }
     }
 
     func openWorkspaceSidebar(file: StaticString = #filePath, line: UInt = #line) {

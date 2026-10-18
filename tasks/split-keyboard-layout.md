@@ -281,3 +281,37 @@ Additional Apple reference checked:
   large nearly-black band, but do not cover the blocked pressure sequence or
   establish physical-device acceptance. No clean keyboard/Sidebar acceptance is
   claimed from these failed runs.
+
+## Owner-authorized repair of focused native failures — 2026-10-18
+
+- Continue from retained RED runs 39098874606 and 39100303428. Prior viewport-only
+  pending-marker retry was measured ineffective and withdrawn; do not revive it
+  as a claimed fix. Preserve the lower-source resize/focus/reading assertions.
+- Smallest repair boundary: Timeline owns a weak native viewport reader inside
+  its ScrollView content. Only a live Divider lease may use it to send normalized
+  pixel offsets, after actual UIKit usable height and content size match the
+  current reading geometry. Top inset is subtracted exactly once. No polling,
+  delayed commands or replacement of the retained ScrollView/Composer is added.
+  Ordinary keyboard/reading continues using the existing ScrollPosition path.
+- Native command acceptance is not completion. Keep the existing model request,
+  strict measured-target acknowledgement, final layout revision and owner receipt
+  as the only lease-release path. A pending lease may retry against newer native
+  geometry; an already-reached native offset does not cause another write.
+- Weak anchor ownership prevents an old unmount from clearing a newly bound
+  ScrollView. Off-window or stale-content/viewport commands are rejected and wait
+  for the next real geometry/measurement callback. Cancellation still belongs to
+  the existing Divider lease/controller, with no queued native command to cancel.
+- Add three native viewport regressions (including top-inset parameter cases),
+  retaining all seven focused UI cases and adding the new class to the explicit
+  runner. The runner expects 26 declared native tests and seven UI tests.
+- Keyboard reopening and Split entry still need conclusive failure-state data.
+  Enable bounded existing Composer dock trace for the preview fixture; retain
+  focus/tap outcomes and full native Sidebar receipts, plus a failed entry probe.
+  This changes observability, not UI stimulus, wait times or acceptance tolerances.
+- Blueprint index/CONTEXT and App Space/Split note were checked in the local
+  Blueprint checkout (596a84d). Divider bottom anchors, independent Pane owners,
+  reading/draft retention and shared visual Composer remain the intended behavior.
+  No design change or hard-to-reverse engineering decision is introduced.
+- Windows static checks passed (`git diff --check`, workflow YAML parse). Native
+  generation/build and scoped tests remain required; this edit is not yet a fix
+  verified by a fresh native run.

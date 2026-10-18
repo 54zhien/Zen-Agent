@@ -77,7 +77,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     func recordDockEvent(_ event: String) {
 #if DEBUG
-        guard ProcessInfo.processInfo.environment["ZEN_COMPOSER_GEOMETRY_TEST"] == "1" else { return }
+        guard ProcessInfo.processInfo.environment["ZEN_COMPOSER_GEOMETRY_TEST"] == "1"
+            || ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" else { return }
         let parent = superview.map { String(describing: type(of: $0)) } ?? "nil"
         dockEvents.append("\(event)[focused=\(editor.isFirstResponder),state=\(currentState),parent=\(parent),window=\(window != nil),bounds=\(bounds),guide=\(keyboardLayoutGuide.layoutFrame)]")
         if dockEvents.count > 24 { dockEvents.removeFirst(dockEvents.count - 24) }
@@ -575,7 +576,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     func requestFocus(_ focused: Bool) {
         guard !workspaceInputSuppressed else { return }
         if focused {
-            if !editor.isFirstResponder { editor.becomeFirstResponder() }
+            if !editor.isFirstResponder {
+                let accepted = editor.becomeFirstResponder()
+                recordDockEvent("requestFocus accepted=\(accepted)")
+            }
         } else if editor.markedTextRange == nil, editor.isFirstResponder {
             recordOverlayFocusEvent("bridgeRestingResign")
             editor.resignFirstResponder()
@@ -795,6 +799,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     @objc private func surfaceTapped(_ recognizer: UITapGestureRecognizer) {
+        recordDockEvent("surfaceTap native=\(recognizer.state.rawValue),configured=\(String(describing: configuration?.state))")
         guard recognizer.state == .ended,
               recognizer.location(in: surface).y >= 0,
               configuration?.state != .editing else { return }
