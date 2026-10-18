@@ -14,7 +14,7 @@ The current agent owns only the named test removals, their now-unused private he
 - [x] Remove nine obsolete smoke/source/structure/storage suites. Preserve the IME update-policy behavior from the Composer contract suite in the existing text-projection suite. Remove compiler-only Sendable probes and redundant constant/trivial-constructor cases from otherwise useful suites.
 - [x] Remove attachment declaration parsing/reflection and approval text-layout checks; preserve actual attachment ingestion, frozen approval disclosure, execution and owner isolation checks. Retain the unique approval handoff guard pending real UI coverage.
 - [x] Add an explicit opt-in native maintenance selection for the retained affected suites. Existing full and keyboard/Sidebar selections retain their behavior. No archive, signing, export, full unit target or UI run.
-- [ ] Check deleted test references, helpers, YAML and manifest consistency. Run XcodeGen, native build and the selected remaining tests in CI, with zero skipped tests and every selected suite present. Record exact source SHA and actual counts.
+- [x] Check deleted test references, helpers, YAML and manifest consistency. Run XcodeGen, native build and the selected remaining tests in CI, with zero skipped tests and every selected suite present. Record exact source SHA and actual counts.
 
 ## Keep boundaries
 
@@ -34,6 +34,14 @@ Tests guarding approved typography policy by source spelling cannot prove the re
 - Ruling: test-only removal does not add a failing production test merely to demonstrate deletion. Build all targets and execute the retained affected consumers instead; production `App/`, `Config/` and `project.yml` have no changes.
 - Ruling: the old W1 packaging workflow lists changed paths relative to its historical baseline, not current files to open. Its historical Composer contract path remains valid as a deleted diff path; preserve that provenance check and historical task receipts.
 - Local checks: YAML parsing, both focused shell scripts' syntax, deleted-helper/reference sweep and `git diff --check` passed. All 12 existing Python CI-profile guard tests passed. Sixteen retained Swift suites are explicitly selected for native verification (115 declarations); native execution is still required.
+
+## Native result — 2026-10-18
+
+- Passing CI: https://github.com/54zhien/Zen-Agent/actions/runs/39114947690 at tested code commit `327bb91d7a7fc7c4661947be25f9c36fea6c0982`.
+- XcodeGen and build-for-testing succeeded on iPhone 17 Pro / iOS Simulator 26.4.1. Native summary: 115/115 test declarations passed, 120 executions after parameter expansion, zero failures and zero skips. All 16 selected suite identifiers are present and passed; no test-host restart was reported. The expanded native composition test passed too.
+- Source SHA in downloaded evidence matches the tested commit. Build/Unit logs, summaries, test tree and selected-suite manifest are retained in `.tmp/test-maintenance-selective/`.
+- Repository hygiene passed. Full and iPad jobs were skipped by the explicit selection. No UI suite, archive, signing, export or package was run. The earlier run `39114901965` was canceled while preserving the Provider test file's original line endings; it is not a passing result.
+- Final outcome: nine low-value test files removed, net 37 test declarations removed (1,245 → 1,208). Actual product code and all prior keyboard/Sidebar/Split regression assertions remain unchanged. Only this documentation record follows the passing code commit.
 
 ## Validation
 
