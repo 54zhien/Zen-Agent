@@ -467,3 +467,31 @@ Additional Apple reference checked:
   replacement timers respect the fixed five-second sampling deadline; dismantle
   still cancels the task/display link/observer. The same 38 unit declarations and
   seven UI cases remain selected, without changing assertions or tolerances.
+
+### Focused native closeout — 2026-10-18
+
+- Passing run: https://github.com/54zhien/Zen-Agent/actions/runs/39110755838
+  at code commit `3e39faa78014fccd9fda4d3053cced71c6753744`. XcodeGen and native
+  build-for-testing succeeded on iPhone 17 Pro / iOS Simulator 26.4.1. Repository
+  hygiene passed; the full-test and iPad jobs were skipped by the selected scope.
+- Native result bundles report 38/38 selected unit tests and 7/7 selected UI tests
+  passed, zero failed and zero skipped. No native test-host restart was reported.
+  Both Conversation+picker placements, both dual-Conversation placements and
+  all three Sidebar regressions passed. Lower-source Divider completion,
+  original reading position, independent drafts/Composer identities and Split
+  ratio all survived keyboard cycles and Sidebar close/reopen; the dedicated
+  Sidebar case also completed its subsequent real drag into Split.
+- All ten rapid/Sidebar sampling captures had zero missing surfaces, maximum
+  fill error 0.165142 points and maximum partition error below 0.000001 points.
+  Each rapid capture issued all 12 native focus reversals with real retargeted
+  keyboard notifications. The four Sidebar captures had 3/3/3/4 actual display
+  ticks with Sidebar translation inside UIKit's reported keyboard interval.
+  No synthetic sample, broadened tolerance, retry or waived assertion was used.
+- Downloaded evidence SHA matches the tested code commit. Full summaries, test
+  trees, UI.log and simulator video are retained in `.tmp/keyboard-sidebar-selective10/`.
+  Decoded all 9,415 video frames with the existing light-fixture central black-band
+  heuristic: no candidates, maximum band three reduced pixels. Visual contacts
+  show filled upper/lower surfaces and visible formal Divider handles. This is
+  scoped simulator evidence, not device or all-theme acceptance.
+- This closeout is documentation only after the passing code commit. No package,
+  archive, IPA export or full test run was performed.
