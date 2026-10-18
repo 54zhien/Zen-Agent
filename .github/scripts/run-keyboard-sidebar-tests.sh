@@ -39,11 +39,9 @@ units=(-only-testing:ZenAgentTests/SplitKeyboardLayoutTests
        -only-testing:ZenAgentTests/ComposerOverlayFocusTests
        -only-testing:ZenAgentTests/ComposerHostIntegrationTests
        -only-testing:ZenAgentTests/SettingsScopeTests)
-# The preceding integration run passed the other twelve UI cases. Re-run only
-# the four keyboard matrix cases and the picker-background case after correcting
-# their stale 12pt-gutter/attachment-capability expectations.
-ui=(-only-testing:ZenAgentUITests/SplitKeyboardUITests
-    -only-testing:ZenAgentUITests/SidebarAppearanceUITests/testLightSplitPickerRestoresThePageBackground)
+# Temporary diagnostic profile. This gathers residual native animation keys after
+# both editors reverse focus; it is not the full keyboard matrix acceptance gate.
+ui=(-only-testing:ZenAgentUITests/SplitKeyboardUITests/testDiagnosticAnimationKeysAfterBothEditorsReverseKeyboard)
 printf '%s\n' "${units[@]}" "${ui[@]}" > "$evidence/selected-tests.txt"
 
 xcodebuild build-for-testing "${common[@]}" \
@@ -76,7 +74,7 @@ assert s['totalTestCount'] > 0, 'No tests executed'
 assert s['failedTests'] == 0 and s['skippedTests'] == 0, 'Failed or skipped native tests'
 assert s['passedTests'] == s['totalTestCount'], 'Incomplete native test result'
 if sys.argv[2] == 'UI':
-    assert s['totalTestCount'] == 5, 'Expected all four keyboard matrix cases and the picker background case'
+    assert s['totalTestCount'] == 1, 'Expected the isolated native-animation diagnostic'
 else:
     assert s['totalTestCount'] == 148, 'Expected the selected native geometry, editor, outline and keyboard regressions'
 PY

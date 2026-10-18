@@ -2,6 +2,11 @@ import XCTest
 
 final class SplitKeyboardUITests: XCTestCase {
     @MainActor
+    func testDiagnosticAnimationKeysAfterBothEditorsReverseKeyboard() throws {
+        try assertKeyboardCycles(occupied: true, diagnosticOnly: true)
+    }
+
+    @MainActor
     func testTwoConversationsKeepTheirDraftsReadingAndRatioAcrossKeyboardCycles() throws {
         try assertKeyboardCycles(occupied: true)
     }
@@ -22,7 +27,8 @@ final class SplitKeyboardUITests: XCTestCase {
     }
 
     @MainActor
-    private func assertKeyboardCycles(occupied: Bool, sourceInTopPane: Bool = true) throws {
+    private func assertKeyboardCycles(occupied: Bool, sourceInTopPane: Bool = true,
+                                      diagnosticOnly: Bool = false) throws {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launchEnvironment["ZEN_SPLIT_KEYBOARD_STRESS_UI_TEST"] = "1"
@@ -88,6 +94,7 @@ final class SplitKeyboardUITests: XCTestCase {
             app.buttons["split-keyboard-stress-start"].tap()
             assertTransitionSamples(app, rapid: true)
             recordState("After rapid reversals", source: sourceProbe, other: otherProbe, divider: dividerHandle)
+            if diagnosticOnly { continue }
             expect { !app.keyboards.firstMatch.exists }
             XCTAssertEqual(field("ratio", viewport), ratio)
             XCTAssertEqual(field("editorIdentity", activeProbe), activeIdentity)
@@ -149,6 +156,7 @@ final class SplitKeyboardUITests: XCTestCase {
                 XCTAssertEqual(field("ratio", viewport), ratio)
             }
         }
+        if diagnosticOnly { return }
         if occupied {
             try activatePane(app, probe: otherProbe)
             XCTAssertTrue((editor.value as? String)?.contains("other keyboard viewport draft") == true)
