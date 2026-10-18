@@ -117,7 +117,7 @@ final class SplitKeyboardUITests: XCTestCase {
                           let savedRatio = Double(ratio) else { return false }
                     let height = keyboard.minY - upper.minY
                     let boundary = upper.minY + height * savedRatio
-                    let dividerGap = min(12, height * min(savedRatio, 1 - savedRatio))
+                    let dividerGap = min(6, height * min(savedRatio, 1 - savedRatio))
                     return abs(upper.minY - min(restingSource.minY, restingOther.minY)) < 2
                         // The Divider's AX hit target is taller than its visual gap.
                         && abs(upper.maxY - (boundary - dividerGap / 2)) < 2

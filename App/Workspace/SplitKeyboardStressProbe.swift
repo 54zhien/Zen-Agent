@@ -263,7 +263,7 @@ final class SplitKeyboardStressView: UIView {
         let horizontal = axis == .leftRight
         hosts.sort { horizontal ? $0.midX < $1.midX : $0.midY < $1.midY }
         let length = horizontal ? workspace.width : workspace.height
-        let gap = min(12, length * min(ratio, 1 - ratio))
+        let gap = min(SplitWorkspaceGeometry.dividerThickness, length * min(ratio, 1 - ratio))
         let actualGap = horizontal ? hosts[1].minX - hosts[0].maxX : hosts[1].minY - hosts[0].maxY
         let leading = horizontal ? hosts[0].minX - workspace.minX : hosts[0].minY - workspace.minY
         let trailing = horizontal ? hosts[1].maxX - workspace.maxX : hosts[1].maxY - workspace.maxY

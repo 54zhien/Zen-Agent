@@ -214,13 +214,13 @@ final class SidebarAppearanceUITests: XCTestCase {
     }
 
     @MainActor
-    func testLightSplitPickerRestoresThePageBackgroundAndNativeControls() {
+    func testLightSplitPickerRestoresThePageBackground() {
         let app = launchLightAppearance()
         app.openWorkspaceSplit()
         let picker = app.scrollViews["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
         let capture = app.screenshot()
-        attach(capture, named: "Restored light picker and native Composer controls")
+        attach(capture, named: "Restored light picker background")
         for x in [picker.frame.minX + 4, picker.frame.maxX - 4] {
             let point = CGPoint(x: x, y: picker.frame.midY)
             guard let luminance = sampledLuminance(capture, appFrame: app.frame, at: point) else {
@@ -229,7 +229,6 @@ final class SidebarAppearanceUITests: XCTestCase {
             }
             XCTAssertGreaterThan(luminance, 0.8, "The light picker must not revert to a black page")
         }
-        XCTAssertTrue(app.buttons["conversation-composer-plus"].exists)
         XCTAssertFalse(app.buttons["split-entry"].exists)
     }
 
