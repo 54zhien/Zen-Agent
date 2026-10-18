@@ -137,7 +137,11 @@ struct ComposerLiftDiagnosticTests {
         _ = input.perform(action, with: sample)
         #expect(driver.state.phase == .lifting)
         #expect(abs(host.presentation.translation.width - 42) < 0.001)
-        #expect(abs(host.presentation.translation.height + 120) < 0.001)
+        let verticalLimit = (host.view.bounds.height - host.view.safeAreaInsets.top
+            - host.view.safeAreaInsets.bottom) * 0.12
+        #expect(host.presentation.translation.height < 0)
+        #expect(abs(host.presentation.translation.height) < min(120, verticalLimit))
+        #expect(host.presentation.clipFraction == CGSize(width: 1, height: 1))
         #expect(abs(driver.state.progress - 108.0 / 168.0) < 0.000001)
 
         input.cancelForDetachment()

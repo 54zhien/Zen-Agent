@@ -4,7 +4,7 @@ import UIKit
 @MainActor
 final class ComposerLiftFeedback {
     private weak var surface: UIView?
-    private let haptic = UIImpactFeedbackGenerator(style: .soft)
+    private let haptics = WorkspaceHaptics.shared
     private var animator: UIViewPropertyAnimator?
     private var ready = false
 #if DEBUG
@@ -13,11 +13,11 @@ final class ComposerLiftFeedback {
 
     init(surface: UIView) {
         self.surface = surface
-        haptic.prepare()
+        haptics.prepare()
     }
 
     func prepare() {
-        haptic.prepare()
+        haptics.prepare()
     }
 
     func setReady(_ value: Bool) {
@@ -44,9 +44,9 @@ final class ComposerLiftFeedback {
             surface.layer.sublayerTransform = target
             CATransaction.commit()
             if value {
-                haptic.impactOccurred(intensity: 0.45)
+                haptics.play(.pickUp)
             }
-            haptic.prepare()
+            haptics.prepare()
             return
         }
 
@@ -60,10 +60,10 @@ final class ComposerLiftFeedback {
         animator = next
         next.startAnimation()
         if value {
-            // The single soft impact lands with the spring that enlarges the glass.
-            haptic.impactOccurred(intensity: 0.45)
+            // The pick-up impact lands with the spring that enlarges the glass.
+            haptics.play(.pickUp)
         }
-        haptic.prepare()
+        haptics.prepare()
     }
 
     /// Detachment can outlive UIKit's cancelled recognizer callback.
@@ -71,11 +71,11 @@ final class ComposerLiftFeedback {
         ready = false
         animator?.stopAnimation(true)
         animator = nil
-        guard let surface else { haptic.prepare(); return }
+        guard let surface else { haptics.prepare(); return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         surface.layer.sublayerTransform = CATransform3DIdentity
         CATransaction.commit()
-        haptic.prepare()
+        haptics.prepare()
     }
 }

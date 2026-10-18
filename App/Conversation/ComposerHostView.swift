@@ -35,8 +35,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private let viewport = UIView()
     let editor = UITextView()
     let placeholder = UILabel()
-    private let plus = UIButton(type: .system)
-    private let primary = UIButton(type: .system)
+    private let plus = ComposerControlButton(type: .system)
+    private let primary = ComposerControlButton(type: .system)
     private let errorLabel = UILabel()
     private let geometryProbe = UIView()
     private var shelfController: UIHostingController<QuoteShelfView>?
@@ -247,6 +247,15 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         }
         plus.accessibilityIdentifier = "conversation-composer-plus"
         plus.accessibilityLabel = "更多操作"
+        // Give UIKit a native glass source for its button-to-menu morph.
+        // The Composer's shared glass backing alone is not a glass button.
+        var plusStyle = UIButton.Configuration.glass()
+        plusStyle.image = plus.image(for: .normal)
+        plusStyle.preferredSymbolConfigurationForImage = plus.preferredSymbolConfigurationForImage(in: .normal)
+        plusStyle.baseForegroundColor = .label
+        plusStyle.contentInsets = .zero
+        plusStyle.cornerStyle = .capsule
+        plus.configuration = plusStyle
         plus.showsMenuAsPrimaryAction = true
         primary.accessibilityIdentifier = "conversation-composer-send"
         primary.accessibilityLabel = "发送"
@@ -299,6 +308,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             setNeedsLayout()
         } else {
             liftInteraction?.cancelForDetachment()
+            // A retained off-window editor has no visible morph to finish.
+            // Invalidate its completion before a later remount reuses the state.
+            motion.reset(to: currentState)
         }
         updateBottomFadeLayer()
 #if DEBUG
@@ -552,11 +564,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
                 editor.textContainer.maximumNumberOfLines = 0
                 editor.textContainer.lineBreakMode = .byWordWrapping
             }
-            if bounds.width > 0 {
+            if window != nil, bounds.width > 0 {
                 let token = motion.begin(next.state)
                 render(animated: true, generation: token)
             } else {
                 motion.reset(to: next.state)
+                render(animated: false)
             }
         } else {
             let geometryChanged = oldText != next.text || oldFont != next.font
@@ -744,12 +757,13 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             UIAction(title: title, image: UIImage(systemName: symbol), attributes: [.disabled]) { _ in }
         }
         let modelActions = configuration.models.map { model in
-            UIAction(title: model.displayName,
+            UIAction(title: model.displayName, image: UIImage(systemName: "cpu"),
                      state: model.id == configuration.selectedModelID ? .on : .off) { [weak self] _ in
                 self?.configuration?.onModel(model.id)
             }
         }
         let modelMenu = UIMenu(title: "模型", image: UIImage(systemName: "cpu"),
+                               options: [.singleSelection],
                                children: modelActions.isEmpty ? [disabled("模型", "cpu")] : modelActions)
         return UIMenu(children: [
             disabled("添加图片", "photo"), disabled("添加文件", "doc"),
@@ -813,8 +827,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     @objc private func primaryTapped() {
         switch configuration?.primary {
-        case .send(let enabled) where enabled: configuration?.onSend()
-        case .stop(_, let enabled) where enabled: configuration?.onStop()
+        case .send(let enabled) where enabled:
+            WorkspaceHaptics.shared.play(.control)
+            configuration?.onSend()
+        case .stop(_, let enabled) where enabled:
+            WorkspaceHaptics.shared.play(.control)
+            configuration?.onStop()
         default: break
         }
     }
@@ -934,5 +952,17 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         quotePhase = phase
         liftInteraction.checkReadiness()
         configuration?.onQuotePhase(phase)
+    }
+}
+
+/// Keep UIKit's source and dismissal previews intact so a native glass button
+/// can morph into its menu. Only the Composer's control haptic is customized.
+@MainActor
+final class ComposerControlButton: UIButton {
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                         willDisplayMenuFor configuration: UIContextMenuConfiguration,
+                                         animator: (any UIContextMenuInteractionAnimating)?) {
+        super.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: animator)
+        WorkspaceHaptics.shared.play(.control)
     }
 }

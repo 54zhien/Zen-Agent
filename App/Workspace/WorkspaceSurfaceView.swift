@@ -83,6 +83,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
     @State private var composerDock = WorkspaceComposerDockState()
     @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
     @ScaledMetric(relativeTo: .body) private var minimumWidth = 220.0
     @ScaledMetric(relativeTo: .body) private var minimumHeight = 300.0
     @Environment(\.scenePhase) private var scenePhase
@@ -119,11 +121,12 @@ struct WorkspaceSurfaceView<Content: View>: View {
 
     var body: some View {
         WorkspaceNavigationView(state: navigation, model: model, captureFocus: captureOverlayFocus,
-                                canConfigureNew: canConfigureNew,
                                 spatiallyAvailable: sidebarSpatiallyAvailable,
                                 windowInsets: navigationInsets,
                                 windowCornerRadius: layoutContext?.windowCornerRadius ?? 0,
                                 keepsFullConversationViewport: keepsFullConversationViewport,
+                                sidebarPageHeight: keepsFullConversationViewport ? layoutContext?.windowSize.height : nil,
+                                roundsSidebarPageBottom: keepsFullConversationViewport || !keyboardShortensViewport,
                                 context: sidebarContext) {
         ZStack(alignment: .topLeading) {
             AppSpaceInkView(appearance: model?.appearance,
@@ -138,6 +141,15 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         .opacity(card.opacity)
                         .position(x: card.frame.midX, y: card.frame.midY)
                         .zIndex(4 - card.depth)
+                }
+                ForEach(cardTitleSlots(in: layout), id: \.item) { slot in
+                    AppSpaceCardTitle(title: slot.title, isNew: slot.item == .newConversation)
+                        .frame(width: slot.frame.width, alignment: .leading)
+                        .position(x: slot.frame.midX, y: slot.frame.midY)
+                        .opacity(slot.opacity)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                        .zIndex(4.5)
                 }
             }
             GeometryReader { geometry in
@@ -344,19 +356,22 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 let emptyFrame = layout.frame(for: split.emptySlot)
                 if model.splitPane == nil, activeSurfaceSlot == nil {
                     ConversationSurfaceHost(isWorkspaceVisible: navigation.overlay == nil,
-                        isInputSuppressed: navigation.overlay != nil, restingCornerRadius: 24,
+                        isInputSuppressed: navigation.overlay != nil,
+                        restingCornerRadius: SplitTargetingGeometry.paneCornerRadius,
+                        squareBottomCorners: keyboardShortensViewport && abs(emptyFrame.maxY - layout.viewport.maxY) < 1,
+                        displayCorners: SplitWorkspaceGeometry.viewportCorners(of: emptyFrame, in: layout.viewport),
                         sidebarOffset: sidebarTranslation, sidebarProgress: sidebarProgress,
                         sidebarDragging: sidebarDragging, sidebarSettlement: navigation.settlementID,
                         sidebarShadowEnabled: false,
                         workspaceViewportSize: emptyFrame.size,
-                        workspaceBackgroundColor: UIColor(white: 0.09, alpha: 1)) {
+                        workspaceBackgroundColor: .systemBackground) {
                         WorkspaceSplitPickerContent(model: model)
                     }
                     .frame(width: emptyFrame.width, height: emptyFrame.height)
                     .position(x: emptyFrame.midX, y: emptyFrame.midY)
                 }
                 if activeSurfaceSlot == nil {
-                    divider(model: model, split: split, layout: layout)
+                    divider(model: model, split: split, layout: layout, sidebarProgress: sidebarProgress)
                         .position(x: layout.divider.midX, y: layout.divider.midY)
                         // Sidebar can open while dismissing the keyboard. Its
                         // timing owns only horizontal transport, not Split layout.
@@ -369,11 +384,13 @@ struct WorkspaceSurfaceView<Content: View>: View {
         }
         .overlay {
             WorkspaceComposerDock(state: composerDock, activeID: inputPane?.conversationID,
-                visible: model?.splitWorkspace != nil && navigation.overlay == nil
-                    && model?.previewContent.isPresented != true && returnPresentation.phase == nil
-                    && (activeSurfaceSlot == nil || [.armed, .lifting].contains(activeLift.state.phase)
-                        || activeLift.state.pendingSettlement?.destination == .card),
-                returnsToPortals: model?.splitWorkspace == nil)
+                visible: showsWorkspaceComposerDock,
+                returnsToPortals: model?.splitWorkspace == nil,
+                outlines: dockedSidebarOutlines(in: geometry, progress: sidebarProgress),
+                sidebarDragging: sidebarDragging)
+                .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: dockCornerRadius,
+                    bottomTrailingRadius: dockCornerRadius, style: .continuous))
+                .opacity(dockLiftOpacity)
                 .animation(sidebarAnimation(isDragging: sidebarDragging)) { content in
                     content.offset(x: sidebarTranslation)
                 }
@@ -409,6 +426,64 @@ struct WorkspaceSurfaceView<Content: View>: View {
         })
     }
 
+    /// The keyboard-safe Workspace ends above the keyboard; its bottom edge is
+    /// then no longer the display's rounded edge.
+    private var keyboardShortensViewport: Bool {
+        layoutContext.map {
+            $0.windowSize.height - $0.frame.maxY > $0.windowSafeAreaInsets.bottom + 1
+        } ?? false
+    }
+
+    private var dockCornerRadius: CGFloat {
+        keyboardShortensViewport ? 0 : max(SplitTargetingGeometry.paneCornerRadius,
+                                           layoutContext?.windowCornerRadius ?? 0)
+    }
+
+    private var showsWorkspaceComposerDock: Bool {
+        model?.splitWorkspace != nil && navigation.overlay == nil
+            && model?.previewContent.isPresented != true && returnPresentation.phase == nil
+            && (activeSurfaceSlot == nil || [.armed, .lifting].contains(activeLift.state.phase)
+                || activeLift.state.pendingSettlement?.destination == .card)
+    }
+
+    private func sidebarPageAppearance(progress: CGFloat) -> SidebarPageAppearance {
+        SidebarPageAppearance(progress: progress, dark: colorScheme == .dark, reduceTransparency: reduceTransparency)
+    }
+
+    private func usesDockedSidebarOutline(frame: CGRect, viewport: CGRect) -> Bool {
+        showsWorkspaceComposerDock && activeSurfaceSlot == nil && abs(frame.maxY - viewport.maxY) < 1
+    }
+
+    private func dockedSidebarOutlines(in geometry: GeometryProxy, progress: CGFloat) -> [WorkspaceComposerDockOutline] {
+        let viewport = CGRect(origin: .zero, size: geometry.size)
+        let appearance = sidebarPageAppearance(progress: progress)
+        return WorkspaceSurfaceSlot.allCases.compactMap { slot in
+            let driver = controller(for: slot)
+            let frame = driver.retainsAppSpaceViewport ? viewport
+                : splitFrame(in: geometry, slot: logicalSlot(for: slot)) ?? viewport
+            if surfaceIsVisible(slot), !returnPresentation.suppressesTarget(slot),
+               usesDockedSidebarOutline(frame: frame, viewport: viewport) {
+                return WorkspaceComposerDockOutline(frame: frame,
+                    radii: paneRadii(frame, in: viewport, squareBottom: keyboardShortensViewport),
+                    opacity: appearance.outlineOpacity * appearance.surfaceOpacity)
+            }
+            return nil
+        }
+    }
+
+    /// The shared Split editor cannot ride inside the lifted Pane mid-gesture:
+    /// re-parenting it would cancel the touch that drives Lift. It recedes as
+    /// the page rises so the Surface leaves on its own, and stays out while
+    /// the page settles into App Space.
+    private var dockLiftOpacity: Double {
+        guard model?.splitWorkspace != nil, activeSurfaceSlot != nil else { return 1 }
+        switch activeLift.state.phase {
+        case .armed: return 1
+        case .lifting: return max(0, 1 - activeLift.state.progress * 3)
+        default: return 0
+        }
+    }
+
     private func sidebarAnimation(isDragging: Bool) -> Animation? {
         reduceMotion || isDragging ? nil : .easeOut(duration: 0.22)
     }
@@ -424,6 +499,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
             Color(uiColor: .systemBackground)
             Color.black.opacity(0.28 * (1 - progress))
                 .animation(sidebarAnimation(isDragging: isDragging), value: progress)
+            // Nothing dark stays behind the Panes: they fade slightly while the
+            // Sidebar opens, and a dark block would show through as gray.
+            // The divider itself carries the transition to a hairline.
         }
         .opacity(SidebarProgressPresentation.opacity(forProgress: Double(progress)))
         .animation(sidebarAnimation(isDragging: isDragging), value: progress)
@@ -442,15 +520,14 @@ struct WorkspaceSurfaceView<Content: View>: View {
         let visible = surfaceIsVisible(slot)
         let suppressed = returnPresentation.suppressesTarget(slot)
         let surfaceBrowse: AppSpaceBrowseController? = model != nil && slot == (model?.previewSurfaceSlot ?? model?.sourceSurfaceSlot) ? browse : nil
-        let corner: CGFloat = model?.splitWorkspace != nil && !driver.retainsAppSpaceViewport ? 24 : 0
+        let corner: CGFloat = model?.splitWorkspace != nil && !driver.retainsAppSpaceViewport
+            ? SplitTargetingGeometry.paneCornerRadius : 0
         // The proposed Workspace already avoids the keyboard. Only square an
         // exterior edge that actually reaches that shortened viewport; inner
         // corners and the black divider retain their normal geometry.
-        let keyboardShortensViewport = layoutContext.map {
-            $0.windowSize.height - $0.frame.maxY > $0.windowSafeAreaInsets.bottom + 1
-        } ?? false
         let squareBottomCorners = model?.splitWorkspace != nil && !driver.retainsAppSpaceViewport
             && keyboardShortensViewport && abs(frame.maxY - fullFrame.maxY) < 1
+        let displayCorners = corner > 0 ? SplitWorkspaceGeometry.viewportCorners(of: frame, in: fullFrame) : []
         let settled: ((UUID) -> Void)?
         if slot == inputSurfaceSlot { settled = { navigation.completeSettlement($0) } }
         else { settled = nil }
@@ -464,7 +541,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
             deleteAction: deleteAction, isDeletionPending: isDeletionPending,
             isWorkspaceVisible: visible, isInputSuppressed: suppressed,
             isReturnProxyHidden: returnPresentation.hidesOrigin(slot),
-            restingCornerRadius: corner, squareBottomCorners: squareBottomCorners, sidebarOffset: sidebarOffset,
+            restingCornerRadius: corner, squareBottomCorners: squareBottomCorners,
+            displayCorners: displayCorners, sidebarOffset: sidebarOffset,
             sidebarProgress: sidebarProgress, sidebarDragging: sidebarDragging,
             sidebarSettlement: navigation.settlementID,
             // One workspace silhouette follows the same native animator as Single.
@@ -472,6 +550,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
             sidebarShadowFrame: sharedShadow ? fullFrame.offsetBy(dx: -frame.minX, dy: -frame.minY) : nil,
             sidebarShadowEnabled: !sharedShadow || slot == model?.sourceSurfaceSlot,
             workspaceViewportSize: usesWorkspaceViewport ? frame.size : nil,
+            sidebarOutlineExternallyDrawn: usesDockedSidebarOutline(frame: frame, viewport: fullFrame),
             onSidebarSettled: settled,
             onNativeLayout: { [weak model, weak resize] receipt in
                 guard let model else { return }
@@ -521,23 +600,6 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 && pane.composer.quoteDragPhase == .idle,
             allowsClosing: native.allowsClosing, surfaceView: native.surfaceView,
             additionalClosingViews: otherSurfaces + dockedInput)
-    }
-
-    private func canConfigureNew(_ id: String) -> Bool {
-#if DEBUG
-        navigation.recordNative("New Settings capturedScene=\(scenePhase);newOwner=\(model?.currentSettingsNewID == id);pane=\(model?.pane != nil);full=\(activeSurfaceSlot == nil);resize=\(resize.isActive);return=\(returnPresentation.phase != nil)")
-#endif
-        guard let model, model.currentSettingsNewID == id, let pane = model.pane,
-              activeSurfaceSlot == nil, !resize.isActive, returnPresentation.phase == nil,
-              let native = controller(for: model.sourceSurfaceSlot).sidebarNativeContext?(),
-              native.window.windowScene?.activationState == .foregroundActive else { return false }
-        // This action survives the initial SwiftUI installation. Read the
-        // owning native scene now rather than that closure's initial environment.
-#if DEBUG
-        navigation.recordNative("New Settings nativeScene=\(String(describing: native.window.windowScene?.activationState));native=\(native.allowsOpening);marked=\(pane.composer.isComposing);selection=\(pane.composer.isSelectionHandleDragging);quote=\(pane.composer.quoteDragPhase)")
-#endif
-        return native.allowsOpening && !pane.composer.isComposing && !pane.composer.isSelectionHandleDragging
-            && pane.composer.quoteDragPhase == .idle
     }
 
     private func captureOverlayFocus() -> ComposerOverlayFocus? {
@@ -714,13 +776,15 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     private func divider(model: AppShellModel, split: SplitWorkspaceState,
-                         layout: SplitWorkspaceGeometry) -> some View {
+                         layout: SplitWorkspaceGeometry, sidebarProgress: CGFloat) -> some View {
         let horizontal = split.axis == .leftRight
         let length = horizontal ? layout.viewport.width : layout.viewport.height
         let minimum = SplitWorkspaceGeometry.minimumRatio(height: length,
             preferredMinimum: horizontal ? minimumWidth : max(180, minimumHeight * 0.65))
         return ZStack {
-            Rectangle().fill(Color.black)
+            // Dark pages need a lighter structural gap even with the Sidebar
+            // closed. Light appearance keeps its existing backdrop treatment.
+            (colorScheme == .dark ? Color(white: 0.14) : Color.clear)
                 .frame(width: layout.divider.width, height: layout.divider.height)
                 .allowsHitTesting(false)
             SplitDividerView(ratio: split.activeRatio, closeIntent: resize.closeIntent,
@@ -752,6 +816,27 @@ struct WorkspaceSurfaceView<Content: View>: View {
 #endif
     }
 
+    /// The SwiftUI twin of a resting native Pane's corners: display radius on
+    /// the display's corners, Pane radius toward the divider.
+    private func paneShape(_ frame: CGRect, in viewport: CGRect, squareBottom: Bool = false) -> UnevenRoundedRectangle {
+        let radii = paneRadii(frame, in: viewport, squareBottom: squareBottom)
+        return UnevenRoundedRectangle(topLeadingRadius: radii.topLeft,
+            bottomLeadingRadius: radii.bottomLeft, bottomTrailingRadius: radii.bottomRight,
+            topTrailingRadius: radii.topRight, style: .continuous)
+    }
+
+    private func paneRadii(_ frame: CGRect, in viewport: CGRect, squareBottom: Bool) -> SurfaceCornerRadii {
+        let inner = SplitTargetingGeometry.paneCornerRadius
+        let display = max(inner, layoutContext?.windowCornerRadius ?? 0)
+        let corners = SplitWorkspaceGeometry.viewportCorners(of: frame, in: viewport)
+        func r(_ corner: CACornerMask) -> CGFloat {
+            if squareBottom, corner == .layerMinXMaxYCorner || corner == .layerMaxXMaxYCorner { return 0 }
+            return corners.contains(corner) ? display : inner
+        }
+        return SurfaceCornerRadii(topLeft: r(.layerMinXMinYCorner), topRight: r(.layerMaxXMinYCorner),
+            bottomLeft: r(.layerMinXMaxYCorner), bottomRight: r(.layerMaxXMaxYCorner))
+    }
+
     private func splitTargetOverlay(top: CGRect, bottom: CGRect, guide: CGRect) -> some View {
         ZStack(alignment: .topLeading) {
             zone(top, selected: activeLift.splitTargetSlot == .top)
@@ -764,10 +849,10 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     private func zone(_ frame: CGRect, selected: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
+        RoundedRectangle(cornerRadius: SplitTargetingGeometry.paneCornerRadius, style: .continuous)
             .strokeBorder(Color.white.opacity(selected ? 0.35 : 0.09), lineWidth: selected ? 1.5 : 1)
-            .background(RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white.opacity(selected ? 0.07 : 0.025)))
+            // The target guide must not wash over the live Card's colors.
+            .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0.15), value: selected)
             .frame(width: frame.width, height: frame.height)
             .position(x: frame.midX, y: frame.midY)
     }
@@ -801,6 +886,37 @@ struct WorkspaceSurfaceView<Content: View>: View {
             .scaleEffect(pose?.scale ?? 1)
             .frame(width: card.frame.width, height: card.frame.height)
             .clipShape(RoundedRectangle(cornerRadius: card.cornerRadius, style: .continuous))
+    }
+
+    private struct CardTitleSlot {
+        let item: AppSpaceGeometry.Item
+        let title: String
+        let frame: CGRect
+        let opacity: Double
+    }
+
+    /// Titles sit above their cards as app names do in the system switcher. A
+    /// covered card's title is clipped to the strip of that card still showing.
+    private func cardTitleSlots(in layout: AppSpaceBrowseGeometry.Layout) -> [CardTitleSlot] {
+        let leadingLimit = browse.safeArea.left + 14
+        return layout.cards.compactMap { card in
+            guard card.depth > -1, card.depth < 2 else { return nil }
+            let cover = layout.cards
+                .filter { $0.depth < card.depth - 0.5 && $0.frame.minX > card.frame.minX }
+                .map(\.frame.minX).min()
+            let start = max(card.frame.minX + 4, leadingLimit)
+            let end = min(card.frame.maxX, (cover ?? .infinity) - 10)
+            guard end - start > 40 else { return nil }
+            let title: String
+            switch card.item {
+            case .newConversation: title = "新对话"
+            case .conversation(let id): title = browse.summaries.first { $0.id == id }?.title ?? ""
+            }
+            guard !title.isEmpty else { return nil }
+            return CardTitleSlot(item: card.item, title: title,
+                frame: CGRect(x: start, y: card.frame.minY - 30, width: end - start, height: 22),
+                opacity: card.opacity * (card.depth > 0.5 ? 0.8 : 1))
+        }
     }
 
     private func updateMinimumSize() {
@@ -1037,3 +1153,24 @@ struct SurfaceLiftUITestFixture: View {
     }
 }
 #endif
+
+/// The small label above an App Space card, like an app's name in the switcher.
+@MainActor
+private struct AppSpaceCardTitle: View {
+    let title: String
+    let isNew: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: isNew ? "plus.bubble.fill" : "text.bubble.fill")
+                .font(.system(size: 13, weight: .semibold))
+            Text(title)
+                .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .foregroundStyle(Color.white.opacity(0.92))
+        .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
+    }
+}

@@ -28,11 +28,15 @@ struct SplitTargetingState {
             slot = nil
             return Update(slot: nil, enteredTarget: false)
         }
-        let midpoint = viewport.midY
-        // The quiet center band lets Card Lift remain a distinct gesture.
-        let band = viewport.height * 0.04
-        let next: SplitDropSlot? = point.y < midpoint - band ? .top
-            : point.y > midpoint + band ? .bottom : nil
+        // Fill only near each half's center. Crossing the divider or brushing
+        // a display edge must leave the compact Card under finger control.
+        let width = viewport.width * 0.6
+        let height = viewport.height * 0.1
+        func target(centerY: CGFloat) -> CGRect {
+            CGRect(x: viewport.midX - width / 2, y: centerY - height / 2, width: width, height: height)
+        }
+        let next: SplitDropSlot? = target(centerY: viewport.minY + viewport.height * 0.25).contains(point) ? .top
+            : target(centerY: viewport.minY + viewport.height * 0.75).contains(point) ? .bottom : nil
         let entered = next != nil && next != slot
         slot = next
         return Update(slot: next, enteredTarget: entered)
@@ -54,23 +58,25 @@ enum SplitTargetingGeometry {
         let guideFrame: CGRect
     }
 
+    /// The divider-facing radius shared with the committed Split Panes.
+    static let paneCornerRadius: CGFloat = 24
+
+    /// The preview is the committed Pane itself: the same full-bleed frame and
+    /// inner radius `SplitWorkspaceGeometry` produces once the drop converges.
+    /// Its exterior corners therefore meet the display's own rounded corners.
     static func preview(slot: SplitDropSlot, progress: CGFloat,
                         size: CGSize, safeArea: UIEdgeInsets) -> Preview? {
         guard progress.isFinite, progress >= 0, progress <= 1,
-              SurfaceGeometry.resolve(size: size, safeArea: safeArea, request: .full) != nil else { return nil }
-        let safe = CGRect(x: safeArea.left, y: safeArea.top,
-                          width: size.width - safeArea.left - safeArea.right,
-                          height: size.height - safeArea.top - safeArea.bottom)
-        let gap: CGFloat = 8
-        guard safe.width >= 120, safe.height >= 2 * 150 + gap else { return nil }
-        let paneHeight = (safe.height - gap) / 2
-        let pane = CGRect(x: safe.minX,
-            y: slot == .top ? safe.minY : safe.maxY - paneHeight,
-            width: safe.width, height: paneHeight)
-        let guide = CGRect(x: safe.minX, y: safe.midY - 1,
-                           width: safe.width, height: 2)
+              SurfaceGeometry.resolve(size: size, safeArea: safeArea, request: .full) != nil,
+              size.width >= 120, size.height >= 2 * 150 + 12,
+              let layout = SplitWorkspaceGeometry(viewport: CGRect(origin: .zero, size: size), ratio: 0.5)
+        else { return nil }
+        let pane = layout.frame(for: slot)
+        let guide = CGRect(x: layout.divider.minX, y: layout.divider.midY - 1,
+                           width: layout.divider.width, height: 2)
         guard let destination = SurfaceLiftGeometry.targetPose(size: size, safeArea: safeArea,
-            card: pane, cornerRadius: min(22, paneHeight / 2)) else { return nil }
+            card: pane, cornerRadius: min(paneCornerRadius, pane.height / 2),
+            constrainedToSafeArea: false) else { return nil }
         func between(_ start: CGFloat, _ end: CGFloat) -> CGFloat {
             start + (end - start) * progress
         }

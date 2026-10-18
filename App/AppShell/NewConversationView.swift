@@ -65,7 +65,6 @@ struct NewConversationView: View {
         return isSource ? split.sourceSlot : split.emptySlot
     }
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @State private var isProviderSetupPresented = false
     @State private var isRecentConversationsPresented = false
     @State private var historyAction: Task<Void, Never>?
     @State private var recentOpenFailure: RecentConversationOpenFailure?
@@ -196,13 +195,6 @@ struct NewConversationView: View {
                     .background(.regularMaterial)
                 }
             }
-            .sheet(isPresented: $isProviderSetupPresented) {
-                if let providerSetup = model.providerSetup {
-                    ProviderSetupView(model: providerSetup)
-                } else {
-                    ProgressView()
-                }
-            }
             .onChange(of: model.persistedTurnCount) { previousCount, currentCount in
                 guard currentCount > previousCount else { return }
                 model.refreshRecentConversations()
@@ -271,7 +263,7 @@ struct NewConversationView: View {
                 }
             }
         }
-        .onChange(of: isProviderSetupPresented || isRecentConversationsPresented) { _, presented in
+        .onChange(of: isRecentConversationsPresented) { _, presented in
             lift?.setOverlayPresented(presented)
         }
         .onChange(of: isRecentConversationsPresented) { _, presented in
@@ -322,8 +314,7 @@ struct NewConversationView: View {
     }
 
     private func configureNew() {
-        if let workspaceNavigation { workspaceNavigation.onConfigureNew?(presentedID) }
-        else { isProviderSetupPresented = true }
+        workspaceNavigation?.onConfigureNew?(presentedID)
     }
 
     private func openRecentConversation(id: String) {

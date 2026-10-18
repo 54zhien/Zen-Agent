@@ -79,6 +79,18 @@ struct SurfaceLiftGeometryTests {
         #expect(pose.clipFraction == CGSize(width: 1, height: 1))
     }
 
+    @Test func longDragsShrinkFurtherAndKeepFollowingTheFinger() throws {
+        let size = CGSize(width: 400, height: 800)
+        let first = try #require(SurfaceLiftGeometry.interactivePose(size: size, safeArea: .zero,
+            displacement: CGSize(width: 0, height: -100), progress: 0.5, windowCornerRadius: 62))
+        let far = try #require(SurfaceLiftGeometry.interactivePose(size: size, safeArea: .zero,
+            displacement: CGSize(width: 0, height: -1000), progress: 1, windowCornerRadius: 62))
+        #expect(far.scale < first.scale && far.scale >= 0.65)
+        #expect(far.translation.height < first.translation.height)
+        #expect(abs(far.translation.height + 1000.0 / 800.0) < 0.000001)
+        #expect(far.clipFraction == CGSize(width: 1, height: 1))
+    }
+
     @Test func interactiveCornerRadiusStopsAtTheSourceSurfaceBounds() throws {
         let size = CGSize(width: 30, height: 20)
         let pose = try #require(SurfaceLiftGeometry.interactivePose(

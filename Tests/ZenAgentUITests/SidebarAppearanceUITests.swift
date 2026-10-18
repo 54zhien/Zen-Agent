@@ -152,8 +152,11 @@ final class SidebarAppearanceUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(top.minY, app.frame.minY + safeTop + 11,
                                     "The first control must begin below the status area")
         XCTAssertEqual(top.minY, app.frame.minY + max(safeTop + 12, radius - 28), accuracy: 1)
-        XCTAssertEqual(bottom.midX, top.midX, accuracy: 1,
-                       "The rail must keep its control column aligned from top to bottom")
+        // Settings shares the display corner's center when the corner is large
+        // enough to hold it; otherwise it keeps the control column.
+        let expectedSettingsMidX = radius >= 28 + 8 ? app.frame.minX + radius : top.midX
+        XCTAssertEqual(bottom.midX, expectedSettingsMidX, accuracy: 1,
+                       "Settings must be concentric with the display corner, or stay in the control column")
         XCTAssertEqual(top.minX - app.frame.minX, 20, accuracy: 1,
                        "The portrait rail must keep a 20pt exposed-screen gap around its controls")
         guard let sheet = rect("surfaceFrame", from: native) else {
@@ -208,6 +211,26 @@ final class SidebarAppearanceUITests: XCTestCase {
         print("SIDEBAR_APPEARANCE rail=\(rail.frame);sample=\(point);luminance=\(luminance)")
         XCTAssertGreaterThan(luminance, 0.6,
                              "The exposed Sidebar should read as a light surface in Light appearance")
+    }
+
+    @MainActor
+    func testLightSplitPickerRestoresThePageBackgroundAndNativeControls() {
+        let app = launchLightAppearance()
+        app.openWorkspaceSplit()
+        let picker = app.scrollViews["split-empty-pane-picker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        let capture = app.screenshot()
+        attach(capture, named: "Restored light picker and native Composer controls")
+        for x in [picker.frame.minX + 4, picker.frame.maxX - 4] {
+            let point = CGPoint(x: x, y: picker.frame.midY)
+            guard let luminance = sampledLuminance(capture, appFrame: app.frame, at: point) else {
+                XCTFail("The rendered picker background must be measurable")
+                return
+            }
+            XCTAssertGreaterThan(luminance, 0.8, "The light picker must not revert to a black page")
+        }
+        XCTAssertTrue(app.buttons["conversation-composer-plus"].exists)
+        XCTAssertFalse(app.buttons["split-entry"].exists)
     }
 
     @MainActor

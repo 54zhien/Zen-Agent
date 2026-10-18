@@ -18,9 +18,9 @@ enum WorkspaceSidebarEligibility {
 final class WorkspaceNavigationState {
     var conversationActions: Set<WorkspaceConversationAction> = []
     @ObservationIgnored var onConversationAction: ((WorkspaceConversationAction) -> Void)?
+    @ObservationIgnored var onConfigureNew: ((String) -> Void)?
     @ObservationIgnored private var pendingConversationAction: (() -> Void)?
     @ObservationIgnored var onReset: (() -> Void)?
-    @ObservationIgnored var onConfigureNew: ((String) -> Void)?
     private(set) var progress = 0.0
     private(set) var isOpen = false
     private(set) var isDragging = false

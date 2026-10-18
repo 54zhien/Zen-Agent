@@ -6,6 +6,102 @@ import Testing
 @Suite("Lift host transport", .serialized)
 @MainActor
 struct SurfaceLiftHostTests {
+    @Test("an ordinary Card lift never enters Split before release")
+    func ordinaryCardLiftDoesNotGetCapturedByTheLowerSplitTarget() throws {
+        let host = ConversationSurfaceViewController(content: Text("ordinary Card gesture"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.rootViewController = host; window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let driver = SurfaceLiftController()
+        var preview = false
+        var drops = 0
+        driver.configurePreview(enter: { preview = true; return true }, prepare: { true },
+            commit: { preview = false; return true }, cancel: {}, isPresented: { preview }, label: { "Card" })
+        driver.configureSplit(onDrop: { _ in drops += 1; return false })
+        driver.bind(host)
+        defer { driver.unbind(host) }
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
+        #expect(driver.drag(upwardDistance: 150, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 201, y: 662)))
+        #expect(driver.splitTargetSlot == nil)
+        #expect(!driver.splitTargetingVisible)
+        #expect(driver.drag(upwardDistance: 220, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 201, y: 592)))
+        #expect(driver.splitTargetSlot == nil)
+        #expect(!driver.splitTargetingVisible)
+        #expect(driver.end(animated: false)?.destination == .card)
+        #expect(driver.state.phase == .card && preview)
+        #expect(drops == 0)
+    }
+
+    @Test("continued upward travel admits both Split targets only for the current lift")
+    func splitAdmissionWaitsForContinuedTravelAndResetsBetweenLifts() {
+        let host = ConversationSurfaceViewController(content: Text("Card first, Split second"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host; window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        defer { driver.unbind(host) }
+        var entries = 0
+        var drops = 0
+        driver.onSplitTargetEntry = { entries += 1 }
+        driver.configureSplit(onDrop: { _ in drops += 1; return true })
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
+        for distance in [150.0, 220, 259] {
+            #expect(driver.drag(upwardDistance: distance, eligibility: SurfaceLiftEligibility(),
+                                locationInWindow: CGPoint(x: 200, y: 600)))
+            #expect(driver.splitTargetSlot == nil)
+            #expect(entries == 0)
+        }
+        #expect(driver.drag(upwardDistance: 260, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 200)))
+        #expect(driver.splitTargetSlot == .top)
+        #expect(driver.drag(upwardDistance: 120, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 600)))
+        #expect(driver.splitTargetSlot == .bottom)
+        #expect(entries == 2)
+        _ = driver.end(cancelled: true, animated: false)
+        #expect(drops == 0 && driver.lastSplitDropIntent == nil)
+        #expect(!driver.splitTargetingVisible)
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "next"))
+        #expect(driver.drag(upwardDistance: 150, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 600)))
+        #expect(driver.splitTargetSlot == nil && !driver.splitTargetingVisible)
+        #expect(entries == 2)
+        _ = driver.end(cancelled: true, animated: false)
+        #expect(drops == 0)
+    }
+
+    @Test(arguments: [UIUserInterfaceStyle.light, .dark])
+    func splitTransportKeepsTheLivePageOpaqueAndNeedsACentralTarget(style: UIUserInterfaceStyle) {
+        let host = ConversationSurfaceViewController(content: Color.clear)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host; window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.overrideUserInterfaceStyle = style
+        host.view.layoutIfNeeded()
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        host.surfaceView.alpha = 0.4
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
+        #expect(driver.drag(upwardDistance: 120, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 700)))
+        #expect(driver.splitTargetSlot == nil)
+        #expect(host.surfaceView.alpha == 1)
+        #expect(host.surfaceView.backgroundColor?.resolvedColor(with: host.traitCollection).cgColor.alpha == 1)
+        #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 200)))
+        #expect(driver.splitTargetSlot == .top)
+        #expect(driver.drag(upwardDistance: 120, eligibility: SurfaceLiftEligibility(),
+                            locationInWindow: CGPoint(x: 200, y: 600)))
+        #expect(driver.splitTargetSlot == .bottom)
+        #expect(host.surfaceView.alpha == 1)
+        driver.invalidate()
+    }
+
     @Test("failed menu Split preparation cannot change a subsequent ordinary Return destination")
     func failedSplitPreparationDoesNotLeakIntoOrdinaryReturn() async throws {
         let host = ConversationSurfaceViewController(content: Text("Return intent"))
@@ -243,11 +339,11 @@ struct SurfaceLiftHostTests {
         driver.configureSplit(onDrop: { intent in delivered = intent; return false })
         #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "captured"))
         #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
-                            locationInWindow: CGPoint(x: 200, y: 160)))
+                            locationInWindow: CGPoint(x: 200, y: 200)))
         #expect(driver.splitTargetSlot == .top)
         #expect(entries == 1)
         #expect(driver.drag(upwardDistance: 325, eligibility: SurfaceLiftEligibility(),
-                            locationInWindow: CGPoint(x: 200, y: 150)))
+                            locationInWindow: CGPoint(x: 200, y: 210)))
         #expect(entries == 1)
         #expect(host.presentation != .full)
         _ = driver.end(animated: false)
@@ -270,7 +366,7 @@ struct SurfaceLiftHostTests {
         driver.configureSplit(onDrop: { _ in deliveries += 1; return true })
         #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
         #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
-                            locationInWindow: CGPoint(x: 200, y: 640)))
+                            locationInWindow: CGPoint(x: 200, y: 600)))
         #expect(driver.splitTargetSlot == .bottom)
         _ = driver.end(cancelled: true, animated: false)
         #expect(deliveries == 0)
@@ -278,7 +374,7 @@ struct SurfaceLiftHostTests {
         #expect(driver.state.phase == .full && host.presentation == .full)
         #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
         #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
-                            locationInWindow: CGPoint(x: 200, y: 160)))
+                            locationInWindow: CGPoint(x: 200, y: 200)))
         driver.invalidate()
         #expect(driver.state.phase == .full && host.presentation == .full)
         #expect(!driver.splitTargetingVisible && driver.splitTargetSlot == nil)
@@ -299,7 +395,7 @@ struct SurfaceLiftHostTests {
         driver.configureSplit(onDrop: { value in intent = value; return false })
         #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
         #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
-                            locationInWindow: CGPoint(x: 200, y: 160)))
+                            locationInWindow: CGPoint(x: 200, y: 200)))
         #expect(driver.splitTargetSlot == .top)
         #expect(driver.drag(upwardDistance: 100, eligibility: SurfaceLiftEligibility(),
                             locationInWindow: CGPoint(x: 200, y: 600)))
@@ -351,7 +447,7 @@ struct SurfaceLiftHostTests {
         driver.configureSplit(onDrop: { value in intent = value; return true })
         #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
         #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
-                            locationInWindow: CGPoint(x: 200, y: 160)))
+                            locationInWindow: CGPoint(x: 200, y: 200)))
         _ = driver.end(animated: false)
         #expect(intent == SplitDropIntent(conversationID: "source", slot: .top))
         #expect(driver.state.phase != .full)
@@ -419,7 +515,7 @@ struct SurfaceLiftHostTests {
             })
         #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
         #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
-                            locationInWindow: CGPoint(x: 200, y: 160)))
+                            locationInWindow: CGPoint(x: 200, y: 200)))
         let first = try #require(driver.end(animated: true))
         #expect(first.destination == .split)
         #expect(admissions == 1 && commits.isEmpty)
@@ -433,7 +529,7 @@ struct SurfaceLiftHostTests {
 
         #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
         #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
-                            locationInWindow: CGPoint(x: 200, y: 160)))
+                            locationInWindow: CGPoint(x: 200, y: 200)))
         let second = try #require(driver.end(animated: false))
         #expect(second.destination == .split)
         #expect(admissions == 2)
@@ -457,7 +553,7 @@ struct SurfaceLiftHostTests {
         driver.configureSplit(onDrop: { intent in delivered = intent; return false })
         #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
         #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
-                            locationInWindow: CGPoint(x: 200, y: 160)))
+                            locationInWindow: CGPoint(x: 200, y: 200)))
         #expect(driver.splitTargetSlot == .top)
         ComposerLiftInteraction.finish(driver: driver, origin: CGPoint(x: 200, y: 480),
             point: CGPoint(x: 200, y: 600), eligibility: SurfaceLiftEligibility(), cancelled: false)
@@ -480,7 +576,7 @@ struct SurfaceLiftHostTests {
         driver.configureSplit(onDrop: { _ in deliveries += 1; return true })
         #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "old"))
         #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
-                            locationInWindow: CGPoint(x: 200, y: 160)))
+                            locationInWindow: CGPoint(x: 200, y: 200)))
         driver.resetForConversationChange()
         #expect(driver.end(animated: false) == nil)
         #expect(deliveries == 0 && driver.lastSplitDropIntent == nil)
@@ -500,7 +596,7 @@ struct SurfaceLiftHostTests {
         #expect(driver.canArm(SurfaceLiftEligibility()))
         #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "occupied"))
         #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
-                            locationInWindow: CGPoint(x: 200, y: 160)))
+                            locationInWindow: CGPoint(x: 200, y: 200)))
         #expect(!driver.splitTargetingVisible)
         #expect(driver.splitTargetSlot == nil)
     }

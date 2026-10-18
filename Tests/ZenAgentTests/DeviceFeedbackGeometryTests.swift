@@ -23,7 +23,7 @@ struct DeviceFeedbackGeometryTests {
         }
     }
 
-    @Test func interactiveLiftFollowsFingerVerticallyWithoutCropping() throws {
+    @Test func interactiveLiftDampsVerticalTravelWithoutCropping() throws {
         let host = ConversationSurfaceViewController(content: Text("Whole page"))
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = host; window.makeKeyAndVisible()
@@ -33,17 +33,22 @@ struct DeviceFeedbackGeometryTests {
         defer { driver.unbind(host) }
         #expect(driver.arm(SurfaceLiftEligibility()))
         #expect(host.surfaceView.transform == .identity)
+        let verticalLimit = (host.view.bounds.height - host.view.safeAreaInsets.top
+            - host.view.safeAreaInsets.bottom) * 0.12
+        var previousTravel: CGFloat = 0
         for distance in [80.0, 140.0] {
             #expect(driver.drag(upwardDistance: distance, eligibility: SurfaceLiftEligibility()))
             #expect(abs(host.presentation.translation.width) < 0.001)
-            #expect(abs(host.presentation.translation.height + distance) < 0.001)
+            let travel = -host.presentation.translation.height
+            #expect(travel > previousTravel && travel < distance && travel < verticalLimit)
+            previousTravel = travel
             #expect(host.presentation.clipFraction == CGSize(width: 1, height: 1))
         }
         _ = driver.end(cancelled: true, animated: false)
         #expect(host.surfaceView.transform == .identity)
     }
 
-    @Test func interactiveLiftFollowsTheFingerOnBothAxesWithoutChangingVerticalProgress() throws {
+    @Test func interactiveLiftKeepsHorizontalTrackingAndDampsVerticalTravelWithoutChangingProgress() throws {
         let host = ConversationSurfaceViewController(content: Text("Two-axis retained page"))
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = host
@@ -62,7 +67,10 @@ struct DeviceFeedbackGeometryTests {
         #expect(driver.state.phase == .lifting)
         #expect(abs(driver.state.progress - 108.0 / 168.0) < 0.000001)
         #expect(abs(host.presentation.translation.width - displacement.width) < 0.001)
-        #expect(abs(host.presentation.translation.height - displacement.height) < 0.001)
+        let verticalLimit = (host.view.bounds.height - host.view.safeAreaInsets.top
+            - host.view.safeAreaInsets.bottom) * 0.12
+        #expect(host.presentation.translation.height < 0)
+        #expect(abs(host.presentation.translation.height) < min(abs(displacement.height), verticalLimit))
         #expect(host.presentation.clipFraction == CGSize(width: 1, height: 1))
         _ = driver.end(cancelled: true, animated: false)
         #expect(driver.state.phase == .full)
@@ -89,10 +97,15 @@ struct DeviceFeedbackGeometryTests {
             #expect(driver.state.phase == .lifting)
             #expect(driver.state.progress == 0)
             #expect(abs(host.presentation.translation.width - displacement.width) < 0.001)
-            #expect(abs(host.presentation.translation.height - displacement.height) < 0.001)
+            if displacement.height == 0 {
+                #expect(host.presentation.translation.height == 0)
+            } else {
+                #expect(host.presentation.translation.height > 0)
+                #expect(host.presentation.translation.height < displacement.height)
+            }
             let travel = hypot(Double(displacement.width), Double(displacement.height))
             let visualProgress = SurfaceLiftState.presentationProgress(travel: travel)
-            #expect(abs(host.presentation.scale - (1 - visualProgress * 0.18)) < 0.001)
+            #expect(abs(host.presentation.scale - (1 - visualProgress * 0.34)) < 0.001)
 
             let settlement = try #require(driver.end(cancelled: true, animated: false))
             #expect(settlement.destination == .full)

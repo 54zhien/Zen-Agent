@@ -13,9 +13,11 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var isReturnProxyHidden: Bool
     var restingCornerRadius: CGFloat
     var squareBottomCorners: Bool
+    var displayCorners: CACornerMask
     var sidebarOffset: CGFloat
     var sidebarProgress: CGFloat
     var sidebarDragging: Bool
+    var sidebarOutlineExternallyDrawn: Bool
     var sidebarSettlement: UUID?
     var sidebarShadowFrame: CGRect?
     var sidebarShadowEnabled: Bool
@@ -33,10 +35,12 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
          isWorkspaceVisible: Bool = true,
          isInputSuppressed: Bool = false, isReturnProxyHidden: Bool = false,
          restingCornerRadius: CGFloat = 0, squareBottomCorners: Bool = false,
+         displayCorners: CACornerMask = [],
          sidebarOffset: CGFloat = 0, sidebarProgress: CGFloat = 0, sidebarDragging: Bool = false,
          sidebarSettlement: UUID? = nil,
          sidebarShadowFrame: CGRect? = nil, sidebarShadowEnabled: Bool = true,
          workspaceViewportSize: CGSize? = nil, workspaceBackgroundColor: UIColor = .systemBackground,
+         sidebarOutlineExternallyDrawn: Bool = false,
          onSidebarSettled: ((UUID) -> Void)? = nil,
          onNativeLayout: ((WorkspaceNativeLayoutReceipt?) -> Void)? = nil,
          contentOwner: ObjectIdentifier? = nil,
@@ -51,9 +55,11 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         self.isReturnProxyHidden = isReturnProxyHidden
         self.restingCornerRadius = restingCornerRadius
         self.squareBottomCorners = squareBottomCorners
+        self.displayCorners = displayCorners
         self.sidebarOffset = sidebarOffset
         self.sidebarProgress = sidebarProgress
         self.sidebarDragging = sidebarDragging
+        self.sidebarOutlineExternallyDrawn = sidebarOutlineExternallyDrawn
         self.sidebarSettlement = sidebarSettlement
         self.sidebarShadowFrame = sidebarShadowFrame
         self.sidebarShadowEnabled = sidebarShadowEnabled
@@ -79,6 +85,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.setWorkspaceVisible(isWorkspaceVisible)
         controller.setSquareBottomCorners(squareBottomCorners)
         controller.setSidebarShadow(frame: sidebarShadowFrame, enabled: sidebarShadowEnabled)
+        controller.setDisplayCorners(displayCorners)
+        controller.setSidebarOutlineExternallyDrawn(sidebarOutlineExternallyDrawn)
         controller.setSidebar(offset: sidebarOffset, progress: sidebarProgress, dragging: sidebarDragging,
                               settlement: sidebarSettlement, completion: onSidebarSettled)
         return controller
@@ -103,6 +111,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.setWorkspaceVisible(isWorkspaceVisible)
         controller.setSquareBottomCorners(squareBottomCorners)
         controller.setSidebarShadow(frame: sidebarShadowFrame, enabled: sidebarShadowEnabled)
+        controller.setDisplayCorners(displayCorners)
+        controller.setSidebarOutlineExternallyDrawn(sidebarOutlineExternallyDrawn)
         controller.setSidebar(offset: sidebarOffset, progress: sidebarProgress, dragging: sidebarDragging,
                               settlement: sidebarSettlement, completion: onSidebarSettled)
         // Match the outer SwiftUI frames, Divider and picker in the same keyboard
@@ -155,6 +165,16 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private var sidebarSettlement: UUID?
     private var sidebarAnimator: UIViewPropertyAnimator?
     private var squareBottomCorners = false
+    private var displayCorners: CACornerMask = []
+    // Rounds a resting Split Pane's display corners with the display radius
+    // while its divider-facing corners keep the smaller resting radius. It is a
+    // bare layer mask: `UIView.mask` would lay out the hosted SwiftUI content
+    // synchronously from inside a SwiftUI update and re-enter its graph.
+    private let cornerMask: CAShapeLayer = {
+        let layer = CAShapeLayer()
+        layer.fillColor = UIColor.black.cgColor
+        return layer
+    }()
     private let windowCornerGeometry = WindowCornerGeometry()
     private var sidebarShadowDirection: CGFloat = -1
     private var sidebarShadowFrame: CGRect?
@@ -280,6 +300,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         view.backgroundColor = .clear
         surfaceView.layer.cornerCurve = .continuous
         surfaceView.clipsToBounds = true
+        surfaceView.backgroundColor = .systemBackground
         cropMask.backgroundColor = .black
         cropMask.layer.cornerCurve = .continuous
         view.addSubview(sidebarTransportView)
@@ -394,6 +415,12 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     func setRestingCornerRadius(_ radius: CGFloat) {
         guard restingCornerRadius != radius else { return }
         restingCornerRadius = radius
+        updateSurfaceDecoration()
+    }
+
+    func setDisplayCorners(_ corners: CACornerMask) {
+        guard displayCorners != corners else { return }
+        displayCorners = corners
         updateSurfaceDecoration()
     }
 
@@ -547,7 +574,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         let fraction = presentation.clipFraction
         let cropped = fraction != CGSize(width: 1, height: 1)
         guard cropped || retainsAnimationMask else {
-            surfaceView.mask = nil
+            if surfaceView.mask === cropMask { surfaceView.mask = nil }
             surfaceView.visibleRect = nil
             updateSurfaceDecoration()
             return
@@ -573,6 +600,10 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         return min(1, abs(offset) / threshold)
     }
 
+    func setSidebarOutlineExternallyDrawn(_ value: Bool) {
+        sidebarDecoration.setOutlineExternallyDrawn(value)
+    }
+
     private func updateSurfaceDecoration() {
         // A floating pose already compensates for its own scale. Applying the
         // resting Split radius as a minimum would enlarge corners on iPad.
@@ -586,13 +617,16 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
         surfaceView.layer.cornerRadius = radius
         surfaceView.layer.maskedCorners = roundedCorners
+        let radii = cornerRadii(radius: radius, rounded: roundedCorners)
+        updateCornerMask(radii)
         let shadowVisible = sidebarShadowEnabled && workspaceVisible && !returnProxyHidden
             && (sidebarOffset != 0 || sidebarSettlement != nil)
         if shadowVisible {
-            sidebarDecoration.updateGeometry(surface: surfaceView,
-                radius: sidebarShadowFrame == nil ? radius : windowConcentricCornerRadius(),
-                corners: sidebarShadowFrame == nil ? roundedCorners : allCorners,
-                direction: sidebarShadowDirection, shadowFrame: sidebarShadowFrame)
+            let shadowRadii = sidebarShadowFrame.map { _ in
+                SurfaceCornerRadii(uniform: windowConcentricCornerRadius(), corners: allCorners)
+            }
+            sidebarDecoration.updateGeometry(surface: surfaceView, radii: radii,
+                direction: sidebarShadowDirection, shadowFrame: sidebarShadowFrame, shadowRadii: shadowRadii)
         }
         if sidebarAnimator == nil {
             sidebarDecoration.applyAppearance(surface: surfaceView, progress: sidebarProgress, traits: contentController.traitCollection)
@@ -603,12 +637,46 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         }
     }
 
+    private func cornerRadii(radius: CGFloat, rounded: CACornerMask) -> SurfaceCornerRadii {
+        // Only a resting Pane has display corners; a lifted or cropped pose
+        // keeps one radius so its crop mask and Card edge stay concentric.
+        guard restingCornerRadius > 0, !displayCorners.isEmpty, isStableFullSurface else {
+            return SurfaceCornerRadii(uniform: radius, corners: rounded)
+        }
+        let display = max(radius, windowConcentricCornerRadius())
+        func value(_ corner: CACornerMask) -> CGFloat {
+            guard rounded.contains(corner) else { return 0 }
+            return displayCorners.contains(corner) ? display : radius
+        }
+        return SurfaceCornerRadii(topLeft: value(.layerMinXMinYCorner), topRight: value(.layerMaxXMinYCorner),
+            bottomLeft: value(.layerMinXMaxYCorner), bottomRight: value(.layerMaxXMaxYCorner))
+    }
+
+    private func updateCornerMask(_ radii: SurfaceCornerRadii) {
+        // A crop installs its own `UIView.mask`, which replaces this layer mask.
+        guard !radii.isUniform, surfaceView.mask == nil else {
+            if surfaceView.layer.mask === cornerMask { surfaceView.layer.mask = nil }
+            return
+        }
+        // The layer radius still clips the smaller corners; the mask adds the
+        // larger display corners, so their intersection is the intended shape.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cornerMask.frame = surfaceView.bounds
+        cornerMask.path = radii.path(in: surfaceView.bounds)
+        if surfaceView.layer.mask !== cornerMask { surfaceView.layer.mask = cornerMask }
+        CATransaction.commit()
+    }
+
     private func windowConcentricCornerRadius() -> CGFloat {
         guard let window = view.window else { return 0 }
         return windowCornerGeometry.radius(in: window)
     }
 
     func setLiftInteraction(_ phase: SurfaceLiftState.Phase, returnAction: @escaping () -> Bool) {
+        if phase == .armed || phase == .lifting || phase == .split {
+            surfaceView.alpha = 1
+        }
         surfaceView.setCurrentEdgeVisible(phase == .card)
         let frozen = phase == .settling || phase == .card || phase == .split
         contentController.view.isUserInteractionEnabled = workspaceVisible && !frozen && !inputSuppressed && !returnProxyHidden
@@ -830,7 +898,11 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         updateCrop()
         let identity = UUID()
         animationIdentity = identity
-        let animation = UIViewPropertyAnimator(duration: 0.28, curve: .easeInOut) { [weak self] in
+        // Critically damped toward Full so the page never overshoots the screen;
+        // a slight spring toward a Card gives the landing its physical settle.
+        let animation = UIViewPropertyAnimator(duration: to > from ? 0.42 : 0.36,
+                                               dampingRatio: to > from ? 0.86 : 1)
+        animation.addAnimations { [weak self] in
             _ = self?.apply(.init(from: restingPose, to: target, progress: CGFloat(to)))
         }
         animation.isManualHitTestingEnabled = true
@@ -848,22 +920,25 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     func convergeLift(to pose: SurfaceGeometry.Pose, animated: Bool,
                       completion: @escaping (Bool) -> Void) {
-        // A reversed settlement starts at visible pixels, not the animator's
-        // cached endpoint or a scalar projected onto a different Lift path.
-        if animator != nil, let visible = surfaceView.layer.presentation() {
-            let available = CGSize(width: view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right,
-                height: view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom)
-            if available.width > 0, available.height > 0 {
-                let transform = visible.transform
-                let captured = SurfaceGeometry.Pose(scale: transform.m11,
-                    translation: CGSize(width: transform.m41 / available.width, height: transform.m42 / available.height),
-                    cornerRadius: visible.cornerRadius, clipFraction: presentation.clipFraction)
-                cancelLiftAnimation()
-                UIView.performWithoutAnimation { _ = apply(.init(to: captured, progress: 1), force: true) }
-            }
+        guard animated else {
+            captureVisibleLiftPose()
+            cancelLiftAnimation()
+            completion(apply(.init(to: pose, progress: 1)))
+            return
         }
+        // Full never overshoots the screen; a floating destination settles
+        // with a slight spring so the release reads as a physical landing.
+        morphLift(to: pose, response: pose == .full ? 0.34 : 0.42,
+                  dampingRatio: pose == .full ? 1 : 0.86, completion: completion)
+    }
+
+    /// Spring transport toward a pose. It always starts from the visible pixels
+    /// of any running transport, so repeated calls retarget without a jump.
+    func morphLift(to pose: SurfaceGeometry.Pose, response: TimeInterval, dampingRatio: CGFloat,
+                   completion: @escaping (Bool) -> Void) {
+        captureVisibleLiftPose()
         cancelLiftAnimation()
-        guard animated, !UIAccessibility.isReduceMotionEnabled else {
+        guard !UIAccessibility.isReduceMotionEnabled else {
             completion(apply(.init(to: pose, progress: 1)))
             return
         }
@@ -871,7 +946,8 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         updateCrop()
         let identity = UUID()
         animationIdentity = identity
-        let animation = UIViewPropertyAnimator(duration: 0.12, curve: .easeOut) { [weak self] in
+        let animation = UIViewPropertyAnimator(duration: response, dampingRatio: dampingRatio)
+        animation.addAnimations { [weak self] in
             _ = self?.apply(.init(to: pose, progress: 1))
         }
         animation.isManualHitTestingEnabled = true
@@ -885,6 +961,28 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             completion(position == .end)
         }
         animation.startAnimation()
+    }
+
+    var isMorphingLift: Bool { animator != nil }
+
+    // A reversed settlement starts at visible pixels, not the animator's
+    // cached endpoint or a scalar projected onto a different Lift path.
+    private func captureVisibleLiftPose() {
+        guard animator != nil, let visible = surfaceView.layer.presentation() else { return }
+        let available = CGSize(width: view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right,
+            height: view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom)
+        guard available.width > 0, available.height > 0 else { return }
+        let transform = visible.transform
+        let mask = cropMask.layer.presentation()?.bounds.size
+        let clip = mask.map { size in
+            CGSize(width: surfaceView.bounds.width > 0 ? min(1, max(0.0001, size.width / surfaceView.bounds.width)) : 1,
+                   height: surfaceView.bounds.height > 0 ? min(1, max(0.0001, size.height / surfaceView.bounds.height)) : 1)
+        } ?? presentation.clipFraction
+        let captured = SurfaceGeometry.Pose(scale: transform.m11,
+            translation: CGSize(width: transform.m41 / available.width, height: transform.m42 / available.height),
+            cornerRadius: max(0, visible.cornerRadius), clipFraction: clip)
+        cancelLiftAnimation()
+        UIView.performWithoutAnimation { _ = apply(.init(to: captured, progress: 1), force: true) }
     }
 
     override var childForStatusBarStyle: UIViewController? { contentController }

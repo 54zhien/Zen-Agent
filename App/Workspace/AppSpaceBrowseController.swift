@@ -17,6 +17,7 @@ final class AppSpaceBrowseController {
     private(set) var deletionProgress = 0.0
     private(set) var viewportSize: CGSize = .zero
     private(set) var safeArea: UIEdgeInsets = .zero
+    private(set) var displayCornerRadius: CGFloat = 0
     private var minimumCardSize = CGSize(width: 220, height: 300)
     var currentSummary: ConversationSummary? {
         guard case .conversation(let id) = state.selected else { return nil }
@@ -272,11 +273,13 @@ final class AppSpaceBrowseController {
         onChanged?()
     }
 
-    func updateViewport(size: CGSize, safeArea: UIEdgeInsets) {
-        guard size != viewportSize || safeArea != self.safeArea else { return }
+    func updateViewport(size: CGSize, safeArea: UIEdgeInsets, displayCornerRadius: CGFloat = 0) {
+        guard size != viewportSize || safeArea != self.safeArea
+                || displayCornerRadius != self.displayCornerRadius else { return }
         state.cancel()
         viewportSize = size
         self.safeArea = safeArea
+        self.displayCornerRadius = displayCornerRadius
         onChanged?()
     }
     func updateMinimumCardSize(_ size: CGSize) {
@@ -294,7 +297,8 @@ final class AppSpaceBrowseController {
         return AppSpaceBrowseGeometry.resolve(size: viewportSize, safeArea: safeArea,
             historyIDs: ids, current: state.selected, offset: offset ?? state.offset,
             minimumCardSize: minimumCardSize,
-            includesNew: state.selected == .newConversation || state.newer == .newConversation)
+            includesNew: state.selected == .newConversation || state.newer == .newConversation,
+            displayCornerRadius: displayCornerRadius)
     }
 
     private func read(id: String, allowsMissing: Bool) throws -> ConversationBrowseWindow {

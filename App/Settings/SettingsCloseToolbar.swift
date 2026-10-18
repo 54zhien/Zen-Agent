@@ -25,7 +25,10 @@ private struct SettingsCloseToolbarModifier: ViewModifier {
         content.toolbar {
             if let control {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") { control.focus.release(then: control.close) }
+                    Button(role: .close) { control.focus.release(then: control.close) } label: {
+                        Image(systemName: "xmark")
+                    }
+                        .accessibilityLabel("关闭")
                         .disabled(control.blocked || control.focus.hasMarkedText || control.focus.isClosing)
                         .accessibilityIdentifier("settings-close")
                 }

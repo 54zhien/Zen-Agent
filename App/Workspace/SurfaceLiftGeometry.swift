@@ -1,8 +1,8 @@
 import UIKit
 
 enum SurfaceLiftGeometry {
-    /// Interactive transport follows the finger; destination geometry is only
-    /// used after release. Uniform scale keeps the complete live page visible.
+    /// Interactive transport keeps the complete page visible, with bounded
+    /// vertical travel. Split targeting owns the separate half-screen morph.
     static func interactivePose(size: CGSize, safeArea: UIEdgeInsets,
                                 displacement: CGSize, progress: Double,
                                 windowCornerRadius: CGFloat) -> SurfaceGeometry.Pose? {

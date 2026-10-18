@@ -117,7 +117,7 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
         addSubview(handle)
         handle.isUserInteractionEnabled = false
         handle.backgroundColor = .white
-        handle.layer.cornerRadius = 2
+        handle.layer.cornerRadius = 1.5
         pan.delegate = self
         pan.maximumNumberOfTouches = 1
         addGestureRecognizer(pan)
@@ -134,8 +134,8 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
     override func layoutSubviews() {
         super.layoutSubviews()
         handle.frame = configuration?.axis == .leftRight
-            ? CGRect(x: (bounds.width - 4) / 2, y: 0, width: 4, height: bounds.height)
-            : CGRect(x: 0, y: (bounds.height - 4) / 2, width: bounds.width, height: 4)
+            ? CGRect(x: (bounds.width - 3) / 2, y: 0, width: 3, height: bounds.height)
+            : CGRect(x: 0, y: (bounds.height - 3) / 2, width: bounds.width, height: 3)
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {

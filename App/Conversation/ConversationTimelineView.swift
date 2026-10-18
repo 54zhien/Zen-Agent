@@ -1016,7 +1016,8 @@ private struct TimelineItemView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var inlineSpacing = Metrics.inlineSpacing
     @ScaledMetric(relativeTo: .body) private var secondaryInset = Metrics.secondaryInset
-    @ScaledMetric(relativeTo: .body) private var readingInset = Metrics.capsulePadding
+    @ScaledMetric(relativeTo: .body) private var readingInset = Metrics.readingInset
+    @ScaledMetric(relativeTo: .body) private var assistantLead = Metrics.assistantLead
 
     @ViewBuilder
     var body: some View {
@@ -1039,6 +1040,7 @@ private struct TimelineItemView: View {
                 maximumNumberOfLines: 0
             )
             .padding(.horizontal, readingInset)
+            .padding(.top, assistantLead)
 
         case .reasoning(let text):
             Text(text)
@@ -1125,11 +1127,13 @@ private struct TimelineItemView: View {
     }
 }
 
-/// The user's own message, kept in the same left column as the assistant's text.
+/// The user's own message: a quiet trailing bubble that hugs its text.
 ///
-/// Two lines collapsed, tap to expand the whole message. The expansion is presentation
-/// state only — it never touches the stored message, and collapsing it again is not a
-/// message edit (Blueprint 3.1).
+/// The assistant's answer is the reading column itself, so the two voices are told
+/// apart by placement and surface rather than by competing weight. Collapsed to a few
+/// lines; a tap expands the whole message. The expansion is presentation state only —
+/// it never touches the stored message, and collapsing it again is not a message edit
+/// (Blueprint 3.1).
 private struct PromptCapsuleView: View {
     let text: String
     let source: TimelineTextSource?
@@ -1138,21 +1142,27 @@ private struct PromptCapsuleView: View {
     let onSelectionHandleDragChanged: (Bool) -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isExpanded = false
-    @ScaledMetric(relativeTo: .body) private var capsulePadding = Metrics.capsulePadding
+    @ScaledMetric(relativeTo: .body) private var horizontalPadding = Metrics.capsuleHorizontalPadding
+    @ScaledMetric(relativeTo: .body) private var verticalPadding = Metrics.capsuleVerticalPadding
+    @ScaledMetric(relativeTo: .body) private var leadingClearance = Metrics.promptLeadingClearance
 
     var body: some View {
         promptText
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(capsulePadding)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
             // The Blueprint asks for a semantic `userPromptSurface` token with its own light
-            // and dark values. That token layer is not this item's job, so the system's
-            // semantic background stands in rather than a palette invented here.
+            // and dark values. Until that token layer exists, the system's semantic fill
+            // stands in: it adapts to both appearances without a palette invented here.
             .background(
-                Color(.secondarySystemBackground),
+                Color(.tertiarySystemFill),
                 in: RoundedRectangle(cornerRadius: Metrics.capsuleCornerRadius, style: .continuous)
             )
             .contentShape(RoundedRectangle(cornerRadius: Metrics.capsuleCornerRadius, style: .continuous))
+            .padding(.leading, leadingClearance)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .animation(reduceMotion ? nil : .spring(duration: 0.32, bounce: 0.12), value: isExpanded)
             .accessibilityAction(named: Text("引用整段")) {
                 quoteEntireText()
             }
@@ -1167,6 +1177,7 @@ private struct PromptCapsuleView: View {
                 typographyRole: .conversationPrompt,
                 dynamicTypeSize: dynamicTypeSize,
                 maximumNumberOfLines: isExpanded ? 0 : Metrics.collapsedPromptLines,
+                hugsContent: true,
                 onSingleTap: { isExpanded.toggle() },
                 onDragPhaseChanged: onQuoteDragPhaseChanged,
                 onSelectionHandleDragChanged: onSelectionHandleDragChanged
@@ -1177,6 +1188,7 @@ private struct PromptCapsuleView: View {
                 .tracking(Typography.readingSpacing(for: .conversationPrompt).tracking)
                 .lineSpacing(Typography.readingSpacing(for: .conversationPrompt).lineSpacing)
                 .lineLimit(isExpanded ? nil : Metrics.collapsedPromptLines)
+                .fixedSize(horizontal: false, vertical: true)
                 .onTapGesture { isExpanded.toggle() }
         }
     }
@@ -1201,9 +1213,11 @@ private struct PromptCapsuleView: View {
 private enum Metrics {
     /// Between two Turns. Deliberately much larger than the spacing inside one: this gap is
     /// what marks a turn boundary, standing in for a divider.
-    static let betweenTurns: CGFloat = 28
+    static let betweenTurns: CGFloat = 36
     /// Between the items of one Turn — tight enough that they read as one utterance.
     static let withinTurn: CGFloat = 10
+    /// Extra air between the user's bubble and the answer that starts below it.
+    static let assistantLead: CGFloat = 6
     /// Leading inset for secondary content (reasoning, tool activity), which sits under the
     /// text it belongs to rather than beside it.
     static let secondaryInset: CGFloat = 2
@@ -1211,13 +1225,19 @@ private enum Metrics {
     static let inlineSpacing: CGFloat = 8
     /// Screen-edge inset for the whole reading column.
     static let contentInset: CGFloat = 20
-    /// Padding inside the user prompt capsule.
-    static let capsulePadding: CGFloat = 12
-    /// Corner radius of the user prompt capsule. Continuous, so it reads as one soft surface
+    /// The answer starts on the column edge the bubble's trailing side also meets.
+    static let readingInset: CGFloat = 2
+    /// Padding inside the user prompt bubble.
+    static let capsuleHorizontalPadding: CGFloat = 14
+    static let capsuleVerticalPadding: CGFloat = 10
+    /// The bubble never spans the column: its leading clearance keeps it visibly the
+    /// user's side of the conversation even for long prompts.
+    static let promptLeadingClearance: CGFloat = 48
+    /// Corner radius of the user prompt bubble. Continuous, so it reads as one soft surface
     /// rather than as four arcs. Not scaled with text: it is a shape, not a distance.
-    static let capsuleCornerRadius: CGFloat = 16
-    /// A prompt reads as two lines while collapsed; a tap expands it to the whole message.
-    static let collapsedPromptLines = 2
+    static let capsuleCornerRadius: CGFloat = 20
+    /// A prompt reads as a few lines while collapsed; a tap expands it to the whole message.
+    static let collapsedPromptLines = 3
     /// Secondary activity collapses to a single line — a pointer to what happened rather than
     /// a summary of it.
     static let collapsedSecondaryLines = 1

@@ -22,6 +22,9 @@ struct QuoteSelectableText: UIViewRepresentable {
     let typographyRole: TypographyRole
     let dynamicTypeSize: DynamicTypeSize
     var maximumNumberOfLines = 0
+    /// Size to the longest rendered line instead of the proposed width, so a
+    /// short prompt can sit in a bubble that hugs its text.
+    var hugsContent = false
     var onSingleTap: (() -> Void)? = nil
     var onDragPhaseChanged: (ComposerQuoteDragPhase) -> Void = { _ in }
     var onSelectionHandleDragChanged: (Bool) -> Void = { _ in }
@@ -95,7 +98,14 @@ struct QuoteSelectableText: UIViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
         guard let width = proposal.width, width > 0 else { return nil }
-        return uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        let fitted = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        guard hugsContent, let attributed = uiView.attributedText, attributed.length > 0 else { return fitted }
+        // Measure the attributed string rather than touching the text view's
+        // layout manager, which would force TextKit 1 for this view.
+        let used = attributed.boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
+                                           options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+        guard used.width.isFinite, used.width > 0 else { return fitted }
+        return CGSize(width: min(width, ceil(used.width)), height: fitted.height)
     }
 
     @MainActor

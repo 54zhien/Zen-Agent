@@ -297,7 +297,7 @@ final class SplitContainerUITests: XCTestCase {
             return
         }
         split.tap()
-        XCTAssertTrue(app.otherElements["split-empty-pane-picker"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-11"].exists)
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
     }
@@ -502,7 +502,7 @@ final class SplitContainerUITests: XCTestCase {
     }
 
     @MainActor
-    func testBottomDropPlacesTheEmptyPickerAboveTheSourcePane() {
+    func testOrdinaryLiftTowardTheLowerCenterOpensCardsBeforeSplit() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
@@ -513,10 +513,13 @@ final class SplitContainerUITests: XCTestCase {
         }
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
         start.press(forDuration: 0.7,
-                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.57)))
-        let picker = app.otherElements["split-empty-pane-picker"]
-        XCTAssertTrue(picker.waitForExistence(timeout: 10))
-        XCTAssertLessThan(picker.frame.midY, editor.frame.midY)
+                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)))
+        let card = app.descendants(matching: .any)["workspace-current-card"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        XCTAssertTrue(card.label.contains("Workspace conversation 11"))
+        let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
+        XCTAssertFalse(picker.exists)
+        XCTAssertFalse(app.descendants(matching: .any)["split-secondary-pane"].exists)
     }
 
     @MainActor
@@ -529,6 +532,9 @@ final class SplitContainerUITests: XCTestCase {
         app.openWorkspaceSplit(sourceInTopPane: false)
         let picker = app.otherElements["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        let sourceEditor = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(sourceEditor.exists)
+        XCTAssertLessThan(picker.frame.midY, sourceEditor.frame.midY)
         let newCard = app.buttons["split-new-conversation"]
         XCTAssertTrue(newCard.waitForExistence(timeout: 10))
         newCard.tap()
@@ -559,8 +565,8 @@ final class SplitContainerUITests: XCTestCase {
         }
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7,
-                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)))
-        let picker = app.otherElements["split-empty-pane-picker"]
+                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+        let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
@@ -604,9 +610,9 @@ final class SplitContainerUITests: XCTestCase {
 
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7,
-                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)))
+                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
 
-        XCTAssertTrue(app.otherElements["split-empty-pane-picker"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         XCTAssertTrue((editor.value as? String)?.contains("Split source draft") == true)
         XCTAssertTrue(editor.isHittable)
