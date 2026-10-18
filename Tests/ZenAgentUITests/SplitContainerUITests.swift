@@ -523,9 +523,10 @@ final class SplitContainerUITests: XCTestCase {
     }
 
     @MainActor
-    func testComposerBottomSplitCreatesANewSecondConversationAndClosesWithoutDeletingIt() {
+    func testBottomSourcePickerCreatesANewSecondConversationAndClosesWithoutDeletingIt() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_BOTTOM_SOURCE_SPLIT_UI_TEST"] = "1"
         app.launch()
         let source = app.descendants(matching: .any)["conversation-pane-preview-ui-11"]
         XCTAssertTrue(source.waitForExistence(timeout: 15))

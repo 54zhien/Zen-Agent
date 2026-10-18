@@ -56,6 +56,20 @@ struct ConversationPreviewUITestFixture: View {
     var body: some View {
         AppShellRootView(model: model)
             .padding(.bottom, hiddenViewportInset)
+            .overlay(alignment: .topLeading) {
+                // XCTest's public held-drag API has one endpoint. Lower-source
+                // keyboard cases prepare the arrangement through the real model;
+                // native gesture tests cover activating and returning to this zone.
+                if ProcessInfo.processInfo.environment["ZEN_BOTTOM_SOURCE_SPLIT_UI_TEST"] == "1",
+                   model.pane?.conversationID == "preview-ui-11", model.splitWorkspace == nil {
+                    Button("Prepare lower-source Split") {
+                        precondition(model.commitSplitDrop(SplitDropIntent(
+                            conversationID: model.conversationID, slot: .bottom)))
+                    }
+                    .accessibilityIdentifier("preview-bottom-source-split")
+                    .padding(.top, 150)
+                }
+            }
             .onChange(of: model.splitOpenError) { _, error in
                 guard error != nil,
                       ProcessInfo.processInfo.environment["ZEN_RECENT_SPLIT_FAILURE_UI_TEST"] == "1" else { return }

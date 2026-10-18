@@ -26,6 +26,7 @@ final class SplitKeyboardUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launchEnvironment["ZEN_SPLIT_KEYBOARD_STRESS_UI_TEST"] = "1"
+        if !sourceInTopPane { app.launchEnvironment["ZEN_BOTTOM_SOURCE_SPLIT_UI_TEST"] = "1" }
         app.launch()
         app.openWorkspaceSplit(sourceInTopPane: sourceInTopPane)
         if occupied {

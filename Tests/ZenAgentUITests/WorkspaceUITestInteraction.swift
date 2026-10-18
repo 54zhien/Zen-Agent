@@ -2,12 +2,24 @@ import XCTest
 
 @MainActor
 extension XCUIApplication {
-    /// Enter Split through the production Composer drag after removing the Sidebar shortcut.
+    /// Upper-source entry exercises the real Composer drag. Lower-source keyboard
+    /// fixtures use an explicit arrangement setup, not a synthetic private gesture.
     func openWorkspaceSplit(sourceInTopPane: Bool = true,
                             file: StaticString = #filePath, line: UInt = #line) {
         let editor = textViews["conversation-composer-input"]
         guard editor.waitForExistence(timeout: 15) else {
             XCTFail("Split requires the mounted Composer", file: file, line: line)
+            return
+        }
+        if !sourceInTopPane {
+            let setup = buttons["preview-bottom-source-split"]
+            guard setup.waitForExistence(timeout: 10) else {
+                XCTFail("Lower-source cases must opt into their arrangement fixture", file: file, line: line)
+                return
+            }
+            setup.tap()
+            XCTAssertTrue(descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10),
+                file: file, line: line)
             return
         }
         let probe = descendants(matching: .any)["surface-native-interaction-probe"]
@@ -20,7 +32,7 @@ extension XCUIApplication {
         }
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7,
-            thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: sourceInTopPane ? 0.18 : 0.56)))
+            thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
         let opened = descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10)
         XCTAssertTrue(opened, "Composer drag must open the Split picker", file: file, line: line)
         if !opened {

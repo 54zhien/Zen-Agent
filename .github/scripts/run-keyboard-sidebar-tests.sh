@@ -50,7 +50,7 @@ ui=(-only-testing:ZenAgentUITests/SplitKeyboardUITests
     -only-testing:ZenAgentUITests/WorkspaceRotationUITests/testLandscapeEditsBelongToTheLastActivePaneAndPortraitRestoresBoth
     -only-testing:ZenAgentUITests/WorkspaceRotationUITests/testLandscapeCardStackReturnsToTheSelectedExistingPaneWithoutDuplicatingIt
     -only-testing:ZenAgentUITests/SplitContainerUITests/testOrdinaryLiftTowardTheLowerCenterOpensCardsBeforeSplit
-    -only-testing:ZenAgentUITests/SplitContainerUITests/testComposerBottomSplitCreatesANewSecondConversationAndClosesWithoutDeletingIt
+    -only-testing:ZenAgentUITests/SplitContainerUITests/testBottomSourcePickerCreatesANewSecondConversationAndClosesWithoutDeletingIt
     -only-testing:ZenAgentUITests/SplitContainerUITests/testComposerTopSplitEntryOpensTheSameEmptyPanePicker
     -only-testing:ZenAgentUITests/SettingsUITests/testEmptyStartupConfiguresItsNewOwnerThroughSettingsAndCommitsOnlyOnSend)
 printf '%s\n' "${units[@]}" "${ui[@]}" > "$evidence/selected-tests.txt"
