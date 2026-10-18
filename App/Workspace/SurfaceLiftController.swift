@@ -553,8 +553,15 @@ final class SurfaceLiftController {
     }
 
     private func startReturn(animated: Bool) {
-        guard let settlement = state.requestReturn(visibleProgress: hasInteractivePose
-            ? interactivePresentationProgress : capture?()) else { return }
+        // A full-width Split destination changes crop and translation independently
+        // of scale. Reverse that transport from its visible pose, not a projection
+        // onto the unrelated Full-to-card progress axis.
+        let returningFromSplit = state.phase == .split
+            || (state.phase == .settling && state.pendingSettlement?.destination == .split)
+        let visibleProgress = returningFromSplit ? state.progress
+            : (hasInteractivePose ? interactivePresentationProgress : capture?())
+        guard let settlement = state.requestReturn(visibleProgress: visibleProgress) else { return }
+        if returningFromSplit { hasInteractivePose = true }
         acceptedSplitIntent = nil
         interaction?(state.phase)
         animate?(settlement, animated)

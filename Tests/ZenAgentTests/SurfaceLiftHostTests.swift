@@ -418,13 +418,13 @@ struct SurfaceLiftHostTests {
         driver.bind(host)
         #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
         #expect(driver.drag(displacement: CGSize(width: 0, height: -320),
-            eligibility: SurfaceLiftEligibility(), locationInWindow: CGPoint(x: 200, y: 300)))
+            eligibility: SurfaceLiftEligibility(), locationInWindow: CGPoint(x: 200, y: 230)))
         #expect(driver.splitTargetSlot == .top)
         let initial = host.presentation
-        #expect(driver.drag(displacement: CGSize(width: 24, height: -400),
-            eligibility: SurfaceLiftEligibility(), locationInWindow: CGPoint(x: 224, y: 220)))
+        #expect(driver.drag(displacement: CGSize(width: 24, height: -380),
+            eligibility: SurfaceLiftEligibility(), locationInWindow: CGPoint(x: 224, y: 170)))
         #expect(driver.splitTargetSlot == .top)
-        #expect(abs(host.presentation.translation.height - initial.translation.height + 80) < 0.001)
+        #expect(abs(host.presentation.translation.height - initial.translation.height + 60) < 0.001)
         #expect(abs(host.presentation.translation.width - initial.translation.width - 24) < 0.001)
         #expect(abs(host.presentation.scale - 0.68) < 0.000001)
         #expect(host.presentation.clipFraction == CGSize(width: 1, height: 1))
@@ -466,9 +466,11 @@ struct SurfaceLiftHostTests {
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
         host.view.layoutIfNeeded()
+        let child = host.contentController
         let driver = SurfaceLiftController()
         driver.bind(host)
-        driver.configureSplit(onDrop: { _ in true })
+        var convergedDrops = 0
+        driver.configureSplit(onDrop: { _ in true }, onConverged: { _ in convergedDrops += 1 })
         #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
         #expect(driver.drag(upwardDistance: 320, eligibility: SurfaceLiftEligibility(),
                             locationInWindow: CGPoint(x: 200, y: 160)))
@@ -481,14 +483,26 @@ struct SurfaceLiftHostTests {
         try await Task.sleep(for: .milliseconds(40))
         let visibleBefore = try #require(host.surfaceView.layer.presentation())
         let before = visibleBefore.transform.m42
+        let beforeScale = visibleBefore.transform.m11
+        let beforeCrop = host.surfaceView.mask?.layer.presentation()?.bounds.size
         #expect(driver.returnToFull(animated: true))
         let returning = try #require(driver.state.pendingSettlement)
         #expect(returning.destination == .full)
-        #expect(returning.startProgress < 0.99)
         CATransaction.flush()
         let visibleAfter = try #require(host.surfaceView.layer.presentation())
         let after = visibleAfter.transform.m42
         #expect(abs(after - before) < 12)
+        #expect(abs(visibleAfter.transform.m11 - beforeScale) < 0.02)
+        if let beforeCrop {
+            let afterCrop = try #require(host.surfaceView.mask?.layer.presentation()?.bounds.size)
+            #expect(abs(afterCrop.width - beforeCrop.width) < 2)
+            #expect(abs(afterCrop.height - beforeCrop.height) < 2)
+        }
+        let returningAnimator = try #require(host.liftAnimatorForTesting)
+        returningAnimator.stopAnimation(false)
+        returningAnimator.finishAnimation(at: .end)
+        #expect(driver.state.phase == .full && host.presentation == .full)
+        #expect(host.contentController === child && convergedDrops == 0)
         driver.invalidate()
     }
 
