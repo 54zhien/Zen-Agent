@@ -86,6 +86,7 @@ final class SplitKeyboardUITests: XCTestCase {
             let draft = activeID == "preview-ui-11" ? "source keyboard viewport draft" : "other keyboard viewport draft"
             app.buttons["split-keyboard-stress-start"].tap()
             assertTransitionSamples(app, rapid: true)
+            recordState("After rapid reversals", source: sourceProbe, other: otherProbe, divider: dividerHandle)
             expect { !app.keyboards.firstMatch.exists }
             XCTAssertEqual(field("ratio", viewport), ratio)
             XCTAssertEqual(field("editorIdentity", activeProbe), activeIdentity)

@@ -62,6 +62,15 @@ final class ConversationPaneScrollBridge {
     @ObservationIgnored var observedLayoutDiagnostic = "unobserved"
     @ObservationIgnored var nativeGeometryDiagnostic = "unmeasured"
     @ObservationIgnored private var readingRestoreTrace: [String] = []
+    @ObservationIgnored private var heightTrace: [String] = []
+
+    private func recordHeight(_ event: String, geometry: ScrollGeometry? = nil) {
+        guard ProcessInfo.processInfo.environment["ZEN_SPLIT_KEYBOARD_STRESS_UI_TEST"] == "1" else { return }
+        let entry = "\(event):h=\(String(describing: geometry?.viewportHeight));active=\(isHeightChangeActive);composer=\(composerHeightChangeActive);start=\(String(describing: heightChangeStartReadingPixelOffset));pixel=\(String(describing: composerReadingPixelOffset));mode=\(pane.readingPosition.mode)"
+        heightTrace.append(entry)
+        // Keep the first transition as well as the most recent retargets.
+        if heightTrace.count > 100 { heightTrace.remove(at: 30) }
+    }
 
     func recordReadingRestoreForUITest(_ event: String) {
         readingRestoreTrace.append(event)
@@ -69,7 +78,7 @@ final class ConversationPaneScrollBridge {
     }
 
     var dividerDiagnostic: String {
-        "\(timelineReceiptDiagnostic);geometry=\(nativeGeometryDiagnostic);observed=\(observedLayoutDiagnostic);blankTapSequence=\(blankTapSequence);blankTap=\(blankTapDiagnostic);lease=\(hasDividerLease);final=\(String(describing: dividerFinalRevision));prepared=\(String(describing: preparedDividerRevision));target=\(String(describing: lastDividerTarget));offset=\(String(describing: snapshot?.geometry.offset));request=\(String(describing: pane.scrollRequest));mode=\(String(describing: pane.readingPosition.mode));readingTrace=[\(readingRestoreTrace.joined(separator: " | "))]"
+        "\(timelineReceiptDiagnostic);geometry=\(nativeGeometryDiagnostic);observed=\(observedLayoutDiagnostic);blankTapSequence=\(blankTapSequence);blankTap=\(blankTapDiagnostic);lease=\(hasDividerLease);final=\(String(describing: dividerFinalRevision));prepared=\(String(describing: preparedDividerRevision));target=\(String(describing: lastDividerTarget));offset=\(String(describing: snapshot?.geometry.offset));request=\(String(describing: pane.scrollRequest));mode=\(String(describing: pane.readingPosition.mode));heightTrace=[\(heightTrace.joined(separator: " | "))];readingTrace=[\(readingRestoreTrace.joined(separator: " | "))]"
     }
 #endif
 
@@ -222,6 +231,9 @@ final class ConversationPaneScrollBridge {
                 )
             }
         }
+#if DEBUG
+        recordHeight("begin", geometry: geometry)
+#endif
     }
 
     func continueHeightChange(
@@ -231,6 +243,9 @@ final class ConversationPaneScrollBridge {
         guard isHeightChangeActive,
               geometry.isUsableForPane
         else { return }
+#if DEBUG
+        recordHeight("continue", geometry: geometry)
+#endif
 
         if composerHeightChangeActive {
             let anchor = composerReadingPixelOffset.flatMap { captured -> TurnAnchor? in
@@ -266,6 +281,9 @@ final class ConversationPaneScrollBridge {
     }
 
     private func markComposerHeightChange() {
+#if DEBUG
+        recordHeight("mark", geometry: snapshot?.geometry)
+#endif
         composerHeightChangeActive = true
         if hasDividerLease {
             composerReadingPixelOffset = snapshot.flatMap { readingPixelOffset(for: $0.geometry) }
@@ -277,6 +295,9 @@ final class ConversationPaneScrollBridge {
     }
 
     func endHeightChange() {
+#if DEBUG
+        recordHeight("end", geometry: snapshot?.geometry)
+#endif
         isHeightChangeActive = false
         bottomEdgeAnchor = nil
         composerHeightChangeActive = false
