@@ -16,9 +16,9 @@ on:
   workflow_dispatch:
     inputs:
       test_scope:
-        description: Test selection (keyboard-sidebar never runs the full suites)
+        description: Test selection (focused profiles never run the full suites)
         type: choice
-        options: [full, keyboard-sidebar]
+        options: [full, keyboard-sidebar, test-maintenance]
         default: full
 
 concurrency:
@@ -32,7 +32,7 @@ jobs:
 
   pad-workspace:
     name: iPad workspace axis
-    if: github.event_name != 'workflow_dispatch' || inputs.test_scope != 'keyboard-sidebar'
+    if: github.event_name != 'workflow_dispatch' || inputs.test_scope == 'full'
     needs: repo-hygiene
     runs-on: macos-26
     # Native Axis passed in 126s, but build/startup exceeded the former 20m job budget.
@@ -309,7 +309,7 @@ jobs:
   # -------------------------------------------------------------------------
   build-and-test:
     name: Build and test
-    if: github.event_name != 'workflow_dispatch' || inputs.test_scope != 'keyboard-sidebar'
+    if: github.event_name != 'workflow_dispatch' || inputs.test_scope == 'full'
     needs: repo-hygiene
     runs-on: macos-26
     # FULL37317707058 passed all 954 Swift, 20 XCTest and 56 UI tests and
@@ -797,8 +797,8 @@ jobs:
           retention-days: 7
 
   keyboard-sidebar:
-    name: Focused keyboard and Sidebar
-    if: github.event_name == 'workflow_dispatch' && inputs.test_scope == 'keyboard-sidebar'
+    name: ${{ inputs.test_scope == 'test-maintenance' && 'Focused test maintenance' || 'Focused keyboard and Sidebar' }}
+    if: github.event_name == 'workflow_dispatch' && (inputs.test_scope == 'keyboard-sidebar' || inputs.test_scope == 'test-maintenance')
     needs: repo-hygiene
     runs-on: macos-26
     timeout-minutes: 40
@@ -814,15 +814,21 @@ jobs:
           path: ~/Library/Caches/org.swift.swiftpm
           key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
           restore-keys: spm-${{ runner.os }}-
-      - name: Build and run only keyboard and Sidebar regressions
+      - name: Build and run selected regressions
         env:
           SOURCE_SHA: ${{ github.sha }}
-        run: bash .github/scripts/run-keyboard-sidebar-tests.sh
-      - name: Upload focused native evidence and simulator recording
+          TEST_SCOPE: ${{ inputs.test_scope }}
+        run: |
+          case "$TEST_SCOPE" in
+            keyboard-sidebar) bash .github/scripts/run-keyboard-sidebar-tests.sh ;;
+            test-maintenance) bash .github/scripts/run-test-maintenance-tests.sh ;;
+            *) exit 1 ;;
+          esac
+      - name: Upload focused native evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: keyboard-sidebar-${{ github.sha }}
-          path: ${{ runner.temp }}/keyboard-sidebar-evidence
+          name: ${{ inputs.test_scope }}-${{ github.sha }}
+          path: ${{ runner.temp }}/${{ inputs.test_scope }}-evidence
           if-no-files-found: warn
           retention-days: 7

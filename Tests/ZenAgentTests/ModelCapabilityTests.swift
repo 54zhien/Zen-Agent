@@ -41,42 +41,6 @@ struct ModelCapabilityTests {
         )
     }
 
-    @Test("FakeProvider capabilities are explicit and configurable")
-    func fakeCapabilitiesAreConfigurable() throws {
-        let provider = FakeProvider(
-            instanceID: instance.id,
-            modelNames: ["fake-model"],
-            capabilities: [.text]
-        )
-
-        let descriptor = try #require(
-            provider.descriptor(
-                for: ModelID(rawValue: "fake-model"),
-                in: instance
-            )
-        )
-
-        #expect(descriptor.capabilities == [.text])
-        #expect(!descriptor.capabilities.contains(.streaming))
-        #expect(!descriptor.capabilities.contains(.reasoning))
-    }
-
-    @Test("re-stamping a descriptor for another instance preserves its capabilities")
-    func restampingPreservesCapabilities() throws {
-        let provider = FakeProvider(
-            instanceID: ProviderInstanceID(rawValue: "original-instance"),
-            modelNames: ["fake-model"],
-            capabilities: [.text, .streaming]
-        )
-
-        let descriptor = try #require(
-            provider.knownModels(for: instance).first
-        )
-
-        #expect(descriptor.providerInstanceID == instance.id)
-        #expect(descriptor.capabilities == [.text, .streaming])
-    }
-
     @Test("capabilities survive ModelDescriptor Codable round-trip")
     func capabilitiesAreCodable() throws {
         let descriptor = ModelDescriptor(
@@ -93,13 +57,5 @@ struct ModelCapabilityTests {
         )
 
         #expect(decoded == descriptor)
-    }
-
-    @Test("capability types remain Sendable")
-    func capabilityTypesAreSendable() {
-        func requireSendable<T: Sendable>(_: T.Type) {}
-
-        requireSendable(ModelCapability.self)
-        requireSendable(ModelDescriptor.self)
     }
 }

@@ -6,6 +6,17 @@ import Testing
 
 @Suite("Composer text projection")
 struct ComposerTextProjectionTests {
+    @Test("marked text prevents projection writes to the native editor buffer and selection")
+    func markedTextUpdatePolicyPreservesEditorBufferAndSelection() {
+        let composing = ComposerTextViewUpdatePolicy.resolve(markedTextPresent: true)
+        let committed = ComposerTextViewUpdatePolicy.resolve(markedTextPresent: false)
+
+        #expect(!composing.writesText)
+        #expect(!composing.writesSelection)
+        #expect(committed.writesText)
+        #expect(committed.writesSelection)
+    }
+
     @Test("bothPreviewsReadLatestDraftText")
     func bothPreviewsReadLatestDraftText() {
         var draft = makeDraft(state: .resting, text: "first")

@@ -331,7 +331,7 @@ struct ComposerHostIntegrationTests {
                                                     turnFrames: frames))
     }
 
-    @Test("Lift reads native composition and keyboard transition separately")
+    @Test("native composition survives projection updates and gates Lift separately from keyboard transition")
     func nativeLiftReadinessDoesNotInferSafetyFromZeroKeyboardHeight() {
         let (window, host) = installedHost()
         defer { host.editor.resignFirstResponder(); window.isHidden = true }
@@ -345,7 +345,16 @@ struct ComposerHostIntegrationTests {
         #expect(host.nativeLiftInput.hasMarkedText)
         #expect(!host.nativeLiftInput.allowsLift)
         #expect(host.editor === editor)
+        let composingText = editor.text
+        let composingSelection = editor.selectedRange
+        host.configure(configuration(text: "stale projection must not replace composition", state: .resting))
+        #expect(editor.text == composingText)
+        #expect(editor.selectedRange == composingSelection)
+        #expect(editor.markedTextRange != nil)
+        #expect(host.editor === editor)
         editor.unmarkText()
+        host.configure(configuration(text: "committed projection", state: .resting))
+        #expect(editor.text == "committed projection")
         let info: [AnyHashable: Any] = [
             UIResponder.keyboardFrameEndUserInfoKey: CGRect(x: 0, y: window.bounds.maxY,
                 width: window.bounds.width, height: 300),
