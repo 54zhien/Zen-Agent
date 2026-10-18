@@ -310,6 +310,33 @@ struct SurfaceLiftHostTests {
         #expect(driver.state.phase == .full && host.presentation == .full)
     }
 
+    @Test func splitTargetingKeepsFollowingTheFingerAboveTheScreenCenter() {
+        let host = ConversationSurfaceViewController(content: Text("floating Split source"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        let child = host.contentController
+        let driver = SurfaceLiftController()
+        driver.bind(host)
+        #expect(driver.arm(SurfaceLiftEligibility(), conversationID: "source"))
+        #expect(driver.drag(displacement: CGSize(width: 0, height: -320),
+            eligibility: SurfaceLiftEligibility(), locationInWindow: CGPoint(x: 200, y: 300)))
+        #expect(driver.splitTargetSlot == .top)
+        let initial = host.presentation
+        #expect(driver.drag(displacement: CGSize(width: 24, height: -400),
+            eligibility: SurfaceLiftEligibility(), locationInWindow: CGPoint(x: 224, y: 220)))
+        #expect(driver.splitTargetSlot == .top)
+        #expect(abs(host.presentation.translation.height - initial.translation.height + 80) < 0.001)
+        #expect(abs(host.presentation.translation.width - initial.translation.width - 24) < 0.001)
+        #expect(abs(host.presentation.scale - 0.68) < 0.000001)
+        #expect(host.presentation.clipFraction == CGSize(width: 1, height: 1))
+        #expect(host.contentController === child)
+        _ = driver.end(cancelled: true, animated: false)
+        #expect(host.presentation == .full)
+    }
+
     @Test func acceptedSplitDropDoesNotAnimateTheSourceBackToFull() {
         let host = ConversationSurfaceViewController(content: Text("accepted Split target"))
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))

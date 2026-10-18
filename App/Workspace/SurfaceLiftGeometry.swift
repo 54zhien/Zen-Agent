@@ -16,13 +16,15 @@ enum SurfaceLiftGeometry {
               displacement.width.isFinite, displacement.height.isFinite,
               progress.isFinite, windowCornerRadius.isFinite, windowCornerRadius >= 0 else { return nil }
         let fraction = min(1, max(0, progress))
-        let scale = 1 - CGFloat(fraction) * 0.18
+        let scale = 1 - CGFloat(fraction) * 0.32
         let maximumLocalRadius = min(size.width, size.height) / 2
-        let renderedRadius = min(windowCornerRadius, maximumLocalRadius * scale)
+        // The Composer and its inset scale with the live page. Keep the outer
+        // radius in that same coordinate space so their corner centers align.
+        let radius = min(windowCornerRadius, maximumLocalRadius)
         let pose = SurfaceGeometry.Pose(scale: scale,
             translation: CGSize(width: displacement.width / available.width,
                                 height: displacement.height / available.height),
-            cornerRadius: renderedRadius / scale)
+            cornerRadius: radius)
         return pose.isValid ? pose : nil
     }
 

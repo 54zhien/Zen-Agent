@@ -290,15 +290,21 @@ struct WorkspaceSurfaceView<Content: View>: View {
             lift.workspaceResizeActive = active
             secondaryLift.workspaceResizeActive = active
         }
-        .onChange(of: sidebarSpatiallyAvailable) { _, available in
+        .onChange(of: sidebarPresentationAvailable) { _, available in
             if !available { navigation.reset() }
         }
         .onChange(of: model?.pane.map(ObjectIdentifier.init)) { _, _ in navigation.reset() }
         .onDisappear { navigation.reset(); resize.invalidate(); returnPresentation.abort() }
         .onChange(of: dynamicTypeSize) { _, _ in updateMinimumSize() }
+        .onChange(of: navigation.isOpen) { _, open in
+            guard open, scenePhase == .active else { return }
+            // Dismiss only after the opening gesture commits. The keyboard's
+            // transition must not invalidate that gesture's admission halfway.
+            _ = controller(for: inputSurfaceSlot).sidebarNativeContext?()?.window.endEditing(true)
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
-                navigation.reset()
+                navigation.suspendInteractions()
                 if resize.isActive, !resize.isClosing, let model { resize.cancelForPresentationChange(model: model) }
                 browse.cancel(); lift.invalidate(); secondaryLift.invalidate()
             }
@@ -307,50 +313,56 @@ struct WorkspaceSurfaceView<Content: View>: View {
 
     private func workspaceSurfaces(in geometry: GeometryProxy, sidebarProgress: CGFloat,
                                    sidebarDragging: Bool, sidebarTranslation: CGFloat) -> some View {
-        ZStack(alignment: .topLeading) {
+        // One keyboard-adjusted geometry snapshot drives both native Surfaces,
+        // the picker and Divider throughout the outer keyboard transaction.
+        let splitLayout = splitGeometry(in: geometry)
+        return ZStack(alignment: .topLeading) {
             if model?.splitWorkspace != nil, activeSurfaceSlot == nil { Color.black }
             if sidebarProgress > 0 || navigation.settlementID != nil {
                 sidebarBackdrop(in: geometry, progress: sidebarProgress,
-                    isDragging: sidebarDragging, translation: sidebarTranslation)
+                    isDragging: sidebarDragging)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
 #if DEBUG
             if (ProcessInfo.processInfo.environment["ZEN_SURFACE_LIFT_UI_TEST"] == "1"
                 || ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1"),
-               let layout = splitGeometry(in: geometry) {
-                SplitViewportProbe(value: "size=\(geometry.size);safeArea=\(geometry.safeAreaInsets);viewport=\(layout.viewport);top=\(layout.top);bottom=\(layout.bottom)")
+               let layout = splitLayout {
+                SplitViewportProbe(value: "size=\(geometry.size);safeArea=\(geometry.safeAreaInsets);viewport=\(layout.viewport);top=\(layout.top);bottom=\(layout.bottom);ratio=\(model?.splitWorkspace?.activeRatio ?? 0)")
                     .frame(width: 1, height: 1)
                     .allowsHitTesting(false)
             }
 #endif
             ForEach(WorkspaceSurfaceSlot.allCases, id: \.self) { slot in
                 workspaceSurface(slot: slot, geometry: geometry,
+                    splitLayout: splitLayout,
                     sidebarProgress: sidebarProgress, sidebarDragging: sidebarDragging,
                     sidebarOffset: sidebarTranslation)
             }
 
-            if let model, let split = model.splitWorkspace,
-               let emptyFrame = splitFrame(in: geometry, slot: split.emptySlot) {
+            if let model, let split = model.splitWorkspace, let layout = splitLayout {
+                let emptyFrame = layout.frame(for: split.emptySlot)
                 if model.splitPane == nil, activeSurfaceSlot == nil {
-                    SplitEmptyPanePicker(summaries: model.recentConversations,
-                        occupiedID: split.sourceConversationID,
-                        errorMessage: model.splitOpenError ?? model.recentListingError,
-                        hasMore: model.recentHasMore,
-                        onLoadMore: model.loadMoreRecentConversations,
-                        onRetry: { Task { await model.retrySplitPicker() } },
-                        onOpen: { id in Task { _ = await model.openInSplitResult(id: id) } },
-                        onNew: { _ = model.createNewInSplit() })
-                        .frame(width: emptyFrame.width, height: emptyFrame.height)
-                        .position(x: emptyFrame.midX, y: emptyFrame.midY)
-                        .offset(x: sidebarTranslation)
-                        .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
+                    ConversationSurfaceHost(isWorkspaceVisible: navigation.overlay == nil,
+                        isInputSuppressed: navigation.overlay != nil, restingCornerRadius: 24,
+                        sidebarOffset: sidebarTranslation, sidebarProgress: sidebarProgress,
+                        sidebarDragging: sidebarDragging, sidebarSettlement: navigation.settlementID,
+                        sidebarShadowEnabled: false,
+                        workspaceViewportSize: emptyFrame.size,
+                        workspaceBackgroundColor: UIColor(white: 0.09, alpha: 1)) {
+                        WorkspaceSplitPickerContent(model: model)
+                    }
+                    .frame(width: emptyFrame.width, height: emptyFrame.height)
+                    .position(x: emptyFrame.midX, y: emptyFrame.midY)
                 }
-                if activeSurfaceSlot == nil, let layout = splitGeometry(in: geometry) {
+                if activeSurfaceSlot == nil {
                     divider(model: model, split: split, layout: layout)
                         .position(x: layout.divider.midX, y: layout.divider.midY)
-                        .offset(x: sidebarTranslation)
-                        .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
+                        // Sidebar can open while dismissing the keyboard. Its
+                        // timing owns only horizontal transport, not Split layout.
+                        .animation(sidebarAnimation(isDragging: sidebarDragging)) { content in
+                            content.offset(x: sidebarTranslation)
+                        }
                         .zIndex(20)
                 }
             }
@@ -362,10 +374,20 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     && (activeSurfaceSlot == nil || [.armed, .lifting].contains(activeLift.state.phase)
                         || activeLift.state.pendingSettlement?.destination == .card),
                 returnsToPortals: model?.splitWorkspace == nil)
-                .offset(x: sidebarTranslation)
-                .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
+                .animation(sidebarAnimation(isDragging: sidebarDragging)) { content in
+                    content.offset(x: sidebarTranslation)
+                }
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
+#if DEBUG
+        .overlay {
+            if ProcessInfo.processInfo.environment["ZEN_SPLIT_KEYBOARD_STRESS_UI_TEST"] == "1",
+               let split = model?.splitWorkspace, splitLayout != nil, activeSurfaceSlot == nil {
+                SplitKeyboardStressProbe(driver: controller(for: inputSurfaceSlot),
+                    axis: split.axis, ratio: split.activeRatio)
+            }
+        }
+#endif
         .background(WorkspaceLayoutObserver { context in
             guard layoutContext != context else { return }
             if let previous = layoutContext, let model,
@@ -397,34 +419,26 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     private func sidebarBackdrop(in geometry: GeometryProxy, progress: CGFloat,
-                                 isDragging: Bool, translation: CGFloat) -> some View {
+                                 isDragging: Bool) -> some View {
         ZStack(alignment: .topLeading) {
             Color(uiColor: .systemBackground)
             Color.black.opacity(0.28 * (1 - progress))
                 .animation(sidebarAnimation(isDragging: isDragging), value: progress)
-            if case .split(let axis) = devicePresentation, activeSurfaceSlot == nil,
-               let layout = splitGeometry(in: geometry) {
-                // Preserve the black space around the divider-facing 24pt
-                // corners while the Sidebar page is exposed underneath.
-                Rectangle().fill(Color.black)
-                    .frame(width: layout.divider.width + (axis == .leftRight ? 48 : 0),
-                           height: layout.divider.height + (axis == .topBottom ? 48 : 0))
-                    .position(x: layout.divider.midX, y: layout.divider.midY)
-                    .offset(x: translation)
-                    .animation(sidebarAnimation(isDragging: isDragging), value: progress)
-            }
         }
         .opacity(SidebarProgressPresentation.opacity(forProgress: Double(progress)))
         .animation(sidebarAnimation(isDragging: isDragging), value: progress)
     }
 
     private func workspaceSurface(slot: WorkspaceSurfaceSlot, geometry: GeometryProxy,
+                                  splitLayout: SplitWorkspaceGeometry?,
                                   sidebarProgress: CGFloat, sidebarDragging: Bool,
                                   sidebarOffset: CGFloat) -> some View {
         let fullFrame = CGRect(origin: .zero, size: geometry.size)
         let driver = controller(for: slot)
         let frame = driver.retainsAppSpaceViewport ? fullFrame
-            : splitFrame(in: geometry, slot: logicalSlot(for: slot)) ?? fullFrame
+            : (logicalSlot(for: slot).flatMap { splitLayout?.frame(for: $0) } ?? fullFrame)
+        let usesWorkspaceViewport = splitLayout != nil && !driver.retainsAppSpaceViewport
+        let sharedShadow = activeSurfaceSlot == nil && splitLayout != nil
         let visible = surfaceIsVisible(slot)
         let suppressed = returnPresentation.suppressesTarget(slot)
         let surfaceBrowse: AppSpaceBrowseController? = model != nil && slot == (model?.previewSurfaceSlot ?? model?.sourceSurfaceSlot) ? browse : nil
@@ -453,6 +467,11 @@ struct WorkspaceSurfaceView<Content: View>: View {
             restingCornerRadius: corner, squareBottomCorners: squareBottomCorners, sidebarOffset: sidebarOffset,
             sidebarProgress: sidebarProgress, sidebarDragging: sidebarDragging,
             sidebarSettlement: navigation.settlementID,
+            // One workspace silhouette follows the same native animator as Single.
+            // Internal divider edges must not create additional Sidebar shadows.
+            sidebarShadowFrame: sharedShadow ? fullFrame.offsetBy(dx: -frame.minX, dy: -frame.minY) : nil,
+            sidebarShadowEnabled: !sharedShadow || slot == model?.sourceSurfaceSlot,
+            workspaceViewportSize: usesWorkspaceViewport ? frame.size : nil,
             onSidebarSettled: settled,
             onNativeLayout: { [weak model, weak resize] receipt in
                 guard let model else { return }
@@ -475,11 +494,15 @@ struct WorkspaceSurfaceView<Content: View>: View {
     }
 
     private var sidebarSpatiallyAvailable: Bool {
+        scenePhase == .active && sidebarPresentationAvailable
+    }
+
+    private var sidebarPresentationAvailable: Bool {
         guard let model else { return false }
         // First accepted Send creates the durable Conversation without replacing
         // its Pane. Observe publication so the accessibility action can appear.
         _ = model.pane?.hasPublishedTurn
-        return scenePhase == .active && inputPane != nil
+        return inputPane != nil
             && !model.previewContent.isPresented
             && activeSurfaceSlot == nil && !resize.isActive && returnPresentation.phase == nil
     }
@@ -681,11 +704,6 @@ struct WorkspaceSurfaceView<Content: View>: View {
         return Self.cardLabel(model: model, browse: browse)
     }
 
-    private func splitFrame(in geometry: GeometryProxy, slot: SplitDropSlot?) -> CGRect? {
-        guard let slot else { return nil }
-        return splitGeometry(in: geometry)?.frame(for: slot)
-    }
-
     private func splitGeometry(in geometry: GeometryProxy) -> SplitWorkspaceGeometry? {
         guard let split = model?.splitWorkspace, case .split(let axis) = devicePresentation else { return nil }
         // Workspace ignores container regions; its proposed size already avoids
@@ -791,6 +809,26 @@ struct WorkspaceSurfaceView<Content: View>: View {
         secondaryLift.minimumCardSize = CGSize(width: minimumWidth, height: minimumHeight)
         lift.invalidate()
         secondaryLift.invalidate()
+    }
+}
+
+/// The retained native host reads listing changes inside its installed root.
+@MainActor
+private struct WorkspaceSplitPickerContent: View {
+    let model: AppShellModel
+
+    var body: some View {
+        if let split = model.splitWorkspace {
+            SplitEmptyPanePicker(summaries: model.recentConversations,
+                occupiedID: split.sourceConversationID,
+                errorMessage: model.splitOpenError ?? model.recentListingError,
+                hasMore: model.recentHasMore,
+                onLoadMore: model.loadMoreRecentConversations,
+                onRetry: { Task { await model.retrySplitPicker() } },
+                onOpen: { id in Task { _ = await model.openInSplitResult(id: id) } },
+                onNew: { _ = model.createNewInSplit() })
+                .preferredColorScheme(model.appearance.appearance.colorScheme)
+        }
     }
 }
 

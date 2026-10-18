@@ -3,15 +3,42 @@ import UIKit
 
 final class SidebarUITests: XCTestCase {
     @MainActor
+    func testBackgroundResumeKeepsTheExpandedSidebarAndRestoresClosing() {
+        let app = launch()
+        app.openWorkspaceSidebar()
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        let rail = app.descendants(matching: .any)["sidebar-rail"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["sidebar-settings"].wait(for: \.isEnabled, toEqual: true, timeout: 10))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.4)).tap()
+        expect { !rail.exists }
+    }
+
+    @MainActor
+    func testConversationControlsFormOneVerticalGroupWithoutASplitShortcut() {
+        let app = launch()
+        app.openWorkspaceSidebar()
+        XCTAssertTrue(app.descendants(matching: .any)["sidebar-conversation-controls"].exists)
+        let new = app.buttons["new-conversation-new"]
+        let search = app.buttons["sidebar-search"]
+        let recent = app.buttons["new-conversation-recent"]
+        XCTAssertTrue(new.exists && search.exists && recent.exists)
+        XCTAssertEqual(new.frame.maxY, search.frame.minY, accuracy: 1)
+        XCTAssertEqual(search.frame.maxY, recent.frame.minY, accuracy: 1)
+        XCTAssertEqual(new.frame.midX, search.frame.midX, accuracy: 1)
+        XCTAssertEqual(search.frame.midX, recent.frame.midX, accuracy: 1)
+        XCTAssertFalse(app.buttons["split-entry"].exists)
+    }
+
+    @MainActor
     func testOccupiedSecondaryRecentFailureIsVisibleAndRetryable() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launchEnvironment["ZEN_RECENT_SPLIT_FAILURE_UI_TEST"] = "1"
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
-        app.openWorkspaceSidebar()
-        app.buttons["split-entry"].tap()
-        app.buttons["split-open-top"].tap()
+        app.openWorkspaceSplit()
         let secondary = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(secondary.waitForExistence(timeout: 10)); secondary.tap()
         app.activateWorkspacePane("preview-ui-10")
@@ -66,9 +93,7 @@ final class SidebarUITests: XCTestCase {
     @MainActor
     func testSplitSidebarClosingIncludesOppositePaneAndSharedInput() {
         let app = launch()
-        app.openWorkspaceSidebar()
-        app.buttons["split-entry"].tap()
-        app.buttons["split-open-top"].tap()
+        app.openWorkspaceSplit()
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10)); history.tap()
         XCTAssertTrue(app.scrollViews["conversation-pane-preview-ui-10"].waitForExistence(timeout: 10))
@@ -90,7 +115,7 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    func testShiftedBlankTapClosesRailRetainingFocusAndLaterBlankTapDismissesNormally() {
+    func testShiftedBlankTapClosesRailWithoutRestoringTheDismissedKeyboard() {
         let app = launch()
         let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let editor = app.textViews["conversation-composer-input"]
@@ -106,15 +131,20 @@ final class SidebarUITests: XCTestCase {
         let rail = app.descendants(matching: .any)["sidebar-rail"]
         receipt("focused-open", probe)
         XCTAssertTrue(rail.waitForExistence(timeout: 5))
+        expect { !app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=false;") == true }
         guard let blank = app.workspaceTimelineBlankPoint(pane: pane, editor: editor, preferLeading: true) else { return }
         app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: blank.x, dy: blank.y)).tap()
         receipt("focused-close", probe)
         expect { !rail.exists && abs(pane.frame.minX - originalX) < 2 }
-        XCTAssertTrue(app.keyboards.firstMatch.exists)
-        XCTAssertTrue((probe.value as? String)?.contains("focused=true;") == true)
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        XCTAssertTrue((probe.value as? String)?.contains("focused=false;") == true)
         XCTAssertEqual(editorIdentity(probe.value as? String), identity)
         XCTAssertTrue(editor.exists)
         XCTAssertTrue(pane.exists)
+        editor.tap()
+        expect { app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=true;") == true }
         app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
         XCTAssertEqual(editorIdentity(probe.value as? String), identity)
         XCTAssertTrue((editor.value as? String)?.contains("focused tap close") == true)
@@ -165,7 +195,7 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    func testStableEditingCanOpenAndReverseCloseRailWithoutChangingNativeOwner() {
+    func testStableEditingSidebarDismissesKeyboardWithoutChangingNativeOwner() {
         let app = launch()
         let editor = app.textViews["conversation-composer-input"]
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
@@ -183,10 +213,11 @@ final class SidebarUITests: XCTestCase {
         let rail = app.descendants(matching: .any)["sidebar-rail"]
         receipt("editing-open", probe)
         XCTAssertTrue(rail.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        expect { !app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=false;") == true }
         XCTAssertEqual(pane.frame.width, before.width, accuracy: 2)
         XCTAssertEqual(editorIdentity(probe.value as? String), identity)
-        XCTAssertTrue((probe.value as? String)?.contains("focused=true;") == true)
+        XCTAssertTrue((probe.value as? String)?.contains("focused=false;") == true)
         let closeStart = pane.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
         closeStart.press(forDuration: 0.05, thenDragTo: closeStart.withOffset(CGVector(dx: -110, dy: 0)))
         receipt("editing-reverse-close", probe)
@@ -194,7 +225,8 @@ final class SidebarUITests: XCTestCase {
         XCTAssertEqual(pane.frame.minX, before.minX, accuracy: 2)
         XCTAssertEqual(editorIdentity(probe.value as? String), identity)
         XCTAssertTrue((editor.value as? String)?.contains("editing sidebar draft") == true)
-        XCTAssertTrue((probe.value as? String)?.contains("focused=true;") == true)
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        XCTAssertTrue((probe.value as? String)?.contains("focused=false;") == true)
     }
 
     @MainActor
@@ -231,9 +263,7 @@ final class SidebarUITests: XCTestCase {
         let interior = app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
         interior.press(forDuration: 0.05, thenDragTo: interior.withOffset(CGVector(dx: 110, dy: 0)))
         XCTAssertFalse(app.descendants(matching: .any)["sidebar-rail"].exists)
-        app.openWorkspaceSidebar()
-        app.buttons["split-entry"].tap()
-        app.buttons["split-open-top"].tap()
+        app.openWorkspaceSplit()
         let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
         app.dragWorkspaceSidebarEdge(at: 0.35)

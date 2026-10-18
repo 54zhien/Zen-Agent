@@ -636,10 +636,8 @@ final class SurfaceLiftController {
         splitGuideFrame = top.guideFrame
         if update.enteredTarget { onSplitTargetEntry() }
         guard let slot = update.slot,
-              let preview = SplitTargetingGeometry.preview(slot: slot, progress: 0.85,
-                  size: sample.size, safeArea: sample.safeArea),
               let target = SurfaceLiftGeometry.interactivePose(size: sample.size, safeArea: sample.safeArea,
-                  displacement: displacement, progress: state.progress,
+                  displacement: displacement, progress: interactivePresentationProgress,
                   windowCornerRadius: sample.windowCornerRadius) else {
             splitPreviewPose = nil
             splitFinalPose = nil
@@ -647,15 +645,9 @@ final class SurfaceLiftController {
         }
         splitFinalPose = SplitTargetingGeometry.preview(slot: slot, progress: 1,
             size: sample.size, safeArea: sample.safeArea)?.pose
-        let blend = CGFloat(splitActivationProgress)
-        func between(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * blend }
-        var pose = SurfaceGeometry.Pose(scale: between(target.scale, preview.pose.scale),
-            translation: CGSize(width: between(target.translation.width, preview.pose.translation.width),
-                                height: between(target.translation.height, preview.pose.translation.height)),
-            cornerRadius: between(target.cornerRadius, preview.pose.cornerRadius))
-        pose.clipFraction = CGSize(width: between(target.clipFraction.width, preview.pose.clipFraction.width),
-                                   height: between(target.clipFraction.height, preview.pose.clipFraction.height))
-        splitPreviewPose = pose.isValid ? pose : nil
+        // Target highlighting must not pin the live page to a pane center.
+        // Converge to splitFinalPose only after the user releases the page.
+        splitPreviewPose = target
     }
 
     private func clearSplitTargeting() {

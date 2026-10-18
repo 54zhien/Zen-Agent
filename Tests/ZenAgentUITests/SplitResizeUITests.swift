@@ -328,11 +328,7 @@ final class SplitResizeUITests: XCTestCase {
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
         app.launch()
-        app.openWorkspaceSidebar()
-        let entry = app.buttons["split-entry"]
-        XCTAssertTrue(entry.waitForExistence(timeout: 15))
-        entry.tap()
-        app.buttons["split-open-top"].tap()
+        app.openWorkspaceSplit()
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()

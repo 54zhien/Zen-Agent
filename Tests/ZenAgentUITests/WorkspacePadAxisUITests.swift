@@ -15,16 +15,7 @@ final class WorkspacePadAxisUITests: XCTestCase {
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         let sourceIdentity = try XCTUnwrap(editorIdentity(sourceProbe.value as? String))
-        app.openWorkspaceSidebar()
-        let entry = app.buttons["split-entry"]
-        XCTAssertTrue(entry.waitForExistence(timeout: 15))
-        entry.tap()
-        let splitAction = app.buttons["split-open-top"]
-        guard splitAction.waitForExistence(timeout: 10) else {
-            XCTFail("Split menu did not become available after opening it")
-            return
-        }
-        splitAction.tap()
+        app.openWorkspaceSplit()
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()

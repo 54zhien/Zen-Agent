@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SidebarRailLayout {
     static let contentWidth: CGFloat = 64
@@ -37,31 +38,25 @@ struct SidebarRailView: View {
     var conversationActions: Set<WorkspaceConversationAction> = []
     var onAction: (WorkspaceConversationAction) -> Void = { _ in }
     let onSelect: (WorkspaceOverlayRoute) -> Void
+    @Namespace private var conversationGlass
+    @State private var tapFeedback = UIImpactFeedbackGenerator(style: .light)
 
     var body: some View {
         VStack(spacing: 8) {
             ScrollView(.vertical) {
                 VStack(spacing: 8) {
-                    action(.new, symbol: "square.and.pencil", label: "新会话", identifier: "new-conversation-new")
-                    action(.recent, symbol: "clock.arrow.circlepath", label: "最近会话", identifier: "new-conversation-recent")
-                    if conversationActions.contains(.splitTop) {
-                        Menu {
-                            Button("上方分屏") { onAction(.splitTop) }.accessibilityIdentifier("split-open-top")
-                            Button("下方分屏") { onAction(.splitBottom) }.accessibilityIdentifier("split-open-bottom")
-                        } label: {
-                            Image(systemName: "rectangle.split.2x1")
-                                .font(.system(size: SidebarRailLayout.iconSize))
-                                .frame(width: SidebarRailLayout.controlSize, height: SidebarRailLayout.controlSize)
-                                .glassEffect(.regular.interactive(), in: Circle())
+                    GlassEffectContainer(spacing: 8) {
+                        VStack(spacing: 0) {
+                            action(.new, symbol: "bubble", label: "新会话", identifier: "new-conversation-new", grouped: true)
+                            destination(.search, symbol: "magnifyingglass", label: "搜索", identifier: "sidebar-search", grouped: true)
+                            action(.recent, symbol: "clock.arrow.circlepath", label: "最近会话", identifier: "new-conversation-recent", grouped: true)
                         }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.primary)
-                        .accessibilityLabel("分屏").accessibilityIdentifier("split-entry")
                     }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("sidebar-conversation-controls")
                     if conversationActions.contains(.configure) {
                         action(.configure, symbol: "slider.horizontal.3", label: "配置模型", identifier: "new-conversation-configure")
                     }
-                    destination(.search, symbol: "magnifyingglass", label: "搜索", identifier: "sidebar-search")
                     destination(.files, symbol: "folder", label: "文件", identifier: "sidebar-files")
                 }
             }
@@ -76,14 +71,20 @@ struct SidebarRailView: View {
         .frame(width: SidebarRailLayout.contentWidth)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("sidebar-rail")
+        .onAppear { tapFeedback.prepare() }
     }
 
-    private func action(_ action: WorkspaceConversationAction, symbol: String, label: String, identifier: String) -> some View {
-        Button { onAction(action) } label: {
+    private func action(_ action: WorkspaceConversationAction, symbol: String, label: String, identifier: String,
+                        grouped: Bool = false) -> some View {
+        Button {
+            tapFeedback.impactOccurred()
+            onAction(action)
+        } label: {
             Image(systemName: symbol).font(.system(size: SidebarRailLayout.iconSize))
                 .frame(width: SidebarRailLayout.controlSize, height: SidebarRailLayout.controlSize)
                 .contentShape(Rectangle())
                 .glassEffect(.regular.interactive(), in: Circle())
+                .glassEffectUnion(id: grouped ? "conversation-navigation" : nil, namespace: conversationGlass)
         }
         .buttonStyle(.plain).foregroundStyle(.primary)
         .disabled(!conversationActions.contains(action))
@@ -91,13 +92,17 @@ struct SidebarRailView: View {
     }
 
     private func destination(_ route: WorkspaceOverlayRoute, symbol: String,
-                             label: String, identifier: String) -> some View {
-        Button { onSelect(route) } label: {
+                             label: String, identifier: String, grouped: Bool = false) -> some View {
+        Button {
+            tapFeedback.impactOccurred()
+            onSelect(route)
+        } label: {
             Image(systemName: symbol)
                 .font(.system(size: SidebarRailLayout.iconSize, weight: .regular))
                 .frame(width: SidebarRailLayout.controlSize, height: SidebarRailLayout.controlSize)
                 .contentShape(Rectangle())
                 .glassEffect(.regular.interactive(), in: Circle())
+                .glassEffectUnion(id: grouped ? "conversation-navigation" : nil, namespace: conversationGlass)
         }
         .buttonStyle(.plain)
         .foregroundStyle(.primary)

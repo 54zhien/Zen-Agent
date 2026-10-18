@@ -213,9 +213,7 @@ final class SidebarAppearanceUITests: XCTestCase {
     @MainActor
     func testSplitLowerPaneKeepsLightBottomCornersAboveVisibleKeyboard() {
         let app = launchLightAppearance()
-        app.openWorkspaceSidebar()
-        app.buttons["split-entry"].tap()
-        app.buttons["split-open-top"].tap()
+        app.openWorkspaceSplit()
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()

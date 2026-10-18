@@ -243,7 +243,7 @@ final class SettingsUITests: XCTestCase {
     }
 
     @MainActor
-    func testSoulEditorCloseReturnsFocusToTheSameNativeConversationEditor() {
+    func testSoulEditorCloseKeepsTheSameNativeOwnerWithSidebarDismissedFocus() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
@@ -280,13 +280,16 @@ final class SettingsUITests: XCTestCase {
         soul.typeText("Unsaved Soul editor input")
         app.buttons["settings-close"].tap()
         expect { !page.exists && !soul.exists
-            && app.keyboards.firstMatch.exists
-            && (probe.value as? String)?.contains("focused=true;") == true }
+            && !app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=false;") == true }
         XCTAssertEqual((probe.value as? String)?.split(separator: ";")
             .first(where: { $0.hasPrefix("editorIdentity=") }).map(String.init), identity)
         XCTAssertTrue((editor.value as? String)?.contains("focused Settings draft") == true)
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        editor.tap()
+        expect { app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=true;") == true }
         app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
     }
 

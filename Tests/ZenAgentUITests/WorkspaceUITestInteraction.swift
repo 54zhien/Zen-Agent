@@ -2,6 +2,29 @@ import XCTest
 
 @MainActor
 extension XCUIApplication {
+    /// Enter Split through the production Composer drag after removing the Sidebar shortcut.
+    func openWorkspaceSplit(sourceInTopPane: Bool = true,
+                            file: StaticString = #filePath, line: UInt = #line) {
+        let editor = textViews["conversation-composer-input"]
+        guard editor.waitForExistence(timeout: 15) else {
+            XCTFail("Split requires the mounted Composer", file: file, line: line)
+            return
+        }
+        let probe = descendants(matching: .any)["surface-native-interaction-probe"]
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (probe.value as? String)?.contains("liftReady=true;") == true
+        }, object: nil)
+        guard XCTWaiter.wait(for: [ready], timeout: 10) == .completed else {
+            XCTFail("Split requires native Lift readiness: \(String(describing: probe.value))", file: file, line: line)
+            return
+        }
+        let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.7,
+            thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: sourceInTopPane ? 0.18 : 0.56)))
+        XCTAssertTrue(descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10),
+                      "Composer drag must open the Split picker", file: file, line: line)
+    }
+
     func openWorkspaceSidebar(file: StaticString = #filePath, line: UInt = #line) {
         let rail = descendants(matching: .any)["sidebar-rail"]
         if rail.exists { return }

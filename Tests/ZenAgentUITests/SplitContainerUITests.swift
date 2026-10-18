@@ -304,7 +304,7 @@ final class SplitContainerUITests: XCTestCase {
 
     @MainActor
     func testSourceSplitPaneLiftsToAppSpaceAndReturnsWithOtherPaneIntact() {
-        let app = launchedOccupiedSplit(usingDrag: true)
+        let app = launchedOccupiedSplit()
         app.activateWorkspacePane("preview-ui-11")
         let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
         XCTAssertTrue(editor.exists)
@@ -482,25 +482,11 @@ final class SplitContainerUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchedOccupiedSplit(usingDrag: Bool = false) -> XCUIApplication {
+    private func launchedOccupiedSplit() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
-        if usingDrag {
-            let editor = app.textViews["conversation-composer-input"]
-            XCTAssertTrue(editor.waitForExistence(timeout: 15))
-            let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            start.press(forDuration: 0.7,
-                        thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)))
-        } else {
-            app.openWorkspaceSidebar()
-        let entry = app.buttons["split-entry"]
-            XCTAssertTrue(entry.waitForExistence(timeout: 15))
-            entry.tap()
-            let action = app.buttons["split-open-top"]
-            XCTAssertTrue(action.waitForExistence(timeout: 10))
-            action.tap()
-        }
+        app.openWorkspaceSplit()
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()
@@ -534,25 +520,13 @@ final class SplitContainerUITests: XCTestCase {
     }
 
     @MainActor
-    func testAccessibleBottomSplitCreatesANewSecondConversationAndClosesWithoutDeletingIt() {
+    func testComposerBottomSplitCreatesANewSecondConversationAndClosesWithoutDeletingIt() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
         let source = app.descendants(matching: .any)["conversation-pane-preview-ui-11"]
         XCTAssertTrue(source.waitForExistence(timeout: 15))
-        app.openWorkspaceSidebar()
-        let entry = app.buttons["split-entry"]
-        guard entry.waitForExistence(timeout: 10) else {
-            XCTFail("Accessible Split menu missing")
-            return
-        }
-        entry.tap()
-        let action = app.buttons["split-open-bottom"]
-        guard action.waitForExistence(timeout: 10) else {
-            XCTFail("Bottom Pane action missing")
-            return
-        }
-        action.tap()
+        app.openWorkspaceSplit(sourceInTopPane: false)
         let picker = app.otherElements["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
         let newCard = app.buttons["split-new-conversation"]
@@ -599,24 +573,12 @@ final class SplitContainerUITests: XCTestCase {
     }
 
     @MainActor
-    func testAccessibleTopSplitEntryOpensTheSameEmptyPanePicker() {
+    func testComposerTopSplitEntryOpensTheSameEmptyPanePicker() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
-        app.openWorkspaceSidebar()
-        let entry = app.buttons["split-entry"]
-        guard entry.waitForExistence(timeout: 10) else {
-            XCTFail("Accessible Split menu missing")
-            return
-        }
-        entry.tap()
-        let action = app.buttons["split-open-top"]
-        guard action.waitForExistence(timeout: 10) else {
-            XCTFail("Top Pane action missing")
-            return
-        }
-        action.tap()
+        app.openWorkspaceSplit()
         XCTAssertTrue(app.otherElements["split-empty-pane-picker"].waitForExistence(timeout: 10))
     }
 

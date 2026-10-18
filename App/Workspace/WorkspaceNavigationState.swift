@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-enum WorkspaceConversationAction: Hashable { case new, recent, splitTop, splitBottom, configure }
+enum WorkspaceConversationAction: Hashable { case new, recent, configure }
 
 enum WorkspaceOverlayRoute: Hashable { case search, files, settings }
 
@@ -125,5 +125,15 @@ final class WorkspaceNavigationState {
     }
 
     func dismissOverlay() { overlay = nil; overlayID = nil }
+
+    /// Losing scene activity ends input ownership, not the user's current page.
+    func suspendInteractions() {
+        pendingConversationAction = nil
+        isDragging = false
+        gestureID = nil
+        settlementID = nil
+        progress = isOpen ? 1 : 0
+    }
+
     func reset() { pendingConversationAction = nil; onReset?(); closeSidebar(); dismissOverlay(); settlementID = nil }
 }

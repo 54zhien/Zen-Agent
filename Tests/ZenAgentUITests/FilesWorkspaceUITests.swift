@@ -107,12 +107,15 @@ final class FilesWorkspaceUITests: XCTestCase {
                       "Picker cancellation must not create a catalog asset")
         app.buttons["files-workspace-close"].tap()
         expect { !workspace.exists }
-        expect { (probe.value as? String)?.contains("focused=true;") == true }
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        expect { !app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=false;") == true }
         XCTAssertEqual(editorIdentity(probe.value as? String), identity)
         XCTAssertTrue((editor.value as? String)?.contains("draft retained through Files") == true)
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        editor.tap()
+        expect { app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=true;") == true }
         app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
     }
 
