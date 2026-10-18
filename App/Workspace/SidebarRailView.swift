@@ -86,7 +86,6 @@ struct SidebarRailView: View {
     var settingsLeadingShift: CGFloat = 0
     var onAction: (WorkspaceConversationAction) -> Void = { _ in }
     let onSelect: (WorkspaceOverlayRoute) -> Void
-    @Namespace private var conversationGlass
     @State private var tapFeedback = UIImpactFeedbackGenerator(style: .light)
 
     var body: some View {
@@ -114,29 +113,23 @@ struct SidebarRailView: View {
     }
 
     @ViewBuilder private var controls: some View {
-        GlassEffectContainer(spacing: 8) {
-            VStack(spacing: 0) {
-                action(.new, symbol: "bubble", label: "新会话", identifier: "new-conversation-new", grouped: true)
-                destination(.search, symbol: "magnifyingglass", label: "搜索", identifier: "sidebar-search", grouped: true)
-                action(.recent, symbol: "clock.arrow.circlepath", label: "最近会话", identifier: "new-conversation-recent", grouped: true)
-            }
+        VStack(spacing: 0) {
+            action(.new, symbol: "bubble", label: "新会话", identifier: "new-conversation-new")
+            destination(.search, symbol: "magnifyingglass", label: "搜索", identifier: "sidebar-search", grouped: true)
+            action(.recent, symbol: "clock.arrow.circlepath", label: "最近会话", identifier: "new-conversation-recent")
         }
+        .glassEffect(.regular.interactive(), in: Capsule())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("sidebar-conversation-controls")
         destination(.files, symbol: "folder", label: "文件", identifier: "sidebar-files")
     }
 
-    private func action(_ action: WorkspaceConversationAction, symbol: String, label: String, identifier: String,
-                        grouped: Bool = false) -> some View {
+    private func action(_ action: WorkspaceConversationAction, symbol: String, label: String, identifier: String) -> some View {
         Button {
             tapFeedback.impactOccurred()
             onAction(action)
         } label: {
-            Image(systemName: symbol).font(.system(size: SidebarRailLayout.iconSize))
-                .frame(width: SidebarRailLayout.controlSize, height: SidebarRailLayout.controlSize)
-                .contentShape(Rectangle())
-                .glassEffect(.regular.interactive(), in: Circle())
-                .glassEffectUnion(id: grouped ? "conversation-navigation" : nil, namespace: conversationGlass)
+            controlIcon(symbol)
         }
         .buttonStyle(SidebarRailButtonStyle(unavailable: !conversationActions.contains(action)))
         .foregroundStyle(.primary)
@@ -150,18 +143,25 @@ struct SidebarRailView: View {
             tapFeedback.impactOccurred()
             onSelect(route)
         } label: {
-            Image(systemName: symbol)
-                .font(.system(size: SidebarRailLayout.iconSize, weight: .regular))
-                .frame(width: SidebarRailLayout.controlSize, height: SidebarRailLayout.controlSize)
-                .contentShape(Rectangle())
-                .glassEffect(.regular.interactive(), in: Circle())
-                .glassEffectUnion(id: grouped ? "conversation-navigation" : nil, namespace: conversationGlass)
+            if grouped {
+                controlIcon(symbol)
+            } else {
+                controlIcon(symbol)
+                    .glassEffect(.regular.interactive(), in: Circle())
+            }
         }
         .buttonStyle(SidebarRailButtonStyle(unavailable: !availableRoutes.contains(route)))
         .foregroundStyle(.primary)
         .disabled(!isInteractive || !availableRoutes.contains(route))
         .accessibilityLabel(label)
         .accessibilityIdentifier(identifier)
+    }
+
+    private func controlIcon(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: SidebarRailLayout.iconSize, weight: .regular))
+            .frame(width: SidebarRailLayout.controlSize, height: SidebarRailLayout.controlSize)
+            .contentShape(Rectangle())
     }
 }
 

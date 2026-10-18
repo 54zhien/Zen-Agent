@@ -18,7 +18,7 @@ on:
       test_scope:
         description: Test selection (focused profiles never run the full suites)
         type: choice
-        options: [full, keyboard-sidebar, test-maintenance]
+        options: [full, keyboard-sidebar, test-maintenance, sidebar-controls]
         default: full
 
 concurrency:
@@ -797,8 +797,8 @@ jobs:
           retention-days: 7
 
   keyboard-sidebar:
-    name: ${{ inputs.test_scope == 'test-maintenance' && 'Focused test maintenance' || 'Focused keyboard and Sidebar' }}
-    if: github.event_name == 'workflow_dispatch' && (inputs.test_scope == 'keyboard-sidebar' || inputs.test_scope == 'test-maintenance')
+    name: ${{ inputs.test_scope == 'sidebar-controls' && 'Focused Sidebar controls' || inputs.test_scope == 'test-maintenance' && 'Focused test maintenance' || 'Focused keyboard and Sidebar' }}
+    if: github.event_name == 'workflow_dispatch' && (inputs.test_scope == 'keyboard-sidebar' || inputs.test_scope == 'test-maintenance' || inputs.test_scope == 'sidebar-controls')
     needs: repo-hygiene
     runs-on: macos-26
     timeout-minutes: 40
@@ -822,6 +822,23 @@ jobs:
           case "$TEST_SCOPE" in
             keyboard-sidebar) bash .github/scripts/run-keyboard-sidebar-tests.sh ;;
             test-maintenance) bash .github/scripts/run-test-maintenance-tests.sh ;;
+            sidebar-controls)
+              evidence="$RUNNER_TEMP/sidebar-controls-evidence"
+              mkdir -p "$evidence"
+              git rev-parse HEAD > "$evidence/source-sha.txt"
+              xcrun simctl list devices available --json > "$evidence/devices.json"
+              UDID=$(python3 -c 'import json,sys; print(next(d["udid"] for ds in json.load(open(sys.argv[1]))["devices"].values() for d in ds if d.get("isAvailable") and d["name"].startswith("iPhone")))' "$evidence/devices.json")
+              xcrun simctl bootstatus "$UDID" -b
+              xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent -configuration Debug \
+                -destination "id=$UDID" -parallel-testing-enabled NO \
+                -only-testing:ZenAgentTests/SidebarRailLayoutTests \
+                -only-testing:ZenAgentUITests/SidebarUITests/testConversationControlsFormOneVerticalGroupWithoutASplitShortcut \
+                -only-testing:ZenAgentUITests/SidebarAppearanceUITests/testRestingComposerStaysConcentricAndSidebarControlsRespectSafeTop \
+                -only-testing:ZenAgentUITests/SidebarAppearanceUITests/testDarkProgressiveTopAndActuallyExpandedSidebar \
+                -resultBundlePath "$evidence/Sidebar.xcresult" 2>&1 | tee "$evidence/Sidebar.log"
+              xcrun xcresulttool get test-results summary --path "$evidence/Sidebar.xcresult" > "$evidence/Sidebar-summary.json"
+              xcrun xcresulttool export attachments --path "$evidence/Sidebar.xcresult" --output-path "$evidence/attachments"
+              ;;
             *) exit 1 ;;
           esac
       - name: Upload focused native evidence

@@ -29,6 +29,10 @@ final class SidebarUITests: XCTestCase {
         XCTAssertEqual(new.frame.midX, search.frame.midX, accuracy: 1)
         XCTAssertEqual(search.frame.midX, recent.frame.midX, accuracy: 1)
         XCTAssertFalse(app.buttons["split-entry"].exists)
+        let capture = XCTAttachment(screenshot: app.screenshot())
+        capture.name = "Shared vertical Sidebar glass"
+        capture.lifetime = .keepAlways
+        add(capture)
     }
 
     @MainActor
