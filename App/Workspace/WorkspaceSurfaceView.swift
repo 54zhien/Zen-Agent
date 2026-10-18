@@ -456,11 +456,12 @@ struct WorkspaceSurfaceView<Content: View>: View {
 
     private func dockedSidebarOutlines(in geometry: GeometryProxy, progress: CGFloat) -> [WorkspaceComposerDockOutline] {
         let viewport = CGRect(origin: .zero, size: geometry.size)
+        let layout = splitGeometry(in: geometry)
         let appearance = sidebarPageAppearance(progress: progress)
         return WorkspaceSurfaceSlot.allCases.compactMap { slot in
             let driver = controller(for: slot)
             let frame = driver.retainsAppSpaceViewport ? viewport
-                : splitFrame(in: geometry, slot: logicalSlot(for: slot)) ?? viewport
+                : (logicalSlot(for: slot).flatMap { layout?.frame(for: $0) } ?? viewport)
             if surfaceIsVisible(slot), !returnPresentation.suppressesTarget(slot),
                usesDockedSidebarOutline(frame: frame, viewport: viewport) {
                 return WorkspaceComposerDockOutline(frame: frame,
