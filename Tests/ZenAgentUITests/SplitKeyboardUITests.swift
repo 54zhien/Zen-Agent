@@ -41,6 +41,11 @@ final class SplitKeyboardUITests: XCTestCase {
         let handle = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         handle.press(forDuration: 0.15, thenDragTo: handle.withOffset(CGVector(dx: 0, dy: 40)))
         expect { self.field("ratio", viewport) != nil && self.field("ratio", viewport) != "0.5" }
+        let dividerHandle = app.descendants(matching: .any)["split-divider-handle"]
+        // A changed ratio precedes the two native reading receipts. Focus is
+        // intentionally blocked until that existing resize transaction closes.
+        expect { (dividerHandle.value as? String)?.contains("liveResize=active=false") == true }
+        recordState("After divider receipts", source: sourceProbe, other: otherProbe, divider: dividerHandle)
         let ratio = try XCTUnwrap(field("ratio", viewport))
         let editor = app.textViews["conversation-composer-input"]
         try activatePane(app, probe: sourceProbe)
@@ -62,7 +67,9 @@ final class SplitKeyboardUITests: XCTestCase {
             format: "label == %@ OR value == %@", "PREVIEW_READING_ANCHOR_10",
             "PREVIEW_READING_ANCHOR_10")).firstMatch
         XCTAssertTrue(anchor.exists && !anchor.frame.isEmpty)
-        let bottomDistance = source.frame.maxY - anchor.frame.minY
+        let readable = try XCTUnwrap(rect("timelineVisibleFrame", sourceProbe))
+        let bottomDistance = readable.maxY - anchor.frame.minY
+        print("SPLIT_READING baseline anchor=\(anchor.frame);AX=\(source.frame);readable=\(readable);distance=\(bottomDistance)")
         let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
         let restingSource = try XCTUnwrap(rect("surfaceFrame", sourceProbe))
         let restingOther: CGRect
@@ -134,7 +141,9 @@ final class SplitKeyboardUITests: XCTestCase {
                     }
                     return picker.exists && self.matches(picker.frame, restingOther)
                 }
-                expect { self.readingIsRestored(anchor, pane: source, probe: sourceProbe, bottomDistance: bottomDistance) }
+                expect { self.readingIsRestored(anchor, probe: sourceProbe, bottomDistance: bottomDistance) }
+                print("SPLIT_READING restored anchor=\(anchor.frame);AX=\(source.frame);readable=\(String(describing: self.rect("timelineVisibleFrame", sourceProbe)));distance=\(bottomDistance)")
+                recordState("After keyboard dismissal", source: sourceProbe, other: otherProbe, divider: dividerHandle)
                 XCTAssertEqual(field("ratio", viewport), ratio)
             }
         }
@@ -180,20 +189,32 @@ final class SplitKeyboardUITests: XCTestCase {
         let readable = try XCTUnwrap(rect("timelineVisibleFrame", probe))
         let point = CGPoint(x: readable.maxX - 8, y: readable.minY + min(32, readable.height / 3))
         XCTAssertTrue(readable.contains(point))
+        print("SPLIT_ACTIVATION before point=\(point);probe=\(probe.value as? String ?? "missing")")
         app.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY)).tap()
         expect { self.field("editorIdentity", probe) != nil }
+        print("SPLIT_ACTIVATION after probe=\(probe.value as? String ?? "missing")")
     }
 
     @MainActor
-    private func readingIsRestored(_ anchor: XCUIElement, pane: XCUIElement,
+    private func readingIsRestored(_ anchor: XCUIElement,
                                    probe: XCUIElement, bottomDistance: CGFloat) -> Bool {
         guard anchor.exists, let readable = rect("timelineVisibleFrame", probe) else { return false }
         let frame = anchor.frame
         // A reading label need not provide an AX activation point. Its real
         // viewport intersection and the existing four-point tolerance are required.
         return !frame.isEmpty && readable.intersects(frame)
-            && abs(pane.frame.maxY - frame.minY - bottomDistance) < 4
+            && abs(readable.maxY - frame.minY - bottomDistance) < 4
+    }
+
+    @MainActor
+    private func recordState(_ name: String, source: XCUIElement, other: XCUIElement, divider: XCUIElement) {
+        let state = "source=\(source.value as? String ?? "missing")\nother=\(other.value as? String ?? "missing")\ndivider=\(divider.value as? String ?? "missing")"
+        print("SPLIT_STATE \(name) \(state)")
+        let attachment = XCTAttachment(string: state)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor

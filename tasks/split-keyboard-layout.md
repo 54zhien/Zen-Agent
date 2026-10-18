@@ -181,3 +181,41 @@ Additional Apple reference checked:
 - These follow-up edits change test stimulus/measurement and DEBUG diagnostics;
   the retained production keyboard/Sidebar transport is unchanged. A fresh run
   of the same explicit unit/UI selection is required.
+
+### Follow-up candidate and first-video inspection
+
+- Follow-up candidate `3f3a4c1d6d7500eaf334c6ffa1ddcb418337cc7d` is running the
+  same explicit selection in
+  https://github.com/54zhien/Zen-Agent/actions/runs/39097014305 . Both full-suite
+  jobs remain skipped. No package job was started.
+- Decoded all 6,580 captured frames of the first simulator recording and inspected
+  representative contact sheets/endpoint screenshots. A whole-video heuristic
+  scan at 240×522 found no large nearly-black central band/candidate (RGB<12,
+  >14 reduced-pixel contiguous band or >6% central black area in light-content
+  frames). Maximum continuous near-black band was three reduced pixels. Local
+  scan evidence: `.tmp/keyboard-sidebar-run1/pixel-review/summary.json`.
+- This is limited to the captured light-fixture simulator frames and the stated
+  heuristic; it does not prove every display tick or physical device behavior.
+  Video creation metadata was not a precise first-frame wall clock, so temporal
+  evidence relies on the whole recording rather than the initial approximate
+  phase-to-wall-clock windows. The first UI run remains failed.
+
+### Second focused native result (retained RED)
+
+- Run 39097014305 built candidate `3f3a4c1` successfully. All 23 native tests
+  (32 parameter-expanded executions) passed. UI: 5/7 passed, no skips; the three
+  Sidebar regressions, source-top dual Conversation and source-top+lower picker
+  scenarios passed. Full and iPad suites were skipped; no packaging ran.
+- Picker-above/source-below reached rapid and Sidebar overlap sampling with no
+  missing hosts, <0.17pt underfill and zero partition error, but reading restoration
+  failed and Watch yielded only four ticks. Dual Conversation/source-below failed
+  activation after the initial Divider resize, before its stress sequence.
+- Follow-up measurements now wait for actual native Divider resize receipts before
+  attempting focus, attach both native pane diagnostics and the Divider state, and
+  compare reading distance using the same native readable viewport at baseline
+  and restoration. AX ScrollView bounds are not a clipped reading boundary.
+  The four-point reading tolerance remains unchanged. These changes require a new
+  native result and are not evidence that the remaining failures are resolved.
+- Watch observes two seconds after the keyboard event, extending only to collect
+  six real display ticks within a five-second bound. It no longer adds a synthetic
+  final sample; keyboard/Sidebar joint-overlap assertions remain mandatory.

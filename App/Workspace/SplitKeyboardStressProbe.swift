@@ -42,6 +42,7 @@ final class SplitKeyboardStressView: UIView {
     private var keyboardDeadline: CFTimeInterval = 0
     private var observesSidebar = false
     private var captureGeneration = UUID()
+    private var watchDeadline: CFTimeInterval = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -115,6 +116,14 @@ final class SplitKeyboardStressView: UIView {
             do { try await Task.sleep(for: duration) }
             catch { return }
             guard let self, self.captureGeneration == generation, !Task.isCancelled else { return }
+            // Simulator rendering may be heavily throttled while XCTest is
+            // synthesizing an edge gesture. Require real display ticks, with a
+            // deadline; never manufacture a final sample to satisfy the count.
+            if self.observesSidebar, self.keyboardEvents > 0,
+               self.samples < 6, CACurrentMediaTime() < self.watchDeadline {
+                self.finishWatch(after: .milliseconds(250))
+                return
+            }
             self.finish()
         }
     }
@@ -122,6 +131,7 @@ final class SplitKeyboardStressView: UIView {
     private func beginSampling(sidebar: Bool = false) {
         observesSidebar = sidebar
         captureGeneration = UUID()
+        watchDeadline = 0
         samples = 0; requests = 0; missingSurfaces = 0
         keyboardEvents = 0; retargetedEvents = 0; sidebarSamples = 0; overlappingSamples = 0; keyboardDeadline = 0
         maxUnderfill = 0; maxPartitionError = 0; status = sidebar ? "armed" : "running"
@@ -148,13 +158,13 @@ final class SplitKeyboardStressView: UIView {
             // XCTest can spend several seconds admitting/synthesizing the real
             // edge gesture. Arm first, then sample the keyboard event itself.
             status = "running"
+            if watchDeadline == 0 { watchDeadline = now + 5 }
             startDisplayLink()
-            finishWatch(after: .seconds(1))
+            finishWatch(after: .seconds(2))
         }
     }
 
     private func finish() {
-        sample()
         displayLink?.invalidate(); displayLink = nil
         NotificationCenter.default.removeObserver(self)
         status = "done"; task = nil
