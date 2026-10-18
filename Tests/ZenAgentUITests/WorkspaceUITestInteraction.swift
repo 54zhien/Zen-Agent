@@ -69,7 +69,7 @@ extension XCUIApplication {
         let end = coordinate(withNormalizedOffset: CGVector(dx: 0.001 + 110 / viewport.width,
                                                             dy: verticalPosition))
         print("SIDEBAR_EDGE_PATH viewport=\(viewport) start=\(start.screenPoint) end=\(end.screenPoint) oldAbsoluteEnd=\(start.withOffset(CGVector(dx: 110, dy: 0)).screenPoint)")
-        start.press(forDuration: 0.05, thenDragTo: end)
+        start.press(forDuration: 0.2, thenDragTo: end)
     }
 
     func activateWorkspacePane(_ id: String, file: StaticString = #filePath, line: UInt = #line) {

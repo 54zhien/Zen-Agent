@@ -823,6 +823,7 @@ jobs:
             keyboard-sidebar) bash .github/scripts/run-keyboard-sidebar-tests.sh ;;
             test-maintenance) bash .github/scripts/run-test-maintenance-tests.sh ;;
             sidebar-controls)
+              set -o pipefail
               evidence="$RUNNER_TEMP/sidebar-controls-evidence"
               mkdir -p "$evidence"
               git rev-parse HEAD > "$evidence/source-sha.txt"
