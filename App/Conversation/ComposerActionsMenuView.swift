@@ -141,6 +141,7 @@ final class ComposerActionsMenuView: UIView {
     func show(in window: UIWindow) {
         // A menu is not a new input destination. Stay in the current window
         // instead of changing UIKit's modal keyboard context.
+        overrideUserInterfaceStyle = sourceView.traitCollection.userInterfaceStyle
         frame = window.bounds
         window.addSubview(self)
         layoutIfNeeded()
