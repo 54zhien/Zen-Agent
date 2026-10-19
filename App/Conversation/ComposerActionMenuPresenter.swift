@@ -13,6 +13,7 @@ final class ComposerActionMenuPresenter: UIViewController {
     private var maximumSize = CGSize.zero
     private var panelSize = CGSize.zero
     private var isClosing = false
+    private var animator: UIViewPropertyAnimator?
     private lazy var content = UIHostingController(rootView: menuView())
 
     init(sourceView: UIView, presentation: ComposerActionMenuState,
@@ -67,10 +68,8 @@ final class ComposerActionMenuPresenter: UIViewController {
         endAppearanceTransition()
         content.view.isUserInteractionEnabled = false
         content.view.transform = collapsedTransform
-        content.view.alpha = 0
-        animate(presenting: true) {
+        animate(duration: 0.38, dampingRatio: 0.72) {
             self.content.view.transform = .identity
-            self.content.view.alpha = 1
             self.sourceView?.alpha = 0
         } completion: { [weak self] in
             guard let self, !self.isClosing, self.view.superview != nil else { return }
@@ -110,9 +109,12 @@ final class ComposerActionMenuPresenter: UIViewController {
     }
 
     private var collapsedTransform: CGAffineTransform {
+        anchoredTransform(scale: 0.02)
+    }
+
+    private func anchoredTransform(scale: CGFloat) -> CGAffineTransform {
         guard !UIAccessibility.isReduceMotionEnabled, let sourceView else { return .identity }
         let source = view.convert(sourceView.bounds, from: sourceView)
-        let scale: CGFloat = 0.02
         // Keep the actual + center fixed throughout uniform scaling, including
         // a shifted Sidebar/Split Composer. Both text and glass ride this view.
         return CGAffineTransform(translationX: (source.midX - content.view.center.x) * (1 - scale),
@@ -136,30 +138,55 @@ final class ComposerActionMenuPresenter: UIViewController {
         guard viewIfLoaded?.superview != nil else { return }
         if !animated {
             isClosing = true
-            content.view.layer.removeAllAnimations()
-            sourceView?.layer.removeAnimation(forKey: "opacity")
+            animator?.stopAnimation(true)
+            animator = nil
             finishDismissal()
             return
         }
         guard !isClosing else { return }
         isClosing = true
+        let wasOpen = content.view.isUserInteractionEnabled
         content.view.isUserInteractionEnabled = false
-        animate(presenting: false) {
+        if let displayed = content.view.layer.presentation()?.affineTransform() {
+            animator?.stopAnimation(true)
+            content.view.transform = displayed
+        }
+        if wasOpen, !UIAccessibility.isReduceMotionEnabled {
+            // A small recoil before contraction stays visible; undershooting
+            // a near-zero scale would instead flip the glass through its anchor.
+            animate(duration: 0.09, dampingRatio: 1) {
+                self.content.view.transform = self.anchoredTransform(scale: 1.025)
+            } completion: { [weak self] in self?.collapse() }
+        } else {
+            collapse()
+        }
+    }
+
+    private func collapse() {
+        animate(duration: 0.30, dampingRatio: 0.86) {
             self.content.view.transform = self.collapsedTransform
-            self.content.view.alpha = 0
             self.sourceView?.alpha = 1
         } completion: { [weak self] in self?.finishDismissal() }
     }
 
-    private func animate(presenting: Bool, _ changes: @escaping () -> Void,
+    private func animate(duration: TimeInterval, dampingRatio: CGFloat, _ changes: @escaping () -> Void,
                          completion: @escaping () -> Void) {
         if UIAccessibility.isReduceMotionEnabled {
             UIView.performWithoutAnimation(changes)
             completion()
         } else {
-            let animation: Animation = presenting
-                ? .spring(duration: 0.30, bounce: 0.08) : .smooth(duration: 0.26)
-            UIView.animate(animation, changes: changes, completion: completion)
+            // Animate the native host transform without sending an outer
+            // SwiftUI transaction through the live glass hierarchy. Keeping
+            // its alpha at 1 also avoids group-opacity composition while shrinking.
+            let animation = UIViewPropertyAnimator(duration: duration,
+                dampingRatio: dampingRatio, animations: changes)
+            animator = animation
+            animation.addCompletion { [weak self] position in
+                guard position == .end else { return }
+                self?.animator = nil
+                completion()
+            }
+            animation.startAnimation()
         }
     }
 

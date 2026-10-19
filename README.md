@@ -34,6 +34,7 @@ Owner menu rollback and bounded card motion correction @ 45bfb3f6d8e61d63fc38fdb
 Owner Sidebar Split seam disappearance ruling @ 6d100234b7087c87461f6056c1fd8643b7dc90c2
 Owner shared Liquid Glass Composer menu ruling @ 5b23c35dee0bf701aca3f6dde46feffba6dbbb10
 Owner anchored Composer menu and subtle arrival-bounce ruling @ e695c74f3d6214f94401ce44cbcbf055cc4ac152
+Owner independent Split cards and two-way menu rebound correction @ e8930f6f1c184b905346ba9723434a49aa316e1f
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -48,14 +49,14 @@ admits short canvas flicks, and retains small bounded Split cards through releas
 The same unmerged Blueprint branch records the subsequent device ruling:
 restore the native Composer `+` menu transition, park passed cards closely on
 the right, and span the full bounded upward travel before reaching minimum size.
-The latest Sidebar ruling removes the extra dark Split stripe during opening and
-merges the inner Pane contours into one Workspace exterior, retaining the handle
-and its faint shadow without changing Pane geometry or retained content state.
+The latest Sidebar correction restores each Pane's complete outline and individual
+shadow while the Divider backdrop still fades away, retaining the handle and its
+faint shadow without changing Pane geometry or retained content state.
 The subsequent menu ruling keeps exact model-option alignment while using one
 Apple Liquid Glass container for continuous root/submenu morphing and return.
 The outer panel scales uniformly from and back to the actual `+` position,
-with a subtle bounce only on arrival. Dismissal and submenu changes stay smooth,
-without changing the editor's window.
+with a visible opening rebound and a small recoil before shrinking back. Submenu
+changes stay smooth, without changing the editor's window.
 
 This is a snapshot of the design state this work started from, not a permanent
 version pin. Update it when the blueprint changes in a way that affects
