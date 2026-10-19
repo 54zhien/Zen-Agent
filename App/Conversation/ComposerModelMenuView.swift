@@ -57,6 +57,7 @@ struct ComposerModelMenuView: View {
                         .padding(.leading, leading)
                         .padding(.trailing, 24)
                         .padding(.vertical, 12)
+                        .frame(minHeight: 44)
                         .overlay(alignment: .leading) {
                             Image(systemName: "checkmark")
                                 .font(.body.weight(.semibold))
