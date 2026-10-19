@@ -173,17 +173,18 @@ private final class ComposerMenuAnimator: NSObject, UIViewControllerAnimatedTran
             menu.view.frame = context.finalFrame(for: menu)
             menu.view.layoutIfNeeded()
             menu.panel.transform = menu.collapsedTransform
-            menu.panel.alpha = 0
+            menu.panel.contentView.alpha = 0
         }
         menu.view.isUserInteractionEnabled = false
         UIView.animate(withDuration: transitionDuration(using: context), delay: 0,
                        options: presenting ? .curveEaseOut : .curveEaseIn) {
             menu.panel.transform = self.presenting ? .identity : menu.collapsedTransform
-            menu.panel.alpha = self.presenting ? 1 : 0
+            // Glass must composite at full alpha; fade its content instead.
+            menu.panel.contentView.alpha = self.presenting ? 1 : 0
         } completion: { _ in
             if context.transitionWasCancelled {
                 menu.panel.transform = .identity
-                menu.panel.alpha = 1
+                menu.panel.contentView.alpha = 1
             }
             menu.view.isUserInteractionEnabled = true
             context.completeTransition(!context.transitionWasCancelled)
