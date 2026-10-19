@@ -301,14 +301,13 @@ struct WorkspaceSurfaceView<Content: View>: View {
         let splitLayout = splitGeometry(in: geometry)
         return ZStack(alignment: .topLeading) {
             if model?.splitWorkspace != nil, activeSurfaceSlot == nil {
-                Color.black.overlay(alignment: .topLeading) {
-                    if let layout = splitLayout, colorScheme == .dark {
-                        Color(white: 0.14)
-                            .frame(width: layout.divider.width, height: layout.divider.height)
-                            .position(x: layout.divider.midX, y: layout.divider.midY)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
+                Color.black
+                if let layout = splitLayout, colorScheme == .dark {
+                    Color(white: 0.14)
+                        .frame(width: layout.divider.width, height: layout.divider.height)
+                        .position(x: layout.divider.midX, y: layout.divider.midY)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
             }
             if sidebarProgress > 0 || navigation.settlementID != nil {
