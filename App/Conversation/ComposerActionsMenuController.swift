@@ -15,15 +15,12 @@ final class ComposerActionsMenuController: UIViewController, UIViewControllerTra
         self.sourceView = sourceView
         self.onModel = onModel
         super.init(nibName: nil, bundle: nil)
-        modalPresentationStyle = .custom
+        modalPresentationStyle = .overFullScreen
         transitioningDelegate = self
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
-
-    // Opening an action surface must not dismiss the Composer's input view.
-    override var disablesAutomaticKeyboardDismissal: Bool { true }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -142,11 +139,6 @@ final class ComposerActionsMenuController: UIViewController, UIViewControllerTra
         return true
     }
 
-    func presentationController(forPresented presented: UIViewController,
-                                presenting: UIViewController?, source: UIViewController) -> UIPresentationController? {
-        ComposerMenuPresentation(presentedViewController: presented, presenting: presenting)
-    }
-
     func animationController(forPresented presented: UIViewController,
                              presenting: UIViewController, source: UIViewController) -> (any UIViewControllerAnimatedTransitioning)? {
         ComposerMenuAnimator(presenting: true)
@@ -155,11 +147,6 @@ final class ComposerActionsMenuController: UIViewController, UIViewControllerTra
     func animationController(forDismissed dismissed: UIViewController) -> (any UIViewControllerAnimatedTransitioning)? {
         ComposerMenuAnimator(presenting: false)
     }
-}
-
-@MainActor
-private final class ComposerMenuPresentation: UIPresentationController {
-    override var shouldRemovePresentersView: Bool { false }
 }
 
 @MainActor
@@ -172,13 +159,14 @@ private final class ComposerMenuAnimator: NSObject, UIViewControllerAnimatedTran
     }
 
     func animateTransition(using context: any UIViewControllerContextTransitioning) {
-        guard let menu = context.viewController(forKey: presenting ? .to : .from) as? ComposerActionsMenuController else {
+        guard let menu = context.viewController(forKey: presenting ? .to : .from) as? ComposerActionsMenuController,
+              let transitionView = context.view(forKey: presenting ? .to : .from) else {
             context.completeTransition(false)
             return
         }
         if presenting {
-            context.containerView.addSubview(menu.view)
-            menu.view.frame = context.finalFrame(for: menu)
+            context.containerView.addSubview(transitionView)
+            transitionView.frame = context.finalFrame(for: menu)
             menu.view.layoutIfNeeded()
             menu.panel.transform = menu.collapsedTransform
             menu.scroll.alpha = 0
