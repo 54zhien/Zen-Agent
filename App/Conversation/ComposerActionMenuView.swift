@@ -43,9 +43,13 @@ struct ComposerActionMenuView: View {
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("composer-action-menu")
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { onSizeChanged($0) }
+        .onGeometryChange(for: CGSize.self, of: Self.panelSize) { onSizeChanged($0) }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
     }
+
+    // SwiftUI may measure during async rendering. This projection must not
+    // inherit the View's MainActor isolation; only the size-change action owns UI state.
+    nonisolated private static func panelSize(_ proxy: GeometryProxy) -> CGSize { proxy.size }
 
     private var actions: some View {
         ViewThatFits(in: .vertical) {
