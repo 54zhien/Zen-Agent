@@ -3,37 +3,29 @@ import UIKit
 /// The action panel scales as one surface. A system UIMenu owns its glass
 /// deformation, so changing only its source preview cannot remove the bubble.
 @MainActor
-final class ComposerActionsMenuController: UIViewController, UIViewControllerTransitioningDelegate {
+final class ComposerActionsMenuView: UIView {
     private let sourceView: UIView
     private let onModel: () -> Void
-    fileprivate let panel = UIView()
+    private let outside = UIControl()
+    private let panel = UIView()
     private let glass = UIVisualEffectView(effect: UIGlassEffect(style: .regular))
-    fileprivate let scroll = UIScrollView()
+    private let scroll = UIScrollView()
     private let rows = UIStackView()
 
     init(sourceView: UIView, onModel: @escaping () -> Void) {
         self.sourceView = sourceView
         self.onModel = onModel
-        super.init(nibName: nil, bundle: nil)
-        modalPresentationStyle = .overFullScreen
-        transitioningDelegate = self
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .clear
-        view.accessibilityViewIsModal = true
-        view.keyboardLayoutGuide.followsUndockedKeyboard = true
-        let outside = UIControl()
-        outside.frame = view.bounds
+        super.init(frame: .zero)
+        backgroundColor = .clear
+        autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        accessibilityViewIsModal = true
+        keyboardLayoutGuide.followsUndockedKeyboard = true
+        outside.frame = bounds
         outside.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         outside.addTarget(self, action: #selector(close), for: .touchUpInside)
-        view.addSubview(outside)
+        addSubview(outside)
 
-        view.addSubview(panel)
+        addSubview(panel)
         glass.cornerConfiguration = .corners(radius: .fixed(28))
         glass.isUserInteractionEnabled = false
         glass.accessibilityElementsHidden = true
@@ -82,14 +74,17 @@ final class ComposerActionsMenuController: UIViewController, UIViewControllerTra
         }
     }
 
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        let insets = view.safeAreaInsets
-        var safe = view.bounds.inset(by: insets).insetBy(dx: 12, dy: 8)
-        let source = view.convert(sourceView.bounds, from: sourceView)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let insets = safeAreaInsets
+        var safe = bounds.inset(by: insets).insetBy(dx: 12, dy: 8)
+        let source = convert(sourceView.bounds, from: sourceView)
         let width = min(safe.width, UIFontMetrics(forTextStyle: .body).scaledValue(for: 250))
         let x = min(max(safe.minX, source.minX), safe.maxX - width)
-        let keyboard = view.keyboardLayoutGuide.layoutFrame
+        let keyboard = keyboardLayoutGuide.layoutFrame
         // A floating keyboard only limits the panel when their horizontal
         // ranges overlap. Keep the available region on the source's side.
         if keyboard.intersects(CGRect(x: x, y: safe.minY, width: width, height: safe.height)) {
@@ -119,19 +114,23 @@ final class ComposerActionsMenuController: UIViewController, UIViewControllerTra
         scroll.frame = CGRect(x: 0, y: min(8, height / 2), width: width, height: max(0, height - 16))
     }
 
-    fileprivate var collapsedTransform: CGAffineTransform {
+    private var collapsedTransform: CGAffineTransform {
         guard !UIAccessibility.isReduceMotionEnabled else { return .identity }
-        let source = view.convert(sourceView.bounds, from: sourceView)
+        let source = convert(sourceView.bounds, from: sourceView)
         let scale = min(1, source.width / panel.bounds.width)
         return CGAffineTransform(translationX: source.midX - panel.center.x,
                                  y: source.midY - panel.center.y).scaledBy(x: scale, y: scale)
     }
 
-    @objc private func close() { dismiss(animated: true) }
+    @objc private func close() {
+        guard panel.isUserInteractionEnabled else { return }
+        animate(presenting: false)
+    }
 
     @objc private func selectModel() {
+        guard panel.isUserInteractionEnabled else { return }
         WorkspaceHaptics.shared.play(.control)
-        dismiss(animated: true, completion: onModel)
+        animate(presenting: false, completion: onModel)
     }
 
     override func accessibilityPerformEscape() -> Bool {
@@ -139,52 +138,46 @@ final class ComposerActionsMenuController: UIViewController, UIViewControllerTra
         return true
     }
 
-    func animationController(forPresented presented: UIViewController,
-                             presenting: UIViewController, source: UIViewController) -> (any UIViewControllerAnimatedTransitioning)? {
-        ComposerMenuAnimator(presenting: true)
+    func show(in window: UIWindow) {
+        // A menu is not a new input destination. Stay in the current window
+        // instead of changing UIKit's modal keyboard context.
+        frame = window.bounds
+        window.addSubview(self)
+        layoutIfNeeded()
+        panel.transform = collapsedTransform
+        scroll.alpha = 0
+        animate(presenting: true)
     }
 
-    func animationController(forDismissed dismissed: UIViewController) -> (any UIViewControllerAnimatedTransitioning)? {
-        ComposerMenuAnimator(presenting: false)
-    }
-}
-
-@MainActor
-private final class ComposerMenuAnimator: NSObject, UIViewControllerAnimatedTransitioning {
-    let presenting: Bool
-    init(presenting: Bool) { self.presenting = presenting }
-
-    func transitionDuration(using transitionContext: (any UIViewControllerContextTransitioning)?) -> TimeInterval {
-        UIAccessibility.isReduceMotionEnabled ? 0.12 : (presenting ? 0.28 : 0.22)
-    }
-
-    func animateTransition(using context: any UIViewControllerContextTransitioning) {
-        guard let menu = context.viewController(forKey: presenting ? .to : .from) as? ComposerActionsMenuController,
-              let transitionView = context.view(forKey: presenting ? .to : .from) else {
-            context.completeTransition(false)
-            return
-        }
-        if presenting {
-            context.containerView.addSubview(transitionView)
-            transitionView.frame = context.finalFrame(for: menu)
-            menu.view.layoutIfNeeded()
-            menu.panel.transform = menu.collapsedTransform
-            menu.scroll.alpha = 0
-        }
-        menu.view.isUserInteractionEnabled = false
-        UIView.animate(withDuration: transitionDuration(using: context), delay: 0,
+    private func animate(presenting: Bool, completion: (() -> Void)? = nil) {
+        // The window overlay keeps absorbing touches while its controls settle.
+        outside.isUserInteractionEnabled = false
+        panel.isUserInteractionEnabled = false
+        let duration = UIAccessibility.isReduceMotionEnabled ? 0.12 : (presenting ? 0.28 : 0.22)
+        UIView.animate(withDuration: duration, delay: 0,
                        options: presenting ? .curveEaseOut : .curveEaseIn) {
-            menu.panel.transform = self.presenting ? .identity : menu.collapsedTransform
+            self.panel.transform = presenting ? .identity : self.collapsedTransform
             // Glass must composite at full alpha; fade its content instead.
-            menu.scroll.alpha = self.presenting ? 1 : 0
+            self.scroll.alpha = presenting ? 1 : 0
         } completion: { _ in
-            if context.transitionWasCancelled {
-                menu.panel.transform = .identity
-                menu.scroll.alpha = 1
-                if self.presenting { transitionView.removeFromSuperview() }
+            if presenting {
+                self.outside.isUserInteractionEnabled = true
+                self.panel.isUserInteractionEnabled = true
+                if self.window != nil, self.sourceView.window === self.window {
+                    let firstAction = self.rows.arrangedSubviews.first { ($0 as? UIControl)?.isEnabled == true }
+                    UIAccessibility.post(notification: .layoutChanged, argument: firstAction)
+                }
+            } else {
+                let ownerIsMounted = self.window != nil && self.sourceView.window === self.window
+                self.removeFromSuperview()
+                if ownerIsMounted {
+                    if let completion {
+                        completion()
+                    } else {
+                        UIAccessibility.post(notification: .layoutChanged, argument: self.sourceView)
+                    }
+                }
             }
-            menu.view.isUserInteractionEnabled = true
-            context.completeTransition(!context.transitionWasCancelled)
         }
     }
 }

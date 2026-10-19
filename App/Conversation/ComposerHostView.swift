@@ -41,6 +41,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private let geometryProbe = UIView()
     private var shelfController: UIHostingController<QuoteShelfView>?
     private weak var modelMenuController: ComposerModelMenuController?
+    private weak var actionsMenu: ComposerActionsMenuView?
     private var shelfHeight: CGFloat = 44
     private var quotePhase: ComposerQuoteDragPhase = .idle
     private let motion = ComposerMotionController()
@@ -307,6 +308,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             lastBottomSafeAreaInset = -1
             setNeedsLayout()
         } else {
+            actionsMenu?.removeFromSuperview()
             liftInteraction?.cancelForDetachment()
             // A retained off-window editor has no visible morph to finish.
             // Invalidate its completion before a later remount reuses the state.
@@ -752,11 +754,13 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     @objc private func presentActionsMenu() {
-        guard window != nil, let presenter = menuPresenter else { return }
+        guard let window else { return }
         WorkspaceHaptics.shared.play(.control)
-        presenter.present(ComposerActionsMenuController(sourceView: plus) { [weak self] in
+        let menu = ComposerActionsMenuView(sourceView: plus) { [weak self] in
             self?.presentModelMenu()
-        }, animated: true)
+        }
+        actionsMenu = menu
+        menu.show(in: window)
     }
 
     private var menuPresenter: UIViewController? {
