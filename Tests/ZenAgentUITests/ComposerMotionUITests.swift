@@ -15,6 +15,10 @@ final class ComposerMotionUITests: XCTestCase {
 
         plus.tap()
         XCTAssertTrue(title.waitForExistence(timeout: 5))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.3)).tap()
+        XCTAssertTrue(title.waitForNonExistence(timeout: 5))
+        plus.tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
         title.tap()
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
         XCTAssertTrue(first.waitForExistence(timeout: 5))
@@ -47,6 +51,27 @@ final class ComposerMotionUITests: XCTestCase {
         add(changed)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.3)).tap()
         XCTAssertTrue(picker.waitForNonExistence(timeout: 5))
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let input = app.textViews["conversation-composer-input"]
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        input.typeText("Menu draft")
+        plus.tap()
+        let actions = app.scrollViews["composer-actions-list"]
+        XCTAssertTrue(actions.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertLessThanOrEqual(actions.frame.maxY, app.keyboards.firstMatch.frame.minY + 1)
+        XCTAssertTrue(title.isHittable)
+        let keyboardMenu = XCTAttachment(screenshot: app.screenshot())
+        keyboardMenu.name = "Action menu stays above the landscape keyboard"
+        keyboardMenu.lifetime = .keepAlways
+        add(keyboardMenu)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.12)).tap()
+        XCTAssertTrue(actions.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertEqual(input.value as? String, "Menu draft")
     }
 
     @MainActor

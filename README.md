@@ -29,6 +29,7 @@ Owner-approved Stage 5 supplement @ e6d8c5f9919a83672bea670bc7e49339e5f5373c
 Device feedback corrections @ 3b4b22c0df91be668406127c84c1822b359883c0
 Device glass and motion owner ruling @ 51b4dc33beec515c7d684d352060fbdeded1825e
 App Space centered stacks and Split device-feedback ruling @ 97fc04dea9ce0f2cd7e834de938e3450da4335d4
+Composer menu scale-motion owner ruling @ b3ca36734213f370c8b2b8d5608e1b772880a760
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -40,6 +41,8 @@ not merged into Blueprint `main`. It records the owner's confirmed multi-card in
 nearest-card snapping and opaque, continuously rounded card surfaces.
 The latest device correction centers the selected card with a tighter stack,
 admits short canvas flicks, and retains small bounded Split cards through release.
+The same unmerged Blueprint branch records the Composer `+` menu reference:
+uniform panel scaling around its source, without the system's refracting bubble.
 
 This is a snapshot of the design state this work started from, not a permanent
 version pin. Update it when the blueprint changes in a way that affects
