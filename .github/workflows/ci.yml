@@ -22,7 +22,7 @@ on:
         default: full
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ inputs.test_scope || 'full' }}
   cancel-in-progress: true
 
 permissions:

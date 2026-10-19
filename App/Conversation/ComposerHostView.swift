@@ -40,7 +40,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private let errorLabel = UILabel()
     private let geometryProbe = UIView()
     private var shelfController: UIHostingController<QuoteShelfView>?
-    private weak var modelMenuController: ComposerModelMenuController?
+    private let actionMenuState = ComposerActionMenuState()
+    private var actionMenuController: UIHostingController<ComposerActionMenuAnchor>?
     private var shelfHeight: CGFloat = 44
     private var quotePhase: ComposerQuoteDragPhase = .idle
     private let motion = ComposerMotionController()
@@ -248,8 +249,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         }
         plus.accessibilityIdentifier = "conversation-composer-plus"
         plus.accessibilityLabel = "更多操作"
-        // Give UIKit a native glass source for its button-to-menu morph.
-        // The Composer's shared glass backing alone is not a glass button.
         var plusStyle = UIButton.Configuration.glass()
         plusStyle.image = plus.image(for: .normal)
         plusStyle.preferredSymbolConfigurationForImage = plus.preferredSymbolConfigurationForImage(in: .normal)
@@ -257,7 +256,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         plusStyle.contentInsets = .zero
         plusStyle.cornerStyle = .capsule
         plus.configuration = plusStyle
-        plus.showsMenuAsPrimaryAction = true
+        plus.addTarget(self, action: #selector(presentActionMenu), for: .touchUpInside)
         primary.accessibilityIdentifier = "conversation-composer-send"
         primary.accessibilityLabel = "发送"
         primary.addTarget(self, action: #selector(primaryTapped), for: .touchUpInside)
@@ -308,6 +307,11 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             lastBottomSafeAreaInset = -1
             setNeedsLayout()
         } else {
+            if actionMenuState.isPresented { actionMenuState.isPresented = false }
+            if let actionMenuController, actionMenuController.parent != nil {
+                actionMenuController.willMove(toParent: nil)
+                actionMenuController.removeFromParent()
+            }
             liftInteraction?.cancelForDetachment()
             // A retained off-window editor has no visible morph to finish.
             // Invalidate its completion before a later remount reuses the state.
@@ -542,7 +546,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         errorLabel.text = next.errorMessage
         updateShelf(next)
         plus.isHidden = !next.showsPlus
-        plus.menu = makeMenu()
+        actionMenuState.models = next.models
+        actionMenuState.selectedModelID = next.selectedModelID
         switch next.primary {
         case .none:
             primary.isHidden = true
@@ -753,51 +758,40 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         }
     }
 
-    private func makeMenu() -> UIMenu {
-        func disabled(_ title: String, _ symbol: String) -> UIAction {
-            UIAction(title: title, image: UIImage(systemName: symbol), attributes: [.disabled]) { _ in }
-        }
-        let modelMenu = UIAction(title: "模型", image: UIImage(systemName: "cpu")) { [weak self] _ in
-            self?.presentModelMenu()
-        }
-        return UIMenu(children: [
-            disabled("添加图片", "photo"), disabled("添加文件", "doc"),
-            disabled("插件", "puzzlepiece"), modelMenu,
-            disabled("推理强度", "slider.horizontal.3")
-        ])
-    }
-
-    private func presentModelMenu() {
-        guard let configuration, let window else { return }
+    @objc private func presentActionMenu() {
+        guard let window else { return }
         var responder: UIResponder? = self
         while let current = responder {
             if let presenter = current as? UIViewController {
-                let controller = ComposerModelMenuController(rootView: ComposerModelMenuView(
-                    models: configuration.models, selectedModelID: configuration.selectedModelID,
-                    onSelect: { [weak self] modelID in
-                        self?.configuration?.onModel(modelID)
-                        self?.modelMenuController?.dismiss(animated: true)
-                    },
-                    onClose: { [weak self] in
-                        self?.modelMenuController?.dismiss(animated: true) { [weak self] in
-                            self?.plus.performPrimaryAction()
-                        }
-                    }
-                ))
-                controller.modalPresentationStyle = .popover
-                controller.view.backgroundColor = .clear
-                controller.preferredContentSize = controller.sizeThatFits(in: CGSize(
+                let anchor = ComposerActionMenuAnchor(presentation: actionMenuState, maximumSize: CGSize(
                     width: min(UIFontMetrics(forTextStyle: .body).scaledValue(for: 250, compatibleWith: traitCollection),
                                window.bounds.width - 32),
                     height: window.bounds.height * 0.65
-                ))
-                let popover = controller.popoverPresentationController
-                popover?.sourceView = plus
-                popover?.sourceRect = plus.bounds
-                popover?.permittedArrowDirections = []
-                popover?.delegate = controller
-                modelMenuController = controller
-                presenter.present(controller, animated: true)
+                ), onSelect: { [weak self] modelID in self?.configuration?.onModel(modelID) })
+                let controller: UIHostingController<ComposerActionMenuAnchor>
+                if let existing = actionMenuController {
+                    controller = existing
+                    controller.rootView = anchor
+                } else {
+                    controller = UIHostingController(rootView: anchor)
+                    controller.view.backgroundColor = .clear
+                    controller.view.isUserInteractionEnabled = false
+                    controller.safeAreaRegions = []
+                    controller.view.frame = plus.bounds
+                    controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                    plus.addSubview(controller.view)
+                    actionMenuController = controller
+                }
+                if controller.parent !== presenter {
+                    if controller.parent != nil {
+                        controller.willMove(toParent: nil)
+                        controller.removeFromParent()
+                    }
+                    presenter.addChild(controller)
+                    controller.didMove(toParent: presenter)
+                }
+                WorkspaceHaptics.shared.play(.control)
+                actionMenuState.isPresented.toggle()
                 return
             }
             responder = current.next
