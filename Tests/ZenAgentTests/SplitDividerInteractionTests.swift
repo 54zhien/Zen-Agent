@@ -37,13 +37,17 @@ struct SplitDividerInteractionTests {
 
         divider.configuration = SplitDividerView(ratio: 0.5, closeIntent: nil,
             canCloseTop: true, canCloseBottom: true, onBegin: { true },
-            onMove: { _ in }, onEnd: { _ in }, onClose: { _ in }, onAdjust: { _ in })
+            onMove: { _ in }, onEnd: { _ in }, onClose: { _ in }, onAdjust: { _ in },
+            gutterSize: CGSize(width: 400, height: 10))
         divider.layoutIfNeeded()
         let nativeHandle = try #require(divider.subviews.first {
             $0.layer.name == "zen-split-divider-handle"
         })
         let shadow = try #require(divider.subviews.first {
             $0.layer.name == "zen-split-divider-handle-shadow"
+        })
+        let gutter = try #require(divider.subviews.first {
+            $0.layer.name == "zen-split-divider-gutter"
         })
         let hitBounds = divider.bounds
         let handleFrame = nativeHandle.frame
@@ -53,7 +57,7 @@ struct SplitDividerInteractionTests {
             divider.configuration = SplitDividerView(ratio: 0.5, closeIntent: nil,
                 canCloseTop: true, canCloseBottom: true, onBegin: { true },
                 onMove: { _ in }, onEnd: { _ in }, onClose: { _ in }, onAdjust: { _ in },
-                sidebarProgress: progress)
+                sidebarProgress: progress, gutterSize: CGSize(width: 400, height: 10))
             divider.layoutIfNeeded()
             let color = try #require(nativeHandle.backgroundColor?.resolvedColor(with: divider.traitCollection))
             var red: CGFloat = 1
@@ -71,6 +75,10 @@ struct SplitDividerInteractionTests {
             #expect(nativeHandle.alpha == 1)
             #expect(divider.alpha == 1)
             #expect(shadow.alpha == progress)
+            #expect(gutter.alpha == 1 - progress)
+            #expect(gutter.frame == CGRect(x: -168, y: 9, width: 400, height: 10))
+            #expect(divider.hitTest(CGPoint(x: -10, y: 14), with: nil) == nil,
+                "The full-width decorative gutter must not extend the native divider hit area")
             #expect(!shadow.isHidden)
             #expect(shadow.frame == nativeHandle.frame)
             #expect(shadow.layer.shadowPath != nil)

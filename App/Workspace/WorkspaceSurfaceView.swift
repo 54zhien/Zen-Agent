@@ -753,14 +753,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
         let length = horizontal ? layout.viewport.width : layout.viewport.height
         let minimum = SplitWorkspaceGeometry.minimumRatio(height: length,
             preferredMinimum: horizontal ? minimumWidth : max(180, minimumHeight * 0.65))
-        return ZStack {
-            // The gutter owns its fade above the changing Sidebar backdrop.
-            // A clear Light gutter would expose that backdrop's early white fill.
-            (colorScheme == .dark ? Color(white: 0.14) : Color.black)
-                .frame(width: layout.divider.width, height: layout.divider.height)
-                .opacity(1 - sidebarProgress)
-                .allowsHitTesting(false)
-            SplitDividerView(ratio: split.activeRatio, closeIntent: resize.closeIntent,
+        return SplitDividerView(ratio: split.activeRatio, closeIntent: resize.closeIntent,
                 canCloseTop: split.sourceSlot == .bottom || split.secondaryConversationID != nil,
                 canCloseBottom: split.sourceSlot == .top || split.secondaryConversationID != nil,
                 onBegin: { activeSurfaceSlot == nil && resize.begin(model: model, minimumRatio: minimum) },
@@ -772,10 +765,10 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 onAdjust: { increment in resize.adjust(model: model, increment: increment, minimumRatio: minimum) },
                 axis: split.axis,
                 onAxis: layoutContext?.isPad == true ? { axis in resize.changeAxis(model: model, to: axis) } : nil,
-                resizeDiagnostic: resizeDiagnostic, sidebarProgress: sidebarProgress)
+                resizeDiagnostic: resizeDiagnostic, sidebarProgress: sidebarProgress,
+                gutterSize: layout.divider.size)
                 .frame(width: horizontal ? 28 : min(64, layout.viewport.width * 0.2),
                        height: horizontal ? min(64, layout.viewport.height * 0.2) : 28)
-        }
         .frame(width: layout.divider.width, height: layout.divider.height)
         .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
         .accessibilityElement(children: .contain)
