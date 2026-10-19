@@ -868,7 +868,7 @@ jobs:
                   -only-testing:ZenAgentUITests/SidebarAppearanceUITests/testRestingComposerStaysConcentricAndSidebarControlsRespectSafeTop
                   -only-testing:ZenAgentUITests/SidebarAppearanceUITests/testDarkProgressiveTopAndActuallyExpandedSidebar)
               fi
-              if [ "$TEST_SCOPE" = lift-drag ] || [ "$TEST_SCOPE" = appspace-browse ] || [ "$TEST_SCOPE" = device-feedback ]; then
+              if [ "$TEST_SCOPE" = composer-menu ] || [ "$TEST_SCOPE" = lift-drag ] || [ "$TEST_SCOPE" = appspace-browse ] || [ "$TEST_SCOPE" = device-feedback ]; then
                 xcrun simctl io "$UDID" recordVideo --codec=h264 "$evidence/$TEST_SCOPE.mp4" > "$evidence/recording.log" 2>&1 &
                 video_pid=$!
                 trap 'kill -INT "$video_pid" 2>/dev/null || true; wait "$video_pid" || true' EXIT
@@ -879,7 +879,7 @@ jobs:
                 "${tests[@]}" -resultBundlePath "$evidence/Focused.xcresult" 2>&1 | tee "$evidence/Focused.log"
               code=${PIPESTATUS[0]}
               set -e
-              if [ "$TEST_SCOPE" = lift-drag ] || [ "$TEST_SCOPE" = appspace-browse ] || [ "$TEST_SCOPE" = device-feedback ]; then
+              if [ "$TEST_SCOPE" = composer-menu ] || [ "$TEST_SCOPE" = lift-drag ] || [ "$TEST_SCOPE" = appspace-browse ] || [ "$TEST_SCOPE" = device-feedback ]; then
                 kill -INT "$video_pid" 2>/dev/null || true
                 wait "$video_pid" || true
                 trap - EXIT
