@@ -40,6 +40,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private let errorLabel = UILabel()
     private let geometryProbe = UIView()
     private var shelfController: UIHostingController<QuoteShelfView>?
+    private weak var modelMenuController: ComposerModelMenuController?
     private var shelfHeight: CGFloat = 44
     private var quotePhase: ComposerQuoteDragPhase = .idle
     private let motion = ComposerMotionController()
@@ -541,7 +542,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         errorLabel.text = next.errorMessage
         updateShelf(next)
         plus.isHidden = !next.showsPlus
-        plus.menu = makeMenu(next)
+        plus.menu = makeMenu()
         switch next.primary {
         case .none:
             primary.isHidden = true
@@ -752,25 +753,55 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         }
     }
 
-    private func makeMenu(_ configuration: Configuration) -> UIMenu {
+    private func makeMenu() -> UIMenu {
         func disabled(_ title: String, _ symbol: String) -> UIAction {
             UIAction(title: title, image: UIImage(systemName: symbol), attributes: [.disabled]) { _ in }
         }
-        let modelActions = configuration.models.map { model in
-            UIAction(title: model.displayName,
-                     state: model.id == configuration.selectedModelID ? .on : .off) { [weak self] _ in
-                self?.configuration?.onModel(model.id)
-            }
+        let modelMenu = UIAction(title: "模型", image: UIImage(systemName: "cpu")) { [weak self] _ in
+            self?.presentModelMenu()
         }
-        let modelMenu = UIMenu(title: "模型", image: UIImage(systemName: "cpu"),
-                               children: modelActions.isEmpty
-                                   ? [UIAction(title: "模型", attributes: [.disabled]) { _ in }]
-                                   : modelActions)
         return UIMenu(children: [
             disabled("添加图片", "photo"), disabled("添加文件", "doc"),
             disabled("插件", "puzzlepiece"), modelMenu,
             disabled("推理强度", "slider.horizontal.3")
         ])
+    }
+
+    private func presentModelMenu() {
+        guard let configuration, let window else { return }
+        var responder: UIResponder? = self
+        while let current = responder {
+            if let presenter = current as? UIViewController {
+                let controller = ComposerModelMenuController(rootView: ComposerModelMenuView(
+                    models: configuration.models, selectedModelID: configuration.selectedModelID,
+                    onSelect: { [weak self] modelID in
+                        self?.configuration?.onModel(modelID)
+                        self?.modelMenuController?.dismiss(animated: true)
+                    },
+                    onClose: { [weak self] in
+                        self?.modelMenuController?.dismiss(animated: true) { [weak self] in
+                            self?.plus.performPrimaryAction()
+                        }
+                    }
+                ))
+                controller.modalPresentationStyle = .popover
+                controller.view.backgroundColor = .clear
+                controller.preferredContentSize = controller.sizeThatFits(in: CGSize(
+                    width: min(UIFontMetrics(forTextStyle: .body).scaledValue(for: 250, compatibleWith: traitCollection),
+                               window.bounds.width - 32),
+                    height: window.bounds.height * 0.65
+                ))
+                let popover = controller.popoverPresentationController
+                popover?.sourceView = plus
+                popover?.sourceRect = plus.bounds
+                popover?.permittedArrowDirections = []
+                popover?.delegate = controller
+                modelMenuController = controller
+                presenter.present(controller, animated: true)
+                return
+            }
+            responder = current.next
+        }
     }
 
     private func updateShelf(_ configuration: Configuration) {

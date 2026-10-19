@@ -9,29 +9,44 @@ final class ComposerMotionUITests: XCTestCase {
         let plus = app.buttons["conversation-composer-plus"]
         XCTAssertTrue(plus.waitForExistence(timeout: 15))
         let title = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "模型")).firstMatch
+        let picker = app.descendants(matching: .any)["composer-model-picker"]
         let first = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "UI Test Model")).firstMatch
         let second = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "UI Test Model With A Longer Name")).firstMatch
 
         plus.tap()
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         title.tap()
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
         XCTAssertTrue(first.waitForExistence(timeout: 5))
         XCTAssertTrue(second.exists)
+        XCTAssertTrue(first.isSelected)
+        XCTAssertFalse(second.isSelected)
         let initial = XCTAttachment(screenshot: app.screenshot())
         initial.name = "Model menu before selection"
         initial.lifetime = .keepAlways
         add(initial)
+
+        title.tap()
+        let rootEntry = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "推理强度")).firstMatch
+        XCTAssertTrue(rootEntry.waitForExistence(timeout: 5))
+        title.tap()
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
 
         second.tap()
         XCTAssertTrue(second.waitForNonExistence(timeout: 5))
         plus.tap()
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         title.tap()
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
         XCTAssertTrue(second.waitForExistence(timeout: 5))
+        XCTAssertTrue(second.isSelected)
+        XCTAssertFalse(first.isSelected)
         let changed = XCTAttachment(screenshot: app.screenshot())
         changed.name = "Model menu after selection"
         changed.lifetime = .keepAlways
         add(changed)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.3)).tap()
+        XCTAssertTrue(picker.waitForNonExistence(timeout: 5))
     }
 
     @MainActor

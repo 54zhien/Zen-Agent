@@ -838,11 +838,15 @@ jobs:
                   -only-testing:ZenAgentUITests/SidebarAppearanceUITests/testRestingComposerStaysConcentricAndSidebarControlsRespectSafeTop
                   -only-testing:ZenAgentUITests/SidebarAppearanceUITests/testDarkProgressiveTopAndActuallyExpandedSidebar)
               fi
+              set +e
               xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent -configuration Debug \
                 -destination "id=$UDID" -parallel-testing-enabled NO \
                 "${tests[@]}" -resultBundlePath "$evidence/Focused.xcresult" 2>&1 | tee "$evidence/Focused.log"
+              code=${PIPESTATUS[0]}
+              set -e
               xcrun xcresulttool get test-results summary --path "$evidence/Focused.xcresult" > "$evidence/Focused-summary.json"
               xcrun xcresulttool export attachments --path "$evidence/Focused.xcresult" --output-path "$evidence/attachments"
+              exit "$code"
               ;;
             *) exit 1 ;;
           esac
