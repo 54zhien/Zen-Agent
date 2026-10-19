@@ -310,6 +310,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             if actionMenuState.isPresented { actionMenuState.isPresented = false }
             if let actionMenuController, actionMenuController.parent != nil {
                 actionMenuController.willMove(toParent: nil)
+                actionMenuController.view.removeFromSuperview()
                 actionMenuController.removeFromParent()
             }
             liftInteraction?.cancelForDetachment()
@@ -779,15 +780,17 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
                     controller.safeAreaRegions = []
                     controller.view.frame = plus.bounds
                     controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-                    plus.addSubview(controller.view)
                     actionMenuController = controller
                 }
                 if controller.parent !== presenter {
                     if controller.parent != nil {
                         controller.willMove(toParent: nil)
+                        controller.view.removeFromSuperview()
                         controller.removeFromParent()
                     }
                     presenter.addChild(controller)
+                    controller.view.frame = plus.bounds
+                    plus.addSubview(controller.view)
                     controller.didMove(toParent: presenter)
                 }
                 WorkspaceHaptics.shared.play(.control)
