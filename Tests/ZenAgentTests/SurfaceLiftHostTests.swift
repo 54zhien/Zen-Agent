@@ -440,7 +440,15 @@ struct SurfaceLiftHostTests {
         let horizontalTravel = host.presentation.translation.width - initial.translation.width
         #expect(verticalTravel < 0 && verticalTravel > -60)
         #expect(horizontalTravel > 0 && horizontalTravel < 24)
+        #expect(host.presentation.scale < initial.scale)
+        #expect(host.presentation.scale > 0.26 + 0.05,
+            "An intermediate upward position must not already use the minimum card size")
+        let intermediate = host.presentation
+        #expect(driver.drag(displacement: CGSize(width: 24, height: -800),
+            eligibility: SurfaceLiftEligibility(), locationInWindow: CGPoint(x: 224, y: 20)))
+        #expect(host.presentation.scale < intermediate.scale)
         #expect(abs(host.presentation.scale - 0.26) < 0.02)
+        #expect(host.presentation.translation.height < intermediate.translation.height)
         #expect(window.bounds.contains(host.surfaceView.convert(host.surfaceView.bounds, to: window)))
         #expect(host.presentation.clipFraction == CGSize(width: 1, height: 1))
         #expect(host.contentController === child)

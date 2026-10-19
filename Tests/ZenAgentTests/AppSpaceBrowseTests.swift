@@ -134,6 +134,13 @@ struct AppSpaceBrowseTests {
         }
         let incoming = try #require(end.cards.first { $0.item == older })
         let resting = try #require(idle.cards.first { $0.item == current })
+        let parked = try #require(idle.cards.first { $0.item == newer })
+        #expect(parked.frame.minX > resting.frame.maxX)
+        #expect(parked.frame.minX - resting.frame.maxX <= 16)
+        #expect(parked.frame.minX < size.width,
+            "The card passed to the right keeps a visible neighboring edge")
+        let behind = try #require(idle.cards.first { $0.item == older })
+        #expect(behind.frame.width <= resting.frame.width * 0.95)
         #expect(incoming.frame == resting.frame)
         let before = try #require(layout(0.999).cards.first { $0.item == older })
         let rebased = try #require(AppSpaceBrowseGeometry.resolve(size: size, safeArea: safe,

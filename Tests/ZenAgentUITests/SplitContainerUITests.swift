@@ -317,6 +317,7 @@ final class SplitContainerUITests: XCTestCase {
         expect { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" }
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-10"].exists)
+        assertDividerResizesAfterReturn(app)
     }
 
     @MainActor
@@ -366,6 +367,23 @@ final class SplitContainerUITests: XCTestCase {
         let expectedY = anchorFrame.minY + (sourcePane.frame.height - sourceHeight) * 0.2
         XCTAssertEqual(requested.frame.minY, expectedY, accuracy: 3,
                        "The remounted Timeline must apply its queued anchor using the new viewport")
+        assertDividerResizesAfterReturn(app)
+    }
+
+    @MainActor
+    private func assertDividerResizesAfterReturn(_ app: XCUIApplication) {
+        let divider = app.descendants(matching: .any)["split-divider"]
+        let handle = app.descendants(matching: .any)["split-divider-handle"]
+        XCTAssertTrue(handle.waitForExistence(timeout: 10))
+        print("DIVIDER_AFTER_RETURN \(String(describing: handle.value))")
+        let initial = divider.frame.midY
+        let start = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.15, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 60)))
+        expect { divider.frame.midY > initial + 25 }
+        print("DIVIDER_AFTER_RESIZE \(String(describing: handle.value))")
+        let next = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        next.press(forDuration: 0.15, thenDragTo: next.withOffset(CGVector(dx: 0, dy: -45)))
+        expect { divider.frame.midY < initial + 35 }
     }
 
     @MainActor

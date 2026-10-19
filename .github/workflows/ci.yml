@@ -861,6 +861,8 @@ jobs:
                     -only-testing:ZenAgentUITests/SidebarAppearanceUITests/testLightSplitPickerRestoresThePageBackground
                     -only-testing:ZenAgentUITests/SurfaceLiftUITests/testComposerDragTargetsTopSplit
                     -only-testing:ZenAgentUITests/SurfaceLiftUITests/testShortComposerDragToLowerCenterKeepsCardPriority)
+                  tests+=(-only-testing:ZenAgentUITests/SplitContainerUITests/testSourceSplitPaneLiftsToAppSpaceAndReturnsWithOtherPaneIntact
+                    -only-testing:ZenAgentUITests/SplitContainerUITests/testSecondarySplitPaneLiftsToAppSpaceAndReturnsWithSourceIntact)
                 fi
               else
                 tests=(-only-testing:ZenAgentTests/SidebarRailLayoutTests
