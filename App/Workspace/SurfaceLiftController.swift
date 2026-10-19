@@ -634,8 +634,14 @@ final class SurfaceLiftController {
         // the available drag range, reaching the small card only at its limit.
         let range = max(SurfaceLiftState.dragOnsetDistance + 1,
             Double(sample.size.height - sample.safeArea.top - sample.safeArea.bottom) * 0.8)
-        let fraction = min(1, max(0, (interactiveTravel - SurfaceLiftState.dragOnsetDistance)
+        let verticalTravel = abs(Double(interactiveDisplacement.height))
+        let verticalFraction = min(1, max(0, (verticalTravel - SurfaceLiftState.dragOnsetDistance)
             / (range - SurfaceLiftState.dragOnsetDistance)))
+        // Sideways lifting still exposes room to move, but cannot consume the
+        // vertical range or shrink a diagonal drag to the minimum early.
+        let lateralFraction = min(0.5, SurfaceLiftState.presentationProgress(
+            travel: abs(Double(interactiveDisplacement.width))))
+        let fraction = max(verticalFraction, lateralFraction)
         return fraction * fraction * (3 - 2 * fraction)
     }
 

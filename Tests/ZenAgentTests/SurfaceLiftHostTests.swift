@@ -444,6 +444,10 @@ struct SurfaceLiftHostTests {
         #expect(host.presentation.scale > 0.26 + 0.05,
             "An intermediate upward position must not already use the minimum card size")
         let intermediate = host.presentation
+        #expect(driver.drag(displacement: CGSize(width: 300, height: -380),
+            eligibility: SurfaceLiftEligibility(), locationInWindow: CGPoint(x: 380, y: 170)))
+        #expect(abs(host.presentation.scale - intermediate.scale) < 0.001,
+            "Lateral travel must not spend the remaining upward shrink range")
         #expect(driver.drag(displacement: CGSize(width: 24, height: -800),
             eligibility: SurfaceLiftEligibility(), locationInWindow: CGPoint(x: 224, y: 20)))
         #expect(host.presentation.scale < intermediate.scale)
