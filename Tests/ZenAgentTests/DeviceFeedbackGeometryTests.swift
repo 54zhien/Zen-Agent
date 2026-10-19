@@ -23,7 +23,7 @@ struct DeviceFeedbackGeometryTests {
         }
     }
 
-    @Test func interactiveLiftFollowsFingerVerticallyWithoutCropping() throws {
+    @Test func interactiveLiftDampsVerticalTravelWithoutCropping() throws {
         let host = ConversationSurfaceViewController(content: Text("Whole page"))
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = host; window.makeKeyAndVisible()
@@ -36,14 +36,15 @@ struct DeviceFeedbackGeometryTests {
         for distance in [80.0, 140.0] {
             #expect(driver.drag(upwardDistance: distance, eligibility: SurfaceLiftEligibility()))
             #expect(abs(host.presentation.translation.width) < 0.001)
-            #expect(abs(host.presentation.translation.height + distance) < 0.001)
+            #expect(host.presentation.translation.height < 0 && host.presentation.translation.height > -distance)
+            #expect(window.bounds.contains(host.surfaceView.convert(host.surfaceView.bounds, to: window)))
             #expect(host.presentation.clipFraction == CGSize(width: 1, height: 1))
         }
         _ = driver.end(cancelled: true, animated: false)
         #expect(host.surfaceView.transform == .identity)
     }
 
-    @Test func interactiveLiftFollowsTheFingerOnBothAxesWithoutChangingVerticalProgress() throws {
+    @Test func interactiveLiftDampsBothAxesWithoutChangingVerticalProgress() throws {
         let host = ConversationSurfaceViewController(content: Text("Two-axis retained page"))
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = host
@@ -61,8 +62,9 @@ struct DeviceFeedbackGeometryTests {
 
         #expect(driver.state.phase == .lifting)
         #expect(abs(driver.state.progress - 108.0 / 168.0) < 0.000001)
-        #expect(abs(host.presentation.translation.width - displacement.width) < 0.001)
-        #expect(abs(host.presentation.translation.height - displacement.height) < 0.001)
+        #expect(host.presentation.translation.width > 0 && host.presentation.translation.width < displacement.width)
+        #expect(host.presentation.translation.height < 0 && host.presentation.translation.height > displacement.height)
+        #expect(window.bounds.contains(host.surfaceView.convert(host.surfaceView.bounds, to: window)))
         #expect(host.presentation.clipFraction == CGSize(width: 1, height: 1))
         _ = driver.end(cancelled: true, animated: false)
         #expect(driver.state.phase == .full)
@@ -88,11 +90,15 @@ struct DeviceFeedbackGeometryTests {
             #expect(driver.drag(displacement: displacement, eligibility: input))
             #expect(driver.state.phase == .lifting)
             #expect(driver.state.progress == 0)
-            #expect(abs(host.presentation.translation.width - displacement.width) < 0.001)
-            #expect(abs(host.presentation.translation.height - displacement.height) < 0.001)
-            let travel = hypot(Double(displacement.width), Double(displacement.height))
-            let visualProgress = SurfaceLiftState.presentationProgress(travel: travel)
-            #expect(abs(host.presentation.scale - (1 - visualProgress * 0.32)) < 0.001)
+            if displacement.width != 0 {
+                #expect(host.presentation.translation.width * displacement.width > 0)
+                #expect(abs(host.presentation.translation.width) < abs(displacement.width))
+            } else { #expect(abs(host.presentation.translation.width) < 0.001) }
+            if displacement.height != 0 {
+                #expect(host.presentation.translation.height > 0 && host.presentation.translation.height < displacement.height)
+            } else { #expect(abs(host.presentation.translation.height) < 0.001) }
+            #expect(host.presentation.scale > 0 && host.presentation.scale < 1)
+            #expect(window.bounds.contains(host.surfaceView.convert(host.surfaceView.bounds, to: window)))
 
             let settlement = try #require(driver.end(cancelled: true, animated: false))
             #expect(settlement.destination == .full)

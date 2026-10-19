@@ -406,7 +406,7 @@ struct SurfaceLiftHostTests {
         #expect(driver.state.phase == .full && host.presentation == .full)
     }
 
-    @Test func splitTargetingKeepsFollowingTheFingerAboveTheScreenCenter() {
+    @Test func splitTargetingDampsContinuedTravelAndKeepsTheWholePageOnScreen() {
         let host = ConversationSurfaceViewController(content: Text("floating Split source"))
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
         window.rootViewController = host
@@ -424,9 +424,12 @@ struct SurfaceLiftHostTests {
         #expect(driver.drag(displacement: CGSize(width: 24, height: -380),
             eligibility: SurfaceLiftEligibility(), locationInWindow: CGPoint(x: 224, y: 170)))
         #expect(driver.splitTargetSlot == .top)
-        #expect(abs(host.presentation.translation.height - initial.translation.height + 60) < 0.001)
-        #expect(abs(host.presentation.translation.width - initial.translation.width - 24) < 0.001)
-        #expect(abs(host.presentation.scale - 0.68) < 0.000001)
+        let verticalTravel = host.presentation.translation.height - initial.translation.height
+        let horizontalTravel = host.presentation.translation.width - initial.translation.width
+        #expect(verticalTravel < 0 && verticalTravel > -60)
+        #expect(horizontalTravel > 0 && horizontalTravel < 24)
+        #expect(host.presentation.scale < 0.68 && host.presentation.scale > 0.5)
+        #expect(window.bounds.contains(host.surfaceView.convert(host.surfaceView.bounds, to: window)))
         #expect(host.presentation.clipFraction == CGSize(width: 1, height: 1))
         #expect(host.contentController === child)
         _ = driver.end(cancelled: true, animated: false)

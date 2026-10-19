@@ -18,7 +18,7 @@ on:
       test_scope:
         description: Test selection (focused profiles never run the full suites)
         type: choice
-        options: [full, keyboard-sidebar, test-maintenance, sidebar-controls, composer-menu]
+        options: [full, keyboard-sidebar, test-maintenance, sidebar-controls, composer-menu, lift-drag]
         default: full
 
 concurrency:
@@ -797,8 +797,8 @@ jobs:
           retention-days: 7
 
   keyboard-sidebar:
-    name: ${{ inputs.test_scope == 'composer-menu' && 'Focused Composer menu' || inputs.test_scope == 'sidebar-controls' && 'Focused Sidebar controls' || inputs.test_scope == 'test-maintenance' && 'Focused test maintenance' || 'Focused keyboard and Sidebar' }}
-    if: github.event_name == 'workflow_dispatch' && (inputs.test_scope == 'keyboard-sidebar' || inputs.test_scope == 'test-maintenance' || inputs.test_scope == 'sidebar-controls' || inputs.test_scope == 'composer-menu')
+    name: ${{ inputs.test_scope == 'lift-drag' && 'Focused Lift drag' || inputs.test_scope == 'composer-menu' && 'Focused Composer menu' || inputs.test_scope == 'sidebar-controls' && 'Focused Sidebar controls' || inputs.test_scope == 'test-maintenance' && 'Focused test maintenance' || 'Focused keyboard and Sidebar' }}
+    if: github.event_name == 'workflow_dispatch' && (inputs.test_scope == 'keyboard-sidebar' || inputs.test_scope == 'test-maintenance' || inputs.test_scope == 'sidebar-controls' || inputs.test_scope == 'composer-menu' || inputs.test_scope == 'lift-drag')
     needs: repo-hygiene
     runs-on: macos-26
     timeout-minutes: 40
@@ -822,7 +822,7 @@ jobs:
           case "$TEST_SCOPE" in
             keyboard-sidebar) bash .github/scripts/run-keyboard-sidebar-tests.sh ;;
             test-maintenance) bash .github/scripts/run-test-maintenance-tests.sh ;;
-            sidebar-controls|composer-menu)
+            sidebar-controls|composer-menu|lift-drag)
               set -o pipefail
               evidence="$RUNNER_TEMP/$TEST_SCOPE-evidence"
               mkdir -p "$evidence"
@@ -832,6 +832,17 @@ jobs:
               xcrun simctl bootstatus "$UDID" -b
               if [ "$TEST_SCOPE" = composer-menu ]; then
                 tests=(-only-testing:ZenAgentUITests/ComposerMotionUITests/testModelMenuOpensAndSwitchesModels)
+              elif [ "$TEST_SCOPE" = lift-drag ]; then
+                tests=(-only-testing:ZenAgentTests/SurfaceLiftGeometryTests
+                  -only-testing:ZenAgentTests/SurfaceLiftHostTests
+                  -only-testing:ZenAgentTests/SurfaceLiftStateTests
+                  -only-testing:ZenAgentTests/DeviceFeedbackGeometryTests
+                  -only-testing:ZenAgentUITests/SurfaceLiftUITests/testComposerDragTargetsTopSplit
+                  -only-testing:ZenAgentUITests/SurfaceLiftUITests/testShortComposerDragToLowerCenterKeepsCardPriority
+                  -only-testing:ZenAgentUITests/SurfaceLiftUITests/testRealDragAndReturnKeepDraftAndReadingPosition)
+                xcrun simctl io "$UDID" recordVideo --codec=h264 "$evidence/lift-drag.mp4" > "$evidence/recording.log" 2>&1 &
+                video_pid=$!
+                trap 'kill -INT "$video_pid" 2>/dev/null || true; wait "$video_pid" || true' EXIT
               else
                 tests=(-only-testing:ZenAgentTests/SidebarRailLayoutTests
                   -only-testing:ZenAgentUITests/SidebarUITests/testConversationControlsFormOneVerticalGroupWithoutASplitShortcut
@@ -844,6 +855,11 @@ jobs:
                 "${tests[@]}" -resultBundlePath "$evidence/Focused.xcresult" 2>&1 | tee "$evidence/Focused.log"
               code=${PIPESTATUS[0]}
               set -e
+              if [ "$TEST_SCOPE" = lift-drag ]; then
+                kill -INT "$video_pid" 2>/dev/null || true
+                wait "$video_pid" || true
+                trap - EXIT
+              fi
               xcrun xcresulttool get test-results summary --path "$evidence/Focused.xcresult" > "$evidence/Focused-summary.json"
               xcrun xcresulttool export attachments --path "$evidence/Focused.xcresult" --output-path "$evidence/attachments"
               exit "$code"
