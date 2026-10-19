@@ -38,17 +38,13 @@ struct SplitDividerInteractionTests {
 
         divider.configuration = SplitDividerView(ratio: 0.5, closeIntent: nil,
             canCloseTop: true, canCloseBottom: true, onBegin: { true },
-            onMove: { _ in }, onEnd: { _ in }, onClose: { _ in }, onAdjust: { _ in },
-            gutterSize: CGSize(width: 400, height: 10))
+            onMove: { _ in }, onEnd: { _ in }, onClose: { _ in }, onAdjust: { _ in })
         divider.layoutIfNeeded()
         let nativeHandle = try #require(divider.subviews.first {
             $0.layer.name == "zen-split-divider-handle"
         })
         let shadow = try #require(divider.subviews.first {
             $0.layer.name == "zen-split-divider-handle-shadow"
-        })
-        let gutter = try #require(divider.subviews.first {
-            $0.layer.name == "zen-split-divider-gutter"
         })
         let hitBounds = divider.bounds
         let handleFrame = nativeHandle.frame
@@ -58,7 +54,7 @@ struct SplitDividerInteractionTests {
             divider.configuration = SplitDividerView(ratio: 0.5, closeIntent: nil,
                 canCloseTop: true, canCloseBottom: true, onBegin: { true },
                 onMove: { _ in }, onEnd: { _ in }, onClose: { _ in }, onAdjust: { _ in },
-                sidebarProgress: progress, gutterSize: CGSize(width: 400, height: 10))
+                sidebarProgress: progress)
             divider.layoutIfNeeded()
             let color = try #require(nativeHandle.backgroundColor?.resolvedColor(with: divider.traitCollection))
             var red: CGFloat = 1
@@ -76,10 +72,8 @@ struct SplitDividerInteractionTests {
             #expect(nativeHandle.alpha == 1)
             #expect(divider.alpha == 1)
             #expect(shadow.alpha == progress)
-            #expect(gutter.alpha == 1 - progress)
-            #expect(gutter.frame == CGRect(x: -168, y: 9, width: 400, height: 10))
             #expect(divider.hitTest(CGPoint(x: -10, y: 14), with: nil) == nil,
-                "The full-width decorative gutter must not extend the native divider hit area")
+                "Styling must not extend the native divider hit area")
             #expect(!shadow.isHidden)
             #expect(shadow.frame == nativeHandle.frame)
             #expect(shadow.layer.shadowPath != nil)
@@ -111,8 +105,18 @@ struct SplitDividerInteractionTests {
             #expect(luminance[0] > 0.98)
             #expect(luminance[0] > luminance[1] && luminance[1] > luminance[2],
                 "The native handle should transition smoothly toward the dark page surface")
-            #expect(luminance[2] < 0.15,
-                "The fully open handle should match the dark Sidebar page surface")
+            let appearance = SidebarPageAppearance(progress: 1, dark: true,
+                reduceTransparency: UIAccessibility.isReduceTransparencyEnabled)
+            let background = UIColor.systemBackground.resolvedColor(with: divider.traitCollection)
+            var red: CGFloat = 0
+            var green: CGFloat = 0
+            var blue: CGFloat = 0
+            var alpha: CGFloat = 1
+            #expect(background.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
+            let base = (red + green + blue) / 3
+            let pageColor = base + (1 - base) * appearance.tintOpacity
+            #expect(abs(luminance[2] - pageColor) < 0.001,
+                "The open handle must match the tinted page over its same-color backdrop")
         }
     }
 

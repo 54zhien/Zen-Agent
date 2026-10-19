@@ -13,6 +13,19 @@ struct SidebarPageAppearance {
         tintOpacity = dark ? fraction * 0.08 : 0
         outlineOpacity = fraction
     }
+
+    func surfaceColor(resolving traits: UITraitCollection) -> UIColor {
+        let surface = UIColor.systemBackground.resolvedColor(with: traits)
+        var red: CGFloat = 1
+        var green: CGFloat = 1
+        var blue: CGFloat = 1
+        var alpha: CGFloat = 1
+        guard surface.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return surface }
+        // A tinted page over this same color has no seam, even while the page
+        // itself is translucent. Multiplying the tint by page alpha darkens it twice.
+        func tinted(_ component: CGFloat) -> CGFloat { component + (1 - component) * tintOpacity }
+        return UIColor(red: tinted(red), green: tinted(green), blue: tinted(blue), alpha: alpha)
+    }
 }
 
 /// Per-corner radii of a Surface. A resting Split Pane rounds its display

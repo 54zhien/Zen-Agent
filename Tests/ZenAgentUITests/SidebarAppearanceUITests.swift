@@ -247,11 +247,12 @@ final class SidebarAppearanceUITests: XCTestCase {
             let expanded = app.screenshot()
             XCTAssertEqual(splitViewportFrame(app, slot: "top"), top)
             XCTAssertEqual(splitViewportFrame(app, slot: "bottom"), bottom)
-            let x = app.frame.maxX - 20
+            let sampleX = rail.frame.maxX + 90
             for edgeY in [top.maxY, bottom.minY] {
                 for offset in [CGFloat(-0.5), -0.25, 0, 0.25, 0.5] {
+                    // This fixture is blank here; its right-aligned bubble can reach the far edge.
                     let luminance = sampledLuminance(expanded, appFrame: app.frame,
-                        at: CGPoint(x: x, y: edgeY + offset))
+                        at: CGPoint(x: sampleX, y: edgeY + offset))
                     XCTAssertGreaterThan(luminance ?? 0, 0.985,
                         "Expanded Split should have no inner horizontal outline framing a white band")
                 }

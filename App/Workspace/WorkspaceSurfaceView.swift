@@ -300,7 +300,17 @@ struct WorkspaceSurfaceView<Content: View>: View {
         // the picker and Divider throughout the outer keyboard transaction.
         let splitLayout = splitGeometry(in: geometry)
         return ZStack(alignment: .topLeading) {
-            if model?.splitWorkspace != nil, activeSurfaceSlot == nil { Color.black }
+            if model?.splitWorkspace != nil, activeSurfaceSlot == nil {
+                Color.black.overlay(alignment: .topLeading) {
+                    if let layout = splitLayout, colorScheme == .dark {
+                        Color(white: 0.14)
+                            .frame(width: layout.divider.width, height: layout.divider.height)
+                            .position(x: layout.divider.midX, y: layout.divider.midY)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
+            }
             if sidebarProgress > 0 || navigation.settlementID != nil {
                 sidebarBackdrop(in: geometry, progress: sidebarProgress,
                     isDragging: sidebarDragging)
@@ -335,7 +345,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         sidebarDragging: sidebarDragging, sidebarSettlement: navigation.settlementID,
                         sidebarShadowEnabled: false,
                         workspaceViewportSize: emptyFrame.size,
-                        workspaceBackgroundColor: .systemBackground) {
+                        workspaceBackgroundColor: .systemBackground,
+                        sidebarOutlineExternallyDrawn: usesDockedSidebarOutline(frame: emptyFrame,
+                            viewport: layout.viewport, splitLayout: layout)) {
                         WorkspaceSplitPickerContent(model: model)
                     }
                     .frame(width: emptyFrame.width, height: emptyFrame.height)
@@ -421,26 +433,47 @@ struct WorkspaceSurfaceView<Content: View>: View {
         SidebarPageAppearance(progress: progress, dark: colorScheme == .dark, reduceTransparency: reduceTransparency)
     }
 
-    private func usesDockedSidebarOutline(frame: CGRect, viewport: CGRect) -> Bool {
-        showsWorkspaceComposerDock && activeSurfaceSlot == nil && abs(frame.maxY - viewport.maxY) < 1
+    private func usesDockedSidebarOutline(frame: CGRect, viewport: CGRect,
+                                         splitLayout: SplitWorkspaceGeometry?) -> Bool {
+        showsWorkspaceComposerDock && activeSurfaceSlot == nil
+            && (splitLayout != nil || abs(frame.maxY - viewport.maxY) < 1)
     }
 
     private func dockedSidebarOutlines(in geometry: GeometryProxy, progress: CGFloat) -> [WorkspaceComposerDockOutline] {
-        let viewport = CGRect(origin: .zero, size: geometry.size)
+        guard showsWorkspaceComposerDock, activeSurfaceSlot == nil else { return [] }
         let layout = splitGeometry(in: geometry)
+        let viewport = layout?.viewport ?? CGRect(origin: .zero, size: geometry.size)
         let appearance = sidebarPageAppearance(progress: progress)
-        return WorkspaceSurfaceSlot.allCases.compactMap { slot in
+        let strength = appearance.outlineOpacity * appearance.surfaceOpacity
+        let paneStrength = strength * (layout == nil ? 1 : 1 - appearance.outlineOpacity)
+        var outlines: [WorkspaceComposerDockOutline] = WorkspaceSurfaceSlot.allCases.compactMap { slot in
             let driver = controller(for: slot)
             let frame = driver.retainsAppSpaceViewport ? viewport
                 : (logicalSlot(for: slot).flatMap { layout?.frame(for: $0) } ?? viewport)
             if surfaceIsVisible(slot), !returnPresentation.suppressesTarget(slot),
-               usesDockedSidebarOutline(frame: frame, viewport: viewport) {
+               usesDockedSidebarOutline(frame: frame, viewport: viewport, splitLayout: layout) {
                 return WorkspaceComposerDockOutline(frame: frame,
-                    radii: paneRadii(frame, in: viewport, squareBottom: keyboardShortensViewport),
-                    opacity: appearance.outlineOpacity * appearance.surfaceOpacity)
+                    radii: paneRadii(frame, in: viewport,
+                        squareBottom: keyboardShortensViewport && abs(frame.maxY - viewport.maxY) < 1),
+                    opacity: paneStrength)
             }
             return nil
         }
+        if let layout, let split = model?.splitWorkspace {
+            if model?.splitPane == nil {
+                let frame = layout.frame(for: split.emptySlot)
+                outlines.append(WorkspaceComposerDockOutline(frame: frame,
+                    radii: paneRadii(frame, in: viewport,
+                        squareBottom: keyboardShortensViewport && abs(frame.maxY - viewport.maxY) < 1),
+                    opacity: paneStrength))
+            }
+            // Crossfade into one exterior contour without moving either Pane
+            // or re-parenting the retained editor. The gap shares the page color.
+            outlines.append(WorkspaceComposerDockOutline(frame: viewport,
+                radii: paneRadii(viewport, in: viewport, squareBottom: keyboardShortensViewport),
+                opacity: strength * appearance.outlineOpacity))
+        }
+        return outlines
     }
 
     /// The shared Split editor cannot ride inside the lifted Pane mid-gesture:
@@ -467,13 +500,14 @@ struct WorkspaceSurfaceView<Content: View>: View {
 
     private func sidebarBackdrop(in geometry: GeometryProxy, progress: CGFloat,
                                  isDragging: Bool) -> some View {
-        ZStack(alignment: .topLeading) {
-            Color(uiColor: .systemBackground)
+        let splitPageColor = sidebarPageAppearance(progress: 1).surfaceColor(resolving:
+            UITraitCollection(userInterfaceStyle: colorScheme == .dark ? .dark : .light))
+        return ZStack(alignment: .topLeading) {
+            Color(uiColor: splitGeometry(in: geometry) == nil ? .systemBackground : splitPageColor)
             Color.black.opacity(0.28 * (1 - progress))
                 .animation(sidebarAnimation(isDragging: isDragging), value: progress)
-            // Nothing dark stays behind the Panes: they fade slightly while the
-            // Sidebar opens, and a dark block would show through as gray.
-            // The divider itself carries the transition to a hairline.
+            // This is the sole gap backdrop; an extra native gutter would
+            // darken the same transition a second time.
         }
         .opacity(SidebarProgressPresentation.opacity(forProgress: Double(progress)))
         .animation(sidebarAnimation(isDragging: isDragging), value: progress)
@@ -522,7 +556,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
             sidebarShadowFrame: sharedShadow ? fullFrame.offsetBy(dx: -frame.minX, dy: -frame.minY) : nil,
             sidebarShadowEnabled: !sharedShadow || slot == model?.sourceSurfaceSlot,
             workspaceViewportSize: usesWorkspaceViewport ? frame.size : nil,
-            sidebarOutlineExternallyDrawn: usesDockedSidebarOutline(frame: frame, viewport: fullFrame),
+            sidebarOutlineExternallyDrawn: usesDockedSidebarOutline(frame: frame, viewport: fullFrame, splitLayout: splitLayout),
             onSidebarSettled: settled,
             onNativeLayout: { [weak model, weak resize] receipt in
                 guard let model else { return }
@@ -765,8 +799,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 onAdjust: { increment in resize.adjust(model: model, increment: increment, minimumRatio: minimum) },
                 axis: split.axis,
                 onAxis: layoutContext?.isPad == true ? { axis in resize.changeAxis(model: model, to: axis) } : nil,
-                resizeDiagnostic: resizeDiagnostic, sidebarProgress: sidebarProgress,
-                gutterSize: layout.divider.size)
+                resizeDiagnostic: resizeDiagnostic, sidebarProgress: sidebarProgress)
                 .frame(width: horizontal ? 28 : min(64, layout.viewport.width * 0.2),
                        height: horizontal ? min(64, layout.viewport.height * 0.2) : 28)
         .frame(width: layout.divider.width, height: layout.divider.height)

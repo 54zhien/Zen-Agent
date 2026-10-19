@@ -31,6 +31,7 @@ Device glass and motion owner ruling @ 51b4dc33beec515c7d684d352060fbdeded1825e
 App Space centered stacks and Split device-feedback ruling @ 97fc04dea9ce0f2cd7e834de938e3450da4335d4
 Composer menu scale-motion owner ruling @ b3ca36734213f370c8b2b8d5608e1b772880a760
 Owner menu rollback and bounded card motion correction @ 45bfb3f6d8e61d63fc38fdb4bbdfe7e18c2c263f
+Owner Sidebar Split seam disappearance ruling @ 6d100234b7087c87461f6056c1fd8643b7dc90c2
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -45,6 +46,9 @@ admits short canvas flicks, and retains small bounded Split cards through releas
 The same unmerged Blueprint branch records the subsequent device ruling:
 restore the native Composer `+` menu transition, park passed cards closely on
 the right, and span the full bounded upward travel before reaching minimum size.
+The latest Sidebar ruling removes the extra dark Split stripe during opening and
+merges the inner Pane contours into one Workspace exterior, retaining the handle
+and its faint shadow without changing Pane geometry or retained content state.
 
 This is a snapshot of the design state this work started from, not a permanent
 version pin. Update it when the blueprint changes in a way that affects

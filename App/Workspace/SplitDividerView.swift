@@ -16,7 +16,6 @@ struct SplitDividerView: UIViewRepresentable {
     var onAxis: ((SplitWorkspaceAxis) -> Void)? = nil
     var resizeDiagnostic: (() -> String)? = nil
     var sidebarProgress: CGFloat = 0
-    var gutterSize: CGSize = .zero
 
     var normalizedSidebarProgress: CGFloat {
         sidebarProgress.isFinite ? min(1, max(0, sidebarProgress)) : 0
@@ -26,7 +25,10 @@ struct SplitDividerView: UIViewRepresentable {
         let progress = normalizedSidebarProgress
         let reduceTransparency = UIAccessibility.isReduceTransparencyEnabled
         return UIColor { traits in
-            let surface = UIColor.systemBackground.resolvedColor(with: traits)
+            let appearance = SidebarPageAppearance(progress: 1,
+                dark: traits.userInterfaceStyle == .dark,
+                reduceTransparency: reduceTransparency)
+            let surface = appearance.surfaceColor(resolving: traits)
             var surfaceRed: CGFloat = 1
             var surfaceGreen: CGFloat = 1
             var surfaceBlue: CGFloat = 1
@@ -34,14 +36,7 @@ struct SplitDividerView: UIViewRepresentable {
             guard surface.getRed(&surfaceRed, green: &surfaceGreen, blue: &surfaceBlue, alpha: &surfaceAlpha) else {
                 return surface
             }
-            let appearance = SidebarPageAppearance(progress: 1,
-                dark: traits.userInterfaceStyle == .dark,
-                reduceTransparency: reduceTransparency)
-            // At full progress the backdrop is systemBackground too, so page
-            // opacity cancels except where its white tint is composited in.
-            let tint = appearance.tintOpacity * appearance.surfaceOpacity
-            func tinted(_ component: CGFloat) -> CGFloat { component + (1 - component) * tint }
-            func mixFromWhite(_ component: CGFloat) -> CGFloat { 1 + (tinted(component) - 1) * progress }
+            func mixFromWhite(_ component: CGFloat) -> CGFloat { 1 + (component - 1) * progress }
             return UIColor(red: mixFromWhite(surfaceRed), green: mixFromWhite(surfaceGreen),
                 blue: mixFromWhite(surfaceBlue), alpha: 1 + (surfaceAlpha - 1) * progress)
         }
@@ -93,7 +88,6 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }
             let progress = configuration?.normalizedSidebarProgress ?? 0
-            gutter.alpha = 1 - progress
             handle.backgroundColor = configuration?.closeIntent == nil
                 ? configuration?.handleSurfaceColor() ?? .white
                 : .systemOrange
@@ -101,7 +95,6 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
             setNeedsLayout()
         }
     }
-    private let gutter = UIView()
     private let handle = UIView()
     private let shadowView = UIView()
     private var panAdmitted = false
@@ -156,15 +149,9 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        // Keep the fading gap in this native transport; a drawn SwiftUI sibling
-        // can change the content recognizers competing with the Sidebar edge.
-        gutter.backgroundColor = UIColor { traits in
-            traits.userInterfaceStyle == .dark ? UIColor(white: 0.14, alpha: 1) : .black
-        }
-        gutter.isUserInteractionEnabled = false
-        gutter.accessibilityElementsHidden = true
-        gutter.layer.name = "zen-split-divider-gutter"
-        addSubview(gutter)
+        // The Workspace backdrop owns the gap. Only the handle and its shadow
+        // draw here, keeping the native drag target independent of decoration.
+        isOpaque = false
         shadowView.backgroundColor = .clear
         shadowView.isOpaque = false
         shadowView.isUserInteractionEnabled = false
@@ -195,9 +182,6 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let size = configuration?.gutterSize ?? .zero
-        gutter.frame = CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2,
-            width: size.width, height: size.height)
         handle.frame = configuration?.axis == .leftRight
             ? CGRect(x: (bounds.width - 3) / 2, y: 0, width: 3, height: bounds.height)
             : CGRect(x: 0, y: (bounds.height - 3) / 2, width: bounds.width, height: 3)
