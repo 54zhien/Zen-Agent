@@ -19,10 +19,11 @@ struct AppSpaceBrowseMotionTests {
     }
 
     @Test func slowReleaseChoosesTheNearestCard() {
-        for sample in [(0.49, 0.0), (0.51, 1.0), (-0.49, 0.0), (-0.51, -1.0)] {
-            var motion = AppSpaceBrowseMotion(offset: sample.0, velocity: 0)
+        for sample in [(0.49, 0.0, 0.0), (0.51, 0.0, 1.0), (-0.49, 0.0, 0.0),
+                       (-0.51, 0.0, -1.0), (0.49, 0.2, 1.0), (-0.49, -0.2, -1.0)] {
+            var motion = AppSpaceBrowseMotion(offset: sample.0, velocity: sample.1)
             for _ in 0..<240 where !motion.isFinished { motion.advance(deltaTime: 1.0 / 120) }
-            #expect(motion.isFinished && motion.offset == sample.1)
+            #expect(motion.isFinished && motion.offset == sample.2)
         }
     }
 

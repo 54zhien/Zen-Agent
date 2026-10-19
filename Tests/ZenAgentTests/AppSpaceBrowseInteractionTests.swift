@@ -23,6 +23,7 @@ struct AppSpaceBrowseInteractionTests {
     func releaseUsesFinalDisplacement() throws {
         try checkRelease(lastSample: 0.02, release: 0.6, expectedID: "older")
         try checkRelease(lastSample: 0.6, release: 0.02, expectedID: "current")
+        try checkRelease(lastSample: -0.6, release: -0.6, expectedID: "current")
     }
 
     private func checkRelease(lastSample: CGFloat, release: CGFloat, expectedID: String) throws {
@@ -47,6 +48,12 @@ struct AppSpaceBrowseInteractionTests {
         pan.sampleState = .ended
         pan.displacement = travel * release
         _ = input.perform(action, with: pan)
+        if release < 0, input.isAnimating {
+            let displayed = browse.state.offset
+            input.advance(deltaTime: 1.0 / 120)
+            #expect(abs(browse.state.offset) > abs(displayed) * 0.8,
+                    "The already resisted edge position must not be damped a second time on release")
+        }
         for _ in 0..<480 where input.isAnimating { input.advance(deltaTime: 1.0 / 120) }
         #expect(browse.state.selected == .conversation(expectedID))
         #expect(browse.state.phase == .idle)

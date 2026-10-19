@@ -117,9 +117,10 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
         switch pan.state {
         case .began:
             let catchesMotion = isAnimating
+            let caughtOffset = motion?.offset ?? controller.state.offset
             stopMotion()
             guard canBrowse(), catchesMotion || controller.begin() else { return }
-            dragOffset = controller.state.offset
+            dragOffset = caughtOffset
             lastTranslation = 0
             drag(pan, reference: reference, travel: Double(layout.travel))
         case .changed:
@@ -131,7 +132,7 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
             guard controller.state.phase == .dragging else { return }
             let velocity = Double(pan.velocity(in: reference).x) / Double(layout.travel)
             guard velocity.isFinite else { cancel(); return }
-            start(AppSpaceBrowseMotion(offset: controller.state.offset, velocity: velocity))
+            start(AppSpaceBrowseMotion(offset: min(1, max(-1, dragOffset)), velocity: velocity))
         case .cancelled, .failed: cancel()
         default: break
         }
@@ -160,8 +161,13 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
         dragOffset = remaining
     }
 
-    private func start(_ motion: AppSpaceBrowseMotion) {
+    private func start(_ value: AppSpaceBrowseMotion) {
         stopMotion()
+        var motion = value
+        if let target = motion.target,
+           (target > 0 && controller.state.older == nil) || (target < 0 && controller.state.newer == nil) {
+            motion.snap(to: 0)
+        }
         self.motion = motion
         if UIAccessibility.isReduceMotionEnabled {
             guard withAnimation(nil, { controller.move(to: motion.destinationWithoutAnimation) }) != nil else {
@@ -195,8 +201,8 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
             return
         }
         motion.rebase(by: motion.offset - remaining)
-        if abs(controller.state.offset - remaining) > 0.000001 {
-            motion.returnFromBoundary(offset: controller.state.offset)
+        if abs(controller.state.offset - remaining) > 0.000001, motion.target != 0 {
+            motion.returnFromBoundary(offset: min(1, max(-1, remaining)))
         }
         self.motion = motion
         if motion.isFinished { finishMotion() }

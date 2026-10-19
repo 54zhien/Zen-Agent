@@ -11,7 +11,7 @@ struct AppSpaceBrowseMotion {
     init(offset: Double, velocity: Double) {
         self.offset = offset
         self.velocity = velocity
-        target = abs(velocity) <= 0.2 ? offset.rounded() : nil
+        target = abs(velocity) <= 0.2 ? (offset + velocity / Self.friction).rounded() : nil
     }
 
     var destinationWithoutAnimation: Double {
@@ -36,7 +36,7 @@ struct AppSpaceBrowseMotion {
             let decay = exp(-Self.friction * deltaTime)
             offset += velocity * (1 - decay) / Self.friction
             velocity *= decay
-            if abs(velocity) <= 0.2 { target = offset.rounded() }
+            if abs(velocity) <= 0.2 { target = (offset + velocity / Self.friction).rounded() }
         }
     }
 
