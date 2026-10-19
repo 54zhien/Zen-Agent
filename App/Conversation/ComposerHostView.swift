@@ -987,8 +987,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 }
 
-/// Keep UIKit's menu presentation and dismissal intact. Only the Composer's
-/// control haptic is customized.
+/// Use the glyph as the menu's source and return target. UIKit's default
+/// platter adds a refracting bubble even when the button style is plain.
 @MainActor
 final class ComposerControlButton: UIButton {
     override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
@@ -996,5 +996,23 @@ final class ComposerControlButton: UIButton {
                                          animator: (any UIContextMenuInteractionAnimating)?) {
         super.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: animator)
         WorkspaceHaptics.shared.play(.control)
+    }
+
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+        previewForHighlightingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
+        menuGlyphPreview()
+    }
+
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+        previewForDismissingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
+        menuGlyphPreview()
+    }
+
+    private func menuGlyphPreview() -> UITargetedPreview? {
+        guard window != nil else { return nil }
+        let parameters = UIPreviewParameters()
+        parameters.backgroundColor = .clear
+        parameters.shadowPath = UIBezierPath()
+        return UITargetedPreview(view: self, parameters: parameters)
     }
 }
