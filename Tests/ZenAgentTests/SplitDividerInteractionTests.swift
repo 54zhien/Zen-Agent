@@ -31,6 +31,7 @@ struct SplitDividerInteractionTests {
         let controller = UIViewController()
         window.rootViewController = controller
         window.makeKeyAndVisible()
+        controller.view.backgroundColor = UIColor(white: 0.5, alpha: 1)
         let divider = SplitDividerHandle(frame: CGRect(x: 100, y: 300, width: 64, height: 28))
         controller.view.addSubview(divider)
         defer { window.isHidden = true; window.rootViewController = nil }
@@ -86,6 +87,25 @@ struct SplitDividerInteractionTests {
             #expect(abs(shadow.layer.shadowOpacity - 0.14) < 0.001)
             #expect(divider.bounds == hitBounds && nativeHandle.frame == handleFrame,
                 "Sidebar styling must preserve the 28pt divider hit area and handle geometry")
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            format.preferredRange = .standard
+            let capture = UIGraphicsImageRenderer(bounds: controller.view.bounds, format: format).image {
+                controller.view.layer.render(in: $0.cgContext)
+            }
+            let pixel = try #require(capture.cgImage?.cropping(to: CGRect(x: 90, y: 314, width: 1, height: 1)))
+            var rgba = [UInt8](repeating: 0, count: 4)
+            let rendered = rgba.withUnsafeMutableBytes { storage -> Bool in
+                guard let context = CGContext(data: storage.baseAddress, width: 1, height: 1,
+                    bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
+                else { return false }
+                context.draw(pixel, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+                return true
+            }
+            try #require(rendered)
+            #expect(abs(Double(rgba[0]) / 255 - 0.5) < 0.02,
+                "Outside the handle and its shadow, the gap must reveal its actual backdrop without an extra dark layer")
         }
         if style == .dark {
             #expect(luminance[0] > 0.98)

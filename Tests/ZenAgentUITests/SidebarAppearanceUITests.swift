@@ -214,8 +214,8 @@ final class SidebarAppearanceUITests: XCTestCase {
     }
 
     @MainActor
-    func testLightSplitPickerRestoresThePageBackground() {
-        for sourceInTopPane in [true, false] {
+    func testLightSplitPickerRestoresThePageBackground() throws {
+        for (sourceInTopPane, occupied) in [(true, false), (false, false), (true, true), (false, true)] {
             let app = launchLightAppearance(bottomSource: !sourceInTopPane)
             app.openWorkspaceSplit(sourceInTopPane: sourceInTopPane)
             let picker = app.scrollViews["split-empty-pane-picker"]
@@ -232,13 +232,31 @@ final class SidebarAppearanceUITests: XCTestCase {
                 XCTAssertGreaterThan(luminance, 0.8, "The light picker must not revert to a black page")
             }
             XCTAssertFalse(app.buttons["split-entry"].exists)
+            if occupied {
+                app.buttons["split-history-preview-ui-10"].tap()
+                XCTAssertTrue(app.descendants(matching: .any)["split-secondary-pane"].waitForExistence(timeout: 10))
+            }
+            let top = try XCTUnwrap(splitViewportFrame(app, slot: "top"))
+            let bottom = try XCTUnwrap(splitViewportFrame(app, slot: "bottom"))
 
             app.openWorkspaceSidebar()
             let rail = app.descendants(matching: .any)["sidebar-rail"]
             XCTAssertTrue(rail.waitForExistence(timeout: 10))
             XCTAssertTrue(app.buttons["sidebar-settings"].isHittable)
-            XCTAssertTrue(picker.exists, "The empty Pane picker should remain mounted beside the open Sidebar")
-            attach(app.screenshot(), named: "Light Split picker with Sidebar, \(layout)")
+            if !occupied { XCTAssertTrue(picker.exists, "The empty Pane picker should remain mounted beside the open Sidebar") }
+            let expanded = app.screenshot()
+            XCTAssertEqual(splitViewportFrame(app, slot: "top"), top)
+            XCTAssertEqual(splitViewportFrame(app, slot: "bottom"), bottom)
+            let x = app.frame.maxX - 20
+            for edgeY in [top.maxY, bottom.minY] {
+                for offset in [CGFloat(-0.5), -0.25, 0, 0.25, 0.5] {
+                    let luminance = sampledLuminance(expanded, appFrame: app.frame,
+                        at: CGPoint(x: x, y: edgeY + offset))
+                    XCTAssertGreaterThan(luminance ?? 0, 0.985,
+                        "Expanded Split should have no inner horizontal outline framing a white band")
+                }
+            }
+            attach(expanded, named: "Split seam with Sidebar, \(layout), occupied=\(occupied)")
             app.terminate()
         }
     }
