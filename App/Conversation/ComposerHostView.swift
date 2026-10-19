@@ -41,7 +41,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private let geometryProbe = UIView()
     private var shelfController: UIHostingController<QuoteShelfView>?
     private let actionMenuState = ComposerActionMenuState()
-    private var actionMenuController: UIHostingController<ComposerActionMenuAnchor>?
+    private var actionMenu: ComposerActionMenuPresenter?
     private var shelfHeight: CGFloat = 44
     private var quotePhase: ComposerQuoteDragPhase = .idle
     private let motion = ComposerMotionController()
@@ -307,12 +307,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             lastBottomSafeAreaInset = -1
             setNeedsLayout()
         } else {
-            if actionMenuState.isPresented { actionMenuState.isPresented = false }
-            if let actionMenuController, actionMenuController.parent != nil {
-                actionMenuController.willMove(toParent: nil)
-                actionMenuController.view.removeFromSuperview()
-                actionMenuController.removeFromParent()
-            }
+            actionMenu?.close(animated: false)
             liftInteraction?.cancelForDetachment()
             // A retained off-window editor has no visible morph to finish.
             // Invalidate its completion before a later remount reuses the state.
@@ -761,44 +756,15 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     @objc private func presentActionMenu() {
         guard let window else { return }
-        var responder: UIResponder? = self
-        while let current = responder {
-            if let presenter = current as? UIViewController {
-                let anchor = ComposerActionMenuAnchor(presentation: actionMenuState, maximumSize: CGSize(
-                    width: min(UIFontMetrics(forTextStyle: .body).scaledValue(for: 250, compatibleWith: traitCollection),
-                               window.bounds.width - 32),
-                    height: window.bounds.height * 0.65
-                ), onSelect: { [weak self] modelID in self?.configuration?.onModel(modelID) })
-                let controller: UIHostingController<ComposerActionMenuAnchor>
-                if let existing = actionMenuController {
-                    controller = existing
-                    controller.rootView = anchor
-                } else {
-                    controller = UIHostingController(rootView: anchor)
-                    controller.view.backgroundColor = .clear
-                    controller.view.isUserInteractionEnabled = false
-                    controller.safeAreaRegions = []
-                    controller.view.frame = plus.bounds
-                    controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-                    actionMenuController = controller
-                }
-                if controller.parent !== presenter {
-                    if controller.parent != nil {
-                        controller.willMove(toParent: nil)
-                        controller.view.removeFromSuperview()
-                        controller.removeFromParent()
-                    }
-                    presenter.addChild(controller)
-                    controller.view.frame = plus.bounds
-                    plus.addSubview(controller.view)
-                    controller.didMove(toParent: presenter)
-                }
-                WorkspaceHaptics.shared.play(.control)
-                actionMenuState.isPresented.toggle()
-                return
-            }
-            responder = current.next
-        }
+        if let actionMenu { actionMenu.close(); return }
+        let menu = ComposerActionMenuPresenter(sourceView: plus, presentation: actionMenuState,
+            onSelect: { [weak self] modelID in self?.configuration?.onModel(modelID) },
+            onDismiss: { [weak self] menu in
+                if self?.actionMenu === menu { self?.actionMenu = nil }
+            })
+        actionMenu = menu
+        WorkspaceHaptics.shared.play(.control)
+        menu.show(in: window)
     }
 
     private func updateShelf(_ configuration: Configuration) {

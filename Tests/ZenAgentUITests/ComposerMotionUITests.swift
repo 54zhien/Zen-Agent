@@ -21,6 +21,16 @@ final class ComposerMotionUITests: XCTestCase {
         root.name = "Shared glass menu before model expansion"
         root.lifetime = .keepAlways
         add(root)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.3)).tap()
+        XCTAssertTrue(panel.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(plus.isHittable)
+        let input = app.textViews["conversation-composer-input"]
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        input.typeText("menu draft")
+        plus.tap()
+        XCTAssertTrue(panel.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
         title.tap()
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
         XCTAssertTrue(panel.exists)
@@ -43,6 +53,9 @@ final class ComposerMotionUITests: XCTestCase {
         second.tap()
         XCTAssertTrue(second.waitForNonExistence(timeout: 5))
         XCTAssertTrue(panel.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(plus.isHittable)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertEqual(input.value as? String, "menu draft")
         plus.tap()
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         title.tap()

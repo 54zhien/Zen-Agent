@@ -33,6 +33,7 @@ Composer menu scale-motion owner ruling @ b3ca36734213f370c8b2b8d5608e1b772880a7
 Owner menu rollback and bounded card motion correction @ 45bfb3f6d8e61d63fc38fdb4bbdfe7e18c2c263f
 Owner Sidebar Split seam disappearance ruling @ 6d100234b7087c87461f6056c1fd8643b7dc90c2
 Owner shared Liquid Glass Composer menu ruling @ 5b23c35dee0bf701aca3f6dde46feffba6dbbb10
+Owner anchored Composer menu and subtle arrival-bounce ruling @ e695c74f3d6214f94401ce44cbcbf055cc4ac152
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -52,6 +53,9 @@ merges the inner Pane contours into one Workspace exterior, retaining the handle
 and its faint shadow without changing Pane geometry or retained content state.
 The subsequent menu ruling keeps exact model-option alignment while using one
 Apple Liquid Glass container for continuous root/submenu morphing and return.
+The outer panel scales uniformly from and back to the actual `+` position,
+with a subtle bounce only on arrival. Dismissal and submenu changes stay smooth,
+without changing the editor's window.
 
 This is a snapshot of the design state this work started from, not a permanent
 version pin. Update it when the blueprint changes in a way that affects

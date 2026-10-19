@@ -4,38 +4,15 @@ import UIKit
 
 @MainActor @Observable
 final class ComposerActionMenuState {
-    var isPresented = false
     var models: [ModelDescriptor] = []
     var selectedModelID: ModelID?
 }
 
-struct ComposerActionMenuAnchor: View {
-    @Bindable var presentation: ComposerActionMenuState
-    let maximumSize: CGSize
-    let onSelect: (ModelID) -> Void
-
-    var body: some View {
-        Color.clear
-            .popover(isPresented: $presentation.isPresented,
-                     attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
-                ComposerActionMenuView(models: presentation.models,
-                    selectedModelID: presentation.selectedModelID,
-                    maximumSize: maximumSize,
-                    onSelect: { modelID in
-                        onSelect(modelID)
-                        presentation.isPresented = false
-                    })
-                    .presentationCompactAdaptation(.popover)
-                    .presentationBackground(.clear)
-            }
-    }
-}
-
 struct ComposerActionMenuView: View {
-    let models: [ModelDescriptor]
-    let selectedModelID: ModelID?
+    let presentation: ComposerActionMenuState
     let maximumSize: CGSize
     let onSelect: (ModelID) -> Void
+    let onSizeChanged: (CGSize) -> Void
     @State private var showsModels = false
     @Namespace private var glassNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -47,12 +24,12 @@ struct ComposerActionMenuView: View {
             ZStack(alignment: .bottomLeading) {
                 if showsModels {
                     modelMenu
-                        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 28))
+                        .glassEffect(.regular, in: .rect(cornerRadius: 28))
                         .glassEffectID("composer-menu", in: glassNamespace)
                         .glassEffectTransition(.matchedGeometry)
                 } else {
                     actions
-                        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 28))
+                        .glassEffect(.regular, in: .rect(cornerRadius: 28))
                         .glassEffectID("composer-menu", in: glassNamespace)
                         .glassEffectTransition(.matchedGeometry)
                 }
@@ -66,19 +43,29 @@ struct ComposerActionMenuView: View {
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("composer-action-menu")
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { onSizeChanged($0) }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
     }
 
     private var actions: some View {
+        ViewThatFits(in: .vertical) {
+            actionRows
+            ScrollView { actionRows }.scrollBounceBehavior(.basedOnSize)
+        }
+        .frame(width: maximumSize.width)
+    }
+
+    private var actionRows: some View {
         VStack(spacing: 0) {
-            unavailable("添加图片", symbol: "photo")
-            unavailable("添加文件", symbol: "doc")
-            unavailable("插件", symbol: "puzzlepiece")
+            unavailable("推理强度", symbol: "slider.horizontal.3")
             Button { navigate(toModels: true) } label: {
                 actionLabel("模型", symbol: "cpu", opensMenu: true)
             }
-            .disabled(models.isEmpty)
+            .disabled(presentation.models.isEmpty)
             .accessibilityLabel("模型")
-            unavailable("推理强度", symbol: "slider.horizontal.3")
+            unavailable("插件", symbol: "puzzlepiece")
+            unavailable("添加文件", symbol: "doc")
+            unavailable("添加图片", symbol: "photo")
         }
         .padding(.vertical, 12)
         .frame(width: maximumSize.width)
@@ -139,14 +126,12 @@ struct ComposerActionMenuView: View {
 
     private func navigate(toModels: Bool) {
         WorkspaceHaptics.shared.play(.control)
-        // Keep both levels in one presentation and let Liquid Glass own the
-        // shape/content morph; a second popover breaks that continuous transition.
-        withAnimation(reduceMotion ? nil : .default) { showsModels = toModels }
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.26)) { showsModels = toModels }
     }
 
     private var options: some View {
         VStack(spacing: 0) {
-            ForEach(models, id: \.id) { model in
+            ForEach(presentation.models, id: \.id) { model in
                 Button { onSelect(model.id) } label: {
                     Text(model.displayName)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -158,12 +143,12 @@ struct ComposerActionMenuView: View {
                             Image(systemName: "checkmark")
                                 .font(.body.weight(.semibold))
                                 .padding(.leading, checkLeading)
-                                .opacity(model.id == selectedModelID ? 1 : 0)
+                                .opacity(model.id == presentation.selectedModelID ? 1 : 0)
                                 .accessibilityHidden(true)
                         }
                         .contentShape(Rectangle())
                 }
-                .accessibilityAddTraits(model.id == selectedModelID ? .isSelected : [])
+                .accessibilityAddTraits(model.id == presentation.selectedModelID ? .isSelected : [])
             }
         }
     }
