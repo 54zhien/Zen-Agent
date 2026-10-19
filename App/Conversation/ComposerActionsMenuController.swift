@@ -6,8 +6,9 @@ import UIKit
 final class ComposerActionsMenuController: UIViewController, UIViewControllerTransitioningDelegate {
     private let sourceView: UIView
     private let onModel: () -> Void
-    fileprivate let panel = UIVisualEffectView(effect: UIGlassEffect(style: .regular))
-    private let scroll = UIScrollView()
+    fileprivate let panel = UIView()
+    private let glass = UIVisualEffectView(effect: UIGlassEffect(style: .regular))
+    fileprivate let scroll = UIScrollView()
     private let rows = UIStackView()
 
     init(sourceView: UIView, onModel: @escaping () -> Void) {
@@ -32,9 +33,13 @@ final class ComposerActionsMenuController: UIViewController, UIViewControllerTra
         outside.addTarget(self, action: #selector(close), for: .touchUpInside)
         view.addSubview(outside)
 
-        panel.cornerConfiguration = .corners(radius: .fixed(28))
         view.addSubview(panel)
-        panel.contentView.addSubview(scroll)
+        glass.cornerConfiguration = .corners(radius: .fixed(28))
+        glass.isUserInteractionEnabled = false
+        glass.accessibilityElementsHidden = true
+        panel.addSubview(glass)
+        // Material is decorative; the rows keep an ordinary UIKit input/AX path.
+        panel.addSubview(scroll)
         scroll.accessibilityIdentifier = "composer-actions-list"
         scroll.contentInsetAdjustmentBehavior = .never
         scroll.showsVerticalScrollIndicator = false
@@ -110,6 +115,7 @@ final class ComposerActionsMenuController: UIViewController, UIViewControllerTra
         // Frame is undefined while the panel has a scale transform.
         panel.bounds = CGRect(x: 0, y: 0, width: width, height: height)
         panel.center = CGPoint(x: x + width / 2, y: y + height / 2)
+        glass.frame = panel.bounds
         scroll.frame = CGRect(x: 0, y: min(8, height / 2), width: width, height: max(0, height - 16))
     }
 
@@ -173,18 +179,18 @@ private final class ComposerMenuAnimator: NSObject, UIViewControllerAnimatedTran
             menu.view.frame = context.finalFrame(for: menu)
             menu.view.layoutIfNeeded()
             menu.panel.transform = menu.collapsedTransform
-            menu.panel.contentView.alpha = 0
+            menu.scroll.alpha = 0
         }
         menu.view.isUserInteractionEnabled = false
         UIView.animate(withDuration: transitionDuration(using: context), delay: 0,
                        options: presenting ? .curveEaseOut : .curveEaseIn) {
             menu.panel.transform = self.presenting ? .identity : menu.collapsedTransform
             // Glass must composite at full alpha; fade its content instead.
-            menu.panel.contentView.alpha = self.presenting ? 1 : 0
+            menu.scroll.alpha = self.presenting ? 1 : 0
         } completion: { _ in
             if context.transitionWasCancelled {
                 menu.panel.transform = .identity
-                menu.panel.contentView.alpha = 1
+                menu.scroll.alpha = 1
             }
             menu.view.isUserInteractionEnabled = true
             context.completeTransition(!context.transitionWasCancelled)
