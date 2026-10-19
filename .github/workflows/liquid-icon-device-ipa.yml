@@ -1,11 +1,11 @@
 name: Liquid icon device IPA
 
 on:
-  push:
-    branches: [codex/zen-liquid-icon-20261006]
+  workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   package:
@@ -13,6 +13,24 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify frozen source and owner-authorized direct package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = 'codex/device-ipa-rebound-7b76460cc598'
+          source=7b76460cc598dc4d9c5bd787ce43accddf8b98a8
+          test "$(git rev-parse "$source^{tree}")" = '7fce52df4112649a0605351baa4515c056b46271'
+          git merge-base --is-ancestor "$source" HEAD
+          git merge-base --is-ancestor 5934dd0ff8bf035dc2ac9c52d8340ba19aab4e6c "$source"
+          git merge-base --is-ancestor 21570f32717f9c01965990699c3abb48aca7f2fe "$source"
+          test "$(git diff --no-renames --name-only "$source" HEAD)" = '.github/workflows/liquid-icon-device-ipa.yml'
+          git diff --exit-code "$source" HEAD -- App Config Resources project.yml
+          echo 'Owner requested direct device packaging without waiting for queued targeted checks.'
+
       - name: Toolchain versions
         run: xcodebuild -version
       - name: Compile icon alone and verify appearance fills
@@ -39,21 +57,6 @@ jobs:
           assert 'icon.json in Resources' not in text
           assert 'zen-dark.svg in Resources' not in text
           PY
-      - name: Build and run app unit tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          UDID=$(xcrun simctl list devices available | grep -E '^\s+iPhone' | head -n 1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
-          test -n "$UDID"
-          xcrun simctl bootstatus "$UDID" -b
-          xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent \
-            -configuration Debug -destination "id=$UDID" \
-            -only-testing:ZenAgentTests \
-            -resultBundlePath "$RUNNER_TEMP/IconUnitTests.xcresult" \
-            2>&1 | tee "$RUNNER_TEMP/IconUnitTests.log"
-          if grep -Fq 'Restarting after unexpected exit, crash, or test timeout' "$RUNNER_TEMP/IconUnitTests.log"; then
-            exit 1
-          fi
       - name: Build unsigned device app
         shell: bash
         run: |
@@ -107,6 +110,7 @@ jobs:
           /usr/bin/ditto "$app" "$stage/Payload/ZenAgent.app"
           rm -- "$stage/Payload/ZenAgent.app/Anthropic Sans.ttf"
           python3 - "$stage/Payload/ZenAgent.app/Info.plist" <<'PY'
+          import os
           import plistlib
           import sys
 
@@ -116,11 +120,12 @@ jobs:
           fonts = info['UIAppFonts']
           assert fonts.count('Anthropic Sans.ttf') == 1
           info['UIAppFonts'] = [font for font in fonts if font != 'Anthropic Sans.ttf']
+          info['CFBundleVersion'] = '26.10.' + os.environ['GITHUB_RUN_NUMBER']
           with open(path, 'wb') as file:
               plistlib.dump(info, file)
           PY
 
-          name='ZenAgent-LiquidIcon-device-test.ipa'
+          name='ZenAgent-Menu-Rebound-Split-7b76460-device-test.ipa'
           (cd "$stage" && /usr/bin/zip -qry "$output/$name" Payload)
           /usr/bin/unzip -tq "$output/$name"
           if /usr/bin/unzip -Z1 "$output/$name" | grep -i 'Anthropic'; then
@@ -134,8 +139,18 @@ jobs:
           cp Resources/Fonts/LICENSE-JetBrainsMono.txt "$output/LICENSES/"
           (cd "$output" && /usr/bin/shasum -a 256 "$name" > SHA256SUMS.txt)
           {
-            echo 'Baseline: fd8655999fef4758db947fb734f50e7c6bde24b8 (verified V11)'
-            echo 'Icon source: desktop zen.icon; exact artwork split into symbol/gray layers, appearance fills corrected, system backgrounds'
+            echo 'Frozen source: 7b76460cc598dc4d9c5bd787ce43accddf8b98a8'
+            echo 'Frozen tree: 7fce52df4112649a0605351baa4515c056b46271'
+            echo 'Owner requested direct packaging without waiting for targeted checks.'
+            echo 'Composer check: https://github.com/54zhien/Zen-Agent/actions/runs/39308008354'
+            echo 'Divider check: https://github.com/54zhien/Zen-Agent/actions/runs/39301479183'
+            echo 'Composer targeted result: failure; opening the model submenu still exits the app in the Simulator check.'
+            echo 'Sidebar Split targeted result: success (25 unique selected tests, 38 expanded runs).'
+            echo 'Owner requested packaging the current candidate without running tests.'
+            echo 'This package is not a claim that all targeted checks passed.'
+            echo 'Contains native opening/closing menu rebound and independent Sidebar Split Pane outlines/shadows; model submenu native regression is not resolved.'
+            echo 'No full test run requested or executed for this package.'
+            echo "CFBundleVersion: 26.10.$GITHUB_RUN_NUMBER"
             echo "Packaging commit: $GITHUB_SHA"
             echo "Packaging tree: $(git rev-parse HEAD^{tree})"
             echo "Workflow run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
@@ -149,7 +164,7 @@ jobs:
       - name: Upload unsigned IPA and provenance
         uses: actions/upload-artifact@v4
         with:
-          name: ZenAgent-LiquidIcon-device-test
+          name: ZenAgent-Menu-Rebound-Split-7b76460-device-test
           path: ${{ runner.temp }}/ZenAgentDeviceOutput/
           retention-days: 7
           compression-level: 0
