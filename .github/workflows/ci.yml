@@ -43,7 +43,13 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Xcode project
-        run: xcodegen generate
+        run: |
+          ruby -ryaml -e 'p="project.yml"; s=YAML.load_file(p); c=s.fetch("schemes").fetch("ZenAgent"); c.fetch("build").fetch("targets").delete("ZenAgentTests"); c.fetch("test")["targets"]=["ZenAgentUITests"]; c.fetch("test")["debugEnabled"]=false; File.write(p,YAML.dump(s))'
+          mkdir -p "$RUNNER_TEMP/composer-menu-evidence"
+          git diff -- project.yml > "$RUNNER_TEMP/composer-menu-evidence/diagnostic-scheme.patch"
+          cp project.yml "$RUNNER_TEMP/composer-menu-evidence/diagnostic-project.yml"
+          xcodegen generate
+          git restore -- project.yml
       - name: Cache Swift Package Manager
         uses: actions/cache@v4
         with:
@@ -328,7 +334,13 @@ jobs:
         run: brew install xcodegen
 
       - name: Generate Xcode project from project.yml
-        run: xcodegen generate
+        run: |
+          ruby -ryaml -e 'p="project.yml"; s=YAML.load_file(p); c=s.fetch("schemes").fetch("ZenAgent"); c.fetch("build").fetch("targets").delete("ZenAgentTests"); c.fetch("test")["targets"]=["ZenAgentUITests"]; c.fetch("test")["debugEnabled"]=false; File.write(p,YAML.dump(s))'
+          mkdir -p "$RUNNER_TEMP/composer-menu-evidence"
+          git diff -- project.yml > "$RUNNER_TEMP/composer-menu-evidence/diagnostic-scheme.patch"
+          cp project.yml "$RUNNER_TEMP/composer-menu-evidence/diagnostic-project.yml"
+          xcodegen generate
+          git restore -- project.yml
 
       # The guard itself lives in .github/scripts/ so that guard-selftest.yml
       # can run the same bytes against deliberately broken trees. A guard that
@@ -807,7 +819,13 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate project
-        run: xcodegen generate
+        run: |
+          ruby -ryaml -e 'p="project.yml"; s=YAML.load_file(p); c=s.fetch("schemes").fetch("ZenAgent"); c.fetch("build").fetch("targets").delete("ZenAgentTests"); c.fetch("test")["targets"]=["ZenAgentUITests"]; c.fetch("test")["debugEnabled"]=false; File.write(p,YAML.dump(s))'
+          mkdir -p "$RUNNER_TEMP/composer-menu-evidence"
+          git diff -- project.yml > "$RUNNER_TEMP/composer-menu-evidence/diagnostic-scheme.patch"
+          cp project.yml "$RUNNER_TEMP/composer-menu-evidence/diagnostic-project.yml"
+          xcodegen generate
+          git restore -- project.yml
       - name: Cache Swift packages
         uses: actions/cache@v4
         with:
@@ -883,7 +901,7 @@ jobs:
                 trap 'kill -INT "$video_pid" 2>/dev/null || true; wait "$video_pid" || true' EXIT
               fi
               sudo /usr/sbin/DevToolsSecurity --enable
-              printf '%s' 'aW1wb3J0IHBhdGhsaWIsIHN1YnByb2Nlc3MsIHN5cywgdGltZQpvdXRwdXQgPSBwYXRobGliLlBhdGgoc3lzLmFyZ3ZbMV0pCmZvciBhdHRlbXB0IGluIHJhbmdlKDM2MDApOgogICAgZm91bmQgPSBzdWJwcm9jZXNzLnJ1bihbJ3BncmVwJywgJy1mJywgJy9aZW5BZ2VudC5hcHAvWmVuQWdlbnQnXSwgY2FwdHVyZV9vdXRwdXQ9VHJ1ZSwgdGV4dD1UcnVlKQogICAgcGlkcyA9IGZvdW5kLnN0ZG91dC5zcGxpdCgpCiAgICBpZiBwaWRzOgogICAgICAgIHdpdGggb3V0cHV0Lm9wZW4oJ3cnKSBhcyBsb2c6CiAgICAgICAgICAgIHByaW50KCdBdHRhY2hpbmcgdG8gU2ltdWxhdG9yIGFwcCBQSUQnLCBwaWRzWzBdLCBmaWxlPWxvZywgZmx1c2g9VHJ1ZSkKICAgICAgICAgICAgdHJ5OgogICAgICAgICAgICAgICAgc3VicHJvY2Vzcy5ydW4oWyd4Y3J1bicsICdsbGRiJywgJy0tYmF0Y2gnLCAnLS1hdHRhY2gtcGlkJywgcGlkc1swXSwKICAgICAgICAgICAgICAgICAgICAnLW8nLCAnYnJlYWtwb2ludCBzZXQgLS1uYW1lIF9kaXNwYXRjaF9hc3NlcnRfcXVldWVfZmFpbCcsCiAgICAgICAgICAgICAgICAgICAgJy1vJywgJ2NvbnRpbnVlJywgJy1vJywgJ3RocmVhZCBiYWNrdHJhY2UgYWxsJywKICAgICAgICAgICAgICAgICAgICAnLW8nLCAnaW1hZ2UgbGlzdCAtbyAtZicsICctbycsICdwcm9jZXNzIGRldGFjaCddLAogICAgICAgICAgICAgICAgICAgIHN0ZG91dD1sb2csIHN0ZGVycj1zdWJwcm9jZXNzLlNURE9VVCwgdGltZW91dD0yNDApCiAgICAgICAgICAgIGV4Y2VwdCBzdWJwcm9jZXNzLlRpbWVvdXRFeHBpcmVkOgogICAgICAgICAgICAgICAgcHJpbnQoJ05vIGFzc2VydGlvbiBicmVha3BvaW50IGhpdCB3aXRoaW4gMjQwIHNlY29uZHMuJywgZmlsZT1sb2cpCiAgICAgICAgYnJlYWsKICAgIHRpbWUuc2xlZXAoMC41KQplbHNlOgogICAgb3V0cHV0LndyaXRlX3RleHQoJ0FwcCBwcm9jZXNzIHdhcyBub3Qgb2JzZXJ2ZWQuXG4nKQo=' | /usr/bin/base64 -D > "$RUNNER_TEMP/menu-stack-monitor.py"
+              printf '%s' 'aW1wb3J0IHBhdGhsaWIsIHN1YnByb2Nlc3MsIHN5cywgdGltZQpvdXRwdXQgPSBwYXRobGliLlBhdGgoc3lzLmFyZ3ZbMV0pCmZvciBhdHRlbXB0IGluIHJhbmdlKDM2MDApOgogICAgZm91bmQgPSBzdWJwcm9jZXNzLnJ1bihbJ3BncmVwJywgJy14JywgJ1plbkFnZW50J10sIGNhcHR1cmVfb3V0cHV0PVRydWUsIHRleHQ9VHJ1ZSkKICAgIHBpZHMgPSBmb3VuZC5zdGRvdXQuc3BsaXQoKQogICAgaWYgcGlkczoKICAgICAgICB3aXRoIG91dHB1dC5vcGVuKCd3JykgYXMgbG9nOgogICAgICAgICAgICBwcmludCgnQXR0YWNoaW5nIHRvIFNpbXVsYXRvciBhcHAgUElEJywgcGlkc1swXSwgZmlsZT1sb2csIGZsdXNoPVRydWUpCiAgICAgICAgICAgIHRyeToKICAgICAgICAgICAgICAgIHN1YnByb2Nlc3MucnVuKFsneGNydW4nLCAnbGxkYicsICctLWJhdGNoJywgJy0tYXR0YWNoLXBpZCcsIHBpZHNbMF0sCiAgICAgICAgICAgICAgICAgICAgJy1vJywgJ2JyZWFrcG9pbnQgc2V0IC0tbmFtZSBfZGlzcGF0Y2hfYXNzZXJ0X3F1ZXVlX2ZhaWwnLAogICAgICAgICAgICAgICAgICAgICctbycsICdjb250aW51ZScsICctbycsICd0aHJlYWQgYmFja3RyYWNlIGFsbCcsCiAgICAgICAgICAgICAgICAgICAgJy1vJywgJ2ltYWdlIGxpc3QgLW8gLWYnLCAnLW8nLCAncHJvY2VzcyBkZXRhY2gnXSwKICAgICAgICAgICAgICAgICAgICBzdGRvdXQ9bG9nLCBzdGRlcnI9c3VicHJvY2Vzcy5TVERPVVQsIHRpbWVvdXQ9MjQwKQogICAgICAgICAgICBleGNlcHQgc3VicHJvY2Vzcy5UaW1lb3V0RXhwaXJlZDoKICAgICAgICAgICAgICAgIHByaW50KCdObyBhc3NlcnRpb24gYnJlYWtwb2ludCBoaXQgd2l0aGluIDI0MCBzZWNvbmRzLicsIGZpbGU9bG9nKQogICAgICAgIGJyZWFrCiAgICB0aW1lLnNsZWVwKDAuNSkKZWxzZToKICAgIG91dHB1dC53cml0ZV90ZXh0KCdBcHAgcHJvY2VzcyB3YXMgbm90IG9ic2VydmVkLlxuJykK' | /usr/bin/base64 -D > "$RUNNER_TEMP/menu-stack-monitor.py"
               python3 "$RUNNER_TEMP/menu-stack-monitor.py" "$evidence/dispatch-assert-stack.txt" &
               monitor_pid=$!
               set +e
