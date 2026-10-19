@@ -110,7 +110,7 @@ final class ComposerActionsMenuController: UIViewController, UIViewControllerTra
         // Frame is undefined while the panel has a scale transform.
         panel.bounds = CGRect(x: 0, y: 0, width: width, height: height)
         panel.center = CGPoint(x: x + width / 2, y: y + height / 2)
-        scroll.frame = panel.bounds.insetBy(dx: 0, dy: 8)
+        scroll.frame = CGRect(x: 0, y: min(8, height / 2), width: width, height: max(0, height - 16))
     }
 
     fileprivate var collapsedTransform: CGAffineTransform {
