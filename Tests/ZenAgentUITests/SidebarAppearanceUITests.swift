@@ -248,13 +248,15 @@ final class SidebarAppearanceUITests: XCTestCase {
             XCTAssertEqual(splitViewportFrame(app, slot: "bottom"), bottom)
             let sampleX = rail.frame.maxX + 90
             for edgeY in [top.maxY, bottom.minY] {
+                var edgeSamples: [Double] = []
                 for offset in [CGFloat(-0.5), -0.25, 0, 0.25, 0.5] {
                     // This fixture is blank here; its right-aligned bubble can reach the far edge.
                     let luminance = sampledLuminance(expanded, appFrame: app.frame,
                         at: CGPoint(x: sampleX, y: edgeY + offset))
-                    XCTAssertGreaterThan(luminance ?? 0, 0.985,
-                        "Expanded Split should have no inner horizontal outline framing a white band")
+                    if let luminance { edgeSamples.append(luminance) }
                 }
+                XCTAssertLessThan(edgeSamples.min() ?? 1, 0.98,
+                    "Each expanded Split Pane must keep its own visible outline, including the picker")
             }
             attach(expanded, named: "Split seam with Sidebar, \(layout), occupied=\(occupied)")
             app.terminate()
