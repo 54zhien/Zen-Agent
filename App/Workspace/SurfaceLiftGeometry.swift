@@ -16,7 +16,7 @@ enum SurfaceLiftGeometry {
               displacement.width.isFinite, displacement.height.isFinite,
               progress.isFinite, windowCornerRadius.isFinite, windowCornerRadius >= 0 else { return nil }
         let fraction = min(1, max(0, progress))
-        let scale = 1 - CGFloat(fraction) * 0.4
+        let scale = 1 - CGFloat(fraction) * 0.74
         // Approach the space exposed by shrinking with increasing resistance,
         // so the entire live page stays inside the display throughout the drag.
         func resisted(_ distance: CGFloat, extent: CGFloat) -> CGFloat {

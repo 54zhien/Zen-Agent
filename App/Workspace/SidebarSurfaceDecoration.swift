@@ -62,16 +62,20 @@ final class SidebarSurfaceDecoration {
     private let tintView = UIView()
     private let exteriorShadowMask = CAShapeLayer()
     private let outlineView = OutlineView()
-    private var silhouette: Silhouette?
+    private var shadowSilhouette: ShadowSilhouette?
+    private var outlineSilhouette: OutlineSilhouette?
     private var ownsOpacity = false
     private(set) var silhouetteBuildCount = 0
     static let outlineWidth: CGFloat = 0.75
 
-    private struct Silhouette: Equatable {
+    private struct ShadowSilhouette: Equatable {
         let bounds: CGRect
         let radii: SurfaceCornerRadii
-        let outlineBounds: CGRect
-        let outlineRadii: SurfaceCornerRadii
+    }
+
+    private struct OutlineSilhouette: Equatable {
+        let bounds: CGRect
+        let radii: SurfaceCornerRadii
     }
 
     private final class OutlineView: UIView {
@@ -137,45 +141,57 @@ final class SidebarSurfaceDecoration {
                                    y: surface.center.y + frame.midY - surface.bounds.midY)
         shadowView.transform = surface.transform
         shadowView.layer.shadowOffset = CGSize(width: direction * 3, height: 0)
-        let next = Silhouette(bounds: shadowView.bounds, radii: shadowRadii,
-            outlineBounds: surface.bounds, outlineRadii: radii)
-        guard silhouette != next else { return }
-        silhouette = next
+        let nextShadow = ShadowSilhouette(bounds: shadowView.bounds, radii: shadowRadii)
+        if shadowSilhouette != nextShadow {
+            shadowSilhouette = nextShadow
+            if shadowView.bounds.isEmpty {
+                shadowView.layer.shadowPath = nil
+                exteriorShadowMask.path = nil
+            } else {
+                let shadowPath = shadowRadii.path(in: shadowView.bounds)
+                shadowView.layer.shadowPath = shadowPath
+                // The shared workspace shadow must stay outside its silhouette, including
+                // rounded cutouts of an individual Pane above the picker.
+                let padding = ceil(shadowView.layer.shadowRadius * 3
+                    + max(abs(shadowView.layer.shadowOffset.width), abs(shadowView.layer.shadowOffset.height)))
+                let extent = shadowView.bounds.insetBy(dx: -padding, dy: -padding)
+                exteriorShadowMask.bounds = extent
+                exteriorShadowMask.position = CGPoint(x: shadowView.bounds.midX, y: shadowView.bounds.midY)
+                let exterior = CGMutablePath()
+                exterior.addRect(extent)
+                exterior.addPath(shadowPath)
+                exteriorShadowMask.path = exterior
+            }
+            silhouetteBuildCount += 1
+        }
+        updateOutlineGeometry(surface: surface, radii: radii)
+    }
+
+    /// Pane outlines are visible on every translated page, including the Split
+    /// picker that deliberately does not own the workspace's shared shadow.
+    func updateOutlineGeometry(surface: UIView, radii: SurfaceCornerRadii) {
+        let next = OutlineSilhouette(bounds: surface.bounds, radii: radii)
+        guard outlineSilhouette != next else { return }
+        outlineSilhouette = next
         guard !surface.bounds.isEmpty else {
-            shadowView.layer.shadowPath = nil
             outlineView.shape.path = nil
             return
         }
-        let outline = shadowRadii.path(in: shadowView.bounds)
-        shadowView.layer.shadowPath = outline
-        // The shared workspace shadow must stay outside its silhouette, including
-        // rounded cutouts of an individual Pane above the picker.
-        let padding = ceil(shadowView.layer.shadowRadius * 3
-            + max(abs(shadowView.layer.shadowOffset.width), abs(shadowView.layer.shadowOffset.height)))
-        let extent = shadowView.bounds.insetBy(dx: -padding, dy: -padding)
-        exteriorShadowMask.bounds = extent
-        exteriorShadowMask.position = CGPoint(x: shadowView.bounds.midX, y: shadowView.bounds.midY)
-        let exterior = CGMutablePath()
-        exterior.addRect(extent)
-        exterior.addPath(outline)
-        exteriorShadowMask.path = exterior
         // Inset by half the stroke so the Surface's own clip keeps the whole line.
         outlineView.shape.path = radii.path(in: surface.bounds, inset: Self.outlineWidth / 2)
-        silhouetteBuildCount += 1
     }
 
     func applyAppearance(surface: UIView, progress: CGFloat, traits: UITraitCollection) {
         let fraction = min(1, max(0, progress))
-        // App Space browsing owns alpha outside Sidebar transport. A closed
-        // sidebar must not overwrite a browsed card's independent depth fade.
+        // App Space owns its Surface outside Sidebar transport. A closed
+        // sidebar must not overwrite that presentation on every browse frame.
         guard fraction > 0 || ownsOpacity else { return }
         ownsOpacity = fraction > 0
         let appearance = SidebarPageAppearance(progress: fraction, dark: traits.userInterfaceStyle == .dark,
             reduceTransparency: UIAccessibility.isReduceTransparencyEnabled)
         surface.alpha = appearance.surfaceOpacity
         tintView.alpha = appearance.tintOpacity
-        // The same gray the Split divider fades into, so divider and outline
-        // read as one line wrapping the page in both appearances.
+        // Every Pane keeps the same progressive hairline in either appearance.
         outlineView.shape.strokeColor = SidebarProgressPresentation.edgeColor(traits: traits).cgColor
         outlineView.alpha = appearance.outlineOpacity
     }

@@ -216,7 +216,7 @@ final class SidebarAppearanceUITests: XCTestCase {
     @MainActor
     func testLightSplitPickerRestoresThePageBackground() {
         for sourceInTopPane in [true, false] {
-            let app = launchLightAppearance()
+            let app = launchLightAppearance(bottomSource: !sourceInTopPane)
             app.openWorkspaceSplit(sourceInTopPane: sourceInTopPane)
             let picker = app.scrollViews["split-empty-pane-picker"]
             XCTAssertTrue(picker.waitForExistence(timeout: 10))
@@ -307,11 +307,12 @@ final class SidebarAppearanceUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchLightAppearance() -> XCUIApplication {
+    private func launchLightAppearance(bottomSource: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleInterfaceStyle", "Light"]
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
+        if bottomSource { app.launchEnvironment["ZEN_BOTTOM_SOURCE_SPLIT_UI_TEST"] = "1" }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         return app

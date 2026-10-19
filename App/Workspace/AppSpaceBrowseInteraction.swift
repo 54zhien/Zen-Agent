@@ -21,6 +21,8 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
     private var lastTimestamp: TimeInterval?
     private var dragOffset = 0.0
     private var lastTranslation = 0.0
+    private var recentVelocity = 0.0
+    private var recentSampleTime: TimeInterval = 0
     private var preservesPresentation = false
     var isAnimating: Bool { motion != nil }
     private let windowCornerGeometry = WindowCornerGeometry()
@@ -56,7 +58,7 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
         recognizer.cancelsTouchesInView = true
         recognizer.delegate = self
         recognizer.addTarget(self, action: #selector(gestureChanged(_:)))
-        surface.addGestureRecognizer(recognizer)
+        coordinates.addGestureRecognizer(recognizer)
         controller.claimTransport(transportOwner) { [weak self] in self?.stateChanged() }
         updateViewport()
     }
@@ -81,6 +83,10 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
     }
 
     var canNavigate: Bool { isCurrentOwner && canBrowse() && controller.state.phase == .idle }
+    var acceptsCanvasTouches: Bool {
+        isCurrentOwner && controller.isPresented && !controller.interactionSuspended
+            && canBrowse() && (controller.state.phase == .idle || isAnimating)
+    }
     var hasNavigationActions: Bool {
         isCurrentOwner && controller.isPresented && !controller.interactionSuspended && controller.state.phase == .idle
     }
@@ -122,20 +128,30 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
             guard canBrowse(), catchesMotion || controller.begin() else { return }
             dragOffset = caughtOffset
             lastTranslation = 0
+            sampleVelocity(pan, reference: reference)
             drag(pan, reference: reference, travel: Double(layout.travel))
         case .changed:
+            sampleVelocity(pan, reference: reference)
             drag(pan, reference: reference, travel: Double(layout.travel))
         case .ended:
-            // UIKit may deliver the final displacement only with release. Its
-            // velocity can already be zero, so the last changed sample is stale.
+            // Consume release displacement even without a changed callback. A
+            // brief flick can lift off after UIKit has zeroed its velocity.
             drag(pan, reference: reference, travel: Double(layout.travel))
             guard controller.state.phase == .dragging else { return }
-            let velocity = Double(pan.velocity(in: reference).x) / Double(layout.travel)
+            let released = Double(pan.velocity(in: reference).x)
+            let velocity = (released == 0 && CACurrentMediaTime() - recentSampleTime <= 0.06
+                ? recentVelocity : released) / Double(layout.travel)
             guard velocity.isFinite else { cancel(); return }
             start(AppSpaceBrowseMotion(offset: min(1, max(-1, dragOffset)), velocity: velocity))
         case .cancelled, .failed: cancel()
         default: break
         }
+    }
+
+    private func sampleVelocity(_ pan: UIPanGestureRecognizer, reference: UIView) {
+        // A changed sample at rest deliberately clears momentum before release.
+        recentVelocity = Double(pan.velocity(in: reference).x)
+        recentSampleTime = CACurrentMediaTime()
     }
 
     @discardableResult
@@ -229,7 +245,7 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
     func unbind() {
         cancel()
         controller.releaseTransport(transportOwner)
-        surface?.removeGestureRecognizer(recognizer)
+        coordinates?.removeGestureRecognizer(recognizer)
     }
 
     private func stopMotion() {

@@ -28,7 +28,7 @@ Zen-Agent-Blueprint @ 99d30b815651fe987bab9f88e269a84a89318625
 Owner-approved Stage 5 supplement @ e6d8c5f9919a83672bea670bc7e49339e5f5373c
 Device feedback corrections @ 3b4b22c0df91be668406127c84c1822b359883c0
 Device glass and motion owner ruling @ 51b4dc33beec515c7d684d352060fbdeded1825e
-App Space inertia and opaque-card owner ruling @ b54da2c14c63bdf9750d5be9c9b40d2079420fd1
+App Space centered stacks and Split device-feedback ruling @ 97fc04dea9ce0f2cd7e834de938e3450da4335d4
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -38,6 +38,8 @@ two-axis interactive Lift, synchronized Composer feedback and layered Sidebar vi
 The App Space ruling is on Blueprint branch `codex/appspace-inertial-browse-20261019`,
 not merged into Blueprint `main`. It records the owner's confirmed multi-card inertia,
 nearest-card snapping and opaque, continuously rounded card surfaces.
+The latest device correction centers the selected card with a tighter stack,
+admits short canvas flicks, and retains small bounded Split cards through release.
 
 This is a snapshot of the design state this work started from, not a permanent
 version pin. Update it when the blueprint changes in a way that affects

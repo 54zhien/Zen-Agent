@@ -20,10 +20,9 @@ enum AppSpaceGeometry {
     }
 
     /// Leftward offset of each predecessor's center, as a fraction of the current card's
-    /// width. Like the system app switcher, the first predecessor shows about half of
-    /// itself and deeper cards compress toward the leading edge.
-    static let depthOffsets: [CGFloat] = [0, 0.5, 0.78, 0.92]
-    static let depthScaleStep: CGFloat = 0.035
+    /// width. A narrow exposed strip and small vertical steps keep the stack compact.
+    static let depthOffsets: [CGFloat] = [0, 0.18, 0.30, 0.38]
+    static let depthScaleStep: CGFloat = 0.012
 
     static func depthOffset(_ depth: Int) -> CGFloat {
         guard depth > 0 else { return 0 }
@@ -65,16 +64,16 @@ enum AppSpaceGeometry {
         let aspect = size.height / size.width
         let maxWidth = available.width - 2 * edgeX
         let maxHeight = min(available.height * 0.82, available.height - 2 * edgeY)
-        var width = min(max(available.width * 0.7, minimumCardSize.width), maxWidth)
+        var width = min(max(available.width * 0.685, minimumCardSize.width), maxWidth)
         var height = min(max(width * aspect, minimumCardSize.height), maxHeight)
         if height < width * aspect {
             width = min(max(height / aspect, minimumCardSize.width), maxWidth)
         }
         height = min(height, maxHeight)
         guard width > 0, height > 0 else { return nil }
-        let centerX = min(safe.maxX - edgeX - width / 2,
-                          max(safe.minX + edgeX + width / 2, safe.minX + available.width * 0.6))
-        let frame = CGRect(x: centerX - width / 2, y: safe.midY - height / 2, width: width, height: height)
+        let centerY = min(safe.maxY - edgeY - height / 2,
+                          max(safe.minY + edgeY + height / 2, size.height * 0.49))
+        let frame = CGRect(x: safe.midX - width / 2, y: centerY - height / 2, width: width, height: height)
         let count = min(selected, 3)
         // A real display corner makes every card concentric with the screen at its scale.
         let corner = displayCornerRadius > 0

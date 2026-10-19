@@ -754,7 +754,10 @@ struct AppShellWiringTests {
             try await Task.sleep(for: .milliseconds(25))
         }
         let card = try #require(findCard(host.view))
-        let native = try #require(card.gestureRecognizers?.compactMap { $0.delegate as? AppSpaceBrowseInteraction }.first)
+        var responder: UIResponder? = card
+        while let current = responder, !(current is UIViewController) { responder = current.next }
+        let viewport = try #require((responder as? UIViewController)?.view)
+        let native = try #require(viewport.gestureRecognizers?.compactMap { $0.delegate as? AppSpaceBrowseInteraction }.first)
         #expect(fixture.model.previewContent.summaries.isEmpty, "Workspace must retain only one summary window")
         #expect(native.controller.summaries.count <= 5)
         let action = try #require(card.accessibilityCustomActions?.first { $0.name == "上一会话" })
@@ -768,12 +771,9 @@ struct AppShellWiringTests {
         } else {
             // The immediate parent translates Sidebar content; resize the
             // owning controller's viewport rather than that presentation wrapper.
-            var responder: UIResponder? = card
-            while let current = responder, !(current is UIViewController) { responder = current.next }
-            let container = try #require((responder as? UIViewController)?.view)
-            container.frame.size.width += 80
-            container.setNeedsLayout()
-            container.layoutIfNeeded()
+            viewport.frame.size.width += 80
+            viewport.setNeedsLayout()
+            viewport.layoutIfNeeded()
         }
         #expect(!native.isAnimating)
         for _ in 0..<240 { native.advance(deltaTime: 1.0 / 120) }

@@ -143,7 +143,7 @@ struct AppSpaceBrowseTests {
         #expect(abs((incoming.frame.midX - before.frame.midX)
             - (after.frame.midX - incoming.frame.midX)) < 0.005,
             "Crossing a card center must not abruptly change its on-screen velocity")
-        #expect(resting.frame.midX > size.width / 2)
+        #expect(abs(resting.frame.midX - size.width / 2) < 0.001)
         #expect(AppSpaceBrowseGeometry.resolve(size: .zero, safeArea: safe,
             historyIDs: ids, current: current, offset: 0, minimumCardSize: size) == nil)
         #expect(AppSpaceBrowseGeometry.resolve(size: size, safeArea: safe,

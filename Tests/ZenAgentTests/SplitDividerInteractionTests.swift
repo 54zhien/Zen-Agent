@@ -24,6 +24,70 @@ private final class DividerSamplePan: UIPanGestureRecognizer {
 @MainActor
 @Suite("Divider initial touch displacement", .serialized)
 struct SplitDividerInteractionTests {
+    @Test(arguments: [UIUserInterfaceStyle.light, .dark])
+    func sidebarProgressTintsTheNativeHandleAndFadesItsShadow(style: UIUserInterfaceStyle) throws {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.overrideUserInterfaceStyle = style
+        let controller = UIViewController()
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        let divider = SplitDividerHandle(frame: CGRect(x: 100, y: 300, width: 64, height: 28))
+        controller.view.addSubview(divider)
+        defer { window.isHidden = true; window.rootViewController = nil }
+
+        divider.configuration = SplitDividerView(ratio: 0.5, closeIntent: nil,
+            canCloseTop: true, canCloseBottom: true, onBegin: { true },
+            onMove: { _ in }, onEnd: { _ in }, onClose: { _ in }, onAdjust: { _ in })
+        divider.layoutIfNeeded()
+        let nativeHandle = try #require(divider.subviews.first {
+            $0.layer.name == "zen-split-divider-handle"
+        })
+        let shadow = try #require(divider.subviews.first {
+            $0.layer.name == "zen-split-divider-handle-shadow"
+        })
+        let hitBounds = divider.bounds
+        let handleFrame = nativeHandle.frame
+        var luminance: [CGFloat] = []
+
+        for progress in [CGFloat(0), 0.5, 1] {
+            divider.configuration = SplitDividerView(ratio: 0.5, closeIntent: nil,
+                canCloseTop: true, canCloseBottom: true, onBegin: { true },
+                onMove: { _ in }, onEnd: { _ in }, onClose: { _ in }, onAdjust: { _ in },
+                sidebarProgress: progress)
+            divider.layoutIfNeeded()
+            let color = try #require(nativeHandle.backgroundColor?.resolvedColor(with: divider.traitCollection))
+            var red: CGFloat = 1
+            var green: CGFloat = 1
+            var blue: CGFloat = 1
+            var alpha: CGFloat = 1
+            #expect(color.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
+            let brightness = (red + green + blue) / 3
+            luminance.append(brightness)
+            #expect(alpha == 1)
+            if style == .light {
+                #expect(red > 0.98 && green > 0.98 && blue > 0.98,
+                    "In Light appearance the handle blends into the light page surface")
+            }
+            #expect(nativeHandle.alpha == 1)
+            #expect(divider.alpha == 1)
+            #expect(shadow.alpha == progress)
+            #expect(!shadow.isHidden)
+            #expect(shadow.frame == nativeHandle.frame)
+            #expect(shadow.layer.shadowPath != nil)
+            #expect(shadow.layer.shadowOffset == CGSize(width: 0, height: 1))
+            #expect(abs(shadow.layer.shadowOpacity - 0.14) < 0.001)
+            #expect(divider.bounds == hitBounds && nativeHandle.frame == handleFrame,
+                "Sidebar styling must preserve the 28pt divider hit area and handle geometry")
+        }
+        if style == .dark {
+            #expect(luminance[0] > 0.98)
+            #expect(luminance[0] > luminance[1] && luminance[1] > luminance[2],
+                "The native handle should transition smoothly toward the dark page surface")
+            #expect(luminance[2] < 0.15,
+                "The fully open handle should match the dark Sidebar page surface")
+        }
+    }
+
     @Test(arguments: [SplitWorkspaceAxis.topBottom, .leftRight])
     func coalescedPanRetainsMovementBeforeRecognition(axis: SplitWorkspaceAxis) throws {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))

@@ -619,6 +619,11 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         surfaceView.layer.maskedCorners = roundedCorners
         let radii = cornerRadii(radius: radius, rounded: roundedCorners)
         updateCornerMask(radii)
+        let sidebarPageVisible = workspaceVisible && !returnProxyHidden
+            && (sidebarProgress > 0 || sidebarOffset != 0 || sidebarSettlement != nil)
+        if sidebarPageVisible {
+            sidebarDecoration.updateOutlineGeometry(surface: surfaceView, radii: radii)
+        }
         let shadowVisible = sidebarShadowEnabled && workspaceVisible && !returnProxyHidden
             && (sidebarOffset != 0 || sidebarSettlement != nil)
         if shadowVisible {
@@ -743,6 +748,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
                 if rendered { self.surfaceView.alpha = CGFloat(card.opacity) }
                 return rendered
             }, refreshAccessibility: { [weak self] in self?.liftController?.refreshCardAccessibility() })
+        (view as? SurfaceHitView)?.browseInteraction = browseInteraction
         browseInteraction?.updateAvailability()
     }
 
@@ -750,6 +756,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         unbindDeletion()
         browseInteraction?.unbind()
         browseInteraction = nil
+        (view as? SurfaceHitView)?.browseInteraction = nil
     }
 
     func bindDeletion(_ commit: AppSpaceCardDeletionInteraction.Commit?,
@@ -993,6 +1000,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 @MainActor
 private final class SurfaceHitView: UIView {
     weak var surfaceView: SurfaceClipView?
+    weak var browseInteraction: AppSpaceBrowseInteraction?
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let surfaceView, isUserInteractionEnabled, !isHidden, alpha > 0.01,
@@ -1003,7 +1011,9 @@ private final class SurfaceHitView: UIView {
         // direct child or using the Sidebar's already-committed model offset.
         let displayed = surfaceView.layer.presentation() ?? surfaceView.layer
         let local = displayed.convert(point, from: layer.presentation() ?? layer)
-        guard surfaceView.point(inside: local, with: event) else { return nil }
+        guard surfaceView.point(inside: local, with: event) else {
+            return browseInteraction?.acceptsCanvasTouches == true ? self : nil
+        }
         if surfaceView.onActivate == nil {
             // The retained controller still fills the viewport after Sidebar
             // translation. Its empty strip must pass through to the Rail below.

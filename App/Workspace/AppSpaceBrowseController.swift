@@ -6,7 +6,19 @@ import UIKit
 @Observable
 final class AppSpaceBrowseController {
     typealias Reader = (String) throws -> ConversationBrowseWindow
-    private(set) var state = AppSpaceBrowseState(selected: .newConversation, older: nil, newer: nil)
+    @ObservationIgnored private(set) var state = AppSpaceBrowseState(selected: .newConversation, older: nil, newer: nil)
+    // Retained content observes semantic changes, rather than every offset mutation.
+    private(set) var selected: AppSpaceGeometry.Item = .newConversation
+    private(set) var phase: AppSpaceBrowseState.Phase = .idle
+
+    /// Frame observation belongs to the stack, not the retained Workspace content.
+    @MainActor
+    @Observable
+    final class Frames {
+        var layout: AppSpaceBrowseGeometry.Layout?
+        var offset = 0.0
+    }
+    let frames = Frames()
     private var window = ConversationBrowseWindow(current: nil, older: [], newer: nil)
     var summaries: [ConversationSummary] { window.summaries }
     private(set) var errorMessage: String?
@@ -20,11 +32,11 @@ final class AppSpaceBrowseController {
     private(set) var displayCornerRadius: CGFloat = 0
     private var minimumCardSize = CGSize(width: 220, height: 300)
     var currentSummary: ConversationSummary? {
-        guard case .conversation(let id) = state.selected else { return nil }
+        guard case .conversation(let id) = selected else { return nil }
         return summaries.first { $0.id == id }
     }
     var selectedConversationID: String? {
-        if case .conversation(let id) = state.selected { return id }
+        if case .conversation(let id) = selected { return id }
         return isNewEntry ? nil : originID
     }
     var canEditCurrentMetadata: Bool {
@@ -52,7 +64,7 @@ final class AppSpaceBrowseController {
     }
 
     var supportsNewEntry: Bool { newReader != nil }
-    var isNewEntry: Bool { supportsNewEntry && state.selected == .newConversation }
+    var isNewEntry: Bool { supportsNewEntry && selected == .newConversation }
     func configureNewEntry(reader: @escaping () throws -> ConversationBrowseWindow) { newReader = reader }
     @discardableResult
     func selectCreatedConversation(id: String) -> Bool {
@@ -61,11 +73,11 @@ final class AppSpaceBrowseController {
         do {
             install(try read(id: id, allowsMissing: false))
             errorMessage = nil
-            onChanged?()
+            publish()
             return true
         } catch {
             errorMessage = "新会话已创建，但预览读取失败。请重试。"
-            onChanged?()
+            publish()
             return false
         }
     }
@@ -82,7 +94,7 @@ final class AppSpaceBrowseController {
                 install(next)
                 clearDeletionReplacement()
                 errorMessage = nil
-                onChanged?()
+                publish()
                 return true
             }
         }
@@ -90,7 +102,7 @@ final class AppSpaceBrowseController {
             install(try readNew(), selectingNew: true)
             clearDeletionReplacement()
             errorMessage = nil
-            onChanged?()
+            publish()
             return true
         } catch {
             // The committed deletion already removed Current from ordinary
@@ -99,7 +111,7 @@ final class AppSpaceBrowseController {
             install(ConversationBrowseWindow(current: nil, older: [], newer: nil), selectingNew: true)
             clearDeletionReplacement()
             errorMessage = "下一张卡片读取失败。会话已保留在撤销窗口内，请重试。"
-            onChanged?()
+            publish()
             return false
         }
     }
@@ -108,20 +120,20 @@ final class AppSpaceBrowseController {
         guard selectedConversationID == id else { return }
         deletionTarget = state.older ?? state.newer
         deletionProgress = 0
-        onChanged?()
+        publish()
     }
 
     func advanceDeletionReplacement() {
         guard deletionTarget != nil else { return }
         deletionProgress = 1
-        onChanged?()
+        publish()
     }
 
     func clearDeletionReplacement() {
         guard deletionTarget != nil || deletionProgress != 0 else { return }
         deletionTarget = nil
         deletionProgress = 0
-        onChanged?()
+        publish()
     }
 
     func deletionProjection(_ card: AppSpaceBrowseGeometry.Card,
@@ -147,11 +159,11 @@ final class AppSpaceBrowseController {
         do {
             install(try read(id: id, allowsMissing: false))
             errorMessage = nil
-            onChanged?()
+            publish()
             return true
         } catch {
             errorMessage = "已恢复会话，但卡片预览读取失败。请重试。"
-            onChanged?()
+            publish()
             return false
         }
     }
@@ -160,7 +172,7 @@ final class AppSpaceBrowseController {
         guard interactionSuspended != value else { return }
         if value { cancel() }
         interactionSuspended = value
-        onChanged?()
+        publish()
     }
 
     init(reader: Reader? = nil) { self.reader = reader }
@@ -190,18 +202,18 @@ final class AppSpaceBrowseController {
             // A failed refresh is not an empty history or a new page.
             errorMessage = "会话预览读取失败，请重试。"
         }
-        onChanged?()
+        publish()
     }
 
     func begin() -> Bool {
         guard isPresented, !interactionSuspended else { return false }
         let accepted = state.begin()
-        if accepted { onChanged?() }
+        if accepted { publish() }
         return accepted
     }
     func drag(displacement: Double, travel: Double) -> Bool {
         let accepted = state.drag(displacement: displacement, travel: travel)
-        if accepted { onChanged?() }
+        if accepted { publish() }
         return accepted
     }
 
@@ -221,25 +233,25 @@ final class AppSpaceBrowseController {
                 errorMessage = nil
             }
             _ = state.drag(displacement: remaining, travel: 1)
-            onChanged?()
+            publish()
             return remaining
         } catch {
             state.cancel()
             errorMessage = "会话预览读取失败，原卡片已保留。请重试。"
-            onChanged?()
+            publish()
             return nil
         }
     }
     func end(velocity: Double, travel: Double, cancelled: Bool = false) -> AppSpaceBrowseState.Settlement? {
         let settlement = state.end(velocity: velocity, travel: travel, cancelled: cancelled)
-        if settlement != nil { onChanged?() }
+        if settlement != nil { publish() }
         return settlement
     }
     func complete(_ settlement: AppSpaceBrowseState.Settlement, finished: Bool) -> Bool {
         guard state.pendingSettlement == settlement else { return false }
         if !finished || settlement.destination == state.selected {
             let accepted = state.complete(settlement, finished: finished)
-            onChanged?()
+            publish()
             return accepted
         }
         do {
@@ -247,12 +259,12 @@ final class AppSpaceBrowseController {
             guard state.complete(settlement, finished: true) else { return false }
             install(next.window, selectingNew: next.selectingNew)
             errorMessage = nil
-            onChanged?()
+            publish()
             return true
         } catch {
             state.cancel()
             errorMessage = "会话预览读取失败，原卡片已保留。请重试。"
-            onChanged?()
+            publish()
             return false
         }
     }
@@ -278,7 +290,7 @@ final class AppSpaceBrowseController {
         // browse cancellation must not publish another observed update back to it.
         guard state.phase != .idle || state.pendingSettlement != nil || state.offset != 0 else { return }
         state.cancel()
-        onChanged?()
+        publish()
     }
     func finish() {
         cancel()
@@ -290,7 +302,7 @@ final class AppSpaceBrowseController {
         window = ConversationBrowseWindow(current: nil, older: [], newer: nil)
         state = AppSpaceBrowseState(selected: .newConversation, older: nil, newer: nil)
         errorMessage = nil
-        onChanged?()
+        publish()
     }
 
     func updateViewport(size: CGSize, safeArea: UIEdgeInsets, displayCornerRadius: CGFloat = 0) {
@@ -300,14 +312,29 @@ final class AppSpaceBrowseController {
         viewportSize = size
         self.safeArea = safeArea
         self.displayCornerRadius = displayCornerRadius
-        onChanged?()
+        publish()
     }
     func updateMinimumCardSize(_ size: CGSize) {
+        guard minimumCardSize != size else { return }
         minimumCardSize = size
-        cancel()
+        state.cancel()
+        publish()
     }
 
     func layout(offset: Double? = nil) -> AppSpaceBrowseGeometry.Layout? {
+        guard let offset else { return frames.layout }
+        return resolveLayout(offset: offset)
+    }
+
+    private func publish() {
+        if selected != state.selected { selected = state.selected }
+        if phase != state.phase { phase = state.phase }
+        frames.layout = resolveLayout(offset: state.offset)
+        frames.offset = state.offset
+        onChanged?()
+    }
+
+    private func resolveLayout(offset: Double) -> AppSpaceBrowseGeometry.Layout? {
         var ids = window.older.reversed().map(\.id)
             + (window.current.map { [$0.id] } ?? []) + (window.newer.map { [$0.id] } ?? [])
         if supportsNewEntry, let originID, originWasNew,
@@ -315,7 +342,7 @@ final class AppSpaceBrowseController {
             ids.append(originID)
         }
         return AppSpaceBrowseGeometry.resolve(size: viewportSize, safeArea: safeArea,
-            historyIDs: ids, current: state.selected, offset: offset ?? state.offset,
+            historyIDs: ids, current: state.selected, offset: offset,
             minimumCardSize: minimumCardSize,
             includesNew: state.selected == .newConversation || state.newer == .newConversation,
             displayCornerRadius: displayCornerRadius)
@@ -358,5 +385,6 @@ final class AppSpaceBrowseController {
         } else { newer = originWasNew && selected != .newConversation ? .newConversation : nil }
         state = AppSpaceBrowseState(selected: selected,
             older: next.older.first.map { .conversation($0.id) }, newer: newer)
+        if self.selected != selected { self.selected = selected }
     }
 }

@@ -92,7 +92,7 @@ struct AppSpaceGeometryTests {
         let current = try #require(layout.cards.last)
         #expect(current.depth == 0)
         #expect(layout.safeViewport.contains(current.frame))
-        #expect(current.frame.midX >= layout.safeViewport.midX)
+        #expect(abs(current.frame.midX - layout.safeViewport.midX) < 0.001)
     }
 
     @Test func displayCornerMakesCardsConcentricWithTheScreen() throws {

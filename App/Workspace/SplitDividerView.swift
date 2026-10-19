@@ -15,6 +15,36 @@ struct SplitDividerView: UIViewRepresentable {
     var axis: SplitWorkspaceAxis = .topBottom
     var onAxis: ((SplitWorkspaceAxis) -> Void)? = nil
     var resizeDiagnostic: (() -> String)? = nil
+    var sidebarProgress: CGFloat = 0
+
+    var normalizedSidebarProgress: CGFloat {
+        sidebarProgress.isFinite ? min(1, max(0, sidebarProgress)) : 0
+    }
+
+    func handleSurfaceColor() -> UIColor {
+        let progress = normalizedSidebarProgress
+        let reduceTransparency = UIAccessibility.isReduceTransparencyEnabled
+        return UIColor { traits in
+            let surface = UIColor.systemBackground.resolvedColor(with: traits)
+            var surfaceRed: CGFloat = 1
+            var surfaceGreen: CGFloat = 1
+            var surfaceBlue: CGFloat = 1
+            var surfaceAlpha: CGFloat = 1
+            guard surface.getRed(&surfaceRed, green: &surfaceGreen, blue: &surfaceBlue, alpha: &surfaceAlpha) else {
+                return surface
+            }
+            let appearance = SidebarPageAppearance(progress: 1,
+                dark: traits.userInterfaceStyle == .dark,
+                reduceTransparency: reduceTransparency)
+            // At full progress the backdrop is systemBackground too, so page
+            // opacity cancels except where its white tint is composited in.
+            let tint = appearance.tintOpacity * appearance.surfaceOpacity
+            func tinted(_ component: CGFloat) -> CGFloat { component + (1 - component) * tint }
+            func mixFromWhite(_ component: CGFloat) -> CGFloat { 1 + (tinted(component) - 1) * progress }
+            return UIColor(red: mixFromWhite(surfaceRed), green: mixFromWhite(surfaceGreen),
+                blue: mixFromWhite(surfaceBlue), alpha: 1 + (surfaceAlpha - 1) * progress)
+        }
+    }
 
     func makeUIView(context: Context) -> SplitDividerHandle {
         let view = SplitDividerHandle()
@@ -22,7 +52,11 @@ struct SplitDividerView: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ view: SplitDividerHandle, context: Context) { view.configuration = self }
+    func updateUIView(_ view: SplitDividerHandle, context: Context) {
+        context.animate {
+            view.configuration = self
+        }
+    }
 
     static func dismantleUIView(_ view: SplitDividerHandle, coordinator: ()) {
         view.cancelPan()
@@ -57,11 +91,16 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
             if oldValue?.closeIntent != configuration?.closeIntent, configuration?.closeIntent != nil {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }
-            handle.backgroundColor = configuration?.closeIntent == nil ? .white : .systemOrange
+            let progress = configuration?.normalizedSidebarProgress ?? 0
+            handle.backgroundColor = configuration?.closeIntent == nil
+                ? configuration?.handleSurfaceColor() ?? .white
+                : .systemOrange
+            shadowView.alpha = progress
             setNeedsLayout()
         }
     }
     private let handle = UIView()
+    private let shadowView = UIView()
     private var panAdmitted = false
     private var touchOrigin: CGPoint?
     private weak var touchWindow: UIWindow?
@@ -114,10 +153,21 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        shadowView.backgroundColor = .clear
+        shadowView.isOpaque = false
+        shadowView.isUserInteractionEnabled = false
+        shadowView.accessibilityElementsHidden = true
+        shadowView.layer.name = "zen-split-divider-handle-shadow"
+        shadowView.layer.shadowColor = UIColor.black.cgColor
+        shadowView.layer.shadowOpacity = 0.14
+        shadowView.layer.shadowRadius = 1.5
+        shadowView.layer.shadowOffset = CGSize(width: 0, height: 1)
+        addSubview(shadowView)
         addSubview(handle)
         handle.isUserInteractionEnabled = false
         handle.backgroundColor = .white
         handle.layer.cornerRadius = 1.5
+        handle.layer.name = "zen-split-divider-handle"
         pan.delegate = self
         pan.maximumNumberOfTouches = 1
         addGestureRecognizer(pan)
@@ -136,6 +186,9 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
         handle.frame = configuration?.axis == .leftRight
             ? CGRect(x: (bounds.width - 3) / 2, y: 0, width: 3, height: bounds.height)
             : CGRect(x: 0, y: (bounds.height - 3) / 2, width: bounds.width, height: 3)
+        shadowView.frame = handle.frame
+        shadowView.layer.shadowPath = UIBezierPath(roundedRect: shadowView.bounds,
+            cornerRadius: handle.layer.cornerRadius).cgPath
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
