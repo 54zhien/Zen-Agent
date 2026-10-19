@@ -36,6 +36,7 @@ jobs:
           find "$RUNNER_TEMP/diagnostics" -type f > "$RUNNER_TEMP/decoded/files.txt"
           mkdir -p "$RUNNER_TEMP/decoded/reports"
           find "$RUNNER_TEMP/diagnostics" -type f \( -name '*.ips' -o -name '*.crash' \) -exec cp {} "$RUNNER_TEMP/decoded/reports/" \;
+          find "$RUNNER_TEMP/diagnostics" -type f \( -name 'StandardOutputAndStandardError*.txt' -o -name 'Session-ZenAgentUITests-*.log' \) -exec cp {} "$RUNNER_TEMP/decoded/reports/" \;
           count=0
           while IFS= read -r -d '' archive; do
             count=$((count + 1))
