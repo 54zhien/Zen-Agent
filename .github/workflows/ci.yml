@@ -28,7 +28,8 @@ jobs:
       - name: Read saved crash diagnostics without running the application
         run: |
           set -euo pipefail
-          result="$RUNNER_TEMP/archived/Focused.xcresult"
+          result=$(find "$RUNNER_TEMP/archived" -maxdepth 3 -type d -name Focused.xcresult -print -quit)
+          test -n "$result"
           xcodebuild -version > "$RUNNER_TEMP/decoded/toolchain.txt"
           xcrun xcresulttool get log --path "$result" --type console > "$RUNNER_TEMP/decoded/console.log" 2> "$RUNNER_TEMP/decoded/console.stderr" || true
           xcrun xcresulttool export diagnostics --path "$result" --output-path "$RUNNER_TEMP/diagnostics" > "$RUNNER_TEMP/decoded/export.log" 2> "$RUNNER_TEMP/decoded/export.stderr"
