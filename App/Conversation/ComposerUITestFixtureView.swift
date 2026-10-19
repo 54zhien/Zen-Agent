@@ -59,6 +59,9 @@ private final class ComposerUITestFixture {
                 [ModelDescriptor(
                     id: modelID, providerInstanceID: requested,
                     displayName: "UI Test Model", capabilities: [.text, .streaming]
+                ), ModelDescriptor(
+                    id: ModelID(rawValue: "composer-ui-test-long-model"), providerInstanceID: requested,
+                    displayName: "UI Test Model With A Longer Name", capabilities: [.text, .streaming]
                 )]
             },
             projection: { _ in await runs.projection() },

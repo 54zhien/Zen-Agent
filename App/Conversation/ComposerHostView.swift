@@ -757,14 +757,16 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             UIAction(title: title, image: UIImage(systemName: symbol), attributes: [.disabled]) { _ in }
         }
         let modelActions = configuration.models.map { model in
-            UIAction(title: model.displayName, image: UIImage(systemName: "cpu"),
+            UIAction(title: model.displayName,
                      state: model.id == configuration.selectedModelID ? .on : .off) { [weak self] _ in
                 self?.configuration?.onModel(model.id)
             }
         }
         let modelMenu = UIMenu(title: "模型", image: UIImage(systemName: "cpu"),
                                options: [.singleSelection],
-                               children: modelActions.isEmpty ? [disabled("模型", "cpu")] : modelActions)
+                               children: modelActions.isEmpty
+                                   ? [UIAction(title: "模型", attributes: [.disabled]) { _ in }]
+                                   : modelActions)
         return UIMenu(children: [
             disabled("添加图片", "photo"), disabled("添加文件", "doc"),
             disabled("插件", "puzzlepiece"), modelMenu,

@@ -2,6 +2,39 @@ import XCTest
 
 final class ComposerMotionUITests: XCTestCase {
     @MainActor
+    func testModelMenuOpensAndSwitchesModels() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
+        app.launch()
+        let plus = app.buttons["conversation-composer-plus"]
+        XCTAssertTrue(plus.waitForExistence(timeout: 15))
+        let title = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "模型")).firstMatch
+        let first = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "UI Test Model")).firstMatch
+        let second = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "UI Test Model With A Longer Name")).firstMatch
+
+        plus.tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        title.tap()
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+        XCTAssertTrue(second.exists)
+        let initial = XCTAttachment(screenshot: app.screenshot())
+        initial.name = "Model menu before selection"
+        initial.lifetime = .keepAlways
+        add(initial)
+
+        second.tap()
+        XCTAssertTrue(second.waitForNonExistence(timeout: 5))
+        plus.tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        title.tap()
+        XCTAssertTrue(second.waitForExistence(timeout: 5))
+        let changed = XCTAttachment(screenshot: app.screenshot())
+        changed.name = "Model menu after selection"
+        changed.lifetime = .keepAlways
+        add(changed)
+    }
+
+    @MainActor
     func testKeyboardAndComposerStayInteractiveAcrossQuickFocusChanges() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
