@@ -28,11 +28,16 @@ Zen-Agent-Blueprint @ 99d30b815651fe987bab9f88e269a84a89318625
 Owner-approved Stage 5 supplement @ e6d8c5f9919a83672bea670bc7e49339e5f5373c
 Device feedback corrections @ 3b4b22c0df91be668406127c84c1822b359883c0
 Device glass and motion owner ruling @ 51b4dc33beec515c7d684d352060fbdeded1825e
+App Space inertia and opaque-card owner ruling @ b54da2c14c63bdf9750d5be9c9b40d2079420fd1
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
 not merged into Blueprint `main`. It records the 2026-10-15 owner request for
 two-axis interactive Lift, synchronized Composer feedback and layered Sidebar visuals.
+
+The App Space ruling is on Blueprint branch `codex/appspace-inertial-browse-20261019`,
+not merged into Blueprint `main`. It records the owner's confirmed multi-card inertia,
+nearest-card snapping and opaque, continuously rounded card surfaces.
 
 This is a snapshot of the design state this work started from, not a permanent
 version pin. Update it when the blueprint changes in a way that affects

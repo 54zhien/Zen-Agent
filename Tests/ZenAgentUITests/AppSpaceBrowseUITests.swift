@@ -23,7 +23,8 @@ final class AppSpaceBrowseUITests: XCTestCase {
         }
         for index in stride(from: 10, through: 4, by: -1) {
             dragHistoryCard(card, towardOlder: true, readiness: readiness)
-            guard wait({ card.exists && card.label.contains("Workspace conversation \(index)") }) else {
+            guard wait({ card.exists && card.label.contains("Workspace conversation \(index)")
+                && (readiness.value as? String)?.contains("phase=idle") == true }) else {
                 print("BROWSE_NATIVE \(app.otherElements["surface-native-interaction-probe"].value ?? "missing")")
                 XCTFail("Browsing past the initial preview window lost adjacent history \(index); actual Card: \(card.label)")
                 return
@@ -60,16 +61,18 @@ final class AppSpaceBrowseUITests: XCTestCase {
         XCTAssertTrue(wait { card.exists && card.label.contains("Workspace conversation 11") })
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
 
-        card.swipeRight()
+        card.swipeRight(velocity: XCUIGestureVelocity(rawValue: 350))
         // This is the existing native Surface. A horizontal drag must browse,
         // not activate its Return tap handler or remount a hidden editor.
-        guard wait({ card.exists && card.label.contains("Workspace conversation 10") }) else {
+        guard wait({ card.exists && card.label.contains("Workspace conversation 10")
+            && (readiness.value as? String)?.contains("phase=idle") == true }) else {
             XCTFail("Horizontal browse did not keep Preview and select the adjacent older history")
             return
         }
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
-        card.swipeLeft()
-        XCTAssertTrue(wait { card.exists && card.label.contains("Workspace conversation 11") })
+        card.swipeLeft(velocity: XCUIGestureVelocity(rawValue: 350))
+        XCTAssertTrue(wait { card.exists && card.label.contains("Workspace conversation 11")
+            && (readiness.value as? String)?.contains("phase=idle") == true })
         card.swipeRight(velocity: XCUIGestureVelocity(rawValue: 5000))
         XCTAssertTrue(wait { card.exists && (readiness.value as? String)?.contains("phase=idle") == true })
         guard let digits = card.label.components(separatedBy: "Workspace conversation ").last?

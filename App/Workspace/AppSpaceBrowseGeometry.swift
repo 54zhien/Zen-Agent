@@ -29,45 +29,44 @@ enum AppSpaceBrowseGeometry {
         let targetIndex = selected + (offset > 0 ? -1 : offset < 0 ? 1 : 0)
         let target = items.indices.contains(targetIndex) ? targetIndex : selected
 
-        func placements(selectedIndex: Int) -> [Card]? {
-            guard let layout = AppSpaceGeometry.resolve(size: size, safeArea: safeArea,
-                historyIDs: historyIDs, current: items[selectedIndex], minimumCardSize: minimumCardSize,
-                displayCornerRadius: displayCornerRadius) else { return nil }
-            return items.enumerated().map { index, item in
-                let depth = selectedIndex - index
-                if let card = layout.cards.first(where: { $0.item == item }) {
-                    return Card(item: item, frame: card.frame, cornerRadius: card.cornerRadius,
-                        opacity: 1, depth: Double(depth))
-                }
-                // Only the immediate successor enters from the right. A fourth
-                // predecessor fades out without constructing an extra summary.
-                if depth < 0 {
-                    return Card(item: item, frame: base.frame.offsetBy(dx: travel * CGFloat(-depth), dy: 0),
-                        cornerRadius: base.cornerRadius, opacity: 0, depth: Double(depth))
-                }
-                let scale = 1 - CGFloat(depth) * AppSpaceGeometry.depthScaleStep
-                return Card(item: item,
-                    frame: AppSpaceGeometry.predecessorFrame(base: base.frame, depth: depth),
-                    cornerRadius: base.cornerRadius * scale, opacity: 0, depth: Double(depth))
+        let cards = items.enumerated().map { index, item in
+            let depth = Double(selected - index) - (target == selected ? 0 : offset)
+            let center = interpolateDepth(depth) { level in
+                level <= 0 ? base.frame.midX - CGFloat(level) * travel
+                    : base.frame.midX - base.frame.width * AppSpaceGeometry.depthOffset(level)
             }
-        }
-        guard let start = placements(selectedIndex: selected), let end = placements(selectedIndex: target) else { return nil }
-        let progress = CGFloat(abs(offset))
-        func interpolate(_ a: CGFloat, _ b: CGFloat) -> CGFloat { (1 - progress) * a + progress * b }
-        let cards = zip(start, end).map { a, b in
-            Card(item: a.item,
-                frame: CGRect(x: interpolate(a.frame.minX, b.frame.minX), y: interpolate(a.frame.minY, b.frame.minY),
-                    width: interpolate(a.frame.width, b.frame.width), height: interpolate(a.frame.height, b.frame.height))
-                    .offsetBy(dx: target == selected ? CGFloat(offset) * travel : 0, dy: 0),
-                cornerRadius: interpolate(a.cornerRadius, b.cornerRadius),
-                opacity: Double(interpolate(CGFloat(a.opacity), CGFloat(b.opacity))),
-                depth: Double(interpolate(CGFloat(a.depth), CGFloat(b.depth))))
+            let scale = interpolateDepth(depth) { level in
+                1 - CGFloat(max(0, level)) * AppSpaceGeometry.depthScaleStep
+            }
+            let width = base.frame.width * scale
+            let height = base.frame.height * scale
+            return Card(item: item,
+                frame: CGRect(x: center - width / 2 + (target == selected ? CGFloat(offset) * travel : 0),
+                    y: base.frame.midY - height / 2, width: width, height: height),
+                cornerRadius: base.cornerRadius * scale, opacity: 1, depth: depth)
         }
         guard cards.allSatisfy({
             [$0.frame.minX, $0.frame.minY, $0.frame.maxX, $0.frame.maxY, $0.cornerRadius].allSatisfy(\.isFinite)
                 && $0.frame.width > 0 && $0.frame.height > 0 && $0.cornerRadius >= 0
         }) else { return nil }
         return Layout(cards: cards, travel: travel)
+    }
+
+    // Shared endpoint tangents keep a card's velocity continuous as it passes
+    // the front of the stack and the bounded neighborhood advances by one item.
+    private static func interpolateDepth(_ depth: Double, value: (Int) -> CGFloat) -> CGFloat {
+        let index = Int(floor(depth))
+        let t = CGFloat(depth - Double(index))
+        let a = value(index), b = value(index + 1)
+        func tangent(_ left: CGFloat, _ right: CGFloat) -> CGFloat {
+            guard left * right > 0 else { return 0 }
+            return 2 * left * right / (left + right)
+        }
+        let start = tangent(a - value(index - 1), b - a)
+        let end = tangent(b - a, value(index + 2) - b)
+        let square = t * t, cube = square * t
+        return (2 * cube - 3 * square + 1) * a + (cube - 2 * square + t) * start
+            + (-2 * cube + 3 * square) * b + (cube - square) * end
     }
 
     static func pose(for card: Card, size: CGSize, safeArea: UIEdgeInsets) -> SurfaceGeometry.Pose? {

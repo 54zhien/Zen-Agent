@@ -843,12 +843,14 @@ jobs:
               elif [ "$TEST_SCOPE" = appspace-browse ]; then
                 tests=(-only-testing:ZenAgentTests/AppSpaceBrowseTests
                   -only-testing:ZenAgentTests/AppSpaceGeometryTests
+                  -only-testing:ZenAgentTests/AppSpaceBrowseMotionTests
                   -only-testing:ZenAgentTests/AppSpaceBrowseInteractionTests
                   -only-testing:ZenAgentTests/AppSpaceNewEntryTests
                   -only-testing:ZenAgentTests/CurrentCardEdgeTests
-                  -only-testing:ZenAgentTests/ConversationSurfaceHostTests/browseTransportSurvivesReversedHostUpdateOrder
-                  -only-testing:ZenAgentTests/ConversationSurfaceHostTests/browseTransportCanReturnToAnExistingBinding
-                  -only-testing:ZenAgentTests/AppShellWiringTests/nativeSnapInterruption
+                  '-only-testing:ZenAgentTests/ConversationSurfaceHostTests/browseTransportSurvivesReversedHostUpdateOrder()'
+                  '-only-testing:ZenAgentTests/ConversationSurfaceHostTests/browseTransportCanReturnToAnExistingBinding()'
+                  '-only-testing:ZenAgentTests/DeviceFeedbackGeometryTests/leftBrowseKeepsOneHorizontalCenterline()'
+                  '-only-testing:ZenAgentTests/AppShellWiringTests/nativeSnapInterruption(returnToFull:)'
                   -only-testing:ZenAgentUITests/AppSpaceBrowseUITests)
               else
                 tests=(-only-testing:ZenAgentTests/SidebarRailLayoutTests

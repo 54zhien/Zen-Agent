@@ -884,6 +884,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
             .frame(width: max(1, size.width - insets.left - insets.right),
                 height: max(1, size.height - insets.top - insets.bottom))
             .padding(EdgeInsets(top: insets.top, leading: insets.left, bottom: insets.bottom, trailing: insets.right))
+            .background(Color(uiColor: .systemBackground))
             .scaleEffect(pose?.scale ?? 1)
             .frame(width: card.frame.width, height: card.frame.height)
             .clipShape(RoundedRectangle(cornerRadius: card.cornerRadius, style: .continuous))

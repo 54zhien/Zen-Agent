@@ -204,6 +204,32 @@ final class AppSpaceBrowseController {
         if accepted { onChanged?() }
         return accepted
     }
+
+    /// Advance through adjacent summary windows without mounting full pages or
+    /// publishing a transient idle selection between successive card intervals.
+    func move(to offset: Double) -> Double? {
+        guard isPresented, !interactionSuspended, state.phase == .dragging, offset.isFinite else { return nil }
+        var remaining = offset
+        do {
+            while abs(remaining) >= 1 {
+                let direction = remaining > 0 ? 1.0 : -1.0
+                guard let destination = direction > 0 ? state.older : state.newer else { break }
+                let next = try neighborhood(for: destination)
+                install(next.window, selectingNew: next.selectingNew)
+                _ = state.begin()
+                remaining -= direction
+                errorMessage = nil
+            }
+            _ = state.drag(displacement: remaining, travel: 1)
+            onChanged?()
+            return remaining
+        } catch {
+            state.cancel()
+            errorMessage = "会话预览读取失败，原卡片已保留。请重试。"
+            onChanged?()
+            return nil
+        }
+    }
     func end(velocity: Double, travel: Double, cancelled: Bool = false) -> AppSpaceBrowseState.Settlement? {
         let settlement = state.end(velocity: velocity, travel: travel, cancelled: cancelled)
         if settlement != nil { onChanged?() }
@@ -216,32 +242,10 @@ final class AppSpaceBrowseController {
             onChanged?()
             return accepted
         }
-        let id: String
-        switch settlement.destination {
-        case .conversation(let selected): id = selected
-        case .newConversation:
-            if supportsNewEntry {
-                do {
-                    let next = try readNew()
-                    guard state.complete(settlement, finished: true) else { return false }
-                    install(next, selectingNew: true)
-                    errorMessage = nil
-                    onChanged?()
-                    return true
-                } catch {
-                    state.cancel()
-                    errorMessage = "会话预览读取失败，原卡片已保留。请重试。"
-                    onChanged?()
-                    return false
-                }
-            }
-            guard originWasNew, let originID else { cancel(); return false }
-            id = originID
-        }
         do {
-            let next = try read(id: id, allowsMissing: settlement.destination == .newConversation || (originWasNew && id == originID))
+            let next = try neighborhood(for: settlement.destination)
             guard state.complete(settlement, finished: true) else { return false }
-            install(next)
+            install(next.window, selectingNew: next.selectingNew)
             errorMessage = nil
             onChanged?()
             return true
@@ -251,6 +255,22 @@ final class AppSpaceBrowseController {
             onChanged?()
             return false
         }
+    }
+
+    private func neighborhood(for destination: AppSpaceGeometry.Item) throws
+        -> (window: ConversationBrowseWindow, selectingNew: Bool) {
+        let id: String
+        switch destination {
+        case .conversation(let selected): id = selected
+        case .newConversation:
+            if supportsNewEntry { return (try readNew(), true) }
+            guard originWasNew, let originID else {
+                throw PersistenceError.invalidTransition("New entry is unavailable")
+            }
+            id = originID
+        }
+        return (try read(id: id, allowsMissing: destination == .newConversation
+            || (originWasNew && id == originID)), false)
     }
 
     func cancel() {

@@ -760,11 +760,9 @@ struct AppShellWiringTests {
         let action = try #require(card.accessibilityCustomActions?.first { $0.name == "上一会话" })
         let handler = try #require(action.actionHandler)
         #expect(handler(action))
-        let animator = try #require(native.animatorForTesting)
-        animator.pauseAnimation()
-        animator.fractionComplete = 0.4
+        #expect(native.isAnimating)
+        native.advance(deltaTime: 0.025)
         CATransaction.flush()
-        let pending = try #require(native.controller.state.pendingSettlement)
         if returnToFull {
             #expect(card.accessibilityActivate())
         } else {
@@ -773,8 +771,8 @@ struct AppShellWiringTests {
             container.setNeedsLayout()
             container.layoutIfNeeded()
         }
-        #expect(native.animatorForTesting == nil)
-        #expect(!native.controller.complete(pending, finished: true))
+        #expect(!native.isAnimating)
+        for _ in 0..<240 { native.advance(deltaTime: 1.0 / 120) }
         #expect(native.controller.state.selected == .conversation("snap-interrupt-1"))
         if returnToFull {
             for _ in 0..<80 where lift.state.phase != .full || fixture.model.previewContent.isPresented {

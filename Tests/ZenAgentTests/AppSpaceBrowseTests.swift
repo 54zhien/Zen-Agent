@@ -117,7 +117,8 @@ struct AppSpaceBrowseTests {
         let end = try layout(1)
         for offset in [-1.0, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1] {
             let sample = try layout(offset)
-            #expect(sample.cards.allSatisfy { $0.opacity == 1 },
+            #expect(sample.cards.filter { $0.frame.intersects(CGRect(origin: .zero, size: size)) }
+                .allSatisfy { $0.opacity == 1 },
                     "Card depth is conveyed by overlap, never by seeing through a page")
         }
         #expect(idle.cards.count <= 5 && half.cards.count <= 5 && end.cards.count <= 5)
@@ -125,13 +126,23 @@ struct AppSpaceBrowseTests {
             let a = try #require(idle.cards.first { $0.item == item })
             let b = try #require(half.cards.first { $0.item == item })
             let c = try #require(end.cards.first { $0.item == item })
-            #expect(abs(b.frame.midX - (a.frame.midX + c.frame.midX) / 2) < 0.001)
-            #expect(abs(b.frame.width - (a.frame.width + c.frame.width) / 2) < 0.001)
+            #expect(b.frame.midX >= min(a.frame.midX, c.frame.midX))
+            #expect(b.frame.midX <= max(a.frame.midX, c.frame.midX))
+            #expect(b.frame.width >= min(a.frame.width, c.frame.width))
+            #expect(b.frame.width <= max(a.frame.width, c.frame.width))
             #expect(AppSpaceBrowseGeometry.pose(for: b, size: size, safeArea: safe)?.isValid == true)
         }
         let incoming = try #require(end.cards.first { $0.item == older })
         let resting = try #require(idle.cards.first { $0.item == current })
         #expect(incoming.frame == resting.frame)
+        let before = try #require(layout(0.999).cards.first { $0.item == older })
+        let rebased = try #require(AppSpaceBrowseGeometry.resolve(size: size, safeArea: safe,
+            historyIDs: ids, current: older, offset: 0.001,
+            minimumCardSize: CGSize(width: 220, height: 300)))
+        let after = try #require(rebased.cards.first { $0.item == older })
+        #expect(abs((incoming.frame.midX - before.frame.midX)
+            - (after.frame.midX - incoming.frame.midX)) < 0.005,
+            "Crossing a card center must not abruptly change its on-screen velocity")
         #expect(resting.frame.midX > size.width / 2)
         #expect(AppSpaceBrowseGeometry.resolve(size: .zero, safeArea: safe,
             historyIDs: ids, current: current, offset: 0, minimumCardSize: size) == nil)

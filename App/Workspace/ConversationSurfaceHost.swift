@@ -688,7 +688,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         surfaceView.accessibilityHint = isNew ? "轻点创建新对话" : "轻点返回会话"
         surfaceView.accessibilityTraits = .button
         surfaceView.onActivate = frozen ? { [weak self] in
-            self?.browseInteraction?.cancel()
+            self?.browseInteraction?.cancel(preservingPresentation: true)
             return returnAction()
         } : nil
         surfaceView.accessibilityCustomActions = frozen
@@ -1025,7 +1025,7 @@ final class SurfaceClipView: UIView {
     var onActivate: (() -> Bool)?
     private var touchOrigin: CGPoint?
     private var touchMoved = false
-    private let currentEdge = CAShapeLayer()
+    private let currentEdge = CALayer()
     private var edgeRequested = false
     private var edgeRect = CGRect.null
     private var edgeRadius: CGFloat = -1
@@ -1034,8 +1034,8 @@ final class SurfaceClipView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         currentEdge.name = "zen-current-card-edge"
-        currentEdge.fillColor = nil
-        currentEdge.lineWidth = 0.75
+        currentEdge.borderWidth = 0.75
+        currentEdge.cornerCurve = .continuous
         currentEdge.zPosition = 1
         currentEdge.isHidden = true
         layer.addSublayer(currentEdge)
@@ -1062,7 +1062,7 @@ final class SurfaceClipView: UIView {
     private func updateEdgeColor() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        currentEdge.strokeColor = UIColor.label.resolvedColor(with: traitCollection)
+        currentEdge.borderColor = UIColor.label.resolvedColor(with: traitCollection)
             .withAlphaComponent(0.14).cgColor
         CATransaction.commit()
     }
@@ -1073,7 +1073,6 @@ final class SurfaceClipView: UIView {
         let show = edgeRequested && radius > 0 && rect.width > 0 && rect.height > 0
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        currentEdge.frame = bounds
         currentEdge.isHidden = !show
         guard show else {
             currentEdge.removeAnimation(forKey: Self.edgeAnimationKey)
@@ -1090,23 +1089,32 @@ final class SurfaceClipView: UIView {
             CATransaction.commit()
             return
         }
-        let inset = currentEdge.lineWidth / 2
-        let path = UIBezierPath(roundedRect: rect.insetBy(dx: inset, dy: inset),
-            cornerRadius: max(0, radius - inset)).cgPath
-        let previous = (currentEdge.presentation() as? CAShapeLayer)?.path ?? currentEdge.path
+        let previous = currentEdge.presentation() ?? currentEdge
+        let previousBounds = previous.bounds
+        let previousPosition = previous.position
+        let previousRadius = previous.cornerRadius
         currentEdge.removeAnimation(forKey: Self.edgeAnimationKey)
-        currentEdge.path = path
+        currentEdge.frame = rect
+        currentEdge.cornerRadius = radius
         edgeRect = rect
         edgeRadius = radius
-        // Browse animates the native crop inside this same UIView animation block.
-        // Ordinary gesture/cancellation samples replace the path without residual work.
-        if duration > 0, let previous {
-            let animation = CABasicAnimation(keyPath: "path")
-            animation.fromValue = previous
-            animation.toValue = path
-            animation.duration = duration
-            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            currentEdge.add(animation, forKey: Self.edgeAnimationKey)
+        if duration > 0 {
+            let values: [(String, Any, Any)] = [
+                ("bounds", NSValue(cgRect: previousBounds), NSValue(cgRect: currentEdge.bounds)),
+                ("position", NSValue(cgPoint: previousPosition), NSValue(cgPoint: currentEdge.position)),
+                ("cornerRadius", NSNumber(value: Double(previousRadius)), NSNumber(value: Double(radius)))
+            ]
+            let group = CAAnimationGroup()
+            group.animations = values.map { key, from, to in
+                let animation = CABasicAnimation(keyPath: key)
+                animation.fromValue = from
+                animation.toValue = to
+                animation.duration = duration
+                return animation
+            }
+            group.duration = duration
+            group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            currentEdge.add(group, forKey: Self.edgeAnimationKey)
         }
         CATransaction.commit()
     }
