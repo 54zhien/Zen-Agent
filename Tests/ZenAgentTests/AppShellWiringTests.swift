@@ -766,7 +766,11 @@ struct AppShellWiringTests {
         if returnToFull {
             #expect(card.accessibilityActivate())
         } else {
-            let container = try #require(card.superview)
+            // The immediate parent translates Sidebar content; resize the
+            // owning controller's viewport rather than that presentation wrapper.
+            var responder: UIResponder? = card
+            while let current = responder, !(current is UIViewController) { responder = current.next }
+            let container = try #require((responder as? UIViewController)?.view)
             container.frame.size.width += 80
             container.setNeedsLayout()
             container.layoutIfNeeded()
