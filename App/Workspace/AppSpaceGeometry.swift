@@ -22,7 +22,7 @@ enum AppSpaceGeometry {
     /// Leftward offset of each predecessor's center, as a fraction of the current card's
     /// width. A narrow exposed strip and small vertical steps keep the stack compact.
     static let depthOffsets: [CGFloat] = [0, 0.18, 0.30, 0.38]
-    static let depthScaleStep: CGFloat = 0.012
+    static let depthScaleStep: CGFloat = 0.06
 
     static func depthOffset(_ depth: Int) -> CGFloat {
         guard depth > 0 else { return 0 }

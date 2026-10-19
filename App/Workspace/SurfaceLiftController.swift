@@ -629,7 +629,14 @@ final class SurfaceLiftController {
     }
 
     private var interactivePresentationProgress: Double {
-        max(state.progress, SurfaceLiftState.presentationProgress(travel: interactiveTravel))
+        guard let sample = splitSample?(.zero) else { return state.progress }
+        // Admission keeps its existing detents. Visible shrinking instead spans
+        // the available drag range, reaching the small card only at its limit.
+        let range = max(SurfaceLiftState.dragOnsetDistance + 1,
+            Double(sample.size.height - sample.safeArea.top - sample.safeArea.bottom) * 0.8)
+        let fraction = min(1, max(0, (interactiveTravel - SurfaceLiftState.dragOnsetDistance)
+            / (range - SurfaceLiftState.dragOnsetDistance)))
+        return fraction * fraction * (3 - 2 * fraction)
     }
 
     private func updateSplitTargeting(upwardDistance: Double, displacement: CGSize,

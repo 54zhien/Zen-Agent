@@ -24,7 +24,7 @@ enum AppSpaceBrowseGeometry {
         let items = historyIDs.map(AppSpaceGeometry.Item.conversation)
             + (includesNew || current == .newConversation ? [.newConversation] : [])
         guard items.count <= 5, let selected = items.firstIndex(of: current) else { return nil }
-        let travel = size.width - base.frame.minX + 16
+        let travel = base.frame.width + 12
         guard travel.isFinite, travel > 0 else { return nil }
         let targetIndex = selected + (offset > 0 ? -1 : offset < 0 ? 1 : 0)
         let target = items.indices.contains(targetIndex) ? targetIndex : selected

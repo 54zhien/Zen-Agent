@@ -754,9 +754,9 @@ struct WorkspaceSurfaceView<Content: View>: View {
         let minimum = SplitWorkspaceGeometry.minimumRatio(height: length,
             preferredMinimum: horizontal ? minimumWidth : max(180, minimumHeight * 0.65))
         return ZStack {
-            // Dark pages need a lighter structural gap even with the Sidebar
-            // closed. Light appearance keeps its existing backdrop treatment.
-            (colorScheme == .dark ? Color(white: 0.14) : Color.clear)
+            // The gutter owns its fade above the changing Sidebar backdrop.
+            // A clear Light gutter would expose that backdrop's early white fill.
+            (colorScheme == .dark ? Color(white: 0.14) : Color.black)
                 .frame(width: layout.divider.width, height: layout.divider.height)
                 .opacity(1 - sidebarProgress)
                 .allowsHitTesting(false)

@@ -19,11 +19,13 @@ enum SurfaceLiftGeometry {
         let scale = 1 - CGFloat(fraction) * 0.74
         // Approach the space exposed by shrinking with increasing resistance,
         // so the entire live page stays inside the display throughout the drag.
-        func resisted(_ distance: CGFloat, extent: CGFloat) -> CGFloat {
+        func resisted(_ distance: CGFloat, extent: CGFloat, travelExtent: CGFloat) -> CGFloat {
             let limit = extent * (1 - scale) / 2
             guard limit > 0 else { return 0 }
-            let travel = abs(distance) * 0.55
-            let magnitude = limit * (travel / (limit + travel))
+            let onset = CGFloat(SurfaceLiftState.dragOnsetDistance)
+            let range = max(onset + 1, travelExtent * 0.8)
+            let travel = min(1, max(0, (abs(distance) - onset) / (range - onset)))
+            let magnitude = limit * 0.8 * travel * (2 - travel)
             return distance < 0 ? -magnitude : magnitude
         }
         let maximumLocalRadius = min(size.width, size.height) / 2
@@ -31,8 +33,10 @@ enum SurfaceLiftGeometry {
         // radius in that same coordinate space so their corner centers align.
         let radius = min(windowCornerRadius, maximumLocalRadius)
         let pose = SurfaceGeometry.Pose(scale: scale,
-            translation: CGSize(width: resisted(displacement.width, extent: size.width) / available.width,
-                                height: resisted(displacement.height, extent: size.height) / available.height),
+            translation: CGSize(width: resisted(displacement.width, extent: size.width,
+                                    travelExtent: available.width) / available.width,
+                                height: resisted(displacement.height, extent: size.height,
+                                    travelExtent: available.height) / available.height),
             cornerRadius: radius)
         return pose.isValid ? pose : nil
     }

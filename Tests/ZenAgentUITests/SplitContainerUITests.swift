@@ -329,7 +329,7 @@ final class SplitContainerUITests: XCTestCase {
         let anchor = app.descendants(matching: .any).matching(NSPredicate(
             format: "label == %@ OR value == %@", "PREVIEW_READING_ANCHOR_10",
             "PREVIEW_READING_ANCHOR_10")).firstMatch
-        XCTAssertTrue(anchor.exists && anchor.isHittable)
+        expect { anchor.exists && anchor.isHittable }
         let anchorFrame = anchor.frame
         // SwiftUI propagates the Pane identifier to its timeline and Composer
         // accessibility siblings. Measure the native timeline viewport explicitly.
@@ -372,6 +372,7 @@ final class SplitContainerUITests: XCTestCase {
 
     @MainActor
     private func assertDividerResizesAfterReturn(_ app: XCUIApplication) {
+        recordNativeSurfaces(app, stage: "before Divider resize")
         let divider = app.descendants(matching: .any)["split-divider"]
         let handle = app.descendants(matching: .any)["split-divider-handle"]
         XCTAssertTrue(handle.waitForExistence(timeout: 10))

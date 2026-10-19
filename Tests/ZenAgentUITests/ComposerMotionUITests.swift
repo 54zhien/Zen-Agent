@@ -59,17 +59,16 @@ final class ComposerMotionUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
         input.typeText("Menu draft")
         plus.tap()
-        let actions = app.scrollViews["composer-actions-list"]
-        XCTAssertTrue(actions.waitForExistence(timeout: 5))
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
         XCTAssertTrue(app.keyboards.firstMatch.exists)
-        XCTAssertLessThanOrEqual(actions.frame.maxY, app.keyboards.firstMatch.frame.minY + 1)
+        XCTAssertLessThanOrEqual(title.frame.maxY, app.keyboards.firstMatch.frame.minY + 1)
         XCTAssertTrue(title.isHittable)
         let keyboardMenu = XCTAttachment(screenshot: app.screenshot())
         keyboardMenu.name = "Action menu stays above the landscape keyboard"
         keyboardMenu.lifetime = .keepAlways
         add(keyboardMenu)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.12)).tap()
-        XCTAssertTrue(actions.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(title.waitForNonExistence(timeout: 5))
         XCTAssertTrue(app.keyboards.firstMatch.exists)
         XCTAssertEqual(input.value as? String, "Menu draft")
     }

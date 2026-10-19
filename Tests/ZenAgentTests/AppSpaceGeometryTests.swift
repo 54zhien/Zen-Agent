@@ -25,7 +25,8 @@ struct AppSpaceGeometryTests {
             #expect(card.item == .conversation(ids[3 - depth]))
             #expect(card.frame.minX < current.frame.minX)
             #expect(abs(card.frame.midY - current.frame.midY) < 0.001)
-            #expect(abs(card.frame.width / current.frame.width - (1 - CGFloat(depth) * 0.012)) < 0.001)
+            let above = try #require(layout.cards.first { $0.depth == depth - 1 })
+            #expect(card.frame.width < above.frame.width && card.frame.height < above.frame.height)
             #expect(abs(current.frame.midX - card.frame.midX
                 - current.frame.width * AppSpaceGeometry.depthOffset(depth)) < 0.001)
             // Like the system switcher, predecessors may pass the leading edge
@@ -35,7 +36,7 @@ struct AppSpaceGeometryTests {
         let first = try #require(layout.cards.first { $0.depth == 1 })
         let exposed = current.frame.minX - first.frame.minX
         #expect(exposed > current.frame.width * 0.14 && exposed < current.frame.width * 0.22)
-        #expect(first.frame.minY - current.frame.minY < 4)
+        #expect(first.frame.minY - current.frame.minY < current.frame.height * 0.04)
     }
 
     @Test func newIsExactlyOnceAtLogicalRightAndCanBeCurrent() throws {

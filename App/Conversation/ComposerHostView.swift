@@ -35,13 +35,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private let viewport = UIView()
     let editor = UITextView()
     let placeholder = UILabel()
-    private let plus = UIButton(type: .system)
-    private let primary = UIButton(type: .system)
+    private let plus = ComposerControlButton(type: .system)
+    private let primary = ComposerControlButton(type: .system)
     private let errorLabel = UILabel()
     private let geometryProbe = UIView()
     private var shelfController: UIHostingController<QuoteShelfView>?
     private weak var modelMenuController: ComposerModelMenuController?
-    private weak var actionsMenu: ComposerActionsMenuView?
     private var shelfHeight: CGFloat = 44
     private var quotePhase: ComposerQuoteDragPhase = .idle
     private let motion = ComposerMotionController()
@@ -249,7 +248,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         }
         plus.accessibilityIdentifier = "conversation-composer-plus"
         plus.accessibilityLabel = "更多操作"
-        // Keep the button appearance independent from the action panel transition.
+        // Give UIKit a native glass source for its button-to-menu morph.
+        // The Composer's shared glass backing alone is not a glass button.
         var plusStyle = UIButton.Configuration.glass()
         plusStyle.image = plus.image(for: .normal)
         plusStyle.preferredSymbolConfigurationForImage = plus.preferredSymbolConfigurationForImage(in: .normal)
@@ -257,7 +257,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         plusStyle.contentInsets = .zero
         plusStyle.cornerStyle = .capsule
         plus.configuration = plusStyle
-        plus.addTarget(self, action: #selector(presentActionsMenu), for: .touchUpInside)
+        plus.showsMenuAsPrimaryAction = true
         primary.accessibilityIdentifier = "conversation-composer-send"
         primary.accessibilityLabel = "发送"
         primary.addTarget(self, action: #selector(primaryTapped), for: .touchUpInside)
@@ -308,7 +308,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             lastBottomSafeAreaInset = -1
             setNeedsLayout()
         } else {
-            actionsMenu?.removeFromSuperview()
             liftInteraction?.cancelForDetachment()
             // A retained off-window editor has no visible morph to finish.
             // Invalidate its completion before a later remount reuses the state.
@@ -543,6 +542,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         errorLabel.text = next.errorMessage
         updateShelf(next)
         plus.isHidden = !next.showsPlus
+        plus.menu = makeMenu()
         switch next.primary {
         case .none:
             primary.isHidden = true
@@ -753,53 +753,55 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         }
     }
 
-    @objc private func presentActionsMenu() {
-        guard let window else { return }
-        WorkspaceHaptics.shared.play(.control)
-        let menu = ComposerActionsMenuView(sourceView: plus) { [weak self] in
+    private func makeMenu() -> UIMenu {
+        func disabled(_ title: String, _ symbol: String) -> UIAction {
+            UIAction(title: title, image: UIImage(systemName: symbol), attributes: [.disabled]) { _ in }
+        }
+        let modelMenu = UIAction(title: "模型", image: UIImage(systemName: "cpu")) { [weak self] _ in
             self?.presentModelMenu()
         }
-        actionsMenu = menu
-        menu.show(in: window)
-    }
-
-    private var menuPresenter: UIViewController? {
-        var responder: UIResponder? = self
-        while let current = responder {
-            if let controller = current as? UIViewController { return controller }
-            responder = current.next
-        }
-        return nil
+        return UIMenu(children: [
+            disabled("添加图片", "photo"), disabled("添加文件", "doc"),
+            disabled("插件", "puzzlepiece"), modelMenu,
+            disabled("推理强度", "slider.horizontal.3")
+        ])
     }
 
     private func presentModelMenu() {
-        guard let configuration, let window, let presenter = menuPresenter else { return }
-        let controller = ComposerModelMenuController(rootView: ComposerModelMenuView(
-            models: configuration.models, selectedModelID: configuration.selectedModelID,
-            onSelect: { [weak self] modelID in
-                self?.configuration?.onModel(modelID)
-                self?.modelMenuController?.dismiss(animated: true)
-            },
-            onClose: { [weak self] in
-                self?.modelMenuController?.dismiss(animated: true) { [weak self] in
-                    self?.presentActionsMenu()
-                }
+        guard let configuration, let window else { return }
+        var responder: UIResponder? = self
+        while let current = responder {
+            if let presenter = current as? UIViewController {
+                let controller = ComposerModelMenuController(rootView: ComposerModelMenuView(
+                    models: configuration.models, selectedModelID: configuration.selectedModelID,
+                    onSelect: { [weak self] modelID in
+                        self?.configuration?.onModel(modelID)
+                        self?.modelMenuController?.dismiss(animated: true)
+                    },
+                    onClose: { [weak self] in
+                        self?.modelMenuController?.dismiss(animated: true) { [weak self] in
+                            self?.plus.performPrimaryAction()
+                        }
+                    }
+                ))
+                controller.modalPresentationStyle = .popover
+                controller.view.backgroundColor = .clear
+                controller.preferredContentSize = controller.sizeThatFits(in: CGSize(
+                    width: min(UIFontMetrics(forTextStyle: .body).scaledValue(for: 250, compatibleWith: traitCollection),
+                               window.bounds.width - 32),
+                    height: window.bounds.height * 0.65
+                ))
+                let popover = controller.popoverPresentationController
+                popover?.sourceView = plus
+                popover?.sourceRect = plus.bounds
+                popover?.permittedArrowDirections = []
+                popover?.delegate = controller
+                modelMenuController = controller
+                presenter.present(controller, animated: true)
+                return
             }
-        ))
-        controller.modalPresentationStyle = .popover
-        controller.view.backgroundColor = .clear
-        controller.preferredContentSize = controller.sizeThatFits(in: CGSize(
-            width: min(UIFontMetrics(forTextStyle: .body).scaledValue(for: 250, compatibleWith: traitCollection),
-                       window.bounds.width - 32),
-            height: window.bounds.height * 0.65
-        ))
-        let popover = controller.popoverPresentationController
-        popover?.sourceView = plus
-        popover?.sourceRect = plus.bounds
-        popover?.permittedArrowDirections = []
-        popover?.delegate = controller
-        modelMenuController = controller
-        presenter.present(controller, animated: true)
+            responder = current.next
+        }
     }
 
     private func updateShelf(_ configuration: Configuration) {
@@ -982,5 +984,17 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         quotePhase = phase
         liftInteraction.checkReadiness()
         configuration?.onQuotePhase(phase)
+    }
+}
+
+/// Keep UIKit's source and dismissal previews intact so a native glass button
+/// can morph into its menu. Only the Composer's control haptic is customized.
+@MainActor
+final class ComposerControlButton: UIButton {
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                         willDisplayMenuFor configuration: UIContextMenuConfiguration,
+                                         animator: (any UIContextMenuInteractionAnimating)?) {
+        super.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: animator)
+        WorkspaceHaptics.shared.play(.control)
     }
 }

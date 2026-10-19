@@ -353,6 +353,11 @@ struct ConversationTimelineView: View {
 #endif
                 scrollBridge.endHeightChange()
                 pendingAppliedScroll = nil
+                // The final viewport can arrive during Return settlement. Full
+                // then changes only the phase, so no new geometry callback is
+                // guaranteed to seed the remounted Pane's Divider snapshot.
+                latestBottomReferenceTurn = bottomVisibleTurn(in: turnFrames, geometry: latestScrollGeometry)
+                publishDividerViewport(latestScrollGeometry)
                 _ = scrollBridge.pane.updateReading(.geometryChanged(geometry: latestScrollGeometry, anchor: nil))
                 applyPendingScrollIfReady()
             }

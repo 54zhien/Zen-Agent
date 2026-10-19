@@ -71,6 +71,7 @@ struct AppSpaceStackView<Surface: View>: View {
         return ConversationPreviewView(summary: summary,
             status: summary?.contentUnavailable == true ? .contentUnavailable : .ready,
             isNewEntry: browse.supportsNewEntry && card.item == .newConversation)
+            .equatable()
             .frame(width: max(1, size.width - insets.left - insets.right),
                 height: max(1, size.height - insets.top - insets.bottom))
             .padding(EdgeInsets(top: insets.top, leading: insets.left, bottom: insets.bottom, trailing: insets.right))

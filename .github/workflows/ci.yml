@@ -862,7 +862,8 @@ jobs:
                     -only-testing:ZenAgentUITests/SurfaceLiftUITests/testComposerDragTargetsTopSplit
                     -only-testing:ZenAgentUITests/SurfaceLiftUITests/testShortComposerDragToLowerCenterKeepsCardPriority)
                   tests+=(-only-testing:ZenAgentUITests/SplitContainerUITests/testSourceSplitPaneLiftsToAppSpaceAndReturnsWithOtherPaneIntact
-                    -only-testing:ZenAgentUITests/SplitContainerUITests/testSecondarySplitPaneLiftsToAppSpaceAndReturnsWithSourceIntact)
+                    -only-testing:ZenAgentUITests/SplitContainerUITests/testSecondarySplitPaneLiftsToAppSpaceAndReturnsWithSourceIntact
+                    -only-testing:ZenAgentUITests/ComposerMotionUITests/testModelMenuOpensAndSwitchesModels)
                 fi
               else
                 tests=(-only-testing:ZenAgentTests/SidebarRailLayoutTests
