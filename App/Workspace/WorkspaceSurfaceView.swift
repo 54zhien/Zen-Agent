@@ -466,11 +466,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         squareBottom: keyboardShortensViewport && abs(frame.maxY - viewport.maxY) < 1),
                     opacity: paneStrength))
             }
-            // Crossfade into one exterior contour without moving either Pane
-            // or re-parenting the retained editor. The gap shares the page color.
-            outlines.append(WorkspaceComposerDockOutline(frame: viewport,
-                radii: paneRadii(viewport, in: viewport, squareBottom: keyboardShortensViewport),
-                opacity: strength * appearance.outlineOpacity))
+            // The shared native shadow already supplies the exterior contour.
+            // A second full-viewport stroke can outrun the native page transport.
         }
         return outlines
     }
