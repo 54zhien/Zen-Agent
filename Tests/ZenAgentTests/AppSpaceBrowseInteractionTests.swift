@@ -1,6 +1,7 @@
 import UIKit
 import SwiftUI
 import Testing
+import Observation
 @testable import ZenAgent
 
 @MainActor
@@ -19,6 +20,56 @@ private final class SampledBrowsePan: UIPanGestureRecognizer {
 @Suite("Native Browse final sample", .serialized)
 @MainActor
 struct AppSpaceBrowseInteractionTests {
+    @Test func movingInsideOneCardDoesNotInvalidateConversationSelection() async throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.createEmptyConversation(id: "older", at: Date(timeIntervalSince1970: 1))
+        try store.createEmptyConversation(id: "current", at: Date(timeIntervalSince1970: 2))
+        let browse = AppSpaceBrowseController(reader: { try store.conversationBrowseWindow(id: $0) })
+        browse.present(originID: "current")
+        #expect(browse.begin())
+        await confirmation("frame updates do not rebuild the retained Conversation", expectedCount: 0) { changed in
+            withObservationTracking {
+                _ = browse.selectedConversationID
+                _ = browse.currentSummary
+            } onChange: { changed() }
+            _ = browse.move(to: 0.1)
+            _ = browse.move(to: 0.2)
+        }
+        await confirmation("crossing a card still publishes the new Conversation", expectedCount: 1) { changed in
+            withObservationTracking { _ = browse.selectedConversationID } onChange: { changed() }
+            _ = browse.move(to: 1.1)
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func shortFlickRetainsMomentumUnlessTheFingerStops(stopped: Bool) throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.createEmptyConversation(id: "older", at: Date(timeIntervalSince1970: 1))
+        try store.createEmptyConversation(id: "current", at: Date(timeIntervalSince1970: 2))
+        let browse = AppSpaceBrowseController(reader: { try store.conversationBrowseWindow(id: $0) })
+        let surface = SurfaceClipView()
+        let coordinates = UIView(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        coordinates.addSubview(surface)
+        let input = AppSpaceBrowseInteraction(surface: surface, coordinates: coordinates,
+            controller: browse, canBrowse: { true }, render: { _ in true }, refreshAccessibility: {})
+        defer { input.unbind() }
+        browse.present(originID: "current")
+        let pan = SampledBrowsePan()
+        let action = NSSelectorFromString("gestureChanged:")
+        pan.sampleState = .began
+        _ = input.perform(action, with: pan)
+        pan.sampleState = .changed
+        pan.displacement = 40
+        pan.releaseVelocity = 2200
+        _ = input.perform(action, with: pan)
+        pan.releaseVelocity = 0
+        if stopped { _ = input.perform(action, with: pan) }
+        pan.sampleState = .ended
+        _ = input.perform(action, with: pan)
+        for _ in 0..<480 where input.isAnimating { input.advance(deltaTime: 1.0 / 120) }
+        #expect(browse.state.selected == .conversation(stopped ? "current" : "older"))
+    }
+
     @Test("release displacement is consumed even without a final changed callback")
     func releaseUsesFinalDisplacement() throws {
         try checkRelease(lastSample: 0.02, release: 0.6, expectedID: "older")

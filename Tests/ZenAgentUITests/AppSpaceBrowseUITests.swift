@@ -59,6 +59,8 @@ final class AppSpaceBrowseUITests: XCTestCase {
         start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
         let card = app.descendants(matching: .any)["workspace-current-card"]
         XCTAssertTrue(wait { card.exists && card.label.contains("Workspace conversation 11") })
+        XCTAssertEqual(card.frame.midX, app.frame.midX, accuracy: 2,
+                       "The card nearest the resting detent must be centered on screen")
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
 
         card.swipeRight(velocity: XCUIGestureVelocity(rawValue: 350))
@@ -82,11 +84,25 @@ final class AppSpaceBrowseUITests: XCTestCase {
         }
         XCTAssertLessThanOrEqual(selected, 9, "A fast flick must coast beyond the first adjacent card")
         XCTAssertGreaterThanOrEqual(selected, 0)
+        let capture = XCTAttachment(screenshot: app.screenshot())
+        capture.name = "Centered opaque App Space stack after fast flick"
+        capture.lifetime = .keepAlways
+        add(capture)
+        let quickStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.5))
+        quickStart.press(forDuration: 0.01, thenDragTo: quickStart.withOffset(CGVector(dx: -60, dy: 0)),
+            withVelocity: XCUIGestureVelocity(rawValue: 3000), thenHoldForDuration: 0)
+        XCTAssertTrue(wait { card.exists && (readiness.value as? String)?.contains("phase=idle") == true })
+        guard let quickDigits = card.label.components(separatedBy: "Workspace conversation ").last?
+            .prefix(while: { $0.isNumber }), let quickSelection = Int(quickDigits) else {
+            XCTFail("A short fast canvas swipe lost the selected conversation: \(card.label)")
+            return
+        }
+        XCTAssertGreaterThan(quickSelection, selected, "Short swipes on the App Space canvas must respond too")
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
         card.tap()
         XCTAssertTrue(wait { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" })
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
-        XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-\(selected)"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-\(quickSelection)"].exists)
     }
 
     @MainActor

@@ -428,7 +428,7 @@ struct SurfaceLiftHostTests {
         let horizontalTravel = host.presentation.translation.width - initial.translation.width
         #expect(verticalTravel < 0 && verticalTravel > -60)
         #expect(horizontalTravel > 0 && horizontalTravel < 24)
-        #expect(host.presentation.scale < 0.68 && host.presentation.scale > 0.5)
+        #expect(abs(host.presentation.scale - 0.26) < 0.02)
         #expect(window.bounds.contains(host.surfaceView.convert(host.surfaceView.bounds, to: window)))
         #expect(host.presentation.clipFraction == CGSize(width: 1, height: 1))
         #expect(host.contentController === child)

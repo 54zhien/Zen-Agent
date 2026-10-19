@@ -96,7 +96,7 @@ struct SurfaceLiftGeometryTests {
                                   width: size.width * live.scale, height: size.height * live.scale)
                 #expect(screen.contains(card))
                 #expect(live.clipFraction == CGSize(width: 1, height: 1))
-                if progress == 1 { #expect(live.scale < 0.68 && live.scale > 0.5) }
+                if progress == 1 { #expect(abs(live.scale - 0.26) < 0.01) }
             }
         }
         var positions: [CGFloat] = []

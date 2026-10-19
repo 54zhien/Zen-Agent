@@ -215,21 +215,32 @@ final class SidebarAppearanceUITests: XCTestCase {
 
     @MainActor
     func testLightSplitPickerRestoresThePageBackground() {
-        let app = launchLightAppearance()
-        app.openWorkspaceSplit()
-        let picker = app.scrollViews["split-empty-pane-picker"]
-        XCTAssertTrue(picker.waitForExistence(timeout: 10))
-        let capture = app.screenshot()
-        attach(capture, named: "Restored light picker background")
-        for x in [picker.frame.minX + 4, picker.frame.maxX - 4] {
-            let point = CGPoint(x: x, y: picker.frame.midY)
-            guard let luminance = sampledLuminance(capture, appFrame: app.frame, at: point) else {
-                XCTFail("The rendered picker background must be measurable")
-                return
+        for sourceInTopPane in [true, false] {
+            let app = launchLightAppearance()
+            app.openWorkspaceSplit(sourceInTopPane: sourceInTopPane)
+            let picker = app.scrollViews["split-empty-pane-picker"]
+            XCTAssertTrue(picker.waitForExistence(timeout: 10))
+            let layout = sourceInTopPane ? "source in top pane" : "source in bottom pane"
+            let capture = app.screenshot()
+            attach(capture, named: "Light Split picker before Sidebar, \(layout)")
+            for x in [picker.frame.minX + 4, picker.frame.maxX - 4] {
+                let point = CGPoint(x: x, y: picker.frame.midY)
+                guard let luminance = sampledLuminance(capture, appFrame: app.frame, at: point) else {
+                    XCTFail("The rendered picker background must be measurable")
+                    return
+                }
+                XCTAssertGreaterThan(luminance, 0.8, "The light picker must not revert to a black page")
             }
-            XCTAssertGreaterThan(luminance, 0.8, "The light picker must not revert to a black page")
+            XCTAssertFalse(app.buttons["split-entry"].exists)
+
+            app.openWorkspaceSidebar()
+            let rail = app.descendants(matching: .any)["sidebar-rail"]
+            XCTAssertTrue(rail.waitForExistence(timeout: 10))
+            XCTAssertTrue(app.buttons["sidebar-settings"].isHittable)
+            XCTAssertTrue(picker.exists, "The empty Pane picker should remain mounted beside the open Sidebar")
+            attach(app.screenshot(), named: "Light Split picker with Sidebar, \(layout)")
+            app.terminate()
         }
-        XCTAssertFalse(app.buttons["split-entry"].exists)
     }
 
     @MainActor

@@ -7,27 +7,25 @@ struct AppSpaceGeometryTests {
     private let ids = ["a", "b", "c", "d"]
     private let minimum = CGSize(width: 220, height: 300)
 
-    @Test func baselineIsRightBiasedSwitcherStackWithLiteralGeometry() throws {
+    @Test func selectedCardIsCenteredWithCloselyStackedPredecessors() throws {
         let layout = try #require(AppSpaceGeometry.resolve(size: CGSize(width: 400, height: 800),
             safeArea: UIEdgeInsets(top: 10, left: 20, bottom: 30, right: 40), historyIDs: ids,
             current: .conversation("d"), minimumCardSize: minimum))
         #expect(layout.safeViewport == CGRect(x: 20, y: 10, width: 340, height: 760))
         let current = try #require(layout.cards.first { $0.depth == 0 })
         #expect(current.item == .conversation("d"))
-        // Display-proportioned card: 70% of the safe width, the window's own aspect.
-        #expect(abs(current.frame.width - 238) < 0.001)
-        #expect(abs(current.frame.height - 476) < 0.001)
-        #expect(abs(current.frame.midX - 224) < 0.001)
-        #expect(abs(current.frame.midY - 390) < 0.001)
+        #expect(abs(current.frame.width - 232.9) < 0.001)
+        #expect(abs(current.frame.height - 465.8) < 0.001)
+        #expect(abs(current.frame.midX - layout.safeViewport.midX) < 0.001)
+        #expect(abs(current.frame.midY - 392) < 0.001)
         #expect(layout.safeViewport.contains(current.frame))
-        #expect(current.frame.midX > layout.safeViewport.midX)
         #expect(layout.cards.map(\.depth) == [3, 2, 1, 0])
         for depth in 1...3 {
             let card = try #require(layout.cards.first { $0.depth == depth })
             #expect(card.item == .conversation(ids[3 - depth]))
             #expect(card.frame.minX < current.frame.minX)
             #expect(abs(card.frame.midY - current.frame.midY) < 0.001)
-            #expect(abs(card.frame.width / current.frame.width - (1 - CGFloat(depth) * 0.035)) < 0.001)
+            #expect(abs(card.frame.width / current.frame.width - (1 - CGFloat(depth) * 0.012)) < 0.001)
             #expect(abs(current.frame.midX - card.frame.midX
                 - current.frame.width * AppSpaceGeometry.depthOffset(depth)) < 0.001)
             // Like the system switcher, predecessors may pass the leading edge
@@ -35,7 +33,9 @@ struct AppSpaceGeometryTests {
             #expect(card.frame.maxX > layout.safeViewport.minX)
         }
         let first = try #require(layout.cards.first { $0.depth == 1 })
-        #expect(current.frame.minX - first.frame.minX > first.frame.width * 0.4)
+        let exposed = current.frame.minX - first.frame.minX
+        #expect(exposed > current.frame.width * 0.14 && exposed < current.frame.width * 0.22)
+        #expect(first.frame.minY - current.frame.minY < 4)
     }
 
     @Test func newIsExactlyOnceAtLogicalRightAndCanBeCurrent() throws {
