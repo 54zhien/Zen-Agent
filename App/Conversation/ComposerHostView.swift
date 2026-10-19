@@ -763,7 +763,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             }
         }
         let modelMenu = UIMenu(title: "模型", image: UIImage(systemName: "cpu"),
-                               options: [.singleSelection],
                                children: modelActions.isEmpty
                                    ? [UIAction(title: "模型", attributes: [.disabled]) { _ in }]
                                    : modelActions)
