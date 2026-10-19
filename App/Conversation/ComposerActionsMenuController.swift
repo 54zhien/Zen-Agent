@@ -181,6 +181,7 @@ private final class ComposerMenuAnimator: NSObject, UIViewControllerAnimatedTran
             if context.transitionWasCancelled {
                 menu.panel.transform = .identity
                 menu.scroll.alpha = 1
+                if self.presenting { transitionView.removeFromSuperview() }
             }
             menu.view.isUserInteractionEnabled = true
             context.completeTransition(!context.transitionWasCancelled)
