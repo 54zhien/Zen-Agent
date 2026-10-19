@@ -157,7 +157,6 @@ final class ComposerActionsMenuController: UIViewController, UIViewControllerTra
 @MainActor
 private final class ComposerMenuPresentation: UIPresentationController {
     override var shouldRemovePresentersView: Bool { false }
-    override var shouldPresentInFullscreen: Bool { false }
 }
 
 @MainActor
