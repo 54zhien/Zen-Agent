@@ -107,6 +107,13 @@ struct ConversationPreviewUITestFixture: View {
                     if !Task.isCancelled { fatalError("Preview history fixture could not open") }
                     return
                 }
+                // Sidebar pixel cases arrange their viewport independently of Lift;
+                // dedicated interaction tests still enter Split through the Composer.
+                if let source = ProcessInfo.processInfo.environment["ZEN_SIDEBAR_SPLIT_SOURCE_UI_TEST"],
+                   let slot = SplitDropSlot(rawValue: source) {
+                    precondition(model.commitSplitDrop(SplitDropIntent(
+                        conversationID: model.conversationID, slot: slot)))
+                }
             }
             .overlay(alignment: .bottomLeading) {
                 Text("pending=\(String(describing: model.pane?.scrollRequest?.sequence)) \(model.pane?.previewReadingDiagnosticForUITest ?? "Preview")")

@@ -216,8 +216,7 @@ final class SidebarAppearanceUITests: XCTestCase {
     @MainActor
     func testLightSplitPickerRestoresThePageBackground() throws {
         for (sourceInTopPane, occupied) in [(true, false), (false, false), (true, true), (false, true)] {
-            let app = launchLightAppearance(bottomSource: !sourceInTopPane)
-            app.openWorkspaceSplit(sourceInTopPane: sourceInTopPane)
+            let app = launchLightAppearance(splitSource: sourceInTopPane ? "top" : "bottom")
             let picker = app.scrollViews["split-empty-pane-picker"]
             XCTAssertTrue(picker.waitForExistence(timeout: 10))
             let layout = sourceInTopPane ? "source in top pane" : "source in bottom pane"
@@ -326,12 +325,12 @@ final class SidebarAppearanceUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchLightAppearance(bottomSource: Bool = false) -> XCUIApplication {
+    private func launchLightAppearance(splitSource: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleInterfaceStyle", "Light"]
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
-        if bottomSource { app.launchEnvironment["ZEN_BOTTOM_SOURCE_SPLIT_UI_TEST"] = "1" }
+        if let splitSource { app.launchEnvironment["ZEN_SIDEBAR_SPLIT_SOURCE_UI_TEST"] = splitSource }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         return app
