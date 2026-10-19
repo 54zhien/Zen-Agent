@@ -147,10 +147,10 @@ final class ComposerActionMenuPresenter: UIViewController {
         isClosing = true
         let wasOpen = content.view.isUserInteractionEnabled
         content.view.isUserInteractionEnabled = false
-        if let displayed = content.view.layer.presentation()?.affineTransform() {
-            animator?.stopAnimation(true)
-            content.view.transform = displayed
-        }
+        let displayed = content.view.layer.presentation()?.affineTransform()
+        animator?.stopAnimation(true)
+        animator = nil
+        if let displayed { content.view.transform = displayed }
         if wasOpen, !UIAccessibility.isReduceMotionEnabled {
             // A small recoil before contraction stays visible; undershooting
             // a near-zero scale would instead flip the glass through its anchor.
