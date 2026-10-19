@@ -859,6 +859,7 @@ jobs:
                 kill -INT "$video_pid" 2>/dev/null || true
                 wait "$video_pid" || true
                 trap - EXIT
+                test -s "$evidence/lift-drag.mp4"
               fi
               xcrun xcresulttool get test-results summary --path "$evidence/Focused.xcresult" > "$evidence/Focused-summary.json"
               xcrun xcresulttool export attachments --path "$evidence/Focused.xcresult" --output-path "$evidence/attachments"
