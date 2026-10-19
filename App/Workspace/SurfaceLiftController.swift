@@ -38,7 +38,6 @@ final class SurfaceLiftController {
 #endif
     @ObservationIgnored private var hostID: ObjectIdentifier?
     @ObservationIgnored private var interactiveDisplacement = CGSize.zero
-    @ObservationIgnored private var interactiveTravel = 0.0
     @ObservationIgnored private var hasInteractivePose = false
     @ObservationIgnored private var presentInteractive: ((CGSize, Double) -> Bool)?
     @ObservationIgnored private var target: SurfaceGeometry.Pose?
@@ -440,7 +439,6 @@ final class SurfaceLiftController {
         acceptedSplitIntent = nil
         sourceConversationID = conversationID
         interactiveDisplacement = .zero
-        interactiveTravel = 0
         hasInteractivePose = false
         originalPaneFrame = captureHostFrame?()
         target = pose
@@ -467,7 +465,6 @@ final class SurfaceLiftController {
                                  eligibility: guarded(eligibility))
         if dragged, state.phase == .lifting {
             interactiveDisplacement = displacement
-            interactiveTravel = travel
             hasInteractivePose = true
         }
         if dragged, state.phase == .lifting, !splitWorkspacePresented, sourceConversationID != nil,

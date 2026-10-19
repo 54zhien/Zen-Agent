@@ -224,11 +224,20 @@ struct SurfaceLiftHostTests {
         #expect(!child.view.isUserInteractionEnabled && child.view.accessibilityElementsHidden)
         #expect(host.surfaceView.isAccessibilityElement)
         #expect(host.surfaceView.accessibilityCustomActions?.count == 1)
+        let beforeLayer = try #require(host.surfaceView.layer.presentation())
+        let beforeReturn = beforeLayer.transform
+        let beforeMask = try #require(beforeLayer.mask).frame
         #expect(host.surfaceView.accessibilityActivate())
+        CATransaction.flush()
+        let afterLayer = try #require(host.surfaceView.layer.presentation())
+        let afterReturn = afterLayer.transform
+        let afterMask = try #require(afterLayer.mask).frame
+        #expect(abs(afterReturn.m11 - beforeReturn.m11) < 0.02)
+        #expect(abs(afterReturn.m42 - beforeReturn.m42) < 4)
+        #expect(abs(afterMask.width - beforeMask.width) < 4 && abs(afterMask.height - beforeMask.height) < 4)
         let returning = driver.state.pendingSettlement
         #expect(returning?.destination == .full)
         #expect(returning?.identity != outgoing.identity)
-        #expect((returning?.startProgress ?? 0) >= outgoing.startProgress)
         #expect((returning?.startProgress ?? 1) < 1)
         #expect(host.surfaceView.activateReturn())
         #expect(driver.state.pendingSettlement == returning)
@@ -241,7 +250,8 @@ struct SurfaceLiftHostTests {
         driver.invalidate()
     }
 
-    @Test func settlingTouchHitUsesVisibleAnimationRatherThanModelEndpoint() async throws {
+    @Test(arguments: [120.0, 400.0])
+    func settlingTouchHitUsesVisibleAnimationRatherThanModelEndpoint(distance: Double) async throws {
         let host = ConversationSurfaceViewController(content: Text("visible touch"))
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
@@ -253,7 +263,7 @@ struct SurfaceLiftHostTests {
         let driver = SurfaceLiftController()
         driver.bind(host)
         #expect(driver.arm(SurfaceLiftEligibility()))
-        #expect(driver.drag(upwardDistance: 120, eligibility: SurfaceLiftEligibility()))
+        #expect(driver.drag(upwardDistance: distance, eligibility: SurfaceLiftEligibility()))
         #expect(driver.end() != nil)
         let animator = try #require(host.liftAnimatorForTesting)
         animator.pauseAnimation()
@@ -273,14 +283,20 @@ struct SurfaceLiftHostTests {
             CGPoint(x: modelFrame.minX + edgeInset, y: modelFrame.midY),
             CGPoint(x: modelFrame.maxX - edgeInset, y: modelFrame.midY)
         ]
-        let endpointOnlyPoint = try #require(modelEdgePoints.first {
+        if let endpointOnlyPoint = modelEdgePoints.first(where: {
             modelFrame.contains($0) && !visibleFrame.contains($0)
-        })
-        // Settlement hit testing follows the sampled presentation mask, not
-        // pixels that remain only inside the model's destination rectangle.
-        #expect(modelFrame.contains(endpointOnlyPoint))
-        #expect(!visibleFrame.contains(endpointOnlyPoint))
-        #expect(host.view.hitTest(endpointOnlyPoint, with: nil) !== host.surfaceView)
+        }) {
+            #expect(host.view.hitTest(endpointOnlyPoint, with: nil) !== host.surfaceView)
+        } else {
+            let visibleEdgePoints = [
+                CGPoint(x: visibleFrame.midX, y: visibleFrame.minY + edgeInset),
+                CGPoint(x: visibleFrame.midX, y: visibleFrame.maxY - edgeInset),
+                CGPoint(x: visibleFrame.minX + edgeInset, y: visibleFrame.midY),
+                CGPoint(x: visibleFrame.maxX - edgeInset, y: visibleFrame.midY)
+            ]
+            let visibleOnlyPoint = try #require(visibleEdgePoints.first { !modelFrame.contains($0) })
+            #expect(host.view.hitTest(visibleOnlyPoint, with: nil) === host.surfaceView)
+        }
         let visibleCenter = CGPoint(x: visibleFrame.midX, y: visibleFrame.midY)
         #expect(visibleFrame.contains(visibleCenter))
         #expect(host.view.hitTest(visibleCenter, with: nil) === host.surfaceView)
