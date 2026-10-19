@@ -248,9 +248,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         }
         plus.accessibilityIdentifier = "conversation-composer-plus"
         plus.accessibilityLabel = "更多操作"
-        // Give UIKit a native glass source for its button-to-menu morph.
-        // The Composer's shared glass backing alone is not a glass button.
-        var plusStyle = UIButton.Configuration.glass()
+        // Keep the shared Composer glass, but use the native menu's scale
+        // transition rather than morphing a separate glass button into it.
+        var plusStyle = UIButton.Configuration.plain()
         plusStyle.image = plus.image(for: .normal)
         plusStyle.preferredSymbolConfigurationForImage = plus.preferredSymbolConfigurationForImage(in: .normal)
         plusStyle.baseForegroundColor = .label
@@ -987,8 +987,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 }
 
-/// Keep UIKit's source and dismissal previews intact so a native glass button
-/// can morph into its menu. Only the Composer's control haptic is customized.
+/// Keep UIKit's menu presentation and dismissal intact. Only the Composer's
+/// control haptic is customized.
 @MainActor
 final class ComposerControlButton: UIButton {
     override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
