@@ -27,7 +27,13 @@ final class ComposerMotionUITests: XCTestCase {
         let input = app.textViews["conversation-composer-input"]
         input.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
-        input.typeText("menu draft")
+        // A fresh Simulator introduces slide-to-type after the first key;
+        // finish that system onboarding before it can swallow the remaining draft.
+        input.typeText("m")
+        let keyboardIntroduction = app.buttons["Continue"]
+        if keyboardIntroduction.waitForExistence(timeout: 2) { keyboardIntroduction.tap() }
+        input.typeText("enu draft")
+        XCTAssertEqual(input.value as? String, "menu draft")
         plus.tap()
         XCTAssertTrue(panel.waitForExistence(timeout: 5))
         XCTAssertTrue(app.keyboards.firstMatch.exists)
