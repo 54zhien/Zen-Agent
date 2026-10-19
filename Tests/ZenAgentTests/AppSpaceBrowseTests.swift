@@ -115,6 +115,11 @@ struct AppSpaceBrowseTests {
         let idle = try layout(0)
         let half = try layout(0.5)
         let end = try layout(1)
+        for offset in [-1.0, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1] {
+            let sample = try layout(offset)
+            #expect(sample.cards.allSatisfy { $0.opacity == 1 },
+                    "Card depth is conveyed by overlap, never by seeing through a page")
+        }
         #expect(idle.cards.count <= 5 && half.cards.count <= 5 && end.cards.count <= 5)
         for item in [current, older, AppSpaceGeometry.Item.conversation("deep2")] {
             let a = try #require(idle.cards.first { $0.item == item })

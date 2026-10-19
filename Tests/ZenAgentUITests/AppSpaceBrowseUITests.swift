@@ -43,7 +43,7 @@ final class AppSpaceBrowseUITests: XCTestCase {
     }
 
     @MainActor
-    func testNativeBrowseSnapsOneNeighborAndOpensSelectedHistory() {
+    func testNativeBrowseCoastsAcrossNeighborsAndOpensNearestHistory() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
@@ -70,13 +70,20 @@ final class AppSpaceBrowseUITests: XCTestCase {
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
         card.swipeLeft()
         XCTAssertTrue(wait { card.exists && card.label.contains("Workspace conversation 11") })
-        card.swipeRight(velocity: .fast)
-        XCTAssertTrue(wait { card.exists && card.label.contains("Workspace conversation 10") })
+        card.swipeRight(velocity: XCUIGestureVelocity(rawValue: 5000))
+        XCTAssertTrue(wait { card.exists && (readiness.value as? String)?.contains("phase=idle") == true })
+        guard let digits = card.label.components(separatedBy: "Workspace conversation ").last?
+                .prefix(while: { $0.isNumber }), let selected = Int(digits) else {
+            XCTFail("A settled card must retain its selected conversation identity: \(card.label)")
+            return
+        }
+        XCTAssertLessThanOrEqual(selected, 9, "A fast flick must coast beyond the first adjacent card")
+        XCTAssertGreaterThanOrEqual(selected, 0)
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
         card.tap()
         XCTAssertTrue(wait { (app.otherElements["surface-lift-state-probe"].value as? String) == "full" })
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
-        XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-10"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-\(selected)"].exists)
     }
 
     @MainActor
