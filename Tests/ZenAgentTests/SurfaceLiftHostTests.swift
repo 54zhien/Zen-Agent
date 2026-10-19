@@ -263,15 +263,27 @@ struct SurfaceLiftHostTests {
         #expect(driver.state.phase == .settling)
         let visibleLayer = try #require(host.surfaceView.layer.presentation())
         let visibleMask = try #require(visibleLayer.mask)
-        let visibleParent = try #require(visibleLayer.superlayer)
-        let visibleFrame = visibleLayer.convert(visibleMask.frame, to: visibleParent)
+        let visibleRoot = host.view.layer.presentation() ?? host.view.layer
+        let visibleFrame = visibleLayer.convert(visibleMask.frame, to: visibleRoot)
         let modelFrame = host.surfaceView.convert(try #require(host.surfaceView.visibleRect), to: host.view)
-        // Pick pixels still visible above the final Card's model hit region.
-        #expect(visibleFrame.minY < modelFrame.minY - 2)
-        let point = CGPoint(x: visibleFrame.midX, y: (visibleFrame.minY + modelFrame.minY) / 2)
-        #expect(!modelFrame.contains(point))
-        #expect(host.view.hitTest(point, with: nil) === host.surfaceView)
-        #expect(host.view.hitTest(.zero, with: nil) !== host.surfaceView)
+        let edgeInset: CGFloat = 8
+        let modelEdgePoints = [
+            CGPoint(x: modelFrame.midX, y: modelFrame.minY + edgeInset),
+            CGPoint(x: modelFrame.midX, y: modelFrame.maxY - edgeInset),
+            CGPoint(x: modelFrame.minX + edgeInset, y: modelFrame.midY),
+            CGPoint(x: modelFrame.maxX - edgeInset, y: modelFrame.midY)
+        ]
+        let endpointOnlyPoint = try #require(modelEdgePoints.first {
+            modelFrame.contains($0) && !visibleFrame.contains($0)
+        })
+        // Settlement hit testing follows the sampled presentation mask, not
+        // pixels that remain only inside the model's destination rectangle.
+        #expect(modelFrame.contains(endpointOnlyPoint))
+        #expect(!visibleFrame.contains(endpointOnlyPoint))
+        #expect(host.view.hitTest(endpointOnlyPoint, with: nil) !== host.surfaceView)
+        let visibleCenter = CGPoint(x: visibleFrame.midX, y: visibleFrame.midY)
+        #expect(visibleFrame.contains(visibleCenter))
+        #expect(host.view.hitTest(visibleCenter, with: nil) === host.surfaceView)
         driver.invalidate()
     }
 

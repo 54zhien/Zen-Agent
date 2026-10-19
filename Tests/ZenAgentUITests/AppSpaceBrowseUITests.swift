@@ -15,7 +15,7 @@ final class AppSpaceBrowseUITests: XCTestCase {
         }
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         print("BROWSE_LIFT_INPUT editor=\(editor.frame) start=\(start.screenPoint) end=\(start.withOffset(CGVector(dx: 0, dy: -220)).screenPoint) native=\(readiness.value ?? "missing")")
-        start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
+        start.press(forDuration: 1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
         let card = app.descendants(matching: .any)["workspace-current-card"]
         guard wait({ card.exists && card.label.contains("Workspace conversation 11") }) else {
             XCTFail("Initial native Lift did not enter Card: \(readiness.value ?? "missing")")

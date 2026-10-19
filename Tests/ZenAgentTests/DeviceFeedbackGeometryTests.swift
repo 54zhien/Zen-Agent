@@ -14,8 +14,9 @@ struct DeviceFeedbackGeometryTests {
                 historyIDs: ["a", "b", "c", "d"], current: .conversation("c"), offset: offset,
                 minimumCardSize: CGSize(width: 220, height: 300)))
             let outgoing = try #require(layout.cards.first { $0.item == .conversation("c") })
-            for card in layout.cards { #expect(abs(card.frame.midY - size.height / 2) < 0.001) }
+            for card in layout.cards { #expect(abs(card.frame.midY - outgoing.frame.midY) < 0.001) }
             if let previous {
+                #expect(abs(outgoing.frame.midY - previous.midY) < 0.001)
                 #expect(outgoing.frame.midX < previous.midX)
                 #expect(outgoing.frame.width < previous.width)
             }
