@@ -257,6 +257,11 @@ final class SidebarAppearanceUITests: XCTestCase {
                 }
                 XCTAssertLessThan(edgeSamples.min() ?? 1, 0.98,
                     "Each expanded Split Pane must keep its own visible outline, including the picker")
+                let outside = edgeY == top.maxY ? edgeY + 1.5 : edgeY - 1.5
+                let shadow = try XCTUnwrap(sampledLuminance(expanded, appFrame: app.frame,
+                    at: CGPoint(x: sampleX, y: outside)))
+                XCTAssertLessThan(shadow, 0.995, "Each Pane must cast a faint shadow into the gap")
+                XCTAssertGreaterThan(shadow, 0.85, "The gap must not acquire a solid dark Divider background")
             }
             attach(expanded, named: "Split seam with Sidebar, \(layout), occupied=\(occupied)")
             app.terminate()

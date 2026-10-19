@@ -342,7 +342,6 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         displayCorners: SplitWorkspaceGeometry.viewportCorners(of: emptyFrame, in: layout.viewport),
                         sidebarOffset: sidebarTranslation, sidebarProgress: sidebarProgress,
                         sidebarDragging: sidebarDragging, sidebarSettlement: navigation.settlementID,
-                        sidebarShadowEnabled: false,
                         workspaceViewportSize: emptyFrame.size,
                         workspaceBackgroundColor: .systemBackground,
                         sidebarOutlineExternallyDrawn: usesDockedSidebarOutline(frame: emptyFrame,
@@ -444,7 +443,6 @@ struct WorkspaceSurfaceView<Content: View>: View {
         let viewport = layout?.viewport ?? CGRect(origin: .zero, size: geometry.size)
         let appearance = sidebarPageAppearance(progress: progress)
         let strength = appearance.outlineOpacity * appearance.surfaceOpacity
-        let paneStrength = strength * (layout == nil ? 1 : 1 - appearance.outlineOpacity)
         var outlines: [WorkspaceComposerDockOutline] = WorkspaceSurfaceSlot.allCases.compactMap { slot in
             let driver = controller(for: slot)
             let frame = driver.retainsAppSpaceViewport ? viewport
@@ -454,7 +452,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 return WorkspaceComposerDockOutline(frame: frame,
                     radii: paneRadii(frame, in: viewport,
                         squareBottom: keyboardShortensViewport && abs(frame.maxY - viewport.maxY) < 1),
-                    opacity: paneStrength)
+                    opacity: strength)
             }
             return nil
         }
@@ -464,10 +462,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 outlines.append(WorkspaceComposerDockOutline(frame: frame,
                     radii: paneRadii(frame, in: viewport,
                         squareBottom: keyboardShortensViewport && abs(frame.maxY - viewport.maxY) < 1),
-                    opacity: paneStrength))
+                    opacity: strength))
             }
-            // The shared native shadow already supplies the exterior contour.
-            // A second full-viewport stroke can outrun the native page transport.
         }
         return outlines
     }
@@ -518,7 +514,6 @@ struct WorkspaceSurfaceView<Content: View>: View {
         let frame = driver.retainsAppSpaceViewport ? fullFrame
             : (logicalSlot(for: slot).flatMap { splitLayout?.frame(for: $0) } ?? fullFrame)
         let usesWorkspaceViewport = splitLayout != nil && !driver.retainsAppSpaceViewport
-        let sharedShadow = activeSurfaceSlot == nil && splitLayout != nil
         let visible = surfaceIsVisible(slot)
         let suppressed = returnPresentation.suppressesTarget(slot)
         let surfaceBrowse: AppSpaceBrowseController? = model != nil && slot == (model?.previewSurfaceSlot ?? model?.sourceSurfaceSlot) ? browse : nil
@@ -547,10 +542,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
             displayCorners: displayCorners, sidebarOffset: sidebarOffset,
             sidebarProgress: sidebarProgress, sidebarDragging: sidebarDragging,
             sidebarSettlement: navigation.settlementID,
-            // One workspace silhouette follows the same native animator as Single.
-            // Internal divider edges must not create additional Sidebar shadows.
-            sidebarShadowFrame: sharedShadow ? fullFrame.offsetBy(dx: -frame.minX, dy: -frame.minY) : nil,
-            sidebarShadowEnabled: !sharedShadow || slot == model?.sourceSurfaceSlot,
+            // Each Pane keeps its own silhouette; only the backdrop under
+            // the transparent Divider is shared. Native Sidebar timing is unchanged.
             workspaceViewportSize: usesWorkspaceViewport ? frame.size : nil,
             sidebarOutlineExternallyDrawn: usesDockedSidebarOutline(frame: frame, viewport: fullFrame, splitLayout: splitLayout),
             onSidebarSettled: settled,
