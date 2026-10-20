@@ -286,6 +286,17 @@
 - WorkspaceHaptics: control/cardDetent/splitTarget 提高至 rigid 1，pickUp/splitCommit 改 heavy 1，landed 改 medium 1，cardDetentReleased 改 medium 0.85；侧栏与删卡 light→medium，分割条 medium→heavy。只增强既有触发，不新增次数。
 - Blueprint `b2be74cdc176b686222b2590463c5332a4c065de`；依据 Apple WWDC25 284 的玻璃 effect 动画与内容独立动画说明。按要求不运行测试，待 XcodeGen/设备编译打包；新视觉与触感实机结果待确认。
 
+
+### 26.10.30 编译交付记录
+
+- 源码提交：`15c9e7e7ef50f7776083977fce1760e42f891623`，源码树：`a64f4883fe127b33322011231f318e303310f103`；App 范围为两级菜单 Presenter / Panel 与四处既有触感实现。
+- 仅打包提交：`fca6c3ac2243c37b4a53e048ef6df6df8fcb2460`；相对源码只修改专用打包工作流。
+- [设备编译与打包 39396322501](https://github.com/54zhien/Zen-Agent/actions/runs/39396322501)：成功，XcodeGen 及设备构建完成，未运行测试。
+- IPA：`ZenAgent-Submenu-15c9e7e-device-test.ipa`，版本 `26.10.30`，未签名 Debug / System Sans / iOS 26.0+。完整路径：`C:\Users\Azusa\Downloads\ZenAgent-Submenu-15c9e7e\ZenAgent-Submenu-15c9e7e-device-test.ipa`。
+- SHA-256：`a92ca06e70c26eccae294652c5a15c76ff4347bcf40d662391e02418c212ee05`。下载后核对哈希、版本、可执行文件及源码来源。26.10.29 已接受安装包哈希核对仍为 `6e1ea7908e27f95c3d5ba8059dc574e891028e235c223cf86b38f643c6e957e9`，未覆盖。
+- 源码对比确认一级 expand / collapse 至末段 fade 方法保持 26.10.29 原文，ComposerActionMenuView / ComposerHostView 未改。两级展开态圆角按授权改变，不把函数相同解释为新版本视觉已验收。
+- 本次只确认编译及包完整性；二级展开/返回、圆角与触感实机结果待用户确认。
+
 ## 范围
 
 - 保留已交付的无玻璃 `+` 按钮、19 点 `+` 符号、输入框底板及菜单的玻璃。
