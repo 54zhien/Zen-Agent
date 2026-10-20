@@ -38,6 +38,7 @@ Owner independent Split cards and two-way menu rebound correction @ e8930f6f1c18
 Owner preserved Split divider and Single-matched shadow ruling @ b31bfe45413a26f0365e56fe971ec67c2bdadbe1
 Owner slightly slower Composer menu timing ruling @ 275271047d85a2cd93d55051ec941fab2ca22308
 Owner trailing model checkmark and leading text alignment ruling @ 7fc0eb5d42a2d7a83da4e68ccb15e4df9180971d
+Owner smaller Composer plus symbol ruling @ 23876dafa1c678b67f9f3e53f6ea659d07e0588b
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,

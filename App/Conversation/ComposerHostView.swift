@@ -239,7 +239,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         for (button, symbol) in [(plus, "plus"), (primary, "arrow.up")] {
             button.setImage(UIImage(systemName: symbol), for: .normal)
             button.setPreferredSymbolConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 21, weight: .medium),
+                UIImage.SymbolConfiguration(pointSize: button === plus ? 19 : 21, weight: .medium),
                 forImageIn: .normal
             )
             button.tintColor = .label
