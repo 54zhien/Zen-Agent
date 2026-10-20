@@ -6,6 +6,7 @@ import UIKit
 @MainActor
 final class ComposerActionMenuPresenter: UIViewController {
     private weak var sourceView: UIView?
+    private weak var alignmentView: UIView?
     private let presentation: ComposerActionMenuState
     private let onSelect: (ModelID) -> Void
     private let onDismiss: (ComposerActionMenuPresenter) -> Void
@@ -16,10 +17,11 @@ final class ComposerActionMenuPresenter: UIViewController {
     private var animator: UIViewPropertyAnimator?
     private lazy var content = UIHostingController(rootView: menuView())
 
-    init(sourceView: UIView, presentation: ComposerActionMenuState,
+    init(sourceView: UIView, alignmentView: UIView, presentation: ComposerActionMenuState,
          onSelect: @escaping (ModelID) -> Void,
          onDismiss: @escaping (ComposerActionMenuPresenter) -> Void) {
         self.sourceView = sourceView
+        self.alignmentView = alignmentView
         self.presentation = presentation
         self.onSelect = onSelect
         self.onDismiss = onDismiss
@@ -97,15 +99,16 @@ final class ComposerActionMenuPresenter: UIViewController {
     }
 
     private func placement(in window: UIWindow) -> CGRect? {
-        guard let sourceView else { return nil }
-        let source = sourceView.convert(sourceView.bounds, to: window)
+        guard let sourceView, let alignmentView else { return nil }
+        let aligned = alignmentView.convert(alignmentView.bounds, to: window)
         let safe = window.bounds.inset(by: window.safeAreaInsets).insetBy(dx: 8, dy: 8)
         let width = min(safe.width, UIFontMetrics(forTextStyle: .body).scaledValue(for: 250,
-            compatibleWith: sourceView.traitCollection))
-        let bottom = min(source.maxY, safe.maxY)
+            compatibleWith: sourceView.traitCollection), max(0, safe.maxX - aligned.minX))
+        // Match the Composer's edges even when its concentric bottom sits below
+        // the safe area. The + remains the separate animation anchor.
+        let bottom = aligned.maxY
         let height = min(window.bounds.height * 0.65, max(44, bottom - safe.minY))
-        let x = min(max(safe.minX, source.minX), safe.maxX - width)
-        return CGRect(x: x, y: bottom - height, width: width, height: height)
+        return CGRect(x: aligned.minX, y: bottom - height, width: width, height: height)
     }
 
     private var collapsedTransform: CGAffineTransform {

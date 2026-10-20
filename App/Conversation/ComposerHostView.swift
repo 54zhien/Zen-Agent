@@ -757,7 +757,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     @objc private func presentActionMenu() {
         guard let window else { return }
         if let actionMenu { actionMenu.close(); return }
-        let menu = ComposerActionMenuPresenter(sourceView: plus, presentation: actionMenuState,
+        let menu = ComposerActionMenuPresenter(sourceView: plus, alignmentView: surface,
+            presentation: actionMenuState,
             onSelect: { [weak self] modelID in self?.configuration?.onModel(modelID) },
             onDismiss: { [weak self] menu in
                 if self?.actionMenu === menu { self?.actionMenu = nil }

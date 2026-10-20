@@ -39,6 +39,7 @@ Owner preserved Split divider and Single-matched shadow ruling @ b31bfe45413a26f
 Owner slightly slower Composer menu timing ruling @ 275271047d85a2cd93d55051ec941fab2ca22308
 Owner trailing model checkmark and leading text alignment ruling @ 7fc0eb5d42a2d7a83da4e68ccb15e4df9180971d
 Owner smaller Composer plus symbol and plain button ruling @ 355c4634b01df15598f9813d796ce4f4c132d917
+Owner stationary Composer and expanded menu edge alignment ruling @ 815cb7905405ac14a74c6206280f1d02d2ac1200
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
