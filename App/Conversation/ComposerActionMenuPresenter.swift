@@ -271,18 +271,13 @@ final class ComposerActionMenuPresenter: UIViewController {
     }
 
     private func stopAnimator() {
-        let rootPose = rootPanel?.displayedPose
-        let childPose = childPanel?.displayedPose
-        let iconFrame = sourceIcon.layer.presentation()?.frame ?? sourceIcon.frame
-        let iconAlpha = sourceIcon.layer.presentation().map { CGFloat($0.opacity) } ?? sourceIcon.alpha
-        animator?.stopAnimation(true)
+        guard let current = animator else { return }
         animator = nil
-        UIView.performWithoutAnimation {
-            if let rootPose { self.rootPanel?.restore(rootPose) }
-            if let childPose { self.childPanel?.restore(childPose) }
-            self.sourceIcon.frame = iconFrame
-            self.sourceIcon.alpha = iconAlpha
-        }
+        guard current.state == .active else { return }
+        // UIKit freezes every animated view property in its own coordinate
+        // space. Replaying a glass backing layer's frame can move the panel.
+        current.stopAnimation(false)
+        current.finishAnimation(at: .current)
     }
 
     private func animate(duration: TimeInterval, dampingRatio: CGFloat, _ changes: @escaping () -> Void,

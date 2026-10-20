@@ -41,7 +41,7 @@
 - 原图标在独立的同窗口覆盖层中向右、向上各移动半个按钮宽高并淡出，不移动按钮本体，不受菜单玻璃的圆形裁切或文字缩放影响。
 - 一级菜单内容在固定的最终布局画布上等比缩放并淡入，起始比例让内容放入来源圆形；最终字号、文字对齐和右侧小号对勾不变。二级菜单的展开、返回和排版本版保留现状。
 - 展开仍使用原 0.44 秒曲线；关闭直接以原 0.35 秒曲线向左下收回圆形，同时内容缩小淡出，不先做额外放大。圆形到位后，用 0.12 秒材质消隐与原位置图标淡入交接；静止时重新显示原普通按钮。
-- 中途关闭先保存当前面板几何、内容缩放/透明度与图标位置/透明度，再从该显示状态收纳；旋转、键盘导致来源失效时立即回收并恢复按钮；减少动态效果时直接完成状态切换。
+- 中途关闭由 UIKit 停止接口保留当前面板几何、内容缩放/透明度与图标位置/透明度，再从该显示状态收纳；旋转、键盘导致来源失效时立即回收并恢复按钮；减少动态效果时直接完成状态切换。
 - 本次只进行静态核对、XcodeGen 生成及设备编译打包，不运行测试；打包成功不代表实机动画验收通过。
 
 ### 26.10.17 编译交付记录
@@ -51,6 +51,14 @@
 - [设备编译与打包 39364030145](https://github.com/54zhien/Zen-Agent/actions/runs/39364030145)：成功，XcodeGen 生成与 Xcode 26.6 arm64 设备构建完成；未运行测试，不代表既有 Sidebar UI 或 Composer 子菜单问题已经关闭。
 - IPA：`ZenAgent-Menu-Morph-aedb17a-device-test.ipa`，`CFBundleVersion=26.10.17`，未签名 Debug / System Sans / iOS 26.0+。
 - SHA-256：`bd9de6498c36d2aec4a686e25383cda9984b1c1ee7e57b274c1bc5e3b582023f`。下载后已核对哈希和包内版本，实际动效仍待用户查看。
+
+### 26.10.17 实机反馈：收起时飞向左上角
+
+- 用户录像 `d9b8b549bbcefc7285ac8f831e1f80a2.mp4`（3.5 秒、30 fps）：1.833 秒一级菜单仍在输入框旁，1.867 秒突然跳到屏幕左上角，随后从该处缩回原按钮，约 2.067 秒才到达圆玻璃阶段。用户认为展开目前没有明显问题，本次保留展开参数和几何。
+- 当前源码在每次关闭时无条件读取 `glass.layer.presentation()?.frame` 并写回 `glass.frame`，即使自有展开动画已完成、`animator == nil` 也重新设置面板几何。这条多余的显示层坐标回写路径与视频中的首帧跳变吻合；尚无实机图层值记录，不能宣称已证明 UIKit 内部坐标行为。
+- 本次候选删除手动显示层快照与回写。没有自有活动动画时直接从现有视图状态收纳；确需中途停止时，仅在 `.active` 状态调用 `stopAnimation(false)`，然后 `finishAnimation(at: .current)`，让 UIKit 自己保留各属性当前值。同步删除不再使用的 `ComposerMenuPanel.Pose`。
+- Apple 明确说明：[stopAnimation(_:)](https://developer.apple.com/documentation/uikit/uiviewanimating/stopanimation(_:)) 保留动画属性的当前值，传入 `false` 进入 `.stopped`；随后 [finishAnimation(at:)](https://developer.apple.com/documentation/uikit/uiviewanimating/finishanimation(at:)) 使用 `.current` 保持当前属性值并完成清理。
+- 不另改圆玻璃或图标交接时序，以这一处收起前状态处理作为单因素修正；仍按用户前述要求不运行测试，仅编译打包，是否消除飞行与突然出现的观感需新包实机确认。
 
 ## 范围
 
