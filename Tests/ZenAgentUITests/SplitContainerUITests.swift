@@ -2,6 +2,70 @@ import XCTest
 
 final class SplitContainerUITests: XCTestCase {
     @MainActor
+    func testKeyboardSheetKeepsLatestMessageAboveComposerInSingleAndSplit() {
+        for split in [false, true] {
+            let app = XCUIApplication()
+            app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+            app.launchEnvironment["ZEN_KEYBOARD_MENU_UI_TEST"] = "1"
+            app.launchEnvironment["ZEN_BOTTOM_SOURCE_SPLIT_UI_TEST"] = "1"
+            app.launch()
+            let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+            XCTAssertTrue(source.waitForExistence(timeout: 15))
+            if split {
+                app.openWorkspaceSplit(sourceInTopPane: false)
+                let history = app.buttons["split-history-preview-ui-10"]
+                XCTAssertTrue(history.waitForExistence(timeout: 10))
+                history.tap()
+                XCTAssertTrue(app.descendants(matching: .any)["split-secondary-pane"].waitForExistence(timeout: 10))
+                app.activateWorkspacePane("preview-ui-11")
+            }
+            let lastMessage = app.descendants(matching: .any).matching(NSPredicate(
+                format: "label == %@ OR value == %@", "Assistant response 19", "Assistant response 19")).firstMatch
+            for _ in 0..<8 {
+                if lastMessage.exists && lastMessage.isHittable { break }
+                source.swipeUp(velocity: .fast)
+            }
+            XCTAssertTrue(lastMessage.exists && lastMessage.isHittable)
+            let input = app.textViews["conversation-composer-input"]
+            input.tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+            input.typeText("s")
+            let introduction = app.buttons["Continue"]
+            if introduction.waitForExistence(timeout: 2) { introduction.tap() }
+            input.typeText("heet occlusion draft")
+            let plus = app.buttons["conversation-composer-plus"]
+            guard plus.waitForExistence(timeout: 10) else {
+                XCTFail("Configured fixture must expose the real menu entrance")
+                app.terminate()
+                continue
+            }
+            plus.tap()
+            let sheet = app.otherElements["composer-keyboard-sheet"]
+            XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+            XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 8))
+            let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+            expect {
+                guard let value = probe.value as? String,
+                      value.contains(";mode=followingBottom;"), value.contains(";request=nil;"),
+                      let metrics = self.timelineScrollMetrics(in: value) else { return false }
+                return abs(metrics.offset - max(0, metrics.contentHeight - metrics.viewport)) <= 0.5
+            }
+            print("KEYBOARD_SHEET_OCCLUSION split=\(split) message=\(lastMessage.frame) input=\(input.frame) sheet=\(sheet.frame) probe=\(probe.value ?? "missing")")
+            XCTAssertLessThanOrEqual(lastMessage.frame.maxY, input.frame.minY - 8,
+                "The latest message must remain readable above the Composer while its sheet replaces the keyboard")
+            let image = XCTAttachment(screenshot: app.screenshot())
+            image.name = split ? "Split sheet keeps latest message visible" : "Single sheet keeps latest message visible"
+            image.lifetime = .keepAlways
+            add(image)
+            plus.tap()
+            XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+            XCTAssertFalse(app.keyboards.firstMatch.exists)
+            XCTAssertEqual(input.value as? String, "sheet occlusion draft")
+            app.terminate()
+        }
+    }
+
+    @MainActor
     func testSharedComposerKeepsFocusWhenTappingOppositeMessageBody() {
         let app = launchedOccupiedSplit()
         let input = app.textViews["conversation-composer-input"]

@@ -831,7 +831,8 @@ jobs:
               UDID=$(python3 -c 'import json,sys; print(next(d["udid"] for ds in json.load(open(sys.argv[1]))["devices"].values() for d in ds if d.get("isAvailable") and d["name"].startswith("iPhone")))' "$evidence/devices.json")
               xcrun simctl bootstatus "$UDID" -b
               if [ "$TEST_SCOPE" = composer-menu ]; then
-                tests=(-only-testing:ZenAgentUITests/ComposerMotionUITests/testModelMenuOpensAndSwitchesModels)
+                tests=(-only-testing:ZenAgentUITests/ComposerMotionUITests/testModelMenuOpensAndSwitchesModels
+                  -only-testing:ZenAgentUITests/SplitContainerUITests/testKeyboardSheetKeepsLatestMessageAboveComposerInSingleAndSplit)
               elif [ "$TEST_SCOPE" = lift-drag ]; then
                 tests=(-only-testing:ZenAgentTests/SurfaceLiftGeometryTests
                   -only-testing:ZenAgentTests/SurfaceLiftHostTests

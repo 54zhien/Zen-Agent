@@ -30,6 +30,16 @@ struct ConversationPreviewUITestFixture: View {
                 credentials: credentials, router: router, toolRegistry: .empty, managedFiles: files)
             let defaults = UserDefaults(suiteName: "ZenAgent.PreviewHandoffUITest")!
             defaults.removePersistentDomain(forName: "ZenAgent.PreviewHandoffUITest")
+            if ProcessInfo.processInfo.environment["ZEN_KEYBOARD_MENU_UI_TEST"] == "1" {
+                let reference = CredentialReference(id: "keyboard-menu-ui-fixture-\(UUID())")
+                try credentials.provision(SecretValue("keyboard-menu-ui-fixture-key"), as: reference)
+                let instance = ProviderInstanceID(rawValue: "fake-instance")
+                try store.createProviderInstance(ProviderInstance(id: instance, providerID: .deepSeek,
+                    displayName: "Keyboard menu fixture", baseURL: nil, configRevision: .initial,
+                    credentialReference: reference))
+                defaults.set(instance.rawValue, forKey: AppShellModel.defaultInstanceIDKey)
+                defaults.set("fake-model", forKey: AppShellModel.defaultModelIDKey)
+            }
             if ProcessInfo.processInfo.environment["ZEN_EXISTING_CONFIGURE_UI_TEST"] == "1" {
                 let reference = CredentialReference(id: "existing-configure-\(UUID())", kind: .apiKey)
                 try credentials.provision(SecretValue("existing-configure-ui-fixture-key"), as: reference)
