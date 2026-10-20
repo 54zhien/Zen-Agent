@@ -25,6 +25,8 @@ struct ConversationPaneView: View {
     private let usesSharedComposer: Bool
     private let reservesSharedComposer: Bool
     @State private var composerClearance: CGFloat = 62
+    @State private var composerMenuTop: CGFloat?
+    @State private var timelineViewport = CGRect.zero
     private let scrollBridge: ConversationPaneScrollBridge
     private let onUserFocus: () -> Void
     private let isActive: Bool
@@ -50,7 +52,12 @@ struct ConversationPaneView: View {
     }
 
     private var bottomClearance: CGFloat {
-        usesSharedComposer ? (reservesSharedComposer ? dock?.clearance ?? 62 : 0) : composerClearance
+        if usesSharedComposer && !reservesSharedComposer { return 0 }
+        let base = usesSharedComposer ? (dock?.clearance ?? 62) : composerClearance
+        let top = usesSharedComposer ? dock?.menuTop : composerMenuTop
+        // Reserve only the overlay's overlap with the real timeline viewport.
+        // Physical keyboard safe-area avoidance may already account for part of it.
+        return base + (top.map { max(0, timelineViewport.maxY - $0) } ?? 0)
     }
 
     var body: some View {
@@ -81,7 +88,12 @@ struct ConversationPaneView: View {
                     _ = pane.composer.handle(.conversationBackgroundTapped)
                 },
                 scrollBridge: scrollBridge,
-                bottomComposerClearance: bottomClearance
+                bottomComposerClearance: bottomClearance,
+                onViewportFrameChanged: { frame in
+                    guard abs(frame.maxY - timelineViewport.maxY) > 0.5
+                        || abs(frame.minY - timelineViewport.minY) > 0.5 else { return }
+                    timelineViewport = frame
+                }
             )
             .accessibilityIdentifier("conversation-pane-approval-\(pane.conversationID)")
 
@@ -96,6 +108,7 @@ struct ConversationPaneView: View {
                     scrollBridge.composerHeightWillChange()
                     composerClearance = clearance
                 },
+                onMenuTopChanged: { composerMenuTop = $0 },
                 onKeyboardWillChange: {
                     scrollBridge.composerKeyboardWillChange()
                 },

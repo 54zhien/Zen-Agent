@@ -23,3 +23,25 @@
 - 回归先行提交：`43e719e`；[RED run 39405618475](https://github.com/54zhien/Zen-Agent/actions/runs/39405618475) 完成 XcodeGen 和构建，真实 UI 测试在键盘未退出（41 行）及底部面板未出现（44 行）两条断言失败；1 项测试、2 项失败。未重跑或覆盖此记录。
 - 回归覆盖真实屏幕键盘退出、等高面板、输入框位置、五项顺序、关闭不重弹、点输入区唤回、草稿保留、模型选择和返回。
 - CI XcodeGen、构建与回归结果须按实际 SHA 记录；模拟器与构建不替代液态材质、动画和手感的实机验收。
+
+### 首版与审查
+
+- 首版源码 `ae4c0e2` 的 [专项运行 39407634150](https://github.com/54zhien/Zen-Agent/actions/runs/39407634150) 完成构建；键盘退出断言通过，但一级面板及 sheet 元素未出现，测试失败。导出 AX 层级已显示入口恢复「更多操作」，说明面板实际关闭，不能称为单纯 AX 识别问题。
+- 独立审查指出面板只保留了原生 Composer 位置，未将窗口面板与时间线实际视口的交叠计入内容留白。Single 时间线跨到底部安全区，Split 保持键盘安全视口，不能直接向基础 Composer 高度叠加原始键盘高度。
+- 额外回归为 `SplitContainerUITests.testKeyboardSheetKeepsLatestMessageAboveComposerInSingleAndSplit`：实际 Single 和下方源 Split、最后一条 `Assistant response 19`、followingBottom 收敛及消息与输入框之间的屏幕坐标间距。
+- 测试 fixture 显式对齐历史 seed 的 `preview-unavailable-instance` / `preview-model`，只在 `ZEN_KEYBOARD_MENU_UI_TEST` 标记下启用真实 FakeProvider 目标。`39409072459` 与 `39409331217` 被后继测试 fixture／关闭路径日志提交替代而取消；均不是行为 RED 或 GREEN。
+- 关闭路径诊断保留于独立分支 `codex/composer-sheet-occlusion-red-20261020`，`bab4f57` / `39409646340`，不把临时诊断作为最终产品逻辑。
+
+### SF 图标追加要求
+
+- 产品方指定两套菜单及模型二级标题同步改用 `theatermasks`、`tachometer`、逆时针 45° 的 `powercord`、`photo.on.rectangle.angled`、`paperclip`。
+- 六档仪表为低、中、高、极高、Max、Ultra，分别推进总弧长的 1/6 至 6/6；指针左侧实线、右侧灰色等距圆点。只实现图标显示，思考请求配置和禁用门控未扩展。
+- [SF 原始符号测量 39410388169](https://github.com/54zhien/Zen-Agent/actions/runs/39410388169) 在 macOS 使用实际 AppKit/SF Symbols 导出五个符号，均存在。`tachometer` 的六个 variableValue PNG SHA-256 完全一致（`836DD7E32A04197E10894396DCBE7F6577DCA5002D7DEE615BCFD40EF1CF2A0C`），不能依赖该参数旋转指针；采用保留 SF 中央指针、旋转并配合弧线／圆点的呈现。
+- 最终专项范围包含完整 `ZenAgentTests`、ComposerMotion 两项、最新消息遮挡和共享 Dock 换窗回归，并执行实际 iPad axis；同时导出六档浅色／深色预览用于像素检查。旧全量 CI 与专项结果分别记录，不将 profile 中的 skipped job 算作通过。
+
+### 面板关闭路径的实证
+
+- [旧 xcresult 诊断导出 39413487745](https://github.com/54zhien/Zen-Agent/actions/runs/39413487745) 未重建或重跑测试，直接解出已保留的 `39409646340` 原始诊断。
+- `StandardOutputAndStandardError-com.zhien.zen.txt` 在两项失败用例均记录首次关闭源为 `textViewShouldBeginEditing(_:)`，随后重复询问；当时 view、installed 和 window 都是 402×874，排除这次失败由窗口尺寸守卫引发。
+- 修复将 UIKit 焦点许可询问与用户显式输入交互区分：面板保留期间拒绝自动重新开始编辑；编辑器触摸及 AX activation 才允许恢复键盘。保留同一个 UITextView 的子类实例，未重建编辑器或草稿。
+- 窗口尺寸／失活的关闭守卫保留；临时 print 诊断不进入最终生产源码。等高与输入框、Single/Split 最新消息位置仍由真实 UI 回归验证。

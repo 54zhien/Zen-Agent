@@ -31,6 +31,7 @@ extension EnvironmentValues {
 @MainActor @Observable
 final class WorkspaceComposerDockState {
     var clearance: CGFloat = 62
+    private(set) var menuTop: CGFloat?
     var windowSize: CGSize = .zero
     var isPad = false
     @ObservationIgnored private weak var container: ComposerDockContainer?
@@ -54,9 +55,14 @@ final class WorkspaceComposerDockState {
     }
     func configure(container: ComposerDockContainer, activeID: String?, visible: Bool,
                    returnsToPortals: Bool = false) {
+        if self.activeID != activeID || !visible || returnsToPortals { menuTop = nil }
         self.container = container; self.activeID = activeID; self.visible = visible
         self.returnsToPortals = returnsToPortals
         refresh()
+    }
+    func menuTopChanged(_ top: CGFloat?, ownerID: String) {
+        guard ownerID == activeID, visible, !returnsToPortals else { return }
+        menuTop = top
     }
     func measured(_ value: CGFloat, ownerID: String) {
         guard ownerID == activeID, abs(clearance - value) > 0.5 else { return }

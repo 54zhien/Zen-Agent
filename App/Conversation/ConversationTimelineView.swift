@@ -53,6 +53,7 @@ struct ConversationTimelineView: View {
     var onBlankBackgroundTap: () -> Void = {}
     var scrollBridge: ConversationPaneScrollBridge? = nil
     var bottomComposerClearance: CGFloat = 62
+    var onViewportFrameChanged: (CGRect) -> Void = { _ in }
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.surfaceLiftController) private var surfaceLift
@@ -181,6 +182,9 @@ struct ConversationTimelineView: View {
                     Color.clear.preference(key: ConversationTimelineTurnFramesKey.self,
                         value: ConversationTimelineTurnMeasurements(layoutRevision: layoutRevision))
                 }
+            }
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) {
+                onViewportFrameChanged($0)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear.frame(height: bottomComposerClearance)

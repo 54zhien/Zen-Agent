@@ -7,6 +7,7 @@ struct ConversationComposerView: View {
     @Bindable var controller: ComposerController
     private let bridge: ComposerRuntimeActionBridge
     private let onHeightChanged: (CGFloat) -> Void
+    private let onMenuTopChanged: (CGFloat?) -> Void
     private let onKeyboardWillChange: () -> Void
     private let onUserFocus: () -> Void
     @State private var coordinator: ComposerSendCoordinator
@@ -21,12 +22,14 @@ struct ConversationComposerView: View {
          bridge: ComposerRuntimeActionBridge, maxProviderSteps: Int,
          coordinator: ComposerSendCoordinator? = nil,
          onHeightChanged: @escaping (CGFloat) -> Void = { _ in },
+         onMenuTopChanged: @escaping (CGFloat?) -> Void = { _ in },
          onKeyboardWillChange: @escaping () -> Void = {},
          onUserFocus: @escaping () -> Void = {}) {
         self.conversationID = conversationID
         self.controller = controller
         self.bridge = bridge
         self.onHeightChanged = onHeightChanged
+        self.onMenuTopChanged = onMenuTopChanged
         self.onKeyboardWillChange = onKeyboardWillChange
         self.onUserFocus = onUserFocus
         _coordinator = State(initialValue: coordinator ?? ComposerSendCoordinator(
@@ -136,6 +139,10 @@ struct ConversationComposerView: View {
             onHeightChanged: { height in
                 onHeightChanged(height)
                 dock?.measured(height, ownerID: conversationID)
+            },
+            onMenuTopChanged: { top in
+                onMenuTopChanged(top)
+                dock?.menuTopChanged(top, ownerID: conversationID)
             },
             liftInteraction: lift.map { driver in
                 ComposerLiftInteraction.Configuration(driver: driver, conversationID: conversationID) { native in
