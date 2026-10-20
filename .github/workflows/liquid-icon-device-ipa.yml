@@ -1,11 +1,11 @@
 name: Liquid icon device IPA
 
 on:
-  push:
-    branches: [codex/zen-liquid-icon-20261006]
+  workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   package:
@@ -13,6 +13,24 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify frozen source and owner-authorized direct package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = 'codex/device-ipa-submenu-15c9e7e7ef50'
+          source=15c9e7e7ef50f7776083977fce1760e42f891623
+          test "$(git rev-parse "$source^{tree}")" = 'a64f4883fe127b33322011231f318e303310f103'
+          git merge-base --is-ancestor "$source" HEAD
+          git merge-base --is-ancestor 5934dd0ff8bf035dc2ac9c52d8340ba19aab4e6c "$source"
+          git merge-base --is-ancestor 21570f32717f9c01965990699c3abb48aca7f2fe "$source"
+          test "$(git diff --no-renames --name-only "$source" HEAD)" = '.github/workflows/liquid-icon-device-ipa.yml'
+          git diff --exit-code "$source" HEAD -- App Config Resources project.yml
+          echo 'Owner requested this device package with no tests; build only.'
+
       - name: Toolchain versions
         run: xcodebuild -version
       - name: Compile icon alone and verify appearance fills
@@ -39,21 +57,6 @@ jobs:
           assert 'icon.json in Resources' not in text
           assert 'zen-dark.svg in Resources' not in text
           PY
-      - name: Build and run app unit tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          UDID=$(xcrun simctl list devices available | grep -E '^\s+iPhone' | head -n 1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
-          test -n "$UDID"
-          xcrun simctl bootstatus "$UDID" -b
-          xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent \
-            -configuration Debug -destination "id=$UDID" \
-            -only-testing:ZenAgentTests \
-            -resultBundlePath "$RUNNER_TEMP/IconUnitTests.xcresult" \
-            2>&1 | tee "$RUNNER_TEMP/IconUnitTests.log"
-          if grep -Fq 'Restarting after unexpected exit, crash, or test timeout' "$RUNNER_TEMP/IconUnitTests.log"; then
-            exit 1
-          fi
       - name: Build unsigned device app
         shell: bash
         run: |
@@ -107,6 +110,7 @@ jobs:
           /usr/bin/ditto "$app" "$stage/Payload/ZenAgent.app"
           rm -- "$stage/Payload/ZenAgent.app/Anthropic Sans.ttf"
           python3 - "$stage/Payload/ZenAgent.app/Info.plist" <<'PY'
+          import os
           import plistlib
           import sys
 
@@ -116,11 +120,12 @@ jobs:
           fonts = info['UIAppFonts']
           assert fonts.count('Anthropic Sans.ttf') == 1
           info['UIAppFonts'] = [font for font in fonts if font != 'Anthropic Sans.ttf']
+          info['CFBundleVersion'] = '26.10.' + os.environ['GITHUB_RUN_NUMBER']
           with open(path, 'wb') as file:
               plistlib.dump(info, file)
           PY
 
-          name='ZenAgent-LiquidIcon-device-test.ipa'
+          name='ZenAgent-Submenu-15c9e7e-device-test.ipa'
           (cd "$stage" && /usr/bin/zip -qry "$output/$name" Payload)
           /usr/bin/unzip -tq "$output/$name"
           if /usr/bin/unzip -Z1 "$output/$name" | grep -i 'Anthropic'; then
@@ -134,8 +139,14 @@ jobs:
           cp Resources/Fonts/LICENSE-JetBrainsMono.txt "$output/LICENSES/"
           (cd "$output" && /usr/bin/shasum -a 256 "$name" > SHA256SUMS.txt)
           {
-            echo 'Baseline: fd8655999fef4758db947fb734f50e7c6bde24b8 (verified V11)'
-            echo 'Icon source: desktop zen.icon; exact artwork split into symbol/gray layers, appearance fills corrected, system backgrounds'
+            echo 'Frozen source: 15c9e7e7ef50f7776083977fce1760e42f891623'
+            echo 'Frozen tree: a64f4883fe127b33322011231f318e303310f103'
+            echo 'Owner requested build and device packaging without running tests.'
+            echo 'Changes since 26.10.29: match both menu corner radii to the resolved Composer surface. Animate child glass material and a centered fixed-layout content canvas on submenu entrance and return. Preserve final text layout and the accepted primary entrance and dismissal timing, geometry endpoints and icon fade. Strengthen existing custom haptic events across Workspace, Sidebar, card deletion and Split divider without adding triggers. New submenu visuals and haptics require device review; accepted 26.10.29 and rollback 26.10.23 packages stay preserved.'
+            echo 'Editor and keyboard ownership, original Composer and actual button positions and sizes, plain settled plus styling, menu edge alignment, submenu text layout and small black trailing checkmark, and Split Sidebar decoration are preserved.'
+            echo 'No tests ran for this source. Earlier Sidebar UI and Composer submenu Simulator failures were not rechecked; this package is not an all-passing test or device acceptance claim.'
+            echo 'No full test run requested or executed for this package.'
+            echo "CFBundleVersion: 26.10.$GITHUB_RUN_NUMBER"
             echo "Packaging commit: $GITHUB_SHA"
             echo "Packaging tree: $(git rev-parse HEAD^{tree})"
             echo "Workflow run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
@@ -146,10 +157,21 @@ jobs:
             xcodebuild -version
           } > "$output/BUILD-INFO.txt"
 
+          {
+            echo 'Owner-requested rollback target: 26.10.23, the version before 26.10.24.'
+            echo 'Source tag: codex/composer-rollback-26.10.23'
+            echo 'Source commit: 254330c645dac9cf096d21504147043f840ee4f8'
+            echo 'Prior package: ZenAgent-Late-Fade-254330c-device-test.ipa'
+            echo 'Prior IPA SHA256: 04407a8ca7fdc5d99a0ef53effcb0650a9004de518924fa15ae9733eac9d725a'
+            echo 'Prior build: https://github.com/54zhien/Zen-Agent/actions/runs/39377365656'
+            echo 'Preserve unrelated work during any later source rollback; do not reset the whole checkout.'
+          } > "$output/ROLLBACK-26.10.23.txt"
+
+
       - name: Upload unsigned IPA and provenance
         uses: actions/upload-artifact@v4
         with:
-          name: ZenAgent-LiquidIcon-device-test
+          name: ZenAgent-Submenu-15c9e7e-device-test
           path: ${{ runner.temp }}/ZenAgentDeviceOutput/
           retention-days: 7
           compression-level: 0
