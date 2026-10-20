@@ -25,7 +25,7 @@ private final class DividerSamplePan: UIPanGestureRecognizer {
 @Suite("Divider initial touch displacement", .serialized)
 struct SplitDividerInteractionTests {
     @Test(arguments: [UIUserInterfaceStyle.light, .dark])
-    func sidebarProgressTintsTheNativeHandleAndFadesItsShadow(style: UIUserInterfaceStyle) throws {
+    func sidebarProgressTintsTheNativeHandleWithoutAShadow(style: UIUserInterfaceStyle) throws {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
         window.overrideUserInterfaceStyle = style
         let controller = UIViewController()
@@ -42,9 +42,6 @@ struct SplitDividerInteractionTests {
         divider.layoutIfNeeded()
         let nativeHandle = try #require(divider.subviews.first {
             $0.layer.name == "zen-split-divider-handle"
-        })
-        let shadow = try #require(divider.subviews.first {
-            $0.layer.name == "zen-split-divider-handle-shadow"
         })
         let hitBounds = divider.bounds
         let handleFrame = nativeHandle.frame
@@ -71,14 +68,11 @@ struct SplitDividerInteractionTests {
             }
             #expect(nativeHandle.alpha == 1)
             #expect(divider.alpha == 1)
-            #expect(shadow.alpha == progress)
+            #expect(!divider.subviews.contains { $0.layer.shadowOpacity > 0 },
+                "The handle must not cast a separate shadow as the Sidebar opens")
+            #expect(nativeHandle.layer.shadowOpacity == 0)
             #expect(divider.hitTest(CGPoint(x: -10, y: 14), with: nil) == nil,
                 "Styling must not extend the native divider hit area")
-            #expect(!shadow.isHidden)
-            #expect(shadow.frame == nativeHandle.frame)
-            #expect(shadow.layer.shadowPath != nil)
-            #expect(shadow.layer.shadowOffset == CGSize(width: 0, height: 1))
-            #expect(abs(shadow.layer.shadowOpacity - 0.14) < 0.001)
             #expect(divider.bounds == hitBounds && nativeHandle.frame == handleFrame,
                 "Sidebar styling must preserve the 28pt divider hit area and handle geometry")
             let format = UIGraphicsImageRendererFormat()
@@ -99,7 +93,7 @@ struct SplitDividerInteractionTests {
             }
             try #require(rendered)
             #expect(abs(Double(rgba[0]) / 255 - 0.5) < 0.02,
-                "Outside the handle and its shadow, the gap must reveal its actual backdrop without an extra dark layer")
+                "Outside the handle, the gap must reveal its actual backdrop without an extra dark layer")
         }
         if style == .dark {
             #expect(luminance[0] > 0.98)
