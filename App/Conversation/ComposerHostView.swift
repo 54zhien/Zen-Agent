@@ -249,7 +249,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         }
         plus.accessibilityIdentifier = "conversation-composer-plus"
         plus.accessibilityLabel = "更多操作"
-        var plusStyle = UIButton.Configuration.glass()
+        var plusStyle = UIButton.Configuration.plain()
         plusStyle.image = plus.image(for: .normal)
         plusStyle.preferredSymbolConfigurationForImage = plus.preferredSymbolConfigurationForImage(in: .normal)
         plusStyle.baseForegroundColor = .label
