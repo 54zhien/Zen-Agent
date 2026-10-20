@@ -89,7 +89,7 @@ struct ConversationComposerView: View {
             sendable: isSendable,
             hasDraft: !controller.draft.text.isEmpty || !controller.draft.references.isEmpty
                 || !controller.draft.attachments.isEmpty,
-            plusAvailable: !modelsForSelectedInstance.isEmpty,
+            plusAvailable: !modelsForSelectedInstance.isEmpty || selectedModel != nil,
             submission: coordinator.submission
         )
         let traits = UITraitCollection(
