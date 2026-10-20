@@ -1,6 +1,6 @@
 # Composer 菜单待改项 — 2026-10-20
 
-状态：26.10.24 / 26.10.25 遮罩候选未达到用户要求；已按要求以 f9e7221 将 App 代码完整恢复到 26.10.23。用户随后授权继续修改，本次从该回退基线实现末段已渲染画面的透明渐隐，待编译打包及实机确认。26.10.23 的 Git 标签和 IPA 继续保留。本次不运行测试。
+状态：26.10.24 / 26.10.25 遮罩候选未达到用户要求；已按要求以 f9e7221 将 App 代码完整恢复到 26.10.23。用户随后授权继续修改，本次从该回退基线实现末段已渲染画面的透明渐隐，已编译打包为 26.10.26，待实机确认。26.10.23 的 Git 标签和 IPA 继续保留。本次不运行测试。
 排查基线：`2e072c0b0e71cc2ba3f358675f1259613af73bcc`。
 
 ## 1. 一级菜单衍生二级菜单
@@ -204,6 +204,16 @@
 - 捕获失败时不隐藏实时玻璃，保留 26.10.23 的原材质消解兜底，并在 DEBUG 控制台记录 `material-fallback` / `window-snapshot` 路径和尺寸，不记录消息内容。减少动态效果直接完成；两段完成、立即关闭、布局失效和窗口移除均清理代理及刷新回调。
 - 回退目标继续是 `codex/composer-rollback-26.10.23` 和已保留的 26.10.23 IPA；以后回退除恢复该标签中的 Presenter / Panel 外，还需删除本次新 helper，不能重置其他工作。此次不运行测试，仅静态核对、XcodeGen 生成及设备编译打包，透明渐隐与形状需要用户实机确认。
 - Apple 依据：https://developer.apple.com/documentation/uikit/uivisualeffectview/ 与 https://developer.apple.com/documentation/uikit/uiview/snapshotview(afterscreenupdates:) 。现有 Blueprint `ad7ec93e110e196ea5d3fe180766ab64fa40b58c` 已允许依据平台证据选择合成方法；本次未更改产品意图，不为可逆候选添加 ADR。
+
+
+### 26.10.26 编译交付记录
+
+- 源码提交：`651c7e0e5cc1c0edb08db782b195c9f2a4afc195`，源码树：`056c2ecda0547f46b7c340f575b857d56f154767`；App 仅修改 Presenter 并新增末段快照 helper，Panel 与 26.10.23 保持相同。
+- 仅打包流程提交：`9a0e25cf4fb9aa5b52306fe6735cfef6695c6cd4`；相对源码只修改专用打包工作流。
+- [设备编译与打包 39383875295](https://github.com/54zhien/Zen-Agent/actions/runs/39383875295)：成功，XcodeGen 生成及 Xcode 26.6 arm64 设备构建完成，未运行测试。
+- IPA：`ZenAgent-Snapshot-Tail-651c7e0-device-test.ipa`，`CFBundleVersion=26.10.26`，未签名 Debug / System Sans / iOS 26.0+。
+- SHA-256：`ed71239c5c73475a7b56386829fe9bfde12f4bc47d9679b72984816b161c80f1`。下载后核对哈希、包内版本及源码来源；包附 `ROLLBACK-26.10.23.txt`，已复核 26.10.23 原 IPA 哈希未变、源码标签仍指向指定旧源码。
+- 仅编译与安装包完整性已确认；快照是否成功接续、渐隐是否可见、背景冻结和轮廓是否自然、是否仍有菱形/二次圆玻璃观感仍待实机确认。未以构建成功代替视觉验收。
 
 ## 范围
 
