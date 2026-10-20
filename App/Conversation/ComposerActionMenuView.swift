@@ -20,8 +20,10 @@ struct ComposerActionMenuView: View {
     let onSelect: (ModelID) -> Void
     let onOpenModels: (CGRect) -> Void
     let onReturn: () -> Void
+    var keyboardSheet = false
     @State private var modelRow = CGRect.zero
     @ScaledMetric(relativeTo: .body) private var leading: CGFloat = 32
+    @ScaledMetric(relativeTo: .body) private var iconDiameter: CGFloat = 38
 
     var body: some View {
         // Each native panel keeps a fixed level; a child never replaces its parent.
@@ -56,19 +58,31 @@ struct ComposerActionMenuView: View {
 
     private var actionRows: some View {
         VStack(spacing: 0) {
-            unavailable("推理强度", symbol: "slider.horizontal.3")
-            Button { onOpenModels(modelRow) } label: {
-                actionLabel("模型", symbol: "cpu", opensMenu: true)
+            if keyboardSheet {
+                modelAction
+                unavailable("思考", symbol: "slider.horizontal.3")
+                unavailable("插件", symbol: "puzzlepiece")
+                unavailable("图片", symbol: "photo")
+                unavailable("文件", symbol: "doc")
+            } else {
+                unavailable("思考", symbol: "slider.horizontal.3")
+                modelAction
+                unavailable("插件", symbol: "puzzlepiece")
+                unavailable("添加文件", symbol: "doc")
+                unavailable("添加图片", symbol: "photo")
             }
-            .disabled(presentation.models.isEmpty)
-            .accessibilityLabel("模型")
-            .onGeometryChange(for: CGRect.self, of: Self.rowFrame) { modelRow = $0 }
-            unavailable("插件", symbol: "puzzlepiece")
-            unavailable("添加文件", symbol: "doc")
-            unavailable("添加图片", symbol: "photo")
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, keyboardSheet ? 0 : 12)
         .frame(width: maximumSize.width)
+    }
+
+    private var modelAction: some View {
+        Button { onOpenModels(modelRow) } label: {
+            actionLabel("模型", symbol: "cpu", opensMenu: true)
+        }
+        .disabled(presentation.models.isEmpty)
+        .accessibilityLabel("模型")
+        .onGeometryChange(for: CGRect.self, of: Self.rowFrame) { modelRow = $0 }
     }
 
     private func unavailable(_ title: String, symbol: String) -> some View {
@@ -79,7 +93,15 @@ struct ComposerActionMenuView: View {
 
     private func actionLabel(_ title: String, symbol: String, opensMenu: Bool = false) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: symbol).frame(width: 22).accessibilityHidden(true)
+            if keyboardSheet {
+                Image(systemName: symbol)
+                    .font(.system(size: 19, weight: .medium))
+                    .frame(width: iconDiameter, height: iconDiameter)
+                    .background(Color(uiColor: .secondarySystemFill), in: Circle())
+                    .accessibilityHidden(true)
+            } else {
+                Image(systemName: symbol).frame(width: 22).accessibilityHidden(true)
+            }
             Text(title)
             Spacer()
             if opensMenu {
@@ -88,10 +110,10 @@ struct ComposerActionMenuView: View {
                     .accessibilityHidden(true)
             }
         }
-        .padding(.leading, leading)
+        .padding(.leading, keyboardSheet ? 20 : leading)
         .padding(.trailing, 24)
-        .padding(.vertical, 12)
-        .frame(minHeight: 44)
+        .padding(.vertical, keyboardSheet ? 8 : 12)
+        .frame(minHeight: keyboardSheet ? max(54, min(72, maximumSize.height / 5)) : 44)
         .contentShape(Rectangle())
     }
 

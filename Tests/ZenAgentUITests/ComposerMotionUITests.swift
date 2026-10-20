@@ -75,7 +75,7 @@ final class ComposerMotionUITests: XCTestCase {
         XCTAssertTrue(sheet.waitForExistence(timeout: 5))
         title.tap()
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
-        XCTAssertTrue(panel.exists)
+        XCTAssertTrue(sheet.exists)
         XCTAssertTrue(first.waitForExistence(timeout: 5))
         XCTAssertTrue(second.exists)
         XCTAssertTrue(first.isSelected)

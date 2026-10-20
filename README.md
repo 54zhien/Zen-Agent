@@ -52,6 +52,7 @@ Owner transparent contraction tail without material dematerialization @ ad7ec93e
 Owner exact-circle replacement followed by a fixed-circle fade @ bd48b19dc99b1e66a99b8a80ad0eb0cbca0d2c15
 Owner native material dismissal with content-layer glyph reveal @ fd95564019ddf84604efc0363b965f592af9111e
 Owner accepted entrance/dismissal, matching corners, submenu and haptic refinement @ b2be74cdc176b686222b2590463c5332a4c065de
+Owner keyboard replacement sheet and Thinking label ruling @ ca5ffd514e75935174a66205439a44a0c6d3ef1d
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -100,6 +101,15 @@ Existing custom haptic feedback is stronger, including independent Sidebar,
 card deletion and Split divider feedback. New changes remain pending device review.
 Model options share the header icon's leading edge, with the selected checkmark
 at the trailing edge in the same foreground color; the shared glass menu is retained.
+
+The keyboard replacement ruling is on Blueprint branch
+`codex/composer-keyboard-sheet-20261020`, not merged into Blueprint `main`.
+When the software keyboard is visible, `+` replaces it with an equally tall
+bottom glass sheet and rotates clockwise 45 degrees into a close control.
+The sheet lists Model, Thinking, Plugins, Images and Files with gray circular
+icon backgrounds. Close does not reopen the keyboard; tapping the editor does.
+The keyboard-hidden path retains its accepted floating-menu motion. See
+[the slice record](tasks/composer-keyboard-sheet.md) for implementation and validation status.
 
 This is a snapshot of the design state this work started from, not a permanent
 version pin. Update it when the blueprint changes in a way that affects
