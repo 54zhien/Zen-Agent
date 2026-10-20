@@ -86,7 +86,7 @@ struct SidebarRailView: View {
     var settingsLeadingShift: CGFloat = 0
     var onAction: (WorkspaceConversationAction) -> Void = { _ in }
     let onSelect: (WorkspaceOverlayRoute) -> Void
-    @State private var tapFeedback = UIImpactFeedbackGenerator(style: .light)
+    @State private var tapFeedback = UIImpactFeedbackGenerator(style: .medium)
 
     var body: some View {
         VStack(spacing: 8) {

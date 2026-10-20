@@ -51,6 +51,7 @@ Owner overlapping late-contraction glass fade ruling @ 06a780c8fde5aee6de1fdb29b
 Owner transparent contraction tail without material dematerialization @ ad7ec93e110e196ea5d3fe180766ab64fa40b58c
 Owner exact-circle replacement followed by a fixed-circle fade @ bd48b19dc99b1e66a99b8a80ad0eb0cbca0d2c15
 Owner native material dismissal with content-layer glyph reveal @ fd95564019ddf84604efc0363b965f592af9111e
+Owner accepted entrance/dismissal, matching corners, submenu and haptic refinement @ b2be74cdc176b686222b2590463c5332a4c065de
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -91,6 +92,12 @@ the actual button bounds. The editor,
 Composer and actual controls remain stationary, with the original plain button
 at rest. The existing opening and child-menu presentation remain; the extra
 pre-contraction enlargement is removed.
+The owner accepted 26.10.29 entrance and dismissal on device; those animation
+functions and timing are retained. Both menu levels now use the Composer surface's
+resolved corner radius. Child entrance/return animate material and a centered,
+fixed-layout content canvas together; final typography and alignment stay intact.
+Existing custom haptic feedback is stronger, including independent Sidebar,
+card deletion and Split divider feedback. New changes remain pending device review.
 Model options share the header icon's leading edge, with the selected checkmark
 at the trailing edge in the same foreground color; the shared glass menu is retained.
 

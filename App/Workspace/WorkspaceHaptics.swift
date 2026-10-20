@@ -28,25 +28,23 @@ final class WorkspaceHaptics {
 
     private let rigid = UIImpactFeedbackGenerator(style: .rigid)
     private let medium = UIImpactFeedbackGenerator(style: .medium)
-    private let soft = UIImpactFeedbackGenerator(style: .soft)
-    private let selection = UISelectionFeedbackGenerator()
+    private let heavy = UIImpactFeedbackGenerator(style: .heavy)
 
     func prepare() {
         rigid.prepare()
         medium.prepare()
-        soft.prepare()
-        selection.prepare()
+        heavy.prepare()
     }
 
     func play(_ moment: Moment) {
         switch moment {
-        case .pickUp: medium.impactOccurred(intensity: 0.85)
-        case .cardDetent: rigid.impactOccurred(intensity: 0.7)
-        case .cardDetentReleased: selection.selectionChanged()
-        case .landed: soft.impactOccurred(intensity: 0.75)
-        case .splitTarget: rigid.impactOccurred(intensity: 0.9)
-        case .splitCommit: medium.impactOccurred(intensity: 1)
-        case .control: rigid.impactOccurred(intensity: 0.6)
+        case .pickUp: heavy.impactOccurred(intensity: 1)
+        case .cardDetent: rigid.impactOccurred(intensity: 1)
+        case .cardDetentReleased: medium.impactOccurred(intensity: 0.85)
+        case .landed: medium.impactOccurred(intensity: 1)
+        case .splitTarget: rigid.impactOccurred(intensity: 1)
+        case .splitCommit: heavy.impactOccurred(intensity: 1)
+        case .control: rigid.impactOccurred(intensity: 1)
         }
         prepare()
     }

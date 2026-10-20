@@ -85,7 +85,7 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
             }
 #endif
             if oldValue?.closeIntent != configuration?.closeIntent, configuration?.closeIntent != nil {
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
             }
             handle.backgroundColor = configuration?.closeIntent == nil
                 ? configuration?.handleSurfaceColor() ?? .white

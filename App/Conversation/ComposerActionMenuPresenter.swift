@@ -70,7 +70,8 @@ final class ComposerActionMenuPresenter: UIViewController {
                 self.onSelect(modelID)
                 self.close()
             }, onOpenModels: { [weak self] row in self?.openModels(from: row) },
-            onReturn: { [weak self] in self?.returnToActions() }))
+            onReturn: { [weak self] in self?.returnToActions() }),
+            expandedRadius: menuCornerRadius)
     }
 
     func show(in window: UIWindow) {
@@ -181,6 +182,17 @@ final class ComposerActionMenuPresenter: UIViewController {
         return view.convert(circle, from: alignmentView)
     }
 
+    private var menuCornerRadius: CGFloat {
+        // Match the visible Composer surface after UIKit resolves its concentric corners.
+        let radius = alignmentView?.effectiveRadius(corner: .bottomLeft) ?? sourceRadius
+        return radius.isFinite && radius > 0 ? radius : sourceRadius
+    }
+
+    private func childContentScale(fitting frame: CGRect, panel: ComposerMenuPanel) -> CGFloat {
+        min(1, min(frame.width / max(1, panel.contentSize.width),
+                   frame.height / max(1, panel.contentSize.height)))
+    }
+
     private var parentFrame: CGRect { rootFrame.offsetBy(dx: 0, dy: -12) }
 
     private func openModels(from row: CGRect) {
@@ -191,9 +203,11 @@ final class ComposerActionMenuPresenter: UIViewController {
         let origin = view.convert(row, from: root.content.view)
         let child = makePanel(.models)
         childPanel = child
+        child.showMaterial(false)
         child.install(in: self)
         childFrame = fittedFrame(for: child)
-        child.place(origin, radius: min(28, origin.height / 2), contentAlpha: 0)
+        child.place(origin, radius: min(menuCornerRadius, origin.height / 2), contentAlpha: 0,
+                    contentScale: childContentScale(fitting: origin, panel: child))
         child.glass.layoutIfNeeded()
         parentReturn.frame = parentFrame
         root.content.view.isUserInteractionEnabled = false
@@ -202,6 +216,7 @@ final class ComposerActionMenuPresenter: UIViewController {
         isTransitioning = true
         animate(duration: 0.30, dampingRatio: 1) {
             root.place(self.parentFrame, contentAlpha: 0.4)
+            child.showMaterial(true)
             child.place(self.childFrame)
         } completion: { [weak self] in
             guard let self, !self.isClosing else { return }
@@ -219,7 +234,9 @@ final class ComposerActionMenuPresenter: UIViewController {
         let target = modelRow.offsetBy(dx: rootFrame.minX, dy: rootFrame.minY)
         animate(duration: 0.30, dampingRatio: 1) {
             root.place(self.rootFrame)
-            child.place(target, radius: min(28, target.height / 2), contentAlpha: 0)
+            child.showMaterial(false)
+            child.place(target, radius: min(self.menuCornerRadius, target.height / 2), contentAlpha: 0,
+                        contentScale: self.childContentScale(fitting: target, panel: child))
         } completion: { [weak self] in
             guard let self, !self.isClosing else { return }
             child.remove()

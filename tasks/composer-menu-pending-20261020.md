@@ -276,6 +276,16 @@
 - SHA-256：`6e1ea7908e27f95c3d5ba8059dc574e891028e235c223cf86b38f643c6e957e9`。下载后核对哈希、版本、可执行文件及源码来源；26.10.23 回退标签及原包哈希再次核对未变。
 - 仅构建及包完整性已确认。原生材质消退、内容层图标渐显、最终原按钮交接仍待实机确认。
 
+
+### 26.10.29 实机接受后的圆角、二级菜单与触感修正
+
+- 用户确认 26.10.29 一级展开/收缩已无问题，要求保留该动效；此次只按授权改两级展开态圆角、二级菜单呈现和既有触感。
+- 两级 Panel 的展开态圆角来自输入框 surface.effectiveRadius(.bottomLeft)，替代固定 28；保留入口圆与收纳圆计算。一级 expand/collapse/末段渐隐函数与时序不改。
+- 二级安装前 effect=nil，展开时在既有 0.30 秒动画内显现材质；返回时同步 effect→nil，完成后才移除。固定布局内容画布改为面板居中、以等比缩放适配起点/终点行，避免完整高度文字单靠裁切突然显露；最终 scale=1，ComposerActionMenuView 文件未动，文字、行距、对勾和滚动布局保留。
+- 仍保留两个面板的父子层级和父菜单后退 12 点；不引入会改变已验收一级玻璃行为的融合容器，不宣称自定义动画等同 UIMenu 内部实现。现有立即关闭/减少动态效果/父子移除所有权沿用。
+- WorkspaceHaptics: control/cardDetent/splitTarget 提高至 rigid 1，pickUp/splitCommit 改 heavy 1，landed 改 medium 1，cardDetentReleased 改 medium 0.85；侧栏与删卡 light→medium，分割条 medium→heavy。只增强既有触发，不新增次数。
+- Blueprint `b2be74cdc176b686222b2590463c5332a4c065de`；依据 Apple WWDC25 284 的玻璃 effect 动画与内容独立动画说明。按要求不运行测试，待 XcodeGen/设备编译打包；新视觉与触感实机结果待确认。
+
 ## 范围
 
 - 保留已交付的无玻璃 `+` 按钮、19 点 `+` 符号、输入框底板及菜单的玻璃。

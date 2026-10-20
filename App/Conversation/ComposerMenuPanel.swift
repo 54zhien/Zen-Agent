@@ -9,15 +9,15 @@ final class ComposerMenuPanel {
     let content: UIHostingController<ComposerActionMenuView>
     private let material: UIGlassEffect
     private(set) var contentSize = CGSize.zero
-    private let centersContent: Bool
+    private let expandedRadius: CGFloat
 
-    init(rootView: ComposerActionMenuView) {
-        centersContent = rootView.level == .actions
+    init(rootView: ComposerActionMenuView, expandedRadius: CGFloat) {
+        self.expandedRadius = expandedRadius
         let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = false
         material = effect
         glass = UIVisualEffectView(effect: effect)
-        glass.cornerConfiguration = .corners(radius: 28)
+        glass.cornerConfiguration = .corners(radius: .fixed(Double(expandedRadius)))
         glass.contentView.clipsToBounds = true
         content = UIHostingController(rootView: rootView)
         content.view.backgroundColor = .clear
@@ -43,14 +43,12 @@ final class ComposerMenuPanel {
         glass.effect = visible ? material : nil
     }
 
-    func place(_ frame: CGRect, radius: CGFloat = 28, contentAlpha: CGFloat = 1,
+    func place(_ frame: CGRect, radius: CGFloat? = nil, contentAlpha: CGFloat = 1,
                contentScale: CGFloat = 1) {
         glass.frame = frame
-        glass.cornerConfiguration = .corners(radius: .fixed(Double(radius)))
+        glass.cornerConfiguration = .corners(radius: .fixed(Double(radius ?? expandedRadius)))
         content.view.bounds = CGRect(origin: .zero, size: contentSize)
-        content.view.center = centersContent
-            ? CGPoint(x: frame.width / 2, y: frame.height / 2)
-            : CGPoint(x: contentSize.width / 2, y: contentSize.height / 2)
+        content.view.center = CGPoint(x: frame.width / 2, y: frame.height / 2)
         content.view.transform = CGAffineTransform(scaleX: contentScale, y: contentScale)
         content.view.alpha = contentAlpha
     }
