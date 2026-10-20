@@ -1,6 +1,6 @@
 # Composer 菜单待改项 — 2026-10-20
 
-状态：第 1、4 项首版已包含于已交付的 26.10.15；随后圆形分段显现版已打包为 26.10.16。本次按用户最新确认，将第 4 项改为图标向右上移动淡出、圆玻璃同步显现并展开、内容一起缩放淡入，已编译打包为 26.10.17，待实机确认。第 2、3 项已包含于已交付的 26.10.14。本次按用户要求不运行测试。
+状态：第 1、4 项首版已包含于已交付的 26.10.15；随后圆形分段显现版已打包为 26.10.16。同步展开与内容缩放版 26.10.17 的实机录像显示收起时跳向左上角；本次保留展开，仅移除收起前的手动坐标回写，已编译打包为 26.10.18，待实机确认。第 2、3 项已包含于已交付的 26.10.14。本次按用户要求不运行测试。
 排查基线：`2e072c0b0e71cc2ba3f358675f1259613af73bcc`。
 
 ## 1. 一级菜单衍生二级菜单
@@ -59,6 +59,14 @@
 - 本次候选删除手动显示层快照与回写。没有自有活动动画时直接从现有视图状态收纳；确需中途停止时，仅在 `.active` 状态调用 `stopAnimation(false)`，然后 `finishAnimation(at: .current)`，让 UIKit 自己保留各属性当前值。同步删除不再使用的 `ComposerMenuPanel.Pose`。
 - Apple 明确说明：[stopAnimation(_:)](https://developer.apple.com/documentation/uikit/uiviewanimating/stopanimation(_:)) 保留动画属性的当前值，传入 `false` 进入 `.stopped`；随后 [finishAnimation(at:)](https://developer.apple.com/documentation/uikit/uiviewanimating/finishanimation(at:)) 使用 `.current` 保持当前属性值并完成清理。
 - 不另改圆玻璃或图标交接时序，以这一处收起前状态处理作为单因素修正；仍按用户前述要求不运行测试，仅编译打包，是否消除飞行与突然出现的观感需新包实机确认。
+
+### 26.10.18 编译交付记录
+
+- 源码提交：`17c00fd38128f343d2ccea4901daf21780ac0000`，源码树：`eaddea8645b93f23bef30d924c6151fc05eac028`。
+- 仅打包流程提交：`76dd3b8a503def6816372127200b88acd94f3bd0`；相对源码只修改专用打包工作流。
+- [设备编译与打包 39365991845](https://github.com/54zhien/Zen-Agent/actions/runs/39365991845)：成功，XcodeGen 生成及 Xcode 26.6 arm64 设备构建完成，未运行测试。
+- IPA：`ZenAgent-Menu-Collapse-17c00fd-device-test.ipa`，`CFBundleVersion=26.10.18`，未签名 Debug / System Sans / iOS 26.0+。
+- SHA-256：`8ed40e81010479d45ba74a88a05f600ee040742cfb20bcbfa359630a165b936b`。下载后已核对哈希与包内版本；这是收起跳变的修正候选，仍需用户实机查看，不宣称跳变已获验证消除。
 
 ## 范围
 
