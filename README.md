@@ -45,6 +45,7 @@ Owner visible source-circle materialization ruling @ f6a57a324ff47f49ffc7b8153d1
 Owner simultaneous glass expansion, content scaling and departing glyph ruling @ 019208582068f74b679495d9d228bd1b0971102f
 Owner Composer-aligned dismissal circle and continuous crossfade ruling @ caa8b789c5e865c7fbf537507de66f22b0f9ade2
 Owner visible contraction followed by circle/glyph crossfade correction @ 8652f16ef4a46c5dc0fc5f97fdc4241e40109091
+Owner immediate stationary glyph and first-circle-arrival fade ruling @ 638f2bbc17dd5f47ae43a9201c4fe847076378a8
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -73,8 +74,9 @@ fades out. There is no stationary materialization delay. Dismissal scales the
 content down as the panel contracts to a circle matching the Composer's actual
 lower-left corner radius and left/bottom edges. The glass remains visible
 throughout contraction, which shares the opening duration and spring parameters.
-Only when the circle is reached does its glass dematerialize while the stationary
-control fades in; there is no delay between these two stages. Opening still uses
+The stationary glyph appears immediately when contraction starts, without fading
+or moving. Glass dematerialization starts on the first displayed arrival at the
+circle, without waiting for the spring to settle. Opening still uses
 the actual button bounds. The editor,
 Composer and actual controls remain stationary, with the original plain button
 at rest. The existing opening and child-menu presentation remain; the extra

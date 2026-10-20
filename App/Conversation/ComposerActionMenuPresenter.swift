@@ -23,6 +23,9 @@ final class ComposerActionMenuPresenter: UIViewController {
     private var isClosing = false
     private var isTransitioning = false
     private var animator: UIViewPropertyAnimator?
+    private var collapseDisplayLink: CADisplayLink?
+    private var collapsingCircle: CGRect?
+    private var isFadingCircle = false
     private let menuMotionDuration: TimeInterval = 0.44
     private let menuMotionDamping: CGFloat = 0.72
 
@@ -266,6 +269,20 @@ final class ComposerActionMenuPresenter: UIViewController {
     private func collapse() {
         let circle = dismissalCircle
         let radius = min(circle.width, circle.height) / 2
+        collapsingCircle = circle
+        UIView.performWithoutAnimation {
+            self.sourceIcon.frame = self.sourceIconFrame
+            self.sourceIcon.alpha = 1
+            self.sourceView?.alpha = self.sourceIcon.image == nil ? 1 : 0
+            if self.sourceIcon.superview != nil {
+                self.view.bringSubviewToFront(self.sourceIcon)
+            }
+        }
+        if !UIAccessibility.isReduceMotionEnabled {
+            let link = CADisplayLink(target: self, selector: #selector(collapseDidAdvance(_:)))
+            collapseDisplayLink = link
+            link.add(to: .main, forMode: .common)
+        }
         animate(duration: menuMotionDuration, dampingRatio: menuMotionDamping) {
             // Keep the material visible while reversing the panel/content
             // geometry. Only the completed circle may dematerialize.
@@ -274,15 +291,44 @@ final class ComposerActionMenuPresenter: UIViewController {
             self.rootPanel?.place(circle, radius: radius,
                 contentAlpha: 0, contentScale: self.contentScale(fitting: circle))
             self.childPanel?.place(circle, radius: radius, contentAlpha: 0)
-            self.sourceIcon.alpha = 0
-            self.sourceView?.alpha = 0
         } completion: { [weak self] in
-            guard let self else { return }
-            self.animate(duration: 0.12, dampingRatio: 1) {
-                self.rootPanel?.showMaterial(false)
-                self.sourceView?.alpha = 1
-            } completion: { [weak self] in self?.finishDismissal() }
+            self?.fadeCollapsedCircle()
         }
+    }
+
+    @objc private func collapseDidAdvance(_ link: CADisplayLink) {
+        guard viewIfLoaded?.window != nil else {
+            stopAnimator()
+            finishDismissal()
+            return
+        }
+        guard !isFadingCircle, let circle = collapsingCircle,
+              let size = rootPanel?.glass.layer.presentation()?.bounds.size,
+              size.width.isFinite, size.height.isFinite,
+              size.width > 0, size.height > 0 else { return }
+        let tolerance = 1 / max(1, view.window?.screen.scale ?? 1)
+        // Read only the displayed size, never replay glass-layer coordinates.
+        // Begin fading on first arrival instead of waiting for spring settling.
+        if size.width <= circle.width + tolerance, size.height <= circle.height + tolerance {
+            fadeCollapsedCircle()
+        }
+    }
+
+    private func fadeCollapsedCircle() {
+        guard !isFadingCircle, let circle = collapsingCircle else { return }
+        isFadingCircle = true
+        collapseDisplayLink?.invalidate()
+        collapseDisplayLink = nil
+        stopAnimator()
+        UIView.performWithoutAnimation {
+            let radius = min(circle.width, circle.height) / 2
+            self.rootPanel?.place(circle, radius: radius,
+                contentAlpha: 0, contentScale: self.contentScale(fitting: circle))
+            self.childPanel?.place(circle, radius: radius, contentAlpha: 0)
+        }
+        animate(duration: 0.12, dampingRatio: 1) {
+            self.rootPanel?.showMaterial(false)
+        } completion: { [weak self] in self?.finishDismissal() }
     }
 
     private func stopAnimator() {
@@ -314,6 +360,9 @@ final class ComposerActionMenuPresenter: UIViewController {
     }
 
     private func finishDismissal() {
+        collapseDisplayLink?.invalidate()
+        collapseDisplayLink = nil
+        collapsingCircle = nil
         guard view.superview != nil else { return }
         sourceView?.alpha = 1
         beginAppearanceTransition(false, animated: false)
