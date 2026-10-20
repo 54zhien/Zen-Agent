@@ -271,12 +271,10 @@ final class ComposerActionMenuPresenter: UIViewController {
         let radius = min(circle.width, circle.height) / 2
         collapsingCircle = circle
         UIView.performWithoutAnimation {
-            self.sourceIcon.frame = self.sourceIconFrame
-            self.sourceIcon.alpha = 1
-            self.sourceView?.alpha = self.sourceIcon.image == nil ? 1 : 0
-            if self.sourceIcon.superview != nil {
-                self.view.bringSubviewToFront(self.sourceIcon)
-            }
+            // The real control stays beneath the menu glass; the overlay copy
+            // is only for the opening departure, never for the return.
+            self.sourceIcon.alpha = 0
+            self.sourceView?.alpha = 1
         }
         if !UIAccessibility.isReduceMotionEnabled {
             let link = CADisplayLink(target: self, selector: #selector(collapseDidAdvance(_:)))
