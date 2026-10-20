@@ -18,7 +18,7 @@ on:
       test_scope:
         description: Test selection (focused profiles never run the full suites)
         type: choice
-        options: [full, keyboard-sidebar, test-maintenance, sidebar-controls, composer-menu, lift-drag, appspace-browse, device-feedback, sidebar-divider]
+        options: [full, keyboard-sidebar, test-maintenance, sidebar-controls, composer-menu, lift-drag, appspace-browse, device-feedback, sidebar-divider, symbol-probe]
         default: full
 
 concurrency:
@@ -29,6 +29,52 @@ permissions:
   contents: read
 
 jobs:
+
+  symbol-probe:
+    if: github.event_name == 'workflow_dispatch' && inputs.test_scope == 'symbol-probe'
+    runs-on: macos-26
+    timeout-minutes: 5
+    steps:
+      - name: Export actual SF symbol geometry and variable-value renders
+        run: |
+          mkdir -p "$RUNNER_TEMP/symbol-probe"
+          cat > "$RUNNER_TEMP/probe.swift" <<'SWIFT'
+          import AppKit
+          let output = URL(fileURLWithPath: CommandLine.arguments[1])
+          NSAppearance.current = NSAppearance(named: .aqua)
+          func save(_ source: NSImage, _ name: String) throws {
+              let image = source.withSymbolConfiguration(.init(pointSize: 96, weight: .regular))!
+              let canvas = NSImage(size: NSSize(width: 160, height: 160))
+              canvas.lockFocus()
+              NSColor.white.setFill()
+              NSBezierPath(rect: NSRect(x: 0, y: 0, width: 160, height: 160)).fill()
+              let size = image.size
+              image.draw(in: NSRect(x: (160 - size.width) / 2, y: (160 - size.height) / 2,
+                                    width: size.width, height: size.height))
+              canvas.unlockFocus()
+              let data = NSBitmapImageRep(data: canvas.tiffRepresentation!)!.representation(using: .png, properties: [:])!
+              try data.write(to: output.appendingPathComponent(name + ".png"))
+          }
+          for name in ["theatermasks", "tachometer", "powercord", "photo.on.rectangle.angled", "paperclip"] {
+              guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil) else {
+                  fatalError("Missing SF symbol: \(name)")
+              }
+              try save(image, name)
+          }
+          for step in 1...6 {
+              let image = NSImage(systemSymbolName: "tachometer", variableValue: Double(step) / 6,
+                                  accessibilityDescription: nil)!
+              let palette = image.withSymbolConfiguration(.init(paletteColors: [.black, .gray]))!
+              try save(palette, "tachometer-step-\(step)")
+          }
+          SWIFT
+          swift "$RUNNER_TEMP/probe.swift" "$RUNNER_TEMP/symbol-probe"
+          shasum -a 256 "$RUNNER_TEMP/symbol-probe/"*.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sf-symbol-probe
+          path: ${{ runner.temp }}/symbol-probe
+          if-no-files-found: error
 
   pad-workspace:
     name: iPad workspace axis
