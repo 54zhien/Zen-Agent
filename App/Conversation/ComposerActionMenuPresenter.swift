@@ -25,7 +25,9 @@ final class ComposerActionMenuPresenter: UIViewController {
     private var animator: UIViewPropertyAnimator?
     private var collapseDisplayLink: CADisplayLink?
     private var collapsingCircle: CGRect?
-    private var collapseStartSize = CGSize.zero
+    private var collapseStartFrame = CGRect.zero
+    private var collapseStartRadius: CGFloat = 28
+    private var dismissalSnapshot: ComposerMenuDismissalSnapshot?
     private var circleFadeAnimator: UIViewPropertyAnimator?
     private var isFadingCircle = false
     private var hasFinishedCollapse = false
@@ -274,7 +276,8 @@ final class ComposerActionMenuPresenter: UIViewController {
         let circle = dismissalCircle
         let radius = min(circle.width, circle.height) / 2
         collapsingCircle = circle
-        collapseStartSize = rootPanel?.glass.bounds.size ?? circle.size
+        collapseStartFrame = rootPanel?.glass.frame ?? circle
+        collapseStartRadius = rootPanel?.glass.effectiveRadius(corner: .bottomLeft) ?? 28
         UIView.performWithoutAnimation {
             // The real control stays beneath the menu glass; the overlay copy
             // is only for the opening departure, never for the return.
@@ -287,8 +290,8 @@ final class ComposerActionMenuPresenter: UIViewController {
             link.add(to: .main, forMode: .common)
         }
         animate(duration: menuMotionDuration, dampingRatio: menuMotionDamping) {
-            // Keep the first part of contraction visible. The late material
-            // fade has its own animator so geometry can continue uninterrupted.
+            // The live glass handles contraction; only its rendered tail will
+            // fade, without changing the root material during that handoff.
             self.rootPanel?.showMaterial(true)
             self.childPanel?.showMaterial(false)
             self.rootPanel?.place(circle, radius: radius,
@@ -297,6 +300,7 @@ final class ComposerActionMenuPresenter: UIViewController {
         } completion: { [weak self] in
             guard let self else { return }
             self.hasFinishedCollapse = true
+            self.dismissalSnapshot?.place(circle, radius: radius)
             self.fadeCollapsedCircle()
             if self.hasFinishedCircleFade { self.finishDismissal() }
         }
@@ -308,34 +312,73 @@ final class ComposerActionMenuPresenter: UIViewController {
             finishDismissal()
             return
         }
-        guard !isFadingCircle, let circle = collapsingCircle,
+        guard let circle = collapsingCircle,
               let size = rootPanel?.glass.layer.presentation()?.bounds.size,
               size.width.isFinite, size.height.isFinite,
               size.width > 0, size.height > 0 else { return }
+        if let snapshot = dismissalSnapshot {
+            let geometry = collapseGeometry(for: size, target: circle)
+            UIView.performWithoutAnimation { snapshot.place(geometry.frame, radius: geometry.radius) }
+            return
+        }
+        guard !isFadingCircle else { return }
         let tolerance = 1 / max(1, view.window?.screen.scale ?? 1)
         // Read only the displayed size, never replay glass-layer coordinates.
         // Start only in the last tenth of size contraction, preserving the
         // visible shrink before the remaining geometry and material fade overlap.
         let remaining: CGFloat = 0.10
-        let fadeWidth = circle.width + max(0, collapseStartSize.width - circle.width) * remaining
-        let fadeHeight = circle.height + max(0, collapseStartSize.height - circle.height) * remaining
+        let fadeWidth = circle.width + max(0, collapseStartFrame.width - circle.width) * remaining
+        let fadeHeight = circle.height + max(0, collapseStartFrame.height - circle.height) * remaining
         if size.width <= fadeWidth + tolerance, size.height <= fadeHeight + tolerance {
             fadeCollapsedCircle()
         }
     }
 
+    private func collapseGeometry(for size: CGSize, target: CGRect) -> (frame: CGRect, radius: CGFloat) {
+        let widthTravel = collapseStartFrame.width - target.width
+        let heightTravel = collapseStartFrame.height - target.height
+        let travel = abs(widthTravel) >= abs(heightTravel) ? widthTravel : heightTravel
+        let remaining = abs(widthTravel) >= abs(heightTravel)
+            ? size.width - target.width : size.height - target.height
+        let progress = abs(travel) > 0.001 ? 1 - remaining / travel : 1
+        // Bounds supply the shared interpolation progress. Never copy a glass
+        // backing-layer frame into the live view or replay its coordinates.
+        let left = collapseStartFrame.minX + (target.minX - collapseStartFrame.minX) * progress
+        let bottom = collapseStartFrame.maxY + (target.maxY - collapseStartFrame.maxY) * progress
+        let radius = collapseStartRadius
+            + (min(target.width, target.height) / 2 - collapseStartRadius) * progress
+        return (CGRect(x: left, y: bottom - size.height, width: size.width, height: size.height), radius)
+    }
+
     private func fadeCollapsedCircle() {
-        guard !isFadingCircle, collapsingCircle != nil else { return }
+        guard !isFadingCircle, let circle = collapsingCircle else { return }
         isFadingCircle = true
-        collapseDisplayLink?.invalidate()
-        collapseDisplayLink = nil
         if UIAccessibility.isReduceMotionEnabled {
             rootPanel?.showMaterial(false)
+            collapseDisplayLink?.invalidate()
+            collapseDisplayLink = nil
             hasFinishedCircleFade = true
             return
         }
-        let fade = UIViewPropertyAnimator(duration: 0.12, dampingRatio: 1) {
-            self.rootPanel?.showMaterial(false)
+        let size = rootPanel?.glass.layer.presentation()?.bounds.size ?? circle.size
+        let geometry = collapseGeometry(for: size, target: circle)
+        let snapshot = ComposerMenuDismissalSnapshot(in: view, frame: geometry.frame, radius: geometry.radius)
+        dismissalSnapshot = snapshot
+        if snapshot != nil {
+            UIView.performWithoutAnimation {
+                self.rootPanel?.glass.isHidden = true
+                self.childPanel?.glass.isHidden = true
+            }
+        } else {
+            collapseDisplayLink?.invalidate()
+            collapseDisplayLink = nil
+        }
+        #if DEBUG
+        print("ComposerMenuDismissal tail=\(snapshot == nil ? "material-fallback" : "window-snapshot") size=\(size)")
+        #endif
+        let fade = UIViewPropertyAnimator(duration: 0.12, curve: .linear) {
+            if let snapshot { snapshot.view.alpha = 0 }
+            else { self.rootPanel?.showMaterial(false) }
         }
         circleFadeAnimator = fade
         fade.addCompletion { [weak self] position in
@@ -381,6 +424,8 @@ final class ComposerActionMenuPresenter: UIViewController {
         collapseDisplayLink?.invalidate()
         collapseDisplayLink = nil
         collapsingCircle = nil
+        dismissalSnapshot?.remove()
+        dismissalSnapshot = nil
         guard view.superview != nil else { return }
         sourceView?.alpha = 1
         beginAppearanceTransition(false, animated: false)

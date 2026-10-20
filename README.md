@@ -79,10 +79,12 @@ lower-left corner radius and left/bottom edges. The glass remains visible throug
 the first part of contraction, which retains the opening duration and spring parameters.
 The real stationary control appears immediately beneath the glass when contraction
 starts, without fading or moving; the opening-only glyph copy stays hidden.
-After about 90 percent of displayed size contraction, a direct effect-view mask
-fades the complete root panel over 0.12 seconds while geometry continues. The
-root material and view alpha stay unchanged; no native dematerialization or
-second circle is added during dismissal. Opening still uses
+After about 90 percent of displayed size contraction, a clipped window snapshot
+of the rendered menu takes over the last 0.12 seconds and fades with ordinary
+view alpha while following the remaining contraction. Live glass is hidden
+without dematerialization; the captured backdrop is frozen only for that tail.
+A failed capture retains the 26.10.23 material fallback. The preserved rollback
+source is tagged codex/composer-rollback-26.10.23. Opening still uses
 the actual button bounds. The editor,
 Composer and actual controls remain stationary, with the original plain button
 at rest. The existing opening and child-menu presentation remain; the extra
