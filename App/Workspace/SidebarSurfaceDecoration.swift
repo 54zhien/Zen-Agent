@@ -67,8 +67,13 @@ struct SurfaceCornerRadii: Equatable {
     }
 }
 
+struct SidebarShadowContour: Equatable {
+    let frame: CGRect
+    let radii: SurfaceCornerRadii
+}
+
 /// Sidebar decoration owns no content or interaction. Its shadow has no filled
-/// backing, and its continuous silhouette is rebuilt only when geometry changes.
+/// backing, and its silhouettes are rebuilt only when geometry changes.
 @MainActor
 final class SidebarSurfaceDecoration {
     let shadowView = UIView()
@@ -84,6 +89,7 @@ final class SidebarSurfaceDecoration {
     private struct ShadowSilhouette: Equatable {
         let bounds: CGRect
         let radii: SurfaceCornerRadii
+        let contours: [SidebarShadowContour]
     }
 
     private struct OutlineSilhouette: Equatable {
@@ -146,7 +152,8 @@ final class SidebarSurfaceDecoration {
     }
 
     func updateGeometry(surface: UIView, radii: SurfaceCornerRadii, direction: CGFloat,
-                        shadowFrame: CGRect? = nil, shadowRadii: SurfaceCornerRadii? = nil) {
+                        shadowFrame: CGRect? = nil, shadowRadii: SurfaceCornerRadii? = nil,
+                        shadowContours: [SidebarShadowContour] = []) {
         let frame = shadowFrame ?? surface.bounds
         let shadowRadii = shadowRadii ?? radii
         shadowView.bounds = CGRect(origin: .zero, size: frame.size)
@@ -154,17 +161,27 @@ final class SidebarSurfaceDecoration {
                                    y: surface.center.y + frame.midY - surface.bounds.midY)
         shadowView.transform = surface.transform
         shadowView.layer.shadowOffset = CGSize(width: direction * 3, height: 0)
-        let nextShadow = ShadowSilhouette(bounds: shadowView.bounds, radii: shadowRadii)
+        let nextShadow = ShadowSilhouette(bounds: shadowView.bounds, radii: shadowRadii,
+            contours: shadowContours)
         if shadowSilhouette != nextShadow {
             shadowSilhouette = nextShadow
             if shadowView.bounds.isEmpty {
                 shadowView.layer.shadowPath = nil
                 exteriorShadowMask.path = nil
             } else {
-                let shadowPath = shadowRadii.path(in: shadowView.bounds)
+                let shadowPath: CGPath
+                if shadowContours.isEmpty {
+                    shadowPath = shadowRadii.path(in: shadowView.bounds)
+                } else {
+                    let combined = CGMutablePath()
+                    for contour in shadowContours {
+                        combined.addPath(contour.radii.path(in: contour.frame))
+                    }
+                    shadowPath = combined
+                }
                 shadowView.layer.shadowPath = shadowPath
-                // The shared workspace shadow must stay outside its silhouette, including
-                // rounded cutouts of an individual Pane above the picker.
+                // One pass keeps Single's shadow strength. Exclude every card's
+                // interior so it cannot darken another translucent Pane.
                 let padding = ceil(shadowView.layer.shadowRadius * 3
                     + max(abs(shadowView.layer.shadowOffset.width), abs(shadowView.layer.shadowOffset.height)))
                 let extent = shadowView.bounds.insetBy(dx: -padding, dy: -padding)

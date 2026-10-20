@@ -87,16 +87,13 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
             if oldValue?.closeIntent != configuration?.closeIntent, configuration?.closeIntent != nil {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }
-            let progress = configuration?.normalizedSidebarProgress ?? 0
             handle.backgroundColor = configuration?.closeIntent == nil
                 ? configuration?.handleSurfaceColor() ?? .white
                 : .systemOrange
-            shadowView.alpha = progress
             setNeedsLayout()
         }
     }
     private let handle = UIView()
-    private let shadowView = UIView()
     private var panAdmitted = false
     private var touchOrigin: CGPoint?
     private weak var touchWindow: UIWindow?
@@ -149,19 +146,9 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        // The Workspace backdrop owns the gap. Only the handle and its shadow
-        // draw here, keeping the native drag target independent of decoration.
+        // The Workspace backdrop owns the gap. Only the handle
+        // draws here, keeping the native drag target independent of decoration.
         isOpaque = false
-        shadowView.backgroundColor = .clear
-        shadowView.isOpaque = false
-        shadowView.isUserInteractionEnabled = false
-        shadowView.accessibilityElementsHidden = true
-        shadowView.layer.name = "zen-split-divider-handle-shadow"
-        shadowView.layer.shadowColor = UIColor.black.cgColor
-        shadowView.layer.shadowOpacity = 0.14
-        shadowView.layer.shadowRadius = 1.5
-        shadowView.layer.shadowOffset = CGSize(width: 0, height: 1)
-        addSubview(shadowView)
         addSubview(handle)
         handle.isUserInteractionEnabled = false
         handle.backgroundColor = .white
@@ -185,9 +172,6 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
         handle.frame = configuration?.axis == .leftRight
             ? CGRect(x: (bounds.width - 3) / 2, y: 0, width: 3, height: bounds.height)
             : CGRect(x: 0, y: (bounds.height - 3) / 2, width: bounds.width, height: 3)
-        shadowView.frame = handle.frame
-        shadowView.layer.shadowPath = UIBezierPath(roundedRect: shadowView.bounds,
-            cornerRadius: handle.layer.cornerRadius).cgPath
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {

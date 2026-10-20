@@ -28,32 +28,54 @@ struct SidebarDecorationTests {
         #expect(mask.path === path, "Sidebar translation must reuse the exterior mask")
     }
 
-    @Test(arguments: [CGRect(x: 0, y: 0, width: 402, height: 420),
-                      CGRect(x: 0, y: 428, width: 402, height: 446),
-                      CGRect(x: 206, y: 0, width: 196, height: 874)])
-    func splitOwnerUsesTheSingleWorkspaceSilhouette(pane: CGRect) throws {
+    @Test(arguments: [SplitWorkspaceAxis.topBottom, .leftRight])
+    func splitCardsShareSingleShadowStrengthWithoutFillingTheirGap(axis: SplitWorkspaceAxis) throws {
         let workspace = CGRect(x: 0, y: 0, width: 402, height: 874)
-        let single = UIView(frame: workspace)
-        let split = UIView(frame: CGRect(origin: .zero, size: pane.size))
-        let singleDecoration = SidebarSurfaceDecoration()
-        let splitDecoration = SidebarSurfaceDecoration()
+        let layout = try #require(SplitWorkspaceGeometry(viewport: workspace, ratio: 0.5, axis: axis))
         let corners: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner,
                                     .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-        let sharedFrame = workspace.offsetBy(dx: -pane.minX, dy: -pane.minY)
-        for offset in [CGFloat(0), 24, 96] {
-            single.center.x = workspace.midX + offset
-            split.center.x = pane.width / 2 + offset
-            singleDecoration.updateGeometry(surface: single, radius: 62, corners: corners, direction: -1)
-            splitDecoration.updateGeometry(surface: split, radius: 62, corners: corners, direction: -1,
-                shadowFrame: sharedFrame)
-            let singlePath = try #require(singleDecoration.shadowView.layer.shadowPath)
-            let splitPath = try #require(splitDecoration.shadowView.layer.shadowPath)
-            #expect(singlePath == splitPath)
-            let localCenter = splitDecoration.shadowView.center
-            #expect(CGPoint(x: localCenter.x + pane.minX, y: localCenter.y + pane.minY)
-                == singleDecoration.shadowView.center)
+        let topRadii = axis == .topBottom
+            ? SurfaceCornerRadii(topLeft: 62, topRight: 62, bottomLeft: 24, bottomRight: 24)
+            : SurfaceCornerRadii(topLeft: 62, topRight: 24, bottomLeft: 62, bottomRight: 24)
+        let bottomRadii = axis == .topBottom
+            ? SurfaceCornerRadii(topLeft: 24, topRight: 24, bottomLeft: 62, bottomRight: 62)
+            : SurfaceCornerRadii(topLeft: 24, topRight: 62, bottomLeft: 24, bottomRight: 62)
+        let contours = [SidebarShadowContour(frame: layout.top, radii: topRadii),
+                        SidebarShadowContour(frame: layout.bottom, radii: bottomRadii)]
+        for pane in [layout.top, layout.bottom] {
+            let single = UIView(frame: workspace)
+            let split = UIView(frame: CGRect(origin: .zero, size: pane.size))
+            let singleDecoration = SidebarSurfaceDecoration()
+            let splitDecoration = SidebarSurfaceDecoration()
+            let sharedFrame = workspace.offsetBy(dx: -pane.minX, dy: -pane.minY)
+            for offset in [CGFloat(0), 24, 96] {
+                single.center.x = workspace.midX + offset
+                split.center.x = pane.width / 2 + offset
+                singleDecoration.updateGeometry(surface: single, radius: 62, corners: corners, direction: -1)
+                splitDecoration.updateGeometry(surface: split, radii: topRadii, direction: -1,
+                    shadowFrame: sharedFrame, shadowContours: contours)
+                let shadow = splitDecoration.shadowView.layer
+                let path = try #require(shadow.shadowPath)
+                let mask = try #require(shadow.mask as? CAShapeLayer)
+                let exterior = try #require(mask.path)
+                for rect in [layout.top, layout.bottom] {
+                    let center = CGPoint(x: rect.midX, y: rect.midY)
+                    #expect(path.contains(center))
+                    #expect(!exterior.contains(center, using: .evenOdd),
+                        "Neither translucent card may receive the other card's shadow")
+                }
+                let gap = CGPoint(x: layout.divider.midX, y: layout.divider.midY)
+                #expect(!path.contains(gap), "A shared shadow must retain two separate card silhouettes")
+                #expect(exterior.contains(gap, using: .evenOdd))
+                #expect(shadow.shadowOpacity == singleDecoration.shadowView.layer.shadowOpacity)
+                #expect(shadow.shadowRadius == singleDecoration.shadowView.layer.shadowRadius)
+                #expect(shadow.shadowOffset == singleDecoration.shadowView.layer.shadowOffset)
+                let localCenter = splitDecoration.shadowView.center
+                #expect(CGPoint(x: localCenter.x + pane.minX, y: localCenter.y + pane.minY)
+                    == singleDecoration.shadowView.center)
+            }
+            #expect(splitDecoration.silhouetteBuildCount == 1)
         }
-        #expect(splitDecoration.silhouetteBuildCount == 1)
     }
 
     @Test(arguments: [false, true])

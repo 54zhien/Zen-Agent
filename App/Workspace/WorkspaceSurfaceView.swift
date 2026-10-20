@@ -342,6 +342,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         displayCorners: SplitWorkspaceGeometry.viewportCorners(of: emptyFrame, in: layout.viewport),
                         sidebarOffset: sidebarTranslation, sidebarProgress: sidebarProgress,
                         sidebarDragging: sidebarDragging, sidebarSettlement: navigation.settlementID,
+                        sidebarShadowEnabled: false,
                         workspaceViewportSize: emptyFrame.size,
                         workspaceBackgroundColor: .systemBackground,
                         sidebarOutlineExternallyDrawn: usesDockedSidebarOutline(frame: emptyFrame,
@@ -514,6 +515,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
         let frame = driver.retainsAppSpaceViewport ? fullFrame
             : (logicalSlot(for: slot).flatMap { splitLayout?.frame(for: $0) } ?? fullFrame)
         let usesWorkspaceViewport = splitLayout != nil && !driver.retainsAppSpaceViewport
+        let sharedShadow = activeSurfaceSlot == nil && splitLayout != nil
         let visible = surfaceIsVisible(slot)
         let suppressed = returnPresentation.suppressesTarget(slot)
         let surfaceBrowse: AppSpaceBrowseController? = model != nil && slot == (model?.previewSurfaceSlot ?? model?.sourceSurfaceSlot) ? browse : nil
@@ -542,8 +544,11 @@ struct WorkspaceSurfaceView<Content: View>: View {
             displayCorners: displayCorners, sidebarOffset: sidebarOffset,
             sidebarProgress: sidebarProgress, sidebarDragging: sidebarDragging,
             sidebarSettlement: navigation.settlementID,
-            // Each Pane keeps its own silhouette; only the backdrop under
-            // the transparent Divider is shared. Native Sidebar timing is unchanged.
+            // Composite the two separate card contours once, matching Single's
+            // strength without putting one Pane's shadow under the other.
+            sidebarShadowFrame: sharedShadow ? fullFrame.offsetBy(dx: -frame.minX, dy: -frame.minY) : nil,
+            sidebarShadowEnabled: !sharedShadow || slot == model?.sourceSurfaceSlot,
+            sidebarShadowContours: sharedShadow ? splitLayout.map(splitShadowContours) ?? [] : [],
             workspaceViewportSize: usesWorkspaceViewport ? frame.size : nil,
             sidebarOutlineExternallyDrawn: usesDockedSidebarOutline(frame: frame, viewport: fullFrame, splitLayout: splitLayout),
             onSidebarSettled: settled,
@@ -824,6 +829,14 @@ struct WorkspaceSurfaceView<Content: View>: View {
         }
         return SurfaceCornerRadii(topLeft: r(.layerMinXMinYCorner), topRight: r(.layerMaxXMinYCorner),
             bottomLeft: r(.layerMinXMaxYCorner), bottomRight: r(.layerMaxXMaxYCorner))
+    }
+
+    private func splitShadowContours(_ layout: SplitWorkspaceGeometry) -> [SidebarShadowContour] {
+        [layout.top, layout.bottom].map { frame in
+            SidebarShadowContour(frame: frame.offsetBy(dx: -layout.viewport.minX, dy: -layout.viewport.minY),
+                radii: paneRadii(frame, in: layout.viewport,
+                    squareBottom: keyboardShortensViewport && abs(frame.maxY - layout.viewport.maxY) < 1))
+        }
     }
 
     private func splitTargetOverlay(top: CGRect, bottom: CGRect, guide: CGRect) -> some View {

@@ -21,6 +21,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var sidebarSettlement: UUID?
     var sidebarShadowFrame: CGRect?
     var sidebarShadowEnabled: Bool
+    var sidebarShadowContours: [SidebarShadowContour]
     var workspaceViewportSize: CGSize?
     var workspaceBackgroundColor: UIColor
     var onSidebarSettled: ((UUID) -> Void)?
@@ -39,6 +40,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
          sidebarOffset: CGFloat = 0, sidebarProgress: CGFloat = 0, sidebarDragging: Bool = false,
          sidebarSettlement: UUID? = nil,
          sidebarShadowFrame: CGRect? = nil, sidebarShadowEnabled: Bool = true,
+         sidebarShadowContours: [SidebarShadowContour] = [],
          workspaceViewportSize: CGSize? = nil, workspaceBackgroundColor: UIColor = .systemBackground,
          sidebarOutlineExternallyDrawn: Bool = false,
          onSidebarSettled: ((UUID) -> Void)? = nil,
@@ -63,6 +65,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         self.sidebarSettlement = sidebarSettlement
         self.sidebarShadowFrame = sidebarShadowFrame
         self.sidebarShadowEnabled = sidebarShadowEnabled
+        self.sidebarShadowContours = sidebarShadowContours
         self.workspaceViewportSize = workspaceViewportSize
         self.workspaceBackgroundColor = workspaceBackgroundColor
         self.onSidebarSettled = onSidebarSettled
@@ -84,7 +87,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.setReturnProxyHidden(isReturnProxyHidden)
         controller.setWorkspaceVisible(isWorkspaceVisible)
         controller.setSquareBottomCorners(squareBottomCorners)
-        controller.setSidebarShadow(frame: sidebarShadowFrame, enabled: sidebarShadowEnabled)
+        controller.setSidebarShadow(frame: sidebarShadowFrame, enabled: sidebarShadowEnabled,
+            contours: sidebarShadowContours)
         controller.setDisplayCorners(displayCorners)
         controller.setSidebarOutlineExternallyDrawn(sidebarOutlineExternallyDrawn)
         controller.setSidebar(offset: sidebarOffset, progress: sidebarProgress, dragging: sidebarDragging,
@@ -110,7 +114,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.setReturnProxyHidden(isReturnProxyHidden)
         controller.setWorkspaceVisible(isWorkspaceVisible)
         controller.setSquareBottomCorners(squareBottomCorners)
-        controller.setSidebarShadow(frame: sidebarShadowFrame, enabled: sidebarShadowEnabled)
+        controller.setSidebarShadow(frame: sidebarShadowFrame, enabled: sidebarShadowEnabled,
+            contours: sidebarShadowContours)
         controller.setDisplayCorners(displayCorners)
         controller.setSidebarOutlineExternallyDrawn(sidebarOutlineExternallyDrawn)
         controller.setSidebar(offset: sidebarOffset, progress: sidebarProgress, dragging: sidebarDragging,
@@ -179,6 +184,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private var sidebarShadowDirection: CGFloat = -1
     private var sidebarShadowFrame: CGRect?
     private var sidebarShadowEnabled = true
+    private var sidebarShadowContours: [SidebarShadowContour] = []
     private var workspaceViewportSize: CGSize?
     private var workspaceBackgroundColor = UIColor.systemBackground
     private var originalCanvasColors: (surface: UIColor?, content: UIColor?)?
@@ -462,10 +468,12 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         workspaceVisible && !inputSuppressed && !returnProxyHidden && !hasPresentedOverlay
     }
 
-    func setSidebarShadow(frame: CGRect?, enabled: Bool) {
-        guard sidebarShadowFrame != frame || sidebarShadowEnabled != enabled else { return }
+    func setSidebarShadow(frame: CGRect?, enabled: Bool, contours: [SidebarShadowContour] = []) {
+        guard sidebarShadowFrame != frame || sidebarShadowEnabled != enabled
+                || sidebarShadowContours != contours else { return }
         sidebarShadowFrame = frame
         sidebarShadowEnabled = enabled
+        sidebarShadowContours = contours
         if isViewLoaded { updateSurfaceDecoration() }
     }
 
@@ -631,7 +639,8 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
                 SurfaceCornerRadii(uniform: windowConcentricCornerRadius(), corners: allCorners)
             }
             sidebarDecoration.updateGeometry(surface: surfaceView, radii: radii,
-                direction: sidebarShadowDirection, shadowFrame: sidebarShadowFrame, shadowRadii: shadowRadii)
+                direction: sidebarShadowDirection, shadowFrame: sidebarShadowFrame,
+                shadowRadii: shadowRadii, shadowContours: sidebarShadowContours)
         }
         if sidebarAnimator == nil {
             sidebarDecoration.applyAppearance(surface: surfaceView, progress: sidebarProgress, traits: contentController.traitCollection)
