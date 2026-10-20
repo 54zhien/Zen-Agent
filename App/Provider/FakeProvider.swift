@@ -33,6 +33,7 @@ struct FakeProvider: ModelProvider {
             .streaming,
             .reasoning,
         ],
+        thinkingEfforts: Set<ThinkingEffort> = [],
         scriptedEvents: [ProviderStreamEvent] = [
             .textDelta("fake")
         ]
@@ -44,7 +45,8 @@ struct FakeProvider: ModelProvider {
                 id: ModelID(rawValue: $0),
                 providerInstanceID: instanceID,
                 displayName: $0,
-                capabilities: capabilities
+                capabilities: capabilities,
+                thinkingEfforts: thinkingEfforts
             )
         }
     }
@@ -63,7 +65,9 @@ struct FakeProvider: ModelProvider {
                 id: $0.id,
                 providerInstanceID: instance.id,
                 displayName: $0.displayName,
-                capabilities: $0.capabilities
+                capabilities: $0.capabilities,
+                thinkingEfforts: $0.thinkingEfforts,
+                defaultThinkingEffort: $0.defaultThinkingEffort
             )
         }
     }

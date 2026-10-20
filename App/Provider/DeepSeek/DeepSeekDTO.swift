@@ -50,10 +50,14 @@ struct DeepSeekChatRequest: Encodable, Sendable {
         }
     }
 
+    struct Thinking: Encodable, Sendable { var type: String }
+
     var model: String
     var messages: [Message]
     var tools: [Tool]
     var stream: Bool
+    var thinking: Thinking? = nil
+    var reasoning_effort: String? = nil
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -65,6 +69,8 @@ struct DeepSeekChatRequest: Encodable, Sendable {
             try container.encode(tools, forKey: .tools)
         }
         try container.encode(stream, forKey: .stream)
+        try container.encodeIfPresent(thinking, forKey: .thinking)
+        try container.encodeIfPresent(reasoning_effort, forKey: .reasoning_effort)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -72,6 +78,8 @@ struct DeepSeekChatRequest: Encodable, Sendable {
         case messages
         case tools
         case stream
+        case thinking
+        case reasoning_effort
     }
 }
 

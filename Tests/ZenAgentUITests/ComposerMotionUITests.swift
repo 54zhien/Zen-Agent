@@ -2,6 +2,39 @@ import XCTest
 
 final class ComposerMotionUITests: XCTestCase {
     @MainActor
+    func testThinkingPickerAdaptsWhenSwitchingThreeAndFourLevelModels() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
+        app.launchEnvironment["ZEN_COMPOSER_THINKING_LEVELS_TEST"] = "1"
+        app.launch()
+        let plus = app.buttons["conversation-composer-plus"]
+        XCTAssertTrue(plus.waitForExistence(timeout: 15))
+        plus.tap()
+        let entry = app.buttons["思考"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        entry.tap()
+        let maxLevel = app.buttons["thinking-level-max"]
+        XCTAssertTrue(maxLevel.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["thinking-level-low"].exists)
+        XCTAssertTrue(app.buttons["thinking-level-high"].exists)
+        XCTAssertFalse(app.buttons["thinking-level-medium"].exists)
+        XCTAssertFalse(app.buttons["thinking-level-xhigh"].exists)
+        XCTAssertFalse(app.buttons["thinking-level-ultra"].exists)
+        maxLevel.tap()
+        plus.tap()
+        app.buttons["模型"].tap()
+        app.buttons["UI Test Model With A Longer Name"].tap()
+        plus.tap()
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        XCTAssertEqual(entry.value as? String, "中")
+        entry.tap()
+        XCTAssertTrue(app.buttons["thinking-level-medium"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["thinking-level-xhigh"].exists)
+        XCTAssertFalse(app.buttons["thinking-level-max"].exists)
+        XCTAssertTrue(app.buttons["thinking-level-default"].isSelected)
+    }
+
+    @MainActor
     func testThinkingEntryOpensAndKeepsSelectedLevel() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
@@ -65,7 +98,9 @@ final class ComposerMotionUITests: XCTestCase {
         let keyboardHeight = app.keyboards.firstMatch.frame.height
         let inputBottom = input.frame.maxY
         plus.tap()
-        XCTAssertTrue(panel.waitForExistence(timeout: 5))
+        let openedPanel = panel.waitForExistence(timeout: 5)
+        print("KEYBOARD_MENU_HANDOFF \(app.otherElements["composer-geometry-probe"].value ?? "missing probe")")
+        XCTAssertTrue(openedPanel)
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 8))
         let sheet = app.otherElements["composer-keyboard-sheet"]
         guard sheet.waitForExistence(timeout: 5) else {

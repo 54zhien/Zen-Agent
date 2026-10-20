@@ -114,7 +114,8 @@ final class AppShellModel {
         guard configurationRefreshIDs[instanceID] == token, router === dependencies.router else { return }
         for (target, result) in zip(targets, results) {
             guard sessions.session(for: target.session.conversationID) === target.session,
-                  target.session.composer.configuration == target.configuration else { continue }
+                  target.session.composer.configuration?.providerInstanceID == target.configuration.providerInstanceID,
+                  target.session.composer.configuration?.modelID == target.configuration.modelID else { continue }
             target.session.composer.sendAvailability = result
         }
         if let owner = pane?.composer ?? previewContent.session?.composer {
@@ -1061,7 +1062,8 @@ final class AppShellModel {
             // become stale after another Send, even if the user switches back to it.
             let configuration: ConversationComposerConfiguration?
             if let instanceID = summary.providerInstanceID, let modelID = summary.modelID {
-                configuration = ConversationComposerConfiguration(providerInstanceID: instanceID, modelID: modelID)
+                configuration = ConversationComposerConfiguration(providerInstanceID: instanceID, modelID: modelID,
+                    thinkingEffort: summary.thinkingEffort)
             } else if summary.runProjection == nil,
                       let binding = try store.conversationInitialBinding(id: id),
                       let instanceID = binding.providerInstanceID, let modelID = binding.modelID {
@@ -1325,10 +1327,9 @@ final class AppShellModel {
         let owner = conversationID == ownerID
             ? (pane?.composer ?? previewContent.session?.composer)
             : sessions.session(for: ownerID)?.composer
-        guard let owner, owner.configuration == ConversationComposerConfiguration(
-            providerInstanceID: failedTarget.providerInstanceID,
-            modelID: failedTarget.modelID
-        ) else { return }
+        guard let owner,
+              owner.configuration?.providerInstanceID == failedTarget.providerInstanceID,
+              owner.configuration?.modelID == failedTarget.modelID else { return }
         // A bridge outlives its display. Its asynchronous failure belongs to the
         // captured session, even when the new display selected identical IDs.
         owner.sendAvailability = .unavailable(failure.message)

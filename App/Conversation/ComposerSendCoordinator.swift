@@ -95,6 +95,7 @@ final class ComposerSendCoordinator {
             },
             providerInstanceID: configuration.providerInstanceID,
             modelID: configuration.modelID,
+            thinkingEffort: configuration.thinkingEffort,
             maxProviderSteps: maxProviderSteps,
             submissionID: submissionID
         )

@@ -52,7 +52,7 @@ struct ConversationPaneFactory {
             if let seed = snapshot?.runs
                 .last(where: { $0.kind == .parent })?.requestConfigSeed {
                 return ConversationComposerConfiguration(
-                    providerInstanceID: seed.providerInstanceID, modelID: seed.modelID)
+                    providerInstanceID: seed.providerInstanceID, modelID: seed.modelID, thinkingEffort: seed.thinkingEffort)
             }
             if snapshot?.messages.isEmpty == true, snapshot?.runs.isEmpty == true,
                let binding = try dependencies.store.conversationInitialBinding(id: id),

@@ -53,6 +53,8 @@ Owner exact-circle replacement followed by a fixed-circle fade @ bd48b19dc99b1e6
 Owner native material dismissal with content-layer glyph reveal @ fd95564019ddf84604efc0363b965f592af9111e
 Owner accepted entrance/dismissal, matching corners, submenu and haptic refinement @ b2be74cdc176b686222b2590463c5332a4c065de
 Owner keyboard replacement sheet and Thinking label ruling @ ca5ffd514e75935174a66205439a44a0c6d3ef1d
+Owner SF menu symbols and six-level Thinking gauge ruling @ 79ecea35b6b062dd30a6e4677e92cbb3566cd22e
+Owner capability-backed Thinking selection and frozen request ruling @ 570b8c34309632fb2cf6050e06e5fca10a5d0e51
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,

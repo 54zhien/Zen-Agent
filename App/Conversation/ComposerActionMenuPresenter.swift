@@ -70,7 +70,8 @@ final class ComposerActionMenuPresenter: UIViewController {
                 self.onSelect(modelID)
                 self.close()
             }, onOpenModels: { [weak self] row in self?.openModels(from: row) },
-            onReturn: { [weak self] in self?.returnToActions() }),
+            onReturn: { [weak self] in self?.returnToActions() },
+            onOpenThinking: { [weak self] row in self?.openChild(.thinking, from: row) }),
             expandedRadius: menuCornerRadius)
     }
 
@@ -195,13 +196,15 @@ final class ComposerActionMenuPresenter: UIViewController {
 
     private var parentFrame: CGRect { rootFrame.offsetBy(dx: 0, dy: -12) }
 
-    private func openModels(from row: CGRect) {
+    private func openModels(from row: CGRect) { openChild(.models, from: row) }
+
+    private func openChild(_ level: ComposerActionMenuLevel, from row: CGRect) {
         guard !isClosing, !isTransitioning, childPanel == nil,
-              !presentation.models.isEmpty, let root = rootPanel else { return }
+              (level != .models || !presentation.models.isEmpty), let root = rootPanel else { return }
         WorkspaceHaptics.shared.play(.control)
         modelRow = row
         let origin = view.convert(row, from: root.content.view)
-        let child = makePanel(.models)
+        let child = makePanel(level)
         childPanel = child
         child.showMaterial(false)
         child.install(in: self)

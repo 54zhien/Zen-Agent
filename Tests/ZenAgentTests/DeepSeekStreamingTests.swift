@@ -92,6 +92,31 @@ struct DeepSeekStreamingTests {
         return value
     }
 
+    @Test("streaming encodes the frozen thinking effort", arguments: [ThinkingEffort.low, .high, .max])
+    func thinkingEffortInStream(effort: ThinkingEffort) async throws {
+        let f = try makeFixture()
+        var seed = f.seed
+        seed.thinkingEffort = effort
+        f.transport.enqueueStream(sse([]))
+        let stream = try await f.provider.stream(request(), seed: seed, credentials: f.credentials)
+        _ = try await drain(stream)
+        let body = try #require(f.transport.lastRequest?.body)
+        let sent = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(sent["reasoning_effort"] as? String == effort.rawValue)
+        #expect((sent["thinking"] as? [String: String])?["type"] == "enabled")
+    }
+
+    @Test("unsupported frozen effort is refused before a streaming request")
+    func unsupportedFrozenEffortCannotStream() async throws {
+        let f = try makeFixture()
+        var seed = f.seed
+        seed.thinkingEffort = .ultra
+        await #expect(throws: ProviderError.self) {
+            _ = try await f.provider.stream(request(), seed: seed, credentials: f.credentials)
+        }
+        #expect(f.transport.lastRequest == nil)
+    }
+
     // MARK: - What goes out
 
     @Test("the request asks for a stream and accepts one")

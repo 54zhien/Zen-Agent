@@ -44,6 +44,7 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
         view = overlay
         sheet.accessibilityIdentifier = "composer-keyboard-sheet"
         sheet.shouldGroupAccessibilityChildren = true
+        sheet.accessibilityContainerType = .semanticGroup
         view.addSubview(sheet)
         sheet.addSubview(glass)
         glass.cornerConfiguration = .corners(radius: .fixed(34))
@@ -88,6 +89,9 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
         UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : duration,
                        delay: 0, options: options.union([.beginFromCurrentState, .allowUserInteraction])) {
             self.sheet.transform = .identity
+        } completion: { [weak self] _ in
+            guard let self, !self.isClosing else { return }
+            UIAccessibility.post(notification: .layoutChanged, argument: self.actions?.view)
         }
     }
 
@@ -112,8 +116,9 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
                 WorkspaceHaptics.shared.play(.control)
                 self.onSelect(modelID)
                 self.close()
-            }, onOpenModels: { [weak self] _ in self?.openModels() },
-            onReturn: { [weak self] in self?.returnToActions() }, keyboardSheet: true))
+            }, onOpenModels: { [weak self] _ in self?.openDetails(.models) },
+            onReturn: { [weak self] in self?.returnToActions() }, keyboardSheet: true,
+            onOpenThinking: { [weak self] _ in self?.openDetails(.thinking) }))
         content.safeAreaRegions = []
         content.view.backgroundColor = .clear
         addChild(content)
@@ -123,8 +128,8 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
         return content
     }
 
-    private func openModels() {
-        guard !isClosing, models == nil, !presentation.models.isEmpty else { return }
+    private func openDetails(_ level: ComposerActionMenuLevel) {
+        guard !isClosing, models == nil, level != .models || !presentation.models.isEmpty else { return }
         WorkspaceHaptics.shared.play(.control)
         let child = UIVisualEffectView(effect: nil)
         child.cornerConfiguration = glass.cornerConfiguration
@@ -132,7 +137,7 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
         child.frame = glass.bounds
         glass.contentView.addSubview(child)
         childGlass = child
-        models = install(.models, in: child)
+        models = install(level, in: child)
         actions?.view.isUserInteractionEnabled = false
         actions?.view.accessibilityElementsHidden = true
         child.transform = CGAffineTransform(translationX: 0, y: 24)
@@ -142,6 +147,9 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
             child.effect = UIGlassEffect(style: .regular)
             child.transform = .identity
             self.models?.view.alpha = 1
+        } completion: { [weak self] _ in
+            guard let self, !self.isClosing else { return }
+            UIAccessibility.post(notification: .layoutChanged, argument: self.models?.view)
         }
     }
 
@@ -164,6 +172,7 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
             self.childGlass = nil
             self.actions?.view.isUserInteractionEnabled = true
             self.actions?.view.accessibilityElementsHidden = false
+            UIAccessibility.post(notification: .layoutChanged, argument: self.actions?.view)
         }
     }
 

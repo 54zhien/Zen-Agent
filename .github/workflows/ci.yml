@@ -32,7 +32,7 @@ jobs:
 
   pad-workspace:
     name: iPad workspace axis
-    if: github.event_name != 'workflow_dispatch' || inputs.test_scope == 'full'
+    if: github.event_name != 'workflow_dispatch' || inputs.test_scope == 'full' || inputs.test_scope == 'composer-menu'
     needs: repo-hygiene
     runs-on: macos-26
     # Native Axis passed in 126s, but build/startup exceeded the former 20m job budget.
@@ -831,8 +831,10 @@ jobs:
               UDID=$(python3 -c 'import json,sys; print(next(d["udid"] for ds in json.load(open(sys.argv[1]))["devices"].values() for d in ds if d.get("isAvailable") and d["name"].startswith("iPhone")))' "$evidence/devices.json")
               xcrun simctl bootstatus "$UDID" -b
               if [ "$TEST_SCOPE" = composer-menu ]; then
-                tests=(-only-testing:ZenAgentUITests/ComposerMotionUITests/testModelMenuOpensAndSwitchesModels
-                  -only-testing:ZenAgentUITests/SplitContainerUITests/testKeyboardSheetKeepsLatestMessageAboveComposerInSingleAndSplit)
+                tests=(-only-testing:ZenAgentTests
+                  -only-testing:ZenAgentUITests/ComposerMotionUITests
+                  -only-testing:ZenAgentUITests/SplitContainerUITests/testKeyboardSheetKeepsLatestMessageAboveComposerInSingleAndSplit
+                  -only-testing:ZenAgentUITests/SplitContainerUITests/testSharedBottomComposerFollowsContentTapWithoutSharingDrafts)
               elif [ "$TEST_SCOPE" = lift-drag ]; then
                 tests=(-only-testing:ZenAgentTests/SurfaceLiftGeometryTests
                   -only-testing:ZenAgentTests/SurfaceLiftHostTests
@@ -897,6 +899,16 @@ jobs:
               fi
               xcrun xcresulttool get test-results summary --path "$evidence/Focused.xcresult" > "$evidence/Focused-summary.json"
               xcrun xcresulttool export attachments --path "$evidence/Focused.xcresult" --output-path "$evidence/attachments"
+              if [ "$TEST_SCOPE" = composer-menu ]; then
+                for appearance in light dark; do
+                  xcrun simctl terminate "$UDID" com.zhien.zen || true
+                  xcrun simctl ui "$UDID" appearance "$appearance"
+                  SIMCTL_CHILD_ZEN_COMPOSER_GEOMETRY_TEST=1 SIMCTL_CHILD_ZEN_COMPOSER_SYMBOL_PREVIEW=1 \
+                    xcrun simctl launch "$UDID" com.zhien.zen
+                  sleep 2
+                  xcrun simctl io "$UDID" screenshot "$evidence/thinking-symbol-levels-$appearance.png"
+                done
+              fi
               exit "$code"
               ;;
             *) exit 1 ;;

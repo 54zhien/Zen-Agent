@@ -26,6 +26,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let onStop: () -> Void
         let onModel: (ModelID) -> Void
         let onHeightChanged: (CGFloat) -> Void
+        var thinkingEfforts: [ThinkingEffort] = []
+        var thinkingEffort: ThinkingEffort? = nil
+        var defaultThinkingEffort: ThinkingEffort? = nil
+        var onThinking: (ThinkingEffort?) -> Void = { _ in }
         var onMenuTopChanged: (CGFloat?) -> Void = { _ in }
         var liftInteraction: ComposerLiftInteraction.Configuration? = nil
     }
@@ -555,6 +559,15 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         plus.isHidden = !next.showsPlus
         actionMenuState.models = next.models
         actionMenuState.selectedModelID = next.selectedModelID
+        actionMenuState.supportedThinkingEfforts = next.thinkingEfforts
+        actionMenuState.selectedThinkingEffort = next.thinkingEffort
+        actionMenuState.defaultThinkingEffort = next.defaultThinkingEffort
+        actionMenuState.onSelectThinking = { [weak self] effort in
+            guard let self else { return }
+            self.configuration?.onThinking(effort)
+            self.actionMenu?.close()
+            self.keyboardMenu?.close()
+        }
         switch next.primary {
         case .none:
             primary.isHidden = true
