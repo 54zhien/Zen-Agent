@@ -34,9 +34,45 @@ final class ComposerMotionUITests: XCTestCase {
         if keyboardIntroduction.waitForExistence(timeout: 2) { keyboardIntroduction.tap() }
         input.typeText("enu draft")
         XCTAssertEqual(input.value as? String, "menu draft")
+        let keyboardHeight = app.keyboards.firstMatch.frame.height
+        let inputBottom = input.frame.maxY
         plus.tap()
         XCTAssertTrue(panel.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 8))
+        let sheet = app.otherElements["composer-keyboard-sheet"]
+        guard sheet.waitForExistence(timeout: 5) else {
+            XCTFail("The keyboard must be replaced by the bottom sheet")
+            return
+        }
+        XCTAssertEqual(sheet.frame.height, keyboardHeight, accuracy: 2)
+        XCTAssertEqual(input.frame.maxY, inputBottom, accuracy: 2)
+        XCTAssertEqual(plus.label, "关闭菜单")
+        let labels = ["模型", "思考", "插件", "图片", "文件"].map {
+            app.buttons.matching(NSPredicate(format: "label == %@", $0)).firstMatch
+        }
+        for row in labels { XCTAssertTrue(row.exists) }
+        for index in 1..<labels.count {
+            XCTAssertGreaterThan(labels[index].frame.midY, labels[index - 1].frame.midY)
+        }
+        let replacement = XCTAttachment(screenshot: app.screenshot())
+        replacement.name = "Keyboard replaced by five-row liquid sheet"
+        replacement.lifetime = .keepAlways
+        add(replacement)
+        plus.tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        XCTAssertEqual(input.value as? String, "menu draft")
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        plus.tap()
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        // Tapping the retained editor replaces the sheet with the real keyboard.
+        input.tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        XCTAssertEqual(input.value as? String, "menu draft")
+        plus.tap()
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
         title.tap()
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
         XCTAssertTrue(panel.exists)
@@ -50,7 +86,7 @@ final class ComposerMotionUITests: XCTestCase {
         add(initial)
 
         title.tap()
-        let rootEntry = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "推理强度")).firstMatch
+        let rootEntry = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "思考")).firstMatch
         XCTAssertTrue(rootEntry.waitForExistence(timeout: 5))
         XCTAssertTrue(panel.exists)
         title.tap()
@@ -60,7 +96,7 @@ final class ComposerMotionUITests: XCTestCase {
         XCTAssertTrue(second.waitForNonExistence(timeout: 5))
         XCTAssertTrue(panel.waitForNonExistence(timeout: 5))
         XCTAssertTrue(plus.isHittable)
-        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
         XCTAssertEqual(input.value as? String, "menu draft")
         plus.tap()
         XCTAssertTrue(title.waitForExistence(timeout: 5))
