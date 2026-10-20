@@ -5,7 +5,7 @@
 - 产品方根据两张照片确认：Editing 且屏幕键盘已显示时，点击 `+` 让键盘下沉并由等高液态玻璃面板接替，入口顺时针旋转 45° 成为关闭按钮。
 - 一级选项顺序为模型、思考、插件、图片、文件；图标统一灰色圆底，行距宽松。原悬浮菜单的推理强度文案同步改为思考。
 - 关闭不自动弹键盘；点输入区重新唤回键盘。保留编辑器、草稿、选区和当前模型配置所有权。
-- 键盘隐藏时保留已验收的原悬浮菜单动效。其余四项仍禁用，未扩展 Provider 请求参数、附件或插件能力。
+- 键盘隐藏时保留已验收的原悬浮菜单动效。最初保留其余四项禁用；后续产品方明确要求思考接入真实请求，见 `composer-thinking-request-plan.md`。插件、图片、文件仍保持原门控。
 - 生产代码基线：`ce40a7d81a4f4536313ab88a2625fc0a34631382`，源分支 `codex/restore-ui-polish-20261018`；本次分支 `codex/composer-keyboard-sheet-20261020`。
 - 上游意图：Blueprint `ca5ffd514e75935174a66205439a44a0c6d3ef1d`，同名分支，未合并 main。
 
@@ -35,7 +35,7 @@
 ### SF 图标追加要求
 
 - 产品方指定两套菜单及模型二级标题同步改用 `theatermasks`、`tachometer`、逆时针 45° 的 `powercord`、`photo.on.rectangle.angled`、`paperclip`。
-- 六档仪表为低、中、高、极高、Max、Ultra，分别推进总弧长的 1/6 至 6/6；指针左侧实线、右侧灰色等距圆点。只实现图标显示，思考请求配置和禁用门控未扩展。
+- 六档仪表为低、中、高、极高、Max、Ultra，分别推进总弧长的 1/6 至 6/6；指针左侧实线、右侧灰色等距圆点。最初追加要求只含图标；后续确认解除思考禁用并接真实请求，按各模型声明的可用档位选择。
 - [SF 原始符号测量 39410388169](https://github.com/54zhien/Zen-Agent/actions/runs/39410388169) 在 macOS 使用实际 AppKit/SF Symbols 导出五个符号，均存在。`tachometer` 的六个 variableValue PNG SHA-256 完全一致（`836DD7E32A04197E10894396DCBE7F6577DCA5002D7DEE615BCFD40EF1CF2A0C`），不能依赖该参数旋转指针；采用保留 SF 中央指针、旋转并配合弧线／圆点的呈现。
 - 最终专项范围包含完整 `ZenAgentTests`、ComposerMotion 两项、最新消息遮挡和共享 Dock 换窗回归，并执行实际 iPad axis；同时导出六档浅色／深色预览用于像素检查。旧全量 CI 与专项结果分别记录，不将 profile 中的 skipped job 算作通过。
 
@@ -45,3 +45,5 @@
 - `StandardOutputAndStandardError-com.zhien.zen.txt` 在两项失败用例均记录首次关闭源为 `textViewShouldBeginEditing(_:)`，随后重复询问；当时 view、installed 和 window 都是 402×874，排除这次失败由窗口尺寸守卫引发。
 - 修复将 UIKit 焦点许可询问与用户显式输入交互区分：面板保留期间拒绝自动重新开始编辑；编辑器触摸及 AX activation 才允许恢复键盘。保留同一个 UITextView 的子类实例，未重建编辑器或草稿。
 - 窗口尺寸／失活的关闭守卫保留；临时 print 诊断不进入最终生产源码。等高与输入框、Single/Split 最新消息位置仍由真实 UI 回归验证。
+
+- 首版全量 [39407633152](https://github.com/54zhien/Zen-Agent/actions/runs/39407633152) 的 XcodeGen、构建和 iPad axis 成功；Phone 全量已有 Composer、Files、Settings、Sidebar 及分屏相关失败，并输出 TEST FAILED，整体最终 cancelled，不能算全量通过。保留所有原记录，不将专项结果替代全量验收。

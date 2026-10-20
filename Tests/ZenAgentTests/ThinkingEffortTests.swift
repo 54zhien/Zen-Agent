@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import GRDB
 
 @testable import ZenAgent
 
@@ -76,6 +77,26 @@ struct ThinkingEffortTests {
             credentials: f.credentials)
         let runID = try await runtime.send(I05RuntimeTestFixtures.command())
         #expect(try f.store.run(id: runID)?.submissionDigest == "7b7470e99c04a841c1be7a1759f48521214d38f0d81f481abf22a03e8df16549")
+    }
+
+    @Test("summary respects request format compatibility", arguments: ["missing-effort", "unversioned", "future-version", "legacy"])
+    func damagedEffortIsUnavailableInSummary(damage: String) throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
+        try store.database.write { db in
+            switch damage {
+            case "unversioned":
+                try db.execute(sql: "UPDATE agentRun SET requestConfigSeed = json_remove(requestConfigSeed, '$.formatVersion') WHERE id = ?", arguments: ["r1"])
+            case "future-version":
+                try db.execute(sql: "UPDATE agentRun SET requestConfigSeed = json_set(requestConfigSeed, '$.formatVersion', 3) WHERE id = ?", arguments: ["r1"])
+            case "legacy":
+                try db.execute(sql: "UPDATE agentRun SET requestConfigSeed = json_remove(json_set(requestConfigSeed, '$.formatVersion', 1), '$.thinkingEffort') WHERE id = ?", arguments: ["r1"])
+            default:
+                try db.execute(sql: "UPDATE agentRun SET requestConfigSeed = json_remove(requestConfigSeed, '$.thinkingEffort') WHERE id = ?", arguments: ["r1"])
+            }
+        }
+        let summary = try #require(store.conversationSummaryWindow(ids: ["c1"]).first)
+        #expect(summary.contentUnavailable == (damage != "legacy"))
     }
 
     @Test("v1 requests remain readable without a synthetic effort")

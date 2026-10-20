@@ -147,8 +147,8 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
             child.effect = UIGlassEffect(style: .regular)
             child.transform = .identity
             self.models?.view.alpha = 1
-        } completion: { [weak self] _ in
-            guard let self, !self.isClosing else { return }
+        } completion: { [weak self] finished in
+            guard finished, let self, !self.isClosing else { return }
             UIAccessibility.post(notification: .layoutChanged, argument: self.models?.view)
         }
     }
