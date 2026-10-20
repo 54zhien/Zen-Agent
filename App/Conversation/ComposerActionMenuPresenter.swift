@@ -23,6 +23,8 @@ final class ComposerActionMenuPresenter: UIViewController {
     private var isClosing = false
     private var isTransitioning = false
     private var animator: UIViewPropertyAnimator?
+    private let menuMotionDuration: TimeInterval = 0.44
+    private let menuMotionDamping: CGFloat = 0.72
 
     init(sourceView: UIView, alignmentView: UIView, presentation: ComposerActionMenuState,
          onSelect: @escaping (ModelID) -> Void,
@@ -104,7 +106,7 @@ final class ComposerActionMenuPresenter: UIViewController {
     }
 
     private func expand(_ root: ComposerMenuPanel) {
-        animate(duration: 0.44, dampingRatio: 0.72) {
+        animate(duration: menuMotionDuration, dampingRatio: menuMotionDamping) {
             root.showMaterial(true)
             root.place(self.rootFrame)
             self.sourceIcon.frame = self.sourceIconFrame.offsetBy(
@@ -264,18 +266,22 @@ final class ComposerActionMenuPresenter: UIViewController {
     private func collapse() {
         let circle = dismissalCircle
         let radius = min(circle.width, circle.height) / 2
-        animate(duration: 0.35, dampingRatio: 0.86) {
-            self.rootPanel?.showMaterial(false)
+        animate(duration: menuMotionDuration, dampingRatio: menuMotionDamping) {
+            // Keep the material visible while reversing the panel/content
+            // geometry. Only the completed circle may dematerialize.
+            self.rootPanel?.showMaterial(true)
             self.childPanel?.showMaterial(false)
             self.rootPanel?.place(circle, radius: radius,
                 contentAlpha: 0, contentScale: self.contentScale(fitting: circle))
             self.childPanel?.place(circle, radius: radius, contentAlpha: 0)
-            // Reveal the real, stationary control while its glass contracts;
-            // the departing copy must not fly back across the input field.
             self.sourceIcon.alpha = 0
-            self.sourceView?.alpha = 1
+            self.sourceView?.alpha = 0
         } completion: { [weak self] in
-            self?.finishDismissal()
+            guard let self else { return }
+            self.animate(duration: 0.12, dampingRatio: 1) {
+                self.rootPanel?.showMaterial(false)
+                self.sourceView?.alpha = 1
+            } completion: { [weak self] in self?.finishDismissal() }
         }
     }
 
