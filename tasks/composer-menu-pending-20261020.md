@@ -266,6 +266,16 @@
 - Blueprint: `fd95564019ddf84604efc0363b965f592af9111e`。Apple 依据：https://developer.apple.com/videos/play/wwdc2025/284/ ，官方推荐 effect 到 nil 及内容独立 alpha；不能据此宣称系统材质消退等同线性透明渐隐。
 - 保留 26.10.23 回退标签与 IPA，未重置其他工作。
 
+
+### 26.10.29 编译交付记录
+
+- 源码提交：`56a3a947beabf300a9939101d7c5c38beb7065ea`，源码树：`1adece5f8d74951dd4ef80cc0669f46c8c81c92e`；App 仅修改 Presenter、删除固定圆快照 helper。
+- 仅打包提交：`be372cd84cb8ea908b8040052183cad8d30794a5`；相对源码只修改专用打包工作流。
+- [设备编译与打包 39392815090](https://github.com/54zhien/Zen-Agent/actions/runs/39392815090)：成功，XcodeGen 及设备构建完成，未运行测试。
+- IPA：`ZenAgent-Native-Glyph-56a3a94-device-test.ipa`，版本 `26.10.29`，未签名 Debug / System Sans / iOS 26.0+。完整路径：`C:\Users\Azusa\Downloads\ZenAgent-Native-Glyph-56a3a94\ZenAgent-Native-Glyph-56a3a94-device-test.ipa`。
+- SHA-256：`6e1ea7908e27f95c3d5ba8059dc574e891028e235c223cf86b38f643c6e957e9`。下载后核对哈希、版本、可执行文件及源码来源；26.10.23 回退标签及原包哈希再次核对未变。
+- 仅构建及包完整性已确认。原生材质消退、内容层图标渐显、最终原按钮交接仍待实机确认。
+
 ## 范围
 
 - 保留已交付的无玻璃 `+` 按钮、19 点 `+` 符号、输入框底板及菜单的玻璃。
