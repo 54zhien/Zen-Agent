@@ -81,7 +81,8 @@ final class ComposerActionMenuPresenter: UIViewController {
         endAppearanceTransition()
         guard view.superview != nil else { return }
         root.content.view.isUserInteractionEnabled = false
-        root.place(sourceFrame, radius: sourceRadius, contentAlpha: 0)
+        root.place(sourceFrame, radius: sourceRadius, contentAlpha: 0,
+                   contentScale: collapsedContentScale)
         if let button = sourceView as? UIButton, let imageView = button.imageView {
             sourceIcon.image = imageView.image
             sourceIcon.preferredSymbolConfiguration = button.preferredSymbolConfigurationForImage(in: .normal)
@@ -90,26 +91,24 @@ final class ComposerActionMenuPresenter: UIViewController {
             sourceIcon.isUserInteractionEnabled = false
             sourceIcon.accessibilityElementsHidden = true
             sourceIconFrame = view.convert(imageView.bounds, from: imageView)
-            root.glass.contentView.addSubview(sourceIcon)
-            placeSourceIcon(in: sourceFrame)
+            // The departing glyph must not be clipped by the circular glass
+            // or inherit the scale of the menu's content canvas.
+            view.addSubview(sourceIcon)
+            sourceIcon.frame = sourceIconFrame
+            sourceIcon.alpha = 1
             sourceView?.alpha = 0
         }
         root.glass.layoutIfNeeded()
         isTransitioning = true
-        // Keep the source-sized circle on screen while its material appears.
-        // Starting expansion in the same transaction hid this entire phase.
-        animate(duration: 0.16, dampingRatio: 1) {
-            root.showMaterial(true)
-        } completion: { [weak self] in
-            guard let self, !self.isClosing else { return }
-            self.expand(root)
-        }
+        expand(root)
     }
 
     private func expand(_ root: ComposerMenuPanel) {
         animate(duration: 0.44, dampingRatio: 0.72) {
+            root.showMaterial(true)
             root.place(self.rootFrame)
-            self.placeSourceIcon(in: self.rootFrame)
+            self.sourceIcon.frame = self.sourceIconFrame.offsetBy(
+                dx: self.sourceFrame.width / 2, dy: -self.sourceFrame.height / 2)
             self.sourceIcon.alpha = 0
             self.sourceView?.alpha = 0
         } completion: { [weak self] in
@@ -120,10 +119,10 @@ final class ComposerActionMenuPresenter: UIViewController {
         }
     }
 
-    private func placeSourceIcon(in frame: CGRect) {
-        // The glyph stays at the original control center as its containing
-        // glass grows upward and rightward; it is never scaled with the labels.
-        sourceIcon.frame = sourceIconFrame.offsetBy(dx: -frame.minX, dy: -frame.minY)
+    private var collapsedContentScale: CGFloat {
+        let size = rootPanel?.contentSize ?? rootFrame.size
+        return min(1, min(sourceFrame.width / max(1, size.width),
+                          sourceFrame.height / max(1, size.height)))
     }
 
     override func viewDidLayoutSubviews() {
@@ -242,27 +241,11 @@ final class ComposerActionMenuPresenter: UIViewController {
             return
         }
         guard !isClosing else { return }
-        let wasOpen = !isTransitioning
         isClosing = true
         rootPanel?.content.view.isUserInteractionEnabled = false
         childPanel?.content.view.isUserInteractionEnabled = false
         stopAnimator()
-        if wasOpen, !UIAccessibility.isReduceMotionEnabled {
-            animate(duration: 0.10, dampingRatio: 1) {
-                for panel in [self.rootPanel, self.childPanel].compactMap({ $0 }) {
-                    let frame = panel.glass.frame
-                    let anchor = self.sourceFrame
-                    let scale: CGFloat = 1.025
-                    panel.place(CGRect(x: anchor.midX + (frame.minX - anchor.midX) * scale,
-                        y: anchor.midY + (frame.minY - anchor.midY) * scale,
-                        width: frame.width * scale, height: frame.height * scale),
-                        contentAlpha: panel.content.view.alpha)
-                }
-                if let root = self.rootPanel { self.placeSourceIcon(in: root.glass.frame) }
-            } completion: { [weak self] in self?.collapse() }
-        } else {
-            collapse()
-        }
+        collapse()
     }
 
     private func collapse() {
@@ -271,17 +254,18 @@ final class ComposerActionMenuPresenter: UIViewController {
             // Retire the upper material during contraction so model selection
             // returns through one source circle, without glass over the glyph.
             self.childPanel?.showMaterial(false)
-            for panel in [self.rootPanel, self.childPanel].compactMap({ $0 }) {
-                panel.place(self.sourceFrame, radius: self.sourceRadius, contentAlpha: 0)
-            }
-            self.placeSourceIcon(in: self.sourceFrame)
-            self.sourceIcon.alpha = 1
+            self.rootPanel?.place(self.sourceFrame, radius: self.sourceRadius,
+                contentAlpha: 0, contentScale: self.collapsedContentScale)
+            self.childPanel?.place(self.sourceFrame, radius: self.sourceRadius, contentAlpha: 0)
+            self.sourceIcon.frame = self.sourceIconFrame
+            self.sourceIcon.alpha = 0
         } completion: { [weak self] in
             guard let self else { return }
             self.childPanel?.remove()
             self.childPanel = nil
             self.animate(duration: 0.12, dampingRatio: 1) {
                 self.rootPanel?.showMaterial(false)
+                self.sourceIcon.alpha = 1
             } completion: { [weak self] in self?.finishDismissal() }
         }
     }

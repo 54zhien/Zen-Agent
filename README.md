@@ -42,6 +42,7 @@ Owner smaller Composer plus symbol and plain button ruling @ 355c4634b01df15598f
 Owner stationary Composer and expanded menu edge alignment ruling @ 815cb7905405ac14a74c6206280f1d02d2ac1200
 Owner retained menu hierarchy and continuous entrance geometry ruling @ 9c1ff3dad2cc9e0b5c203741da2d1355d9f8909e
 Owner visible source-circle materialization ruling @ f6a57a324ff47f49ffc7b8153d1c60d6b5d9676b
+Owner simultaneous glass expansion, content scaling and departing glyph ruling @ 019208582068f74b679495d9d228bd1b0971102f
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -63,12 +64,15 @@ longer casts its own shadow. Pane geometry and retained content state are unchan
 The subsequent menu correction retains a native glass parent panel behind its
 child panel. The child expands from the selected model row and contracts back to
 that row. Entrance and dismissal animate the glass bounds and corners from and
-back to the actual `+` bounds while revealing normally sized text. Opening and
-dismissal retain their slightly longer timing, opening rebound and closing recoil,
-without changing the editor's window or moving the Composer and its controls.
-The source glyph first enters a visible, source-sized liquid circle before that
-same glass expands into the menu; dismissal returns the glyph through the circle
-and dematerializes the glass, leaving the original plain button at rest.
+back to the actual `+` bounds. The latest owner ruling starts the source-sized
+circle's materialization and upward/rightward expansion together, while menu
+content scales and fades in and the original glyph moves upward/rightward and
+fades out. There is no stationary materialization delay. Dismissal scales the
+content down as the panel contracts to the source circle, then dematerializes
+the circle while fading the glyph back in at its original position. The editor,
+Composer and actual controls remain stationary, with the original plain button
+at rest. The existing opening and contraction timing and child-menu presentation
+remain; the extra pre-contraction enlargement is removed.
 Model options share the header icon's leading edge, with the selected checkmark
 at the trailing edge in the same foreground color; the shared glass menu is retained.
 
