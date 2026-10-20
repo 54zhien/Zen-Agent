@@ -167,7 +167,13 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
         }
     }
 
-    func close(restoringKeyboard: Bool = false, animated: Bool = true) {
+    func close(restoringKeyboard: Bool = false, animated: Bool = true, source: StaticString = #function) {
+#if DEBUG
+        if ProcessInfo.processInfo.environment["ZEN_COMPOSER_GEOMETRY_TEST"] == "1"
+            || ProcessInfo.processInfo.environment["ZEN_KEYBOARD_MENU_UI_TEST"] == "1" {
+            print("COMPOSER_KEYBOARD_MENU close source=\(source) restore=\(restoringKeyboard) closing=\(isClosing) bounds=\(viewIfLoaded?.bounds ?? .zero) installed=\(installedSize) window=\(viewIfLoaded?.window?.bounds ?? .zero)")
+        }
+#endif
         guard !didDismiss else { return }
         restoresKeyboard = restoresKeyboard || restoringKeyboard
         if isClosing {
