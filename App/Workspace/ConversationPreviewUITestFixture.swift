@@ -24,21 +24,24 @@ struct ConversationPreviewUITestFixture: View {
                 protectionRequirement: .bestEffort)
             self.files = files
             let credentials = CredentialStore(secrets: KeychainSecretBackend(), metadataRepository: store)
-            let provider = FakeProvider()
+            let keyboardMenuFixture = ProcessInfo.processInfo.environment["ZEN_KEYBOARD_MENU_UI_TEST"] == "1"
+            let provider = keyboardMenuFixture
+                ? FakeProvider(instanceID: .init(rawValue: "preview-unavailable-instance"), modelNames: ["preview-model"])
+                : FakeProvider()
             let router = RunEventRouter()
             let runtime = AppAssembly.makeRuntime(store: store, provider: provider,
                 credentials: credentials, router: router, toolRegistry: .empty, managedFiles: files)
             let defaults = UserDefaults(suiteName: "ZenAgent.PreviewHandoffUITest")!
             defaults.removePersistentDomain(forName: "ZenAgent.PreviewHandoffUITest")
-            if ProcessInfo.processInfo.environment["ZEN_KEYBOARD_MENU_UI_TEST"] == "1" {
+            if keyboardMenuFixture {
                 let reference = CredentialReference(id: "keyboard-menu-ui-fixture-\(UUID())")
                 try credentials.provision(SecretValue("keyboard-menu-ui-fixture-key"), as: reference)
-                let instance = ProviderInstanceID(rawValue: "fake-instance")
+                let instance = ProviderInstanceID(rawValue: "preview-unavailable-instance")
                 try store.createProviderInstance(ProviderInstance(id: instance, providerID: .deepSeek,
                     displayName: "Keyboard menu fixture", baseURL: nil, configRevision: .initial,
                     credentialReference: reference))
                 defaults.set(instance.rawValue, forKey: AppShellModel.defaultInstanceIDKey)
-                defaults.set("fake-model", forKey: AppShellModel.defaultModelIDKey)
+                defaults.set("preview-model", forKey: AppShellModel.defaultModelIDKey)
             }
             if ProcessInfo.processInfo.environment["ZEN_EXISTING_CONFIGURE_UI_TEST"] == "1" {
                 let reference = CredentialReference(id: "existing-configure-\(UUID())", kind: .apiKey)
