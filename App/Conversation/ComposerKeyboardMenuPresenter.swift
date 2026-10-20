@@ -69,6 +69,7 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
     func show(in window: UIWindow, style: UIUserInterfaceStyle) {
         loadViewIfNeeded()
         overrideUserInterfaceStyle = style
+        presentation.activeLevel = .actions
         installedSize = window.bounds.size
         view.frame = window.bounds
         sheet.frame = CGRect(x: 0, y: view.bounds.maxY - height,
@@ -138,6 +139,7 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
         glass.contentView.addSubview(child)
         childGlass = child
         models = install(level, in: child)
+        presentation.activeLevel = level
         actions?.view.isUserInteractionEnabled = false
         actions?.view.accessibilityElementsHidden = true
         child.transform = CGAffineTransform(translationX: 0, y: 24)
@@ -170,6 +172,7 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
             child.removeFromSuperview()
             self.models = nil
             self.childGlass = nil
+            self.presentation.activeLevel = .actions
             self.actions?.view.isUserInteractionEnabled = true
             self.actions?.view.accessibilityElementsHidden = false
             UIAccessibility.post(notification: .layoutChanged, argument: self.actions?.view)

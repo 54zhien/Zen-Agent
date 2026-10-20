@@ -52,6 +52,13 @@ final class ConversationNativeScrollViewport {
         anchor = nil
     }
 
+    /// Native bounds include the regions SwiftUI removes from its geometry for
+    /// safe-area insets. Use Window coordinates to compare with the keyboard sheet.
+    var windowFrame: CGRect? {
+        guard let scrollView, let window = scrollView.window else { return nil }
+        return scrollView.convert(scrollView.bounds, to: window)
+    }
+
     func restoreDividerOffset(_ target: Double, geometry: ScrollGeometry,
                               whileCurrent isCurrent: @escaping () -> Bool) {
         if command?.target != target || command?.geometry.viewportHeight != geometry.viewportHeight
@@ -135,11 +142,15 @@ private final class ConversationScrollCommandTick: NSObject {
 
 struct ConversationScrollViewportReader: UIViewRepresentable {
     let viewport: ConversationNativeScrollViewport
+    var onWindowFrameChanged: (CGRect) -> Void = { _ in }
 
     func makeUIView(context: Context) -> ConversationScrollViewportAnchor {
-        ConversationScrollViewportAnchor(viewport: viewport)
+        ConversationScrollViewportAnchor(viewport: viewport, onWindowFrameChanged: onWindowFrameChanged)
     }
-    func updateUIView(_ view: ConversationScrollViewportAnchor, context: Context) { view.resolve() }
+    func updateUIView(_ view: ConversationScrollViewportAnchor, context: Context) {
+        view.onWindowFrameChanged = onWindowFrameChanged
+        view.resolve()
+    }
     static func dismantleUIView(_ view: ConversationScrollViewportAnchor, coordinator: ()) {
         view.detach()
     }
@@ -148,8 +159,12 @@ struct ConversationScrollViewportReader: UIViewRepresentable {
 @MainActor
 final class ConversationScrollViewportAnchor: UIView {
     private let viewport: ConversationNativeScrollViewport
+    var onWindowFrameChanged: (CGRect) -> Void
+    private var frameReportScheduled = false
 
-    init(viewport: ConversationNativeScrollViewport) {
+    init(viewport: ConversationNativeScrollViewport,
+         onWindowFrameChanged: @escaping (CGRect) -> Void = { _ in }) {
+        self.onWindowFrameChanged = onWindowFrameChanged
         self.viewport = viewport
         super.init(frame: .zero)
         isUserInteractionEnabled = false
@@ -167,11 +182,23 @@ final class ConversationScrollViewportAnchor: UIView {
         while let current = node {
             if let scroll = current as? UIScrollView {
                 viewport.bind(scroll, owner: self)
+                reportWindowFrameAfterLayout()
                 return
             }
             node = current.superview
         }
         detach()
+    }
+    private func reportWindowFrameAfterLayout() {
+        guard !frameReportScheduled else { return }
+        frameReportScheduled = true
+        // Resolve after the native layout transaction, outside representable updates.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.frameReportScheduled = false
+            guard self.window != nil, let frame = self.viewport.windowFrame else { return }
+            self.onWindowFrameChanged(frame)
+        }
     }
     func detach() { viewport.unbind(owner: self) }
 }

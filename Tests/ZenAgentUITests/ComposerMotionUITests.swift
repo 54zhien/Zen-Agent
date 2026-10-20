@@ -63,7 +63,7 @@ final class ComposerMotionUITests: XCTestCase {
     }
 
     @MainActor
-    func testModelMenuOpensAndSwitchesModels() {
+    func testModelMenuOpensAndSwitchesModels() throws {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
         app.launch()
@@ -95,7 +95,13 @@ final class ComposerMotionUITests: XCTestCase {
         if keyboardIntroduction.waitForExistence(timeout: 2) { keyboardIntroduction.tap() }
         input.typeText("enu draft")
         XCTAssertEqual(input.value as? String, "menu draft")
-        let keyboardHeight = app.keyboards.firstMatch.frame.height
+        // AX Keyboard may omit the accessory/chrome region. The native guide
+        // records the complete occupied frame used for the actual handoff.
+        let probe = app.otherElements["composer-geometry-probe"]
+        let guideField = (probe.value as? String ?? "").split(separator: ";")
+            .first { $0.hasPrefix("guide=") }
+        let keyboardTop = try XCTUnwrap(guideField.flatMap { Double($0.dropFirst(6)) })
+        let keyboardHeight = app.frame.maxY - CGFloat(keyboardTop)
         let inputBottom = input.frame.maxY
         plus.tap()
         let openedPanel = panel.waitForExistence(timeout: 5)
@@ -125,7 +131,8 @@ final class ComposerMotionUITests: XCTestCase {
         let thinkingPicker = app.descendants(matching: .any)["composer-thinking-picker"]
         XCTAssertTrue(thinkingPicker.waitForExistence(timeout: 5))
         XCTAssertFalse(app.keyboards.firstMatch.exists)
-        app.buttons["思考"].tap()
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "思考")).count, 1)
+        thinkingPicker.buttons["思考"].tap()
         XCTAssertTrue(thinkingPicker.waitForNonExistence(timeout: 5))
         XCTAssertTrue(sheet.exists)
         app.buttons["思考"].tap()

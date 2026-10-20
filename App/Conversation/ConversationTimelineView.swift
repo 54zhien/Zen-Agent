@@ -177,14 +177,15 @@ struct ConversationTimelineView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .coordinateSpace(name: contentCoordinateSpace)
                 .background {
-                    ConversationScrollViewportReader(viewport: nativeViewport)
+                    ConversationScrollViewportReader(viewport: nativeViewport,
+                        onWindowFrameChanged: onViewportFrameChanged)
                     // Empty timelines also need a final layout receipt.
                     Color.clear.preference(key: ConversationTimelineTurnFramesKey.self,
                         value: ConversationTimelineTurnMeasurements(layoutRevision: layoutRevision))
                 }
             }
-            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) {
-                onViewportFrameChanged($0)
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { _ in
+                if let frame = nativeViewport.windowFrame { onViewportFrameChanged(frame) }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear.frame(height: bottomComposerClearance)
@@ -265,6 +266,7 @@ struct ConversationTimelineView: View {
                                              workspaceRevision: workspaceRevision,
                                              layoutRevision: layoutRevision)
             } action: { previous, viewport in
+                if let frame = nativeViewport.windowFrame { onViewportFrameChanged(frame) }
                 surfaceLift?.invalidateTopEdge?()
 #if DEBUG
                 scrollBridge?.nativeGeometryDiagnostic = "offset=\(viewport.nativeGeometry.contentOffset);content=\(viewport.nativeGeometry.contentSize);insets=\(viewport.nativeGeometry.contentInsets);container=\(viewport.nativeGeometry.containerSize);visible=\(viewport.nativeGeometry.visibleRect)"

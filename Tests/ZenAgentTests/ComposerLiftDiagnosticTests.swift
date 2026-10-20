@@ -136,7 +136,9 @@ struct ComposerLiftDiagnosticTests {
         sample.sample = .changed
         _ = input.perform(action, with: sample)
         #expect(driver.state.phase == .lifting)
-        #expect(abs(host.presentation.translation.width - 42) < 0.001)
+        // Both axes are resisted so the shrinking page remains inside the screen.
+        #expect(host.presentation.translation.width > 0)
+        #expect(host.presentation.translation.width < 42)
         let verticalLimit = (host.view.bounds.height - host.view.safeAreaInsets.top
             - host.view.safeAreaInsets.bottom) * 0.12
         #expect(host.presentation.translation.height < 0)

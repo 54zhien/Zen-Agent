@@ -4,6 +4,7 @@ import UIKit
 
 @MainActor @Observable
 final class ComposerActionMenuState {
+    var activeLevel: ComposerActionMenuLevel = .actions
     var models: [ModelDescriptor] = []
     var selectedModelID: ModelID?
     var supportedThinkingEfforts: [ThinkingEffort] = []
@@ -59,6 +60,7 @@ struct ComposerActionMenuView: View {
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(panelIdentifier)
+        .accessibilityHidden(level != presentation.activeLevel)
         .coordinateSpace(name: "composer-menu-panel")
     }
 

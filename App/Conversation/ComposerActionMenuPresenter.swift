@@ -81,6 +81,7 @@ final class ComposerActionMenuPresenter: UIViewController {
         placementFrame = placement
         overrideUserInterfaceStyle = sourceView?.traitCollection.userInterfaceStyle ?? .unspecified
         view.frame = window.bounds
+        presentation.activeLevel = .actions
         let root = makePanel(.actions)
         root.showMaterial(false)
         rootPanel = root
@@ -206,6 +207,7 @@ final class ComposerActionMenuPresenter: UIViewController {
         let origin = view.convert(row, from: root.content.view)
         let child = makePanel(level)
         childPanel = child
+        presentation.activeLevel = level
         child.showMaterial(false)
         child.install(in: self)
         childFrame = fittedFrame(for: child)
@@ -244,6 +246,7 @@ final class ComposerActionMenuPresenter: UIViewController {
             guard let self, !self.isClosing else { return }
             child.remove()
             self.childPanel = nil
+            self.presentation.activeLevel = .actions
             self.isTransitioning = false
             root.glass.accessibilityElementsHidden = false
             root.content.view.isUserInteractionEnabled = true

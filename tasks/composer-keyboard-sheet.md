@@ -47,3 +47,12 @@
 - 窗口尺寸／失活的关闭守卫保留；临时 print 诊断不进入最终生产源码。等高与输入框、Single/Split 最新消息位置仍由真实 UI 回归验证。
 
 - 首版全量 [39407633152](https://github.com/54zhien/Zen-Agent/actions/runs/39407633152) 的 XcodeGen、构建和 iPad axis 成功；Phone 全量已有 Composer、Files、Settings、Sidebar 及分屏相关失败，并输出 TEST FAILED，整体最终 cancelled，不能算全量通过。保留所有原记录，不将专项结果替代全量验收。
+
+### 原生回归第二轮
+
+- `72366cf` / [39416463321](https://github.com/54zhien/Zen-Agent/actions/runs/39416463321) 与 `a02ffb9` / [39417163812](https://github.com/54zhien/Zen-Agent/actions/runs/39417163812) 均真实构建后失败，保留结果，不算 GREEN。后者 iPad axis 通过；思考六档选择、三/四档切换与共享 Dock 焦点回归通过。
+- 后者 Single/Split 最后一条消息被 Composer 遮挡：native bounds 分别高 874 / 434，bottom inset 却都只有 335（sheet），缺少 Composer 自身约 136。SwiftUI 内层 proxy 已扣除 safe-area inset，不能作为原生外框；改复用现有 native viewport 绑定，将 UIScrollView.bounds 转到 UIWindow，保留 base + overlay overlap。增加 offset 不影响窗口外框的单测，最新消息的屏幕位置断言不放宽。
+- 高度断言原来读 AX Keyboard 的局部 233；native guide 顶边 539、window 底边 874 与实际 sheet 335 一致，输入框位置断言已通过。改用打开前的 native guide + window 测完整占用高度，未降低实际 sheet 高度。
+- 原生容器 accessibilityElementsHidden 未屏蔽 SwiftUI 根层“思考”按钮；子层与根层重复。两套菜单通过观察到的 activeLevel 在 SwiftUI 层隐藏非活动 AX 子树，保留视觉动画，并断言同名按钮只有一个。
+- 完整单测 1138 项仅旧 Lift 诊断断言失败：期望显示横移等于原始 42pt，但 10/19 已引入边界阻尼（3191c69 / d41b4afe），旧基线源码亦如此，实测显示 1.84845pt。仅将 transport 诊断改成方向为正且小于原始拖距；保留纵轴与 progress 断言，精确几何及屏幕边界仍由 SurfaceLiftGeometryTests 覆盖。
+- 已检查 a02ffb9 导出的六档浅/深色原生 PNG 与五行面板：图标均匀圆底、SF 指针随等级推进、剩余灰点等距；尚待修复后同 SHA 构建与 UI 回归。

@@ -35,6 +35,30 @@ struct ConversationNativeScrollViewportTests {
         #expect(scroll.contentOffset.y == 1759)
     }
 
+    @Test func windowFrameIncludesInsetsAndIgnoresContentOffset() {
+        let root = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.rootViewController = root
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        let scroll = UIScrollView(frame: CGRect(x: 0, y: 440, width: 402, height: 434))
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.contentSize = CGSize(width: 402, height: 2263)
+        scroll.contentInset.bottom = 471
+        root.view.addSubview(scroll)
+        let viewport = ConversationNativeScrollViewport()
+        let owner = UIView()
+        viewport.bind(scroll, owner: owner)
+        let expected = root.view.convert(scroll.frame, to: window)
+        #expect(viewport.windowFrame == expected)
+        scroll.contentOffset.y = 2164
+        #expect(viewport.windowFrame == expected)
+        scroll.frame.size.height = 200
+        #expect(viewport.windowFrame?.height == 200)
+        viewport.unbind(owner: owner)
+        #expect(viewport.windowFrame == nil)
+    }
+
     @Test func staleAnchorCannotDetachTheNewNativeOwner() {
         let viewport = ConversationNativeScrollViewport()
         let oldAnchor = UIView(), newAnchor = UIView()
