@@ -26,7 +26,7 @@ final class ComposerActionMenuPresenter: UIViewController {
     private var collapseDisplayLink: CADisplayLink?
     private var collapsingCircle: CGRect?
     private var collapseStartSize = CGSize.zero
-    private var circleFadeAnimator: UIViewPropertyAnimator?
+    private var circleFadeStartTime: CFTimeInterval?
     private var isFadingCircle = false
     private var hasFinishedCollapse = false
     private var hasFinishedCircleFade = false
@@ -287,8 +287,8 @@ final class ComposerActionMenuPresenter: UIViewController {
             link.add(to: .main, forMode: .common)
         }
         animate(duration: menuMotionDuration, dampingRatio: menuMotionDamping) {
-            // Keep the first part of contraction visible. The late material
-            // fade has its own animator so geometry can continue uninterrupted.
+            // Preserve the material while the late direct-mask fade reveals
+            // the real control without triggering native dematerialization.
             self.rootPanel?.showMaterial(true)
             self.childPanel?.showMaterial(false)
             self.rootPanel?.place(circle, radius: radius,
@@ -306,6 +306,20 @@ final class ComposerActionMenuPresenter: UIViewController {
         guard viewIfLoaded?.window != nil else {
             stopAnimator()
             finishDismissal()
+            return
+        }
+        if let start = circleFadeStartTime {
+            let progress = min(1, max(0, (CACurrentMediaTime() - start) / 0.12))
+            UIView.performWithoutAnimation {
+                self.rootPanel?.setDismissalVisibility(CGFloat(1 - progress))
+            }
+            if progress >= 1 {
+                circleFadeStartTime = nil
+                collapseDisplayLink?.invalidate()
+                collapseDisplayLink = nil
+                hasFinishedCircleFade = true
+                if hasFinishedCollapse { finishDismissal() }
+            }
             return
         }
         guard !isFadingCircle, let circle = collapsingCircle,
@@ -327,24 +341,20 @@ final class ComposerActionMenuPresenter: UIViewController {
     private func fadeCollapsedCircle() {
         guard !isFadingCircle, collapsingCircle != nil else { return }
         isFadingCircle = true
-        collapseDisplayLink?.invalidate()
-        collapseDisplayLink = nil
         if UIAccessibility.isReduceMotionEnabled {
-            rootPanel?.showMaterial(false)
+            UIView.performWithoutAnimation { self.rootPanel?.setDismissalVisibility(0) }
+            collapseDisplayLink?.invalidate()
+            collapseDisplayLink = nil
             hasFinishedCircleFade = true
             return
         }
-        let fade = UIViewPropertyAnimator(duration: 0.12, dampingRatio: 1) {
-            self.rootPanel?.showMaterial(false)
+        UIView.performWithoutAnimation { self.rootPanel?.setDismissalVisibility(1) }
+        circleFadeStartTime = CACurrentMediaTime()
+        if collapseDisplayLink == nil {
+            let link = CADisplayLink(target: self, selector: #selector(collapseDidAdvance(_:)))
+            collapseDisplayLink = link
+            link.add(to: .main, forMode: .common)
         }
-        circleFadeAnimator = fade
-        fade.addCompletion { [weak self] position in
-            guard let self, position == .end else { return }
-            self.circleFadeAnimator = nil
-            self.hasFinishedCircleFade = true
-            if self.hasFinishedCollapse { self.finishDismissal() }
-        }
-        fade.startAnimation()
     }
 
     private func stopAnimator() {
@@ -376,8 +386,7 @@ final class ComposerActionMenuPresenter: UIViewController {
     }
 
     private func finishDismissal() {
-        circleFadeAnimator?.stopAnimation(true)
-        circleFadeAnimator = nil
+        circleFadeStartTime = nil
         collapseDisplayLink?.invalidate()
         collapseDisplayLink = nil
         collapsingCircle = nil

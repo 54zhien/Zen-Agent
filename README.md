@@ -48,6 +48,7 @@ Owner visible contraction followed by circle/glyph crossfade correction @ 8652f1
 Owner immediate stationary glyph and first-circle-arrival fade ruling @ 638f2bbc17dd5f47ae43a9201c4fe847076378a8
 Owner stationary glyph beneath dismissal glass ruling @ ae479dae966c39ff888494915059647c2aaeb856
 Owner overlapping late-contraction glass fade ruling @ 06a780c8fde5aee6de1fdb29bf507d835d72de70
+Owner transparent contraction tail without material dematerialization @ ad7ec93e110e196ea5d3fe180766ab64fa40b58c
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -74,13 +75,14 @@ circle's materialization and upward/rightward expansion together, while menu
 content scales and fades in and the original glyph moves upward/rightward and
 fades out. There is no stationary materialization delay. Dismissal scales the
 content down as the panel contracts to a circle matching the Composer's actual
-lower-left corner radius and left/bottom edges. The glass remains visible through the first part of contraction, which retains
-the opening duration and spring parameters.
+lower-left corner radius and left/bottom edges. The glass remains visible through
+the first part of contraction, which retains the opening duration and spring parameters.
 The real stationary control appears immediately beneath the glass when contraction
 starts, without fading or moving; the opening-only glyph copy stays hidden.
-Glass dematerialization begins after about 90 percent of displayed size
-contraction, overlapping the final shrink without snapping geometry or waiting
-for a stationary circle. The material fade retains its 0.12-second duration. Opening still uses
+After about 90 percent of displayed size contraction, a direct effect-view mask
+fades the complete root panel over 0.12 seconds while geometry continues. The
+root material and view alpha stay unchanged; no native dematerialization or
+second circle is added during dismissal. Opening still uses
 the actual button bounds. The editor,
 Composer and actual controls remain stationary, with the original plain button
 at rest. The existing opening and child-menu presentation remain; the extra
