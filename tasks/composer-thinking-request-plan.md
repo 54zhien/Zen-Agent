@@ -21,17 +21,27 @@
 ## Tasks
 
 - [x] 先写真实 HTTP body 与入口交互回归，提交并启动 RED CI；保留 run 记录。
-- [ ] `App/Provider/ThinkingEffort.swift` 定义六档词汇与 capability；`ModelDescriptor` 声明能力，DeepSeek 只声明 low/high/max。
-- [ ] `ConversationComposerConfiguration` → `ComposerSendCoordinator` → `SendCommand` → Runtime 再校验 → `RequestConfigSeed` v2；默认无显式选择维持旧请求行为。幂等摘要包含已选 effort。
-- [ ] DeepSeek 完整与流式请求都从 frozen seed 编码 `reasoning_effort` 和启用 thinking；拒绝不支持值，旧 seed 无参数。
-- [ ] 两套菜单复用二级档位面板，返回、关闭、读屏、选择状态；各会话隔离。
-- [ ] 补齐持久化、冻结、幂等冲突、三档/四档/无能力和模型切换单元测试；运行真实 CI。
-- [ ] 导出六档明暗预览并审查键盘替代面板；按实际结果记录，不声明实机验收。
+- [x] `App/Provider/ThinkingEffort.swift` 定义六档词汇与 capability；`ModelDescriptor` 声明能力，DeepSeek 只声明 low/high/max。
+- [x] `ConversationComposerConfiguration` → `ComposerSendCoordinator` → `SendCommand` → Runtime 再校验 → `RequestConfigSeed` v2；默认无显式选择维持旧请求行为。幂等摘要包含已选 effort。
+- [x] DeepSeek 完整与流式请求都从 frozen seed 编码 `reasoning_effort` 和启用 thinking；拒绝不支持值，旧 seed 无参数。
+- [x] 两套菜单复用二级档位面板，返回、关闭、读屏、选择状态；各会话隔离。
+- [x] 补齐持久化、冻结、幂等冲突、三档/四档/无能力和模型切换单元测试；运行真实 CI。
+- [x] 导出六档明暗预览并审查键盘替代面板；按实际结果记录，不声明实机验收。
 
 ## Execution ledger
 
 - UI RED: source `a6ff92e`, run [39412629426](https://github.com/54zhien/Zen-Agent/actions/runs/39412629426), real build succeeded; `testThinkingEntryOpensAndKeepsSelectedLevel` failed because Thinking was disabled. The parameterized unit-only filter selected 0 tests; this is not wire RED or GREEN. Final profile selects the entire unit target so the body tests actually execute.
 - Ruling: reuse the observed feature-entry RED for this vertical slice; never count the zero-test result as evidence. Wire, persistence and capability behavior require the full unit result before completion.
 - The initial canceled dispatches `39412165684` / `39412221720` are setup/concurrency records, not behavior evidence. The first was stuck uploading after cancellation; force-cancel retained its run and unblocked the corrected distinct ref.
-- Implemented model-declared sets, model-switch normalization, SendCommand propagation and pre-commit validation; v2 frozen effort and default-compatible digest; complete/stream wire encoding; history/session restoration and target-identity checks. These remain candidates until CI.
+- Implemented model-declared sets, model-switch normalization, SendCommand propagation and pre-commit validation; v2 frozen effort and default-compatible digest; complete/stream wire encoding; history/session restoration and target-identity checks. These candidates are accepted by the precise code-SHA CI receipt below.
 - No provider API key or live billable inference is used in tests. FakeHTTPTransport inspects the actual adapter request, separate from physical-device UX acceptance.
+
+## Final code receipt (2026-10-20)
+
+- Code SHA: `5916d17f39888b1cd4b33c590f9ee42516f2cb80`, branch `codex/composer-keyboard-sheet-20261020`; [CI 39424049968](https://github.com/54zhien/Zen-Agent/actions/runs/39424049968) **success**. XcodeGen, actual build and repo hygiene passed.
+- Complete unit target: 1140 Swift Testing cases / 171 suites plus 20 XCTest cases, all passed. Includes model-specific 3/4 level sets, hidden reasoning with effort control, unsupported-before-commit, frozen effort/digest/history compatibility, complete/stream DeepSeek request bodies, native viewport coordinates and unavoided outer proposal policy.
+- Phone: all 6 selected UI cases passed: quick focus, keyboard replacement/model navigation/Thinking return and unique AX button, six-level persistence, three/four-level switching, Single/Split message avoidance and closed-layout restoration, shared Dock focus/draft isolation. iPad axis: 1 case passed.
+- Actual latest-message bottoms were 332.667 (Single) and 366.667 (Split), both above input top417 with the required 8pt gap. Sheet occupied y539..874 (335pt), with Composer geometry retained. The prior AX duplicate and Split failure records remain intact.
+- Downloaded artifact `composer-menu-5916d17f39888b1cd4b33c590f9ee42516f2cb80`; its source-sha.txt matches the tested code. Reviewed actual native light/dark six-gauge PNGs and five-row / Single / Split screenshots at original resolution: SF symbols, circle sizing, arc/needle/dots, row order and latest-message visibility accepted.
+- Independent read-only reviews found no Critical/Important/Minor issue in the final correction. No main merge or physical-device acceptance is recorded. The full Phone UI job is skipped by this focused profile; the earlier full run's failures/cancellation are not replaced by this receipt. No live provider API key or billable inference was used: HTTP-body verification uses the actual adapter with FakeHTTPTransport.
+- Any later receipt-only commit changes task Markdown only; the tested source SHA above remains the implementation receipt.

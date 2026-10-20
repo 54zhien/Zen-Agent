@@ -37,7 +37,7 @@
 - 产品方指定两套菜单及模型二级标题同步改用 `theatermasks`、`tachometer`、逆时针 45° 的 `powercord`、`photo.on.rectangle.angled`、`paperclip`。
 - 六档仪表为低、中、高、极高、Max、Ultra，分别推进总弧长的 1/6 至 6/6；指针左侧实线、右侧灰色等距圆点。最初追加要求只含图标；后续确认解除思考禁用并接真实请求，按各模型声明的可用档位选择。
 - [SF 原始符号测量 39410388169](https://github.com/54zhien/Zen-Agent/actions/runs/39410388169) 在 macOS 使用实际 AppKit/SF Symbols 导出五个符号，均存在。`tachometer` 的六个 variableValue PNG SHA-256 完全一致（`836DD7E32A04197E10894396DCBE7F6577DCA5002D7DEE615BCFD40EF1CF2A0C`），不能依赖该参数旋转指针；采用保留 SF 中央指针、旋转并配合弧线／圆点的呈现。
-- 最终专项范围包含完整 `ZenAgentTests`、ComposerMotion 两项、最新消息遮挡和共享 Dock 换窗回归，并执行实际 iPad axis；同时导出六档浅色／深色预览用于像素检查。旧全量 CI 与专项结果分别记录，不将 profile 中的 skipped job 算作通过。
+- 最终专项范围包含完整 `ZenAgentTests`、ComposerMotion 四项、最新消息遮挡和共享 Dock 换窗回归，并执行实际 iPad axis；同时导出六档浅色／深色预览用于像素检查。旧全量 CI 与专项结果分别记录，不将 profile 中的 skipped job 算作通过。
 
 ### 面板关闭路径的实证
 
@@ -63,3 +63,13 @@
 - Split 实测 host y440..874，而输入框 y417..475，sheet y539..874；基础 clearance170 已大于下 Pane 位于输入框之上的可用空间。仅增加 Pane.safeAreaInset 会把有效视口压到 0，无法解决父布局越界。新候选在未经修改的外层 GeometryReader 测 proposal 与 menuTop 的剩余交叠，在分成 Pane 前约束内层可用高度；物理键盘 proposal539 时不额外扣减，退出键盘 proposal874 时扣335。所有 Pane/Divider/外观/LayoutObserver 共用同一个真实内层 geometry，Single/landscapeSingle 保留原路径。
 - UI 保留最新消息严格位置断言，追加键盘切面板时下 Pane 起点保持、关闭后还原，单测覆盖 outer proposal 未避让/已避让/过渡及 owner 清理。
 - 容器 AX hidden 对旧 SwiftUI 根按钮仍不足。非活动一级菜单改为绘制同一套 label，不创建 Button；返回后恢复原控件，视觉尺寸和动效参数不变。同名按钮必须为 1 的断言保留，并附完整 query 诊断。
+
+## Final code receipt (2026-10-20)
+
+- Code SHA: `5916d17f39888b1cd4b33c590f9ee42516f2cb80`, branch `codex/composer-keyboard-sheet-20261020`; [CI 39424049968](https://github.com/54zhien/Zen-Agent/actions/runs/39424049968) **success**. XcodeGen, actual build and repo hygiene passed.
+- Complete unit target: 1140 Swift Testing cases / 171 suites plus 20 XCTest cases, all passed. Includes model-specific 3/4 level sets, hidden reasoning with effort control, unsupported-before-commit, frozen effort/digest/history compatibility, complete/stream DeepSeek request bodies, native viewport coordinates and unavoided outer proposal policy.
+- Phone: all 6 selected UI cases passed: quick focus, keyboard replacement/model navigation/Thinking return and unique AX button, six-level persistence, three/four-level switching, Single/Split message avoidance and closed-layout restoration, shared Dock focus/draft isolation. iPad axis: 1 case passed.
+- Actual latest-message bottoms were 332.667 (Single) and 366.667 (Split), both above input top417 with the required 8pt gap. Sheet occupied y539..874 (335pt), with Composer geometry retained. The prior AX duplicate and Split failure records remain intact.
+- Downloaded artifact `composer-menu-5916d17f39888b1cd4b33c590f9ee42516f2cb80`; its source-sha.txt matches the tested code. Reviewed actual native light/dark six-gauge PNGs and five-row / Single / Split screenshots at original resolution: SF symbols, circle sizing, arc/needle/dots, row order and latest-message visibility accepted.
+- Independent read-only reviews found no Critical/Important/Minor issue in the final correction. No main merge or physical-device acceptance is recorded. The full Phone UI job is skipped by this focused profile; the earlier full run's failures/cancellation are not replaced by this receipt. No live provider API key or billable inference was used: HTTP-body verification uses the actual adapter with FakeHTTPTransport.
+- Any later receipt-only commit changes task Markdown only; the tested source SHA above remains the implementation receipt.
