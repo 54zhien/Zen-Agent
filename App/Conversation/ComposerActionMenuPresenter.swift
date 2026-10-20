@@ -68,7 +68,7 @@ final class ComposerActionMenuPresenter: UIViewController {
         endAppearanceTransition()
         content.view.isUserInteractionEnabled = false
         content.view.transform = collapsedTransform
-        animate(duration: 0.38, dampingRatio: 0.72) {
+        animate(duration: 0.44, dampingRatio: 0.72) {
             self.content.view.transform = .identity
             self.sourceView?.alpha = 0
         } completion: { [weak self] in
@@ -154,7 +154,7 @@ final class ComposerActionMenuPresenter: UIViewController {
         if wasOpen, !UIAccessibility.isReduceMotionEnabled {
             // A small recoil before contraction stays visible; undershooting
             // a near-zero scale would instead flip the glass through its anchor.
-            animate(duration: 0.09, dampingRatio: 1) {
+            animate(duration: 0.10, dampingRatio: 1) {
                 self.content.view.transform = self.anchoredTransform(scale: 1.025)
             } completion: { [weak self] in self?.collapse() }
         } else {
@@ -163,7 +163,7 @@ final class ComposerActionMenuPresenter: UIViewController {
     }
 
     private func collapse() {
-        animate(duration: 0.30, dampingRatio: 0.86) {
+        animate(duration: 0.35, dampingRatio: 0.86) {
             self.content.view.transform = self.collapsedTransform
             self.sourceView?.alpha = 1
         } completion: { [weak self] in self?.finishDismissal() }
