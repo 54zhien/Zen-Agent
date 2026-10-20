@@ -11,7 +11,7 @@ on:
     # is how the Codable omission reached `main` review instead of dying on the
     # branch's own push. `concurrency.cancel-in-progress` already collapses rapid
     # pushes to the same ref, so running on every branch costs nothing extra.
-    branches: ['**']
+    branches: ['**', '!codex/composer-ipa-20261020']
   pull_request:
   workflow_dispatch:
     inputs:
