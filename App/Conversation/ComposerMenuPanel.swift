@@ -8,7 +8,6 @@ final class ComposerMenuPanel {
     let glass: UIVisualEffectView
     let content: UIHostingController<ComposerActionMenuView>
     private let material: UIGlassEffect
-    private let dismissalMask = UIView()
     private(set) var contentSize = CGSize.zero
     private let centersContent: Bool
 
@@ -20,7 +19,6 @@ final class ComposerMenuPanel {
         glass = UIVisualEffectView(effect: effect)
         glass.cornerConfiguration = .corners(radius: 28)
         glass.contentView.clipsToBounds = true
-        dismissalMask.isOpaque = false
         content = UIHostingController(rootView: rootView)
         content.view.backgroundColor = .clear
         content.safeAreaRegions = []
@@ -43,18 +41,6 @@ final class ComposerMenuPanel {
         // Animate the effect itself so UIKit materializes the glass without
         // fading the entire visual-effect hierarchy through an offscreen pass.
         glass.effect = visible ? material : nil
-    }
-
-    func setDismissalVisibility(_ opacity: CGFloat) {
-        // A direct effect-view mask is forwarded to the material and content.
-        // Keep effect/ancestor alpha at one and avoid native dematerialization.
-        dismissalMask.frame = CGRect(origin: .zero, size: CGSize(
-            width: max(contentSize.width, glass.bounds.width),
-            height: max(contentSize.height, glass.bounds.height)))
-        dismissalMask.backgroundColor = UIColor(white: 1, alpha: max(0, min(1, opacity)))
-        // UIKit copies effect-view masks; reassign after changing the original.
-        glass.mask = nil
-        glass.mask = dismissalMask
     }
 
     func place(_ frame: CGRect, radius: CGFloat = 28, contentAlpha: CGFloat = 1,
