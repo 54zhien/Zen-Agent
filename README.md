@@ -81,8 +81,10 @@ The real stationary control appears immediately beneath the glass when contracti
 starts, without fading or moving; the opening-only glyph copy stays hidden.
 After about 90 percent of displayed size contraction, a clipped window snapshot
 of the rendered menu takes over the last 0.12 seconds and fades with ordinary
-view alpha while following the remaining contraction. Live glass is hidden
-without dematerialization; the captured backdrop is frozen only for that tail.
+view alpha. Its clipping contour follows contraction, but captured pixels retain
+their original window positions and scale; backdrop text and glyphs are never
+resized with the contour. Live glass is hidden without dematerialization; the
+captured backdrop is frozen only for that tail.
 A failed capture retains the 26.10.23 material fallback. The preserved rollback
 source is tagged codex/composer-rollback-26.10.23. Opening still uses
 the actual button bounds. The editor,

@@ -5,8 +5,9 @@ import UIKit
 @MainActor
 final class ComposerMenuDismissalSnapshot {
     let view = UIView()
-    private let canvas = UIView()
-    private let capturedSize: CGSize
+    private weak var host: UIView?
+    private let rendered: UIView
+    private let capturedBounds: CGRect
 
     init?(in host: UIView, frame: CGRect, radius: CGFloat) {
         guard let window = host.window,
@@ -17,19 +18,15 @@ final class ComposerMenuDismissalSnapshot {
         // window, then expose only the menu's current region; never persist it.
         guard window.bounds.contains(crop),
               let rendered = window.snapshotView(afterScreenUpdates: false) else { return nil }
-        capturedSize = frame.size
+        self.host = host
+        self.rendered = rendered
+        capturedBounds = window.bounds
         view.isOpaque = false
         view.clipsToBounds = true
         view.isUserInteractionEnabled = false
         view.accessibilityElementsHidden = true
         view.layer.cornerCurve = .circular
-        canvas.isOpaque = false
-        canvas.clipsToBounds = true
-        rendered.frame = CGRect(x: window.bounds.minX - crop.minX,
-                                y: window.bounds.minY - crop.minY,
-                                width: window.bounds.width, height: window.bounds.height)
-        canvas.addSubview(rendered)
-        view.addSubview(canvas)
+        view.addSubview(rendered)
         place(frame, radius: radius)
         host.addSubview(view)
     }
@@ -37,10 +34,13 @@ final class ComposerMenuDismissalSnapshot {
     func place(_ frame: CGRect, radius: CGFloat) {
         view.frame = frame
         view.layer.cornerRadius = max(0, min(radius, min(frame.width, frame.height) / 2))
-        canvas.bounds = CGRect(origin: .zero, size: capturedSize)
-        canvas.center = CGPoint(x: frame.width / 2, y: frame.height / 2)
-        canvas.transform = CGAffineTransform(scaleX: frame.width / capturedSize.width,
-                                            y: frame.height / capturedSize.height)
+        guard let host, let window = host.window else { return }
+        let crop = host.convert(frame, to: window)
+        // The capture contains backdrop pixels too. Keep their original screen
+        // positions and scale; only the outer clipping contour may contract.
+        rendered.frame = CGRect(x: capturedBounds.minX - crop.minX,
+                                y: capturedBounds.minY - crop.minY,
+                                width: capturedBounds.width, height: capturedBounds.height)
     }
 
     func remove() { view.removeFromSuperview() }
