@@ -37,7 +37,7 @@ Owner anchored Composer menu and subtle arrival-bounce ruling @ e695c74f3d6214f9
 Owner independent Split cards and two-way menu rebound correction @ e8930f6f1c184b905346ba9723434a49aa316e1f
 Owner preserved Split divider and Single-matched shadow ruling @ b31bfe45413a26f0365e56fe971ec67c2bdadbe1
 Owner slightly slower Composer menu timing ruling @ 275271047d85a2cd93d55051ec941fab2ca22308
-Owner trailing model checkmark and leading text alignment ruling @ 86a783eb4823307ab04ef6b71efe1a1efe16a254
+Owner trailing model checkmark and leading text alignment ruling @ 7fc0eb5d42a2d7a83da4e68ccb15e4df9180971d
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -63,7 +63,7 @@ with a visible opening rebound and a small recoil before shrinking back. Submenu
 changes stay smooth, without changing the editor's window. Opening and dismissal
 are slightly longer while preserving the existing rebound and menu interaction.
 Model options share the header icon's leading edge, with the selected checkmark
-at the trailing edge in the accent color; the shared glass menu is retained.
+at the trailing edge in the same foreground color; the shared glass menu is retained.
 
 This is a snapshot of the design state this work started from, not a permanent
 version pin. Update it when the blueprint changes in a way that affects

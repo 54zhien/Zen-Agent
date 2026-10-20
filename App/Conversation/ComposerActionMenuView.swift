@@ -141,7 +141,6 @@ struct ComposerActionMenuView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Image(systemName: "checkmark")
                             .font(.body.weight(.semibold))
-                            .foregroundStyle(.tint)
                             .opacity(model.id == presentation.selectedModelID ? 1 : 0)
                             .accessibilityHidden(true)
                     }
