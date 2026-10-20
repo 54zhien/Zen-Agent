@@ -41,6 +41,7 @@ Owner trailing model checkmark and leading text alignment ruling @ 7fc0eb5d42a2d
 Owner smaller Composer plus symbol and plain button ruling @ 355c4634b01df15598f9813d796ce4f4c132d917
 Owner stationary Composer and expanded menu edge alignment ruling @ 815cb7905405ac14a74c6206280f1d02d2ac1200
 Owner retained menu hierarchy and continuous entrance geometry ruling @ 9c1ff3dad2cc9e0b5c203741da2d1355d9f8909e
+Owner visible source-circle materialization ruling @ f6a57a324ff47f49ffc7b8153d1c60d6b5d9676b
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -65,6 +66,9 @@ that row. Entrance and dismissal animate the glass bounds and corners from and
 back to the actual `+` bounds while revealing normally sized text. Opening and
 dismissal retain their slightly longer timing, opening rebound and closing recoil,
 without changing the editor's window or moving the Composer and its controls.
+The source glyph first enters a visible, source-sized liquid circle before that
+same glass expands into the menu; dismissal returns the glyph through the circle
+and dematerializes the glass, leaving the original plain button at rest.
 Model options share the header icon's leading edge, with the selected checkmark
 at the trailing edge in the same foreground color; the shared glass menu is retained.
 

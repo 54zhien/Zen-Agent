@@ -7,6 +7,7 @@ import UIKit
 final class ComposerMenuPanel {
     let glass: UIVisualEffectView
     let content: UIHostingController<ComposerActionMenuView>
+    private let material: UIGlassEffect
     private(set) var contentSize = CGSize.zero
     private let anchorsContentToBottom: Bool
 
@@ -20,6 +21,7 @@ final class ComposerMenuPanel {
         anchorsContentToBottom = rootView.level == .actions
         let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = false
+        material = effect
         glass = UIVisualEffectView(effect: effect)
         glass.cornerConfiguration = .corners(radius: 28)
         glass.contentView.clipsToBounds = true
@@ -39,6 +41,12 @@ final class ComposerMenuPanel {
         let fitted = content.sizeThatFits(in: maximumSize)
         contentSize = CGSize(width: maximumSize.width, height: min(maximumSize.height, ceil(fitted.height)))
         return contentSize
+    }
+
+    func showMaterial(_ visible: Bool) {
+        // Animate the effect itself so UIKit materializes the glass without
+        // fading the entire visual-effect hierarchy through an offscreen pass.
+        glass.effect = visible ? material : nil
     }
 
     func place(_ frame: CGRect, radius: CGFloat = 28, contentAlpha: CGFloat = 1) {
