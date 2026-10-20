@@ -64,8 +64,8 @@ shadow compositing, excluding both translucent page interiors; the handle no
 longer casts its own shadow. Pane geometry and retained content state are unchanged.
 The subsequent menu correction retains a native glass parent panel behind its
 child panel. The child expands from the selected model row and contracts back to
-that row. Entrance and dismissal animate the glass bounds and corners from and
-back to the actual `+` bounds. The latest owner ruling starts the source-sized
+that row. Entrance animates the glass bounds and corners from the actual `+`
+bounds. The latest owner ruling starts the source-sized
 circle's materialization and upward/rightward expansion together, while menu
 content scales and fades in and the original glyph moves upward/rightward and
 fades out. There is no stationary materialization delay. Dismissal scales the
