@@ -26,9 +26,10 @@ final class ComposerActionMenuPresenter: UIViewController {
     private var collapseDisplayLink: CADisplayLink?
     private var collapsingCircle: CGRect?
     private var collapseStartSize = CGSize.zero
-    private var dismissalCircleView: ComposerMenuDismissalCircle?
     private var circleFadeAnimator: UIViewPropertyAnimator?
     private var isFadingCircle = false
+    private var hasFinishedCollapse = false
+    private var hasFinishedFade = false
     private let menuMotionDuration: TimeInterval = 0.44
     private let menuMotionDamping: CGFloat = 0.72
 
@@ -275,10 +276,19 @@ final class ComposerActionMenuPresenter: UIViewController {
         collapsingCircle = circle
         collapseStartSize = rootPanel?.glass.bounds.size ?? circle.size
         UIView.performWithoutAnimation {
-            // The real control stays beneath the menu glass; the overlay copy
-            // is only for the opening departure, never for the return.
+            // Content of the live glass, independent of the shrinking menu canvas.
+            // Anchor to its lower-left edge so the final glyph matches the button.
             self.sourceIcon.alpha = 0
-            self.sourceView?.alpha = 1
+            self.sourceView?.alpha = 0
+            if let glass = self.rootPanel?.glass {
+                glass.layoutIfNeeded()
+                glass.contentView.addSubview(self.sourceIcon)
+                self.sourceIcon.autoresizingMask = [.flexibleTopMargin, .flexibleRightMargin]
+                self.sourceIcon.frame = CGRect(
+                    x: self.sourceIconFrame.minX - circle.minX,
+                    y: glass.contentView.bounds.height - (circle.maxY - self.sourceIconFrame.minY),
+                    width: self.sourceIconFrame.width, height: self.sourceIconFrame.height)
+            }
         }
         if !UIAccessibility.isReduceMotionEnabled {
             let link = CADisplayLink(target: self, selector: #selector(collapseDidAdvance(_:)))
@@ -286,14 +296,17 @@ final class ComposerActionMenuPresenter: UIViewController {
             link.add(to: .main, forMode: .common)
         }
         animate(duration: menuMotionDuration, dampingRatio: menuMotionDamping) {
-            // Keep live glass visible until the full target circle is reached.
+            // Keep the first part visible; the late material fade has its own animator.
             self.rootPanel?.showMaterial(true)
             self.childPanel?.showMaterial(false)
             self.rootPanel?.place(circle, radius: radius,
                 contentAlpha: 0, contentScale: self.contentScale(fitting: circle))
             self.childPanel?.place(circle, radius: radius, contentAlpha: 0)
         } completion: { [weak self] in
-            self?.replaceCircleAndFade()
+            guard let self else { return }
+            self.hasFinishedCollapse = true
+            self.fadeMaterialAndRevealIcon()
+            self.finishIfCollapsedAndFaded()
         }
     }
 
@@ -307,64 +320,47 @@ final class ComposerActionMenuPresenter: UIViewController {
               let size = rootPanel?.glass.layer.presentation()?.bounds.size,
               size.width.isFinite, size.height.isFinite,
               size.width > 0, size.height > 0 else { return }
+        // Read displayed size only; never replay a glass backing layer's frame.
+        let remainingWidth = abs(size.width - circle.width)
+        let remainingHeight = abs(size.height - circle.height)
         let tolerance = 1 / max(1, view.window?.screen.scale ?? 1)
-        // Read only the displayed size, never replay glass-layer coordinates.
-        // First arrival ends the spring tail; fading starts only at a circle.
-        let widthArrived = collapseStartSize.width >= circle.width
-            ? size.width <= circle.width + tolerance : size.width >= circle.width - tolerance
-        let heightArrived = collapseStartSize.height >= circle.height
-            ? size.height <= circle.height + tolerance : size.height >= circle.height - tolerance
-        if widthArrived, heightArrived {
-            replaceCircleAndFade()
+        let widthThreshold = max(tolerance, abs(collapseStartSize.width - circle.width) * 0.10)
+        let heightThreshold = max(tolerance, abs(collapseStartSize.height - circle.height) * 0.10)
+        if remainingWidth <= widthThreshold, remainingHeight <= heightThreshold {
+            fadeMaterialAndRevealIcon()
         }
     }
 
-    private func replaceCircleAndFade() {
-        guard !isFadingCircle, let circle = collapsingCircle else { return }
+    private func fadeMaterialAndRevealIcon() {
+        guard !isFadingCircle else { return }
         isFadingCircle = true
         collapseDisplayLink?.invalidate()
         collapseDisplayLink = nil
-        stopAnimator()
-        UIView.performWithoutAnimation {
-            let radius = circle.width / 2
-            self.rootPanel?.place(circle, radius: radius,
-                contentAlpha: 0, contentScale: self.contentScale(fitting: circle))
-            self.childPanel?.place(circle, radius: radius, contentAlpha: 0)
-            self.rootPanel?.glass.layoutIfNeeded()
-            self.childPanel?.glass.layoutIfNeeded()
+        let changes = {
+            // Apple's dematerialization path: leave the effect view at alpha 1.
+            self.rootPanel?.showMaterial(false)
+            self.sourceIcon.alpha = 1
         }
         if UIAccessibility.isReduceMotionEnabled {
-            finishDismissal()
+            UIView.performWithoutAnimation(changes)
+            hasFinishedFade = true
+            finishIfCollapsedAndFaded()
             return
         }
-        var replacement: ComposerMenuDismissalCircle?
-        UIView.performWithoutAnimation {
-            replacement = ComposerMenuDismissalCircle(in: self.view, circle: circle)
-            self.dismissalCircleView = replacement
-            if replacement != nil {
-                self.rootPanel?.glass.isHidden = true
-                self.childPanel?.glass.isHidden = true
-            }
-        }
-        guard view.superview != nil else {
-            replacement?.remove()
-            dismissalCircleView = nil
-            return
-        }
-        #if DEBUG
-        print("ComposerMenuDismissal circle=\(circle) route=\(replacement == nil ? "material-fallback" : "fixed-circle")")
-        #endif
-        let fade = UIViewPropertyAnimator(duration: 0.12, curve: .linear) {
-            if let replacement { replacement.view.alpha = 0 }
-            else { self.rootPanel?.showMaterial(false) }
-        }
+        let fade = UIViewPropertyAnimator(duration: 0.12, curve: .linear, animations: changes)
         circleFadeAnimator = fade
         fade.addCompletion { [weak self] position in
             guard let self, position == .end else { return }
             self.circleFadeAnimator = nil
-            self.finishDismissal()
+            self.hasFinishedFade = true
+            self.finishIfCollapsedAndFaded()
         }
         fade.startAnimation()
+    }
+
+    private func finishIfCollapsedAndFaded() {
+        guard hasFinishedCollapse, hasFinishedFade else { return }
+        finishDismissal()
     }
 
     private func stopAnimator() {
@@ -401,8 +397,6 @@ final class ComposerActionMenuPresenter: UIViewController {
         collapseDisplayLink?.invalidate()
         collapseDisplayLink = nil
         collapsingCircle = nil
-        dismissalCircleView?.remove()
-        dismissalCircleView = nil
         guard view.superview != nil else { return }
         sourceView?.alpha = 1
         beginAppearanceTransition(false, animated: false)

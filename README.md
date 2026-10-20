@@ -50,6 +50,7 @@ Owner stationary glyph beneath dismissal glass ruling @ ae479dae966c39ff88849491
 Owner overlapping late-contraction glass fade ruling @ 06a780c8fde5aee6de1fdb29bf507d835d72de70
 Owner transparent contraction tail without material dematerialization @ ad7ec93e110e196ea5d3fe180766ab64fa40b58c
 Owner exact-circle replacement followed by a fixed-circle fade @ bd48b19dc99b1e66a99b8a80ad0eb0cbca0d2c15
+Owner native material dismissal with content-layer glyph reveal @ fd95564019ddf84604efc0363b965f592af9111e
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -78,16 +79,14 @@ fades out. There is no stationary materialization delay. Dismissal scales the
 content down as the panel contracts to a circle matching the Composer's actual
 lower-left corner radius and left/bottom edges. The glass remains visible through
 the first part of contraction, which retains the opening duration and spring parameters.
-The real stationary control appears immediately beneath the glass when contraction
-starts, without fading or moving; the opening-only glyph copy stays hidden.
-At the first displayed arrival at the target circle, contraction ends and the
-live panel is normalized to the exact circle. A fixed circular stand-in captures
-the committed appearance and immediately takes over, then fades over 0.12 seconds
-without resizing or moving. No early-tail handoff or intentional hold is added.
-Its backdrop pixels keep their original scale and screen position. A small outer
-capture margin preserves the existing shadow without enlarging the material.
-A failed capture retains the native material fallback. The preserved rollback
-source is tagged codex/composer-rollback-26.10.23. Opening still uses
+Near the target circle, the same live panel animates its effect to nil while
+geometry continues. The return glyph is a separate child of the glass contentView,
+anchored at its lower-left edge, and fades in during that material animation.
+It does not inherit the menu content's scale. The actual button stays hidden until
+the overlay finishes and hands the glyph back at the original position. No window
+capture or replacement circle is used. The native material animation is not a
+promise of linear transparency; its visual result still needs device acceptance.
+The preserved rollback source is tagged codex/composer-rollback-26.10.23. Opening still uses
 the actual button bounds. The editor,
 Composer and actual controls remain stationary, with the original plain button
 at rest. The existing opening and child-menu presentation remain; the extra
