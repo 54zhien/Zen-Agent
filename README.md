@@ -40,6 +40,7 @@ Owner slightly slower Composer menu timing ruling @ 275271047d85a2cd93d55051ec94
 Owner trailing model checkmark and leading text alignment ruling @ 7fc0eb5d42a2d7a83da4e68ccb15e4df9180971d
 Owner smaller Composer plus symbol and plain button ruling @ 355c4634b01df15598f9813d796ce4f4c132d917
 Owner stationary Composer and expanded menu edge alignment ruling @ 815cb7905405ac14a74c6206280f1d02d2ac1200
+Owner retained menu hierarchy and continuous entrance geometry ruling @ 9c1ff3dad2cc9e0b5c203741da2d1355d9f8909e
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -58,12 +59,12 @@ The latest Sidebar correction preserves each Pane's complete outline and the
 approved fading Divider backdrop. The separate card silhouettes share Single's
 shadow compositing, excluding both translucent page interiors; the handle no
 longer casts its own shadow. Pane geometry and retained content state are unchanged.
-The subsequent menu ruling keeps exact model-option alignment while using one
-Apple Liquid Glass container for continuous root/submenu morphing and return.
-The outer panel scales uniformly from and back to the actual `+` position,
-with a visible opening rebound and a small recoil before shrinking back. Submenu
-changes stay smooth, without changing the editor's window. Opening and dismissal
-are slightly longer while preserving the existing rebound and menu interaction.
+The subsequent menu correction retains a native glass parent panel behind its
+child panel. The child expands from the selected model row and contracts back to
+that row. Entrance and dismissal animate the glass bounds and corners from and
+back to the actual `+` bounds while revealing normally sized text. Opening and
+dismissal retain their slightly longer timing, opening rebound and closing recoil,
+without changing the editor's window or moving the Composer and its controls.
 Model options share the header icon's leading edge, with the selected checkmark
 at the trailing edge in the same foreground color; the shared glass menu is retained.
 

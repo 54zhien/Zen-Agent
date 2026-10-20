@@ -8,30 +8,27 @@ final class ComposerActionMenuState {
     var selectedModelID: ModelID?
 }
 
+enum ComposerActionMenuLevel: Equatable {
+    case actions
+    case models
+}
+
 struct ComposerActionMenuView: View {
+    let level: ComposerActionMenuLevel
     let presentation: ComposerActionMenuState
     let maximumSize: CGSize
     let onSelect: (ModelID) -> Void
-    let onSizeChanged: (CGSize) -> Void
-    @State private var showsModels = false
-    @Namespace private var glassNamespace
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let onOpenModels: (CGRect) -> Void
+    let onReturn: () -> Void
+    @State private var modelRow = CGRect.zero
     @ScaledMetric(relativeTo: .body) private var leading: CGFloat = 32
 
     var body: some View {
-        GlassEffectContainer {
-            ZStack(alignment: .bottomLeading) {
-                if showsModels {
-                    modelMenu
-                        .glassEffect(.regular, in: .rect(cornerRadius: 28))
-                        .glassEffectID("composer-menu", in: glassNamespace)
-                        .glassEffectTransition(.matchedGeometry)
-                } else {
-                    actions
-                        .glassEffect(.regular, in: .rect(cornerRadius: 28))
-                        .glassEffectID("composer-menu", in: glassNamespace)
-                        .glassEffectTransition(.matchedGeometry)
-                }
+        // Each native panel keeps a fixed level; a child never replaces its parent.
+        Group {
+            switch level {
+            case .actions: actions
+            case .models: modelMenu
             }
         }
         .font(.body)
@@ -41,14 +38,13 @@ struct ComposerActionMenuView: View {
         .frame(maxHeight: maximumSize.height)
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("composer-action-menu")
-        .onGeometryChange(for: CGSize.self, of: Self.panelSize) { onSizeChanged($0) }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .accessibilityIdentifier(level == .actions ? "composer-action-menu" : "composer-model-picker")
+        .coordinateSpace(name: "composer-menu-panel")
     }
 
-    // SwiftUI may measure during async rendering. This projection must not
-    // inherit the View's MainActor isolation; only the size-change action owns UI state.
-    nonisolated private static func panelSize(_ proxy: GeometryProxy) -> CGSize { proxy.size }
+    nonisolated private static func rowFrame(_ proxy: GeometryProxy) -> CGRect {
+        proxy.frame(in: .named("composer-menu-panel"))
+    }
 
     private var actions: some View {
         ViewThatFits(in: .vertical) {
@@ -61,11 +57,12 @@ struct ComposerActionMenuView: View {
     private var actionRows: some View {
         VStack(spacing: 0) {
             unavailable("推理强度", symbol: "slider.horizontal.3")
-            Button { navigate(toModels: true) } label: {
+            Button { onOpenModels(modelRow) } label: {
                 actionLabel("模型", symbol: "cpu", opensMenu: true)
             }
             .disabled(presentation.models.isEmpty)
             .accessibilityLabel("模型")
+            .onGeometryChange(for: CGRect.self, of: Self.rowFrame) { modelRow = $0 }
             unavailable("插件", symbol: "puzzlepiece")
             unavailable("添加文件", symbol: "doc")
             unavailable("添加图片", symbol: "photo")
@@ -100,7 +97,7 @@ struct ComposerActionMenuView: View {
 
     private var modelMenu: some View {
         VStack(spacing: 0) {
-            Button { navigate(toModels: false) } label: {
+            Button(action: onReturn) {
                 HStack(spacing: 12) {
                     Image(systemName: "cpu")
                     Text("模型").fontWeight(.semibold)
@@ -124,12 +121,6 @@ struct ComposerActionMenuView: View {
         .frame(width: maximumSize.width)
         .frame(maxHeight: maximumSize.height)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("composer-model-picker")
-    }
-
-    private func navigate(toModels: Bool) {
-        WorkspaceHaptics.shared.play(.control)
-        withAnimation(reduceMotion ? nil : .smooth(duration: 0.26)) { showsModels = toModels }
     }
 
     private var options: some View {
