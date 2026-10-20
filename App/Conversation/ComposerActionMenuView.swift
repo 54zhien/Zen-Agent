@@ -17,7 +17,6 @@ struct ComposerActionMenuView: View {
     @Namespace private var glassNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var leading: CGFloat = 32
-    @ScaledMetric(relativeTo: .body) private var checkLeading: CGFloat = 8
 
     var body: some View {
         GlassEffectContainer {
@@ -137,20 +136,20 @@ struct ComposerActionMenuView: View {
         VStack(spacing: 0) {
             ForEach(presentation.models, id: \.id) { model in
                 Button { onSelect(model.id) } label: {
-                    Text(model.displayName)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, leading)
-                        .padding(.trailing, 24)
-                        .padding(.vertical, 12)
-                        .frame(minHeight: 44)
-                        .overlay(alignment: .leading) {
-                            Image(systemName: "checkmark")
-                                .font(.body.weight(.semibold))
-                                .padding(.leading, checkLeading)
-                                .opacity(model.id == presentation.selectedModelID ? 1 : 0)
-                                .accessibilityHidden(true)
-                        }
-                        .contentShape(Rectangle())
+                    HStack(spacing: 12) {
+                        Text(model.displayName)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: "checkmark")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.tint)
+                            .opacity(model.id == presentation.selectedModelID ? 1 : 0)
+                            .accessibilityHidden(true)
+                    }
+                    .padding(.leading, leading)
+                    .padding(.trailing, 24)
+                    .padding(.vertical, 12)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
                 }
                 .accessibilityAddTraits(model.id == presentation.selectedModelID ? .isSelected : [])
             }
