@@ -82,7 +82,7 @@ final class ComposerActionMenuPresenter: UIViewController {
         guard view.superview != nil else { return }
         root.content.view.isUserInteractionEnabled = false
         root.place(sourceFrame, radius: sourceRadius, contentAlpha: 0,
-                   contentScale: collapsedContentScale)
+                   contentScale: contentScale(fitting: sourceFrame))
         if let button = sourceView as? UIButton, let imageView = button.imageView {
             sourceIcon.image = imageView.image
             sourceIcon.preferredSymbolConfiguration = button.preferredSymbolConfigurationForImage(in: .normal)
@@ -119,10 +119,10 @@ final class ComposerActionMenuPresenter: UIViewController {
         }
     }
 
-    private var collapsedContentScale: CGFloat {
+    private func contentScale(fitting frame: CGRect) -> CGFloat {
         let size = rootPanel?.contentSize ?? rootFrame.size
-        return min(1, min(sourceFrame.width / max(1, size.width),
-                          sourceFrame.height / max(1, size.height)))
+        return min(1, min(frame.width / max(1, size.width),
+                          frame.height / max(1, size.height)))
     }
 
     override func viewDidLayoutSubviews() {
@@ -159,6 +159,19 @@ final class ComposerActionMenuPresenter: UIViewController {
     }
 
     private var sourceRadius: CGFloat { min(sourceFrame.width, sourceFrame.height) / 2 }
+
+    private var dismissalCircle: CGRect {
+        guard let alignmentView else { return sourceFrame }
+        let bounds = alignmentView.bounds
+        let radius = alignmentView.effectiveRadius(corner: .bottomLeft)
+        guard radius.isFinite, radius > 0 else { return sourceFrame }
+        let diameter = min(2 * radius, min(bounds.width, bounds.height))
+        // Match the Composer's lower-left arc, rather than the inset hit target.
+        let circle = CGRect(x: bounds.minX, y: bounds.maxY - diameter,
+                            width: diameter, height: diameter)
+        return view.convert(circle, from: alignmentView)
+    }
+
     private var parentFrame: CGRect { rootFrame.offsetBy(dx: 0, dy: -12) }
 
     private func openModels(from row: CGRect) {
@@ -249,24 +262,20 @@ final class ComposerActionMenuPresenter: UIViewController {
     }
 
     private func collapse() {
+        let circle = dismissalCircle
+        let radius = min(circle.width, circle.height) / 2
         animate(duration: 0.35, dampingRatio: 0.86) {
-            self.rootPanel?.showMaterial(true)
-            // Retire the upper material during contraction so model selection
-            // returns through one source circle, without glass over the glyph.
+            self.rootPanel?.showMaterial(false)
             self.childPanel?.showMaterial(false)
-            self.rootPanel?.place(self.sourceFrame, radius: self.sourceRadius,
-                contentAlpha: 0, contentScale: self.collapsedContentScale)
-            self.childPanel?.place(self.sourceFrame, radius: self.sourceRadius, contentAlpha: 0)
-            self.sourceIcon.frame = self.sourceIconFrame
+            self.rootPanel?.place(circle, radius: radius,
+                contentAlpha: 0, contentScale: self.contentScale(fitting: circle))
+            self.childPanel?.place(circle, radius: radius, contentAlpha: 0)
+            // Reveal the real, stationary control while its glass contracts;
+            // the departing copy must not fly back across the input field.
             self.sourceIcon.alpha = 0
+            self.sourceView?.alpha = 1
         } completion: { [weak self] in
-            guard let self else { return }
-            self.childPanel?.remove()
-            self.childPanel = nil
-            self.animate(duration: 0.12, dampingRatio: 1) {
-                self.rootPanel?.showMaterial(false)
-                self.sourceIcon.alpha = 1
-            } completion: { [weak self] in self?.finishDismissal() }
+            self?.finishDismissal()
         }
     }
 

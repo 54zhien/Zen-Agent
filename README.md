@@ -43,6 +43,7 @@ Owner stationary Composer and expanded menu edge alignment ruling @ 815cb7905405
 Owner retained menu hierarchy and continuous entrance geometry ruling @ 9c1ff3dad2cc9e0b5c203741da2d1355d9f8909e
 Owner visible source-circle materialization ruling @ f6a57a324ff47f49ffc7b8153d1c60d6b5d9676b
 Owner simultaneous glass expansion, content scaling and departing glyph ruling @ 019208582068f74b679495d9d228bd1b0971102f
+Owner Composer-aligned dismissal circle and continuous crossfade ruling @ caa8b789c5e865c7fbf537507de66f22b0f9ade2
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -68,8 +69,10 @@ back to the actual `+` bounds. The latest owner ruling starts the source-sized
 circle's materialization and upward/rightward expansion together, while menu
 content scales and fades in and the original glyph moves upward/rightward and
 fades out. There is no stationary materialization delay. Dismissal scales the
-content down as the panel contracts to the source circle, then dematerializes
-the circle while fading the glyph back in at its original position. The editor,
+content down as the panel contracts to a circle matching the Composer's actual
+lower-left corner radius and left/bottom edges. Glass dematerialization and the
+stationary control's fade-in run during that contraction, with no separate
+circle hold or fade stage. Opening still uses the actual button bounds. The editor,
 Composer and actual controls remain stationary, with the original plain button
 at rest. The existing opening and contraction timing and child-menu presentation
 remain; the extra pre-contraction enlargement is removed.
