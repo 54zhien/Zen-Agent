@@ -131,7 +131,8 @@ final class ComposerMotionUITests: XCTestCase {
         let thinkingPicker = app.descendants(matching: .any)["composer-thinking-picker"]
         XCTAssertTrue(thinkingPicker.waitForExistence(timeout: 5))
         XCTAssertFalse(app.keyboards.firstMatch.exists)
-        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "思考")).count, 1)
+        let thinkingButtons = app.buttons.matching(NSPredicate(format: "label == %@", "思考"))
+        XCTAssertEqual(thinkingButtons.count, 1, thinkingButtons.debugDescription)
         thinkingPicker.buttons["思考"].tap()
         XCTAssertTrue(thinkingPicker.waitForNonExistence(timeout: 5))
         XCTAssertTrue(sheet.exists)

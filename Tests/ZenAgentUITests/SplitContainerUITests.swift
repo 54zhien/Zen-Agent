@@ -26,6 +26,7 @@ final class SplitContainerUITests: XCTestCase {
                 source.swipeUp(velocity: .fast)
             }
             XCTAssertTrue(lastMessage.exists && lastMessage.isHittable)
+            let paneTopWithoutKeyboard = source.frame.minY
             let input = app.textViews["conversation-composer-input"]
             input.tap()
             XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
@@ -39,6 +40,7 @@ final class SplitContainerUITests: XCTestCase {
                 app.terminate()
                 continue
             }
+            let paneTopWithKeyboard = source.frame.minY
             plus.tap()
             let sheet = app.otherElements["composer-keyboard-sheet"]
             XCTAssertTrue(sheet.waitForExistence(timeout: 5))
@@ -51,6 +53,10 @@ final class SplitContainerUITests: XCTestCase {
                 return abs(metrics.offset - max(0, metrics.contentHeight - metrics.viewport)) <= 0.5
             }
             print("KEYBOARD_SHEET_OCCLUSION split=\(split) message=\(lastMessage.frame) input=\(input.frame) sheet=\(sheet.frame) probe=\(probe.value ?? "missing")")
+            if split {
+                XCTAssertEqual(source.frame.minY, paneTopWithKeyboard, accuracy: 2,
+                    "Replacing the keyboard must retain the shortened Split layout")
+            }
             XCTAssertLessThanOrEqual(lastMessage.frame.maxY, input.frame.minY - 8,
                 "The latest message must remain readable above the Composer while its sheet replaces the keyboard")
             let image = XCTAttachment(screenshot: app.screenshot())
@@ -60,6 +66,7 @@ final class SplitContainerUITests: XCTestCase {
             plus.tap()
             XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
             XCTAssertFalse(app.keyboards.firstMatch.exists)
+            if split { expect { abs(source.frame.minY - paneTopWithoutKeyboard) <= 2 } }
             XCTAssertEqual(input.value as? String, "sheet occlusion draft")
             app.terminate()
         }

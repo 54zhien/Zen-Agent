@@ -64,6 +64,10 @@ final class WorkspaceComposerDockState {
         guard ownerID == activeID, visible, !returnsToPortals else { return }
         menuTop = top
     }
+    func menuOverlap(in proposedFrame: CGRect) -> CGFloat {
+        guard let menuTop else { return 0 }
+        return min(proposedFrame.height, max(0, proposedFrame.maxY - menuTop))
+    }
     func measured(_ value: CGFloat, ownerID: String) {
         guard ownerID == activeID, abs(clearance - value) > 0.5 else { return }
         clearance = value

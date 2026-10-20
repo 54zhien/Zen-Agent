@@ -131,12 +131,19 @@ struct WorkspaceSurfaceView<Content: View>: View {
         ZStack(alignment: .topLeading) {
             AppSpaceStackView(model: model, browse: browse, lift: activeLift,
                 requestedMenuID: $requestedMenuID) {
-                GeometryReader { geometry in
-                    WorkspaceSidebarProgressReader(state: navigation,
-                        travel: sidebarTravel(in: geometry), direction: layoutDirection) { progress, isDragging, translation in
-                        workspaceSurfaces(in: geometry, sidebarProgress: progress,
-                            sidebarDragging: isDragging, sidebarTranslation: translation)
+                GeometryReader { proposed in
+                    GeometryReader { geometry in
+                        WorkspaceSidebarProgressReader(state: navigation,
+                            travel: sidebarTravel(in: geometry), direction: layoutDirection) { progress, isDragging, translation in
+                            workspaceSurfaces(in: geometry, sidebarProgress: progress,
+                                sidebarDragging: isDragging, sidebarTranslation: translation)
+                        }
                     }
+                    // Physical keyboard avoidance already shortens the outer proposal.
+                    // Reserve only its remaining overlap with the replacement sheet,
+                    // before splitting into Panes; a lower Pane cannot inset above its top.
+                    .padding(.bottom, keepsFullConversationViewport ? 0
+                        : composerDock.menuOverlap(in: proposed.frame(in: .global)))
                 }
             }
             if activeLift.splitTargetingVisible, let top = activeLift.splitTopFrame,

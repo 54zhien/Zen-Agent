@@ -56,3 +56,10 @@
 - 原生容器 accessibilityElementsHidden 未屏蔽 SwiftUI 根层“思考”按钮；子层与根层重复。两套菜单通过观察到的 activeLevel 在 SwiftUI 层隐藏非活动 AX 子树，保留视觉动画，并断言同名按钮只有一个。
 - 完整单测 1138 项仅旧 Lift 诊断断言失败：期望显示横移等于原始 42pt，但 10/19 已引入边界阻尼（3191c69 / d41b4afe），旧基线源码亦如此，实测显示 1.84845pt。仅将 transport 诊断改成方向为正且小于原始拖距；保留纵轴与 progress 断言，精确几何及屏幕边界仍由 SurfaceLiftGeometryTests 覆盖。
 - 已检查 a02ffb9 导出的六档浅/深色原生 PNG 与五行面板：图标均匀圆底、SF 指针随等级推进、剩余灰点等距；尚待修复后同 SHA 构建与 UI 回归。
+
+### 外层 Split 避让与活动控件
+
+- `e7b11a3` / [39420261933](https://github.com/54zhien/Zen-Agent/actions/runs/39420261933)：XcodeGen、构建、完整 1139 项 Swift Testing + 20 项 XCTest 单测、iPad axis 通过；Phone 6 项中 2 项失败。Single 消息底边 332.667 < 输入框 top417，已通过。模型菜单全部交接/返回/选择/草稿动作执行通过，但子层“思考”按钮计数仍为 2。三/四档、六档选择、共享 Dock 测试均通过。
+- Split 实测 host y440..874，而输入框 y417..475，sheet y539..874；基础 clearance170 已大于下 Pane 位于输入框之上的可用空间。仅增加 Pane.safeAreaInset 会把有效视口压到 0，无法解决父布局越界。新候选在未经修改的外层 GeometryReader 测 proposal 与 menuTop 的剩余交叠，在分成 Pane 前约束内层可用高度；物理键盘 proposal539 时不额外扣减，退出键盘 proposal874 时扣335。所有 Pane/Divider/外观/LayoutObserver 共用同一个真实内层 geometry，Single/landscapeSingle 保留原路径。
+- UI 保留最新消息严格位置断言，追加键盘切面板时下 Pane 起点保持、关闭后还原，单测覆盖 outer proposal 未避让/已避让/过渡及 owner 清理。
+- 容器 AX hidden 对旧 SwiftUI 根按钮仍不足。非活动一级菜单改为绘制同一套 label，不创建 Button；返回后恢复原控件，视觉尺寸和动效参数不变。同名按钮必须为 1 的断言保留，并附完整 query 诊断。

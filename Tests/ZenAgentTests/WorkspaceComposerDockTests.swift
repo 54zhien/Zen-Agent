@@ -6,6 +6,20 @@ import SwiftUI
 @Suite("Shared Composer native lifecycle", .serialized)
 @MainActor
 struct WorkspaceComposerDockTests {
+    @Test func keyboardMenuReservesOnlyTheUnavoidedOuterProposal() {
+        let dock = WorkspaceComposerDockState()
+        let container = ComposerDockContainer()
+        dock.configure(container: container, activeID: "source", visible: true)
+        dock.menuTopChanged(539, ownerID: "source")
+        #expect(dock.menuOverlap(in: CGRect(x: 0, y: 0, width: 402, height: 874)) == 335)
+        #expect(dock.menuOverlap(in: CGRect(x: 0, y: 0, width: 402, height: 539)) == 0)
+        #expect(dock.menuOverlap(in: CGRect(x: 0, y: 0, width: 402, height: 650)) == 111)
+        dock.menuTopChanged(100, ownerID: "stale")
+        #expect(dock.menuTop == 539)
+        dock.configure(container: container, activeID: "other", visible: true)
+        #expect(dock.menuOverlap(in: CGRect(x: 0, y: 0, width: 402, height: 874)) == 0)
+    }
+
     @Test("Dock outlines paint above the editor without adding an accessibility or hit-test view")
     func outlinesAreNativeLayersAboveRetainedEditor() throws {
         let container = ComposerDockContainer(frame: CGRect(x: 0, y: 0, width: 402, height: 874))

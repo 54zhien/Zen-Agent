@@ -105,27 +105,39 @@ struct ComposerActionMenuView: View {
     }
 
     private var thinkingAction: some View {
-        Button { onOpenThinking(thinkingRow) } label: {
-            actionLabel("思考", symbol: "tachometer", opensMenu: true)
+        actionControl("思考", symbol: "tachometer", opensMenu: true,
+                      value: presentation.thinkingLevel?.title ?? "模型默认") {
+            onOpenThinking(thinkingRow)
         }
-        .accessibilityLabel("思考")
-        .accessibilityValue(presentation.thinkingLevel?.title ?? "模型默认")
         .onGeometryChange(for: CGRect.self, of: Self.rowFrame) { thinkingRow = $0 }
     }
 
     private var modelAction: some View {
-        Button { onOpenModels(modelRow) } label: {
-            actionLabel("模型", symbol: "theatermasks", opensMenu: true)
+        actionControl("模型", symbol: "theatermasks", opensMenu: true) {
+            onOpenModels(modelRow)
         }
         .disabled(presentation.models.isEmpty)
-        .accessibilityLabel("模型")
         .onGeometryChange(for: CGRect.self, of: Self.rowFrame) { modelRow = $0 }
     }
 
     private func unavailable(_ title: String, symbol: String) -> some View {
-        Button {} label: { actionLabel(title, symbol: symbol).foregroundStyle(.tertiary) }
+        actionControl(title, symbol: symbol) {}
+            .foregroundStyle(.tertiary)
             .disabled(true)
-            .accessibilityLabel(title)
+    }
+
+    @ViewBuilder
+    private func actionControl(_ title: String, symbol: String, opensMenu: Bool = false,
+                               value: String = "", action: @escaping () -> Void) -> some View {
+        if presentation.activeLevel == .actions {
+            Button(action: action) { actionLabel(title, symbol: symbol, opensMenu: opensMenu) }
+                .accessibilityLabel(title)
+                .accessibilityValue(value)
+        } else {
+            // UIKit and a container-level AX flag can retain SwiftUI buttons.
+            // Keep the same visual background without inactive controls behind a child.
+            actionLabel(title, symbol: symbol, opensMenu: opensMenu).accessibilityHidden(true)
+        }
     }
 
     private func actionLabel(_ title: String, symbol: String, opensMenu: Bool = false) -> some View {
