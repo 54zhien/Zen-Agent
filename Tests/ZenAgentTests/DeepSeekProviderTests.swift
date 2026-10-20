@@ -248,6 +248,20 @@ struct DeepSeekProviderTests {
         }
     }
 
+    @Test("frozen supported effort reaches the actual HTTP body", arguments: ["low", "high", "max"])
+    func frozenThinkingEffortReachesWire(effort: String) async throws {
+        let f = try makeFixture()
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(f.seed)) as? [String: Any])
+        json["thinkingEffort"] = effort
+        let seed = try JSONDecoder().decode(RequestConfigSeed.self, from: JSONSerialization.data(withJSONObject: json))
+        f.transport.enqueue(status: 200, json: Self.successJSON)
+        _ = try await f.provider.complete(request(), seed: seed, credentials: f.credentials)
+        let body = try #require(f.transport.lastRequest?.body)
+        let sent = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(sent["reasoning_effort"] as? String == effort)
+        #expect((sent["thinking"] as? [String: String])?["type"] == "enabled")
+    }
+
     // MARK: - What goes out
 
     @Test("the request goes to the chat completions endpoint over POST")

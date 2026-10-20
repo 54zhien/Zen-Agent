@@ -2,6 +2,34 @@ import XCTest
 
 final class ComposerMotionUITests: XCTestCase {
     @MainActor
+    func testThinkingEntryOpensAndKeepsSelectedLevel() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
+        app.launch()
+        let plus = app.buttons["conversation-composer-plus"]
+        XCTAssertTrue(plus.waitForExistence(timeout: 15))
+        plus.tap()
+        let entry = app.buttons["思考"]
+        guard entry.waitForExistence(timeout: 5), entry.isEnabled else {
+            XCTFail("Thinking must be enabled and open the real level picker")
+            return
+        }
+        entry.tap()
+        let picker = app.descendants(matching: .any)["composer-thinking-picker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        let ultra = app.buttons["thinking-level-ultra"]
+        XCTAssertTrue(ultra.waitForExistence(timeout: 5))
+        ultra.tap()
+        XCTAssertTrue(picker.waitForNonExistence(timeout: 5))
+        plus.tap()
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        XCTAssertEqual(entry.value as? String, "Ultra")
+        entry.tap()
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        XCTAssertTrue(ultra.isSelected)
+    }
+
+    @MainActor
     func testModelMenuOpensAndSwitchesModels() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
