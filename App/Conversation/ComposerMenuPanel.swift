@@ -20,6 +20,7 @@ final class ComposerMenuPanel {
         glass = UIVisualEffectView(effect: effect)
         glass.cornerConfiguration = .corners(radius: 28)
         glass.contentView.clipsToBounds = true
+        dismissalMask.isOpaque = false
         content = UIHostingController(rootView: rootView)
         content.view.backgroundColor = .clear
         content.safeAreaRegions = []
