@@ -831,8 +831,8 @@ jobs:
               UDID=$(python3 -c 'import json,sys; print(next(d["udid"] for ds in json.load(open(sys.argv[1]))["devices"].values() for d in ds if d.get("isAvailable") and d["name"].startswith("iPhone")))' "$evidence/devices.json")
               xcrun simctl bootstatus "$UDID" -b
               if [ "$TEST_SCOPE" = composer-menu ]; then
-                tests=(-only-testing:ZenAgentUITests/ComposerMotionUITests/testModelMenuOpensAndSwitchesModels
-                  -only-testing:ZenAgentUITests/SplitContainerUITests/testKeyboardSheetKeepsLatestMessageAboveComposerInSingleAndSplit)
+                tests=(-only-testing:ZenAgentTests/DeepSeekProviderTests/frozenThinkingEffortReachesWire
+                  -only-testing:ZenAgentUITests/ComposerMotionUITests/testThinkingEntryOpensAndKeepsSelectedLevel)
               elif [ "$TEST_SCOPE" = lift-drag ]; then
                 tests=(-only-testing:ZenAgentTests/SurfaceLiftGeometryTests
                   -only-testing:ZenAgentTests/SurfaceLiftHostTests
@@ -909,3 +909,26 @@ jobs:
           path: ${{ runner.temp }}/${{ inputs.test_scope }}-evidence
           if-no-files-found: warn
           retention-days: 7
+
+  previous-menu-console:
+    if: github.event_name == 'workflow_dispatch' && inputs.test_scope == 'composer-menu'
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 39409646340
+          pattern: composer-menu-*
+          merge-multiple: true
+          path: previous
+      - name: Read previous app console without rebuilding
+        shell: bash
+        run: |
+          xcrun xcresulttool get log --path previous/Focused.xcresult --type console > previous-console.txt
+          grep -E 'COMPOSER_KEYBOARD_MENU|KEYBOARD_SHEET_OCCLUSION' previous-console.txt || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: previous-menu-console
+          path: previous-console.txt
