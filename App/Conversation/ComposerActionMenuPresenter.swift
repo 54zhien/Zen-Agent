@@ -16,6 +16,9 @@ final class ComposerActionMenuPresenter: UIViewController {
     private var sourceIconFrame = CGRect.zero
     private var rootPanel: ComposerMenuPanel?
     private var childPanel: ComposerMenuPanel?
+    private let windowCornerGeometry = WindowCornerGeometry()
+    private var rootMenuCornerRadius: CGFloat = 0
+    private var childPlacementFrame = CGRect.zero
     private var placementFrame = CGRect.zero
     private var rootFrame = CGRect.zero
     private var childFrame = CGRect.zero
@@ -64,21 +67,24 @@ final class ComposerActionMenuPresenter: UIViewController {
 
     private func makePanel(_ level: ComposerActionMenuLevel) -> ComposerMenuPanel {
         ComposerMenuPanel(rootView: ComposerActionMenuView(level: level, presentation: presentation,
-            maximumSize: placementFrame.size,
+            maximumSize: level == .actions ? placementFrame.size : childPlacementFrame.size,
             onSelect: { [weak self] modelID in
                 guard let self, !self.isClosing, !self.isTransitioning else { return }
                 self.onSelect(modelID)
                 self.close()
             }, onOpenModels: { [weak self] row in self?.openModels(from: row) },
             onReturn: { [weak self] in self?.returnToActions() },
+            actionMenuCornerRadius: level == .actions ? rootMenuCornerRadius : nil,
             onOpenThinking: { [weak self] row in self?.openChild(.thinking, from: row) }),
-            expandedRadius: menuCornerRadius)
+            expandedRadius: level == .actions ? rootMenuCornerRadius : menuCornerRadius)
     }
 
     func show(in window: UIWindow) {
         loadViewIfNeeded()
         guard let placement = placement(in: window) else { return }
         placementFrame = placement
+        childPlacementFrame = self.placement(in: window, for: .models) ?? placement
+        rootMenuCornerRadius = windowCornerGeometry.radius(in: window)
         overrideUserInterfaceStyle = sourceView?.traitCollection.userInterfaceStyle ?? .unspecified
         view.frame = window.bounds
         presentation.activeLevel = .actions
@@ -148,20 +154,23 @@ final class ComposerActionMenuPresenter: UIViewController {
         close(animated: false)
     }
 
-    private func placement(in window: UIWindow) -> CGRect? {
+    private func placement(in window: UIWindow, for level: ComposerActionMenuLevel = .actions) -> CGRect? {
         guard let sourceView, let alignmentView else { return nil }
         let aligned = alignmentView.convert(alignmentView.bounds, to: window)
         let safe = window.bounds.inset(by: window.safeAreaInsets).insetBy(dx: 8, dy: 8)
-        let width = min(safe.width, UIFontMetrics(forTextStyle: .body).scaledValue(for: 250,
-            compatibleWith: sourceView.traitCollection), max(0, safe.maxX - aligned.minX))
-        let bottom = aligned.maxY
+        let isRoot = level == .actions
+        let left = isRoot ? max(safe.minX, aligned.minX - 8) : aligned.minX
+        let bottom = isRoot ? min(window.bounds.maxY - 8, aligned.maxY + 20) : aligned.maxY
+        let width = min(safe.width, UIFontMetrics(forTextStyle: .body).scaledValue(for: isRoot ? 300 : 250,
+            compatibleWith: sourceView.traitCollection), max(0, safe.maxX - left))
         let height = min(window.bounds.height * 0.65, max(44, bottom - safe.minY))
-        return CGRect(x: aligned.minX, y: bottom - height, width: width, height: height)
+        return CGRect(x: left, y: bottom - height, width: width, height: height)
     }
 
-    private func fittedFrame(for panel: ComposerMenuPanel) -> CGRect {
-        let size = panel.measure(in: placementFrame.size)
-        return view.convert(CGRect(x: placementFrame.minX, y: placementFrame.maxY - size.height,
+    private func fittedFrame(for panel: ComposerMenuPanel, placement: CGRect? = nil) -> CGRect {
+        let placement = placement ?? placementFrame
+        let size = panel.measure(in: placement.size)
+        return view.convert(CGRect(x: placement.minX, y: placement.maxY - size.height,
             width: size.width, height: size.height), from: view.window)
     }
 
@@ -210,7 +219,7 @@ final class ComposerActionMenuPresenter: UIViewController {
         presentation.activeLevel = level
         child.showMaterial(false)
         child.install(in: self)
-        childFrame = fittedFrame(for: child)
+        childFrame = fittedFrame(for: child, placement: childPlacementFrame)
         child.place(origin, radius: min(menuCornerRadius, origin.height / 2), contentAlpha: 0,
                     contentScale: childContentScale(fitting: origin, panel: child))
         child.glass.layoutIfNeeded()

@@ -57,6 +57,7 @@ Owner SF menu symbols and six-level Thinking gauge ruling @ 79ecea35b6b062dd30a6
 Owner capability-backed Thinking selection and frozen request ruling @ 570b8c34309632fb2cf6050e06e5fca10a5d0e51
 Owner retained-responder inputView menu and concentric sheet ruling @ 3157898f6f5aa6e200aa0e0e0c40013ed202dc37
 Owner sequential native keyboard dismissal and reserved app-menu ruling @ ea2079ab6ac61dd0c145a0773f5c7adb491454ed
+Owner floating primary menu appearance ruling @ 05df074abc0dfa5df26dfb8966431a2800533d2b
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
