@@ -39,6 +39,9 @@ final class SidebarUITests: XCTestCase {
         let settings = app.buttons["sidebar-settings"]
         let settingsExists = settings.waitForExistence(timeout: 5)
         XCTAssertTrue(settingsExists, "Sidebar Settings destination must exist")
+        XCTAssertEqual(app.buttons.matching(identifier: "sidebar-settings").count, 1,
+                       "The semantic Settings Button must remain unique")
+        XCTAssertEqual(settings.label, "设置", "The semantic Button must retain its spoken name")
         let settingsHittable = settings.wait(for: \.isHittable, toEqual: true, timeout: 5)
         XCTAssertTrue(settingsHittable, "Sidebar Settings AX destination must remain hittable")
 

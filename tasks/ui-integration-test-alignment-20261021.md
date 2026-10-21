@@ -256,3 +256,18 @@ semantic frame and working coordinate center are finite. Descendant-derived
 activation is therefore a hypothesis to test; it is not yet an established cause.
 This changes accessibility gesture targeting, not drawing, physical hit shape,
 animation, haptics or route/admission. Preserve both AX and route assertions.
+
+The explicit-center candidate `c096fc5`, native run `39651444663`, also finishes
+**RED** after real generation/build: the same two AX failures; coordinate route
+true. Artifact `12370816515`, digest
+`sha256:2d7bc5bc419f41e66e3d50fe16e54b2548f2f5a6955157379c9c4214289815f2`.
+Remove the ineffective activation-point settings. A bad default point alone does
+not explain the failure.
+
+The third controlled candidate hides only the styled label's accessibility
+subtree, leaving the outer Button's explicit name/identifier/action and the
+native glass's ordinary interaction intact. This tests whether the label's
+native-glass AX descendants obscure the semantic Button. It changes no drawing,
+layout, hit shape, spring, disabled/admission condition or feedback. The existing
+existence, AX hittability and actual route assertions must all remain; if SwiftUI
+also hides the Button or the obstruction persists, this candidate must be removed.
