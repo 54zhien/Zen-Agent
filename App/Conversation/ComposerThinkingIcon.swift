@@ -62,15 +62,13 @@ private struct ComposerThinkingGauge: View, Animatable {
                 return path
             }
             let stroke = StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round)
-            // Center the actual stroked silhouette, including its open ends.
-            // The needle remains inside this fixed envelope at every level.
-            let bounds = arc(to: 1).strokedPath(stroke).cgPath.boundingBoxOfPath
-            context.translateBy(x: size.width / 2 - bounds.midX,
-                                y: size.height / 2 - bounds.midY)
+            // The gauge and needle share the background's center. Centering
+            // the open arc's bounds would push this axis below the circle center.
+            context.translateBy(x: size.width / 2, y: size.height / 2)
             context.stroke(arc(to: 1), with: .color(colorScheme == .dark ? Color(white: 0.52) : Color(uiColor: .systemGray3)), style: stroke)
             context.stroke(arc(to: fraction), with: .color(.primary), style: stroke)
             var needle = Path()
-            let needleHub = CGPoint(x: hub.x, y: hub.y + edge * 0.035)
+            let needleHub = hub
             let tip = point(needleFraction, radius: radius * 0.61)
             needle.move(to: needleHub)
             needle.addLine(to: tip)

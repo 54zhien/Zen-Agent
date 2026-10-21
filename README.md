@@ -68,6 +68,7 @@ Owner thinking control layout, hit targets and shared handle appearance @ 25cc5f
 Owner retraced plugin and restored outline weight @ e82a36c18dff0d14752b7aa14062a757326c7d2b
 Owner recessed thinking rail and optical alignment @ bf7dfb3
 Owner flat rail joins, silhouette centering and directional title @ 1238a73
+Owner shared gauge axis, selected capsules and delicate thinking feedback @ d249fb2
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,

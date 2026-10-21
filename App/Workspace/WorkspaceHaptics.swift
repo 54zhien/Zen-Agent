@@ -24,16 +24,20 @@ final class WorkspaceHaptics {
         case splitCommit
         /// A Composer control (More, Send, Stop) was pressed.
         case control
+        /// A fine, low-weight tick for a Thinking detent or committed selection.
+        case thinkingDetent
     }
 
     private let rigid = UIImpactFeedbackGenerator(style: .rigid)
     private let medium = UIImpactFeedbackGenerator(style: .medium)
     private let heavy = UIImpactFeedbackGenerator(style: .heavy)
+    private let thinking = UIImpactFeedbackGenerator(style: .light)
 
     func prepare() {
         rigid.prepare()
         medium.prepare()
         heavy.prepare()
+        thinking.prepare()
     }
 
     func play(_ moment: Moment) {
@@ -45,6 +49,7 @@ final class WorkspaceHaptics {
         case .splitTarget: rigid.impactOccurred(intensity: 1)
         case .splitCommit: heavy.impactOccurred(intensity: 1)
         case .control: rigid.impactOccurred(intensity: 1)
+        case .thinkingDetent: thinking.impactOccurred(intensity: 0.23)
         }
         prepare()
     }

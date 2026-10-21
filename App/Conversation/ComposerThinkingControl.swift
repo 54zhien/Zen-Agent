@@ -80,19 +80,8 @@ struct ComposerThinkingControl: View {
     }
 
     private func defaultButton(compact: Bool) -> some View {
-        Button { settle(on: nil) } label: {
-            HStack(spacing: 7) {
-                if presentation.selectedThinkingEffort == nil {
-                    Image(systemName: "checkmark").font(.footnote.weight(.semibold))
-                }
-                Text("使用模型默认").font(.system(size: compact ? 17 : 20))
-                    .lineLimit(1).minimumScaleFactor(0.75)
-            }
-            .padding(.horizontal, compact ? 18 : 22).frame(height: 44)
-            .background(.quaternary, in: Capsule())
-        }
-        .accessibilityAddTraits(presentation.selectedThinkingEffort == nil ? .isSelected : [])
-        .accessibilityIdentifier("thinking-level-default")
+        ComposerThinkingDefaultButton(selected: presentation.selectedThinkingEffort == nil,
+                                      compact: compact) { settle(on: nil) }
     }
 
     private func track(thickness: CGFloat) -> some View {
@@ -142,7 +131,7 @@ struct ComposerThinkingControl: View {
         let index = min(max(0, Int(position.rounded())), max(0, efforts.count - 1))
         if efforts.indices.contains(index) { presentation.previewThinkingEffort = efforts[index] }
         let boundary: Int? = bounded <= 0 ? 0 : bounded >= 1 ? efforts.count - 1 : nil
-        if let boundary, dragBoundary != boundary { WorkspaceHaptics.shared.play(.control) }
+        if let boundary, dragBoundary != boundary { WorkspaceHaptics.shared.play(.thinkingDetent) }
         dragBoundary = boundary
     }
 
@@ -183,7 +172,7 @@ struct ComposerThinkingControl: View {
             isSettling = false
             if presentation.selectedThinkingEffort != pendingSelection {
                 presentation.onSelectThinking(pendingSelection)
-                if !fromDrag || !endpoint || !alreadyArrived { WorkspaceHaptics.shared.play(.control) }
+                if !fromDrag || !endpoint || !alreadyArrived { WorkspaceHaptics.shared.play(.thinkingDetent) }
             }
             presentation.previewThinkingEffort = nil
             if endpoint, !fromDrag || !alreadyArrived { endpointPulse &+= 1 }

@@ -65,7 +65,7 @@ struct ComposerThinkingTrack: View, Animatable {
                     let t = Double(index) / Double(max(1, count - 1))
                     Button { onSelect(index) } label: {
                         Circle().fill(t <= fraction ? Color.white.opacity(0.5) : Color.primary.opacity(0.25))
-                            .frame(width: 6, height: 6)
+                            .frame(width: 8, height: 8)
                             .frame(width: hitDiameter, height: hitDiameter).contentShape(Circle())
                     }
                     .buttonStyle(.plain).position(curve.point(at: t))
