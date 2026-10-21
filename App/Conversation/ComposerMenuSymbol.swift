@@ -9,25 +9,35 @@ struct ComposerMenuSymbol: View {
     @ViewBuilder var body: some View {
         switch level {
         case .models:
-            // Explicit shading also resolves inside hosted Liquid Glass content.
+            // A compact network: layered nodes represent a model rather than a generic sparkle.
             Canvas { context, size in
                 let edge = min(size.width, size.height)
-                let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                // A softly twisted four-point sparkle, rather than a brand mark.
-                var path = Path()
-                for step in 0...160 {
-                    let angle = Double(step) / 160 * 2 * .pi
-                    let radius = edge * CGFloat(0.31 + 0.13 * cos(4 * angle))
-                    let twist = angle + 0.18 * sin(4 * angle)
-                    let point = CGPoint(x: center.x + radius * CGFloat(cos(twist)),
-                                        y: center.y + radius * CGFloat(sin(twist)))
-                    if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
+                let origin = CGPoint(x: (size.width - edge) / 2, y: (size.height - edge) / 2)
+                let columns: [[CGPoint]] = [
+                    [CGPoint(x: 0.16, y: 0.30), CGPoint(x: 0.16, y: 0.70)],
+                    [CGPoint(x: 0.50, y: 0.14), CGPoint(x: 0.50, y: 0.50), CGPoint(x: 0.50, y: 0.86)],
+                    [CGPoint(x: 0.84, y: 0.30), CGPoint(x: 0.84, y: 0.70)]
+                ].map { $0.map { CGPoint(x: origin.x + $0.x * edge, y: origin.y + $0.y * edge) } }
+                var connections = Path()
+                let nodeRadius = edge * 0.075
+                for column in 0..<2 {
+                    for start in columns[column] {
+                        for end in columns[column + 1] {
+                            let dx = end.x - start.x, dy = end.y - start.y
+                            let length = hypot(dx, dy)
+                            connections.move(to: CGPoint(x: start.x + dx / length * nodeRadius,
+                                                          y: start.y + dy / length * nodeRadius))
+                            connections.addLine(to: CGPoint(x: end.x - dx / length * nodeRadius,
+                                                            y: end.y - dy / length * nodeRadius))
+                        }
+                    }
                 }
-                path.closeSubpath()
-                context.stroke(path, with: .color(.primary),
-                               style: StrokeStyle(lineWidth: edge * 0.08, lineCap: .round, lineJoin: .round))
-                context.fill(Path(ellipseIn: CGRect(x: center.x - edge * 0.06, y: center.y - edge * 0.06,
-                                 width: edge * 0.12, height: edge * 0.12)), with: .color(.primary))
+                context.stroke(connections, with: .color(.primary),
+                               style: StrokeStyle(lineWidth: edge * 0.045, lineCap: .round))
+                for node in columns.flatMap({ $0 }) {
+                    context.fill(Path(ellipseIn: CGRect(x: node.x - nodeRadius, y: node.y - nodeRadius,
+                        width: nodeRadius * 2, height: nodeRadius * 2)), with: .color(.primary))
+                }
             }
         case .thinking:
             if let thinking { ComposerThinkingIcon(level: thinking, supportedLevels: supportedLevels) }
@@ -39,14 +49,16 @@ struct ComposerMenuSymbol: View {
                     .concatenating(CGAffineTransform(translationX: (size.width - edge) / 2,
                                                     y: (size.height - edge) / 2))
                 var cord = Path()
-                cord.move(to: CGPoint(x: 14, y: 17))
-                cord.addCurve(to: CGPoint(x: 23, y: 17), control1: CGPoint(x: 13, y: 24), control2: CGPoint(x: 23, y: 23))
-                cord.addCurve(to: CGPoint(x: 14, y: 3), control1: CGPoint(x: 27, y: 10), control2: CGPoint(x: 22, y: 3))
+                // Tangent-continuous curves: the tail leaves the plug vertically,
+                // then follows one open loop with clearance around the two pins.
+                cord.move(to: CGPoint(x: 14, y: 16))
+                cord.addCurve(to: CGPoint(x: 24, y: 15), control1: CGPoint(x: 14, y: 23), control2: CGPoint(x: 24, y: 23))
+                cord.addCurve(to: CGPoint(x: 14, y: 3), control1: CGPoint(x: 24, y: 8), control2: CGPoint(x: 21, y: 3))
                 cord.addCurve(to: CGPoint(x: 3, y: 14), control1: CGPoint(x: 8, y: 3), control2: CGPoint(x: 3, y: 7))
-                cord.addCurve(to: CGPoint(x: 18, y: 25), control1: CGPoint(x: 3, y: 22), control2: CGPoint(x: 10, y: 27))
-                var plug = Path(roundedRect: CGRect(x: 10, y: 10, width: 8, height: 7), cornerRadius: 2)
-                plug.move(to: CGPoint(x: 12, y: 10)); plug.addLine(to: CGPoint(x: 12, y: 6))
-                plug.move(to: CGPoint(x: 16, y: 10)); plug.addLine(to: CGPoint(x: 16, y: 6))
+                cord.addCurve(to: CGPoint(x: 15, y: 25), control1: CGPoint(x: 3, y: 21), control2: CGPoint(x: 8, y: 25))
+                var plug = Path(roundedRect: CGRect(x: 10, y: 10, width: 8, height: 6), cornerRadius: 2)
+                plug.move(to: CGPoint(x: 12, y: 10)); plug.addLine(to: CGPoint(x: 12, y: 7))
+                plug.move(to: CGPoint(x: 16, y: 10)); plug.addLine(to: CGPoint(x: 16, y: 7))
                 let stroke = StrokeStyle(lineWidth: edge * 0.075, lineCap: .round, lineJoin: .round)
                 context.stroke(cord.applying(transform), with: .color(.primary), style: stroke)
                 context.stroke(plug.applying(transform), with: .color(.primary), style: stroke)
@@ -54,6 +66,8 @@ struct ComposerMenuSymbol: View {
             .rotationEffect(.degrees(-45))
         case .files:
             Image(systemName: "paperclip").resizable().scaledToFit().fontWeight(.medium)
+                // Shorten the tall SF silhouette while retaining its familiar double loop.
+                .scaleEffect(x: 1, y: 0.82)
         case .images:
             Image(systemName: "photo.on.rectangle.angled").resizable().scaledToFit().fontWeight(.medium)
         case .actions:
