@@ -135,6 +135,9 @@ struct SidebarRailView: View {
         .foregroundStyle(.primary)
         .disabled(!isInteractive || !conversationActions.contains(action))
         .accessibilityLabel(label).accessibilityIdentifier(identifier)
+        // The semantic control owns assistive targeting, independently of the
+        // native interaction descendants introduced by the glass label/group.
+        .accessibilityActivationPoint(UnitPoint.center)
     }
 
     private func destination(_ route: WorkspaceOverlayRoute, symbol: String,
@@ -155,6 +158,7 @@ struct SidebarRailView: View {
         .disabled(!isInteractive || !availableRoutes.contains(route))
         .accessibilityLabel(label)
         .accessibilityIdentifier(identifier)
+        .accessibilityActivationPoint(UnitPoint.center)
     }
 
     private func controlIcon(_ symbol: String) -> some View {
@@ -176,8 +180,5 @@ private struct SidebarRailButtonStyle: ButtonStyle {
             .opacity(unavailable ? 0.35 : 1)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.92 : 1)
             .animation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0.3), value: configuration.isPressed)
-            // Keep the Button's full control target outside its native glass
-            // label, whose interaction view is not the semantic Button action.
-            .contentShape(.interaction, Rectangle())
     }
 }

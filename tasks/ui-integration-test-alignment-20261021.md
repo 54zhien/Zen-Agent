@@ -239,3 +239,20 @@ outside the styled native-glass label, rather than only before glass application
 inside the icon. It changes no layout, rendering, spring, feedback, admission or
 route. This is a hypothesis under native test, not a claimed repair. Original AX
 and real Settings-route assertions remain unchanged.
+
+The rectangular candidate `4fb1f68`, native run `39648934499`, **did not fix**
+the AX failure: one case, the same two AX failures, coordinate route true.
+Artifact `12370475660`, digest
+`sha256:f5c7b8055ea0a426866d664f7181a95742c41fb1d963b45bab8d48590faacaa2`.
+Remove that ineffective modifier rather than accumulating changes.
+
+The next isolated candidate fixes each semantic Button's accessibility activation
+point to its own relative center, retaining the original content shape and glass.
+Apple documents that the default activation point may derive from descendants
+instead of the accessibility frame center:
+https://developer.apple.com/documentation/swiftui/view/accessibilityactivationpoint(_:)-9l0w0
+The observed native glass hierarchy includes a zero-sized intermediary while the
+semantic frame and working coordinate center are finite. Descendant-derived
+activation is therefore a hypothesis to test; it is not yet an established cause.
+This changes accessibility gesture targeting, not drawing, physical hit shape,
+animation, haptics or route/admission. Preserve both AX and route assertions.
