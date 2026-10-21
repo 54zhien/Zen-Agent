@@ -75,6 +75,7 @@ Owner tremulous resonance and immediate default feedback @ 73cec91
 Owner longer rising thinking resonance @ 798de08
 Owner sustained thinking hum and midpoint title @ 6397aa2
 Owner softer sustained hum and plain default capsule @ a74e62a
+Owner smaller model selection background corners @ f5b2b2e
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
