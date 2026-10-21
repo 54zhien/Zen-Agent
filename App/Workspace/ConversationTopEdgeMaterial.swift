@@ -15,6 +15,7 @@ final class ConversationTopEdgeMaterial: UIImageView {
     private var suspended = false
     private var navigationActive = false
     private var resizeActive = false
+    private var inputDescents: Set<ObjectIdentifier> = []
     private var dirty = true
     private var renderer: UIGraphicsImageRenderer?
     private var rendererSize = CGSize.zero
@@ -62,6 +63,8 @@ final class ConversationTopEdgeMaterial: UIImageView {
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) {
             (view: ConversationTopEdgeMaterial, _: UITraitCollection) in view.invalidate()
         }
+        NotificationCenter.default.addObserver(self, selector: #selector(inputDescentChanged(_:)),
+            name: ComposerKeyboardMenuSession.descentActivityChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(pause),
             name: UIApplication.willResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(resume),
@@ -129,6 +132,21 @@ final class ConversationTopEdgeMaterial: UIImageView {
         if !value { dirty = true }
         updateClock()
     }
+    @objc private func inputDescentChanged(_ notification: Notification) {
+        guard let session = notification.object as? ComposerKeyboardMenuSession else { return }
+        let token = ObjectIdentifier(session)
+        if session.isAnimatingInputDescent {
+            guard let window, session.decorationWindow === window else { return }
+            inputDescents.insert(token)
+        } else {
+            guard inputDescents.remove(token) != nil else { return }
+        }
+        // Reuse the Gaussian strip during input motion. Completion and all
+        // session cancellation paths release the same identity token.
+        dirty = true
+        updateClock()
+    }
+
     @objc private func pause() {
         suspended = true
 #if DEBUG
@@ -143,7 +161,7 @@ final class ConversationTopEdgeMaterial: UIImageView {
 #if DEBUG
         if window == nil { scrolling = false }
 #endif
-        if window == nil { image = nil; renderTask?.cancel() }
+        if window == nil { inputDescents.removeAll(); image = nil; renderTask?.cancel() }
         invalidate()
     }
     override func layoutSubviews() {
@@ -151,17 +169,17 @@ final class ConversationTopEdgeMaterial: UIImageView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let changed = lastBounds != bounds
-        fade.frame = bounds
+        if changed { fade.frame = bounds }
         lastBounds = bounds
         CATransaction.commit()
         if changed {
-            if resizeActive { dirty = true; updateClock() }
+            if resizeActive || !inputDescents.isEmpty { dirty = true; updateClock() }
             else { invalidate() }
         }
     }
 
     private func updateClock() {
-        let active = dirty && renderTask == nil && visible && !suspended && !navigationActive && !resizeActive && window != nil && source?.window === window
+        let active = dirty && renderTask == nil && visible && !suspended && !navigationActive && !resizeActive && inputDescents.isEmpty && window != nil && source?.window === window
             && UIApplication.shared.applicationState == .active
             && bounds.width > 0 && bounds.height > 0 && safeTop > 0
         guard active else { displayLink?.invalidate(); displayLink = nil; return }
@@ -173,7 +191,7 @@ final class ConversationTopEdgeMaterial: UIImageView {
     }
 
     func refreshIfNeeded() {
-        guard dirty, renderTask == nil, visible, !suspended, !navigationActive, !resizeActive, let source, let window,
+        guard dirty, renderTask == nil, visible, !suspended, !navigationActive, !resizeActive, inputDescents.isEmpty, let source, let window,
               source.window === window, bounds.width > 0, bounds.height > 0 else { return }
         guard UIApplication.shared.applicationState == .active else { return }
         // A failed snapshot consumes its invalidation too. Only a new content,
@@ -238,6 +256,7 @@ final class ConversationTopEdgeMaterial: UIImageView {
             guard let self else { return }
             self.renderTask = nil
             defer { self.updateClock() }
+            guard self.inputDescents.isEmpty else { self.dirty = true; return }
             guard !Task.isCancelled, self.visible, !self.suspended, self.revision == ticket,
                   self.source.map(ObjectIdentifier.init) == sourceID,
                   self.window.map(ObjectIdentifier.init) == windowID, self.bounds == frame else { return }
