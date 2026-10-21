@@ -15,3 +15,12 @@ Blueprint ruling: `05df074abc0dfa5df26dfb8966431a2800533d2b` on the existing own
 ## Validation
 
 Static diff review and unsigned macOS device build/package pending. No tests or simulator visual probes will run. Device appearance remains pending.
+
+## Build and delivery receipt
+
+- Application source: `b08b3304b5d42b28b63a20cdcc2483b55ad8b30d`; packaging SHA: `3bbd20359c68934ab98d4d6006a12d9d4f991acf`.
+- https://github.com/54zhien/Zen-Agent/actions/runs/39536108926 succeeded: XcodeGen generation, unsigned generic iOS device build with Xcode 26.6, IPA packaging/upload.
+- Final read-only review found no blocking or Important finding. Primary expansion, collapse and child text-layout sections were preserved; medium-sheet row calculations remain equivalent.
+- Downloaded `ZenAgent-Composer-20-1.ipa`, CFBundleVersion `20.1`, unsigned Debug, arm64, iOS 26.0+. Recorded source, bundle ID/version and SHA256SUMS match.
+- SHA-256: `61382806b841e894466ee8c7934f196d2724149cbbd742fc106ed01a749afcb8`.
+- No tests or simulator visual probes ran. Device visual acceptance remains pending. No main merge performed.
