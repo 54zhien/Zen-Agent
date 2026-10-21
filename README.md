@@ -79,6 +79,7 @@ Owner smaller model selection background corners @ f5b2b2e
 Owner input-first Sidebar dismissal and animated sheet exit @ 899c821
 Owner message symbol for new conversation @ bec8ccf
 Owner Composer anchor following sheet descent @ b6cf5db
+Owner system-animated Composer descent @ 883ae2a
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,

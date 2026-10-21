@@ -16,20 +16,19 @@ final class ComposerKeyboardMenuSession: NSObject {
     private weak var window: UIWindow?
     private let windowSize: CGSize
     private let presenter: ComposerKeyboardMenuPresenter
-    private let onReservation: (CGFloat?) -> Void
+    private let onReservation: (CGFloat?, UIViewPropertyAnimator?) -> Void
     private let onGlyph: (Bool, Bool) -> Void
     private let onFinish: (ComposerKeyboardMenuSession) -> Void
     private var returnsToKeyboard = false
     private var endingInput = false
-    private var descentTracking: ComposerInputDescentTracking?
-    var isTrackingInputDescent: Bool { descentTracking != nil }
+    private(set) var isAnimatingInputDescent = false
     private var watchdog: Task<Void, Never>?
     private(set) var reservedTop: CGFloat?
     var permitsNativeFocus: Bool { !isSuspended && phase == .restoringKeyboard }
 
     init(editor: UITextView, window: UIWindow, height: CGFloat,
          presenter: ComposerKeyboardMenuPresenter,
-         onReservation: @escaping (CGFloat?) -> Void,
+         onReservation: @escaping (CGFloat?, UIViewPropertyAnimator?) -> Void,
          onGlyph: @escaping (Bool, Bool) -> Void,
          onFinish: @escaping (ComposerKeyboardMenuSession) -> Void) {
         self.editor = editor
@@ -63,7 +62,7 @@ final class ComposerKeyboardMenuSession: NSObject {
     deinit { NotificationCenter.default.removeObserver(self) }
 
     func start() {
-        onReservation(reservedTop)
+        onReservation(reservedTop, nil)
         onGlyph(true, true)
         // Let the published reservation reach the Workspace before asking UIKit
         // to change its safe area. This is scheduling, not an animation timer.
@@ -96,11 +95,12 @@ final class ComposerKeyboardMenuSession: NSObject {
             switch phase {
             case .showingMenu, .menu:
                 phase = .hidingMenu
-                trackInputDescent()
-                presenter.dismiss(animated: true) { [weak self] in self?.completeInputDescent() }
+                presenter.dismiss(animated: true, alongside: { [weak self] animator in
+                    self?.animateInputDescent(using: animator)
+                }) { [weak self] in self?.finish(resign: true) }
             case .hidingMenu:
                 // The existing close animation will observe the new destination.
-                trackInputDescent()
+                animateInputDescent(using: presenter.inputDismissalAnimator)
                 break
             case .preparing, .hidingKeyboard, .restoringKeyboard, .finished:
                 finish(resign: true)
@@ -119,7 +119,7 @@ final class ComposerKeyboardMenuSession: NSObject {
             phase = .hidingMenu
             presenter.dismiss(animated: animated) { [weak self] in
                 guard let self else { return }
-                if self.endingInput { self.completeInputDescent() }
+                if self.endingInput { self.finish(resign: true) }
                 else { self.restoreKeyboard() }
             }
         case .hidingMenu, .restoringKeyboard, .finished:
@@ -211,7 +211,7 @@ final class ComposerKeyboardMenuSession: NSObject {
                 let curve = (info[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.uintValue ?? 0
                 UIView.animate(withDuration: duration, delay: 0,
                     options: UIView.AnimationOptions(rawValue: curve << 16).union([.beginFromCurrentState])) {
-                    self.onReservation(self.reservedTop)
+                    self.onReservation(self.reservedTop, nil)
                 }
             }
         } else if phase == .showingMenu || phase == .menu {
@@ -279,7 +279,7 @@ final class ComposerKeyboardMenuSession: NSObject {
         if let owner = inputOwner(in: window), owner !== editor { finish(resign: false); return }
         isSuspended = false
         presenter.resume()
-        onReservation(reservedTop)
+        onReservation(reservedTop, nil)
         onGlyph(true, false)
     }
 
@@ -291,40 +291,26 @@ final class ComposerKeyboardMenuSession: NSObject {
         return root.convert(root.keyboardLayoutGuide.layoutFrame, to: window).minY
     }
 
-    private func trackInputDescent() {
-        guard descentTracking == nil, !UIAccessibility.isReduceMotionEnabled,
-              let startTop = reservedTop else { return }
-        let target = presenter.inputDescentTarget
-        descentTracking = ComposerInputDescentTracking(sheet: target.sheet, travel: target.travel) { [weak self] progress in
-            guard let self, self.phase == .hidingMenu, self.endingInput,
-                  self.isAttached, let endTop = self.nativeInputTop else { return }
-            self.reservedTop = startTop + (endTop - startTop) * progress
-            self.onReservation(self.reservedTop)
-        }
-    }
-
-    private func completeInputDescent() {
-        guard phase != .finished else { return }
-        // Publish the exact native endpoint before removing the override; the
-        // last display-link sample can precede the animator's completion.
-        if descentTracking != nil, isAttached, let endTop = nativeInputTop {
-            reservedTop = endTop
-            onReservation(endTop)
-        }
-        finish(resign: true)
+    private func animateInputDescent(using animator: UIViewPropertyAnimator?) {
+        guard phase == .hidingMenu, endingInput, isAttached,
+              let endTop = nativeInputTop else { return }
+        isAnimatingInputDescent = animator != nil
+        // Set one model endpoint. UIKit owns all intermediate Composer frames;
+        // the viewport receives one matching SwiftUI animation transaction.
+        reservedTop = endTop
+        onReservation(endTop, animator)
     }
 
     private func finish(resign: Bool) {
         guard phase != .finished else { return }
         phase = .finished
-        descentTracking?.stop()
-        descentTracking = nil
+        isAnimatingInputDescent = false
         watchdog?.cancel()
         watchdog = nil
         presenter.removeFromWindow()
         if resign { editor?.resignFirstResponder() }
         reservedTop = nil
-        onReservation(nil)
+        onReservation(nil, nil)
         onGlyph(false, false)
         onFinish(self)
     }

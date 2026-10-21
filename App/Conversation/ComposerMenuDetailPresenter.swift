@@ -22,9 +22,10 @@ final class ComposerMenuDetailPresenter: UIViewController {
     private var removed = false
     private var returnsToMenu = true
     private var inputDismissalCompletion: (() -> Void)?
+    private var inputDismissalAnimations: ((UIViewPropertyAnimator?) -> Void)?
     private var installedSize = CGSize.zero
 
-    var inputDescentTarget: (sheet: UIView, travel: CGFloat) { (sheet, height) }
+    var inputDismissalAnimator: UIViewPropertyAnimator? { closing && !removed ? animator : nil }
 
     init(level: ComposerActionMenuLevel, presentation: ComposerActionMenuState, height: CGFloat, compactThinking: Bool = false,
          onSelect: @escaping (ModelID) -> Void,
@@ -132,14 +133,17 @@ final class ComposerMenuDetailPresenter: UIViewController {
 
     @objc private func closeTapped() { dismissSheet(animated: true) }
 
-    func dismissForInputClosure(animated: Bool, completion: @escaping () -> Void) {
+    func dismissForInputClosure(animated: Bool, alongside: ((UIViewPropertyAnimator?) -> Void)? = nil,
+                                completion: @escaping () -> Void) {
         guard !removed else { completion(); return }
         returnsToMenu = false
         inputDismissalCompletion = completion
         if closing {
+            alongside?(animated ? animator : nil)
             if !animated { finish() }
             return
         }
+        inputDismissalAnimations = alongside
         dismissSheet(animated: animated)
     }
 
@@ -154,6 +158,8 @@ final class ComposerMenuDetailPresenter: UIViewController {
         presentation.activeLevel = .actions
         presentation.previewThinkingEffort = nil
         guard animated, !UIAccessibility.isReduceMotionEnabled else {
+            inputDismissalAnimations?(nil)
+            inputDismissalAnimations = nil
             if returnsToMenu { onReturn(nil) }
             finish()
             return
@@ -164,6 +170,8 @@ final class ComposerMenuDetailPresenter: UIViewController {
             self.outside.backgroundColor = .clear
         }
         animator = animation
+        inputDismissalAnimations?(animation)
+        inputDismissalAnimations = nil
         // The retained parent joins this animator; teardown cancels both halves.
         if returnsToMenu { onReturn(animation) }
         animation.addCompletion { [weak self] position in
@@ -197,6 +205,7 @@ final class ComposerMenuDetailPresenter: UIViewController {
         removed = true
         closing = true
         inputDismissalCompletion = nil
+        inputDismissalAnimations = nil
         // Invalidate pending SwiftUI snap completions synchronously; UIKit
         // removal can precede the hosted view's onDisappear cancellation.
         presentation.activeLevel = .actions
