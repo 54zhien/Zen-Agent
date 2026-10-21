@@ -794,8 +794,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 onAdjust: { increment in resize.adjust(model: model, increment: increment, minimumRatio: minimum) },
                 axis: split.axis,
                 onAxis: layoutContext?.isPad == true ? { axis in resize.changeAxis(model: model, to: axis) } : nil,
-                resizeDiagnostic: resizeDiagnostic, sidebarProgress: sidebarProgress,
-                fadesHandleWithSidebar: colorScheme == .dark)
+                resizeDiagnostic: resizeDiagnostic, sidebarProgress: sidebarProgress)
                 .frame(width: horizontal ? 28 : min(64, layout.viewport.width * 0.2),
                        height: horizontal ? min(64, layout.viewport.height * 0.2) : 28)
         .frame(width: layout.divider.width, height: layout.divider.height)
