@@ -23,3 +23,13 @@ Owner approved research recommendation: real system keyboard descent, then app-s
 Implementation written; static review and macOS package result pending. Blueprint amendment `ea2079ab6ac61dd0c145a0773f5c7adb491454ed` follows the approved current request and supersedes the prior retained-inputView ruling.
 
 Static review found a restoration focus-loss path that otherwise retained its reservation until the watchdog. Native didEndEditing now tells the session to cancel immediately when restoration was in progress; expected didEnd during initial keyboard descent still retains Editing. No tests were run.
+
+## Final build and delivery receipt
+
+- Application source: `87b2124ee0191be004bfbbc675e762db8ff8d9cb`; packaging SHA: `923a340b497194fb6ca026e9420f565410fa453f`.
+- Build/package https://github.com/54zhien/Zen-Agent/actions/runs/39534969087 succeeded. XcodeGen generation and generic iOS device build used Xcode 26.6. No test suites or simulator visual probes ran.
+- Earlier run 39534767903 was cancelled when superseded by the restoration focus-loss fix. It is not counted as a successful build or test result.
+- Final read-only review found no remaining blocker, including the focus-loss correction and viewport cap math. This is static review, not runtime proof.
+- Downloaded `ZenAgent-Composer-19-1.ipa`, bundle version `19.1`, unsigned Debug, arm64, iOS 26.0+. Recorded source, bundle ID/version and SHA256SUMS matched the local artifact.
+- SHA-256: `7cbf8fd7484d92818b8f64e64e3ece6957e34e6f72934aaebcfa4be178cd38a2`.
+- Third-party keyboard descent, sequential menu ascent, rapid switching and Split/Composer visual stability remain on-device acceptance items. No main merge performed.
