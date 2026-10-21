@@ -107,7 +107,7 @@ final class ComposerMotionUITests: XCTestCase {
         let openedPanel = panel.waitForExistence(timeout: 5)
         print("KEYBOARD_MENU_HANDOFF \(app.otherElements["composer-geometry-probe"].value ?? "missing probe")")
         XCTAssertTrue(openedPanel)
-        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 8))
+        // A custom inputView may remain in the system Keyboard AX container.
         let sheet = app.otherElements["composer-keyboard-sheet"]
         guard sheet.waitForExistence(timeout: 5) else {
             XCTFail("The keyboard must be replaced by the bottom sheet")
@@ -130,7 +130,7 @@ final class ComposerMotionUITests: XCTestCase {
         app.buttons["思考"].tap()
         let thinkingPicker = app.descendants(matching: .any)["composer-thinking-picker"]
         XCTAssertTrue(thinkingPicker.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        XCTAssertEqual(input.frame.maxY, inputBottom, accuracy: 2)
         let thinkingButtons = app.buttons.matching(NSPredicate(format: "label == %@", "思考"))
         XCTAssertEqual(thinkingButtons.count, 1, thinkingButtons.debugDescription)
         thinkingPicker.buttons["思考"].tap()
@@ -140,7 +140,7 @@ final class ComposerMotionUITests: XCTestCase {
         XCTAssertTrue(thinkingPicker.waitForExistence(timeout: 5))
         app.buttons["thinking-level-medium"].tap()
         XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
-        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
         XCTAssertEqual(input.value as? String, "menu draft")
         input.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
@@ -149,7 +149,7 @@ final class ComposerMotionUITests: XCTestCase {
         XCTAssertEqual(app.buttons["思考"].value as? String, "中")
         plus.tap()
         XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
-        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
         XCTAssertEqual(input.value as? String, "menu draft")
         input.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
@@ -185,7 +185,7 @@ final class ComposerMotionUITests: XCTestCase {
         XCTAssertTrue(second.waitForNonExistence(timeout: 5))
         XCTAssertTrue(panel.waitForNonExistence(timeout: 5))
         XCTAssertTrue(plus.isHittable)
-        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
         XCTAssertEqual(input.value as? String, "menu draft")
         plus.tap()
         XCTAssertTrue(title.waitForExistence(timeout: 5))

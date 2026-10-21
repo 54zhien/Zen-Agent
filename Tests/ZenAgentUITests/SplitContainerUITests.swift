@@ -26,7 +26,6 @@ final class SplitContainerUITests: XCTestCase {
                 source.swipeUp(velocity: .fast)
             }
             XCTAssertTrue(lastMessage.exists && lastMessage.isHittable)
-            let paneTopWithoutKeyboard = source.frame.minY
             let input = app.textViews["conversation-composer-input"]
             input.tap()
             XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
@@ -44,7 +43,6 @@ final class SplitContainerUITests: XCTestCase {
             plus.tap()
             let sheet = app.otherElements["composer-keyboard-sheet"]
             XCTAssertTrue(sheet.waitForExistence(timeout: 5))
-            XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 8))
             let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
             expect {
                 guard let value = probe.value as? String,
@@ -65,8 +63,8 @@ final class SplitContainerUITests: XCTestCase {
             add(image)
             plus.tap()
             XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
-            XCTAssertFalse(app.keyboards.firstMatch.exists)
-            if split { expect { abs(source.frame.minY - paneTopWithoutKeyboard) <= 2 } }
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+            if split { expect { abs(source.frame.minY - paneTopWithKeyboard) <= 2 } }
             XCTAssertEqual(input.value as? String, "sheet occlusion draft")
             app.terminate()
         }

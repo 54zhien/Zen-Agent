@@ -1,8 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// Owns the keyboard-sized surface without moving or replacing the retained editor.
-/// Its overlay passes touches through above the sheet, including to the real + button.
+/// A custom input view owned by the retained editor, using UIKit keyboard avoidance.
+/// Switching input views never resigns the editor or adds a second window overlay.
 @MainActor
 final class ComposerKeyboardMenuPresenter: UIViewController {
     private let height: CGFloat
@@ -17,7 +17,10 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
     private var models: UIHostingController<ComposerActionMenuView>?
     private var childGlass: UIVisualEffectView?
     private var installedSize = CGSize.zero
-    private var awaitingKeyboard = true
+    private weak var sourceWindow: UIWindow?
+    private var cornerRadius: CGFloat = 0
+    private var bottomInset: CGFloat = 0
+    private var laidOutBounds = CGRect.null
     private var isClosing = false
     private var didDismiss = false
     private var restoresKeyboard = false
@@ -36,18 +39,15 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func loadView() {
-        let overlay = ComposerKeyboardMenuOverlay()
-        overlay.sheet = sheet
-        overlay.onEscape = { [weak self] in self?.close() }
-        overlay.backgroundColor = .clear
-        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view = overlay
+        let input = ComposerMenuInputView(height: height)
+        input.onEscape = { [weak self] in self?.close() }
+        input.onLayout = { [weak self] in self?.layoutInput() }
+        view = input
         sheet.accessibilityIdentifier = "composer-keyboard-sheet"
         sheet.shouldGroupAccessibilityChildren = true
         sheet.accessibilityContainerType = .semanticGroup
         view.addSubview(sheet)
         sheet.addSubview(glass)
-        glass.cornerConfiguration = .corners(radius: .fixed(34))
         glass.clipsToBounds = true
         handle.backgroundColor = .tertiaryLabel
         handle.layer.cornerRadius = 2.5
@@ -60,58 +60,55 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
 
     deinit { NotificationCenter.default.removeObserver(self) }
 
-    func occupiedFrame(in window: UIWindow) -> CGRect? {
-        guard viewIfLoaded?.window === window, !didDismiss else { return nil }
-        return CGRect(x: window.bounds.minX, y: window.bounds.maxY - height,
-                      width: window.bounds.width, height: height)
-    }
-
-    func show(in window: UIWindow, style: UIUserInterfaceStyle) {
+    func prepare(in window: UIWindow, style: UIUserInterfaceStyle, screenRadius: CGFloat) {
         loadViewIfNeeded()
         overrideUserInterfaceStyle = style
-        presentation.activeLevel = .actions
+        view.overrideUserInterfaceStyle = style
+        sourceWindow = window
         installedSize = window.bounds.size
-        view.frame = window.bounds
-        sheet.frame = CGRect(x: 0, y: view.bounds.maxY - height,
-                             width: view.bounds.width, height: height)
-        glass.frame = sheet.bounds.inset(by: UIEdgeInsets(top: 0, left: 6, bottom: 8, right: 6))
-        handle.frame = CGRect(x: glass.bounds.midX - 22, y: 8, width: 44, height: 5)
-        beginAppearanceTransition(true, animated: false)
-        window.addSubview(view)
+        bottomInset = window.safeAreaInsets.bottom
+        // The glass is inset equally from the display's side and bottom edges.
+        cornerRadius = max(0, screenRadius - 6)
+        presentation.activeLevel = .actions
+        view.frame = CGRect(x: 0, y: 0, width: window.bounds.width, height: height)
+        layoutInput()
         actions = install(.actions, in: glass)
-        endAppearanceTransition()
-        sheet.transform = CGAffineTransform(translationX: 0, y: height)
     }
 
-    /// The resign notification supplies the keyboard's real duration and curve.
-    func reveal(duration: TimeInterval, options: UIView.AnimationOptions) {
-        guard awaitingKeyboard, !isClosing else { return }
-        awaitingKeyboard = false
-        UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : duration,
-                       delay: 0, options: options.union([.beginFromCurrentState, .allowUserInteraction])) {
-            self.sheet.transform = .identity
-        } completion: { [weak self] _ in
-            guard let self, !self.isClosing else { return }
-            UIAccessibility.post(notification: .layoutChanged, argument: self.actions?.view)
+    private func layoutInput() {
+        guard !isClosing, !didDismiss else { return }
+        if let sourceWindow, sourceWindow.bounds.size != installedSize {
+            // A rotated window needs the system keyboard's new height. Defer the
+            // input-view replacement until outside UIKit's current layout pass.
+            Task { @MainActor [weak self] in self?.close(animated: false) }
+            return
+        }
+        guard view.bounds != laidOutBounds else { return }
+        laidOutBounds = view.bounds
+        sheet.frame = view.bounds
+        glass.frame = sheet.bounds.inset(by: UIEdgeInsets(top: 0, left: 6, bottom: 6, right: 6))
+        glass.cornerConfiguration = .corners(radius: .fixed(cornerRadius))
+        handle.frame = CGRect(x: glass.bounds.midX - 22, y: 8, width: 44, height: 5)
+        childGlass?.frame = glass.bounds
+        if let actions {
+            actions.view.frame = contentFrame(for: .actions)
+            actions.rootView = menuView(.actions)
+        }
+        if let models {
+            models.view.frame = contentFrame(for: presentation.activeLevel)
+            models.rootView = menuView(presentation.activeLevel)
         }
     }
 
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        // A rotation invalidates the measured keyboard height. Release the old
-        // reservation rather than carrying it into a differently sized viewport.
-        if installedSize != .zero, view.bounds.size != installedSize { close(animated: false) }
+    private func contentFrame(for level: ComposerActionMenuLevel) -> CGRect {
+        if level == .actions { return glass.bounds }
+        return glass.bounds.inset(by: UIEdgeInsets(top: 24, left: 0,
+            bottom: max(8, bottomInset - 6), right: 0))
     }
 
-    private var contentFrame: CGRect {
-        let bottom = max(8, (view.window?.safeAreaInsets.bottom ?? 0) - 8)
-        return glass.bounds.inset(by: UIEdgeInsets(top: 24, left: 0, bottom: bottom, right: 0))
-    }
-
-    private func install(_ level: ComposerActionMenuLevel,
-                         in material: UIVisualEffectView) -> UIHostingController<ComposerActionMenuView> {
-        let content = UIHostingController(rootView: ComposerActionMenuView(
-            level: level, presentation: presentation, maximumSize: contentFrame.size,
+    private func menuView(_ level: ComposerActionMenuLevel) -> ComposerActionMenuView {
+        ComposerActionMenuView(
+            level: level, presentation: presentation, maximumSize: contentFrame(for: level).size,
             onSelect: { [weak self] modelID in
                 guard let self, !self.isClosing else { return }
                 WorkspaceHaptics.shared.play(.control)
@@ -119,12 +116,18 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
                 self.close()
             }, onOpenModels: { [weak self] _ in self?.openDetails(.models) },
             onReturn: { [weak self] in self?.returnToActions() }, keyboardSheet: true,
-            onOpenThinking: { [weak self] _ in self?.openDetails(.thinking) }))
+            sheetCornerRadius: cornerRadius,
+            onOpenThinking: { [weak self] _ in self?.openDetails(.thinking) })
+    }
+
+    private func install(_ level: ComposerActionMenuLevel,
+                         in material: UIVisualEffectView) -> UIHostingController<ComposerActionMenuView> {
+        let content = UIHostingController(rootView: menuView(level))
         content.safeAreaRegions = []
         content.view.backgroundColor = .clear
         addChild(content)
         material.contentView.addSubview(content.view)
-        content.view.frame = contentFrame
+        content.view.frame = contentFrame(for: level)
         content.didMove(toParent: self)
         return content
     }
@@ -179,36 +182,21 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
         }
     }
 
-    func close(restoringKeyboard: Bool = false, animated: Bool = true) {
+    func close(restoringKeyboard: Bool = true, animated: Bool = true) {
         guard !didDismiss else { return }
-        restoresKeyboard = restoresKeyboard || restoringKeyboard
-        if isClosing {
-            if !animated { finishClose() }
-            return
-        }
         isClosing = true
-        onClosing(animated)
-        guard animated, !UIAccessibility.isReduceMotionEnabled else { finishClose(); return }
-        UIView.animate(withDuration: 0.25, delay: 0,
-                       options: [.beginFromCurrentState, .allowUserInteraction]) {
-            self.sheet.transform = CGAffineTransform(translationX: 0, y: self.height)
-        } completion: { [weak self] _ in self?.finishClose() }
-    }
-
-    private func finishClose() {
-        guard !didDismiss else { return }
         didDismiss = true
-        sheet.layer.removeAllAnimations()
+        restoresKeyboard = restoringKeyboard
+        onClosing(animated)
+        // UIKit replaces the input view directly. A separate slide-out would
+        // leave an empty input region before the keyboard returns.
+        onDismiss(self, restoresKeyboard)
         if let models { remove(models) }
         if let actions { remove(actions) }
         models = nil
         actions = nil
         childGlass?.removeFromSuperview()
         childGlass = nil
-        beginAppearanceTransition(false, animated: false)
-        view.removeFromSuperview()
-        endAppearanceTransition()
-        onDismiss(self, restoresKeyboard)
     }
 
     private func remove(_ content: UIViewController) {
@@ -217,17 +205,42 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
         content.removeFromParent()
     }
 
-    @objc private func deactivate() { close(animated: false) }
+    @objc private func deactivate() { close(restoringKeyboard: false, animated: false) }
 }
 
 @MainActor
-private final class ComposerKeyboardMenuOverlay: UIView {
-    weak var sheet: UIView?
+private final class ComposerMenuInputView: UIInputView {
+    private let occupiedHeight: CGFloat
     var onEscape: (() -> Void)?
+    var onLayout: (() -> Void)?
 
-    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        guard let sheet else { return false }
-        return sheet.point(inside: convert(point, to: sheet), with: event)
+    init(height: CGFloat) {
+        occupiedHeight = height
+        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: height), inputViewStyle: .default)
+        allowsSelfSizing = true
+        backgroundColor = .clear
+        isOpaque = false
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: occupiedHeight)
+    }
+
+    override func systemLayoutSizeFitting(_ targetSize: CGSize) -> CGSize {
+        CGSize(width: targetSize.width, height: occupiedHeight)
+    }
+
+    override func systemLayoutSizeFitting(_ targetSize: CGSize,
+        withHorizontalFittingPriority horizontalFittingPriority: UILayoutPriority,
+        verticalFittingPriority: UILayoutPriority) -> CGSize {
+        CGSize(width: targetSize.width, height: occupiedHeight)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?()
     }
 
     override func accessibilityPerformEscape() -> Bool {

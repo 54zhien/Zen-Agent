@@ -37,11 +37,12 @@ struct ComposerActionMenuView: View {
     let onOpenModels: (CGRect) -> Void
     let onReturn: () -> Void
     var keyboardSheet = false
+    var sheetCornerRadius: CGFloat = 0
     var onOpenThinking: (CGRect) -> Void = { _ in }
     @State private var modelRow = CGRect.zero
     @State private var thinkingRow = CGRect.zero
     @ScaledMetric(relativeTo: .body) private var leading: CGFloat = 32
-    @ScaledMetric(relativeTo: .body) private var iconDiameter: CGFloat = 38
+    @ScaledMetric(relativeTo: .body) private var iconDiameter: CGFloat = 44
 
     var body: some View {
         // Each native panel keeps a fixed level; a child never replaces its parent.
@@ -57,7 +58,7 @@ struct ComposerActionMenuView: View {
         .buttonStyle(.plain)
         .frame(width: maximumSize.width)
         .frame(maxHeight: maximumSize.height)
-        .fixedSize(horizontal: false, vertical: true)
+        .fixedSize(horizontal: false, vertical: !keyboardSheet)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(panelIdentifier)
         .accessibilityHidden(level != presentation.activeLevel)
@@ -82,6 +83,12 @@ struct ComposerActionMenuView: View {
             ScrollView { actionRows }.scrollBounceBehavior(.basedOnSize)
         }
         .frame(width: maximumSize.width)
+        .frame(height: keyboardSheet ? maximumSize.height : nil)
+    }
+
+    private var sheetIconCenter: CGFloat { max(sheetCornerRadius, iconDiameter / 2 + 12) }
+    private var sheetRowHeight: CGFloat {
+        max(iconDiameter + 8, (maximumSize.height - 2 * sheetIconCenter) / 4)
     }
 
     private var actionRows: some View {
@@ -100,7 +107,7 @@ struct ComposerActionMenuView: View {
                 unavailable("添加图片", symbol: "photo.on.rectangle.angled")
             }
         }
-        .padding(.vertical, keyboardSheet ? 0 : 12)
+        .padding(.vertical, keyboardSheet ? max(0, sheetIconCenter - sheetRowHeight / 2) : 12)
         .frame(width: maximumSize.width)
     }
 
@@ -144,7 +151,7 @@ struct ComposerActionMenuView: View {
         HStack(spacing: 12) {
             if keyboardSheet {
                 menuSymbol(symbol)
-                    .frame(width: 21, height: 21)
+                    .frame(width: 25, height: 25)
                     .frame(width: iconDiameter, height: iconDiameter)
                     .background(Color(uiColor: .secondarySystemFill), in: Circle())
                     .accessibilityHidden(true)
@@ -159,10 +166,10 @@ struct ComposerActionMenuView: View {
                     .accessibilityHidden(true)
             }
         }
-        .padding(.leading, keyboardSheet ? 20 : leading)
+        .padding(.leading, keyboardSheet ? sheetIconCenter - iconDiameter / 2 : leading)
         .padding(.trailing, 24)
-        .padding(.vertical, keyboardSheet ? 8 : 12)
-        .frame(minHeight: keyboardSheet ? max(54, min(72, maximumSize.height / 5)) : 44)
+        .padding(.vertical, keyboardSheet ? 4 : 12)
+        .frame(minHeight: keyboardSheet ? sheetRowHeight : 44)
         .contentShape(Rectangle())
     }
 
