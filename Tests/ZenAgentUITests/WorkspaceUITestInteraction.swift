@@ -78,10 +78,16 @@ extension XCUIApplication {
         let sheet = descendants(matching: .any)["composer-keyboard-sheet"]
         guard keyboards.firstMatch.exists || sheet.exists else { return }
         let rail = descendants(matching: .any)["sidebar-rail"]
+        let probes = [descendants(matching: .any)["surface-native-interaction-probe"],
+                      descendants(matching: .any)["split-secondary-native-interaction-probe"]]
         XCTAssertFalse(rail.exists, file: file, line: line)
         dragWorkspaceSidebarEdge()
         let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            !self.keyboards.firstMatch.exists && !sheet.exists && !rail.exists
+            let native = probes.filter { $0.exists }
+            return !self.keyboards.firstMatch.exists && !sheet.exists && !rail.exists
+                && (native.isEmpty || native.allSatisfy {
+                    ($0.value as? String)?.contains("sidebar=open=false,progress=0.0,drag=false,settlement=nil") == true
+                })
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 10), .completed,
             "The first edge swipe dismisses input without opening Sidebar", file: file, line: line)
