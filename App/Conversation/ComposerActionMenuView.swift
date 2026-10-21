@@ -38,11 +38,13 @@ struct ComposerActionMenuView: View {
     let onReturn: () -> Void
     var keyboardSheet = false
     var sheetCornerRadius: CGFloat = 0
+    var actionMenuCornerRadius: CGFloat? = nil
     var onOpenThinking: (CGRect) -> Void = { _ in }
     @State private var modelRow = CGRect.zero
     @State private var thinkingRow = CGRect.zero
     @ScaledMetric(relativeTo: .body) private var leading: CGFloat = 32
     @ScaledMetric(relativeTo: .body) private var iconDiameter: CGFloat = 44
+    @ScaledMetric(relativeTo: .body) private var floatingRowHeight: CGFloat = 64
 
     var body: some View {
         // Each native panel keeps a fixed level; a child never replaces its parent.
@@ -91,23 +93,23 @@ struct ComposerActionMenuView: View {
         max(iconDiameter + 8, (maximumSize.height - 2 * sheetIconCenter) / 4)
     }
 
+    private var circularActionIcons: Bool { keyboardSheet || actionMenuCornerRadius != nil }
+    private var actionIconCenter: CGFloat {
+        max(actionMenuCornerRadius ?? sheetCornerRadius, iconDiameter / 2 + 12)
+    }
+    private var actionRowHeight: CGFloat {
+        keyboardSheet ? sheetRowHeight : floatingRowHeight
+    }
+
     private var actionRows: some View {
         VStack(spacing: 0) {
-            if keyboardSheet {
-                modelAction
-                thinkingAction
-                unavailable("插件", symbol: "powercord")
-                unavailable("图片", symbol: "photo.on.rectangle.angled")
-                unavailable("文件", symbol: "paperclip")
-            } else {
-                thinkingAction
-                modelAction
-                unavailable("插件", symbol: "powercord")
-                unavailable("添加文件", symbol: "paperclip")
-                unavailable("添加图片", symbol: "photo.on.rectangle.angled")
-            }
+            modelAction
+            thinkingAction
+            unavailable("插件", symbol: "powercord")
+            unavailable("图片", symbol: "photo.on.rectangle.angled")
+            unavailable("文件", symbol: "paperclip")
         }
-        .padding(.vertical, keyboardSheet ? max(0, sheetIconCenter - sheetRowHeight / 2) : 12)
+        .padding(.vertical, circularActionIcons ? max(0, actionIconCenter - actionRowHeight / 2) : 12)
         .frame(width: maximumSize.width)
     }
 
@@ -149,7 +151,7 @@ struct ComposerActionMenuView: View {
 
     private func actionLabel(_ title: String, symbol: String, opensMenu: Bool = false) -> some View {
         HStack(spacing: 12) {
-            if keyboardSheet {
+            if circularActionIcons {
                 menuSymbol(symbol)
                     .frame(width: 25, height: 25)
                     .frame(width: iconDiameter, height: iconDiameter)
@@ -166,10 +168,10 @@ struct ComposerActionMenuView: View {
                     .accessibilityHidden(true)
             }
         }
-        .padding(.leading, keyboardSheet ? sheetIconCenter - iconDiameter / 2 : leading)
+        .padding(.leading, circularActionIcons ? actionIconCenter - iconDiameter / 2 : leading)
         .padding(.trailing, 24)
-        .padding(.vertical, keyboardSheet ? 4 : 12)
-        .frame(minHeight: keyboardSheet ? sheetRowHeight : 44)
+        .padding(.vertical, circularActionIcons ? 4 : 12)
+        .frame(minHeight: circularActionIcons ? actionRowHeight : 44)
         .contentShape(Rectangle())
     }
 
