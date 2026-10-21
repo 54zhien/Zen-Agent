@@ -71,7 +71,8 @@ struct ComposerMenuDetailView: View {
                         .padding(.horizontal, 24).padding(.vertical, 12)
                         .frame(minHeight: 52)
                         .background {
-                            Capsule().fill(Color(uiColor: .tertiarySystemFill))
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color(uiColor: .tertiarySystemFill))
                                 .opacity(model.id == presentation.selectedModelID ? 1 : 0)
                                 .padding(.horizontal, 12)
                         }
