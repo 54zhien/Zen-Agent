@@ -48,12 +48,7 @@ private struct ComposerThinkingGauge: View, Animatable {
             let needleFraction = min(1.12, max(-0.06, progress))
             let edge = min(size.width, size.height)
             let radius = edge * 0.40
-            // Center the open arc's bounds, then compensate slightly for its
-            // top-heavy ink. Keep this fixed across levels so the gauge never wanders.
-            let openArcOffset = radius * (1 - CGFloat(cos(Double.pi / 4))) / 2
-            let opticalOffset = edge * 0.02
-            let hub = CGPoint(x: size.width / 2,
-                              y: size.height / 2 + openArcOffset + opticalOffset)
+            let hub = CGPoint.zero
             let width = edge * (2.3 / 28)
             func point(_ fraction: Double, radius: CGFloat) -> CGPoint {
                 let angle = (135 + 270 * fraction) * .pi / 180
@@ -67,6 +62,11 @@ private struct ComposerThinkingGauge: View, Animatable {
                 return path
             }
             let stroke = StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round)
+            // Center the actual stroked silhouette, including its open ends.
+            // The needle remains inside this fixed envelope at every level.
+            let bounds = arc(to: 1).strokedPath(stroke).cgPath.boundingBoxOfPath
+            context.translateBy(x: size.width / 2 - bounds.midX,
+                                y: size.height / 2 - bounds.midY)
             context.stroke(arc(to: 1), with: .color(colorScheme == .dark ? Color(white: 0.52) : Color(uiColor: .systemGray3)), style: stroke)
             context.stroke(arc(to: fraction), with: .color(.primary), style: stroke)
             var needle = Path()

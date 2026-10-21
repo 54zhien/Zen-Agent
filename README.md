@@ -67,6 +67,7 @@ Owner refined Composer outlines and optical balance @ d1f5998e60f05d7ba63b712be5
 Owner thinking control layout, hit targets and shared handle appearance @ 25cc5f4e8e287fbbc3a20fdb14985367ba14ebb4
 Owner retraced plugin and restored outline weight @ e82a36c18dff0d14752b7aa14062a757326c7d2b
 Owner recessed thinking rail and optical alignment @ bf7dfb3
+Owner flat rail joins, silhouette centering and directional title @ 1238a73
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
