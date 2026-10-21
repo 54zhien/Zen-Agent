@@ -58,9 +58,22 @@ struct ComposerThinkingControl: View {
             .padding(.horizontal, 24).padding(.bottom, bottom)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onAppear { synchronize() }
+        .onAppear {
+            synchronize()
+            WorkspaceHaptics.shared.prepareThinking()
+        }
         .onChange(of: presentation.suspensionRevision) { _, _ in synchronize() }
-        .onDisappear { cancelPreview() }
+        .onChange(of: presentation.isSuspended) { _, suspended in
+            if suspended {
+                WorkspaceHaptics.shared.stopThinking()
+            } else if enabled {
+                WorkspaceHaptics.shared.prepareThinking()
+            }
+        }
+        .onDisappear {
+            cancelPreview()
+            WorkspaceHaptics.shared.stopThinking()
+        }
         .onChange(of: efforts) { _, _ in synchronize() }
         .onChange(of: presentation.selectedModelID) { _, _ in synchronize() }
         .onChange(of: presentation.thinkingLevel) { _, _ in synchronize() }
