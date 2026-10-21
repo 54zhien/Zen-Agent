@@ -84,6 +84,13 @@ final class ComposerKeyboardMenuSession: NSObject {
         }
     }
 
+    func nativeEditingEnded() {
+        // Losing focus during our initial descent is expected. Losing it after
+        // restoration began means another responder now owns input; do not
+        // keep its viewport reserved until a timeout or steal focus back.
+        if phase == .restoringKeyboard { finish(resign: false) }
+    }
+
     func validateAttachment() {
         guard phase != .finished else { return }
         if !isAttached { finish(resign: true) }

@@ -986,7 +986,11 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         reportEditor()
         // A keyboard-to-menu handoff ends native focus but retains the expanded
         // Composer. The session reports final focus on completion/cancellation.
-        if keyboardMenu == nil { configuration?.onFocus(false) }
+        if let keyboardMenu {
+            keyboardMenu.nativeEditingEnded()
+        } else {
+            configuration?.onFocus(false)
+        }
         recordDockEvent("didEndEditing-afterFeedback")
     }
     func textViewDidChange(_ textView: UITextView) { reportEditor() }

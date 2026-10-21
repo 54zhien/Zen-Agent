@@ -21,3 +21,5 @@ Owner approved research recommendation: real system keyboard descent, then app-s
 ## Progress
 
 Implementation written; static review and macOS package result pending. Blueprint amendment `ea2079ab6ac61dd0c145a0773f5c7adb491454ed` follows the approved current request and supersedes the prior retained-inputView ruling.
+
+Static review found a restoration focus-loss path that otherwise retained its reservation until the watchdog. Native didEndEditing now tells the session to cancel immediately when restoration was in progress; expected didEnd during initial keyboard descent still retains Editing. No tests were run.
