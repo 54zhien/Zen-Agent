@@ -34,13 +34,13 @@ final class ComposerMenuDetailPresenter: UIViewController {
 
     override func loadView() {
         let overlay = ComposerDetailOverlay()
-        overlay.onEscape = { [weak self] in self?.dismissSheet() }
+        overlay.onEscape = { [weak self] in self?.dismissSheet(animated: true) }
         overlay.backgroundColor = .clear
         overlay.accessibilityViewIsModal = true
         view = overlay
         view.addSubview(outside)
         outside.accessibilityElementsHidden = true
-        outside.addTarget(self, action: #selector(dismissSheet), for: .touchUpInside)
+        outside.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         backdrop.isUserInteractionEnabled = false
         view.addSubview(backdrop)
         sheet.clipsToBounds = true
@@ -55,7 +55,7 @@ final class ComposerMenuDetailPresenter: UIViewController {
         handleTarget.frame = CGRect(x: 0, y: 0, width: 200, height: 20)
         handleTarget.autoresizingMask = [.flexibleWidth]
         sheet.contentView.addSubview(handleTarget)
-        let swipe = UISwipeGestureRecognizer(target: self, action: #selector(dismissSheet))
+        let swipe = UISwipeGestureRecognizer(target: self, action: #selector(closeTapped))
         swipe.direction = .down
         handleTarget.addGestureRecognizer(swipe)
     }
@@ -85,8 +85,8 @@ final class ComposerMenuDetailPresenter: UIViewController {
                 guard let self, !self.closing else { return }
                 WorkspaceHaptics.shared.play(.control)
                 self.onSelect(id)
-                self.dismissSheet()
-            }, onClose: { [weak self] in self?.dismissSheet() }))
+                self.dismissSheet(animated: true)
+            }, onClose: { [weak self] in self?.dismissSheet(animated: true) }))
         self.content = content
         content.safeAreaRegions = []
         content.view.backgroundColor = .clear
@@ -121,7 +121,7 @@ final class ComposerMenuDetailPresenter: UIViewController {
         }
     }
 
-    @objc private func dismissSheet() { dismissSheet(animated: true) }
+    @objc private func closeTapped() { dismissSheet(animated: true) }
 
     func dismissSheet(animated: Bool) {
         guard !closing, !removed else { return }
