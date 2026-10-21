@@ -9,7 +9,7 @@ struct ComposerMenuDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                ComposerMenuSymbol(level: level, thinking: presentation.thinkingLevel,
+                ComposerMenuSymbol(level: level, thinking: presentation.thinkingIconLevel,
                                    supportedLevels: presentation.supportedThinkingEfforts)
                     .frame(width: 25, height: 25)
                     .frame(width: 44, height: 44)

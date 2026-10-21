@@ -61,6 +61,7 @@ Owner floating primary menu appearance ruling @ 05df074abc0dfa5df26dfb8966431a28
 - Composer bottom details, concentric primary menu and vertical thinking control: Blueprint `919f3fe` (2026-10-21).
 - Composer symbol visibility and original paperclip: Blueprint `4746ed1` (2026-10-21).
 Owner curved black thinking control and coordinated detail return @ c50ca870c7921679a519d0ab79005ad75bc6db18
+Owner clearer circular rail, tap spring and softer detail entrance @ 97ca787d5e47e1b13ec860fef72b85a00816f118
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,

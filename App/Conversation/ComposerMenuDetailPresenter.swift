@@ -102,8 +102,8 @@ final class ComposerMenuDetailPresenter: UIViewController {
         window.addSubview(view)
         view.layoutIfNeeded()
         sheet.transform = CGAffineTransform(translationX: 0, y: actualHeight)
-        let animation = UIViewPropertyAnimator(duration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.28,
-                                                curve: .easeOut) {
+        let animation = UIViewPropertyAnimator(duration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.48,
+                                                dampingRatio: 0.86) {
             self.sheet.transform = .identity
             self.outside.backgroundColor = UIColor.black.withAlphaComponent(0.08)
             if self.level == .thinking { self.backdrop.effect = UIBlurEffect(style: .systemUltraThinMaterial) }
@@ -135,6 +135,7 @@ final class ComposerMenuDetailPresenter: UIViewController {
             animator.finishAnimation(at: .current)
         }
         presentation.activeLevel = .actions
+        presentation.previewThinkingEffort = nil
         guard animated, !UIAccessibility.isReduceMotionEnabled else {
             onReturn(nil)
             finish()
@@ -165,6 +166,7 @@ final class ComposerMenuDetailPresenter: UIViewController {
         guard !removed else { return }
         removed = true
         closing = true
+        presentation.previewThinkingEffort = nil
         if animator?.state == .active { animator?.stopAnimation(true) }
         animator = nil
         content?.willMove(toParent: nil)
