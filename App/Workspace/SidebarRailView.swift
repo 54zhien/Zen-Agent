@@ -176,5 +176,8 @@ private struct SidebarRailButtonStyle: ButtonStyle {
             .opacity(unavailable ? 0.35 : 1)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.92 : 1)
             .animation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0.3), value: configuration.isPressed)
+            // Keep the Button's full control target outside its native glass
+            // label, whose interaction view is not the semantic Button action.
+            .contentShape(.interaction, Rectangle())
     }
 }

@@ -220,3 +220,22 @@ native window-hit ancestry at two exposed Rail points and record whether the
 existing route callback fires; keep all original UI assertions. This gathers a
 discriminator before changing routing behavior. Full GREEN and review are still
 required before the already-authorized merge and S6 continuation.
+
+### Native hit discriminator and first candidate
+
+Diagnostic `3b36cd7`, run `39646338094`, actually generated/built and finished
+one UI case with two retained AX failures. The exposed Settings sample
+`(48,811.6)` hits `UIPlatformGlassInteractionView` at `(34,784,56,56)` with a
+zero-sized `_UIInheritedView` ancestor; it does not hit the translated Surface.
+The actual coordinate tap now calls `settings` with coordinator/eligibility true
+and opens `settings-page`. The earlier coordinate-route RED remains recorded:
+the diagnostic-only change does not prove stable routing or explain its variance.
+Artifact `12368243248`, digest
+`sha256:2cc84226f055ed85cf6bd29a6d8f013bfd0c981c019444ea8074225d0f77b67d`.
+
+The remaining reproducible failure is the semantic Button's AX target. The first
+single-factor candidate declares the existing 56pt rectangular interaction shape
+outside the styled native-glass label, rather than only before glass application
+inside the icon. It changes no layout, rendering, spring, feedback, admission or
+route. This is a hypothesis under native test, not a claimed repair. Original AX
+and real Settings-route assertions remain unchanged.
