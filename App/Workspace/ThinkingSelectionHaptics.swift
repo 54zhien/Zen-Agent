@@ -127,28 +127,28 @@ final class ThinkingSelectionHaptics: NSObject {
 
     private static func pattern() throws -> CHHapticPattern {
         let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
-            CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.40),
+            CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.52),
             CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.12)
-        ], relativeTime: 0, duration: 0.40)
+        ], relativeTime: 0, duration: 0.56)
         // Gentle amplitude ripples at the onset and tail keep the hum alive
         // without adding sharp transient impacts. The last point ends at zero.
         let envelope = CHHapticParameterCurve(parameterID: .hapticIntensityControl, controlPoints: [
             .init(relativeTime: 0, value: 0),
-            .init(relativeTime: 0.018, value: 0.22),
-            .init(relativeTime: 0.040, value: 0.12),
-            .init(relativeTime: 0.065, value: 0.48),
-            .init(relativeTime: 0.090, value: 0.36),
-            .init(relativeTime: 0.120, value: 0.84),
-            .init(relativeTime: 0.155, value: 1),
-            .init(relativeTime: 0.190, value: 0.84),
-            .init(relativeTime: 0.230, value: 0.64),
-            .init(relativeTime: 0.265, value: 0.36),
-            .init(relativeTime: 0.290, value: 0.42),
-            .init(relativeTime: 0.320, value: 0.18),
-            .init(relativeTime: 0.345, value: 0.24),
-            .init(relativeTime: 0.370, value: 0.075),
-            .init(relativeTime: 0.390, value: 0.025),
-            .init(relativeTime: 0.400, value: 0)
+            .init(relativeTime: 0.030, value: 0.22),
+            .init(relativeTime: 0.065, value: 0.12),
+            .init(relativeTime: 0.105, value: 0.48),
+            .init(relativeTime: 0.150, value: 0.36),
+            .init(relativeTime: 0.200, value: 0.84),
+            .init(relativeTime: 0.250, value: 1),
+            .init(relativeTime: 0.300, value: 0.84),
+            .init(relativeTime: 0.350, value: 0.64),
+            .init(relativeTime: 0.400, value: 0.36),
+            .init(relativeTime: 0.435, value: 0.42),
+            .init(relativeTime: 0.470, value: 0.18),
+            .init(relativeTime: 0.500, value: 0.24),
+            .init(relativeTime: 0.530, value: 0.075),
+            .init(relativeTime: 0.550, value: 0.025),
+            .init(relativeTime: 0.560, value: 0)
         ], relativeTime: 0)
         return try CHHapticPattern(events: [event], parameterCurves: [envelope])
     }
