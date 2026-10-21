@@ -49,3 +49,50 @@ Focused runs on `e91095da3adbe5aa7686b77ef09826a2b1c75e7e`:
 
 These runs do not include the subsequent first-swipe native closed/settled wait.
 Their results cannot validate that later change or replace the final full gate.
+
+## Native Split reading diagnosis — 2026-10-22
+
+Run `39630293867` completed **failure** on `e91095d`, with an actual build,
+48 Swift Testing cases / 4 suites passing and the three existing Lift UI cases
+passing. The unchanged secondary-Split reading case failed three assertions.
+No skipped or cancelled run is counted as acceptance.
+
+The exported screenshots establish a visible mismatch before the first Lift:
+the test requests Turn 10, but the source Pane displays responses 12–15. The
+after-Return screenshot preserves that same incorrect initial placement.
+This is not solely an AX query problem. The two matching AX nodes are a TextView
+with a null/infinite frame and a second offscreen node at y=-183.67; both are
+non-hittable. The later queued Turn 12 is visibly restored, with a finite y=179,
+but its assertion inherits the invalid initial anchor frame.
+
+The native reading trace identifies the conflicting requests:
+
+1. Sequence 18 requests `restoreAnchor(preview-reading-run-10, offset: 0.2)`.
+2. Lazy materialization supplies Turn 10's measured frame.
+3. Sequence 19 replaces it with `maintainBottomEdge(targetOffset: 1451)`.
+4. The resulting reading mode points to Turn 16, not the requested Turn 10;
+   the fixture reports `settled` once that replacement request is acknowledged.
+
+Read-only follow-up traced the observed conflict to fixture initialization:
+`preview-reading-position` is a DEBUG-only overlay that directly changes the
+reading mode, bypassing the real ScrollView input path. Real tracking/interacting
+input calls `userScrolled`, which ends the prior height-change capture before
+capturing the new read. A source swipe cancels the tap gesture rather than
+selecting another Split slot, so it can establish that normal precondition while
+the secondary Pane retains the shared Composer.
+
+The next test-only candidate adds one real source-pane swipe before deterministic
+fixture positioning and explicitly checks source editor count zero / secondary
+editor count one. Every existing anchor, Return and queued-hidden restoration
+assertion remains. Native verification must demonstrate both accepted scroll
+input and unchanged Composer targeting; this source audit alone is not a pass.
+
+A product correction to height/reading coordination would affect Split resizing,
+keyboard changes, Divider resizing or reading restoration and remains outside
+the authorized scope. No such product change is made. No assertion is relaxed
+and no test is skipped to merge. Merge and S6 remain gated on a real passing full
+run; the other affected-UI run remains independent evidence to collect.
+
+Artifact `12360617346` contains the result bundle, native logs, video and three
+named screenshots. Archive digest:
+`sha256:747054a856dd2e0d2cd7a49ccddf27900c5e5140443c7553282d89def9debaa8`.

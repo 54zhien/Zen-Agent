@@ -436,14 +436,25 @@ final class SplitContainerUITests: XCTestCase {
     @MainActor
     func testSecondarySplitPaneLiftsToAppSpaceAndReturnsWithSourceIntact() {
         let app = launchedOccupiedSplit()
+        let sourcePane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        // Enter reading through the real ScrollView before the deterministic
+        // fixture positions a Turn. Direct fixture injection otherwise bypasses
+        // userScrolled's release of Split's prior height-change capture.
+        sourcePane.swipeDown()
         let position = app.buttons["preview-reading-position"]
         position.tap()
         expect { (position.value as? String) == "settled" }
         let anchor = app.descendants(matching: .any).matching(NSPredicate(
             format: "label == %@ OR value == %@", "PREVIEW_READING_ANCHOR_10",
             "PREVIEW_READING_ANCHOR_10")).firstMatch
-        let sourcePane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
+        let sourceProbe = app.otherElements["surface-native-interaction-probe"]
+        let secondaryProbe = app.otherElements["split-secondary-native-interaction-probe"]
+        expect {
+            sourceProbe.exists && secondaryProbe.exists
+                && (sourceProbe.value as? String)?.contains(";editors=0;") == true
+                && (secondaryProbe.value as? String)?.contains(";editors=1;") == true
+        }
         recordSecondaryReadingDiagnostic(app, stage: "before initial anchor assertion",
             position: position, anchor: anchor, sourcePane: sourcePane, editor: editor)
         XCTAssertTrue(anchor.exists && anchor.isHittable)
