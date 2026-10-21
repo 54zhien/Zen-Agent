@@ -16,3 +16,5 @@ Ruling: prioritize the approved direct inputView replacement. Apple documents re
 References: https://developer.apple.com/documentation/uikit/uiresponder/reloadinputviews() ; https://developer.apple.com/documentation/uikit/uiinputview/allowsselfsizing
 
 Validation: pending device build and artifact receipt. No test suites or visual simulator probes will run. Prior keyboard-overlay test success does not verify this new implementation.
+
+Read-only review found that marked input could retain the custom view during Workspace suppression. The scoped correction closes an installed custom input view even in that case, lets UIKit finish the same text view, and reports final native text/selection before focus loss. Ordinary focus requests still preserve the existing IME guard. No tests ran.
