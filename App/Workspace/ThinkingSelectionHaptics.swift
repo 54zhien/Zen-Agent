@@ -127,7 +127,7 @@ final class ThinkingSelectionHaptics: NSObject {
 
     private static func pattern() throws -> CHHapticPattern {
         let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
-            CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.52),
+            CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.48),
             CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.12)
         ], relativeTime: 0, duration: 0.80)
         // Hold a steady middle instead of beginning the decay at the peak.
