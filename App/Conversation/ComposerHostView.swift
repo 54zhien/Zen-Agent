@@ -48,7 +48,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private let actionMenuState = ComposerActionMenuState()
     private var actionMenu: ComposerActionMenuPresenter?
     private var keyboardMenu: ComposerKeyboardMenuPresenter?
-    private var keyboardMenuRestoresEditor = false
     private var shelfHeight: CGFloat = 44
     private var quotePhase: ComposerQuoteDragPhase = .idle
     private let motion = ComposerMotionController()
@@ -73,7 +72,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var lastWindowCornerRadius: CGFloat = -1
     private var lastBottomSafeAreaInset: CGFloat = -1
     private var lastReportedClearance: CGFloat = -1
-    private var lastReportedMenuTop: CGFloat?
     var measuredClearance: CGFloat { max(62, lastReportedClearance) }
     private weak var textCarrier: UIView?
     private var liftInteraction: ComposerLiftInteraction!
@@ -187,7 +185,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         primary.isAccessibilityElement = !suppressed
         errorLabel.accessibilityElementsHidden = suppressed
         if suppressed, editor.markedTextRange == nil {
-            keyboardMenu?.close(animated: false)
+            keyboardMenu?.close(restoringKeyboard: false, animated: false)
             if editor.isFirstResponder { recordOverlayFocusEvent("suppressionResign") }
             editor.resignFirstResponder()
         }
@@ -318,7 +316,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             setNeedsLayout()
         } else {
             actionMenu?.close(animated: false)
-            keyboardMenu?.close(animated: false)
+            keyboardMenu?.close(restoringKeyboard: false, animated: false)
             liftInteraction?.cancelForDetachment()
             // A retained off-window editor has no visible morph to finish.
             // Invalidate its completion before a later remount reuses the state.
@@ -372,9 +370,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     private var activeKeyboardFrame: CGRect {
-        if let window, let reserved = keyboardMenu?.occupiedFrame(in: window) {
-            return convert(reserved, from: window)
-        }
         guard let host = keyboardAnchorView, let window, host.window === window else {
             return keyboardLayoutGuide.layoutFrame
         }
@@ -396,7 +391,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     private var windowKeyboardVisible: Bool {
-        if let window, keyboardMenu?.occupiedFrame(in: window) != nil { return true }
         guard let host = keyboardAnchorView, let window, host.window === window else {
             return bounds.maxY - keyboardLayoutGuide.layoutFrame.minY > safeAreaInsets.bottom + 1
         }
@@ -623,8 +617,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
                 recordDockEvent("requestFocus accepted=\(accepted)")
             }
         } else {
-            keyboardMenu?.close()
-            if editor.markedTextRange == nil, editor.isFirstResponder {
+            guard editor.markedTextRange == nil else { return }
+            keyboardMenu?.close(restoringKeyboard: false, animated: false)
+            if editor.isFirstResponder {
                 recordOverlayFocusEvent("bridgeRestingResign")
                 editor.resignFirstResponder()
             }
@@ -784,15 +779,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         }
     }
 
-    private func reportMenuTop(_ top: CGFloat?) {
-        guard top != lastReportedMenuTop else { return }
-        lastReportedMenuTop = top
-        Task { @MainActor [weak self] in
-            guard let self, self.lastReportedMenuTop == top else { return }
-            self.configuration?.onMenuTopChanged(top)
-        }
-    }
-
     @objc private func presentActionMenu() {
         guard let window else { return }
         if let keyboardMenu {
@@ -826,27 +812,25 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             onDismiss: { [weak self] menu, restoresKeyboard in
                 guard let self, self.keyboardMenu === menu else { return }
                 self.keyboardMenu = nil
-                self.keyboardMenuRestoresEditor = false
-                self.reportMenuTop(nil)
-                if !restoresKeyboard, !self.editor.isFirstResponder {
-                    self.configuration?.onFocus(false)
+                self.editor.inputView = nil
+                if self.editor.isFirstResponder {
+                    if restoresKeyboard, self.window != nil, !self.workspaceInputSuppressed {
+                        self.editor.reloadInputViews()
+                    } else {
+                        self.editor.resignFirstResponder()
+                    }
                 }
                 self.setNeedsLayout()
             })
-        // Reserve the measured keyboard space before resigning. Native blur
-        // commits IME input, but must not collapse the Composer during this handoff.
-        keyboardMenuRestoresEditor = false
+        // Keep the responder, text selection and keyboard avoidance owner.
+        // The observed height includes the home area; do not add that inset again.
         keyboardMenu = menu
         WorkspaceHaptics.shared.play(.control)
-        menu.show(in: window, style: traitCollection.userInterfaceStyle)
-        reportMenuTop(menu.occupiedFrame(in: window)?.minY)
+        menu.prepare(in: window, style: traitCollection.userInterfaceStyle,
+                     screenRadius: windowCornerGeometry.radius(in: window))
+        editor.inputView = menu.view
         setKeyboardMenuGlyph(true, animated: true)
-        let resigned = editor.resignFirstResponder()
-        // Installing a native hosting tree may already finish the responder
-        // transition. Only a still-focused editor means the handoff was refused.
-        guard resigned || !editor.isFirstResponder else { menu.close(animated: false); return }
-        reportEditor()
-        menu.reveal(duration: 0.25, options: .curveEaseInOut)
+        editor.reloadInputViews()
     }
 
     private func setKeyboardMenuGlyph(_ expanded: Bool, animated: Bool) {
@@ -920,7 +904,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     private func restoreKeyboardFromMenu() {
         guard let keyboardMenu else { return }
-        keyboardMenuRestoresEditor = true
         keyboardMenu.close(restoringKeyboard: true)
     }
 
@@ -946,8 +929,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
               let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber else { return }
         keyboardTiming = (duration.doubleValue,
                           UIView.AnimationOptions(rawValue: UInt(curve.intValue) << 16))
-        keyboardMenu?.reveal(duration: duration.doubleValue,
-                            options: UIView.AnimationOptions(rawValue: UInt(curve.intValue) << 16))
         if motion.phase == .editing { render(animated: false) }
     }
 
@@ -964,9 +945,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     func textViewShouldBeginEditing(_ textView: UITextView) -> Bool {
-        // UIKit also asks while handing the responder to the replacement
-        // surface. Only an explicit editor touch or AX activation reopens it.
-        return !workspaceInputSuppressed && (keyboardMenu == nil || keyboardMenuRestoresEditor)
+        return !workspaceInputSuppressed
     }
 
     func textViewDidBeginEditing(_ textView: UITextView) {
@@ -979,7 +958,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     func textViewDidEndEditing(_ textView: UITextView) {
         recordDockEvent("didEndEditing-beforeFeedback")
         recordOverlayFocusEvent("didEndEditing")
-        if keyboardMenu == nil { configuration?.onFocus(false) }
+        keyboardMenu?.close(restoringKeyboard: false, animated: false)
+        configuration?.onFocus(false)
         recordDockEvent("didEndEditing-afterFeedback")
     }
     func textViewDidChange(_ textView: UITextView) { reportEditor() }
