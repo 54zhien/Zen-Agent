@@ -9,3 +9,8 @@ The detail presenter now offers its actual exit animator to the retained parent.
 Apple animation references: https://developer.apple.com/documentation/swiftui/withanimation(_:completioncriteria:_:completion:) and https://developer.apple.com/documentation/swiftui/animationcompletioncriteria/removed. Animation completion is used rather than delayed timers.
 
 Local diff/whitespace checks and independent read-only review complete; no blocking findings. No tests run. macOS build/package receipt pending. Runtime appearance, spring feel and third-party keyboard/device acceptance are not established by compilation. Unrelated deep-reading-native-trace.txt excluded.
+
+
+## Initial build failure and correction
+
+Run https://github.com/54zhien/Zen-Agent/actions/runs/39549256524 failed at Swift module emission: the two Canvas views inherited MainActor from View while Animatable requires nonisolated animatableData. Mark only their plain Double interpolation storage and accessor nonisolated; rendering and presentation state remain actor-isolated. No unchecked conformance or concurrency suppression. Rebuild uses a new source commit, preserving the failed run.

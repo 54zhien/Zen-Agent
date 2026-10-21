@@ -34,8 +34,8 @@ struct ComposerThinkingIcon: View {
 
 /// Interpolate the drawing itself so the needle and arc cannot drift apart.
 private struct ComposerThinkingGauge: View, Animatable {
-    var progress: Double
-    var animatableData: Double {
+    nonisolated var progress: Double
+    nonisolated var animatableData: Double {
         get { progress }
         set { progress = newValue }
     }
