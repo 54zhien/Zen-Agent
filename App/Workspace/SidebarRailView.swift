@@ -173,9 +173,6 @@ private struct SidebarRailButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            // The outer Button supplies its explicit semantic label and action;
-            // its native glass label must not expose another AX hit target.
-            .accessibilityHidden(true)
             .opacity(unavailable ? 0.35 : 1)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.92 : 1)
             .animation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0.3), value: configuration.isPressed)

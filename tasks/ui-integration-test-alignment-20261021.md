@@ -271,3 +271,26 @@ native-glass AX descendants obscure the semantic Button. It changes no drawing,
 layout, hit shape, spring, disabled/admission condition or feedback. The existing
 existence, AX hittability and actual route assertions must all remain; if SwiftUI
 also hides the Button or the obstruction persists, this candidate must be removed.
+
+### Third control and restored UI boundary
+
+Label AX omission `62b7207`, native run `39654790096`, generated/built and ran
+one UI case with the same **two AX failures**. Unique Settings Button and spoken
+name assertions passed; frame remains `(34,784,56,56)` and coordinate route true.
+Thus hiding the label subtree did not solve the semantic hit failure. Artifact
+`12370993959`, digest
+`sha256:f5289dc14d0cf45828a523edb0360e5ddef0b301776fd854425aef4e6a996358`.
+
+All three ineffective modifiers and the temporary product hit/callback probes
+are now removed. `App/`, `Config/`, `Resources/`, and `project.yml` are restored
+byte-for-byte to frozen product `eb39a65`. Unique-ID/spoken-name regression checks
+and all earlier assertions/evidence remain. The known RED is not rerun unchanged
+or waived, and PR #37 remains unmerged; S6 has not started.
+
+Read-only history shows main already used native interactive glass inside the
+Settings label, but used `.plain` rather than the custom pressed scale/spring.
+The outer Rail mask also changed from a straight reveal to rounded subtraction.
+Neither difference is a proven cause. Further decisive omission controls would
+temporarily affect the frozen press animation or reveal clipping, so they need
+the owner's new direction before implementation. The concrete proposal is
+[the diagnostic plan](../Docs/superpowers/plans/2026-10-22-sidebar-ax-controls.md).

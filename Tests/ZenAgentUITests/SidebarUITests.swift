@@ -64,7 +64,6 @@ final class SidebarUITests: XCTestCase {
             && settingsFrameIsPositive && frameIsWithinApp
         print("SIDEBAR_SETTINGS_ROUTE before frame=\(settingsFrame) app=\(appFrame) exists=\(settingsExists) hittable=\(settingsHittable) finite=\(frameIsFinite) positive=\(settingsFrameIsPositive) withinApp=\(frameIsWithinApp)")
         attachSidebarSettingsRouteEvidence(app, stage: "before-coordinate-tap")
-        print("SIDEBAR_SETTINGS_NATIVE before \(app.descendants(matching: .any)["surface-native-interaction-probe"].value as? String ?? "missing")")
         XCTAssertTrue(frameIsUsable,
             "Settings AX frame must be finite, positive, and within the app: settings=\(settingsFrame), app=\(appFrame)")
         guard frameIsUsable else {
@@ -85,7 +84,6 @@ final class SidebarUITests: XCTestCase {
             "The app-level Settings coordinate must open the existing Settings page")
         print("SIDEBAR_SETTINGS_ROUTE after route=app-coordinate center=\(center) page=\(destinationAppeared)")
         attachSidebarSettingsRouteEvidence(app, stage: "after-coordinate-tap")
-        print("SIDEBAR_SETTINGS_NATIVE after \(app.descendants(matching: .any)["surface-native-interaction-probe"].value as? String ?? "missing")")
     }
 
     @MainActor
