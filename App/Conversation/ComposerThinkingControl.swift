@@ -6,6 +6,10 @@ struct ComposerThinkingControl: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var position = 0.0
     @State private var selectionGeneration = 0
+    @State private var isDragging = false
+    @GestureState private var touchActive = false
+    @State private var isSettling = false
+    @State private var pendingSelection: ThinkingEffort?
     private var efforts: [ThinkingEffort] { presentation.supportedThinkingEfforts }
     private var selectedIndex: Int {
         efforts.firstIndex(where: { $0 == presentation.thinkingLevel }) ?? 0
@@ -18,7 +22,7 @@ struct ComposerThinkingControl: View {
         ScrollView {
             VStack(spacing: 8) {
                 track
-                    .frame(height: 108)
+                    .frame(height: 136).padding(.top, 14)
                 Text(presentation.thinkingLevel?.title ?? "模型默认")
                     .font(.title2.weight(.semibold))
                     .accessibilityIdentifier("thinking-committed-level")
@@ -44,12 +48,16 @@ struct ComposerThinkingControl: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .onAppear { synchronize() }
-        .onDisappear { selectionGeneration += 1 }
+        .onDisappear { cancelPreview() }
+        .onChange(of: touchActive) { _, active in
+            // GestureState also resets when UIKit cancels without onEnded.
+            if !active, isDragging { synchronize() }
+        }
         .onChange(of: efforts) { _, _ in synchronize() }
         .onChange(of: presentation.selectedModelID) { _, _ in synchronize() }
         .onChange(of: presentation.thinkingLevel) { _, _ in synchronize() }
         .onChange(of: presentation.activeLevel) { _, level in
-            if level != .thinking { selectionGeneration += 1 }
+            if level != .thinking { cancelPreview() }
         }
     }
 
@@ -58,15 +66,31 @@ struct ComposerThinkingControl: View {
             ComposerThinkingTrack(progress: position / Double(max(1, efforts.count - 1)), count: efforts.count)
                 .contentShape(Rectangle())
                 .highPriorityGesture(DragGesture(minimumDistance: 0)
+                    .updating($touchActive) { _, active, _ in active = true }
                     .onChanged { value in
-                        selectionGeneration += 1
-                        let fraction = min(1, max(0, (value.location.x - 30) / max(1, geometry.size.width - 60)))
+                        guard presentation.activeLevel == .thinking else { return }
+                        // A touch-down is not a drag: leave the visible position
+                        // intact so tapping a detent animates from the old value.
+                        let distance = hypot(value.translation.width, value.translation.height)
+                        guard isDragging || distance >= 5 else { return }
+                        if !isDragging {
+                            selectionGeneration += 1
+                            isSettling = false
+                            isDragging = true
+                        }
+                        let fraction = ComposerThinkingArcGeometry(size: geometry.size).fraction(at: value.location)
                         var transaction = Transaction(animation: nil)
                         transaction.disablesAnimations = true
-                        withTransaction(transaction) { position = Double(fraction) * Double(max(0, efforts.count - 1)) }
-                    }
-                    .onEnded { _ in
+                        withTransaction(transaction) { position = fraction * Double(max(0, efforts.count - 1)) }
                         let index = min(max(0, Int(position.rounded())), max(0, efforts.count - 1))
+                        if efforts.indices.contains(index) { presentation.previewThinkingEffort = efforts[index] }
+                    }
+                    .onEnded { value in
+                        guard presentation.activeLevel == .thinking else { cancelPreview(); return }
+                        let fraction = ComposerThinkingArcGeometry(size: geometry.size).fraction(at: value.location)
+                        let end = isDragging ? position : fraction * Double(max(0, efforts.count - 1))
+                        isDragging = false
+                        let index = min(max(0, Int(end.rounded())), max(0, efforts.count - 1))
                         if efforts.indices.contains(index) { settle(on: efforts[index]) }
                     })
         }
@@ -85,8 +109,15 @@ struct ComposerThinkingControl: View {
         }
     }
 
-    private func synchronize() {
+    private func cancelPreview() {
         selectionGeneration += 1
+        isDragging = false
+        isSettling = false
+        presentation.previewThinkingEffort = nil
+    }
+
+    private func synchronize() {
+        cancelPreview()
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) { position = Double(selectedIndex) }
@@ -96,22 +127,31 @@ struct ComposerThinkingControl: View {
         guard presentation.activeLevel == .thinking else { return }
         let target = effort ?? presentation.defaultLevel
         let index = efforts.firstIndex(where: { $0 == target }) ?? 0
+        // Retapping a destination already in flight retains its real completion.
+        // Changing default/explicit semantics at that same stop needs no new travel.
+        pendingSelection = effort
+        if isSettling, position == Double(index) { return }
         selectionGeneration += 1
+        isSettling = true
+        presentation.previewThinkingEffort = target
         let generation = selectionGeneration
         let modelID = presentation.selectedModelID
         let supported = efforts
         // Removed waits for the spring's settling tail. A new drag, model or
         // dismissal invalidates the completion instead of committing stale input.
-        withAnimation(reduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.76),
+        withAnimation(reduceMotion ? nil : .spring(response: 0.56, dampingFraction: 0.66),
                       completionCriteria: .removed) {
             position = Double(index)
         } completion: {
             guard generation == selectionGeneration,
                   presentation.activeLevel == .thinking,
                   presentation.selectedModelID == modelID, efforts == supported else { return }
-            guard presentation.selectedThinkingEffort != effort else { return }
-            presentation.onSelectThinking(effort)
-            WorkspaceHaptics.shared.play(.control)
+            isSettling = false
+            if presentation.selectedThinkingEffort != pendingSelection {
+                presentation.onSelectThinking(pendingSelection)
+                WorkspaceHaptics.shared.play(.control)
+            }
+            presentation.previewThinkingEffort = nil
         }
     }
 }

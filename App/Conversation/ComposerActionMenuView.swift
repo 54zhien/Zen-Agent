@@ -10,6 +10,14 @@ final class ComposerActionMenuState {
     var supportedThinkingEfforts: [ThinkingEffort] = []
     var selectedThinkingEffort: ThinkingEffort?
     var defaultThinkingEffort: ThinkingEffort?
+    // Visual target only: never participates in request configuration or labels.
+    var previewThinkingEffort: ThinkingEffort?
+    var thinkingIconLevel: ThinkingEffort? {
+        if let previewThinkingEffort, supportedThinkingEfforts.contains(previewThinkingEffort) {
+            return previewThinkingEffort
+        }
+        return thinkingLevel
+    }
     @ObservationIgnored var onSelectThinking: (ThinkingEffort?) -> Void = { _ in }
 
     var thinkingLevel: ThinkingEffort? {
@@ -84,7 +92,7 @@ struct ComposerActionMenuView: View {
     private func row(_ level: ComposerActionMenuLevel) -> some View {
         Button { onOpen(level) } label: {
             HStack(spacing: 12) {
-                ComposerMenuSymbol(level: level, thinking: presentation.thinkingLevel,
+                ComposerMenuSymbol(level: level, thinking: presentation.thinkingIconLevel,
                                    supportedLevels: presentation.supportedThinkingEfforts)
                     .frame(width: 25, height: 25)
                     .frame(width: iconDiameter, height: iconDiameter)

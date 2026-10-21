@@ -27,7 +27,7 @@ struct ComposerThinkingIcon: View {
 
     var body: some View {
         ComposerThinkingGauge(progress: fraction)
-            .animation(reduceMotion ? nil : .spring(response: 0.52, dampingFraction: 0.48), value: fraction)
+            .animation(reduceMotion ? nil : .spring(response: 0.56, dampingFraction: 0.46), value: fraction)
             .accessibilityHidden(true)
     }
 }
@@ -43,6 +43,8 @@ private struct ComposerThinkingGauge: View, Animatable {
     var body: some View {
         Canvas { context, size in
             let fraction = min(1, max(0, progress))
+            // Only the needle may cross the redline; the filled arc stays on its rail.
+            let needleFraction = min(1.12, max(-0.06, progress))
             let edge = min(size.width, size.height)
             let hub = CGPoint(x: size.width / 2, y: size.height / 2 + edge * 0.06)
             let radius = edge * 0.43
@@ -54,10 +56,8 @@ private struct ComposerThinkingGauge: View, Animatable {
             }
             func arc(to fraction: Double) -> Path {
                 var path = Path()
-                path.move(to: point(0, radius: radius))
-                for step in 1...80 {
-                    path.addLine(to: point(fraction * Double(step) / 80, radius: radius))
-                }
+                path.addArc(center: hub, radius: radius, startAngle: .degrees(135),
+                            endAngle: .degrees(135 + 270 * fraction), clockwise: false)
                 return path
             }
             let stroke = StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round)
@@ -65,7 +65,7 @@ private struct ComposerThinkingGauge: View, Animatable {
             context.stroke(arc(to: fraction), with: .color(.primary), style: stroke)
             var needle = Path()
             let needleHub = CGPoint(x: hub.x, y: hub.y + edge * 0.035)
-            let tip = point(fraction, radius: radius * 0.61)
+            let tip = point(needleFraction, radius: radius * 0.61)
             needle.move(to: needleHub)
             needle.addLine(to: tip)
             context.stroke(needle, with: .color(.primary), style: stroke)
