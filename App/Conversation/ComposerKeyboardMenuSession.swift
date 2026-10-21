@@ -21,6 +21,8 @@ final class ComposerKeyboardMenuSession: NSObject {
     private let onFinish: (ComposerKeyboardMenuSession) -> Void
     private var returnsToKeyboard = false
     private var endingInput = false
+    private var descentTracking: ComposerInputDescentTracking?
+    var isTrackingInputDescent: Bool { descentTracking != nil }
     private var watchdog: Task<Void, Never>?
     private(set) var reservedTop: CGFloat?
     var permitsNativeFocus: Bool { !isSuspended && phase == .restoringKeyboard }
@@ -94,9 +96,11 @@ final class ComposerKeyboardMenuSession: NSObject {
             switch phase {
             case .showingMenu, .menu:
                 phase = .hidingMenu
-                presenter.dismiss(animated: true) { [weak self] in self?.finish(resign: true) }
+                trackInputDescent()
+                presenter.dismiss(animated: true) { [weak self] in self?.completeInputDescent() }
             case .hidingMenu:
                 // The existing close animation will observe the new destination.
+                trackInputDescent()
                 break
             case .preparing, .hidingKeyboard, .restoringKeyboard, .finished:
                 finish(resign: true)
@@ -115,7 +119,7 @@ final class ComposerKeyboardMenuSession: NSObject {
             phase = .hidingMenu
             presenter.dismiss(animated: animated) { [weak self] in
                 guard let self else { return }
-                if self.endingInput { self.finish(resign: true) }
+                if self.endingInput { self.completeInputDescent() }
                 else { self.restoreKeyboard() }
             }
         case .hidingMenu, .restoringKeyboard, .finished:
@@ -279,9 +283,42 @@ final class ComposerKeyboardMenuSession: NSObject {
         onGlyph(true, false)
     }
 
+    private var nativeInputTop: CGFloat? {
+        guard let window else { return nil }
+        guard let root = window.rootViewController?.view, root.window === window else {
+            return window.bounds.maxY - window.safeAreaInsets.bottom
+        }
+        return root.convert(root.keyboardLayoutGuide.layoutFrame, to: window).minY
+    }
+
+    private func trackInputDescent() {
+        guard descentTracking == nil, !UIAccessibility.isReduceMotionEnabled,
+              let startTop = reservedTop else { return }
+        let target = presenter.inputDescentTarget
+        descentTracking = ComposerInputDescentTracking(sheet: target.sheet, travel: target.travel) { [weak self] progress in
+            guard let self, self.phase == .hidingMenu, self.endingInput,
+                  self.isAttached, let endTop = self.nativeInputTop else { return }
+            self.reservedTop = startTop + (endTop - startTop) * progress
+            self.onReservation(self.reservedTop)
+        }
+    }
+
+    private func completeInputDescent() {
+        guard phase != .finished else { return }
+        // Publish the exact native endpoint before removing the override; the
+        // last display-link sample can precede the animator's completion.
+        if descentTracking != nil, isAttached, let endTop = nativeInputTop {
+            reservedTop = endTop
+            onReservation(endTop)
+        }
+        finish(resign: true)
+    }
+
     private func finish(resign: Bool) {
         guard phase != .finished else { return }
         phase = .finished
+        descentTracking?.stop()
+        descentTracking = nil
         watchdog?.cancel()
         watchdog = nil
         presenter.removeFromWindow()

@@ -443,6 +443,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         lastLocalKeyboardFrame = localFrame
         lastWindowCornerRadius = radius
         lastBottomSafeAreaInset = restingBottomSafeAreaInset
+        if keyboardMenu?.isTrackingInputDescent == true {
+            // Viewport growth follows the sheet frame by frame. It must not
+            // restart or overwrite the Composer's existing shape transition.
+            reconcileKeyboardOffset()
+            return
+        }
         if !sizeChanged, !restingGeometryChanged,
            motion.phase == .expanding || motion.phase == .collapsing {
             // Keyboard-only movement must not rewrite the morph endpoint or
