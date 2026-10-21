@@ -95,8 +95,7 @@ final class ConversationSearchUITests: XCTestCase {
     private func openSearch(_ app: XCUIApplication) -> Bool {
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        app.openWorkspaceSidebar()
         let search = app.buttons["sidebar-search"]
         guard search.waitForExistence(timeout: 5),
               search.wait(for: \.isEnabled, toEqual: true, timeout: 5) else {

@@ -292,8 +292,7 @@ final class SettingsUITests: XCTestCase {
         let identity = (probe.value as? String)?.split(separator: ";")
             .first(where: { $0.hasPrefix("editorIdentity=") }).map(String.init)
         XCTAssertNotNil(identity)
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        app.openWorkspaceSidebar()
         let destination = app.buttons["sidebar-settings"]
         guard destination.waitForExistence(timeout: 5),
               destination.wait(for: \.isEnabled, toEqual: true, timeout: 5),
@@ -412,8 +411,7 @@ final class SettingsUITests: XCTestCase {
         app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        app.openWorkspaceSidebar()
         let settings = app.buttons["sidebar-settings"]
         guard settings.waitForExistence(timeout: 5),
               settings.wait(for: \.isEnabled, toEqual: true, timeout: 5),
@@ -465,8 +463,7 @@ final class SettingsUITests: XCTestCase {
     private func openAppearance(in app: XCUIApplication) -> Bool {
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        app.openWorkspaceSidebar()
         let settings = app.buttons["sidebar-settings"]
         guard settings.waitForExistence(timeout: 5),
               settings.wait(for: \.isEnabled, toEqual: true, timeout: 5),

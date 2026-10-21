@@ -9,7 +9,8 @@ final class AppSpaceGeometryUITests: XCTestCase {
             XCTFail("The DEBUG geometry route must display the actual resolver's Current card.")
             return
         }
-        XCTAssertGreaterThan(current.frame.midX, app.frame.midX)
+        XCTAssertEqual(current.frame.midX, app.frame.midX, accuracy: 1,
+                       "The settled Current card must be centered on screen")
         var previousWidth = current.frame.width
         for depth in 1...3 {
             let previous = app.otherElements["app-space-card-history-\(depth)"]

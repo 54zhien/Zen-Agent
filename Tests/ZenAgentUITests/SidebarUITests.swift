@@ -3,6 +3,33 @@ import UIKit
 
 final class SidebarUITests: XCTestCase {
     @MainActor
+    func testRaisedSheetConsumesFirstEdgeSwipeAndNextSwipeOpensSidebar() {
+        let app = launch()
+        let editor = app.textViews["conversation-composer-input"]
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        editor.tap()
+        editor.typeText("sheet Sidebar draft")
+        expect { app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=true;") == true }
+        let identity = editorIdentity(probe.value as? String)
+        XCTAssertNotNil(identity)
+        app.buttons["conversation-composer-plus"].tap()
+        let sheet = app.descendants(matching: .any)["composer-keyboard-sheet"]
+        expect { sheet.exists && !app.keyboards.firstMatch.exists }
+
+        app.dismissWorkspaceInputForSidebar()
+        XCTAssertFalse(app.descendants(matching: .any)["sidebar-rail"].exists)
+        XCTAssertFalse(sheet.exists)
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        XCTAssertEqual(editorIdentity(probe.value as? String), identity)
+        app.openWorkspaceSidebar()
+        XCTAssertTrue(app.buttons["sidebar-settings"].isHittable)
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        XCTAssertEqual(editorIdentity(probe.value as? String), identity)
+        XCTAssertEqual(editor.value as? String, "sheet Sidebar draft")
+    }
+
+    @MainActor
     func testBackgroundResumeKeepsTheExpandedSidebarAndRestoresClosing() {
         let app = launch()
         app.openWorkspaceSidebar()
@@ -131,7 +158,7 @@ final class SidebarUITests: XCTestCase {
         let identity = editorIdentity(probe.value as? String)
         let originalX = pane.frame.minX
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
-        app.dragWorkspaceSidebarEdge(at: 0.3)
+        app.openWorkspaceSidebar()
         let rail = app.descendants(matching: .any)["sidebar-rail"]
         receipt("focused-open", probe)
         XCTAssertTrue(rail.waitForExistence(timeout: 5))
@@ -220,7 +247,7 @@ final class SidebarUITests: XCTestCase {
         let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let before = pane.frame
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
-        app.dragWorkspaceSidebarEdge(at: 0.3)
+        app.openWorkspaceSidebar()
         let rail = app.descendants(matching: .any)["sidebar-rail"]
         receipt("editing-open", probe)
         XCTAssertTrue(rail.waitForExistence(timeout: 5))

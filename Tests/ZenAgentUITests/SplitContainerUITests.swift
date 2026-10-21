@@ -442,13 +442,15 @@ final class SplitContainerUITests: XCTestCase {
         let anchor = app.descendants(matching: .any).matching(NSPredicate(
             format: "label == %@ OR value == %@", "PREVIEW_READING_ANCHOR_10",
             "PREVIEW_READING_ANCHOR_10")).firstMatch
+        let sourcePane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
+        recordSecondaryReadingDiagnostic(app, stage: "before initial anchor assertion",
+            position: position, anchor: anchor, sourcePane: sourcePane, editor: editor)
         XCTAssertTrue(anchor.exists && anchor.isHittable)
         let anchorFrame = anchor.frame
         // SwiftUI propagates the Pane identifier to its timeline and Composer
         // accessibility siblings. Measure the native timeline viewport explicitly.
-        let sourcePane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let sourceHeight = sourcePane.frame.height
-        let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
         XCTAssertTrue(editor.exists)
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
@@ -460,6 +462,9 @@ final class SplitContainerUITests: XCTestCase {
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-11"].exists)
         expect { anchor.exists && anchor.isHittable && (position.value as? String) == "settled" }
+        recordSecondaryReadingDiagnostic(app, stage: "after Return wait",
+            position: position, anchor: anchor, sourcePane: sourcePane, editor: editor,
+            capturedAnchorFrame: anchorFrame, sourceHeight: sourceHeight)
         XCTAssertEqual(anchor.frame.minY, anchorFrame.minY, accuracy: 3,
                        "The hidden sibling must retain its reading position through remount")
 
@@ -478,6 +483,10 @@ final class SplitContainerUITests: XCTestCase {
         expect { requested.exists && requested.isHittable && (position.value as? String) == "settled" }
         XCTAssertLessThan(sourcePane.frame.height, sourceHeight - 30)
         let expectedY = anchorFrame.minY + (sourcePane.frame.height - sourceHeight) * 0.2
+        recordSecondaryReadingDiagnostic(app, stage: "final queued-request placement",
+            position: position, anchor: anchor, sourcePane: sourcePane, editor: editor,
+            capturedAnchorFrame: anchorFrame, sourceHeight: sourceHeight,
+            requested: requested, expectedY: expectedY)
         XCTAssertEqual(requested.frame.minY, expectedY, accuracy: 3,
                        "The remounted Timeline must apply its queued anchor using the new viewport")
     }
@@ -496,6 +505,50 @@ final class SplitContainerUITests: XCTestCase {
         for id in ["surface-native-interaction-probe", "split-secondary-native-interaction-probe"] {
             print("SPLIT_NATIVE \(stage) \(id): \(String(describing: app.otherElements[id].value))")
         }
+    }
+
+    @MainActor
+    private func recordSecondaryReadingDiagnostic(
+        _ app: XCUIApplication, stage: String, position: XCUIElement, anchor: XCUIElement,
+        sourcePane: XCUIElement, editor: XCUIElement, capturedAnchorFrame: CGRect? = nil,
+        sourceHeight: CGFloat? = nil, requested: XCUIElement? = nil, expectedY: CGFloat? = nil
+    ) {
+        let debug = app.descendants(matching: .any)["preview-reading-diagnostic"]
+        let sourceProbe = app.otherElements["surface-native-interaction-probe"]
+        let secondaryProbe = app.otherElements["split-secondary-native-interaction-probe"]
+        let sourceReceipt = sourceProbe.exists ? sourceProbe.value as? String : nil
+        let secondaryReceipt = secondaryProbe.exists ? secondaryProbe.value as? String : nil
+        let sourceComposerOwner = diagnosticField("composerOwnerIdentity", in: sourceReceipt)
+        let secondaryComposerOwner = diagnosticField("composerOwnerIdentity", in: secondaryReceipt)
+        let sourceEditorCount = diagnosticField("editors", in: sourceReceipt)
+        let secondaryEditorCount = diagnosticField("editors", in: secondaryReceipt)
+        let requestedSnapshot = requested.map { readingElementDiagnostic($0) } ?? "unavailable"
+        let matches = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label == %@ OR value == %@", "PREVIEW_READING_ANCHOR_10", "PREVIEW_READING_ANCHOR_10"))
+        print("SPLIT_READING \(stage) position=[\(readingElementDiagnostic(position))] anchor=[\(readingElementDiagnostic(anchor))] capturedAnchorFrame=\(String(describing: capturedAnchorFrame))")
+        print("SPLIT_READING \(stage) sourcePane=[\(readingElementDiagnostic(sourcePane));baselineHeight=\(String(describing: sourceHeight))] debug=[\(readingElementDiagnostic(debug))]")
+        print("SPLIT_READING \(stage) editor=[\(readingElementDiagnostic(editor))] composerOwners=[source=\(sourceComposerOwner);secondary=\(secondaryComposerOwner)] editorCounts=[source=\(sourceEditorCount);secondary=\(secondaryEditorCount)]")
+        print("SPLIT_READING \(stage) requested=[\(requestedSnapshot)] expectedY=\(String(describing: expectedY)) anchorMatches=\(matches.count)")
+        for match in matches.allElementsBoundByIndex.prefix(6) {
+            print("SPLIT_READING_MATCH \(stage) \(readingElementDiagnostic(match))")
+        }
+        recordNativeSurfaces(app, stage: stage)
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Split reading - \(stage)"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
+    private func readingElementDiagnostic(_ element: XCUIElement) -> String {
+        guard element.exists else { return "exists=false" }
+        return "exists=true;type=\(element.elementType.rawValue);identifier=\(element.identifier);label=\(element.label);value=\(String(describing: element.value));hittable=\(element.isHittable);frame=\(element.frame)"
+    }
+
+    private func diagnosticField(_ name: String, in receipt: String?) -> String {
+        guard let receipt, let marker = receipt.range(of: "\(name)=") else { return "unavailable" }
+        return String(receipt[marker.upperBound...].prefix { $0 != ";" })
     }
 
     private struct KeyboardTransitionSnapshot {

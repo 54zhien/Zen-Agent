@@ -2,7 +2,7 @@ import XCTest
 
 final class ComposerMotionUITests: XCTestCase {
     @MainActor
-    func testThinkingPickerAdaptsWhenSwitchingThreeAndFourLevelModels() {
+    func testThinkingDetentsAdaptWhenSwitchingThreeAndFourLevelModels() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
         app.launchEnvironment["ZEN_COMPOSER_THINKING_LEVELS_TEST"] = "1"
@@ -13,29 +13,58 @@ final class ComposerMotionUITests: XCTestCase {
         let entry = app.buttons["思考"]
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
-        let maxLevel = app.buttons["thinking-level-max"]
-        XCTAssertTrue(maxLevel.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["thinking-level-low"].exists)
-        XCTAssertTrue(app.buttons["thinking-level-high"].exists)
-        XCTAssertFalse(app.buttons["thinking-level-medium"].exists)
-        XCTAssertFalse(app.buttons["thinking-level-xhigh"].exists)
-        XCTAssertFalse(app.buttons["thinking-level-ultra"].exists)
-        maxLevel.tap()
-        plus.tap()
-        app.buttons["模型"].tap()
+        let detail = app.descendants(matching: .any)["composer-detail-thinking"]
+        XCTAssertTrue(detail.waitForExistence(timeout: 5))
+        let control = app.descendants(matching: .any)["thinking-curved-control"]
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        XCTAssertEqual(control.value as? String, "高")
+        let defaultButton = app.buttons["thinking-level-default"]
+        XCTAssertTrue(defaultButton.isSelected)
+        guard let threeLevelDetents = thinkingDetents(in: app, control: control, expectedCount: 3) else { return }
+        for (index, level) in ["低", "高", "Max"].enumerated() {
+            threeLevelDetents[index].tap()
+            XCTAssertTrue(waitForValue(level, in: control), "Expected the three-level rail to select \(level)")
+            XCTAssertFalse(defaultButton.isSelected)
+        }
+
+        app.buttons["关闭，返回一级菜单"].tap()
+        XCTAssertTrue(detail.waitForNonExistence(timeout: 5))
+        let modelEntry = app.buttons["模型"]
+        XCTAssertTrue(modelEntry.waitForExistence(timeout: 5))
+        modelEntry.tap()
+        let modelDetail = app.descendants(matching: .any)["composer-detail-models"]
+        XCTAssertTrue(modelDetail.waitForExistence(timeout: 5))
         app.buttons["UI Test Model With A Longer Name"].tap()
-        plus.tap()
-        XCTAssertTrue(entry.waitForExistence(timeout: 5))
-        XCTAssertEqual(entry.value as? String, "中")
+        XCTAssertTrue(modelDetail.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(waitForValue("中", in: entry))
+
         entry.tap()
-        XCTAssertTrue(app.buttons["thinking-level-medium"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["thinking-level-xhigh"].exists)
-        XCTAssertFalse(app.buttons["thinking-level-max"].exists)
-        XCTAssertTrue(app.buttons["thinking-level-default"].isSelected)
+        XCTAssertTrue(detail.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForValue("中", in: control))
+        XCTAssertTrue(defaultButton.isSelected)
+        guard let fourLevelDetents = thinkingDetents(in: app, control: control, expectedCount: 4) else { return }
+        for (index, level) in ["低", "中", "高", "极高"].enumerated() {
+            fourLevelDetents[index].tap()
+            XCTAssertTrue(waitForValue(level, in: control), "Expected the four-level rail to select \(level)")
+        }
+
+        app.buttons["关闭，返回一级菜单"].tap()
+        XCTAssertTrue(detail.waitForNonExistence(timeout: 5))
+        modelEntry.tap()
+        XCTAssertTrue(modelDetail.waitForExistence(timeout: 5))
+        app.buttons["UI Test Model"].tap()
+        XCTAssertTrue(modelDetail.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(waitForValue("高", in: entry))
+        entry.tap()
+        XCTAssertTrue(detail.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForValue("高", in: control))
+        XCTAssertTrue(defaultButton.isSelected)
+        guard let returnedToThreeLevelDetents = thinkingDetents(in: app, control: control, expectedCount: 3) else { return }
+        XCTAssertEqual(returnedToThreeLevelDetents.count, 3)
     }
 
     @MainActor
-    func testThinkingEntryOpensAndKeepsSelectedLevel() {
+    func testThinkingDetailOpensAndKeepsSelectedLevel() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
         app.launch()
@@ -44,22 +73,40 @@ final class ComposerMotionUITests: XCTestCase {
         plus.tap()
         let entry = app.buttons["思考"]
         guard entry.waitForExistence(timeout: 5), entry.isEnabled else {
-            XCTFail("Thinking must be enabled and open the real level picker")
+            XCTFail("Thinking must be enabled and open its detail sheet")
             return
         }
         entry.tap()
-        let picker = app.descendants(matching: .any)["composer-thinking-picker"]
-        XCTAssertTrue(picker.waitForExistence(timeout: 5))
-        let ultra = app.buttons["thinking-level-ultra"]
-        XCTAssertTrue(ultra.waitForExistence(timeout: 5))
-        ultra.tap()
-        XCTAssertTrue(picker.waitForNonExistence(timeout: 5))
-        plus.tap()
-        XCTAssertTrue(entry.waitForExistence(timeout: 5))
-        XCTAssertEqual(entry.value as? String, "Ultra")
+        let detail = app.descendants(matching: .any)["composer-detail-thinking"]
+        XCTAssertTrue(detail.waitForExistence(timeout: 5))
+        let control = app.descendants(matching: .any)["thinking-curved-control"]
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        XCTAssertEqual(control.value as? String, "高")
+        let defaultButton = app.buttons["thinking-level-default"]
+        XCTAssertTrue(defaultButton.isSelected)
+        guard let sixLevelDetents = thinkingDetents(in: app, control: control, expectedCount: 6) else { return }
+        for (index, level) in ["低", "中", "高", "极高", "Max", "Ultra"].enumerated() {
+            sixLevelDetents[index].tap()
+            XCTAssertTrue(waitForValue(level, in: control), "Expected the six-level rail to select \(level)")
+        }
+        XCTAssertFalse(defaultButton.isSelected)
+
+        app.buttons["关闭，返回一级菜单"].tap()
+        XCTAssertTrue(detail.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(waitForValue("Ultra", in: entry))
         entry.tap()
-        XCTAssertTrue(picker.waitForExistence(timeout: 5))
-        XCTAssertTrue(ultra.isSelected)
+        XCTAssertTrue(detail.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForValue("Ultra", in: control))
+        XCTAssertFalse(defaultButton.isSelected)
+        defaultButton.tap()
+        XCTAssertTrue(waitForValue("高", in: control))
+        XCTAssertTrue(defaultButton.isSelected)
+        app.buttons["关闭，返回一级菜单"].tap()
+        XCTAssertTrue(detail.waitForNonExistence(timeout: 5))
+        entry.tap()
+        XCTAssertTrue(detail.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForValue("高", in: control))
+        XCTAssertTrue(defaultButton.isSelected)
     }
 
     @MainActor
@@ -69,9 +116,9 @@ final class ComposerMotionUITests: XCTestCase {
         app.launch()
         let plus = app.buttons["conversation-composer-plus"]
         XCTAssertTrue(plus.waitForExistence(timeout: 15))
-        let title = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "模型")).firstMatch
+        let title = app.buttons["模型"]
         let panel = app.descendants(matching: .any)["composer-action-menu"]
-        let picker = app.descendants(matching: .any)["composer-model-picker"]
+        let modelDetail = app.descendants(matching: .any)["composer-detail-models"]
         let first = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "UI Test Model")).firstMatch
         let second = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "UI Test Model With A Longer Name")).firstMatch
 
@@ -128,24 +175,26 @@ final class ComposerMotionUITests: XCTestCase {
         replacement.lifetime = .keepAlways
         add(replacement)
         app.buttons["思考"].tap()
-        let thinkingPicker = app.descendants(matching: .any)["composer-thinking-picker"]
-        XCTAssertTrue(thinkingPicker.waitForExistence(timeout: 5))
+        let thinkingDetail = app.descendants(matching: .any)["composer-detail-thinking"]
+        XCTAssertTrue(thinkingDetail.waitForExistence(timeout: 5))
+        let thinkingControl = app.descendants(matching: .any)["thinking-curved-control"]
+        XCTAssertTrue(thinkingControl.waitForExistence(timeout: 5))
+        XCTAssertEqual(thinkingControl.value as? String, "高")
+        guard let initialKeyboardDetents = thinkingDetents(in: app, control: thinkingControl, expectedCount: 6) else { return }
+        XCTAssertEqual(initialKeyboardDetents.count, 6)
         XCTAssertEqual(input.frame.maxY, inputBottom, accuracy: 2)
-        let thinkingButtons = app.buttons.matching(NSPredicate(format: "label == %@", "思考"))
-        XCTAssertEqual(thinkingButtons.count, 1, thinkingButtons.debugDescription)
-        thinkingPicker.buttons["思考"].tap()
-        XCTAssertTrue(thinkingPicker.waitForNonExistence(timeout: 5))
+        app.buttons["关闭，返回一级菜单"].tap()
+        XCTAssertTrue(thinkingDetail.waitForNonExistence(timeout: 5))
         XCTAssertTrue(sheet.exists)
         app.buttons["思考"].tap()
-        XCTAssertTrue(thinkingPicker.waitForExistence(timeout: 5))
-        app.buttons["thinking-level-medium"].tap()
-        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
-        XCTAssertEqual(input.value as? String, "menu draft")
-        input.tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
-        plus.tap()
-        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        XCTAssertTrue(thinkingDetail.waitForExistence(timeout: 5))
+        guard let keyboardDetents = thinkingDetents(in: app, control: thinkingControl, expectedCount: 6) else { return }
+        XCTAssertEqual(keyboardDetents.count, 6)
+        keyboardDetents[1].tap()
+        XCTAssertTrue(waitForValue("中", in: thinkingControl))
+        app.buttons["关闭，返回一级菜单"].tap()
+        XCTAssertTrue(thinkingDetail.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(sheet.exists)
         XCTAssertEqual(app.buttons["思考"].value as? String, "中")
         plus.tap()
         XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
@@ -163,8 +212,7 @@ final class ComposerMotionUITests: XCTestCase {
         plus.tap()
         XCTAssertTrue(sheet.waitForExistence(timeout: 5))
         title.tap()
-        XCTAssertTrue(picker.waitForExistence(timeout: 5))
-        XCTAssertTrue(sheet.exists)
+        XCTAssertTrue(modelDetail.waitForExistence(timeout: 5))
         XCTAssertTrue(first.waitForExistence(timeout: 5))
         XCTAssertTrue(second.exists)
         XCTAssertTrue(first.isSelected)
@@ -174,23 +222,22 @@ final class ComposerMotionUITests: XCTestCase {
         initial.lifetime = .keepAlways
         add(initial)
 
+        app.buttons["关闭，返回一级菜单"].tap()
+        XCTAssertTrue(modelDetail.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(panel.waitForExistence(timeout: 5))
+        XCTAssertTrue(sheet.exists)
         title.tap()
-        let rootEntry = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "思考")).firstMatch
-        XCTAssertTrue(rootEntry.waitForExistence(timeout: 5))
-        XCTAssertTrue(panel.exists)
-        title.tap()
-        XCTAssertTrue(picker.waitForExistence(timeout: 5))
-
+        XCTAssertTrue(modelDetail.waitForExistence(timeout: 5))
         second.tap()
         XCTAssertTrue(second.waitForNonExistence(timeout: 5))
-        XCTAssertTrue(panel.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(modelDetail.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(panel.waitForExistence(timeout: 5))
+        XCTAssertTrue(sheet.exists)
         XCTAssertTrue(plus.isHittable)
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
         XCTAssertEqual(input.value as? String, "menu draft")
-        plus.tap()
-        XCTAssertTrue(title.waitForExistence(timeout: 5))
+
         title.tap()
-        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        XCTAssertTrue(modelDetail.waitForExistence(timeout: 5))
         XCTAssertTrue(second.waitForExistence(timeout: 5))
         XCTAssertTrue(second.isSelected)
         XCTAssertFalse(first.isSelected)
@@ -198,8 +245,27 @@ final class ComposerMotionUITests: XCTestCase {
         changed.name = "Model menu after selection"
         changed.lifetime = .keepAlways
         add(changed)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.3)).tap()
-        XCTAssertTrue(picker.waitForNonExistence(timeout: 5))
+        app.buttons["关闭，返回一级菜单"].tap()
+        XCTAssertTrue(modelDetail.waitForNonExistence(timeout: 5))
+
+        plus.tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(panel.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        XCTAssertEqual(input.value as? String, "menu draft")
+        plus.tap()
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        title.tap()
+        XCTAssertTrue(modelDetail.waitForExistence(timeout: 5))
+        XCTAssertTrue(second.waitForExistence(timeout: 5))
+        XCTAssertTrue(second.isSelected)
+        XCTAssertFalse(first.isSelected)
+        app.buttons["关闭，返回一级菜单"].tap()
+        XCTAssertTrue(modelDetail.waitForNonExistence(timeout: 5))
+        plus.tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
         XCTAssertTrue(panel.waitForNonExistence(timeout: 5))
     }
 
@@ -250,6 +316,31 @@ final class ComposerMotionUITests: XCTestCase {
         XCTAssertTrue(waitForEmptyInput(input))
         background.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 8))
+    }
+
+    @MainActor
+    private func thinkingDetents(in app: XCUIApplication, control: XCUIElement,
+                                 expectedCount: Int) -> [XCUIElement]? {
+        let bounds = control.frame.insetBy(dx: -1, dy: -1)
+        let detents = app.buttons.allElementsBoundByIndex
+            .filter { button in
+                guard button.label.isEmpty else { return false }
+                return bounds.contains(CGPoint(x: button.frame.midX, y: button.frame.midY))
+            }
+            .sorted { $0.frame.midX < $1.frame.midX }
+        guard detents.count == expectedCount else {
+            XCTFail("Expected \(expectedCount) visible thinking detents inside the curved control; found \(detents.count)")
+            return nil
+        }
+        return detents
+    }
+
+    @MainActor
+    private func waitForValue(_ expected: String, in element: XCUIElement) -> Bool {
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (element.value as? String) == expected
+        }, object: nil)
+        return XCTWaiter.wait(for: [ready], timeout: 5) == .completed
     }
 
     @MainActor
