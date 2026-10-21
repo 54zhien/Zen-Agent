@@ -1,85 +1,30 @@
 import SwiftUI
 
-/// Shared analytical geometry keeps the artwork, detents and hit projection on
-/// one circle; the recessed finish does not change the interaction geometry.
-struct ComposerThinkingArcGeometry {
-    let size: CGSize
-    var inset: CGFloat = 30
-    private var halfWidth: CGFloat { max(1, (size.width - 2 * inset) / 2) }
-    private var rise: CGFloat { min(min(66, halfWidth * 0.62), max(2, size.height - 2 * inset)) }
-    private var radius: CGFloat { (halfWidth * halfWidth + rise * rise) / (2 * rise) }
-    private var center: CGPoint {
-        CGPoint(x: size.width / 2, y: size.height - inset + radius - rise)
-    }
-    private var halfAngle: Double { asin(Double(halfWidth / radius)) }
-    private var startAngle: Double { -.pi / 2 - halfAngle }
-
-    func point(at fraction: Double) -> CGPoint {
-        let angle = startAngle + 2 * halfAngle * fraction
-        return CGPoint(x: center.x + radius * CGFloat(cos(angle)),
-                       y: center.y + radius * CGFloat(sin(angle)))
-    }
-
-    func fraction(at point: CGPoint) -> Double {
-        min(1, max(0, projectedFraction(at: point)))
-    }
-
-    func projectedFraction(at point: CGPoint) -> Double {
-        let angle = atan2(Double(point.y - center.y), Double(point.x - center.x))
-        return (angle - startAngle) / (2 * halfAngle)
-    }
-
-    func path(to fraction: Double) -> Path {
-        var path = Path()
-        path.addArc(center: center, radius: radius, startAngle: .radians(startAngle),
-                    endAngle: .radians(startAngle + 2 * halfAngle * fraction), clockwise: false)
-        return path
-    }
-}
-
-/// One closed outline provides the slot, its rim and the inset progress floor.
-/// Round caps are tangent to the circular rail; no overlapping end discs or
-/// differently sized outline strokes create a seam at the joins.
-private struct ComposerThinkingSlot: Shape {
+private struct ComposerThinkingRail: Shape {
     var end: Double = 1
     let inset: CGFloat
     let thickness: CGFloat
 
     func path(in rect: CGRect) -> Path {
-        let curve = ComposerThinkingArcGeometry(size: rect.size, inset: inset)
-        if end <= 0 {
-            let start = curve.point(at: 0)
-            return Path(ellipseIn: CGRect(x: start.x - thickness / 2 + rect.minX,
-                                         y: start.y - thickness / 2 + rect.minY,
-                                         width: thickness, height: thickness))
-        }
-        return curve.path(to: end)
-            .strokedPath(StrokeStyle(lineWidth: thickness, lineCap: .round, lineJoin: .round))
+        ComposerThinkingArcGeometry(size: rect.size, inset: inset)
+            .band(to: end, thickness: thickness)
             .offsetBy(dx: rect.minX, dy: rect.minY)
     }
 }
 
-private struct ComposerThinkingRecess: View {
+private struct ComposerThinkingRailArtwork: View {
     @Environment(\.colorScheme) private var colorScheme
     let fraction: Double
     let inset: CGFloat
     let thickness: CGFloat
 
     var body: some View {
-        let dark = colorScheme == .dark
-        let slot = ComposerThinkingSlot(inset: inset, thickness: thickness)
-        let lip = min(3, thickness * 0.08)
-        let floor = ComposerThinkingSlot(end: fraction, inset: inset, thickness: thickness - 2 * lip)
-        let depth = min(2.5, thickness * 0.055)
+        let rail = ComposerThinkingRail(inset: inset, thickness: thickness)
         ZStack {
-            slot.fill((dark ? Color(white: 0.12) : Color(white: 0.90))
-                .shadow(.inner(color: .black.opacity(dark ? 0.55 : 0.19), radius: depth, y: depth))
-                .shadow(.inner(color: .white.opacity(dark ? 0.07 : 0.70), radius: depth * 0.6, y: -depth * 0.6)))
-            floor.fill((dark ? Color(white: 0.62) : Color.black)
-                .shadow(.inner(color: .black.opacity(0.18), radius: 1, y: 1)))
-            slot.stroke(LinearGradient(colors: [.black.opacity(dark ? 0.25 : 0.06),
-                                                 .white.opacity(dark ? 0.13 : 0.85)],
-                                       startPoint: .top, endPoint: .bottom), lineWidth: 0.65)
+            rail.fill(Color(uiColor: .systemGray5))
+            ComposerThinkingRail(end: fraction, inset: inset, thickness: thickness)
+                .fill(colorScheme == .dark ? Color(white: 0.62) : Color.black)
+                .clipShape(rail)
         }
         .allowsHitTesting(false)
     }
@@ -115,7 +60,7 @@ struct ComposerThinkingTrack: View, Animatable {
             let spacing = hypot(nextPoint.x - firstPoint.x, nextPoint.y - firstPoint.y)
             let hitDiameter = count > 1 ? min(44, max(12, spacing - 2)) : 44
             ZStack(alignment: .topLeading) {
-                ComposerThinkingRecess(fraction: fraction, inset: inset, thickness: thickness)
+                ComposerThinkingRailArtwork(fraction: fraction, inset: inset, thickness: thickness)
                 ForEach(0..<count, id: \.self) { index in
                     let t = Double(index) / Double(max(1, count - 1))
                     Button { onSelect(index) } label: {
@@ -164,7 +109,6 @@ private struct ComposerThinkingThumb: View {
         Circle().fill(.white)
             .overlay(Circle().strokeBorder(Color.black.opacity(0.12), lineWidth: 0.5))
             .frame(width: diameter, height: diameter)
-            .shadow(color: .black.opacity(0.22), radius: 1, y: 1)
             .scaleEffect(compressed && !reduceMotion ? 0.92 : 1)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: compressed)
             .phaseAnimator([1.0, 0.92, 1.0], trigger: endpointPulse) { content, phase in
