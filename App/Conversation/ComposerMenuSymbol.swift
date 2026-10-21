@@ -9,6 +9,7 @@ struct ComposerMenuSymbol: View {
     @ViewBuilder var body: some View {
         switch level {
         case .models:
+            // Explicit shading also resolves inside hosted Liquid Glass content.
             Canvas { context, size in
                 let edge = min(size.width, size.height)
                 let center = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -23,10 +24,10 @@ struct ComposerMenuSymbol: View {
                     if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
                 }
                 path.closeSubpath()
-                context.stroke(path, with: .foreground,
+                context.stroke(path, with: .color(.primary),
                                style: StrokeStyle(lineWidth: edge * 0.08, lineCap: .round, lineJoin: .round))
                 context.fill(Path(ellipseIn: CGRect(x: center.x - edge * 0.06, y: center.y - edge * 0.06,
-                                 width: edge * 0.12, height: edge * 0.12)), with: .foreground)
+                                 width: edge * 0.12, height: edge * 0.12)), with: .color(.primary))
             }
         case .thinking:
             if let thinking { ComposerThinkingIcon(level: thinking, supportedLevels: supportedLevels) }
@@ -47,13 +48,12 @@ struct ComposerMenuSymbol: View {
                 plug.move(to: CGPoint(x: 12, y: 10)); plug.addLine(to: CGPoint(x: 12, y: 6))
                 plug.move(to: CGPoint(x: 16, y: 10)); plug.addLine(to: CGPoint(x: 16, y: 6))
                 let stroke = StrokeStyle(lineWidth: edge * 0.075, lineCap: .round, lineJoin: .round)
-                context.stroke(cord.applying(transform), with: .foreground, style: stroke)
-                context.stroke(plug.applying(transform), with: .foreground, style: stroke)
+                context.stroke(cord.applying(transform), with: .color(.primary), style: stroke)
+                context.stroke(plug.applying(transform), with: .color(.primary), style: stroke)
             }
             .rotationEffect(.degrees(-45))
         case .files:
-            Image(systemName: "paperclip").resizable().scaledToFit().fontWeight(.heavy)
-                .scaleEffect(x: 1.10, y: 1)
+            Image(systemName: "paperclip").resizable().scaledToFit().fontWeight(.medium)
         case .images:
             Image(systemName: "photo.on.rectangle.angled").resizable().scaledToFit().fontWeight(.medium)
         case .actions:
