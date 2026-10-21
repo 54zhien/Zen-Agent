@@ -2,9 +2,9 @@ import SwiftUI
 
 /// The rail, fill and thumb use one curve, including every frame of a spring snap.
 struct ComposerThinkingTrack: View, Animatable {
-    var progress: Double
+    nonisolated var progress: Double
     let count: Int
-    var animatableData: Double {
+    nonisolated var animatableData: Double {
         get { progress }
         set { progress = newValue }
     }
