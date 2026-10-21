@@ -27,7 +27,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          source=f98802474d3e6e842176afa5ebc5a13d60ec7c76
+          source=9ba857e112f4f839d1fad8e0eae2cedb9a71baee
           test "$(git merge-base HEAD "$source")" = "$source"
           git diff --exit-code "$source" HEAD -- . ':!.github/workflows/ci.yml' ':!.github/workflows/ui-polish-device-ipa.yml'
 
@@ -155,7 +155,7 @@ jobs:
           {
             echo "Source SHA: $GITHUB_SHA"
             echo "Packaging tree: $(git rev-parse HEAD^{tree})"
-            echo "Application source SHA: f98802474d3e6e842176afa5ebc5a13d60ec7c76"
+            echo "Application source SHA: 9ba857e112f4f839d1fad8e0eae2cedb9a71baee"
             echo "Tests: not run, per explicit user request"
             echo "Workflow run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo "CFBundleVersion: $build_id"
