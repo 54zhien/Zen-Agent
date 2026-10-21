@@ -16,7 +16,6 @@ struct SplitDividerView: UIViewRepresentable {
     var onAxis: ((SplitWorkspaceAxis) -> Void)? = nil
     var resizeDiagnostic: (() -> String)? = nil
     var sidebarProgress: CGFloat = 0
-    var fadesHandleWithSidebar: Bool = false
 
     var normalizedSidebarProgress: CGFloat {
         sidebarProgress.isFinite ? min(1, max(0, sidebarProgress)) : 0
@@ -96,10 +95,9 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
             handle.backgroundColor = configuration?.closeIntent == nil
                 ? configuration?.handleSurfaceColor() ?? .white
                 : .systemOrange
-            // Fade only decoration: the native resize target keeps its geometry,
-            // opacity and gesture ownership throughout Sidebar transport.
-            handle.alpha = configuration?.fadesHandleWithSidebar == true
-                ? 1 - (configuration?.normalizedSidebarProgress ?? 0) : 1
+            // Both appearances use the same white-to-page-color interpolation.
+            // Do not apply a second, dark-only fade to the handle.
+            handle.alpha = 1
             setNeedsLayout()
         }
     }

@@ -64,6 +64,7 @@ Owner curved black thinking control and coordinated detail return @ c50ca870c792
 Owner clearer circular rail, tap spring and softer detail entrance @ 97ca787d5e47e1b13ec860fef72b85a00816f118
 Owner fixed thinking layout, retained menu lifecycle and Split appearance ruling @ 17477d4ec32377640ee12b715de507952d75fa0e
 Owner refined Composer outlines and optical balance @ d1f5998e60f05d7ba63b712be5416c8b495b774e
+Owner thinking control layout, hit targets and shared handle appearance @ 25cc5f4e8e287fbbc3a20fdb14985367ba14ebb4
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
