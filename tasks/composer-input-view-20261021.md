@@ -18,3 +18,12 @@ References: https://developer.apple.com/documentation/uikit/uiresponder/reloadin
 Validation: pending device build and artifact receipt. No test suites or visual simulator probes will run. Prior keyboard-overlay test success does not verify this new implementation.
 
 Read-only review found that marked input could retain the custom view during Workspace suppression. The scoped correction closes an installed custom input view even in that case, lets UIKit finish the same text view, and reports final native text/selection before focus loss. Ordinary focus requests still preserve the existing IME guard. No tests ran.
+
+## Package receipt
+
+- Application source: `782d3e6b41fd35c223f49f7b94c7923f895c12f3`; packaging commit: `8cc0b36cb31074262dbc56f0fe9fc7c2adb12399`.
+- Final build/package run: https://github.com/54zhien/Zen-Agent/actions/runs/39530748460 — success; XcodeGen generation and unsigned generic iOS device build completed with Xcode 26.6.
+- Artifact: `ZenAgent-Composer-17-1.ipa`, CFBundleVersion `17.1`, unsigned Debug, arm64, iOS 26.0+.
+- Downloaded IPA SHA-256: `4fcd7f4a647c355d8cfd625a14193f7d3b812e36284a7e3247a4630e08e5687f`; checksum, bundle version/id and recorded application source matched.
+- Earlier inputView build 39530433839 also succeeded; final package includes the later marked-input cleanup. Narrow read-only review found no remaining blocker in that cleanup path.
+- No unit/UI tests or simulator visual probes ran. Device switching, corner appearance and Split stability remain physical-device acceptance items. No main merge performed.
