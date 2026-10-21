@@ -127,18 +127,25 @@ final class ThinkingSelectionHaptics: NSObject {
 
     private static func pattern() throws -> CHHapticPattern {
         let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
-            CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.90),
-            CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.25)
-        ], relativeTime: 0, duration: 0.14)
+            CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.72),
+            CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.18)
+        ], relativeTime: 0, duration: 0.24)
         // Explicit times are seconds; normalized attack/release parameters do
         // not express exact durations. End at zero to avoid a hard cutoff.
         let envelope = CHHapticParameterCurve(parameterID: .hapticIntensityControl, controlPoints: [
             .init(relativeTime: 0, value: 0),
-            .init(relativeTime: 0.018, value: 1),
-            .init(relativeTime: 0.050, value: 0.95),
-            .init(relativeTime: 0.085, value: 0.60),
-            .init(relativeTime: 0.115, value: 0.25),
-            .init(relativeTime: 0.14, value: 0)
+            .init(relativeTime: 0.012, value: 0.08),
+            .init(relativeTime: 0.026, value: 0.40),
+            .init(relativeTime: 0.040, value: 0.80),
+            .init(relativeTime: 0.055, value: 1),
+            .init(relativeTime: 0.075, value: 0.98),
+            .init(relativeTime: 0.100, value: 0.87),
+            .init(relativeTime: 0.130, value: 0.67),
+            .init(relativeTime: 0.160, value: 0.42),
+            .init(relativeTime: 0.190, value: 0.20),
+            .init(relativeTime: 0.215, value: 0.065),
+            .init(relativeTime: 0.235, value: 0.005),
+            .init(relativeTime: 0.24, value: 0)
         ], relativeTime: 0)
         return try CHHapticPattern(events: [event], parameterCurves: [envelope])
     }
