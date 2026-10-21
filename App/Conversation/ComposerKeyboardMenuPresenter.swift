@@ -23,8 +23,9 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
     private var didDismiss = false
     private var animator: UIViewPropertyAnimator?
 
-    var inputDescentTarget: (sheet: UIView, travel: CGFloat) {
-        details?.inputDescentTarget ?? (sheet, height)
+    var inputDismissalAnimator: UIViewPropertyAnimator? {
+        guard isClosing, !didDismiss else { return nil }
+        return details?.inputDismissalAnimator ?? animator
     }
 
     init(height: CGFloat, presentation: ComposerActionMenuState,
@@ -175,12 +176,13 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
         onClose?(restoringKeyboard, animated)
     }
 
-    func dismiss(animated: Bool, completion: @escaping () -> Void) {
+    func dismiss(animated: Bool, alongside: ((UIViewPropertyAnimator?) -> Void)? = nil,
+                 completion: @escaping () -> Void) {
         guard !didDismiss else { completion(); return }
         isClosing = true
         if let details {
             sheet.isHidden = true
-            details.dismissForInputClosure(animated: animated) { [weak self] in
+            details.dismissForInputClosure(animated: animated, alongside: alongside) { [weak self] in
                 guard let self, !self.didDismiss else { return }
                 self.removeFromWindow()
                 completion()
@@ -194,6 +196,7 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
             self.animator = nil
         }
         guard animated, view.superview != nil, !UIAccessibility.isReduceMotionEnabled else {
+            alongside?(nil)
             removeFromWindow()
             completion()
             return
@@ -202,6 +205,7 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
             self.sheet.transform = CGAffineTransform(translationX: 0, y: self.height)
         }
         animator = animation
+        alongside?(animation)
         animation.addCompletion { [weak self] position in
             guard let self, !self.didDismiss, position == .end else { return }
             self.animator = nil

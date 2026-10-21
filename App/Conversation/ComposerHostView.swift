@@ -443,9 +443,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         lastLocalKeyboardFrame = localFrame
         lastWindowCornerRadius = radius
         lastBottomSafeAreaInset = restingBottomSafeAreaInset
-        if keyboardMenu?.isTrackingInputDescent == true {
-            // Viewport growth follows the sheet frame by frame. It must not
-            // restart or overwrite the Composer's existing shape transition.
+        if keyboardMenu?.isAnimatingInputDescent == true {
+            // SwiftUI's viewport transition must not overwrite the independent
+            // Composer shape animation while UIKit moves its bottom anchor.
             reconcileKeyboardOffset()
             return
         }
@@ -859,13 +859,17 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
                      screenRadius: windowCornerGeometry.radius(in: window))
         let session = ComposerKeyboardMenuSession(editor: editor, window: window, height: height,
             presenter: menu,
-            onReservation: { [weak self] top in
+            onReservation: { [weak self] top, animator in
                 guard let self else { return }
-                self.configuration?.onMenuTopChanged(top)
-                self.lastActiveKeyboardFrame = .null
-                self.reconcileKeyboardOffset()
-                self.setNeedsLayout()
-                self.layoutIfNeeded()
+                ComposerInputAnimation.apply(using: animator, publishViewport: {
+                    self.configuration?.onMenuTopChanged(top)
+                }, layoutComposer: { [weak self] in
+                    guard let self else { return }
+                    self.lastActiveKeyboardFrame = .null
+                    self.reconcileKeyboardOffset()
+                    self.setNeedsLayout()
+                    self.layoutIfNeeded()
+                })
             },
             onGlyph: { [weak self] expanded, animated in
                 self?.setKeyboardMenuGlyph(expanded, animated: animated)
