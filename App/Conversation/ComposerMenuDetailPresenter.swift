@@ -166,6 +166,9 @@ final class ComposerMenuDetailPresenter: UIViewController {
         guard !removed else { return }
         removed = true
         closing = true
+        // Invalidate pending SwiftUI snap completions synchronously; UIKit
+        // removal can precede the hosted view's onDisappear cancellation.
+        presentation.activeLevel = .actions
         presentation.previewThinkingEffort = nil
         if animator?.state == .active { animator?.stopAnimation(true) }
         animator = nil
