@@ -184,8 +184,13 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         plus.isAccessibilityElement = !suppressed
         primary.isAccessibilityElement = !suppressed
         errorLabel.accessibilityElementsHidden = suppressed
-        if suppressed, editor.markedTextRange == nil {
+        // A custom input view belongs to the editor even when its host is
+        // hidden. Suppression must end that session, including marked input;
+        // UIKit commits it on the same UITextView before didEndEditing reports it.
+        if suppressed, keyboardMenu != nil {
             keyboardMenu?.close(restoringKeyboard: false, animated: false)
+        }
+        if suppressed, editor.markedTextRange == nil {
             if editor.isFirstResponder { recordOverlayFocusEvent("suppressionResign") }
             editor.resignFirstResponder()
         }
@@ -958,6 +963,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     func textViewDidEndEditing(_ textView: UITextView) {
         recordDockEvent("didEndEditing-beforeFeedback")
         recordOverlayFocusEvent("didEndEditing")
+        reportEditor()
         keyboardMenu?.close(restoringKeyboard: false, animated: false)
         configuration?.onFocus(false)
         recordDockEvent("didEndEditing-afterFeedback")
