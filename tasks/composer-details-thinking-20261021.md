@@ -28,3 +28,11 @@ Pending static review and macOS XcodeGen/device build. No test suites or simulat
 Static review identified and corrected external responder takeover during descent, landscape concentric inset consistency, and short-height/large-type scrolling. Floating details now derive height from the current window, not stale keyboard history. Final macOS build pending.
 
 Build 39540033359 failed with ambiguous selector dismissSheet (zero-argument handler vs animated: method). Renamed the UI target to closeTapped and made Swift closure calls explicit. The original failed run is preserved; corrected source will receive a new build.
+
+## Final build receipt
+
+- Application source: `0323234101f3274a8baed0df661110b784e03591`; packaging SHA: `abd0ae65438daade5fb8ae4b3368f31185cdd18d`.
+- Run https://github.com/54zhien/Zen-Agent/actions/runs/39540332157 succeeded: XcodeGen generation, Xcode 26.6 generic iOS device build, unsigned IPA packaging and upload. No test suites or simulator probes were run.
+- The first run 39540033359 failed at the new close selector; retained as failed provenance. The fix used a new commit and new run, not an unchanged retry.
+- Downloaded version 22.1, arm64, iOS 26.0+, unsigned Debug/System Sans. BUILD-INFO source and Info.plist ID/version matched; SHA256SUMS matched local SHA-256 `310066e36cd194cfa4170ff9ff9caa3c2a3a234114e819dc5e11b8c39acc06fb`.
+- Final static review found no remaining Critical/Important issues. That and the build do not prove device keyboard behavior, blur appearance or gesture feel; those remain device acceptance items. No main merge performed.
