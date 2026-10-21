@@ -47,13 +47,14 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var shelfController: UIHostingController<QuoteShelfView>?
     private let actionMenuState = ComposerActionMenuState()
     private var actionMenu: ComposerActionMenuPresenter?
-    private var keyboardMenu: ComposerKeyboardMenuPresenter?
+    private var keyboardMenu: ComposerKeyboardMenuSession?
     private var shelfHeight: CGFloat = 44
     private var quotePhase: ComposerQuoteDragPhase = .idle
     private let motion = ComposerMotionController()
     private var widthConstraint: NSLayoutConstraint!
     private var heightConstraint: NSLayoutConstraint!
     private var bottomConstraint: NSLayoutConstraint!
+    private var reservedBottomConstraint: NSLayoutConstraint!
     private var renderedBottomSpacing: CGFloat = 12
     private weak var keyboardAnchorView: UIView?
     private var configuration: Configuration?
@@ -216,6 +217,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         bottomConstraint = surface.bottomAnchor.constraint(
             equalTo: keyboardLayoutGuide.topAnchor, constant: -12
         )
+        reservedBottomConstraint = surface.bottomAnchor.constraint(equalTo: topAnchor)
         NSLayoutConstraint.activate([
             surface.centerXAnchor.constraint(equalTo: centerXAnchor),
             bottomConstraint,
@@ -359,7 +361,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let nextWindow = superview?.window
         let root = nextWindow?.rootViewController?.view
         let nextAnchor = root?.window === nextWindow ? root : nil
-        guard keyboardAnchorView !== nextAnchor || !bottomConstraint.isActive else { return }
+        guard keyboardAnchorView !== nextAnchor || (!bottomConstraint.isActive && keyboardMenu == nil) else { return }
         keyboardAnchorView = nextAnchor
         // The focused editor can move from the shared dock through a shortened
         // Split portal without a keyboard-frame notification. Read its stable
@@ -368,13 +370,17 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let guide = nextAnchor?.keyboardLayoutGuide ?? keyboardLayoutGuide
         guide.usesBottomSafeArea = true
         guide.followsUndockedKeyboard = false
-        bottomConstraint.isActive = true
+        if keyboardMenu?.reservedTop == nil { bottomConstraint.isActive = true }
         lastActiveKeyboardFrame = .null
         lastLocalKeyboardFrame = .null
         setNeedsLayout()
     }
 
     private var activeKeyboardFrame: CGRect {
+        if let top = keyboardMenu?.reservedTop, let window {
+            return convert(CGRect(x: window.bounds.minX, y: top, width: window.bounds.width,
+                                  height: max(0, window.bounds.maxY - top)), from: window)
+        }
         guard let host = keyboardAnchorView, let window, host.window === window else {
             return keyboardLayoutGuide.layoutFrame
         }
@@ -406,6 +412,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        keyboardMenu?.validateAttachment()
         updateBottomFadeLayer()
         updateGeometryProbe()
         liftInteraction.checkReadiness()
@@ -435,7 +442,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     private func updateBottomFadeLayer() {
         let viewport = bottomFadeViewport
-        let bottom = windowKeyboardVisible ? min(viewport.maxY, activeKeyboardFrame.minY) : viewport.maxY
+        let occupied = keyboardMenu?.reservedTop != nil || windowKeyboardVisible
+        let bottom = occupied ? min(viewport.maxY, activeKeyboardFrame.minY) : viewport.maxY
         bottomFadeLayer.update(bounds: viewport, composerFrame: surface.frame,
                                bottom: bottom, traits: traitCollection)
     }
@@ -622,8 +630,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
                 recordDockEvent("requestFocus accepted=\(accepted)")
             }
         } else {
-            guard editor.markedTextRange == nil else { return }
             keyboardMenu?.close(restoringKeyboard: false, animated: false)
+            guard editor.markedTextRange == nil else { return }
             if editor.isFirstResponder {
                 recordOverlayFocusEvent("bridgeRestingResign")
                 editor.resignFirstResponder()
@@ -717,11 +725,18 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     private func reconcileKeyboardOffset() {
-        // The local guide drives native keyboard animation. The converted root
-        // position corrects its stale post-transfer geometry without a constraint
-        // crossing SwiftUI hosts or changing the current morph endpoint.
-        bottomConstraint.constant = activeKeyboardFrame.minY
-            - keyboardLayoutGuide.layoutFrame.minY - renderedBottomSpacing
+        if keyboardMenu?.reservedTop != nil {
+            // A fixed app-owned anchor prevents keyboardLayoutGuide's animation
+            // from moving the Composer while the native keyboard actually leaves.
+            bottomConstraint.isActive = false
+            reservedBottomConstraint.constant = activeKeyboardFrame.minY - renderedBottomSpacing
+            reservedBottomConstraint.isActive = true
+        } else {
+            reservedBottomConstraint.isActive = false
+            bottomConstraint.constant = activeKeyboardFrame.minY
+                - keyboardLayoutGuide.layoutFrame.minY - renderedBottomSpacing
+            bottomConstraint.isActive = true
+        }
     }
 
     private func finishTextLayout(_ state: ComposerPresentationState) {
@@ -812,30 +827,31 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     private func presentKeyboardMenu(height: CGFloat, in window: UIWindow) {
         let menu = ComposerKeyboardMenuPresenter(height: height, presentation: actionMenuState,
-            onSelect: { [weak self] modelID in self?.configuration?.onModel(modelID) },
-            onClosing: { [weak self] animated in self?.setKeyboardMenuGlyph(false, animated: animated) },
-            onDismiss: { [weak self] menu, restoresKeyboard in
-                guard let self, self.keyboardMenu === menu else { return }
-                self.keyboardMenu = nil
-                self.editor.inputView = nil
-                if self.editor.isFirstResponder {
-                    if restoresKeyboard, self.window != nil, !self.workspaceInputSuppressed {
-                        self.editor.reloadInputViews()
-                    } else {
-                        self.editor.resignFirstResponder()
-                    }
-                }
-                self.setNeedsLayout()
-            })
-        // Keep the responder, text selection and keyboard avoidance owner.
-        // The observed height includes the home area; do not add that inset again.
-        keyboardMenu = menu
-        WorkspaceHaptics.shared.play(.control)
+            onSelect: { [weak self] modelID in self?.configuration?.onModel(modelID) })
         menu.prepare(in: window, style: traitCollection.userInterfaceStyle,
                      screenRadius: windowCornerGeometry.radius(in: window))
-        editor.inputView = menu.view
-        setKeyboardMenuGlyph(true, animated: true)
-        editor.reloadInputViews()
+        let session = ComposerKeyboardMenuSession(editor: editor, window: window, height: height,
+            presenter: menu,
+            onReservation: { [weak self] top in
+                guard let self else { return }
+                self.configuration?.onMenuTopChanged(top)
+                self.lastActiveKeyboardFrame = .null
+                self.reconcileKeyboardOffset()
+                self.setNeedsLayout()
+                self.layoutIfNeeded()
+            },
+            onGlyph: { [weak self] expanded, animated in
+                self?.setKeyboardMenuGlyph(expanded, animated: animated)
+            },
+            onFinish: { [weak self] session in
+                guard let self, self.keyboardMenu === session else { return }
+                self.keyboardMenu = nil
+                self.configuration?.onFocus(self.editor.isFirstResponder)
+                self.setNeedsLayout()
+            })
+        keyboardMenu = session
+        WorkspaceHaptics.shared.play(.control)
+        session.start()
     }
 
     private func setKeyboardMenuGlyph(_ expanded: Bool, animated: Bool) {
@@ -890,7 +906,6 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         recordDockEvent("surfaceTap native=\(recognizer.state.rawValue),configured=\(String(describing: configuration?.state))")
         if recognizer.state == .ended, keyboardMenu != nil {
             restoreKeyboardFromMenu()
-            editor.becomeFirstResponder()
             return
         }
         guard recognizer.state == .ended,
@@ -950,7 +965,12 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     func textViewShouldBeginEditing(_ textView: UITextView) -> Bool {
-        return !workspaceInputSuppressed
+        guard !workspaceInputSuppressed else { return false }
+        if let keyboardMenu, !keyboardMenu.permitsNativeFocus {
+            keyboardMenu.close()
+            return false
+        }
+        return true
     }
 
     func textViewDidBeginEditing(_ textView: UITextView) {
@@ -964,8 +984,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         recordDockEvent("didEndEditing-beforeFeedback")
         recordOverlayFocusEvent("didEndEditing")
         reportEditor()
-        keyboardMenu?.close(restoringKeyboard: false, animated: false)
-        configuration?.onFocus(false)
+        // A keyboard-to-menu handoff ends native focus but retains the expanded
+        // Composer. The session reports final focus on completion/cancellation.
+        if keyboardMenu == nil { configuration?.onFocus(false) }
         recordDockEvent("didEndEditing-afterFeedback")
     }
     func textViewDidChange(_ textView: UITextView) { reportEditor() }

@@ -61,6 +61,19 @@ struct ConversationPaneView: View {
     }
 
     var body: some View {
+        GeometryReader { proposed in
+            paneContent
+                .frame(height: reservedViewportHeight(in: proposed), alignment: .top)
+        }
+    }
+
+    private func reservedViewportHeight(in proposed: GeometryProxy) -> CGFloat {
+        // Shared Split already applies the reservation before dividing its Panes.
+        guard !usesSharedComposer, let top = composerMenuTop else { return proposed.size.height }
+        return min(proposed.size.height, max(0, top - proposed.frame(in: .global).minY))
+    }
+
+    private var paneContent: some View {
         ZStack(alignment: .bottom) {
             ConversationTimelineView(
                 projection: pane.liveStore.state.timeline,

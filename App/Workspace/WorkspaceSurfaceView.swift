@@ -139,11 +139,11 @@ struct WorkspaceSurfaceView<Content: View>: View {
                                 sidebarDragging: isDragging, sidebarTranslation: translation)
                         }
                     }
-                    // Physical keyboard avoidance already shortens the outer proposal.
-                    // Reserve only its remaining overlap with the replacement sheet,
-                    // before splitting into Panes; a lower Pane cannot inset above its top.
-                    .padding(.bottom, keepsFullConversationViewport ? 0
-                        : composerDock.menuOverlap(in: proposed.frame(in: .global)))
+                    // The reservation is published BEFORE native keyboard dismissal.
+                    // Cap the viewport at that same top throughout both animations;
+                    // do not animate another additive inset as SwiftUI expands its proposal.
+                    .frame(height: proposed.size.height - (keepsFullConversationViewport ? 0
+                        : composerDock.menuOverlap(in: proposed.frame(in: .global))), alignment: .top)
                 }
             }
             if activeLift.splitTargetingVisible, let top = activeLift.splitTopFrame,
