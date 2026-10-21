@@ -175,3 +175,37 @@ It is separately selectable as `sidebar-hit-path`, so
 the original failed tests are not rerun unchanged to replace their evidence.
 No coordinate tap is substituted into ordinary navigation tests to waive AX.
 No product/UI correction or merge is authorized by this diagnostic result alone.
+
+## UI boundary stop — Settings touch-path result
+
+Diagnostic source `241d940b650496e0e4c166fc420843c868a0fc9f`, run
+https://github.com/54zhien/Zen-Agent/actions/runs/39643483481, completed **failure**
+after a real generation/build/native run. Its original Sidebar readiness failure
+and explicit Settings AX failure remain, and its coordinate route assertion also
+fails (one UI case, three assertions):
+
+- Settings exists, is enabled, and has frame `(34,784,56,56)` inside app frame
+  `(0,0,402,874)`; AX hittability remains false.
+- A single app-level coordinate tap is delivered at visible center `(62,812)`.
+- The existing `settings-page` does not appear within the existing 5-second wait.
+
+This excludes an AX-target-only explanation for this observed navigation failure.
+It does not identify the precise native interceptor or rule out every routing
+condition; no product correction is inferred from a screenshot alone.
+Read-only verification confirms the launch supplies a real store and the overlay
+coordinator includes `.settings`, creates its model and presents
+`SettingsWorkspaceView`. The Settings identifier is therefore a valid destination
+in this fixture. The debug reading-position button is far from `(62,812)`.
+Before/after screenshots and AX hierarchies were inspected: the visible Sidebar
+stays in place and no Settings page appears. The unresolved boundary is product
+hit handling, callback delivery or route presentation, not an unsupported fixture.
+Artifact `12367455769` retains before/after screenshots, AX hierarchy and native
+result bundle, archive digest
+`sha256:0c3afa9af9aa54146752639bf92fefa703476d52fd65a38e8123d91a28c84a43`.
+
+Further correction of Sidebar hit testing or event routing crosses the owner's
+explicit UI-interaction freeze. Such a correction could alter how taps reach
+Sidebar controls versus the translated page and its gestures; layout, appearance,
+menu animation and haptics are not authorized edit targets. Product code remains
+byte-identical to the frozen `eb39a65` baseline. Stop here for the owner's direction;
+do not merge RED, silently waive the hit checks or begin S6 before UI integration.
