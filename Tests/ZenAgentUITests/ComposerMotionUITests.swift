@@ -34,7 +34,7 @@ final class ComposerMotionUITests: XCTestCase {
         modelEntry.tap()
         let modelDetail = app.descendants(matching: .any)["composer-detail-models"]
         XCTAssertTrue(modelDetail.waitForExistence(timeout: 5))
-        app.buttons["UI Test Model With A Longer Name"].tap()
+        modelOption("UI Test Model With A Longer Name", in: app).tap()
         XCTAssertTrue(modelDetail.waitForNonExistence(timeout: 5))
         XCTAssertTrue(waitForValue("中", in: entry))
 
@@ -52,7 +52,7 @@ final class ComposerMotionUITests: XCTestCase {
         XCTAssertTrue(detail.waitForNonExistence(timeout: 5))
         modelEntry.tap()
         XCTAssertTrue(modelDetail.waitForExistence(timeout: 5))
-        app.buttons["UI Test Model"].tap()
+        modelOption("UI Test Model", in: app).tap()
         XCTAssertTrue(modelDetail.waitForNonExistence(timeout: 5))
         XCTAssertTrue(waitForValue("高", in: entry))
         entry.tap()
@@ -119,8 +119,8 @@ final class ComposerMotionUITests: XCTestCase {
         let title = app.buttons["模型"]
         let panel = app.descendants(matching: .any)["composer-action-menu"]
         let modelDetail = app.descendants(matching: .any)["composer-detail-models"]
-        let first = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "UI Test Model")).firstMatch
-        let second = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "UI Test Model With A Longer Name")).firstMatch
+        let first = modelOption("UI Test Model", in: app)
+        let second = modelOption("UI Test Model With A Longer Name", in: app)
 
         plus.tap()
         XCTAssertTrue(panel.waitForExistence(timeout: 5))
@@ -333,6 +333,14 @@ final class ComposerMotionUITests: XCTestCase {
             return nil
         }
         return detents
+    }
+
+    @MainActor
+    private func modelOption(_ name: String, in app: XCUIApplication) -> XCUIElement {
+        // Native AX combines the model name and its supported thinking levels
+        // into the row's label; the comma keeps similarly prefixed names distinct.
+        app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@",
+            name, name + ", ")).firstMatch
     }
 
     @MainActor

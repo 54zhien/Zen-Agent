@@ -4,7 +4,7 @@ import UIKit
 final class SidebarUITests: XCTestCase {
     @MainActor
     func testRaisedSheetConsumesFirstEdgeSwipeAndNextSwipeOpensSidebar() {
-        let app = launch()
+        let app = launch(withKeyboardMenu: true)
         let editor = app.textViews["conversation-composer-input"]
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         editor.tap()
@@ -15,7 +15,9 @@ final class SidebarUITests: XCTestCase {
         XCTAssertNotNil(identity)
         app.buttons["conversation-composer-plus"].tap()
         let sheet = app.descendants(matching: .any)["composer-keyboard-sheet"]
-        expect { sheet.exists && !app.keyboards.firstMatch.exists }
+        // UIKit can expose a replacement inputView inside Keyboard's AX
+        // container; the actual sheet and menu row identify this presentation.
+        expect { sheet.exists && app.buttons["模型"].exists }
 
         app.dismissWorkspaceInputForSidebar()
         XCTAssertFalse(app.descendants(matching: .any)["sidebar-rail"].exists)
@@ -344,9 +346,10 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch() -> XCUIApplication {
+    private func launch(withKeyboardMenu: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        if withKeyboardMenu { app.launchEnvironment["ZEN_KEYBOARD_MENU_UI_TEST"] = "1" }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         return app

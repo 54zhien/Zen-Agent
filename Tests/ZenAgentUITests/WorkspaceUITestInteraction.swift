@@ -67,7 +67,25 @@ extension XCUIApplication {
             }) && self.buttons["sidebar-settings"].isEnabled
                 && self.buttons["sidebar-settings"].isHittable
         }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 10), .completed,
+        let settlement = XCTWaiter.wait(for: [settled], timeout: 10)
+        if settlement != .completed {
+            XCTContext.runActivity(named: "Sidebar controls after native settlement") { activity in
+                let screenshot = XCTAttachment(screenshot: self.screenshot())
+                screenshot.lifetime = .keepAlways
+                activity.add(screenshot)
+                let hierarchy = XCTAttachment(string: self.debugDescription)
+                hierarchy.lifetime = .keepAlways
+                activity.add(hierarchy)
+            }
+            for id in ["sidebar-settings", "sidebar-files", "sidebar-search"] {
+                let matches = buttons.matching(identifier: id)
+                print("SIDEBAR_AX id=\(id) count=\(matches.count)")
+                for element in matches.allElementsBoundByIndex.prefix(4) {
+                    print("SIDEBAR_AX id=\(id) label=\(element.label) enabled=\(element.isEnabled) frame=\(element.frame)")
+                }
+            }
+        }
+        XCTAssertEqual(settlement, .completed,
             "Sidebar controls must be hittable after native opening settles: \(probes.filter { $0.exists }.map { String(describing: $0.value) })",
             file: file, line: line)
     }

@@ -96,3 +96,35 @@ run; the other affected-UI run remains independent evidence to collect.
 Artifact `12360617346` contains the result bundle, native logs, video and three
 named screenshots. Archive digest:
 `sha256:747054a856dd2e0d2cd7a49ccddf27900c5e5140443c7553282d89def9debaa8`.
+
+## Affected-UI result and narrower follow-up
+
+Run `39630300120` ended `cancelled` after its focused job exceeded 40 minutes.
+Native assertion failures before the timeout remain RED; no complete UI summary
+or result artifact was uploaded. Three App Space geometry cases and the six-level
+Thinking detail/persistence case passed. Model switching, Sidebar destinations
+and other recorded failures are not waived.
+
+The native model-menu snapshot exposes combined row labels such as
+`UI Test Model, 低 · 高 · Max`, rather than just the model name. Model tests now
+match the complete name followed by the comma boundary, retaining selection,
+three/four-level adaptation and persistence assertions.
+
+The new raised-sheet case omitted the existing `ZEN_KEYBOARD_MENU_UI_TEST`
+fixture opt-in; without a configured model, its plus button correctly did not
+exist. That case now opts into the same menu-capable preview fixture already used
+by the native Split keyboard-sheet test. It identifies the actual sheet and model
+row rather than assuming UIKit's Keyboard AX container must disappear for a
+custom replacement inputView. Dismissal/ownership/draft checks remain.
+
+Sidebar failures persist even when native receipts report fully open and settled.
+Some destinations have invalid AX activation points. Attribution is unresolved;
+no product correction is made. The failure helper now retains screenshot and
+full AX attachments and prints scoped match counts/frames. A smaller existing
+`sidebar-controls` selection covers representative keyboard-free, focused-input,
+raised-sheet, Settings and Search cases so failure evidence can finish uploading.
+The full test selection and existing wait tolerances are unchanged.
+
+The source-scroll setup candidate `53f3e03` is under native Lift verification:
+https://github.com/54zhien/Zen-Agent/actions/runs/39638592284.
+It does not include these subsequent model/Sidebar test changes.

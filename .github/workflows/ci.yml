@@ -890,7 +890,11 @@ jobs:
                 tests=(-only-testing:ZenAgentTests/SidebarRailLayoutTests
                   -only-testing:ZenAgentUITests/SidebarUITests/testConversationControlsFormOneVerticalGroupWithoutASplitShortcut
                   -only-testing:ZenAgentUITests/SidebarAppearanceUITests/testRestingComposerStaysConcentricAndSidebarControlsRespectSafeTop
-                  -only-testing:ZenAgentUITests/SidebarAppearanceUITests/testDarkProgressiveTopAndActuallyExpandedSidebar)
+                  -only-testing:ZenAgentUITests/SidebarAppearanceUITests/testDarkProgressiveTopAndActuallyExpandedSidebar
+                  -only-testing:ZenAgentUITests/SidebarUITests/testRaisedSheetConsumesFirstEdgeSwipeAndNextSwipeOpensSidebar
+                  -only-testing:ZenAgentUITests/SidebarUITests/testStableEditingSidebarDismissesKeyboardWithoutChangingNativeOwner
+                  -only-testing:ZenAgentUITests/SettingsUITests/testReauthenticationReturnsToSameComposerWithSendEnabled
+                  -only-testing:ZenAgentUITests/ConversationSearchUITests/testPlainExitKeepsTheSameNativeOwnerWithSidebarDismissedFocus)
               fi
               if [ "$TEST_SCOPE" = composer-menu ] || [ "$TEST_SCOPE" = lift-drag ] || [ "$TEST_SCOPE" = appspace-browse ] || [ "$TEST_SCOPE" = device-feedback ] || [ "$TEST_SCOPE" = sidebar-divider ]; then
                 xcrun simctl io "$UDID" recordVideo --codec=h264 "$evidence/$TEST_SCOPE.mp4" > "$evidence/recording.log" 2>&1 &
