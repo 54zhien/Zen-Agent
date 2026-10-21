@@ -8,6 +8,7 @@ final class ComposerMenuDetailPresenter: UIViewController {
     private let level: ComposerActionMenuLevel
     private let presentation: ComposerActionMenuState
     private let height: CGFloat
+    private let compactThinking: Bool
     private let onSelect: (ModelID) -> Void
     private let onReturn: (UIViewPropertyAnimator?) -> Void
     private let onDismiss: () -> Void
@@ -21,12 +22,13 @@ final class ComposerMenuDetailPresenter: UIViewController {
     private var removed = false
     private var installedSize = CGSize.zero
 
-    init(level: ComposerActionMenuLevel, presentation: ComposerActionMenuState, height: CGFloat,
+    init(level: ComposerActionMenuLevel, presentation: ComposerActionMenuState, height: CGFloat, compactThinking: Bool = false,
          onSelect: @escaping (ModelID) -> Void,
          onReturn: @escaping (UIViewPropertyAnimator?) -> Void, onDismiss: @escaping () -> Void) {
         self.level = level
         self.presentation = presentation
         self.height = height
+        self.compactThinking = compactThinking
         self.onSelect = onSelect
         self.onReturn = onReturn
         self.onDismiss = onDismiss
@@ -83,7 +85,7 @@ final class ComposerMenuDetailPresenter: UIViewController {
         mask.locations = [0, 0.22, 1]
         backdrop.layer.mask = mask
         let content = UIHostingController(rootView: ComposerMenuDetailView(
-            level: level, presentation: presentation,
+            compactThinking: compactThinking, level: level, presentation: presentation,
             onSelect: { [weak self] id in
                 guard let self, !self.closing else { return }
                 WorkspaceHaptics.shared.play(.control)
@@ -161,6 +163,16 @@ final class ComposerMenuDetailPresenter: UIViewController {
         presentation.activeLevel = .actions
         onDismiss()
     }
+
+    func suspend() {
+        view.isUserInteractionEnabled = false
+        if let animator, animator.state == .active {
+            animator.stopAnimation(false)
+            animator.finishAnimation(at: .end)
+        }
+    }
+
+    func resume() { view.isUserInteractionEnabled = true }
 
     func removeFromWindow() {
         guard !removed else { return }

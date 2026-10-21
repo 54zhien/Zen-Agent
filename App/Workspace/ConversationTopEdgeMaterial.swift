@@ -14,6 +14,7 @@ final class ConversationTopEdgeMaterial: UIImageView {
     private var visible = true
     private var suspended = false
     private var navigationActive = false
+    private var resizeActive = false
     private var dirty = true
     private var renderer: UIGraphicsImageRenderer?
     private var rendererSize = CGSize.zero
@@ -113,6 +114,15 @@ final class ConversationTopEdgeMaterial: UIImageView {
     // snapshot of this same visible owner during continuous native scrolling.
     func invalidateContent() { dirty = true; updateClock() }
 
+    func setResizeActive(_ value: Bool) {
+        guard resizeActive != value else { return }
+        resizeActive = value
+        // Resize already lays out two live timelines. Reuse the last decorative
+        // strip during the gesture, then capture the final geometry once.
+        if !value { dirty = true }
+        updateClock()
+    }
+
     func setNavigationActive(_ value: Bool) {
         guard navigationActive != value else { return }
         navigationActive = value
@@ -144,11 +154,14 @@ final class ConversationTopEdgeMaterial: UIImageView {
         fade.frame = bounds
         lastBounds = bounds
         CATransaction.commit()
-        if changed { invalidate() }
+        if changed {
+            if resizeActive { dirty = true; updateClock() }
+            else { invalidate() }
+        }
     }
 
     private func updateClock() {
-        let active = dirty && renderTask == nil && visible && !suspended && !navigationActive && window != nil && source?.window === window
+        let active = dirty && renderTask == nil && visible && !suspended && !navigationActive && !resizeActive && window != nil && source?.window === window
             && UIApplication.shared.applicationState == .active
             && bounds.width > 0 && bounds.height > 0 && safeTop > 0
         guard active else { displayLink?.invalidate(); displayLink = nil; return }
@@ -160,7 +173,7 @@ final class ConversationTopEdgeMaterial: UIImageView {
     }
 
     func refreshIfNeeded() {
-        guard dirty, renderTask == nil, visible, !suspended, !navigationActive, let source, let window,
+        guard dirty, renderTask == nil, visible, !suspended, !navigationActive, !resizeActive, let source, let window,
               source.window === window, bounds.width > 0, bounds.height > 0 else { return }
         guard UIApplication.shared.applicationState == .active else { return }
         // A failed snapshot consumes its invalidation too. Only a new content,

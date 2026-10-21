@@ -10,6 +10,7 @@ final class ComposerKeyboardMenuSession: NSObject {
     private var phase = Phase.preparing {
         didSet { logger.debug("phase=\(String(describing: self.phase), privacy: .public)") }
     }
+    private var isSuspended = false
     private var receivedWillHide = false
     private weak var editor: UITextView?
     private weak var window: UIWindow?
@@ -21,7 +22,7 @@ final class ComposerKeyboardMenuSession: NSObject {
     private var returnsToKeyboard = false
     private var watchdog: Task<Void, Never>?
     private(set) var reservedTop: CGFloat?
-    var permitsNativeFocus: Bool { phase == .restoringKeyboard }
+    var permitsNativeFocus: Bool { !isSuspended && phase == .restoringKeyboard }
 
     init(editor: UITextView, window: UIWindow, height: CGFloat,
          presenter: ComposerKeyboardMenuPresenter,
@@ -52,6 +53,8 @@ final class ComposerKeyboardMenuSession: NSObject {
                            name: UIResponder.keyboardDidShowNotification, object: nil)
         center.addObserver(self, selector: #selector(deactivate),
                            name: UIApplication.willResignActiveNotification, object: nil)
+        center.addObserver(self, selector: #selector(activate),
+                           name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
     deinit { NotificationCenter.default.removeObserver(self) }
@@ -78,7 +81,7 @@ final class ComposerKeyboardMenuSession: NSObject {
     func close(restoringKeyboard: Bool = true, animated: Bool = true) {
         guard phase != .finished else { return }
         logger.debug("close restore=\(restoringKeyboard) phase=\(String(describing: self.phase), privacy: .public)")
-        guard restoringKeyboard else { finish(resign: true); return }
+        guard restoringKeyboard, !isSuspended else { finish(resign: true); return }
         returnsToKeyboard = true
         onGlyph(false, animated)
         switch phase {
@@ -108,11 +111,12 @@ final class ComposerKeyboardMenuSession: NSObject {
 
     private var isAttached: Bool {
         guard let window, editor?.window === window, window.bounds.size == windowSize else { return false }
-        return window.windowScene.map { $0.activationState == .foregroundActive } ?? true
+        return true
     }
 
     private func belongsToWindow(_ notification: Notification) -> Bool {
-        guard isAttached, let window else { return false }
+        guard !isSuspended, isAttached, let window,
+              window.windowScene.map({ $0.activationState == .foregroundActive }) ?? true else { return false }
         if let screen = notification.object as? UIScreen, screen !== window.screen { return false }
         if let local = notification.userInfo?[UIResponder.keyboardIsLocalUserInfoKey] as? NSNumber,
            !local.boolValue { return false }
@@ -136,7 +140,7 @@ final class ComposerKeyboardMenuSession: NSObject {
     }
 
     private func completeKeyboardDescent() {
-        guard phase == .hidingKeyboard, isAttached,
+        guard !isSuspended, phase == .hidingKeyboard, isAttached,
               editor?.isFirstResponder == false, let window else { return }
         if let owner = inputOwner(in: window), owner !== editor { finish(resign: false); return }
         watchdog?.cancel()
@@ -149,7 +153,7 @@ final class ComposerKeyboardMenuSession: NSObject {
     }
 
     private func restoreKeyboard() {
-        guard phase != .finished, isAttached, let editor else { finish(resign: true); return }
+        guard !isSuspended, phase != .finished, isAttached, let editor else { finish(resign: true); return }
         phase = .restoringKeyboard
         armWatchdog()
         guard editor.becomeFirstResponder() else { finish(resign: false); return }
@@ -222,7 +226,32 @@ final class ComposerKeyboardMenuSession: NSObject {
         }
     }
 
-    @objc private func deactivate() { finish(resign: true) }
+    @objc private func deactivate() {
+        guard phase != .finished, !isSuspended else { return }
+        // A user-initiated close remains a close. An open menu keeps its
+        // same-window reservation and level; never restore focus in background.
+        guard !returnsToKeyboard, phase != .hidingMenu, phase != .restoringKeyboard,
+              isAttached, let window else { finish(resign: true); return }
+        isSuspended = true
+        watchdog?.cancel()
+        if phase == .preparing || phase == .hidingKeyboard {
+            editor?.resignFirstResponder()
+            guard editor?.isFirstResponder == false else { finish(resign: false); return }
+            phase = .showingMenu
+            presenter.reveal(in: window, animated: false) { [weak self] in self?.phase = .menu }
+        }
+        presenter.suspend()
+    }
+
+    @objc private func activate() {
+        guard isSuspended, phase != .finished else { return }
+        guard isAttached, let window else { finish(resign: true); return }
+        if let owner = inputOwner(in: window), owner !== editor { finish(resign: false); return }
+        isSuspended = false
+        presenter.resume()
+        onReservation(reservedTop)
+        onGlyph(true, false)
+    }
 
     private func finish(resign: Bool) {
         guard phase != .finished else { return }

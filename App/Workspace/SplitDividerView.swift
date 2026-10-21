@@ -68,18 +68,23 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
                 $0.axis == .topBottom ? "上方 \(Int($0.ratio * 100))%，下方 \(Int((1 - $0.ratio) * 100))%"
                     : "左侧 \(Int($0.ratio * 100))%，右侧 \(Int((1 - $0.ratio) * 100))%"
             }
-            var actions: [UIAccessibilityCustomAction] = []
-            if configuration?.canCloseTop == true {
-                actions.append(UIAccessibilityCustomAction(name: configuration?.axis == .leftRight ? "关闭左侧窗格" : "关闭上方窗格", target: self, selector: #selector(closeTop)))
+            if oldValue == nil || oldValue?.canCloseTop != configuration?.canCloseTop
+                || oldValue?.canCloseBottom != configuration?.canCloseBottom
+                || oldValue?.axis != configuration?.axis
+                || (oldValue?.onAxis != nil) != (configuration?.onAxis != nil) {
+                var actions: [UIAccessibilityCustomAction] = []
+                if configuration?.canCloseTop == true {
+                    actions.append(UIAccessibilityCustomAction(name: configuration?.axis == .leftRight ? "关闭左侧窗格" : "关闭上方窗格", target: self, selector: #selector(closeTop)))
+                }
+                if configuration?.canCloseBottom == true {
+                    actions.append(UIAccessibilityCustomAction(name: configuration?.axis == .leftRight ? "关闭右侧窗格" : "关闭下方窗格", target: self, selector: #selector(closeBottom)))
+                }
+                if configuration?.onAxis != nil {
+                    actions.append(UIAccessibilityCustomAction(name: "上下分屏", target: self, selector: #selector(verticalAxis)))
+                    actions.append(UIAccessibilityCustomAction(name: "左右分屏", target: self, selector: #selector(horizontalAxis)))
+                }
+                accessibilityCustomActions = actions
             }
-            if configuration?.canCloseBottom == true {
-                actions.append(UIAccessibilityCustomAction(name: configuration?.axis == .leftRight ? "关闭右侧窗格" : "关闭下方窗格", target: self, selector: #selector(closeBottom)))
-            }
-            if configuration?.onAxis != nil {
-                actions.append(UIAccessibilityCustomAction(name: "上下分屏", target: self, selector: #selector(verticalAxis)))
-                actions.append(UIAccessibilityCustomAction(name: "左右分屏", target: self, selector: #selector(horizontalAxis)))
-            }
-            accessibilityCustomActions = actions
 #if DEBUG
             if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
                 accessibilityValue = (super.accessibilityValue ?? "") + ";pan=\(pan.state.rawValue);admitted=\(panAdmitted);last=\(lastPanDiagnostic);resize=\(configuration?.resizeDiagnostic?() ?? "none")"
@@ -99,6 +104,9 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
         }
     }
     private let handle = UIView()
+    private var displayLink: CADisplayLink?
+    private let clockTarget = SplitDividerClockTarget()
+    private var pendingDistance: Double?
     private var panAdmitted = false
     private var touchOrigin: CGPoint?
     private weak var touchWindow: UIWindow?
@@ -151,6 +159,7 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        clockTarget.owner = self
         // The Workspace backdrop owns the gap. Only the handle
         // draws here, keeping the native drag target independent of decoration.
         isOpaque = false
@@ -198,8 +207,12 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
 #endif
             if panAdmitted { configuration.onMove(distance) }
         case .changed:
-            if panAdmitted { configuration.onMove(distance) }
+            if panAdmitted {
+                pendingDistance = distance
+                startClock()
+            }
         case .ended:
+            stopClock()
             if panAdmitted {
                 configuration.onMove(distance)
                 panAdmitted = false
@@ -216,6 +229,32 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
             accessibilityValue = "ratio=\(configuration.ratio);axis=\(configuration.axis);\(lastPanDiagnostic);resize=\(configuration.resizeDiagnostic?() ?? "none")"
         }
 #endif
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { cancelPan() }
+    }
+
+    private func startClock() {
+        guard displayLink == nil else { return }
+        let link = CADisplayLink(target: clockTarget, selector: #selector(SplitDividerClockTarget.tick(_:)))
+        let maximum = Float(window?.screen.maximumFramesPerSecond ?? 60)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    fileprivate func flushMove() {
+        guard panAdmitted, let distance = pendingDistance else { return }
+        pendingDistance = nil
+        configuration?.onMove(distance)
+    }
+
+    private func stopClock() {
+        displayLink?.invalidate()
+        displayLink = nil
+        pendingDistance = nil
     }
 
     private func displacement(_ pan: UIPanGestureRecognizer) -> Double {
@@ -235,6 +274,7 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
     @objc private func horizontalAxis() -> Bool { configuration?.onAxis?(.leftRight); return configuration?.onAxis != nil }
 
     func cancelPan() {
+        stopClock()
         touchOrigin = nil; touchWindow = nil
         guard panAdmitted else { return }
         panAdmitted = false
@@ -292,4 +332,13 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
         if let animator { animator.addCompletion(finished) } else { finished() }
     }
 #endif
+}
+
+@MainActor
+private final class SplitDividerClockTarget: NSObject {
+    weak var owner: SplitDividerHandle?
+    @objc func tick(_ link: CADisplayLink) {
+        guard let owner else { link.invalidate(); return }
+        owner.flushMove()
+    }
 }

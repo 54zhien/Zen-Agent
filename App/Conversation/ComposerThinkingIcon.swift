@@ -34,6 +34,7 @@ struct ComposerThinkingIcon: View {
 
 /// Interpolate the drawing itself so the needle and arc cannot drift apart.
 private struct ComposerThinkingGauge: View, Animatable {
+    @Environment(\.colorScheme) private var colorScheme
     nonisolated var progress: Double
     nonisolated var animatableData: Double {
         get { progress }
@@ -61,7 +62,7 @@ private struct ComposerThinkingGauge: View, Animatable {
                 return path
             }
             let stroke = StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round)
-            context.stroke(arc(to: 1), with: .color(Color(uiColor: .systemGray3)), style: stroke)
+            context.stroke(arc(to: 1), with: .color(colorScheme == .dark ? Color(white: 0.52) : Color(uiColor: .systemGray3)), style: stroke)
             context.stroke(arc(to: fraction), with: .color(.primary), style: stroke)
             var needle = Path()
             let needleHub = CGPoint(x: hub.x, y: hub.y + edge * 0.035)

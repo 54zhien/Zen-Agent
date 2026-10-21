@@ -27,6 +27,7 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
          onSelect: @escaping (ModelID) -> Void) {
         self.height = height
         self.presentation = presentation
+        presentation.isSuspended = false
         self.onSelect = onSelect
         super.init(nibName: nil, bundle: nil)
     }
@@ -106,7 +107,7 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
     private func openDetails(_ level: ComposerActionMenuLevel) {
         guard !isClosing, details == nil, let window = sourceWindow else { return }
         WorkspaceHaptics.shared.play(.control)
-        let detail = ComposerMenuDetailPresenter(level: level, presentation: presentation, height: height,
+        let detail = ComposerMenuDetailPresenter(level: level, presentation: presentation, height: height, compactThinking: true,
             onSelect: onSelect,
             onReturn: { [weak self] animator in self?.revealActions(using: animator) },
             onDismiss: { [weak self] in
@@ -142,10 +143,15 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
         if let animator { animator.addAnimations(reveal) } else { reveal() }
     }
 
-    func reveal(in window: UIWindow, completion: @escaping () -> Void) {
+    func reveal(in window: UIWindow, animated: Bool = true, completion: @escaping () -> Void) {
         guard !didDismiss else { return }
         window.addSubview(view)
         view.layoutIfNeeded()
+        if !animated {
+            sheet.transform = .identity
+            completion()
+            return
+        }
         sheet.transform = CGAffineTransform(translationX: 0, y: height)
         let animation = UIViewPropertyAnimator(duration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.28,
                                                curve: .easeOut) {
@@ -198,6 +204,24 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
             completion()
         }
         animation.startAnimation()
+    }
+
+    func suspend() {
+        presentation.suspensionRevision &+= 1
+        presentation.isSuspended = true
+        presentation.previewThinkingEffort = nil
+        view.isUserInteractionEnabled = false
+        if let animator, animator.state == .active {
+            animator.stopAnimation(false)
+            animator.finishAnimation(at: .end)
+        }
+        details?.suspend()
+    }
+
+    func resume() {
+        presentation.isSuspended = false
+        view.isUserInteractionEnabled = true
+        details?.resume()
     }
 
     func removeFromWindow() {

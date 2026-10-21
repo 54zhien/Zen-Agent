@@ -38,16 +38,41 @@ final class ComposerActionMenuPresenter: UIViewController {
         self.sourceView = sourceView
         self.alignmentView = alignmentView
         self.presentation = presentation
+        presentation.isSuspended = false
         self.onSelect = onSelect
         self.onDismiss = onDismiss
         super.init(nibName: nil, bundle: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(deactivate),
             name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(activate),
+            name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
     deinit { NotificationCenter.default.removeObserver(self) }
 
-    @objc private func deactivate() { close(animated: false) }
+    @objc private func deactivate() {
+        guard !isClosing else { close(animated: false); return }
+        presentation.suspensionRevision &+= 1
+        presentation.isSuspended = true
+        presentation.previewThinkingEffort = nil
+        view.isUserInteractionEnabled = false
+        if let animator, animator.state == .active {
+            animator.stopAnimation(false)
+            animator.finishAnimation(at: .end)
+        }
+        details?.suspend()
+    }
+
+    @objc private func activate() {
+        guard presentation.isSuspended else { return }
+        guard let window = view.window, sourceView?.window === window else {
+            close(animated: false)
+            return
+        }
+        presentation.isSuspended = false
+        view.isUserInteractionEnabled = true
+        details?.resume()
+    }
 
     override func loadView() {
         let overlay = ComposerActionMenuOverlay()

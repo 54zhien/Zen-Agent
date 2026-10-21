@@ -309,15 +309,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
         return ZStack(alignment: .topLeading) {
             if model?.splitWorkspace != nil, activeSurfaceSlot == nil {
                 Color.black
-                if let layout = splitLayout, colorScheme == .dark {
-                    Color(white: 0.14)
-                        .frame(width: layout.divider.width, height: layout.divider.height)
-                        .position(x: layout.divider.midX, y: layout.divider.midY)
-                        .opacity(Double(1 - min(1, max(0, sidebarProgress))))
-                        .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
+
             }
             if sidebarProgress > 0 || navigation.settlementID != nil {
                 sidebarBackdrop(in: geometry, progress: sidebarProgress,
@@ -352,6 +344,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         sidebarOffset: sidebarTranslation, sidebarProgress: sidebarProgress,
                         sidebarDragging: sidebarDragging, sidebarSettlement: navigation.settlementID,
                         sidebarShadowEnabled: false,
+                        workspaceResizeActive: resize.isActive,
                         workspaceViewportSize: emptyFrame.size,
                         workspaceBackgroundColor: .systemBackground,
                         sidebarOutlineExternallyDrawn: usesDockedSidebarOutline(frame: emptyFrame,
@@ -502,10 +495,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
 
     private func sidebarBackdrop(in geometry: GeometryProxy, progress: CGFloat,
                                  isDragging: Bool) -> some View {
-        let splitPageColor = sidebarPageAppearance(progress: 1).surfaceColor(resolving:
-            UITraitCollection(userInterfaceStyle: colorScheme == .dark ? .dark : .light))
         return ZStack(alignment: .topLeading) {
-            Color(uiColor: splitGeometry(in: geometry) == nil ? .systemBackground : splitPageColor)
+            Color(uiColor: .systemBackground)
             Color.black.opacity(0.28 * (1 - progress))
                 .animation(sidebarAnimation(isDragging: isDragging), value: progress)
             // This is the sole gap backdrop; an extra native gutter would
@@ -558,6 +549,7 @@ struct WorkspaceSurfaceView<Content: View>: View {
             sidebarShadowFrame: sharedShadow ? fullFrame.offsetBy(dx: -frame.minX, dy: -frame.minY) : nil,
             sidebarShadowEnabled: !sharedShadow || slot == model?.sourceSurfaceSlot,
             sidebarShadowContours: sharedShadow ? splitLayout.map(splitShadowContours) ?? [] : [],
+            workspaceResizeActive: resize.isActive,
             workspaceViewportSize: usesWorkspaceViewport ? frame.size : nil,
             sidebarOutlineExternallyDrawn: usesDockedSidebarOutline(frame: frame, viewport: fullFrame, splitLayout: splitLayout),
             onSidebarSettled: settled,
