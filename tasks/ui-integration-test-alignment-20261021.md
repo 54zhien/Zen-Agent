@@ -128,3 +128,50 @@ The full test selection and existing wait tolerances are unchanged.
 The source-scroll setup candidate `53f3e03` is under native Lift verification:
 https://github.com/54zhien/Zen-Agent/actions/runs/39638592284.
 It does not include these subsequent model/Sidebar test changes.
+
+## Confirmed focused GREEN
+
+- `53f3e0365899c108159814abefce9f99227cecd7`, run `39638592284`:
+  actual generation/build and all 48 Swift Testing cases / 4 suites plus 4 UI
+  cases passed. The formerly failing secondary-Split case retains every original
+  assertion. Before/after Return, the real visible anchor is hittable at y=192.33;
+  source/secondary editor counts remain 0/1. The queued hidden request lands at
+  y=179.0 against expected y=178.93. Exported screenshots were visually checked:
+  anchor 10 remains at the same position before/after Return. No product edit.
+  Artifact `12365352609`, archive digest
+  `sha256:bce09b25c1514442f9a7cc4b9fba89269d76d5084ce1ff5b10863e6905fa87b6`.
+- `de1dbc25adc75be7219c5a9bd9284dbe1d1215f8`, run `39639287417`:
+  actual iPad axis UI case passed (1/1, 74.684s). Composer generation/build, all
+  1,140 Swift Testing cases / 171 suites, 20 XCTest unit cases and 6 selected UI
+  cases passed (`TEST SUCCEEDED`). These include model switching, three/four/six
+  Thinking levels, keyboard-sheet transitions and shared-Composer targeting.
+  This is a passing focused workflow, not the full gate. Artifact `12366450122`,
+  archive digest
+  `sha256:d938b7d2287eae9c181ffd05b866fb24db9e7ab7ca7a08ee5a1a93770dbc1adc`.
+
+Current-head Composer and representative Sidebar runs:
+https://github.com/54zhien/Zen-Agent/actions/runs/39639287417 and
+https://github.com/54zhien/Zen-Agent/actions/runs/39639293598.
+The final full gate remains pending.
+
+## Remaining Sidebar RED
+
+`de1dbc2`, run `39639293598`, completed **failure** with a real result bundle:
+7 relevant Swift cases passed; 7 UI cases failed with 11 assertions. Settings,
+Files and Search each have exactly one enabled AX Button with a finite on-screen
+frame: Settings `(34,784,56,56)`, Files `(20,250,56,56)`, Search `(20,130,56,56)`.
+Screenshots show the controls visible next to the translated page. Duplicate AX
+elements are therefore excluded; a settled native open state and visible pixels
+still do not prove actual touch routing or AX target resolution.
+
+Artifact `12364858615` retains screenshots and full AX hierarchies; archive digest
+`sha256:a46b0152844a0cfc408c85607c8950b9a48cec66b02d98b74b2b3d9161a551e7`.
+Read-only inspection found no conclusive covering view or recognizer in the
+available evidence. The next minimal test-only diagnostic preserves the original
+hittability failures, then taps once at Settings' finite visible center and checks
+the actual Settings route. Settings is clear of the preview fixture's overlay
+button near Search, so that overlay cannot confound this touch-path check.
+It is separately selectable as `sidebar-hit-path`, so
+the original failed tests are not rerun unchanged to replace their evidence.
+No coordinate tap is substituted into ordinary navigation tests to waive AX.
+No product/UI correction or merge is authorized by this diagnostic result alone.

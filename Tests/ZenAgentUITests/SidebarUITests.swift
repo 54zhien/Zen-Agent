@@ -32,6 +32,58 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
+    func testSidebarSettingsCoordinateRoutePreservesAXFailure() {
+        let app = launch()
+        app.openWorkspaceSidebar()
+
+        let settings = app.buttons["sidebar-settings"]
+        let settingsExists = settings.waitForExistence(timeout: 5)
+        XCTAssertTrue(settingsExists, "Sidebar Settings destination must exist")
+        let settingsHittable = settings.wait(for: \.isHittable, toEqual: true, timeout: 5)
+        XCTAssertTrue(settingsHittable, "Sidebar Settings AX destination must remain hittable")
+
+        let appFrame = app.frame
+        let settingsFrame = settings.frame
+        let frameCoordinates = [
+            appFrame.minX, appFrame.minY, appFrame.maxX, appFrame.maxY,
+            appFrame.width, appFrame.height,
+            settingsFrame.minX, settingsFrame.minY, settingsFrame.maxX, settingsFrame.maxY,
+            settingsFrame.width, settingsFrame.height
+        ]
+        let frameIsFinite = frameCoordinates.allSatisfy { $0.isFinite }
+        let appFrameIsPositive = appFrame.width > 0 && appFrame.height > 0
+        let settingsFrameIsPositive = settingsFrame.width > 0 && settingsFrame.height > 0
+        let frameIsWithinApp = settingsFrame.minX >= appFrame.minX
+            && settingsFrame.minY >= appFrame.minY
+            && settingsFrame.maxX <= appFrame.maxX
+            && settingsFrame.maxY <= appFrame.maxY
+        let frameIsUsable = settingsExists && frameIsFinite && appFrameIsPositive
+            && settingsFrameIsPositive && frameIsWithinApp
+        print("SIDEBAR_SETTINGS_ROUTE before frame=\(settingsFrame) app=\(appFrame) exists=\(settingsExists) hittable=\(settingsHittable) finite=\(frameIsFinite) positive=\(settingsFrameIsPositive) withinApp=\(frameIsWithinApp)")
+        attachSidebarSettingsRouteEvidence(app, stage: "before-coordinate-tap")
+        XCTAssertTrue(frameIsUsable,
+            "Settings AX frame must be finite, positive, and within the app: settings=\(settingsFrame), app=\(appFrame)")
+        guard frameIsUsable else {
+            print("SIDEBAR_SETTINGS_ROUTE after route=skipped-invalid-frame")
+            return
+        }
+
+        let center = CGPoint(x: settingsFrame.midX, y: settingsFrame.midY)
+        let offset = CGVector(
+            dx: (center.x - appFrame.minX) / appFrame.width,
+            dy: (center.y - appFrame.minY) / appFrame.height
+        )
+        app.coordinate(withNormalizedOffset: offset).tap()
+
+        let settingsPage = app.descendants(matching: .any)["settings-page"]
+        let destinationAppeared = settingsPage.waitForExistence(timeout: 5)
+        XCTAssertTrue(destinationAppeared,
+            "The app-level Settings coordinate must open the existing Settings page")
+        print("SIDEBAR_SETTINGS_ROUTE after route=app-coordinate center=\(center) page=\(destinationAppeared)")
+        attachSidebarSettingsRouteEvidence(app, stage: "after-coordinate-tap")
+    }
+
+    @MainActor
     func testBackgroundResumeKeepsTheExpandedSidebarAndRestoresClosing() {
         let app = launch()
         app.openWorkspaceSidebar()
@@ -357,6 +409,20 @@ final class SidebarUITests: XCTestCase {
 
     private func editorIdentity(_ diagnostic: String?) -> String? {
         diagnostic?.split(separator: ";").first { $0.hasPrefix("editorIdentity=") }.map(String.init)
+    }
+
+    @MainActor
+    private func attachSidebarSettingsRouteEvidence(_ app: XCUIApplication, stage: String) {
+        XCTContext.runActivity(named: "Sidebar Settings route \(stage)") { activity in
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "Sidebar Settings \(stage) screenshot"
+            screenshot.lifetime = .keepAlways
+            activity.add(screenshot)
+            let hierarchy = XCTAttachment(string: app.debugDescription)
+            hierarchy.name = "Sidebar Settings \(stage) full AX hierarchy"
+            hierarchy.lifetime = .keepAlways
+            activity.add(hierarchy)
+        }
     }
 
     private func timelineContainerWidth(_ diagnostic: String?) -> Double? {

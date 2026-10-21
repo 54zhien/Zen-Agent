@@ -18,7 +18,7 @@ on:
       test_scope:
         description: Test selection (focused profiles never run the full suites)
         type: choice
-        options: [full, keyboard-sidebar, test-maintenance, sidebar-controls, composer-menu, lift-drag, appspace-browse, device-feedback, sidebar-divider, ui-integration]
+        options: [full, keyboard-sidebar, test-maintenance, sidebar-controls, sidebar-hit-path, composer-menu, lift-drag, appspace-browse, device-feedback, sidebar-divider, ui-integration]
         default: full
 
 concurrency:
@@ -797,8 +797,8 @@ jobs:
           retention-days: 7
 
   keyboard-sidebar:
-    name: ${{ inputs.test_scope == 'ui-integration' && 'UI integration regressions' || inputs.test_scope == 'sidebar-divider' && 'Focused Sidebar divider' || inputs.test_scope == 'device-feedback' && 'Focused device feedback' || inputs.test_scope == 'appspace-browse' && 'Focused App Space browse' || inputs.test_scope == 'lift-drag' && 'Focused Lift drag' || inputs.test_scope == 'composer-menu' && 'Focused Composer menu' || inputs.test_scope == 'sidebar-controls' && 'Focused Sidebar controls' || inputs.test_scope == 'test-maintenance' && 'Focused test maintenance' || 'Focused keyboard and Sidebar' }}
-    if: github.event_name == 'workflow_dispatch' && (inputs.test_scope == 'keyboard-sidebar' || inputs.test_scope == 'test-maintenance' || inputs.test_scope == 'sidebar-controls' || inputs.test_scope == 'composer-menu' || inputs.test_scope == 'lift-drag' || inputs.test_scope == 'appspace-browse' || inputs.test_scope == 'device-feedback' || inputs.test_scope == 'sidebar-divider' || inputs.test_scope == 'ui-integration')
+    name: ${{ inputs.test_scope == 'sidebar-hit-path' && 'Focused Sidebar hit path' || inputs.test_scope == 'ui-integration' && 'UI integration regressions' || inputs.test_scope == 'sidebar-divider' && 'Focused Sidebar divider' || inputs.test_scope == 'device-feedback' && 'Focused device feedback' || inputs.test_scope == 'appspace-browse' && 'Focused App Space browse' || inputs.test_scope == 'lift-drag' && 'Focused Lift drag' || inputs.test_scope == 'composer-menu' && 'Focused Composer menu' || inputs.test_scope == 'sidebar-controls' && 'Focused Sidebar controls' || inputs.test_scope == 'test-maintenance' && 'Focused test maintenance' || 'Focused keyboard and Sidebar' }}
+    if: github.event_name == 'workflow_dispatch' && (inputs.test_scope == 'keyboard-sidebar' || inputs.test_scope == 'test-maintenance' || inputs.test_scope == 'sidebar-controls' || inputs.test_scope == 'sidebar-hit-path' || inputs.test_scope == 'composer-menu' || inputs.test_scope == 'lift-drag' || inputs.test_scope == 'appspace-browse' || inputs.test_scope == 'device-feedback' || inputs.test_scope == 'sidebar-divider' || inputs.test_scope == 'ui-integration')
     needs: repo-hygiene
     runs-on: macos-26
     timeout-minutes: 40
@@ -822,7 +822,7 @@ jobs:
           case "$TEST_SCOPE" in
             keyboard-sidebar) bash .github/scripts/run-keyboard-sidebar-tests.sh ;;
             test-maintenance) bash .github/scripts/run-test-maintenance-tests.sh ;;
-            sidebar-controls|composer-menu|lift-drag|appspace-browse|device-feedback|sidebar-divider|ui-integration)
+            sidebar-controls|sidebar-hit-path|composer-menu|lift-drag|appspace-browse|device-feedback|sidebar-divider|ui-integration)
               set -o pipefail
               evidence="$RUNNER_TEMP/$TEST_SCOPE-evidence"
               mkdir -p "$evidence"
@@ -830,7 +830,9 @@ jobs:
               xcrun simctl list devices available --json > "$evidence/devices.json"
               UDID=$(python3 -c 'import json,sys; print(next(d["udid"] for ds in json.load(open(sys.argv[1]))["devices"].values() for d in ds if d.get("isAvailable") and d["name"].startswith("iPhone")))' "$evidence/devices.json")
               xcrun simctl bootstatus "$UDID" -b
-              if [ "$TEST_SCOPE" = ui-integration ]; then
+              if [ "$TEST_SCOPE" = sidebar-hit-path ]; then
+                tests=(-only-testing:ZenAgentUITests/SidebarUITests/testSidebarSettingsCoordinateRoutePreservesAXFailure)
+              elif [ "$TEST_SCOPE" = ui-integration ]; then
                 tests=(-only-testing:ZenAgentUITests/AppSpaceGeometryUITests
                   -only-testing:ZenAgentUITests/ComposerMotionUITests
                   -only-testing:ZenAgentUITests/ConversationSearchUITests
