@@ -26,3 +26,5 @@ The didHide handler accepts the owned willHide/didHide sequence and waits one ma
 Pending static review and macOS XcodeGen/device build. No test suites or simulator probes run.
 
 Static review identified and corrected external responder takeover during descent, landscape concentric inset consistency, and short-height/large-type scrolling. Floating details now derive height from the current window, not stale keyboard history. Final macOS build pending.
+
+Build 39540033359 failed with ambiguous selector dismissSheet (zero-argument handler vs animated: method). Renamed the UI target to closeTapped and made Swift closure calls explicit. The original failed run is preserved; corrected source will receive a new build.
