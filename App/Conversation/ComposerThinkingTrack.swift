@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Shared analytical geometry keeps the artwork, detents and hit projection on
-/// one circle; no line-segment approximation or offscreen blur is involved.
+/// one circle; the recessed finish does not change the interaction geometry.
 struct ComposerThinkingArcGeometry {
     let size: CGSize
     var inset: CGFloat = 30
@@ -37,18 +37,56 @@ struct ComposerThinkingArcGeometry {
     }
 }
 
-private struct ComposerThinkingArc: Shape {
-    var end: Double
-    var inset: CGFloat = 30
+/// One closed outline provides the slot, its rim and the inset progress floor.
+/// Round caps are tangent to the circular rail; no overlapping end discs or
+/// differently sized outline strokes create a seam at the joins.
+private struct ComposerThinkingSlot: Shape {
+    var end: Double = 1
+    let inset: CGFloat
+    let thickness: CGFloat
+
     func path(in rect: CGRect) -> Path {
-        ComposerThinkingArcGeometry(size: rect.size, inset: inset).path(to: end)
+        let curve = ComposerThinkingArcGeometry(size: rect.size, inset: inset)
+        if end <= 0 {
+            let start = curve.point(at: 0)
+            return Path(ellipseIn: CGRect(x: start.x - thickness / 2 + rect.minX,
+                                         y: start.y - thickness / 2 + rect.minY,
+                                         width: thickness, height: thickness))
+        }
+        return curve.path(to: end)
+            .strokedPath(StrokeStyle(lineWidth: thickness, lineCap: .round, lineJoin: .round))
             .offsetBy(dx: rect.minX, dy: rect.minY)
+    }
+}
+
+private struct ComposerThinkingRecess: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let fraction: Double
+    let inset: CGFloat
+    let thickness: CGFloat
+
+    var body: some View {
+        let dark = colorScheme == .dark
+        let slot = ComposerThinkingSlot(inset: inset, thickness: thickness)
+        let lip = min(3, thickness * 0.08)
+        let floor = ComposerThinkingSlot(end: fraction, inset: inset, thickness: thickness - 2 * lip)
+        let depth = min(2.5, thickness * 0.055)
+        ZStack {
+            slot.fill((dark ? Color(white: 0.12) : Color(white: 0.90))
+                .shadow(.inner(color: .black.opacity(dark ? 0.55 : 0.19), radius: depth, y: depth))
+                .shadow(.inner(color: .white.opacity(dark ? 0.07 : 0.70), radius: depth * 0.6, y: -depth * 0.6)))
+            floor.fill((dark ? Color(white: 0.62) : Color.black)
+                .shadow(.inner(color: .black.opacity(0.18), radius: 1, y: 1)))
+            slot.stroke(LinearGradient(colors: [.black.opacity(dark ? 0.25 : 0.06),
+                                                 .white.opacity(dark ? 0.13 : 0.85)],
+                                       startPoint: .top, endPoint: .bottom), lineWidth: 0.65)
+        }
+        .allowsHitTesting(false)
     }
 }
 
 /// Interpolate geometry once so the thumb follows the curve throughout a snap.
 struct ComposerThinkingTrack: View, Animatable {
-    @Environment(\.colorScheme) private var colorScheme
     @Namespace private var coordinateSpace
     nonisolated var progress: Double
     let count: Int
@@ -76,16 +114,8 @@ struct ComposerThinkingTrack: View, Animatable {
             let firstPoint = curve.point(at: 0)
             let spacing = hypot(nextPoint.x - firstPoint.x, nextPoint.y - firstPoint.y)
             let hitDiameter = count > 1 ? min(44, max(12, spacing - 2)) : 44
-            let fill = colorScheme == .dark ? Color(white: 0.62) : Color.black
-            let stroke = StrokeStyle(lineWidth: thickness, lineCap: .round, lineJoin: .round)
             ZStack(alignment: .topLeading) {
-                Group {
-                    ComposerThinkingArc(end: 1, inset: inset)
-                        .stroke(Color.primary.opacity(0.12), style: StrokeStyle(lineWidth: thickness + 2, lineCap: .round))
-                    ComposerThinkingArc(end: 1, inset: inset).stroke(Color(uiColor: .systemGray5), style: stroke)
-                    ComposerThinkingArc(end: fraction, inset: inset).stroke(fill, style: stroke)
-                    Circle().fill(fill).frame(width: thickness, height: thickness).position(curve.point(at: 0))
-                }.allowsHitTesting(false)
+                ComposerThinkingRecess(fraction: fraction, inset: inset, thickness: thickness)
                 ForEach(0..<count, id: \.self) { index in
                     let t = Double(index) / Double(max(1, count - 1))
                     Button { onSelect(index) } label: {
@@ -96,7 +126,7 @@ struct ComposerThinkingTrack: View, Animatable {
                     .buttonStyle(.plain).position(curve.point(at: t))
                 }
                 ComposerThinkingThumb(fraction: fraction, curve: curve,
-                    coordinateSpace: coordinateSpace, diameter: max(14, min(42, thickness - 6)),
+                    coordinateSpace: coordinateSpace, diameter: min(36, thickness * 0.70),
                     compressed: isDragging && (fraction <= 0 || fraction >= 1),
                     endpointPulse: endpointPulse, enabled: enabled,
                     interactionRevision: interactionRevision,
@@ -134,6 +164,7 @@ private struct ComposerThinkingThumb: View {
         Circle().fill(.white)
             .overlay(Circle().strokeBorder(Color.black.opacity(0.12), lineWidth: 0.5))
             .frame(width: diameter, height: diameter)
+            .shadow(color: .black.opacity(0.22), radius: 1, y: 1)
             .scaleEffect(compressed && !reduceMotion ? 0.92 : 1)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: compressed)
             .phaseAnimator([1.0, 0.92, 1.0], trigger: endpointPulse) { content, phase in

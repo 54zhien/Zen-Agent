@@ -32,6 +32,7 @@ struct ComposerThinkingControl: View {
             let modelHeight: CGFloat = minimal ? 16 : tiny ? 18 : short ? 20 : compact ? 24 : 28
             let railGap: CGFloat = minimal ? 4 : tiny ? 8 : short ? 10 : 18
             let modelGap: CGFloat = tiny ? 2 : short ? 4 : 8
+            let labelLift: CGFloat = minimal ? 1 : tiny ? 3 : short ? 4 : 8
             let buttonGap: CGFloat = tiny ? 4 : short ? 6 : 12
             let bottom: CGFloat = short ? 0 : 4
             let reserved = titleHeight + modelHeight + 44 + railGap + modelGap + buttonGap + bottom
@@ -44,6 +45,8 @@ struct ComposerThinkingControl: View {
                 crossfade(presentation.thinkingLevel?.title ?? "模型默认",
                           font: .system(size: minimal ? 18 : tiny ? 20 : short ? 22 : compact ? 28 : 34, weight: .semibold))
                     .frame(height: titleHeight)
+                    // Keep the established rail/model/button layout budget intact.
+                    .offset(y: -labelLift)
                     .accessibilityIdentifier("thinking-committed-level")
                 Spacer(minLength: modelGap)
                 crossfade(modelName, font: .system(size: tiny ? 14 : short ? 16 : compact ? 18 : 22))

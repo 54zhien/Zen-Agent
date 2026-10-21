@@ -47,8 +47,13 @@ private struct ComposerThinkingGauge: View, Animatable {
             // Only the needle may cross the redline; the filled arc stays on its rail.
             let needleFraction = min(1.12, max(-0.06, progress))
             let edge = min(size.width, size.height)
-            let hub = CGPoint(x: size.width / 2, y: size.height / 2 + edge * 0.06)
             let radius = edge * 0.40
+            // Center the open arc's bounds, then compensate slightly for its
+            // top-heavy ink. Keep this fixed across levels so the gauge never wanders.
+            let openArcOffset = radius * (1 - CGFloat(cos(Double.pi / 4))) / 2
+            let opticalOffset = edge * 0.02
+            let hub = CGPoint(x: size.width / 2,
+                              y: size.height / 2 + openArcOffset + opticalOffset)
             let width = edge * (2.3 / 28)
             func point(_ fraction: Double, radius: CGFloat) -> CGPoint {
                 let angle = (135 + 270 * fraction) * .pi / 180
