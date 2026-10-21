@@ -1,0 +1,191 @@
+import UIKit
+
+/// One owner for the sequential handoff and the occupied input region. Native
+/// focus can end without changing the Composer's logical Editing presentation.
+@MainActor
+final class ComposerKeyboardMenuSession: NSObject {
+    private enum Phase { case preparing, hidingKeyboard, showingMenu, menu, hidingMenu, restoringKeyboard, finished }
+    private var phase = Phase.preparing
+    private weak var editor: UITextView?
+    private weak var window: UIWindow?
+    private let windowSize: CGSize
+    private let presenter: ComposerKeyboardMenuPresenter
+    private let onReservation: (CGFloat?) -> Void
+    private let onGlyph: (Bool, Bool) -> Void
+    private let onFinish: (ComposerKeyboardMenuSession) -> Void
+    private var returnsToKeyboard = false
+    private var watchdog: Task<Void, Never>?
+    private(set) var reservedTop: CGFloat?
+    var permitsNativeFocus: Bool { phase == .restoringKeyboard }
+
+    init(editor: UITextView, window: UIWindow, height: CGFloat,
+         presenter: ComposerKeyboardMenuPresenter,
+         onReservation: @escaping (CGFloat?) -> Void,
+         onGlyph: @escaping (Bool, Bool) -> Void,
+         onFinish: @escaping (ComposerKeyboardMenuSession) -> Void) {
+        self.editor = editor
+        self.window = window
+        windowSize = window.bounds.size
+        self.presenter = presenter
+        reservedTop = window.bounds.maxY - height
+        self.onReservation = onReservation
+        self.onGlyph = onGlyph
+        self.onFinish = onFinish
+        super.init()
+        presenter.onClose = { [weak self] restore, animated in
+            self?.close(restoringKeyboard: restore, animated: animated)
+        }
+        presenter.onInvalidated = { [weak self] in self?.close(restoringKeyboard: false, animated: false) }
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(keyboardDidHide(_:)),
+                           name: UIResponder.keyboardDidHideNotification, object: nil)
+        center.addObserver(self, selector: #selector(keyboardWillShow(_:)),
+                           name: UIResponder.keyboardWillShowNotification, object: nil)
+        center.addObserver(self, selector: #selector(keyboardDidShow(_:)),
+                           name: UIResponder.keyboardDidShowNotification, object: nil)
+        center.addObserver(self, selector: #selector(deactivate),
+                           name: UIApplication.willResignActiveNotification, object: nil)
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    func start() {
+        onReservation(reservedTop)
+        onGlyph(true, true)
+        // Let the published reservation reach the Workspace before asking UIKit
+        // to change its safe area. This is scheduling, not an animation timer.
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, self.phase == .preparing else { return }
+            guard self.isAttached, let editor = self.editor else { self.finish(resign: true); return }
+            if self.returnsToKeyboard { self.finish(resign: false); return }
+            self.window?.layoutIfNeeded()
+            self.phase = .hidingKeyboard
+            self.armWatchdog()
+            guard editor.resignFirstResponder() else { self.finish(resign: false); return }
+        }
+    }
+
+    func close(restoringKeyboard: Bool = true, animated: Bool = true) {
+        guard phase != .finished else { return }
+        guard restoringKeyboard else { finish(resign: true); return }
+        returnsToKeyboard = true
+        onGlyph(false, animated)
+        switch phase {
+        case .preparing, .hidingKeyboard:
+            // A second tap during keyboard descent changes the destination,
+            // but must not reverse/restart the native keyboard mid-dismissal.
+            break
+        case .showingMenu, .menu:
+            phase = .hidingMenu
+            presenter.dismiss(animated: animated) { [weak self] in self?.restoreKeyboard() }
+        case .hidingMenu, .restoringKeyboard, .finished:
+            break
+        }
+    }
+
+    func validateAttachment() {
+        guard phase != .finished else { return }
+        if !isAttached { finish(resign: true) }
+    }
+
+    private var isAttached: Bool {
+        guard let window, editor?.window === window, window.bounds.size == windowSize else { return false }
+        return window.windowScene.map { $0.activationState == .foregroundActive } ?? true
+    }
+
+    private func belongsToWindow(_ notification: Notification) -> Bool {
+        guard isAttached, let window else { return false }
+        if let screen = notification.object as? UIScreen, screen !== window.screen { return false }
+        if let local = notification.userInfo?[UIResponder.keyboardIsLocalUserInfoKey] as? NSNumber,
+           !local.boolValue { return false }
+        return true
+    }
+
+    @objc private func keyboardDidHide(_ notification: Notification) {
+        guard phase == .hidingKeyboard, belongsToWindow(notification),
+              editor?.isFirstResponder == false, let window else { return }
+        // Ignore a frame from another visible input session. All coordinates
+        // used by this handoff are converted into this particular app window.
+        if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+            let overlap = window.bounds.intersection(window.convert(frame, from: window.screen.coordinateSpace))
+            guard overlap.isNull || overlap.height <= window.safeAreaInsets.bottom + 1 else { return }
+        }
+        watchdog?.cancel()
+        if returnsToKeyboard { restoreKeyboard(); return }
+        phase = .showingMenu
+        presenter.reveal(in: window) { [weak self] in
+            guard let self, self.phase == .showingMenu else { return }
+            self.phase = .menu
+        }
+    }
+
+    private func restoreKeyboard() {
+        guard phase != .finished, isAttached, let editor else { finish(resign: true); return }
+        phase = .restoringKeyboard
+        armWatchdog()
+        guard editor.becomeFirstResponder() else { finish(resign: false); return }
+    }
+
+    @objc private func keyboardWillShow(_ notification: Notification) {
+        guard belongsToWindow(notification) else { return }
+        if phase == .restoringKeyboard {
+            guard let window, let info = notification.userInfo,
+                  let frame = info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+            let local = window.convert(frame, from: window.screen.coordinateSpace)
+            let overlap = window.bounds.intersection(local)
+            if !overlap.isNull, overlap.height > window.safeAreaInsets.bottom + 1,
+               abs((reservedTop ?? overlap.minY) - overlap.minY) > 0.5 {
+                // Candidate bars can change the returning keyboard's height.
+                // Move both consumers toward that measured endpoint during the
+                // real keyboard animation, instead of jumping at didShow.
+                reservedTop = overlap.minY
+                let duration = (info[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0
+                let curve = (info[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.uintValue ?? 0
+                UIView.animate(withDuration: duration, delay: 0,
+                    options: UIView.AnimationOptions(rawValue: curve << 16).union([.beginFromCurrentState])) {
+                    self.onReservation(self.reservedTop)
+                }
+            }
+        } else if phase != .preparing {
+            // An external responder took over; it owns the next input region.
+            finish(resign: false)
+        }
+    }
+
+    @objc private func keyboardDidShow(_ notification: Notification) {
+        guard phase == .restoringKeyboard, belongsToWindow(notification),
+              editor?.isFirstResponder == true else { return }
+        window?.layoutIfNeeded()
+        // The native guide now owns the occupied region again. No zero-height
+        // interval is published between the panel and this completed keyboard.
+        finish(resign: false)
+    }
+
+    private func armWatchdog() {
+        watchdog?.cancel()
+        watchdog = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled, let self,
+                  self.phase == .hidingKeyboard || self.phase == .restoringKeyboard else { return }
+            // Missing/declined keyboard completion is cancellation, never proof
+            // of dismissal. Also releases reservations for hardware keyboards.
+            self.finish(resign: false)
+        }
+    }
+
+    @objc private func deactivate() { finish(resign: true) }
+
+    private func finish(resign: Bool) {
+        guard phase != .finished else { return }
+        phase = .finished
+        watchdog?.cancel()
+        watchdog = nil
+        presenter.removeFromWindow()
+        if resign { editor?.resignFirstResponder() }
+        reservedTop = nil
+        onReservation(nil)
+        onGlyph(false, false)
+        onFinish(self)
+    }
+}
