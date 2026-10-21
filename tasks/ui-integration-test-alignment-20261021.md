@@ -209,3 +209,14 @@ Sidebar controls versus the translated page and its gestures; layout, appearance
 menu animation and haptics are not authorized edit targets. Product code remains
 byte-identical to the frozen `eb39a65` baseline. Stop here for the owner's direction;
 do not merge RED, silently waive the hit checks or begin S6 before UI integration.
+
+## Owner-authorized interaction investigation
+
+The owner subsequently answered “允许” to the explicit request to repair only
+Sidebar hit testing / event delivery while preserving appearance, layout,
+animation and haptics. This supersedes the boundary stop for that narrow scope.
+The existing coordinate-route RED stays authoritative. First add DEBUG-only
+native window-hit ancestry at two exposed Rail points and record whether the
+existing route callback fires; keep all original UI assertions. This gathers a
+discriminator before changing routing behavior. Full GREEN and review are still
+required before the already-authorized merge and S6 continuation.

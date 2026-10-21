@@ -183,13 +183,28 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     private func gestureSnapshot() -> String {
         guard let window = attachedWindow else { return "no-window" }
         let current = readContext?()
+        func chain(_ hit: UIView?) -> String {
+            var node = hit
+            var names: [String] = []
+            while let view = node, names.count < 16 {
+                names.append("\(type(of: view))[frame=\(view.convert(view.bounds, to: window))]")
+                node = view.superview
+            }
+            return names.joined(separator: ">")
+        }
+        let railX = sign > 0 ? travel / 2 : window.bounds.width - travel / 2
+        let railPoints = [CGPoint(x: railX, y: window.bounds.midY),
+                          CGPoint(x: railX, y: window.bounds.maxY - travel * 0.65)]
+        let railHits = state?.isOpen == true ? railPoints.map {
+            "point=\($0),hit=\(chain(window.hitTest($0, with: nil)))"
+        }.joined(separator: "|") : "closed"
         var scroll: UIScrollView?
         var hit = edgeTouchOrigin.flatMap { window.hitTest($0, with: nil) }
         while let view = hit {
             if let candidate = view as? UIScrollView { scroll = candidate; break }
             hit = view.superview
         }
-        return "edgeState=\(edge.state.rawValue),translation=\(edge.translation(in: window)),velocity=\(edge.velocity(in: window)),location=\(edge.location(in: window)),origin=\(String(describing: edgeTouchOrigin)),captured=\(String(describing: edgeTouchOwner)),currentHost=\(String(describing: current?.hostID)),currentPane=\(String(describing: current?.paneID)),window=\(ObjectIdentifier(window)),scrollPan=\(scroll.map { "state=\($0.panGestureRecognizer.state.rawValue),translation=\($0.panGestureRecognizer.translation(in: window))" } ?? "none")"
+        return "edgeState=\(edge.state.rawValue),translation=\(edge.translation(in: window)),velocity=\(edge.velocity(in: window)),location=\(edge.location(in: window)),origin=\(String(describing: edgeTouchOrigin)),captured=\(String(describing: edgeTouchOwner)),currentHost=\(String(describing: current?.hostID)),currentPane=\(String(describing: current?.paneID)),window=\(ObjectIdentifier(window)),scrollPan=\(scroll.map { "state=\($0.panGestureRecognizer.state.rawValue),translation=\($0.panGestureRecognizer.translation(in: window))" } ?? "none"),railHits=[\(railHits)]"
     }
 #endif
 

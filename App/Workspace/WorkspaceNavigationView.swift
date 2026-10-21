@@ -111,6 +111,9 @@ struct WorkspaceNavigationView<Content: View>: View {
                         model?.splitWorkspace != nil ? SplitTargetingGeometry.paneCornerRadius : 0),
                     windowCornerRadius: windowCornerRadius,
                     onSelect: { route in
+#if DEBUG
+                        state.recordNative("rail callback route=\(route),coordinator=\(overlays != nil),eligible=\(context()?.allowsOpening == true)")
+#endif
                         overlays?.enter(route, eligible: context()?.allowsOpening == true, captureFocus: captureFocus)
                     })
                 content
