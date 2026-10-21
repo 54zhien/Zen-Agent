@@ -231,6 +231,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         viewport.clipsToBounds = true
         surface.addSubview(viewport)
         editor.delegate = self
+        editor.permitsNativeFocus = { [weak self] in
+            guard let self else { return false }
+            return !self.workspaceInputSuppressed && (self.keyboardMenu?.permitsNativeFocus ?? true)
+        }
         editor.onAccessibilityActivation = { [weak self] in self?.restoreKeyboardFromMenu() }
         editor.backgroundColor = .clear
         editor.tintColor = .label
@@ -571,9 +575,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         actionMenuState.defaultThinkingEffort = next.defaultThinkingEffort
         actionMenuState.onSelectThinking = { [weak self] effort in
             guard let self else { return }
+            self.actionMenuState.selectedThinkingEffort = effort
             self.configuration?.onThinking(effort)
-            self.actionMenu?.close()
-            self.keyboardMenu?.close()
         }
         switch next.primary {
         case .none:
@@ -966,10 +969,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     func textViewShouldBeginEditing(_ textView: UITextView) -> Bool {
         guard !workspaceInputSuppressed else { return false }
-        if let keyboardMenu, !keyboardMenu.permitsNativeFocus {
-            keyboardMenu.close()
-            return false
-        }
+        // UIKit can query focus eligibility during resignation/layout. Only
+        // explicit editor touches or the plus button may request restoration.
+        if let keyboardMenu, !keyboardMenu.permitsNativeFocus { return false }
         return true
     }
 

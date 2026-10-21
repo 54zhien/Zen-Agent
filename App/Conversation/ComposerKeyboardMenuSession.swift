@@ -1,11 +1,16 @@
 import UIKit
+import OSLog
 
 /// One owner for the sequential handoff and the occupied input region. Native
 /// focus can end without changing the Composer's logical Editing presentation.
 @MainActor
 final class ComposerKeyboardMenuSession: NSObject {
     private enum Phase { case preparing, hidingKeyboard, showingMenu, menu, hidingMenu, restoringKeyboard, finished }
-    private var phase = Phase.preparing
+    private let logger = Logger(subsystem: "com.zhien.zen", category: "ComposerInputHandoff")
+    private var phase = Phase.preparing {
+        didSet { logger.debug("phase=\(String(describing: self.phase), privacy: .public)") }
+    }
+    private var receivedWillHide = false
     private weak var editor: UITextView?
     private weak var window: UIWindow?
     private let windowSize: CGSize
@@ -37,6 +42,8 @@ final class ComposerKeyboardMenuSession: NSObject {
         }
         presenter.onInvalidated = { [weak self] in self?.close(restoringKeyboard: false, animated: false) }
         let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(keyboardWillHide(_:)),
+                           name: UIResponder.keyboardWillHideNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidHide(_:)),
                            name: UIResponder.keyboardDidHideNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardWillShow(_:)),
@@ -62,12 +69,15 @@ final class ComposerKeyboardMenuSession: NSObject {
             self.window?.layoutIfNeeded()
             self.phase = .hidingKeyboard
             self.armWatchdog()
-            guard editor.resignFirstResponder() else { self.finish(resign: false); return }
+            let accepted = editor.resignFirstResponder()
+            self.logger.debug("resign accepted=\(accepted) focused=\(editor.isFirstResponder)")
+            if !accepted, editor.isFirstResponder { self.finish(resign: false) }
         }
     }
 
     func close(restoringKeyboard: Bool = true, animated: Bool = true) {
         guard phase != .finished else { return }
+        logger.debug("close restore=\(restoringKeyboard) phase=\(String(describing: self.phase), privacy: .public)")
         guard restoringKeyboard else { finish(resign: true); return }
         returnsToKeyboard = true
         onGlyph(false, animated)
@@ -109,15 +119,26 @@ final class ComposerKeyboardMenuSession: NSObject {
         return true
     }
 
+    @objc private func keyboardWillHide(_ notification: Notification) {
+        guard phase == .hidingKeyboard, belongsToWindow(notification) else { return }
+        receivedWillHide = true
+    }
+
     @objc private func keyboardDidHide(_ notification: Notification) {
-        guard phase == .hidingKeyboard, belongsToWindow(notification),
-              editor?.isFirstResponder == false, let window else { return }
-        // Ignore a frame from another visible input session. All coordinates
-        // used by this handoff are converted into this particular app window.
-        if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
-            let overlap = window.bounds.intersection(window.convert(frame, from: window.screen.coordinateSpace))
-            guard overlap.isNull || overlap.height <= window.safeAreaInsets.bottom + 1 else { return }
+        guard phase == .hidingKeyboard, receivedWillHide, belongsToWindow(notification) else { return }
+        // didHide is the completion signal. A third-party input extension's
+        // frame payload is not a second visibility contract. Defer one main
+        // actor turn so the responder's resignation callbacks finish first.
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.completeKeyboardDescent()
         }
+    }
+
+    private func completeKeyboardDescent() {
+        guard phase == .hidingKeyboard, isAttached,
+              editor?.isFirstResponder == false, let window else { return }
+        if let owner = inputOwner(in: window), owner !== editor { finish(resign: false); return }
         watchdog?.cancel()
         if returnsToKeyboard { restoreKeyboard(); return }
         phase = .showingMenu
@@ -136,6 +157,11 @@ final class ComposerKeyboardMenuSession: NSObject {
 
     @objc private func keyboardWillShow(_ notification: Notification) {
         guard belongsToWindow(notification) else { return }
+        if phase == .hidingKeyboard, let window,
+           let owner = inputOwner(in: window), owner !== editor {
+            finish(resign: false)
+            return
+        }
         if phase == .restoringKeyboard {
             guard let window, let info = notification.userInfo,
                   let frame = info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
@@ -154,19 +180,33 @@ final class ComposerKeyboardMenuSession: NSObject {
                     self.onReservation(self.reservedTop)
                 }
             }
-        } else if phase != .preparing {
+        } else if phase == .showingMenu || phase == .menu {
             // An external responder took over; it owns the next input region.
             finish(resign: false)
         }
     }
 
     @objc private func keyboardDidShow(_ notification: Notification) {
+        if phase == .hidingKeyboard, belongsToWindow(notification), let window,
+           let owner = inputOwner(in: window), owner !== editor {
+            finish(resign: false)
+            return
+        }
         guard phase == .restoringKeyboard, belongsToWindow(notification),
               editor?.isFirstResponder == true else { return }
         window?.layoutIfNeeded()
         // The native guide now owns the occupied region again. No zero-height
         // interval is published between the panel and this completed keyboard.
         finish(resign: false)
+    }
+
+    private func inputOwner(in view: UIView) -> UIView? {
+        // Only our application window, never the remote keyboard hierarchy.
+        if view.isFirstResponder { return view }
+        for child in view.subviews {
+            if let owner = inputOwner(in: child) { return owner }
+        }
+        return nil
     }
 
     private func armWatchdog() {
@@ -177,6 +217,7 @@ final class ComposerKeyboardMenuSession: NSObject {
                   self.phase == .hidingKeyboard || self.phase == .restoringKeyboard else { return }
             // Missing/declined keyboard completion is cancellation, never proof
             // of dismissal. Also releases reservations for hardware keyboards.
+            self.logger.error("handoff timed out in \(String(describing: self.phase), privacy: .public)")
             self.finish(resign: false)
         }
     }

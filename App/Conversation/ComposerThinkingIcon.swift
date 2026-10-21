@@ -15,48 +15,43 @@ extension ThinkingEffort {
     }
 }
 
-/// `tachometer` does not vary its needle with SF variableValue. Retain its
-/// central SF glyph, rotating around the hub, and draw the requested arc treatment.
+/// Arc and needle share the same polar coordinates, including the model's highest supported endpoint.
 struct ComposerThinkingIcon: View {
     let level: ThinkingEffort
+    var supportedLevels: [ThinkingEffort] = ThinkingEffort.allCases
+    private var fraction: Double {
+        guard let index = supportedLevels.firstIndex(of: level) else { return level.fraction }
+        return Double(index + 1) / Double(supportedLevels.count)
+    }
 
     var body: some View {
-        GeometryReader { geometry in
-            let edge = min(geometry.size.width, geometry.size.height)
-            ZStack(alignment: .topLeading) {
-                Canvas { context, _ in
-                    let hub = CGPoint(x: edge / 2, y: edge * 0.58)
-                    let radius = edge * 0.45
-                    let width = edge * 0.075
-                    func point(_ fraction: Double) -> CGPoint {
-                        let angle = (135 + 270 * fraction) * .pi / 180
-                        return CGPoint(x: hub.x + radius * CGFloat(cos(angle)),
-                                       y: hub.y + radius * CGFloat(sin(angle)))
-                    }
-                    var arc = Path()
-                    arc.move(to: point(0))
-                    for step in 1...60 { arc.addLine(to: point(level.fraction * Double(step) / 60)) }
-                    context.stroke(arc, with: .color(.primary),
-                                   style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
-                    for step in 0...18 where Double(step) / 18 > level.fraction {
-                        let center = point(Double(step) / 18)
-                        context.fill(Path(ellipseIn: CGRect(x: center.x - width / 2,
-                            y: center.y - width / 2, width: width, height: width)),
-                            with: .color(Color(uiColor: .systemGray3)))
-                    }
-                }
-                Image(systemName: "tachometer")
-                    .resizable()
-                    .scaledToFit()
-                    .foregroundStyle(Color.primary)
-                    .frame(width: edge, height: edge)
-                    .mask {
-                        Circle().frame(width: edge * 0.72, height: edge * 0.72)
-                            .position(x: edge / 2, y: edge * 0.58)
-                    }
-                    .rotationEffect(.degrees(-90 + 270 * level.fraction),
-                                    anchor: UnitPoint(x: 0.5, y: 0.58))
+        Canvas { context, size in
+            let edge = min(size.width, size.height)
+            let hub = CGPoint(x: size.width / 2, y: size.height / 2 + edge * 0.06)
+            let radius = edge * 0.43
+            let width = edge * 0.085
+            func point(_ fraction: Double, radius: CGFloat) -> CGPoint {
+                let angle = (135 + 270 * fraction) * .pi / 180
+                return CGPoint(x: hub.x + radius * CGFloat(cos(angle)),
+                               y: hub.y + radius * CGFloat(sin(angle)))
             }
+            func arc(to fraction: Double) -> Path {
+                var path = Path()
+                path.move(to: point(0, radius: radius))
+                for step in 1...80 {
+                    path.addLine(to: point(fraction * Double(step) / 80, radius: radius))
+                }
+                return path
+            }
+            let stroke = StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round)
+            context.stroke(arc(to: 1), with: .color(Color(uiColor: .systemGray3)), style: stroke)
+            context.stroke(arc(to: fraction), with: .color(.primary), style: stroke)
+            var needle = Path()
+            needle.move(to: hub)
+            needle.addLine(to: point(fraction, radius: radius * 0.78))
+            context.stroke(needle, with: .color(.primary), style: stroke)
+            context.fill(Path(ellipseIn: CGRect(x: hub.x - width, y: hub.y - width,
+                                               width: width * 2, height: width * 2)), with: .color(.primary))
         }
         .accessibilityHidden(true)
     }

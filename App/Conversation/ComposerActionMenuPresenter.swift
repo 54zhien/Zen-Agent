@@ -11,18 +11,14 @@ final class ComposerActionMenuPresenter: UIViewController {
     private let onSelect: (ModelID) -> Void
     private let onDismiss: (ComposerActionMenuPresenter) -> Void
     private let outside = UIControl()
-    private let parentReturn = UIControl()
     private let sourceIcon = UIImageView()
     private var sourceIconFrame = CGRect.zero
     private var rootPanel: ComposerMenuPanel?
-    private var childPanel: ComposerMenuPanel?
+    private var details: ComposerMenuDetailPresenter?
     private let windowCornerGeometry = WindowCornerGeometry()
     private var rootMenuCornerRadius: CGFloat = 0
-    private var childPlacementFrame = CGRect.zero
     private var placementFrame = CGRect.zero
     private var rootFrame = CGRect.zero
-    private var childFrame = CGRect.zero
-    private var modelRow = CGRect.zero
     private var isClosing = false
     private var isTransitioning = false
     private var animator: UIViewPropertyAnimator?
@@ -45,7 +41,13 @@ final class ComposerActionMenuPresenter: UIViewController {
         self.onSelect = onSelect
         self.onDismiss = onDismiss
         super.init(nibName: nil, bundle: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(deactivate),
+            name: UIApplication.willResignActiveNotification, object: nil)
     }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func deactivate() { close(animated: false) }
 
     override func loadView() {
         let overlay = ComposerActionMenuOverlay()
@@ -57,38 +59,27 @@ final class ComposerActionMenuPresenter: UIViewController {
         outside.accessibilityElementsHidden = true
         outside.addTarget(self, action: #selector(closeFromOutside), for: .touchUpInside)
         view.addSubview(outside)
-        parentReturn.isAccessibilityElement = false
-        parentReturn.accessibilityElementsHidden = true
-        parentReturn.addTarget(self, action: #selector(returnToActions), for: .touchUpInside)
-        view.addSubview(parentReturn)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    private func makePanel(_ level: ComposerActionMenuLevel) -> ComposerMenuPanel {
-        ComposerMenuPanel(rootView: ComposerActionMenuView(level: level, presentation: presentation,
-            maximumSize: level == .actions ? placementFrame.size : childPlacementFrame.size,
-            onSelect: { [weak self] modelID in
-                guard let self, !self.isClosing, !self.isTransitioning else { return }
-                self.onSelect(modelID)
-                self.close()
-            }, onOpenModels: { [weak self] row in self?.openModels(from: row) },
-            onReturn: { [weak self] in self?.returnToActions() },
-            actionMenuCornerRadius: level == .actions ? rootMenuCornerRadius : nil,
-            onOpenThinking: { [weak self] row in self?.openChild(.thinking, from: row) }),
-            expandedRadius: level == .actions ? rootMenuCornerRadius : menuCornerRadius)
+    private func makePanel() -> ComposerMenuPanel {
+        ComposerMenuPanel(rootView: ComposerActionMenuView(presentation: presentation,
+            maximumSize: placementFrame.size,
+            onOpen: { [weak self] level in self?.openDetails(level) },
+            cornerRadius: rootMenuCornerRadius), expandedRadius: rootMenuCornerRadius)
     }
 
     func show(in window: UIWindow) {
         loadViewIfNeeded()
         guard let placement = placement(in: window) else { return }
         placementFrame = placement
-        childPlacementFrame = self.placement(in: window, for: .models) ?? placement
-        rootMenuCornerRadius = windowCornerGeometry.radius(in: window)
+        let screenRadius = windowCornerGeometry.radius(in: window)
+        rootMenuCornerRadius = screenRadius - min(8, screenRadius)
         overrideUserInterfaceStyle = sourceView?.traitCollection.userInterfaceStyle ?? .unspecified
         view.frame = window.bounds
         presentation.activeLevel = .actions
-        let root = makePanel(.actions)
+        let root = makePanel()
         root.showMaterial(false)
         rootPanel = root
         root.install(in: self)
@@ -146,7 +137,6 @@ final class ComposerActionMenuPresenter: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         outside.frame = view.bounds
-        parentReturn.frame = parentFrame
         guard let window = view.window, let placement = placement(in: window),
               placement != placementFrame else { return }
         // A moving keyboard or rotation invalidates the source geometry. Close
@@ -154,16 +144,16 @@ final class ComposerActionMenuPresenter: UIViewController {
         close(animated: false)
     }
 
-    private func placement(in window: UIWindow, for level: ComposerActionMenuLevel = .actions) -> CGRect? {
-        guard let sourceView, let alignmentView else { return nil }
-        let aligned = alignmentView.convert(alignmentView.bounds, to: window)
-        let safe = window.bounds.inset(by: window.safeAreaInsets).insetBy(dx: 8, dy: 8)
-        let isRoot = level == .actions
-        let left = isRoot ? max(safe.minX, aligned.minX - 8) : aligned.minX
-        let bottom = isRoot ? min(window.bounds.maxY - 8, aligned.maxY + 20) : aligned.maxY
-        let width = min(safe.width, UIFontMetrics(forTextStyle: .body).scaledValue(for: isRoot ? 300 : 250,
-            compatibleWith: sourceView.traitCollection), max(0, safe.maxX - left))
-        let height = min(window.bounds.height * 0.65, max(44, bottom - safe.minY))
+    private func placement(in window: UIWindow) -> CGRect? {
+        guard let sourceView else { return nil }
+        // Equal left/bottom inset and R-inset preserve the display's lower-left
+        // arc center. Composer-relative placement cannot satisfy that geometry.
+        let inset = min(8, windowCornerGeometry.radius(in: window))
+        let left = window.bounds.minX + inset
+        let bottom = window.bounds.maxY - inset
+        let width = min(window.bounds.width - 2 * inset,
+            UIFontMetrics(forTextStyle: .body).scaledValue(for: 300, compatibleWith: sourceView.traitCollection))
+        let height = min(window.bounds.height * 0.65, bottom - window.safeAreaInsets.top - 8)
         return CGRect(x: left, y: bottom - height, width: width, height: height)
     }
 
@@ -193,92 +183,34 @@ final class ComposerActionMenuPresenter: UIViewController {
         return view.convert(circle, from: alignmentView)
     }
 
-    private var menuCornerRadius: CGFloat {
-        // Match the visible Composer surface after UIKit resolves its concentric corners.
-        let radius = alignmentView?.effectiveRadius(corner: .bottomLeft) ?? sourceRadius
-        return radius.isFinite && radius > 0 ? radius : sourceRadius
-    }
-
-    private func childContentScale(fitting frame: CGRect, panel: ComposerMenuPanel) -> CGFloat {
-        min(1, min(frame.width / max(1, panel.contentSize.width),
-                   frame.height / max(1, panel.contentSize.height)))
-    }
-
-    private var parentFrame: CGRect { rootFrame.offsetBy(dx: 0, dy: -12) }
-
-    private func openModels(from row: CGRect) { openChild(.models, from: row) }
-
-    private func openChild(_ level: ComposerActionMenuLevel, from row: CGRect) {
-        guard !isClosing, !isTransitioning, childPanel == nil,
-              (level != .models || !presentation.models.isEmpty), let root = rootPanel else { return }
+    private func openDetails(_ level: ComposerActionMenuLevel) {
+        guard !isClosing, !isTransitioning, details == nil,
+              let window = view.window, let root = rootPanel else { return }
         WorkspaceHaptics.shared.play(.control)
-        modelRow = row
-        let origin = view.convert(row, from: root.content.view)
-        let child = makePanel(level)
-        childPanel = child
-        presentation.activeLevel = level
-        child.showMaterial(false)
-        child.install(in: self)
-        childFrame = fittedFrame(for: child, placement: childPlacementFrame)
-        child.place(origin, radius: min(menuCornerRadius, origin.height / 2), contentAlpha: 0,
-                    contentScale: childContentScale(fitting: origin, panel: child))
-        child.glass.layoutIfNeeded()
-        parentReturn.frame = parentFrame
-        root.content.view.isUserInteractionEnabled = false
+        let detail = ComposerMenuDetailPresenter(level: level, presentation: presentation,
+            height: max(240, window.bounds.height * 0.43),
+            onSelect: onSelect, onDismiss: { [weak self] in self?.returnToActions() })
+        details = detail
+        root.glass.isHidden = true
         root.glass.accessibilityElementsHidden = true
-        child.content.view.isUserInteractionEnabled = false
-        isTransitioning = true
-        animate(duration: 0.30, dampingRatio: 1) {
-            root.place(self.parentFrame, contentAlpha: 0.4)
-            child.showMaterial(true)
-            child.place(self.childFrame)
-        } completion: { [weak self] in
-            guard let self, !self.isClosing else { return }
-            self.isTransitioning = false
-            child.content.view.isUserInteractionEnabled = true
-            UIAccessibility.post(notification: .layoutChanged, argument: child.content.view)
-        }
+        detail.show(in: window, style: overrideUserInterfaceStyle,
+                    cornerRadius: windowCornerGeometry.radius(in: window))
     }
 
-    @objc private func returnToActions() {
-        guard !isClosing, !isTransitioning, let child = childPanel, let root = rootPanel else { return }
-        WorkspaceHaptics.shared.play(.control)
-        isTransitioning = true
-        child.content.view.isUserInteractionEnabled = false
-        let target = modelRow.offsetBy(dx: rootFrame.minX, dy: rootFrame.minY)
-        animate(duration: 0.30, dampingRatio: 1) {
-            root.place(self.rootFrame)
-            child.showMaterial(false)
-            child.place(target, radius: min(self.menuCornerRadius, target.height / 2), contentAlpha: 0,
-                        contentScale: self.childContentScale(fitting: target, panel: child))
-        } completion: { [weak self] in
-            guard let self, !self.isClosing else { return }
-            child.remove()
-            self.childPanel = nil
-            self.presentation.activeLevel = .actions
-            self.isTransitioning = false
-            root.glass.accessibilityElementsHidden = false
-            root.content.view.isUserInteractionEnabled = true
-            UIAccessibility.post(notification: .layoutChanged, argument: root.content.view)
-        }
+    private func returnToActions() {
+        details = nil
+        guard !isClosing else { return }
+        presentation.activeLevel = .actions
+        rootPanel?.glass.isHidden = false
+        rootPanel?.glass.accessibilityElementsHidden = false
+        UIAccessibility.post(notification: .layoutChanged, argument: rootPanel?.content.view)
     }
 
     fileprivate func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard view.bounds.contains(point) else { return nil }
-        if isClosing { return view }
-        if isTransitioning {
-            if rootFrame.union(parentFrame).contains(point)
-                || (childPanel != nil && childFrame.contains(point)) {
-                return view
-            }
-            return outside
-        }
-        if let child = childPanel {
-            if child.glass.frame.contains(point) {
-                return child.glass.hitTest(child.glass.convert(point, from: view), with: event)
-            }
-            if rootPanel?.glass.frame.contains(point) == true { return parentReturn }
-        } else if let root = rootPanel, root.glass.frame.contains(point) {
+        if isClosing || details != nil { return view }
+        if isTransitioning { return rootFrame.contains(point) ? view : outside }
+        if let root = rootPanel, root.glass.frame.contains(point) {
             return root.glass.hitTest(root.glass.convert(point, from: view), with: event)
         }
         return outside
@@ -288,6 +220,9 @@ final class ComposerActionMenuPresenter: UIViewController {
 
     func close(animated: Bool = true) {
         guard viewIfLoaded?.superview != nil else { return }
+        details?.removeFromWindow()
+        details = nil
+        rootPanel?.glass.isHidden = false
         if !animated {
             isClosing = true
             stopAnimator()
@@ -297,7 +232,6 @@ final class ComposerActionMenuPresenter: UIViewController {
         guard !isClosing else { return }
         isClosing = true
         rootPanel?.content.view.isUserInteractionEnabled = false
-        childPanel?.content.view.isUserInteractionEnabled = false
         stopAnimator()
         collapse()
     }
@@ -330,10 +264,8 @@ final class ComposerActionMenuPresenter: UIViewController {
         animate(duration: menuMotionDuration, dampingRatio: menuMotionDamping) {
             // Keep the first part visible; the late material fade has its own animator.
             self.rootPanel?.showMaterial(true)
-            self.childPanel?.showMaterial(false)
             self.rootPanel?.place(circle, radius: radius,
                 contentAlpha: 0, contentScale: self.contentScale(fitting: circle))
-            self.childPanel?.place(circle, radius: radius, contentAlpha: 0)
         } completion: { [weak self] in
             guard let self else { return }
             self.hasFinishedCollapse = true
@@ -434,9 +366,9 @@ final class ComposerActionMenuPresenter: UIViewController {
         beginAppearanceTransition(false, animated: false)
         view.removeFromSuperview()
         endAppearanceTransition()
-        childPanel?.remove()
+        details?.removeFromWindow()
         rootPanel?.remove()
-        childPanel = nil
+        details = nil
         rootPanel = nil
         sourceIcon.removeFromSuperview()
         onDismiss(self)
@@ -461,7 +393,7 @@ private final class ComposerActionMenuOverlay: UIView {
 
 extension ComposerActionMenuPresenter {
     fileprivate func escape() {
-        if childPanel != nil, !isTransitioning { returnToActions() }
+        if let details { details.dismissSheet(animated: true) }
         else { close() }
     }
 }

@@ -14,12 +14,10 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
     private let glass = UIVisualEffectView(effect: UIGlassEffect(style: .regular))
     private let handle = UIView()
     private var actions: UIHostingController<ComposerActionMenuView>?
-    private var models: UIHostingController<ComposerActionMenuView>?
-    private var childGlass: UIVisualEffectView?
+    private var details: ComposerMenuDetailPresenter?
     private var installedSize = CGSize.zero
     private weak var sourceWindow: UIWindow?
     private var cornerRadius: CGFloat = 0
-    private var bottomInset: CGFloat = 0
     private var laidOutBounds = CGRect.null
     private var isClosing = false
     private var didDismiss = false
@@ -63,14 +61,20 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
         view.overrideUserInterfaceStyle = style
         sourceWindow = window
         installedSize = window.bounds.size
-        bottomInset = window.safeAreaInsets.bottom
         // The glass is inset equally from the display's side and bottom edges.
         cornerRadius = max(0, screenRadius - 6)
         presentation.activeLevel = .actions
         view.frame = window.bounds
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         layoutInput()
-        actions = install(.actions, in: glass)
+        let content = UIHostingController(rootView: menuView())
+        actions = content
+        content.safeAreaRegions = []
+        content.view.backgroundColor = .clear
+        addChild(content)
+        glass.contentView.addSubview(content.view)
+        content.view.frame = glass.bounds
+        content.didMove(toParent: self)
     }
 
     private func layoutInput() {
@@ -87,97 +91,34 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
         glass.frame = sheet.bounds.inset(by: UIEdgeInsets(top: 0, left: 6, bottom: 6, right: 6))
         glass.cornerConfiguration = .corners(radius: .fixed(cornerRadius))
         handle.frame = CGRect(x: glass.bounds.midX - 22, y: 8, width: 44, height: 5)
-        childGlass?.frame = glass.bounds
         if let actions {
-            actions.view.frame = contentFrame(for: .actions)
-            actions.rootView = menuView(.actions)
-        }
-        if let models {
-            models.view.frame = contentFrame(for: presentation.activeLevel)
-            models.rootView = menuView(presentation.activeLevel)
+            actions.view.frame = glass.bounds
+            actions.rootView = menuView()
         }
     }
 
-    private func contentFrame(for level: ComposerActionMenuLevel) -> CGRect {
-        if level == .actions { return glass.bounds }
-        return glass.bounds.inset(by: UIEdgeInsets(top: 24, left: 0,
-            bottom: max(8, bottomInset - 6), right: 0))
-    }
-
-    private func menuView(_ level: ComposerActionMenuLevel) -> ComposerActionMenuView {
-        ComposerActionMenuView(
-            level: level, presentation: presentation, maximumSize: contentFrame(for: level).size,
-            onSelect: { [weak self] modelID in
-                guard let self, !self.isClosing else { return }
-                WorkspaceHaptics.shared.play(.control)
-                self.onSelect(modelID)
-                self.close()
-            }, onOpenModels: { [weak self] _ in self?.openDetails(.models) },
-            onReturn: { [weak self] in self?.returnToActions() }, keyboardSheet: true,
-            sheetCornerRadius: cornerRadius,
-            onOpenThinking: { [weak self] _ in self?.openDetails(.thinking) })
-    }
-
-    private func install(_ level: ComposerActionMenuLevel,
-                         in material: UIVisualEffectView) -> UIHostingController<ComposerActionMenuView> {
-        let content = UIHostingController(rootView: menuView(level))
-        content.safeAreaRegions = []
-        content.view.backgroundColor = .clear
-        addChild(content)
-        material.contentView.addSubview(content.view)
-        content.view.frame = contentFrame(for: level)
-        content.didMove(toParent: self)
-        return content
+    private func menuView() -> ComposerActionMenuView {
+        ComposerActionMenuView(presentation: presentation, maximumSize: glass.bounds.size,
+            onOpen: { [weak self] level in self?.openDetails(level) },
+            keyboardSheet: true, cornerRadius: cornerRadius)
     }
 
     private func openDetails(_ level: ComposerActionMenuLevel) {
-        guard !isClosing, models == nil, level != .models || !presentation.models.isEmpty else { return }
+        guard !isClosing, details == nil, let window = sourceWindow else { return }
         WorkspaceHaptics.shared.play(.control)
-        let child = UIVisualEffectView(effect: nil)
-        child.cornerConfiguration = glass.cornerConfiguration
-        child.clipsToBounds = true
-        child.frame = glass.bounds
-        glass.contentView.addSubview(child)
-        childGlass = child
-        models = install(level, in: child)
-        presentation.activeLevel = level
-        actions?.view.isUserInteractionEnabled = false
-        actions?.view.accessibilityElementsHidden = true
-        child.transform = CGAffineTransform(translationX: 0, y: 24)
-        models?.view.alpha = 0
-        UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.25,
-                       delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
-            child.effect = UIGlassEffect(style: .regular)
-            child.transform = .identity
-            self.models?.view.alpha = 1
-        } completion: { [weak self] finished in
-            guard finished, let self, !self.isClosing else { return }
-            UIAccessibility.post(notification: .layoutChanged, argument: self.models?.view)
-        }
-    }
-
-    private func returnToActions() {
-        guard !isClosing, let child = childGlass, let content = models,
-              content.view.isUserInteractionEnabled else { return }
-        WorkspaceHaptics.shared.play(.control)
-        content.view.isUserInteractionEnabled = false
-        content.view.accessibilityElementsHidden = true
-        UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.25,
-                       delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
-            child.effect = nil
-            child.transform = CGAffineTransform(translationX: 0, y: 24)
-            content.view.alpha = 0
-        } completion: { [weak self] _ in
-            guard let self, self.models === content else { return }
-            self.remove(content)
-            child.removeFromSuperview()
-            self.models = nil
-            self.childGlass = nil
-            self.presentation.activeLevel = .actions
-            self.actions?.view.isUserInteractionEnabled = true
-            self.actions?.view.accessibilityElementsHidden = false
-            UIAccessibility.post(notification: .layoutChanged, argument: self.actions?.view)
-        }
+        let detail = ComposerMenuDetailPresenter(level: level, presentation: presentation, height: height,
+            onSelect: onSelect, onDismiss: { [weak self] in
+                guard let self, !self.isClosing else { return }
+                self.details = nil
+                self.presentation.activeLevel = .actions
+                self.sheet.isHidden = false
+                self.sheet.accessibilityElementsHidden = false
+                UIAccessibility.post(notification: .layoutChanged, argument: self.actions?.view)
+            })
+        details = detail
+        sheet.isHidden = true
+        sheet.accessibilityElementsHidden = true
+        detail.show(in: window, style: overrideUserInterfaceStyle, cornerRadius: cornerRadius + 6)
     }
 
     func reveal(in window: UIWindow, completion: @escaping () -> Void) {
@@ -206,6 +147,9 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
     func dismiss(animated: Bool, completion: @escaping () -> Void) {
         guard !didDismiss else { completion(); return }
         isClosing = true
+        details?.removeFromWindow()
+        details = nil
+        sheet.isHidden = false
         if let animator {
             animator.stopAnimation(false)
             animator.finishAnimation(at: .current)
@@ -235,12 +179,10 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
         if animator?.state == .active { animator?.stopAnimation(true) }
         animator = nil
         view.removeFromSuperview()
-        if let models { remove(models) }
+        details?.removeFromWindow()
         if let actions { remove(actions) }
-        models = nil
+        details = nil
         actions = nil
-        childGlass?.removeFromSuperview()
-        childGlass = nil
     }
 
     private func remove(_ content: UIViewController) {

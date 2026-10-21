@@ -24,274 +24,85 @@ final class ComposerActionMenuState {
 }
 
 enum ComposerActionMenuLevel: Equatable {
-    case actions
-    case models
-    case thinking
+    case actions, models, thinking, plugins, images, files
+
+    var title: String {
+        switch self {
+        case .actions: "更多操作"
+        case .models: "模型"
+        case .thinking: "思考"
+        case .plugins: "插件"
+        case .images: "图片"
+        case .files: "文件"
+        }
+    }
 }
 
 struct ComposerActionMenuView: View {
-    let level: ComposerActionMenuLevel
     let presentation: ComposerActionMenuState
     let maximumSize: CGSize
-    let onSelect: (ModelID) -> Void
-    let onOpenModels: (CGRect) -> Void
-    let onReturn: () -> Void
+    let onOpen: (ComposerActionMenuLevel) -> Void
     var keyboardSheet = false
-    var sheetCornerRadius: CGFloat = 0
-    var actionMenuCornerRadius: CGFloat? = nil
-    var onOpenThinking: (CGRect) -> Void = { _ in }
-    @State private var modelRow = CGRect.zero
-    @State private var thinkingRow = CGRect.zero
-    @ScaledMetric(relativeTo: .body) private var leading: CGFloat = 32
+    var cornerRadius: CGFloat = 0
     @ScaledMetric(relativeTo: .body) private var iconDiameter: CGFloat = 44
     @ScaledMetric(relativeTo: .body) private var floatingRowHeight: CGFloat = 64
 
+    private var iconCenter: CGFloat { max(cornerRadius, iconDiameter / 2 + 12) }
+    private var rowHeight: CGFloat {
+        keyboardSheet ? max(iconDiameter + 8, (maximumSize.height - 2 * iconCenter) / 4) : floatingRowHeight
+    }
+
     var body: some View {
-        // Each native panel keeps a fixed level; a child never replaces its parent.
-        Group {
-            switch level {
-            case .actions: actions
-            case .models: modelMenu
-            case .thinking: thinkingMenu
-            }
+        ViewThatFits(in: .vertical) {
+            rows
+            ScrollView { rows }.scrollBounceBehavior(.basedOnSize)
         }
         .font(.body)
         .foregroundStyle(.primary)
         .buttonStyle(.plain)
         .frame(width: maximumSize.width)
+        .frame(height: keyboardSheet ? maximumSize.height : nil)
         .frame(maxHeight: maximumSize.height)
         .fixedSize(horizontal: false, vertical: !keyboardSheet)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(panelIdentifier)
-        .accessibilityHidden(level != presentation.activeLevel)
-        .coordinateSpace(name: "composer-menu-panel")
+        .accessibilityIdentifier("composer-action-menu")
+        .accessibilityHidden(presentation.activeLevel != .actions)
     }
 
-    private var panelIdentifier: String {
-        switch level {
-        case .actions: "composer-action-menu"
-        case .models: "composer-model-picker"
-        case .thinking: "composer-thinking-picker"
-        }
-    }
-
-    nonisolated private static func rowFrame(_ proxy: GeometryProxy) -> CGRect {
-        proxy.frame(in: .named("composer-menu-panel"))
-    }
-
-    private var actions: some View {
-        ViewThatFits(in: .vertical) {
-            actionRows
-            ScrollView { actionRows }.scrollBounceBehavior(.basedOnSize)
-        }
-        .frame(width: maximumSize.width)
-        .frame(height: keyboardSheet ? maximumSize.height : nil)
-    }
-
-    private var sheetIconCenter: CGFloat { max(sheetCornerRadius, iconDiameter / 2 + 12) }
-    private var sheetRowHeight: CGFloat {
-        max(iconDiameter + 8, (maximumSize.height - 2 * sheetIconCenter) / 4)
-    }
-
-    private var circularActionIcons: Bool { keyboardSheet || actionMenuCornerRadius != nil }
-    private var actionIconCenter: CGFloat {
-        max(actionMenuCornerRadius ?? sheetCornerRadius, iconDiameter / 2 + 12)
-    }
-    private var actionRowHeight: CGFloat {
-        keyboardSheet ? sheetRowHeight : floatingRowHeight
-    }
-
-    private var actionRows: some View {
+    private var rows: some View {
         VStack(spacing: 0) {
-            modelAction
-            thinkingAction
-            unavailable("插件", symbol: "powercord")
-            unavailable("图片", symbol: "photo.on.rectangle.angled")
-            unavailable("文件", symbol: "paperclip")
+            row(.models)
+            row(.thinking)
+            row(.plugins)
+            row(.images)
+            row(.files)
         }
-        .padding(.vertical, circularActionIcons ? max(0, actionIconCenter - actionRowHeight / 2) : 12)
+        .padding(.vertical, max(0, iconCenter - rowHeight / 2))
         .frame(width: maximumSize.width)
     }
 
-    private var thinkingAction: some View {
-        actionControl("思考", symbol: "tachometer", opensMenu: true,
-                      value: presentation.thinkingLevel?.title ?? "模型默认") {
-            onOpenThinking(thinkingRow)
-        }
-        .onGeometryChange(for: CGRect.self, of: Self.rowFrame) { thinkingRow = $0 }
-    }
-
-    private var modelAction: some View {
-        actionControl("模型", symbol: "theatermasks", opensMenu: true) {
-            onOpenModels(modelRow)
-        }
-        .disabled(presentation.models.isEmpty)
-        .onGeometryChange(for: CGRect.self, of: Self.rowFrame) { modelRow = $0 }
-    }
-
-    private func unavailable(_ title: String, symbol: String) -> some View {
-        actionControl(title, symbol: symbol) {}
-            .foregroundStyle(.tertiary)
-            .disabled(true)
-    }
-
-    @ViewBuilder
-    private func actionControl(_ title: String, symbol: String, opensMenu: Bool = false,
-                               value: String = "", action: @escaping () -> Void) -> some View {
-        if presentation.activeLevel == .actions {
-            Button(action: action) { actionLabel(title, symbol: symbol, opensMenu: opensMenu) }
-                .accessibilityLabel(title)
-                .accessibilityValue(value)
-        } else {
-            // UIKit and a container-level AX flag can retain SwiftUI buttons.
-            // Keep the same visual background without inactive controls behind a child.
-            actionLabel(title, symbol: symbol, opensMenu: opensMenu).accessibilityHidden(true)
-        }
-    }
-
-    private func actionLabel(_ title: String, symbol: String, opensMenu: Bool = false) -> some View {
-        HStack(spacing: 12) {
-            if circularActionIcons {
-                menuSymbol(symbol)
+    private func row(_ level: ComposerActionMenuLevel) -> some View {
+        Button { onOpen(level) } label: {
+            HStack(spacing: 12) {
+                ComposerMenuSymbol(level: level, thinking: presentation.thinkingLevel,
+                                   supportedLevels: presentation.supportedThinkingEfforts)
                     .frame(width: 25, height: 25)
                     .frame(width: iconDiameter, height: iconDiameter)
                     .background(Color(uiColor: .secondarySystemFill), in: Circle())
                     .accessibilityHidden(true)
-            } else {
-                menuSymbol(symbol).frame(width: 22, height: 22).accessibilityHidden(true)
-            }
-            Text(title)
-            Spacer()
-            if opensMenu {
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .accessibilityHidden(true)
-            }
-        }
-        .padding(.leading, circularActionIcons ? actionIconCenter - iconDiameter / 2 : leading)
-        .padding(.trailing, 24)
-        .padding(.vertical, circularActionIcons ? 4 : 12)
-        .frame(minHeight: circularActionIcons ? actionRowHeight : 44)
-        .contentShape(Rectangle())
-    }
-
-    @ViewBuilder
-    private func menuSymbol(_ name: String) -> some View {
-        if name == "tachometer", let level = presentation.thinkingLevel {
-            ComposerThinkingIcon(level: level)
-        } else {
-            Image(systemName: name)
-                .resizable()
-                .scaledToFit()
-                .fontWeight(.medium)
-                .rotationEffect(.degrees(name == "powercord" ? -45 : 0))
-        }
-    }
-
-    private var thinkingMenu: some View {
-        VStack(spacing: 0) {
-            Button(action: onReturn) {
-                HStack(spacing: 12) {
-                    menuSymbol("tachometer").frame(width: 22, height: 22)
-                    Text("思考").fontWeight(.semibold)
-                    Spacer()
-                    Image(systemName: "chevron.down").fontWeight(.semibold)
-                }
-                .padding(.leading, leading).padding(.trailing, 24).padding(.vertical, 16)
-                .contentShape(Rectangle())
-            }
-            .accessibilityLabel("思考")
-            Divider().padding(.horizontal, 24)
-            if presentation.supportedThinkingEfforts.isEmpty {
-                Text("当前模型不支持调整思考档位")
-                    .font(.callout).foregroundStyle(.secondary).padding(24)
-            } else {
-                ViewThatFits(in: .vertical) {
-                    thinkingOptions
-                    ScrollView { thinkingOptions }.scrollBounceBehavior(.basedOnSize)
-                }
-            }
-        }
-        .padding(.bottom, 12)
-        .frame(width: maximumSize.width)
-        .frame(maxHeight: maximumSize.height)
-    }
-
-    private var thinkingOptions: some View {
-        VStack(spacing: 0) {
-            thinkingChoice(nil)
-            ForEach(presentation.supportedThinkingEfforts, id: \.self) { thinkingChoice($0) }
-        }
-    }
-
-    private func thinkingChoice(_ effort: ThinkingEffort?) -> some View {
-        Button { presentation.onSelectThinking(effort) } label: {
-            HStack(spacing: 12) {
-                if let icon = effort ?? presentation.defaultLevel {
-                    ComposerThinkingIcon(level: icon).frame(width: 22, height: 22)
-                }
-                Text(effort?.title ?? "模型默认")
+                Text(level.title)
                 Spacer()
-                Image(systemName: "checkmark").font(.subheadline.weight(.semibold))
-                    .opacity(presentation.selectedThinkingEffort == effort ? 1 : 0)
-                    .accessibilityHidden(true)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold)).accessibilityHidden(true)
             }
-            .padding(.leading, leading).padding(.trailing, 24).padding(.vertical, 12)
-            .frame(minHeight: 44).contentShape(Rectangle())
+            .padding(.leading, iconCenter - iconDiameter / 2)
+            .padding(.trailing, 24)
+            .padding(.vertical, 4)
+            .frame(minHeight: rowHeight)
+            .contentShape(Rectangle())
         }
-        .accessibilityLabel(effort?.title ?? "模型默认")
-        .accessibilityIdentifier("thinking-level-\(effort?.rawValue ?? "default")")
-        .accessibilityAddTraits(presentation.selectedThinkingEffort == effort ? .isSelected : [])
-    }
-
-    private var modelMenu: some View {
-        VStack(spacing: 0) {
-            Button(action: onReturn) {
-                HStack(spacing: 12) {
-                    Image(systemName: "theatermasks")
-                    Text("模型").fontWeight(.semibold)
-                    Spacer()
-                    Image(systemName: "chevron.down").fontWeight(.semibold)
-                }
-                .padding(.leading, leading)
-                .padding(.trailing, 24)
-                .padding(.vertical, 16)
-                .contentShape(Rectangle())
-            }
-            .accessibilityLabel("模型")
-            Divider().padding(.horizontal, 24)
-            ViewThatFits(in: .vertical) {
-                options
-                ScrollView { options }
-                    .scrollBounceBehavior(.basedOnSize)
-            }
-        }
-        .padding(.bottom, 12)
-        .frame(width: maximumSize.width)
-        .frame(maxHeight: maximumSize.height)
-        .accessibilityElement(children: .contain)
-    }
-
-    private var options: some View {
-        VStack(spacing: 0) {
-            ForEach(presentation.models, id: \.id) { model in
-                Button { onSelect(model.id) } label: {
-                    HStack(spacing: 12) {
-                        Text(model.displayName)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Image(systemName: "checkmark")
-                            .font(.subheadline.weight(.semibold))
-                            .opacity(model.id == presentation.selectedModelID ? 1 : 0)
-                            .accessibilityHidden(true)
-                    }
-                    .padding(.leading, leading)
-                    .padding(.trailing, 24)
-                    .padding(.vertical, 12)
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
-                }
-                .accessibilityAddTraits(model.id == presentation.selectedModelID ? .isSelected : [])
-            }
-        }
+        .disabled(presentation.activeLevel != .actions)
+        .accessibilityLabel(level.title)
+        .accessibilityValue(level == .thinking ? (presentation.thinkingLevel?.title ?? "模型默认") : "")
     }
 }
