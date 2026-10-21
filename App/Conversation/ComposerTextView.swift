@@ -32,6 +32,11 @@ enum ComposerTextMeasurement {
 @MainActor
 final class ComposerEditorTextView: UITextView {
     var onAccessibilityActivation: (() -> Void)?
+    var permitsNativeFocus: () -> Bool = { true }
+
+    override var canBecomeFirstResponder: Bool {
+        (isFirstResponder || permitsNativeFocus()) && super.canBecomeFirstResponder
+    }
 
     override func accessibilityActivate() -> Bool {
         onAccessibilityActivation?()

@@ -58,6 +58,7 @@ Owner capability-backed Thinking selection and frozen request ruling @ 570b8c343
 Owner retained-responder inputView menu and concentric sheet ruling @ 3157898f6f5aa6e200aa0e0e0c40013ed202dc37
 Owner sequential native keyboard dismissal and reserved app-menu ruling @ ea2079ab6ac61dd0c145a0773f5c7adb491454ed
 Owner floating primary menu appearance ruling @ 05df074abc0dfa5df26dfb8966431a2800533d2b
+- Composer bottom details, concentric primary menu and vertical thinking control: Blueprint `919f3fe` (2026-10-21).
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
