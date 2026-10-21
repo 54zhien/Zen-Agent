@@ -76,6 +76,8 @@ Owner longer rising thinking resonance @ 798de08
 Owner sustained thinking hum and midpoint title @ 6397aa2
 Owner softer sustained hum and plain default capsule @ a74e62a
 Owner smaller model selection background corners @ f5b2b2e
+Owner input-first Sidebar dismissal and animated sheet exit @ 899c821
+Owner message symbol for new conversation @ bec8ccf
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,

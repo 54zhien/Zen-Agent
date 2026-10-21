@@ -20,6 +20,8 @@ final class ComposerMenuDetailPresenter: UIViewController {
     private var animator: UIViewPropertyAnimator?
     private var closing = false
     private var removed = false
+    private var returnsToMenu = true
+    private var inputDismissalCompletion: (() -> Void)?
     private var installedSize = CGSize.zero
 
     init(level: ComposerActionMenuLevel, presentation: ComposerActionMenuState, height: CGFloat, compactThinking: Bool = false,
@@ -128,6 +130,17 @@ final class ComposerMenuDetailPresenter: UIViewController {
 
     @objc private func closeTapped() { dismissSheet(animated: true) }
 
+    func dismissForInputClosure(animated: Bool, completion: @escaping () -> Void) {
+        guard !removed else { completion(); return }
+        returnsToMenu = false
+        inputDismissalCompletion = completion
+        if closing {
+            if !animated { finish() }
+            return
+        }
+        dismissSheet(animated: animated)
+    }
+
     func dismissSheet(animated: Bool) {
         guard !closing, !removed else { return }
         closing = true
@@ -139,7 +152,7 @@ final class ComposerMenuDetailPresenter: UIViewController {
         presentation.activeLevel = .actions
         presentation.previewThinkingEffort = nil
         guard animated, !UIAccessibility.isReduceMotionEnabled else {
-            onReturn(nil)
+            if returnsToMenu { onReturn(nil) }
             finish()
             return
         }
@@ -150,7 +163,7 @@ final class ComposerMenuDetailPresenter: UIViewController {
         }
         animator = animation
         // The retained parent joins this animator; teardown cancels both halves.
-        onReturn(animation)
+        if returnsToMenu { onReturn(animation) }
         animation.addCompletion { [weak self] position in
             if position == .end { self?.finish() }
         }
@@ -159,9 +172,12 @@ final class ComposerMenuDetailPresenter: UIViewController {
 
     private func finish() {
         guard !removed else { return }
+        let completion = inputDismissalCompletion
+        let shouldReturn = returnsToMenu
         removeFromWindow()
         presentation.activeLevel = .actions
-        onDismiss()
+        if shouldReturn { onDismiss() }
+        completion?()
     }
 
     func suspend() {
@@ -178,6 +194,7 @@ final class ComposerMenuDetailPresenter: UIViewController {
         guard !removed else { return }
         removed = true
         closing = true
+        inputDismissalCompletion = nil
         // Invalidate pending SwiftUI snap completions synchronously; UIKit
         // removal can precede the hosted view's onDisappear cancellation.
         presentation.activeLevel = .actions

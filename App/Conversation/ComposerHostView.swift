@@ -48,6 +48,14 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private let actionMenuState = ComposerActionMenuState()
     private var actionMenu: ComposerActionMenuPresenter?
     private var keyboardMenu: ComposerKeyboardMenuSession?
+    private lazy var sidebarInputDismissal = ComposerSidebarInputDismissal(
+        isPresented: { [weak self] in
+            guard let self, self.window != nil, !self.workspaceInputSuppressed else { return false }
+            return (self.editor.isFirstResponder && self.windowKeyboardVisible)
+                || self.keyboardMenu != nil || self.actionMenu?.hasDetails == true
+        }, direction: { [weak self] in
+            self?.effectiveUserInterfaceLayoutDirection == .rightToLeft ? -1 : 1
+        }, dismiss: { [weak self] in self?.dismissInputForSidebar() })
     private var shelfHeight: CGFloat = 44
     private var quotePhase: ComposerQuoteDragPhase = .idle
     private let motion = ComposerMotionController()
@@ -317,6 +325,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        sidebarInputDismissal.attach(to: window)
         bindKeyboardAnchor()
         if window != nil {
             // A parked bridge can render its detached fallback while these
@@ -633,7 +642,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
                 recordDockEvent("requestFocus accepted=\(accepted)")
             }
         } else {
-            keyboardMenu?.close(restoringKeyboard: false, animated: false)
+            keyboardMenu?.close(restoringKeyboard: false, animated: true)
             guard editor.markedTextRange == nil else { return }
             if editor.isFirstResponder {
                 recordOverlayFocusEvent("bridgeRestingResign")
@@ -800,6 +809,15 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             guard let self, abs(self.lastReportedClearance - clearance) <= 0.5 else { return }
             self.configuration?.onHeightChanged(clearance)
         }
+    }
+
+    private func dismissInputForSidebar() {
+        overlayFocus?.cancel()
+        overlayFocus = nil
+        keyboardMenu?.close(restoringKeyboard: false, animated: true)
+        actionMenu?.closeForSidebar()
+        // Native resignation commits marked input through the same editor.
+        editor.resignFirstResponder()
     }
 
     @objc private func presentActionMenu() {

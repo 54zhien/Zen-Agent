@@ -15,6 +15,7 @@ final class ComposerActionMenuPresenter: UIViewController {
     private var sourceIconFrame = CGRect.zero
     private var rootPanel: ComposerMenuPanel?
     private var details: ComposerMenuDetailPresenter?
+    var hasDetails: Bool { details != nil }
     private let windowCornerGeometry = WindowCornerGeometry()
     private var rootMenuCornerRadius: CGFloat = 0
     private var placementFrame = CGRect.zero
@@ -260,6 +261,14 @@ final class ComposerActionMenuPresenter: UIViewController {
     }
 
     @objc private func closeFromOutside() { close() }
+
+    func closeForSidebar() {
+        guard let details, !isClosing else { return }
+        isClosing = true
+        stopAnimator()
+        rootPanel?.glass.isHidden = true
+        details.dismissForInputClosure(animated: true) { [weak self] in self?.finishDismissal() }
+    }
 
     func close(animated: Bool = true) {
         guard viewIfLoaded?.superview != nil else { return }
