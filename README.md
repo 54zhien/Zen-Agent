@@ -60,6 +60,7 @@ Owner sequential native keyboard dismissal and reserved app-menu ruling @ ea2079
 Owner floating primary menu appearance ruling @ 05df074abc0dfa5df26dfb8966431a2800533d2b
 - Composer bottom details, concentric primary menu and vertical thinking control: Blueprint `919f3fe` (2026-10-21).
 - Composer symbol visibility and original paperclip: Blueprint `4746ed1` (2026-10-21).
+Owner curved black thinking control and coordinated detail return @ c50ca870c7921679a519d0ab79005ad75bc6db18
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,

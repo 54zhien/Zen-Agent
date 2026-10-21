@@ -189,12 +189,30 @@ final class ComposerActionMenuPresenter: UIViewController {
         WorkspaceHaptics.shared.play(.control)
         let detail = ComposerMenuDetailPresenter(level: level, presentation: presentation,
             height: max(240, window.bounds.height * 0.43),
-            onSelect: onSelect, onDismiss: { [weak self] in self?.returnToActions() })
+            onSelect: onSelect,
+            onReturn: { [weak self] animator in self?.revealActions(using: animator) },
+            onDismiss: { [weak self] in self?.returnToActions() })
         details = detail
         root.glass.isHidden = true
         root.glass.accessibilityElementsHidden = true
         detail.show(in: window, style: overrideUserInterfaceStyle,
                     cornerRadius: windowCornerGeometry.radius(in: window))
+    }
+
+    private func revealActions(using animator: UIViewPropertyAnimator?) {
+        guard !isClosing, let root = rootPanel else { return }
+        UIView.performWithoutAnimation {
+            root.showMaterial(false)
+            root.content.view.alpha = 0
+            root.content.view.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
+            root.glass.isHidden = false
+        }
+        let reveal = {
+            root.showMaterial(true)
+            root.content.view.alpha = 1
+            root.content.view.transform = .identity
+        }
+        if let animator { animator.addAnimations(reveal) } else { reveal() }
     }
 
     private func returnToActions() {
@@ -220,7 +238,12 @@ final class ComposerActionMenuPresenter: UIViewController {
 
     func close(animated: Bool = true) {
         guard viewIfLoaded?.superview != nil else { return }
-        details?.removeFromWindow()
+        if details != nil {
+            details?.removeFromWindow()
+            rootPanel?.showMaterial(true)
+            rootPanel?.content.view.alpha = 1
+            rootPanel?.content.view.transform = .identity
+        }
         details = nil
         rootPanel?.glass.isHidden = false
         if !animated {

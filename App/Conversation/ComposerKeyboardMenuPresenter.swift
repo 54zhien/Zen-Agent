@@ -107,7 +107,9 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
         guard !isClosing, details == nil, let window = sourceWindow else { return }
         WorkspaceHaptics.shared.play(.control)
         let detail = ComposerMenuDetailPresenter(level: level, presentation: presentation, height: height,
-            onSelect: onSelect, onDismiss: { [weak self] in
+            onSelect: onSelect,
+            onReturn: { [weak self] animator in self?.revealActions(using: animator) },
+            onDismiss: { [weak self] in
                 guard let self, !self.isClosing else { return }
                 self.details = nil
                 self.presentation.activeLevel = .actions
@@ -119,6 +121,25 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
         sheet.isHidden = true
         sheet.accessibilityElementsHidden = true
         detail.show(in: window, style: overrideUserInterfaceStyle, cornerRadius: cornerRadius + 6)
+    }
+
+    private func revealActions(using animator: UIViewPropertyAnimator?) {
+        guard !isClosing, !didDismiss else { return }
+        UIView.performWithoutAnimation {
+            self.glass.effect = nil
+            self.actions?.view.alpha = 0
+            self.actions?.view.transform = CGAffineTransform(translationX: 0, y: 14)
+            self.handle.alpha = 0
+            self.sheet.isHidden = false
+        }
+        let reveal = { [weak self] in
+            guard let self else { return }
+            self.glass.effect = UIGlassEffect(style: .regular)
+            self.actions?.view.alpha = 1
+            self.actions?.view.transform = .identity
+            self.handle.alpha = 1
+        }
+        if let animator { animator.addAnimations(reveal) } else { reveal() }
     }
 
     func reveal(in window: UIWindow, completion: @escaping () -> Void) {
@@ -147,7 +168,13 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
     func dismiss(animated: Bool, completion: @escaping () -> Void) {
         guard !didDismiss else { completion(); return }
         isClosing = true
-        details?.removeFromWindow()
+        if details != nil {
+            details?.removeFromWindow()
+            glass.effect = UIGlassEffect(style: .regular)
+            actions?.view.alpha = 1
+            actions?.view.transform = .identity
+            handle.alpha = 1
+        }
         details = nil
         sheet.isHidden = false
         if let animator {

@@ -9,6 +9,7 @@ final class ComposerMenuDetailPresenter: UIViewController {
     private let presentation: ComposerActionMenuState
     private let height: CGFloat
     private let onSelect: (ModelID) -> Void
+    private let onReturn: (UIViewPropertyAnimator?) -> Void
     private let onDismiss: () -> Void
     private let outside = UIControl()
     private let backdrop = UIVisualEffectView(effect: nil)
@@ -21,11 +22,13 @@ final class ComposerMenuDetailPresenter: UIViewController {
     private var installedSize = CGSize.zero
 
     init(level: ComposerActionMenuLevel, presentation: ComposerActionMenuState, height: CGFloat,
-         onSelect: @escaping (ModelID) -> Void, onDismiss: @escaping () -> Void) {
+         onSelect: @escaping (ModelID) -> Void,
+         onReturn: @escaping (UIViewPropertyAnimator?) -> Void, onDismiss: @escaping () -> Void) {
         self.level = level
         self.presentation = presentation
         self.height = height
         self.onSelect = onSelect
+        self.onReturn = onReturn
         self.onDismiss = onDismiss
         super.init(nibName: nil, bundle: nil)
     }
@@ -131,13 +134,20 @@ final class ComposerMenuDetailPresenter: UIViewController {
             animator.stopAnimation(false)
             animator.finishAnimation(at: .current)
         }
-        guard animated, !UIAccessibility.isReduceMotionEnabled else { finish(); return }
-        let animation = UIViewPropertyAnimator(duration: 0.23, curve: .easeIn) {
+        presentation.activeLevel = .actions
+        guard animated, !UIAccessibility.isReduceMotionEnabled else {
+            onReturn(nil)
+            finish()
+            return
+        }
+        let animation = UIViewPropertyAnimator(duration: 0.32, curve: .easeInOut) {
             self.sheet.transform = CGAffineTransform(translationX: 0, y: self.height)
             self.backdrop.effect = nil
             self.outside.backgroundColor = .clear
         }
         animator = animation
+        // The retained parent joins this animator; teardown cancels both halves.
+        onReturn(animation)
         animation.addCompletion { [weak self] position in
             if position == .end { self?.finish() }
         }
