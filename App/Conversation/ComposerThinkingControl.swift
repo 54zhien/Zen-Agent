@@ -32,7 +32,6 @@ struct ComposerThinkingControl: View {
             let modelHeight: CGFloat = minimal ? 16 : tiny ? 18 : short ? 20 : compact ? 24 : 28
             let railGap: CGFloat = minimal ? 4 : tiny ? 8 : short ? 10 : 18
             let modelGap: CGFloat = tiny ? 2 : short ? 4 : 8
-            let labelLift: CGFloat = minimal ? 2 : tiny ? 5 : short ? 7 : 14
             let buttonGap: CGFloat = tiny ? 4 : short ? 6 : 12
             let bottom: CGFloat = short ? 0 : 4
             let reserved = titleHeight + modelHeight + 44 + railGap + modelGap + buttonGap + bottom
@@ -41,22 +40,39 @@ struct ComposerThinkingControl: View {
             VStack(spacing: 0) {
                 track(thickness: thickness)
                     .frame(height: railHeight)
+                    .anchorPreference(key: ComposerThinkingLabelAnchors.self, value: .bounds) { [.rail: $0] }
                 Spacer(minLength: railGap)
-                ComposerThinkingLevelLabel(level: presentation.thinkingLevel,
-                          font: .system(size: minimal ? 18 : tiny ? 20 : short ? 22 : compact ? 28 : 34, weight: .semibold))
-                    .frame(height: titleHeight)
-                    // Keep the established rail/model/button layout budget intact.
-                    .offset(y: -labelLift)
-                    .accessibilityIdentifier("thinking-committed-level")
+                // Reserve the original title budget so only the visible label
+                // moves; rail, model name and default capsule keep their layout.
+                Color.clear.frame(height: titleHeight)
+                    .allowsHitTesting(false).accessibilityHidden(true)
                 Spacer(minLength: modelGap)
                 crossfade(modelName, font: .system(size: tiny ? 14 : short ? 16 : compact ? 18 : 22))
                     .foregroundStyle(.secondary)
                     .frame(height: modelHeight)
+                    .anchorPreference(key: ComposerThinkingLabelAnchors.self, value: .bounds) { [.model: $0] }
                 defaultButton(compact: compact)
                     .padding(.top, buttonGap)
             }
             .padding(.horizontal, 24).padding(.bottom, bottom)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlayPreferenceValue(ComposerThinkingLabelAnchors.self) { anchors in
+                GeometryReader { layout in
+                    if let railAnchor = anchors[.rail], let modelAnchor = anchors[.model] {
+                        let rail = layout[railAnchor]
+                        let model = layout[modelAnchor]
+                        let curve = ComposerThinkingArcGeometry(size: rail.size, inset: thickness / 2 + 4)
+                        let lowerArcY = rail.minY + curve.point(at: 0.5).y + thickness / 2
+                        ComposerThinkingLevelLabel(level: presentation.thinkingLevel,
+                            font: .system(size: minimal ? 18 : tiny ? 20 : short ? 22 : compact ? 28 : 34,
+                                          weight: .semibold))
+                            .frame(width: rail.width, height: titleHeight)
+                            .position(x: rail.midX, y: (lowerArcY + model.minY) / 2)
+                            .accessibilityIdentifier("thinking-committed-level")
+                    }
+                }
+                .allowsHitTesting(false)
+            }
         }
         .onAppear {
             synchronize()
@@ -206,5 +222,16 @@ struct ComposerThinkingControl: View {
                 position = Double(index)
             } completion: { finish() }
         }
+    }
+}
+
+/// Bounds are resolved in one layout pass; no state-driven geometry feedback.
+private struct ComposerThinkingLabelAnchors: PreferenceKey {
+    enum Element: Hashable { case rail, model }
+    static var defaultValue: [Element: Anchor<CGRect>] { [:] }
+
+    static func reduce(value: inout [Element: Anchor<CGRect>],
+                       nextValue: () -> [Element: Anchor<CGRect>]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
     }
 }
