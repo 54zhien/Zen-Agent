@@ -21,7 +21,15 @@ final class ComposerKeyboardMenuSession: NSObject {
     private let onFinish: (ComposerKeyboardMenuSession) -> Void
     private var returnsToKeyboard = false
     private var endingInput = false
-    private(set) var isAnimatingInputDescent = false
+    // A synchronous, window-scoped decoration signal, not another layout driver.
+    static let descentActivityChanged = Notification.Name("zen-composer-input-descent-activity")
+    var decorationWindow: UIWindow? { window }
+    private(set) var isAnimatingInputDescent = false {
+        didSet {
+            guard oldValue != isAnimatingInputDescent else { return }
+            NotificationCenter.default.post(name: Self.descentActivityChanged, object: self)
+        }
+    }
     private var watchdog: Task<Void, Never>?
     private(set) var reservedTop: CGFloat?
     var permitsNativeFocus: Bool { !isSuspended && phase == .restoringKeyboard }
