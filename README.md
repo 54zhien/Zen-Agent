@@ -73,6 +73,7 @@ Owner resonant continuous thinking feedback @ b6806f0
 Owner longer softer thinking resonance @ bd9ab17
 Owner tremulous resonance and immediate default feedback @ 73cec91
 Owner longer rising thinking resonance @ 798de08
+Owner sustained thinking hum and midpoint title @ 6397aa2
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
