@@ -27,7 +27,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          source=9fc420e8a685989beae057a1c36dea21715dc097
+          source=57f4edf3cd984b2f60646c05a1c9919747e356b8
           # The fix is cherry-picked onto the packaging branch; compare source trees.
           git diff --exit-code "$source" HEAD -- . ':!.github/workflows/ci.yml' ':!.github/workflows/ui-polish-device-ipa.yml'
 
@@ -155,7 +155,7 @@ jobs:
           {
             echo "Source SHA: $GITHUB_SHA"
             echo "Packaging tree: $(git rev-parse HEAD^{tree})"
-            echo "Application source SHA: 9fc420e8a685989beae057a1c36dea21715dc097"
+            echo "Application source SHA: 57f4edf3cd984b2f60646c05a1c9919747e356b8"
             echo "Tests: not run, per explicit user request"
             echo "Workflow run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo "CFBundleVersion: $build_id"
