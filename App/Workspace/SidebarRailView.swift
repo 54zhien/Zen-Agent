@@ -114,7 +114,7 @@ struct SidebarRailView: View {
 
     @ViewBuilder private var controls: some View {
         VStack(spacing: 0) {
-            action(.new, symbol: "bubble", label: "新会话", identifier: "new-conversation-new")
+            action(.new, symbol: "message", label: "新会话", identifier: "new-conversation-new")
             destination(.search, symbol: "magnifyingglass", label: "搜索", identifier: "sidebar-search", grouped: true)
             action(.recent, symbol: "clock.arrow.circlepath", label: "最近会话", identifier: "new-conversation-recent")
         }

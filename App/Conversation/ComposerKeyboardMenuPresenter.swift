@@ -174,14 +174,15 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
     func dismiss(animated: Bool, completion: @escaping () -> Void) {
         guard !didDismiss else { completion(); return }
         isClosing = true
-        if details != nil {
-            details?.removeFromWindow()
-            glass.effect = UIGlassEffect(style: .regular)
-            actions?.view.alpha = 1
-            actions?.view.transform = .identity
-            handle.alpha = 1
+        if let details {
+            sheet.isHidden = true
+            details.dismissForInputClosure(animated: animated) { [weak self] in
+                guard let self, !self.didDismiss else { return }
+                self.removeFromWindow()
+                completion()
+            }
+            return
         }
-        details = nil
         sheet.isHidden = false
         if let animator {
             animator.stopAnimation(false)

@@ -287,7 +287,8 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard otherGestureRecognizer !== edge, otherGestureRecognizer !== reverse,
+        guard !(otherGestureRecognizer is ComposerInputDismissPan),
+              otherGestureRecognizer !== edge, otherGestureRecognizer !== reverse,
               otherGestureRecognizer !== closeTap,
               !(otherGestureRecognizer is UIScreenEdgePanGestureRecognizer),
               let state, !state.isDragging, state.settlementID == nil,

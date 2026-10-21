@@ -20,6 +20,7 @@ final class ComposerKeyboardMenuSession: NSObject {
     private let onGlyph: (Bool, Bool) -> Void
     private let onFinish: (ComposerKeyboardMenuSession) -> Void
     private var returnsToKeyboard = false
+    private var endingInput = false
     private var watchdog: Task<Void, Never>?
     private(set) var reservedTop: CGFloat?
     var permitsNativeFocus: Bool { !isSuspended && phase == .restoringKeyboard }
@@ -81,7 +82,28 @@ final class ComposerKeyboardMenuSession: NSObject {
     func close(restoringKeyboard: Bool = true, animated: Bool = true) {
         guard phase != .finished else { return }
         logger.debug("close restore=\(restoringKeyboard) phase=\(String(describing: self.phase), privacy: .public)")
-        guard restoringKeyboard, !isSuspended else { finish(resign: true); return }
+        guard !isSuspended else { finish(resign: true); return }
+        if !restoringKeyboard {
+            let alreadyEnding = endingInput
+            endingInput = true
+            returnsToKeyboard = false
+            watchdog?.cancel()
+            guard animated else { finish(resign: true); return }
+            guard !alreadyEnding else { return }
+            onGlyph(false, true)
+            switch phase {
+            case .showingMenu, .menu:
+                phase = .hidingMenu
+                presenter.dismiss(animated: true) { [weak self] in self?.finish(resign: true) }
+            case .hidingMenu:
+                // The existing close animation will observe the new destination.
+                break
+            case .preparing, .hidingKeyboard, .restoringKeyboard, .finished:
+                finish(resign: true)
+            }
+            return
+        }
+        guard !endingInput else { return }
         returnsToKeyboard = true
         onGlyph(false, animated)
         switch phase {
@@ -91,7 +113,11 @@ final class ComposerKeyboardMenuSession: NSObject {
             break
         case .showingMenu, .menu:
             phase = .hidingMenu
-            presenter.dismiss(animated: animated) { [weak self] in self?.restoreKeyboard() }
+            presenter.dismiss(animated: animated) { [weak self] in
+                guard let self else { return }
+                if self.endingInput { self.finish(resign: true) }
+                else { self.restoreKeyboard() }
+            }
         case .hidingMenu, .restoringKeyboard, .finished:
             break
         }
