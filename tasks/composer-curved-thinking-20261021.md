@@ -14,3 +14,10 @@ Local diff/whitespace checks and independent read-only review complete; no block
 ## Initial build failure and correction
 
 Run https://github.com/54zhien/Zen-Agent/actions/runs/39549256524 failed at Swift module emission: the two Canvas views inherited MainActor from View while Animatable requires nonisolated animatableData. Mark only their plain Double interpolation storage and accessor nonisolated; rendering and presentation state remain actor-isolated. No unchecked conformance or concurrency suppression. Rebuild uses a new source commit, preserving the failed run.
+
+
+## Build and delivery receipt
+
+Application source a53f9429e1add0033a73f89c0dc4053f0517d11f; packaging 7bb8f69a4c1270b8e7ce695dfc98fa2905d950a3. Run https://github.com/54zhien/Zen-Agent/actions/runs/39549512438 succeeded: XcodeGen generation, Xcode 26.6 arm64 device build and unsigned IPA packaging. No tests run.
+
+Downloaded version 25.1; Info.plist bundle ID/version and BUILD-INFO source matched. SHA256SUMS matched local SHA-256 d2b6d2a34744540986ad6cac9e97351af0be8b6bea538f6a56c4ee0bad0c2323. Device appearance and animation acceptance remain pending; compilation does not establish them. No main merge.
