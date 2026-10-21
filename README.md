@@ -71,6 +71,7 @@ Owner flat rail joins, silhouette centering and directional title @ 1238a73
 Owner shared gauge axis, selected capsules and delicate thinking feedback @ d249fb2
 Owner resonant continuous thinking feedback @ b6806f0
 Owner longer softer thinking resonance @ bd9ab17
+Owner tremulous resonance and immediate default feedback @ 73cec91
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,

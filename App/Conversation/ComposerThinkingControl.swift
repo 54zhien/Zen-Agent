@@ -93,8 +93,12 @@ struct ComposerThinkingControl: View {
     }
 
     private func defaultButton(compact: Bool) -> some View {
-        ComposerThinkingDefaultButton(selected: presentation.selectedThinkingEffort == nil,
-                                      compact: compact) { settle(on: nil) }
+        // A tap acknowledges the pending choice immediately. Cancellation falls
+        // back to the committed setting; drag previews never select this pill.
+        ComposerThinkingDefaultButton(
+            selected: isSettling ? pendingSelection == nil : presentation.selectedThinkingEffort == nil,
+            compact: compact
+        ) { settle(on: nil) }
     }
 
     private func track(thickness: CGFloat) -> some View {
