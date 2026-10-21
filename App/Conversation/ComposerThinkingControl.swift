@@ -3,6 +3,7 @@ import SwiftUI
 /// Dragging previews geometry only. A completed snap commits one supported value.
 struct ComposerThinkingControl: View {
     let presentation: ComposerActionMenuState
+    var compactLayout = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var position = 0.0
     @State private var selectionGeneration = 0
@@ -19,35 +20,28 @@ struct ComposerThinkingControl: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 8) {
-                track
-                    .frame(height: 136).padding(.top, 14)
-                Text(presentation.thinkingLevel?.title ?? "模型默认")
-                    .font(.title2.weight(.semibold))
-                    .accessibilityIdentifier("thinking-committed-level")
-                Text(modelName)
-                    .font(.subheadline).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                Button { settle(on: nil) } label: {
-                    HStack(spacing: 7) {
-                        if presentation.selectedThinkingEffort == nil {
-                            Image(systemName: "checkmark").font(.footnote.weight(.semibold))
-                        }
-                        Text("使用模型默认").font(.subheadline)
-                    }
-                    .padding(.horizontal, 18).frame(minHeight: 44)
-                    .background(.quaternary, in: Capsule())
+        GeometryReader { geometry in
+            let compact = compactLayout || geometry.size.height < 230
+            let height = min(142, max(82, geometry.size.height - 100))
+            let curve = ComposerThinkingArcGeometry(size: CGSize(width: geometry.size.width - 48, height: height))
+            let labelTop = max(0, curve.point(at: 0.5).y + 29)
+            if geometry.size.height < 170 {
+                HStack(spacing: 12) {
+                    track.frame(maxWidth: .infinity)
+                    labels(compact: true).frame(maxWidth: .infinity)
+                }.padding(.horizontal, 20)
+            } else {
+                ZStack(alignment: .top) {
+                    track.frame(height: height)
+                    labels(compact: compact)
+                        .padding(.top, labelTop)
                 }
-                .accessibilityAddTraits(presentation.selectedThinkingEffort == nil ? .isSelected : [])
-                .accessibilityIdentifier("thinking-level-default")
-                .padding(.top, 4)
+                .padding(.horizontal, 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 28).padding(.bottom, 12)
         }
-        .scrollBounceBehavior(.basedOnSize)
         .onAppear { synchronize() }
+        .onChange(of: presentation.suspensionRevision) { _, _ in synchronize() }
         .onDisappear { cancelPreview() }
         .onChange(of: touchActive) { _, active in
             // GestureState also resets when UIKit cancels without onEnded.
@@ -61,6 +55,34 @@ struct ComposerThinkingControl: View {
         }
     }
 
+    private func labels(compact: Bool) -> some View {
+        VStack(spacing: 3) {
+            Text(presentation.thinkingLevel?.title ?? "模型默认")
+                .font(.system(size: compact ? 28 : 34, weight: .semibold))
+                .lineLimit(1).minimumScaleFactor(0.75)
+                .accessibilityIdentifier("thinking-committed-level")
+                .allowsHitTesting(false)
+            Text(modelName)
+                .font(.system(size: compact ? 18 : 22)).foregroundStyle(.secondary)
+                .lineLimit(1).minimumScaleFactor(0.65)
+                .padding(.horizontal, 34).allowsHitTesting(false)
+            Button { settle(on: nil) } label: {
+                HStack(spacing: 7) {
+                    if presentation.selectedThinkingEffort == nil {
+                        Image(systemName: "checkmark").font(.footnote.weight(.semibold))
+                    }
+                    Text("使用模型默认").font(.system(size: compact ? 17 : 20))
+                        .lineLimit(1).minimumScaleFactor(0.75)
+                }
+                .padding(.horizontal, compact ? 18 : 22).frame(minHeight: 44)
+                .background(.quaternary, in: Capsule())
+            }
+            .accessibilityAddTraits(presentation.selectedThinkingEffort == nil ? .isSelected : [])
+            .accessibilityIdentifier("thinking-level-default")
+            .padding(.top, 4)
+        }
+    }
+
     private var track: some View {
         GeometryReader { geometry in
             ComposerThinkingTrack(progress: position / Double(max(1, efforts.count - 1)), count: efforts.count)
@@ -68,7 +90,7 @@ struct ComposerThinkingControl: View {
                 .highPriorityGesture(DragGesture(minimumDistance: 0)
                     .updating($touchActive) { _, active, _ in active = true }
                     .onChanged { value in
-                        guard presentation.activeLevel == .thinking else { return }
+                        guard !presentation.isSuspended, presentation.activeLevel == .thinking else { return }
                         // A touch-down is not a drag: leave the visible position
                         // intact so tapping a detent animates from the old value.
                         let distance = hypot(value.translation.width, value.translation.height)
@@ -86,7 +108,7 @@ struct ComposerThinkingControl: View {
                         if efforts.indices.contains(index) { presentation.previewThinkingEffort = efforts[index] }
                     }
                     .onEnded { value in
-                        guard presentation.activeLevel == .thinking else { cancelPreview(); return }
+                        guard !presentation.isSuspended, presentation.activeLevel == .thinking else { cancelPreview(); return }
                         let fraction = ComposerThinkingArcGeometry(size: geometry.size).fraction(at: value.location)
                         let end = isDragging ? position : fraction * Double(max(0, efforts.count - 1))
                         isDragging = false
@@ -124,7 +146,7 @@ struct ComposerThinkingControl: View {
     }
 
     private func settle(on effort: ThinkingEffort?) {
-        guard presentation.activeLevel == .thinking else { return }
+        guard !presentation.isSuspended, presentation.activeLevel == .thinking else { return }
         let target = effort ?? presentation.defaultLevel
         let index = efforts.firstIndex(where: { $0 == target }) ?? 0
         // Retapping a destination already in flight retains its real completion.
@@ -135,6 +157,7 @@ struct ComposerThinkingControl: View {
         isSettling = true
         presentation.previewThinkingEffort = target
         let generation = selectionGeneration
+        let suspensionRevision = presentation.suspensionRevision
         let modelID = presentation.selectedModelID
         let supported = efforts
         // Removed waits for the spring's settling tail. A new drag, model or
@@ -144,7 +167,8 @@ struct ComposerThinkingControl: View {
             position = Double(index)
         } completion: {
             guard generation == selectionGeneration,
-                  presentation.activeLevel == .thinking,
+                  suspensionRevision == presentation.suspensionRevision,
+                  !presentation.isSuspended, presentation.activeLevel == .thinking,
                   presentation.selectedModelID == modelID, efforts == supported else { return }
             isSettling = false
             if presentation.selectedThinkingEffort != pendingSelection {

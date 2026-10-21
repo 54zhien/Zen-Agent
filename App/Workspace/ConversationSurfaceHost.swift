@@ -22,6 +22,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var sidebarShadowFrame: CGRect?
     var sidebarShadowEnabled: Bool
     var sidebarShadowContours: [SidebarShadowContour]
+    var workspaceResizeActive: Bool
     var workspaceViewportSize: CGSize?
     var workspaceBackgroundColor: UIColor
     var onSidebarSettled: ((UUID) -> Void)?
@@ -41,6 +42,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
          sidebarSettlement: UUID? = nil,
          sidebarShadowFrame: CGRect? = nil, sidebarShadowEnabled: Bool = true,
          sidebarShadowContours: [SidebarShadowContour] = [],
+         workspaceResizeActive: Bool = false,
          workspaceViewportSize: CGSize? = nil, workspaceBackgroundColor: UIColor = .systemBackground,
          sidebarOutlineExternallyDrawn: Bool = false,
          onSidebarSettled: ((UUID) -> Void)? = nil,
@@ -66,6 +68,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         self.sidebarShadowFrame = sidebarShadowFrame
         self.sidebarShadowEnabled = sidebarShadowEnabled
         self.sidebarShadowContours = sidebarShadowContours
+        self.workspaceResizeActive = workspaceResizeActive
         self.workspaceViewportSize = workspaceViewportSize
         self.workspaceBackgroundColor = workspaceBackgroundColor
         self.onSidebarSettled = onSidebarSettled
@@ -77,6 +80,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> ConversationSurfaceViewController<Content> {
         let controller = ConversationSurfaceViewController(content: content, request: request)
         controller.setWorkspaceViewport(workspaceViewportSize, backgroundColor: workspaceBackgroundColor)
+        controller.topEdge.setResizeActive(workspaceResizeActive)
         controller.topEdge.setContentOwner(contentOwner)
         liftController?.bind(controller)
         controller.bindBrowse(browseController)
@@ -97,6 +101,7 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: ConversationSurfaceViewController<Content>, context: Context) {
+        controller.topEdge.setResizeActive(workspaceResizeActive)
         controller.topEdge.setContentOwner(contentOwner)
         // Content is installed once. Its own observed state drives updates; progress
         // must not replace the hosting root or invalidate the Timeline each frame.

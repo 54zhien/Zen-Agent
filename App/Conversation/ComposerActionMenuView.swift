@@ -4,6 +4,8 @@ import UIKit
 
 @MainActor @Observable
 final class ComposerActionMenuState {
+    var suspensionRevision = 0
+    var isSuspended = false
     var activeLevel: ComposerActionMenuLevel = .actions
     var models: [ModelDescriptor] = []
     var selectedModelID: ModelID?

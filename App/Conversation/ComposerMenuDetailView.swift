@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ComposerMenuDetailView: View {
+    var compactThinking = false
     let level: ComposerActionMenuLevel
     let presentation: ComposerActionMenuState
     let onSelect: (ModelID) -> Void
@@ -29,7 +30,7 @@ struct ComposerMenuDetailView: View {
                 if presentation.supportedThinkingEfforts.isEmpty {
                     information("当前模型不支持调整思考档位", detail: "思考方式由模型决定，你可以切换模型查看可用档位。")
                 } else {
-                    ComposerThinkingControl(presentation: presentation)
+                    ComposerThinkingControl(presentation: presentation, compactLayout: compactThinking)
                 }
             case .plugins:
                 information("插件尚未接入", detail: "当前会话还没有可配置的插件。")
