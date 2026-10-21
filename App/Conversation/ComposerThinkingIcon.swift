@@ -49,7 +49,7 @@ private struct ComposerThinkingGauge: View, Animatable {
             let edge = min(size.width, size.height)
             let hub = CGPoint(x: size.width / 2, y: size.height / 2 + edge * 0.06)
             let radius = edge * 0.40
-            let width = edge * (1.8 / 28)
+            let width = edge * (2.3 / 28)
             func point(_ fraction: Double, radius: CGFloat) -> CGPoint {
                 let angle = (135 + 270 * fraction) * .pi / 180
                 return CGPoint(x: hub.x + radius * CGFloat(cos(angle)),
@@ -70,8 +70,9 @@ private struct ComposerThinkingGauge: View, Animatable {
             needle.move(to: needleHub)
             needle.addLine(to: tip)
             context.stroke(needle, with: .color(.primary), style: stroke)
-            context.fill(Path(ellipseIn: CGRect(x: needleHub.x - width, y: needleHub.y - width,
-                                               width: width * 2, height: width * 2)), with: .color(.primary))
+            let hubRadius = width * 0.85
+            context.fill(Path(ellipseIn: CGRect(x: needleHub.x - hubRadius, y: needleHub.y - hubRadius,
+                                               width: hubRadius * 2, height: hubRadius * 2)), with: .color(.primary))
         }
         .accessibilityHidden(true)
     }
