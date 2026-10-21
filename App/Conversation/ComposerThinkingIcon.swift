@@ -48,8 +48,8 @@ private struct ComposerThinkingGauge: View, Animatable {
             let needleFraction = min(1.12, max(-0.06, progress))
             let edge = min(size.width, size.height)
             let hub = CGPoint(x: size.width / 2, y: size.height / 2 + edge * 0.06)
-            let radius = edge * 0.43
-            let width = edge * 0.085
+            let radius = edge * 0.40
+            let width = edge * (1.8 / 28)
             func point(_ fraction: Double, radius: CGFloat) -> CGPoint {
                 let angle = (135 + 270 * fraction) * .pi / 180
                 return CGPoint(x: hub.x + radius * CGFloat(cos(angle)),
