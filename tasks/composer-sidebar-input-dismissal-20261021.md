@@ -13,3 +13,16 @@ Production scope: ComposerSidebarInputDismissal (new), ComposerHostView, Compose
 Owner follow-up: SidebarRailView new-conversation symbol changes from bubble to the requested SF message, with sizing/style/action untouched (Blueprint bec8ccf).
 
 Gesture dependency direction was checked against Apple's official UIKit example (https://developer.apple.com/library/archive/documentation/UserExperience/Conceptual/TransitionGuide/AppearanceCustomization.html): preferred recognizer returns true from shouldBeRequiredToFailBy so the other recognizer waits. A preliminary review interpretation was withdrawn after comparing that example; existing broad Sidebar priority explicitly excludes the input-dismiss marker to avoid a cycle.
+
+## Build and package receipt
+
+Static review completed without remaining actionable findings. No tests were run, as requested.
+
+- Application source: d902b5334479df54a218fdd94564be9428d00bb6.
+- Packaging source: f9d73608e87a28d829db00ff9f6f5d307fd0fd22.
+- macOS CI: https://github.com/54zhien/Zen-Agent/actions/runs/39602214410 — successful, package job 3m12s; XcodeGen and real unsigned device build passed (Xcode 26.6).
+- Downloaded IPA version: 41.1; bundle com.zhien.zen. Local metadata and SHA-256 match the uploaded provenance.
+- IPA: C:/Users/Azusa/Documents/Codex/artifacts/2026-10-21-sidebar-input-dismissal/ZenAgent-Composer-device-ipa-41-1/ZenAgent-Composer-41-1.ipa.
+- SHA-256: 3c6e82bf2251a1cbe4b30c93ea8471b9065410f096e7d499a774e86ddc866b26.
+
+This is compilation/package evidence only. Physical-device gesture and exit-animation acceptance remains pending; no main merge.
