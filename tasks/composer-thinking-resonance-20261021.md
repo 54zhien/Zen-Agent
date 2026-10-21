@@ -15,3 +15,9 @@ Apple references checked for event/curve duration semantics and engine lifecycle
 - https://developer.apple.com/documentation/corehaptics/representing-haptic-patterns-in-ahap-files
 
 Local diff check clean. No tests run. Actual Xcode compilation and device feel pending. Unrelated deep-reading-native-trace.txt excluded; no main merge.
+
+## Build and delivery receipt
+
+Follow-up read-only review found the startup issue resolved and no new blocking issue. Application source 0c00b53adc2071c6c81c1f34714e8de90abfa897; packaging fc52b0f9bf27ea2d5bfd807a34bca1d6c1347646. Run https://github.com/54zhien/Zen-Agent/actions/runs/39586988705 passed frozen-source comparison, XcodeGen, Xcode 26.6 device compilation and unsigned IPA packaging in 1m37s. No tests run.
+
+Downloaded 34.1, verified application source provenance, bundle identity/version and SHA256SUMS. SHA256: d6011ebb7c7ae6b0d75da65bf874013e8b04160c1c1882cc853c5cd2ba18405e. Artifact: C:/Users/Azusa/Documents/Codex/artifacts/2026-10-21-thinking-resonance/ZenAgent-Composer-device-ipa-34-1/ZenAgent-Composer-34-1.ipa. Physical-device haptic acceptance remains pending; compilation does not establish perceived strength or texture. No main merge.
