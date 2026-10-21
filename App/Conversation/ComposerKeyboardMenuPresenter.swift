@@ -23,6 +23,10 @@ final class ComposerKeyboardMenuPresenter: UIViewController {
     private var didDismiss = false
     private var animator: UIViewPropertyAnimator?
 
+    var inputDescentTarget: (sheet: UIView, travel: CGFloat) {
+        details?.inputDescentTarget ?? (sheet, height)
+    }
+
     init(height: CGFloat, presentation: ComposerActionMenuState,
          onSelect: @escaping (ModelID) -> Void) {
         self.height = height

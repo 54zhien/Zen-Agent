@@ -24,6 +24,8 @@ final class ComposerMenuDetailPresenter: UIViewController {
     private var inputDismissalCompletion: (() -> Void)?
     private var installedSize = CGSize.zero
 
+    var inputDescentTarget: (sheet: UIView, travel: CGFloat) { (sheet, height) }
+
     init(level: ComposerActionMenuLevel, presentation: ComposerActionMenuState, height: CGFloat, compactThinking: Bool = false,
          onSelect: @escaping (ModelID) -> Void,
          onReturn: @escaping (UIViewPropertyAnimator?) -> Void, onDismiss: @escaping () -> Void) {
