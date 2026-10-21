@@ -313,6 +313,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                     Color(white: 0.14)
                         .frame(width: layout.divider.width, height: layout.divider.height)
                         .position(x: layout.divider.midX, y: layout.divider.midY)
+                        .opacity(Double(1 - min(1, max(0, sidebarProgress))))
+                        .animation(sidebarAnimation(isDragging: sidebarDragging), value: sidebarProgress)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
@@ -800,7 +802,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
                 onAdjust: { increment in resize.adjust(model: model, increment: increment, minimumRatio: minimum) },
                 axis: split.axis,
                 onAxis: layoutContext?.isPad == true ? { axis in resize.changeAxis(model: model, to: axis) } : nil,
-                resizeDiagnostic: resizeDiagnostic, sidebarProgress: sidebarProgress)
+                resizeDiagnostic: resizeDiagnostic, sidebarProgress: sidebarProgress,
+                fadesHandleWithSidebar: colorScheme == .dark)
                 .frame(width: horizontal ? 28 : min(64, layout.viewport.width * 0.2),
                        height: horizontal ? min(64, layout.viewport.height * 0.2) : 28)
         .frame(width: layout.divider.width, height: layout.divider.height)
