@@ -50,6 +50,7 @@ private struct SidebarRailProgressLayer: View {
             .animation(reduceMotion || isDragging ? nil : .easeOut(duration: 0.22), value: progress)
             .allowsHitTesting(isInteractive)
             .accessibilityHidden(!isInteractive)
+            .zIndex(1)
         }
     }
 }
@@ -112,9 +113,6 @@ struct WorkspaceNavigationView<Content: View>: View {
                     onSelect: { route in
                         overlays?.enter(route, eligible: context()?.allowsOpening == true, captureFocus: captureFocus)
                     })
-                    // Order the Rail against its actual page sibling, outside
-                    // the conditional progress layer that owns its animation.
-                    .zIndex(1)
                 content
                     .frame(width: geometry.size.width,
                            height: keepsFullConversationViewport ? nil : geometry.size.height)
