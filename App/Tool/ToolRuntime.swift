@@ -25,10 +25,12 @@ enum ToolRuntimeError: Error, Equatable, Sendable {
 final class ToolRuntime: @unchecked Sendable {
     private let store: PersistenceStore
     private let registry: ToolRegistry
+    private let safetyCap: ToolPolicySafetyCap
 
-    init(store: PersistenceStore, registry: ToolRegistry) {
+    init(store: PersistenceStore, registry: ToolRegistry, safetyCap: ToolPolicySafetyCap = .unrestricted) {
         self.store = store
         self.registry = registry
+        self.safetyCap = safetyCap
     }
 
     /// Completes one provider tool call through validation, frozen intent persistence,
