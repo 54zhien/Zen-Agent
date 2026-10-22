@@ -11,3 +11,8 @@ Ruling after source/security review: match the existing ConversationRuntime appr
 
 
 Pre-RED compilation failure: b74ea125 / run39752552317. XcodeGen, hygiene and application build passed; both native jobs failed while expanding7new #require expressions around throwing store calls. Outer try does not mark the macro argument's call; add explicit inner try. No UI test starts and no behavioral RED. Preserve failed run; source review/Windows parse had not detected this SDK macro expansion error. Next source includes the Child-origin negative controls and this test-only compile correction, with production signatures still unused stubs.
+
+
+Correction to cancellation inference: source1611e65/run39754034808 was cancelled too early to establish RED. Main's20XCTest passed, then Swift Testing started09:28:26; the captured log has zero S6-03 case starts/issues and no completed Swift summary, zero Phone UI starts. Pad1/1 did pass. Main spent substantially longer compiling than Pad; Pad timing is not evidence that main had finished units. Preserve this incomplete run, never call it behavioral RED or full GREEN. Raw logs retained.
+
+Ruling: add a temporary manual s6_contract_red selector to the existing workflow, running only the two new native suites and omitting the independent Pad job only for this RED profile. This is a source/test-selection change justified by the missing target execution, not an unchanged rerun. No production behavior changes; stubs remain. Let this targeted job complete, no timing-based cancellation. Remove every workflow/profile change byte-for-byte to1611e65 before implementation's clean full CI. The prior full-suite plan is superseded only for RED evidence acquisition; final full gate is unchanged.
