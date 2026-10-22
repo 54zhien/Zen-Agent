@@ -15,3 +15,17 @@ Existing source tag rollback/thinking-hum-44-1-20261022 -> eb39a65d98116fbd53dcc
 ## Verification
 
 Read-only review and real optimized macOS build pending. No tests, no main merge, no edits to the primary checkout's unrelated Sidebar AX work. Actual haptic feel remains for device comparison.
+
+## Package receipt
+
+Read-only code review found no Critical or Important issues. Normalized this task record to LF as documentation-only review cleanup. macOS XcodeGen, optimized device compilation, IPA packaging and artifact upload succeeded: https://github.com/54zhien/Zen-Agent/actions/runs/39742152944 (package job 4m58s). Workflow conclusion success; no tests ran.
+
+- Application source: a2af10f4eabf10fd3d143fdeefef0ce237ac1b86.
+- Packaging source: b37eb1317d81394cf9570d388b45abfe67947853.
+- Version: 46.1, com.zhien.zen, iOS 26.0 arm64; optimized Debug with DEBUG ZEN_DEVICE_TEST.
+- IPA: C:/Users/Azusa/Documents/Codex/artifacts/2026-10-22-thinking-immediate-selection/ZenAgent-Composer-device-ipa-46-1/ZenAgent-Composer-46-1.ipa.
+- SHA-256: 3dc25d4199cc135c2ca5c3d1cff809cbe97cdcdc36ad9b5c180496cd63db107e.
+- Downloaded hash matches SHA256SUMS and BUILD-INFO; frozen source SHAs and packaged Info.plist verified.
+- Existing 44.1 hum rollback IPA hash and peeled source tag reverified unchanged.
+
+No main merge. No edits to the primary checkout's unrelated work. Physical-device haptic comparison remains with the owner.
