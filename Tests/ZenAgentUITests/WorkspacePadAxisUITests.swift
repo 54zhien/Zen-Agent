@@ -101,8 +101,14 @@ final class WorkspacePadAxisUITests: XCTestCase {
         let action = app.buttons[title]
         XCTAssertTrue(action.waitForExistence(timeout: 5))
         action.tap()
-        expect { (handle.value as? String)?.contains(";dividerReady=true;") == true }
-        print("PAD_AXIS_READY \(String(describing: handle.value))")
+        // The menu changes the AX snapshot. Resolve the post-tap handle once:
+        // a synchronous AX lookup can outlive a predicate waiter's deadline even
+        // when its delivered snapshot is ready. Keep the actual readiness check.
+        let currentHandle = app.descendants(matching: .any)["split-divider-handle"]
+        let readiness = currentHandle.value as? String
+        XCTAssertTrue(readiness?.contains(";dividerReady=true;") == true,
+                      "Divider must own its center after selecting \(title): \(String(describing: readiness))")
+        print("PAD_AXIS_READY \(String(describing: readiness))")
     }
 
     private func editorIdentity(_ diagnostic: String?) -> String? {
