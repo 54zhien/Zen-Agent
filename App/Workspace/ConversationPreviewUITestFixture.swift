@@ -147,7 +147,8 @@ struct ConversationPreviewUITestFixture: View {
                     .accessibilityIdentifier("preview-hidden-reading-position")
                     .accessibilityValue(model.pane?.scrollRequest == nil ? "settled" : "pending")
                     .padding(.top, 100)
-                } else if !model.previewContent.isPresented {
+                } else if !model.previewContent.isPresented,
+                          ProcessInfo.processInfo.environment["ZEN_SIDEBAR_OMIT_READING_CONTROL"] != "1" {
                     Button("Position older Turn") {
                         let deep = ProcessInfo.processInfo.environment["ZEN_PREVIEW_DEEP_READING_UI_TEST"] == "1"
                         let runID = "preview-reading-run-\(deep ? 120 : 10)"
