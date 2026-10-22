@@ -88,3 +88,7 @@ failure. All role-control source is restored. The task record defines a further
 observation-only comparison of native hit ancestry in the full and isolated
 fixtures; preserve positive/negative validity controls and remove its probe after
 evidence. It changes no product layout, style or geometry.
+
+## Probe observer-effect follow-up
+Ancestry39729604809 invalidated the required instrumented-full RED control: original full stays RED, but both probed contexts are GREEN. Zero-sized immediate glass ancestor appears in both passing contexts. All ancestry source has been removed atb493ba4.
+Compare four independent launches: original baseline; same 1pt noninteractive native probe with isAccessibilityElement=false and passive constant getter; same probe with isAccessibilityElement=true and same constant getter; original active JSON getter as replication control. Same ID/label are retained, so passive-native exported node count must be recorded rather than assuming false removes the whole native container. Passive getters return before native hit or AX reads. Probe receipts occur before Settings presentation. Each launch retains original hit/frame/coordinate assertions; no source UI/layout/style changes are adopted. Remove diagnostic source/test/profile after evidence, cleanup baseb493ba4. Native results are pending; local parsing alone is not completion.
