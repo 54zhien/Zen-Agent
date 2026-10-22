@@ -30,6 +30,17 @@ struct ToolPolicyPersistenceTests {
         #expect(try store.toolPolicy(toolID: "t", actionID: "a", descriptorRevision: "1").descriptorRevision == "2")
     }
 
+    @Test func firstRevisionUpdateRevokesGrantsIssuedUnderImplicitDefault() throws {
+        let store = try GrantStorageFixture.store()
+        let initial = try GrantStorageFixture.policy(store)
+        try #require(try store.issueToolGrant(id: "default-grant", grant: GrantStorageFixture.grant(), expectedPolicy: initial))
+
+        let changed = try store.setToolPolicy(toolID: "tool", actionID: "read", descriptorRevision: "r2", mode: .askEveryTime)
+
+        #expect(changed.revocationEpoch == 1)
+        #expect(try store.toolGrant(id: "default-grant")?.validity == .revoked)
+    }
+
     @Test func opaqueKeysDoNotCanonicalizeUnicode() throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
         try store.setToolPolicy(toolID: "caf\u{e9}", actionID: "read", descriptorRevision: "v1", mode: .deny)
