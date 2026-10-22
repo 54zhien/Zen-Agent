@@ -308,3 +308,7 @@ After restoring the controls in `06591d1`, the next hypothesis is the outer Swif
 
 Apple documents `.interaction` as the shape kind for hit-testing and accessibility: https://developer.apple.com/documentation/swiftui/contentshapekinds/interaction . Native failure or changed visual behavior requires removing/revisiting the candidate, not weakening the gate.
 
+Candidate `a81c297` failed native run `39708999849`: helper settled-AX assertion failed, then XCTest threw `Activation point invalid and no suggested hit points based on element frame` during the explicit hit wait. The Button stayed unique/enabled with `(34,784,56,56)` frame. The exception ended the case before the coordinate-route check; that route is **not validated in this run**. 1 case, 2 failures; artifact `12396259531`, digest `sha256:be3821e652547e16b18220c6625ad9d705d46afe954c392021e9395b3f995915`. The content-shape candidate is removed.
+
+Independent Composer/iPad run `39709068950` at `a81c297` passed generation/build, 1140 Swift tests in 171 suites, 20 XCTest unit tests, 6 selected UI cases (including restored model-detail outside dismissal), and actual iPad axis 1/1. Artifact `12396164748`, digest `sha256:8c42ffd343259fb364076ff302c0dbfb387814371b34c97883fc6c06830f04c0`. This is focused evidence, not the full integration gate.
+
