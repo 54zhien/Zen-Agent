@@ -1,30 +1,6 @@
 import SwiftUI
 import UIKit
 
-#if DEBUG
-/// Temporary, independent composition controls; neither omission is a product choice.
-enum SidebarAXDiagnosticControl: String {
-    case baseline, settingsPlain, railWithoutMask
-
-    static var current: Self {
-        Self(rawValue: ProcessInfo.processInfo.environment["ZEN_SIDEBAR_AX_CONTROL"] ?? "") ?? .baseline
-    }
-}
-
-private struct SidebarDiagnosticButtonStyle: ViewModifier {
-    let route: WorkspaceOverlayRoute
-    let unavailable: Bool
-
-    @ViewBuilder func body(content: Content) -> some View {
-        if route == .settings && SidebarAXDiagnosticControl.current == .settingsPlain {
-            content.buttonStyle(.plain)
-        } else {
-            content.buttonStyle(SidebarRailButtonStyle(unavailable: unavailable))
-        }
-    }
-}
-#endif
-
 /// The Rail is composited above the full-viewport native host. Reveal only
 /// the area outside the moving page, including its rounded display corners.
 /// Subtract the page's filled region, then clip to the Rail's bounds.
@@ -174,11 +150,7 @@ struct SidebarRailView: View {
                     .glassEffect(.regular.interactive(), in: Circle())
             }
         }
-        #if DEBUG
-        .modifier(SidebarDiagnosticButtonStyle(route: route, unavailable: !availableRoutes.contains(route)))
-        #else
         .buttonStyle(SidebarRailButtonStyle(unavailable: !availableRoutes.contains(route)))
-        #endif
         .foregroundStyle(.primary)
         .disabled(!isInteractive || !availableRoutes.contains(route))
         .accessibilityLabel(label)

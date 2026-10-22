@@ -24,7 +24,7 @@ private struct SidebarRailProgressLayer: View {
         if progress > 0 || settlementID != nil {
             let settings = layout.settingsPlacement(windowCornerRadius: windowCornerRadius,
                                                     isRightToLeft: direction == .rightToLeft)
-            let rail = SidebarRailView(
+            SidebarRailView(
                 availableRoutes: availableRoutes,
                 conversationActions: state.conversationActions,
                 isInteractive: isInteractive,
@@ -37,37 +37,20 @@ private struct SidebarRailProgressLayer: View {
             .padding(.top, layout.top)
             .padding(.bottom, settings.bottom)
             .frame(width: travel, height: height)
-            revealedRail(rail, progress: progress)
+            // A straight reveal edge cuts controls off inside the page's exposed
+            // corner area. Subtract the rounded page silhouette instead.
+            .mask(alignment: .leading) {
+                SidebarRailRevealShape(pageSize: pageSize, radius: pageCornerRadius,
+                    roundsBottom: roundsPageBottom, offset: travel * progress,
+                    isRightToLeft: direction == .rightToLeft)
+                    .fill(style: FillStyle(eoFill: true))
+                    .clipped()
+            }
             .opacity(SidebarProgressPresentation.opacity(forProgress: Double(progress)))
             .animation(reduceMotion || isDragging ? nil : .easeOut(duration: 0.22), value: progress)
             .allowsHitTesting(isInteractive)
             .accessibilityHidden(!isInteractive)
             .zIndex(1)
-        }
-    }
-
-    @ViewBuilder
-    private func revealedRail<Content: View>(_ content: Content, progress: CGFloat) -> some View {
-        #if DEBUG
-        if SidebarAXDiagnosticControl.current == .railWithoutMask {
-            content
-        } else {
-            maskedRail(content, progress: progress)
-        }
-        #else
-        maskedRail(content, progress: progress)
-        #endif
-    }
-
-    private func maskedRail<Content: View>(_ content: Content, progress: CGFloat) -> some View {
-        // A straight reveal edge cuts controls off inside the page's exposed
-        // corner area. Subtract the rounded page silhouette instead.
-        content.mask(alignment: .leading) {
-            SidebarRailRevealShape(pageSize: pageSize, radius: pageCornerRadius,
-                roundsBottom: roundsPageBottom, offset: travel * progress,
-                isRightToLeft: direction == .rightToLeft)
-                .fill(style: FillStyle(eoFill: true))
-                .clipped()
         }
     }
 }

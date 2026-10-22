@@ -245,8 +245,12 @@ final class ComposerMotionUITests: XCTestCase {
         changed.name = "Model menu after selection"
         changed.lifetime = .keepAlways
         add(changed)
-        app.buttons["关闭，返回一级菜单"].tap()
+        // Outside dismissal returns to the retained primary menu, just like
+        // the explicit close path exercised before selecting another model.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.3)).tap()
         XCTAssertTrue(modelDetail.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(panel.waitForExistence(timeout: 5))
+        XCTAssertTrue(sheet.exists)
 
         plus.tap()
         XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
