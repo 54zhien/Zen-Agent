@@ -17,7 +17,7 @@ struct ToolGrantPersistenceTests {
         let store = PersistenceStore(database: try ZenDatabase.open(at: url.path()))
         #expect(try store.toolGrant(id: "g") == expected)
         #expect(try store.toolGrants(subject: .parentConversation("other")).isEmpty)
-        let saved = try #require(store.toolGrant(id: "g"))
+        let saved = try #require(try store.toolGrant(id: "g"))
         #expect(!ToolGrantScopeMatcher.matches(grant: saved, call: GrantStorageFixture.context(version: "v2")))
         #expect(!ToolGrantScopeMatcher.matches(grant: saved, call: GrantStorageFixture.context(endpoint: "other-endpoint")))
     }
@@ -25,7 +25,7 @@ struct ToolGrantPersistenceTests {
     @Test func tighteningThenWideningCannotRestoreGrantOrStaleIssuance() throws {
         let store = try GrantStorageFixture.store()
         let before = try GrantStorageFixture.policy(store)
-        try #require(store.issueToolGrant(id: "g", grant: GrantStorageFixture.grant(), expectedPolicy: before))
+        try #require(try store.issueToolGrant(id: "g", grant: GrantStorageFixture.grant(), expectedPolicy: before))
         try store.setToolPolicy(toolID: "tool", actionID: "read", descriptorRevision: "r1", mode: .deny)
         try store.setToolPolicy(toolID: "tool", actionID: "read", descriptorRevision: "r1", mode: .alwaysAllow)
         #expect(try store.toolGrant(id: "g")?.validity == .revoked)
@@ -36,7 +36,7 @@ struct ToolGrantPersistenceTests {
     @Test func explicitRevocationCannotBeOverwrittenByDuplicateApproval() throws {
         let store = try GrantStorageFixture.store()
         let policy = try GrantStorageFixture.policy(store)
-        try #require(store.issueToolGrant(id: "g", grant: GrantStorageFixture.grant(), expectedPolicy: policy))
+        try #require(try store.issueToolGrant(id: "g", grant: GrantStorageFixture.grant(), expectedPolicy: policy))
         #expect(try store.revokeToolGrant(id: "g"))
         #expect(try !store.issueToolGrant(id: "g", grant: GrantStorageFixture.grant(), expectedPolicy: policy))
         #expect(try store.toolGrant(id: "g")?.validity == .revoked)
@@ -45,8 +45,8 @@ struct ToolGrantPersistenceTests {
     @Test func originalCallTerminalConsumesOnceAndOriginalRunEndRevokesRunSubject() throws {
         let store = try GrantStorageFixture.store()
         let once = GrantStorageFixture.grant(subject: .run("r"), once: true)
-        try #require(store.issueToolGrant(id: "once", grant: once, expectedPolicy: GrantStorageFixture.policy(store)))
-        try #require(store.issueToolGrant(id: "run", grant: GrantStorageFixture.grant(subject: .run("r")), expectedPolicy: GrantStorageFixture.policy(store)))
+        try #require(try store.issueToolGrant(id: "once", grant: once, expectedPolicy: GrantStorageFixture.policy(store)))
+        try #require(try store.issueToolGrant(id: "run", grant: GrantStorageFixture.grant(subject: .run("r")), expectedPolicy: GrantStorageFixture.policy(store)))
         try store.settleToolCallForCancellation(id: "call")
         #expect(try store.toolGrant(id: "once")?.validity == .consumed)
         try store.finishRun(id: "r", state: .cancelled, endReason: .cancelledByUser)
@@ -56,7 +56,7 @@ struct ToolGrantPersistenceTests {
 
     @Test func parentGrantSurvivesRunButDeletionUndoNeverRevivesIt() throws {
         let store = try GrantStorageFixture.store()
-        try #require(store.issueToolGrant(id: "g", grant: GrantStorageFixture.grant(), expectedPolicy: GrantStorageFixture.policy(store)))
+        try #require(try store.issueToolGrant(id: "g", grant: GrantStorageFixture.grant(), expectedPolicy: GrantStorageFixture.policy(store)))
         try store.finishRun(id: "r", state: .cancelled, endReason: .cancelledByUser)
         #expect(try store.toolGrant(id: "g")?.validity == .active)
         try store.beginDeletion(conversationID: "c")
@@ -73,9 +73,28 @@ struct ToolGrantPersistenceTests {
         #expect(try !store.issueToolGrant(id: "version", grant: GrantStorageFixture.grant(version: "v2"), expectedPolicy: policy))
     }
 
+    @Test(arguments: [false, true])
+    func childOriginCannotBorrowParentDisplaySubject(once: Bool) throws {
+        let store = try GrantStorageFixture.store()
+        try store.database.write { db in
+            try Fixtures.run(id: "child", conversationID: "c", kind: .child,
+                state: .waitingForApproval, parentRunID: "r").insert(db)
+        }
+        var call = try #require(try store.toolCall(id: "call"))
+        call.id = "child-call"
+        call.agentRunID = "child"
+        try store.createToolCall(call)
+        for subject in [ToolGrantSubject.parentConversation("c"), .run("child"), .run("r")] {
+            #expect(try !store.issueToolGrant(id: "child-grant", grant: GrantStorageFixture.grant(
+                subject: subject, once: once, callID: "child-call", runID: "child"),
+                expectedPolicy: GrantStorageFixture.policy(store)))
+        }
+        #expect(try store.toolGrant(id: "child-grant") == nil)
+    }
+
     @Test func corruptScopeNeverDecodesAsUnrestrictedAuthority() throws {
         let store = try GrantStorageFixture.store()
-        try #require(store.issueToolGrant(id: "g", grant: GrantStorageFixture.grant(), expectedPolicy: GrantStorageFixture.policy(store)))
+        try #require(try store.issueToolGrant(id: "g", grant: GrantStorageFixture.grant(), expectedPolicy: GrantStorageFixture.policy(store)))
         try store.database.write { db in
             try db.execute(sql: "UPDATE toolScopedGrant SET resource = ? WHERE id = ?", arguments: ["{", "g"])
         }
@@ -120,12 +139,13 @@ enum GrantStorageFixture {
         try store.toolPolicy(toolID: "tool", actionID: "read", descriptorRevision: "r1")
     }
     static func grant(subject: ToolGrantSubject = .parentConversation("c"), once: Bool = false,
-                      epoch: UInt64 = 0, version: String = "v1", binding: String = "binding") -> ToolScopedGrant {
-        ToolScopedGrant(kind: once ? .once(toolCallID: "call", agentRunID: "r", intentBinding: binding) : .conversation,
+                      epoch: UInt64 = 0, version: String = "v1", binding: String = "binding",
+                      callID: String = "call", runID: String = "r") -> ToolScopedGrant {
+        ToolScopedGrant(kind: once ? .once(toolCallID: callID, agentRunID: runID, intentBinding: binding) : .conversation,
             subject: subject, toolID: "tool", actionID: "read", descriptorRevision: "r1",
             resource: .file(assetID: "file", versionID: version, contentIdentity: "digest"),
             destination: .provider(instanceID: "provider", endpointIdentity: "endpoint"), validity: .active,
-            revocationEpoch: epoch, issuedFor: ToolGrantApprovalBinding(toolCallID: "call", agentRunID: "r", intentBinding: binding))
+            revocationEpoch: epoch, issuedFor: ToolGrantApprovalBinding(toolCallID: callID, agentRunID: runID, intentBinding: binding))
     }
     static func context(version: String = "v1", endpoint: String = "endpoint") -> ToolPolicyCallContext {
         ToolPolicyCallContext(toolCallID: "later", agentRunID: "later-run", subject: .parentConversation("c"),

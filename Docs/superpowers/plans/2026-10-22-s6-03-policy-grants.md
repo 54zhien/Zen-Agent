@@ -25,3 +25,6 @@
 - [ ] Fresh review of whole slice; fix real findings with focused tests and native evidence. Record exact source/run/digest. No PR merge or Stage6 aggregate closure without actual evidence; no S6-04 UI work without examining impact first.
 
 Files: App/Persistence/Migrations.swift; new Migrations+ToolPolicy.swift, PersistenceStore+ToolPolicy.swift, PersistenceStore+ToolGrants.swift and ToolGrantRecord.swift; new Tests/ZenAgentTests/ToolPolicyPersistenceTests.swift and ToolGrantPersistenceTests.swift (shared fixture in latter); this plan and tasks/s6-03-policy-grants.md. No other production boundary changes.
+
+
+Ruling after source/security review: match the existing ConversationRuntime approval boundary: grant issuance only accepts an original root Parent Run (kind parent and parentRunID nil), for both grant kinds and both subjects. Child-origin grants stay unavailable until the later Subagent stage implements ancestor validity/expiry. Existing ToolApprovalUITests already excludes Child calls. No recursive child lifecycle scaffolding in S6-03. Added parameterized negative test covers actual Child origin attempting its own Run, Parent Run and Parent Conversation subjects; storage never trusts the display subject alone. These extra negative controls are prepared before implementation, outside the already-running12-function RED source.
