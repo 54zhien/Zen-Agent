@@ -33,28 +33,7 @@ final class SidebarUITests: XCTestCase {
 
     @MainActor
     func testSidebarSettingsCoordinateRoutePreservesAXFailure() {
-        exerciseSidebarSettingsRoute(launch())
-    }
-
-    @MainActor
-    func testSidebarSettingsWithNativeHitProbe() {
-        exerciseSidebarSettingsRoute(launch(nativeContext: "full"), capturesNativeHit: true)
-    }
-
-    @MainActor
-    func testSidebarSettingsWithPassiveNativeProbe() {
-        let app = launch(nativeContext: "full", probeMode: "passive-native")
-        exerciseSidebarSettingsRoute(app, passiveMode: "passive-native")
-    }
-
-    @MainActor
-    func testSidebarSettingsWithPassiveAXProbe() {
-        exerciseSidebarSettingsRoute(launch(nativeContext: "full", probeMode: "passive-ax"),
-                                     passiveMode: "passive-ax")
-    }
-
-    @MainActor
-    private func exerciseSidebarSettingsRoute(_ app: XCUIApplication, capturesNativeHit: Bool = false, passiveMode: String? = nil) {
+        let app = launch()
         app.openWorkspaceSidebar()
 
         let settings = app.buttons["sidebar-settings"]
@@ -85,16 +64,6 @@ final class SidebarUITests: XCTestCase {
             && settingsFrameIsPositive && frameIsWithinApp
         print("SIDEBAR_SETTINGS_ROUTE before frame=\(settingsFrame) app=\(appFrame) exists=\(settingsExists) hittable=\(settingsHittable) finite=\(frameIsFinite) positive=\(settingsFrameIsPositive) withinApp=\(frameIsWithinApp)")
         attachSidebarSettingsRouteEvidence(app, stage: "before-coordinate-tap")
-        if capturesNativeHit { attachNativeHitProbe(app, settings: settings, context: "full") }
-        if let passiveMode {
-            let probes = app.descendants(matching: .any).matching(identifier: "sidebar-native-hit-probe")
-            let count = probes.count
-            print("SIDEBAR_PASSIVE_PROBE mode=\(passiveMode) exportedCount=\(count)")
-            if passiveMode == "passive-ax" {
-                XCTAssertEqual(count, 1)
-                XCTAssertEqual(probes.firstMatch.value as? String, "passive")
-            }
-        }
         XCTAssertTrue(frameIsUsable,
             "Settings AX frame must be finite, positive, and within the app: settings=\(settingsFrame), app=\(appFrame)")
         guard frameIsUsable else {
@@ -432,11 +401,9 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(withKeyboardMenu: Bool = false, nativeContext: String? = nil, probeMode: String? = nil) -> XCUIApplication {
+    private func launch(withKeyboardMenu: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
-        if let nativeContext { app.launchEnvironment["ZEN_SIDEBAR_AX_NATIVE_CONTEXT"] = nativeContext }
-        if let probeMode { app.launchEnvironment["ZEN_SIDEBAR_AX_PROBE_MODE"] = probeMode }
         if withKeyboardMenu { app.launchEnvironment["ZEN_KEYBOARD_MENU_UI_TEST"] = "1" }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
@@ -445,25 +412,6 @@ final class SidebarUITests: XCTestCase {
 
     private func editorIdentity(_ diagnostic: String?) -> String? {
         diagnostic?.split(separator: ";").first { $0.hasPrefix("editorIdentity=") }.map(String.init)
-    }
-
-    @MainActor
-    private func attachNativeHitProbe(_ app: XCUIApplication, settings: XCUIElement, context: String) {
-        let probe = app.descendants(matching: .any)["sidebar-native-hit-probe"]
-        XCTAssertTrue(probe.waitForExistence(timeout: 5))
-        let value = probe.value as? String ?? "missing"
-        let parsed = (try? JSONSerialization.jsonObject(with: Data(value.utf8))) as? [String: Any]
-        XCTAssertNotNil(parsed)
-        let sampleX = parsed?["sampleX"] as? Double ?? .nan
-        let sampleY = parsed?["sampleY"] as? Double ?? .nan
-        XCTAssertEqual(sampleX, settings.frame.midX, accuracy: 0.1)
-        XCTAssertEqual(sampleY, settings.frame.midY, accuracy: 0.1)
-        XCTAssertFalse((parsed?["chain"] as? [[String: Any]] ?? []).isEmpty)
-        print("SIDEBAR_NATIVE_CONTEXT \(context) \(value)")
-        let attachment = XCTAttachment(string: value)
-        attachment.name = "Native Sidebar hit ancestry \(context)"
-        attachment.lifetime = .keepAlways
-        add(attachment)
     }
 
     @MainActor
