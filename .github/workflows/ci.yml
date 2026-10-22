@@ -831,7 +831,9 @@ jobs:
               UDID=$(python3 -c 'import json,sys; print(next(d["udid"] for ds in json.load(open(sys.argv[1]))["devices"].values() for d in ds if d.get("isAvailable") and d["name"].startswith("iPhone")))' "$evidence/devices.json")
               xcrun simctl bootstatus "$UDID" -b
               if [ "$TEST_SCOPE" = sidebar-hit-path ]; then
-                tests=(-only-testing:ZenAgentUITests/SidebarUITests/testSidebarSettingsCoordinateRoutePreservesAXFailure)
+                tests=(-only-testing:ZenAgentUITests/SidebarUITests/testSidebarSettingsCoordinateRoutePreservesAXFailure
+                  -only-testing:ZenAgentUITests/SidebarUITests/testSidebarSettingsWithExistingProbeNativeHit
+                  -only-testing:ZenAgentUITests/SidebarUITests/testSidebarSettingsSemanticTapWithExistingProbeNativeHit)
               elif [ "$TEST_SCOPE" = ui-integration ]; then
                 tests=(-only-testing:ZenAgentUITests/AppSpaceGeometryUITests
                   -only-testing:ZenAgentUITests/ComposerMotionUITests
@@ -903,8 +905,12 @@ jobs:
                 video_pid=$!
                 trap 'kill -INT "$video_pid" 2>/dev/null || true; wait "$video_pid" || true' EXIT
               fi
+              test_scheme=ZenAgent
+              if [ "$TEST_SCOPE" = sidebar-hit-path ]; then
+                test_scheme=ZenAgentSidebarDiagnostic
+              fi
               set +e
-              xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent -configuration Debug \
+              xcodebuild test -project ZenAgent.xcodeproj -scheme "$test_scheme" -configuration Debug \
                 -destination "id=$UDID" -parallel-testing-enabled NO \
                 "${tests[@]}" -resultBundlePath "$evidence/Focused.xcresult" 2>&1 | tee "$evidence/Focused.log"
               code=${PIPESTATUS[0]}

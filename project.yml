@@ -131,3 +131,13 @@ schemes:
         - ZenAgentTests
         - ZenAgentUITests
 
+  # Temporary diagnostic scheme; full validation continues to use ZenAgent.
+  ZenAgentSidebarDiagnostic:
+    build:
+      targets:
+        ZenAgent: all
+        ZenAgentUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - ZenAgentUITests

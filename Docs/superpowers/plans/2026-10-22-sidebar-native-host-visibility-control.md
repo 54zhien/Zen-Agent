@@ -140,3 +140,10 @@ Restore ConversationSurfaceHost.swift, SidebarUITests.swift and workflow to clea
 Apple documents [isHittable](https://developer.apple.com/documentation/xcuiautomation/xcuielement/ishittable) as hit-point computation, and permits nil event for an out-of-event-handler [UIView.hitTest](https://developer.apple.com/documentation/uikit/uiview/hittest(_:with:)) query. The physical query is valid observation, but is not proof of a delivered touch or VoiceOver activation; keep actual route/semantic receipts separate.
 
 Task8 run39743930739 was cancelled after approximately25minutes to collect phase evidence. It had not completed compilation (last ZenAgentTests compile), zero UI starts/samples and no compiler error before cancellation. No runtime conclusion. Partial artifact/source preserved; all three files restoredddf4c9e/helperdeleted.
+
+
+## Physical receipt with isolated UI compilation
+
+Task8b retains the same three UI controls and native query. Add a temporary XcodeGen scheme building App and ZenAgentUITests only, selected solely by sidebar-hit-path; the normal ZenAgent full gate is unchanged. The cancelled run never reached UI and still compiled all unit tests. This is build-scope isolation, not acceptance without unit tests. Move only the new heterogeneous context dictionary from the generic host getter into the non-generic diagnostic helper; no runtime behavior or invocation timing changes, and no claim that this dictionary caused slow compilation.
+
+Use the focused job's existing40-minute native limit to obtain an actual outcome rather than cancelling again based only on the prior run duration. Restore project.yml, host, test and workflow to cleanup9ce19d7 and remove helper after evidence. A cancellation/build failure remains distinct from UI RED/GREEN.
