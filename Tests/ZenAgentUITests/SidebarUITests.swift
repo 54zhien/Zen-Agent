@@ -33,7 +33,37 @@ final class SidebarUITests: XCTestCase {
 
     @MainActor
     func testSidebarSettingsCoordinateRoutePreservesAXFailure() {
-        let app = launch()
+        exerciseSidebarSettingsRoute(launch())
+    }
+
+    @MainActor
+    func testSidebarSettingsWithNativeHitProbe() {
+        exerciseSidebarSettingsRoute(launch(nativeContext: "full"), capturesNativeHit: true)
+    }
+
+    @MainActor
+    func testIsolatedSidebarSettingsWithNativeHitProbe() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_SIDEBAR_AX_NATIVE_CONTEXT"] = "isolated"
+        app.launch()
+        let settings = app.buttons["sidebar-settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 15))
+        XCTAssertEqual(app.buttons.matching(identifier: "sidebar-settings").count, 1)
+        XCTAssertEqual(settings.label, "设置")
+        XCTAssertTrue(settings.isEnabled)
+        XCTAssertTrue(settings.wait(for: \.isHittable, toEqual: true, timeout: 5))
+        XCTAssertEqual(settings.frame.width, 56, accuracy: 0.1)
+        XCTAssertEqual(settings.frame.height, 56, accuracy: 0.1)
+        XCTAssertTrue(app.frame.contains(settings.frame))
+        attachNativeHitProbe(app, settings: settings, context: "isolated")
+        attachSidebarSettingsRouteEvidence(app, stage: "isolated-before-semantic-tap")
+        settings.tap()
+        XCTAssertTrue(app.staticTexts["sidebar-isolated-settings-receipt"].waitForExistence(timeout: 5))
+        attachSidebarSettingsRouteEvidence(app, stage: "isolated-after-semantic-tap")
+    }
+
+    @MainActor
+    private func exerciseSidebarSettingsRoute(_ app: XCUIApplication, capturesNativeHit: Bool = false) {
         app.openWorkspaceSidebar()
 
         let settings = app.buttons["sidebar-settings"]
@@ -64,6 +94,7 @@ final class SidebarUITests: XCTestCase {
             && settingsFrameIsPositive && frameIsWithinApp
         print("SIDEBAR_SETTINGS_ROUTE before frame=\(settingsFrame) app=\(appFrame) exists=\(settingsExists) hittable=\(settingsHittable) finite=\(frameIsFinite) positive=\(settingsFrameIsPositive) withinApp=\(frameIsWithinApp)")
         attachSidebarSettingsRouteEvidence(app, stage: "before-coordinate-tap")
+        if capturesNativeHit { attachNativeHitProbe(app, settings: settings, context: "full") }
         XCTAssertTrue(frameIsUsable,
             "Settings AX frame must be finite, positive, and within the app: settings=\(settingsFrame), app=\(appFrame)")
         guard frameIsUsable else {
@@ -401,9 +432,10 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(withKeyboardMenu: Bool = false) -> XCUIApplication {
+    private func launch(withKeyboardMenu: Bool = false, nativeContext: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        if let nativeContext { app.launchEnvironment["ZEN_SIDEBAR_AX_NATIVE_CONTEXT"] = nativeContext }
         if withKeyboardMenu { app.launchEnvironment["ZEN_KEYBOARD_MENU_UI_TEST"] = "1" }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
@@ -412,6 +444,25 @@ final class SidebarUITests: XCTestCase {
 
     private func editorIdentity(_ diagnostic: String?) -> String? {
         diagnostic?.split(separator: ";").first { $0.hasPrefix("editorIdentity=") }.map(String.init)
+    }
+
+    @MainActor
+    private func attachNativeHitProbe(_ app: XCUIApplication, settings: XCUIElement, context: String) {
+        let probe = app.descendants(matching: .any)["sidebar-native-hit-probe"]
+        XCTAssertTrue(probe.waitForExistence(timeout: 5))
+        let value = probe.value as? String ?? "missing"
+        let parsed = (try? JSONSerialization.jsonObject(with: Data(value.utf8))) as? [String: Any]
+        XCTAssertNotNil(parsed)
+        let sampleX = parsed?["sampleX"] as? Double ?? .nan
+        let sampleY = parsed?["sampleY"] as? Double ?? .nan
+        XCTAssertEqual(sampleX, settings.frame.midX, accuracy: 0.1)
+        XCTAssertEqual(sampleY, settings.frame.midY, accuracy: 0.1)
+        XCTAssertFalse((parsed?["chain"] as? [[String: Any]] ?? []).isEmpty)
+        print("SIDEBAR_NATIVE_CONTEXT \(context) \(value)")
+        let attachment = XCTAttachment(string: value)
+        attachment.name = "Native Sidebar hit ancestry \(context)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor
