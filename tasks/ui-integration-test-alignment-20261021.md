@@ -312,3 +312,7 @@ Candidate `a81c297` failed native run `39708999849`: helper settled-AX assertion
 
 Independent Composer/iPad run `39709068950` at `a81c297` passed generation/build, 1140 Swift tests in 171 suites, 20 XCTest unit tests, 6 selected UI cases (including restored model-detail outside dismissal), and actual iPad axis 1/1. Artifact `12396164748`, digest `sha256:8c42ffd343259fb364076ff302c0dbfb387814371b34c97883fc6c06830f04c0`. This is focused evidence, not the full integration gate.
 
+### Rail sibling-order candidate
+
+After removing the failed page content shape in `4514dc0`, move the existing Rail `.zIndex(1)` from inside its conditional progress body to the `SidebarRailProgressLayer` call in the parent ZStack, where the full-page content is its actual sibling. The ordering value, visible Rail mask, geometry, styles, routes, transitions and haptics are unchanged. This tests whether the existing order declaration fails to establish semantic priority across the custom conditional layer; it is not yet an established cause. Existing native hit/coordinate assertions and screenshots remain required, and changed appearance would require removal or owner discussion.
+
