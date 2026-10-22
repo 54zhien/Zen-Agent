@@ -42,6 +42,7 @@ struct ComposerThinkingTrack: View, Animatable {
     let interactionRevision: Int
     let onDragStarted: (Double) -> Void
     let onDrag: (Double) -> Void
+    let onOverscroll: (Double) -> Void
     let onDragEnded: (Double) -> Void
     let onDragCancelled: () -> Void
     let onSelect: (Int) -> Void
@@ -76,7 +77,7 @@ struct ComposerThinkingTrack: View, Animatable {
                     endpointPulse: endpointPulse, enabled: enabled,
                     interactionRevision: interactionRevision,
                     onStarted: onDragStarted, onMove: onDrag,
-                    onEnded: onDragEnded, onCancelled: onDragCancelled)
+                    onOverscroll: onOverscroll, onEnded: onDragEnded, onCancelled: onDragCancelled)
                     .position(curve.point(at: fraction))
             }
             .coordinateSpace(name: coordinateSpace)
@@ -98,6 +99,7 @@ private struct ComposerThinkingThumb: View {
     let interactionRevision: Int
     let onStarted: (Double) -> Void
     let onMove: (Double) -> Void
+    let onOverscroll: (Double) -> Void
     let onEnded: (Double) -> Void
     let onCancelled: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -124,12 +126,18 @@ private struct ComposerThinkingThumb: View {
                         grabOffset = curve.projectedFraction(at: value.startLocation) - fraction
                         onStarted(fraction)
                     }
-                    onMove(project(value.location))
+                    let projected = project(value.location)
+                    onOverscroll(projected)
+                    onMove(min(1, max(0, projected)))
                 }
                 .onEnded { value in
                     guard dragging else { return }
                     dragging = false
-                    if enabled { onEnded(project(value.location)) } else { onCancelled() }
+                    if enabled {
+                        let projected = project(value.location)
+                        onOverscroll(projected)
+                        onEnded(min(1, max(0, projected)))
+                    } else { onCancelled() }
                 })
             .onChange(of: touching) { _, active in if !active { cancel() } }
             .onChange(of: enabled) { _, value in if !value { cancel() } }
@@ -138,7 +146,7 @@ private struct ComposerThinkingThumb: View {
     }
 
     private func project(_ point: CGPoint) -> Double {
-        min(1, max(0, curve.projectedFraction(at: point) - grabOffset))
+        curve.projectedFraction(at: point) - grabOffset
     }
 
     private func cancel() {
