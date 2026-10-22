@@ -24,7 +24,7 @@ final class WorkspaceHaptics {
         case splitCommit
         /// A Composer control (More, Send, Stop) was pressed.
         case control
-        /// A system tick when the Thinking selection changes.
+        /// A resonant hum for a Thinking detent or committed selection.
         case thinkingDetent
     }
 

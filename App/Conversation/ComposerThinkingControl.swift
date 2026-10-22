@@ -12,7 +12,7 @@ struct ComposerThinkingControl: View {
     @State private var isSettling = false
     @State private var pendingSelection: ThinkingEffort?
     @State private var endpointPulse = 0
-    @State private var dragSelectionIndex: Int?
+    @State private var dragBoundary: Int?
     private var efforts: [ThinkingEffort] { presentation.supportedThinkingEfforts }
     private var selectedIndex: Int {
         efforts.firstIndex(where: { $0 == presentation.thinkingLevel }) ?? 0
@@ -127,7 +127,7 @@ struct ComposerThinkingControl: View {
                 selectionGeneration += 1
                 isSettling = false
                 isDragging = true
-                dragSelectionIndex = nil
+                dragBoundary = fraction <= 0 ? 0 : fraction >= 1 ? efforts.count - 1 : nil
                 move(to: fraction)
             }, onDrag: { fraction in
                 guard enabled, isDragging else { return }
@@ -162,23 +162,17 @@ struct ComposerThinkingControl: View {
         transaction.disablesAnimations = true
         withTransaction(transaction) { position = bounded * Double(max(0, efforts.count - 1)) }
         let index = min(max(0, Int(position.rounded())), max(0, efforts.count - 1))
-        if efforts.indices.contains(index) {
-            presentation.previewThinkingEffort = efforts[index]
-            if isDragging {
-                // Track the finger's detent independently of committed model
-                // settings. Seed quietly on pickup, then tick on each change.
-                let changed = dragSelectionIndex.map { $0 != index } ?? false
-                dragSelectionIndex = index
-                if changed { WorkspaceHaptics.shared.play(.thinkingDetent) }
-            }
-        }
+        if efforts.indices.contains(index) { presentation.previewThinkingEffort = efforts[index] }
+        let boundary: Int? = bounded <= 0 ? 0 : bounded >= 1 ? efforts.count - 1 : nil
+        if let boundary, dragBoundary != boundary { WorkspaceHaptics.shared.play(.thinkingDetent) }
+        dragBoundary = boundary
     }
 
     private func cancelPreview() {
         selectionGeneration += 1
         isDragging = false
         isSettling = false
-        dragSelectionIndex = nil
+        dragBoundary = nil
         presentation.previewThinkingEffort = nil
     }
 
@@ -211,7 +205,7 @@ struct ComposerThinkingControl: View {
             isSettling = false
             if presentation.selectedThinkingEffort != pendingSelection {
                 presentation.onSelectThinking(pendingSelection)
-                if !fromDrag { WorkspaceHaptics.shared.play(.thinkingDetent) }
+                if !fromDrag || !endpoint || !alreadyArrived { WorkspaceHaptics.shared.play(.thinkingDetent) }
             }
             presentation.previewThinkingEffort = nil
             if endpoint, !fromDrag || !alreadyArrived { endpointPulse &+= 1 }

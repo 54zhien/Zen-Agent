@@ -83,6 +83,7 @@ Owner system-animated Composer descent @ 883ae2a
 Owner bounded Composer performance optimization @ 6d9b054
 Owner system Thinking haptics with hum rollback @ f816dbd
 Owner immediate Thinking selection ticks @ d9e7ac2
+Owner restored Thinking hum baseline @ fffca08
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
