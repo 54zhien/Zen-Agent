@@ -294,3 +294,7 @@ Neither difference is a proven cause. Further decisive omission controls would
 temporarily affect the frozen press animation or reveal clipping, so they need
 the owner's new direction before implementation. The concrete proposal is
 [the diagnostic plan](../Docs/superpowers/plans/2026-10-22-sidebar-ax-controls.md).
+# 2026-10-22 authorized independent Sidebar composition controls
+
+Owner requested another attempt after the concrete style/mask diagnostic proposal. Three independent launches retain all original semantic identity, AX hit, frame, and coordinate-route assertions: baseline; Settings-only plain ButtonStyle; Rail-only mask omission. Neither omission is a proposed final UI. Default control must reproduce the AX failure for causal interpretation. Source is restored after evidence before any final integration gate. Local syntax, YAML and 12 CI-script checks pass; native result is pending.
+

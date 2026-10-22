@@ -33,7 +33,21 @@ final class SidebarUITests: XCTestCase {
 
     @MainActor
     func testSidebarSettingsCoordinateRoutePreservesAXFailure() {
-        let app = launch()
+        exerciseSidebarSettingsRoute(launch())
+    }
+
+    @MainActor
+    func testSidebarSettingsWithPlainStyleControl() {
+        exerciseSidebarSettingsRoute(launch(sidebarAXControl: "settingsPlain"))
+    }
+
+    @MainActor
+    func testSidebarSettingsWithoutRailMaskControl() {
+        exerciseSidebarSettingsRoute(launch(sidebarAXControl: "railWithoutMask"))
+    }
+
+    @MainActor
+    private func exerciseSidebarSettingsRoute(_ app: XCUIApplication) {
         app.openWorkspaceSidebar()
 
         let settings = app.buttons["sidebar-settings"]
@@ -401,10 +415,11 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(withKeyboardMenu: Bool = false) -> XCUIApplication {
+    private func launch(withKeyboardMenu: Bool = false, sidebarAXControl: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         if withKeyboardMenu { app.launchEnvironment["ZEN_KEYBOARD_MENU_UI_TEST"] = "1" }
+        if let sidebarAXControl { app.launchEnvironment["ZEN_SIDEBAR_AX_CONTROL"] = sidebarAXControl }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         return app
