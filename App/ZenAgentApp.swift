@@ -18,14 +18,7 @@ struct ZenAgentApp: App {
     var body: some Scene {
         WindowGroup {
 #if DEBUG
-            if ProcessInfo.processInfo.environment["ZEN_SIDEBAR_AX_NATIVE_CONTEXT"] == "isolated" {
-                SidebarAXNativeIsolationFixture()
-            } else if ProcessInfo.processInfo.environment["ZEN_SIDEBAR_AX_NATIVE_CONTEXT"] == "full" {
-                ConversationPreviewUITestFixture()
-                    .background(alignment: .topLeading) {
-                        SidebarAXNativeProbe().frame(width: 1, height: 1).allowsHitTesting(false)
-                    }
-            } else if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
+            if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
                 ConversationPreviewUITestFixture()
             } else if ProcessInfo.processInfo.environment["ZEN_SURFACE_LIFT_UI_TEST"] == "1" {
                 SurfaceLiftUITestFixture()

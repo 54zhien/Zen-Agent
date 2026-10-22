@@ -1,6 +1,6 @@
 # Proposed Sidebar native-host visibility diagnostic
 
-**Status: visibility and role controls finished and removed; native ancestry follow-up pending.**
+**Status: visibility, role and ancestry controls finished and removed; probe-effect comparison next.**
 
 The owner froze UI and requires a stop before UI-affecting changes. Existing
 permission covers test adaptations, narrow nonvisual interaction diagnosis, and
