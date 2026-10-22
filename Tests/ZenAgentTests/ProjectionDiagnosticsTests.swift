@@ -117,7 +117,7 @@ private func runProjectionScenario(
     var observedError: ConversationProjectionError?
     do {
         let runID = try await runtime.start(I05RuntimeTestFixtures.command())
-        try await Fixtures.awaitTerminalRun(in: fixture.store, runtime: runtime, runID: runID)
+        try await Fixtures.awaitRuntimeCompletion(in: fixture.store, runtime: runtime, runID: runID)
     } catch let error as ConversationProjectionError {
         observedError = error
     }

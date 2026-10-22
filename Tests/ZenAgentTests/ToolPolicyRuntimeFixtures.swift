@@ -4,22 +4,33 @@ import Testing
 @testable import ZenAgent
 
 extension Fixtures {
-    /// A parked approval is not completion. Bound test waiting, report the actual
-    /// durable checkpoint, then drain the real Runtime so a regression cannot
-    /// silently consume the whole CI deadline.
-    static func awaitTerminalRun(in store: PersistenceStore, runtime: ConversationRuntime,
-                                 runID: String) async throws {
-        for _ in 0..<1000 {
-            if try store.run(id: runID)?.state.isTerminal == true {
+    /// Bound the real owner task, not its database state: an injected failure
+    /// to write a terminal state deliberately leaves an active durable row while
+    /// completing with the original error.
+    static func awaitRuntimeCompletion(in store: PersistenceStore, runtime: ConversationRuntime,
+                                       runID: String) async throws {
+        let observed = RuntimeTestCompletionFlag()
+        let completion = Task {
+            do {
                 try await runtime.waitForCompletion(runID: runID)
+                await observed.finish()
+            } catch {
+                await observed.finish()
+                throw error
+            }
+        }
+        defer { completion.cancel() }
+        for _ in 0..<1000 {
+            if await observed.isFinished() {
+                try await completion.value
                 return
             }
             try await Task.sleep(for: .milliseconds(10))
         }
         let state = try store.run(id: runID)?.state.rawValue ?? "missing"
-        Issue.record("Runtime did not finish; durable checkpoint: \(state)")
+        Issue.record("Runtime task did not finish; durable checkpoint: \(state)")
         if try store.run(id: runID)?.state.isActive == true { try await runtime.stop(runID: runID) }
-        try await runtime.waitForCompletion(runID: runID)
+        try await completion.value
     }
 
     /// Old execution tests opt into automatic execution explicitly. Required or
@@ -39,4 +50,10 @@ extension Fixtures {
         try allowAutomaticToolPolicies(in: store, registry: registry)
         return registry
     }
+}
+
+private actor RuntimeTestCompletionFlag {
+    private var finished = false
+    func finish() { finished = true }
+    func isFinished() -> Bool { finished }
 }

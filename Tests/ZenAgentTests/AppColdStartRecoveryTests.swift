@@ -314,7 +314,7 @@ struct AppColdStartRecoveryTests {
         )
         let report = try await runtime.reconcileColdStartRuns()
         #expect(report.continuedRunIDs == [runID])
-        try await Fixtures.awaitTerminalRun(in: reopened, runtime: runtime, runID: runID)
+        try await Fixtures.awaitRuntimeCompletion(in: reopened, runtime: runtime, runID: runID)
         #expect(try reopened.run(id: runID)?.state == .completed)
         #expect(try reopened.toolCall(id: callID)?.state == .succeeded)
         #expect(try reopened.steps(inRun: runID).count == 2)
@@ -553,7 +553,7 @@ struct AppColdStartRecoveryTests {
             backend.unreadableReferences.remove("cred-1")
             let retry = try await runtime.retryColdStartRecovery()
             #expect(retry.continuedRunIDs == [runID])
-            try await Fixtures.awaitTerminalRun(in: reopened, runtime: runtime, runID: runID)
+            try await Fixtures.awaitRuntimeCompletion(in: reopened, runtime: runtime, runID: runID)
             #expect(try reopened.run(id: runID)?.state == .completed)
             #expect((await ledger.requestsSnapshot()).count == 1)
         } else {
@@ -693,7 +693,7 @@ struct AppColdStartRecoveryTests {
                 for: scenario == .rejectAfterReopen ? .rejectOnce : .approveOnce
             ))
         }
-        try await Fixtures.awaitTerminalRun(in: reopened, runtime: runtime, runID: runID)
+        try await Fixtures.awaitRuntimeCompletion(in: reopened, runtime: runtime, runID: runID)
 
         #expect(try reopened.toolCall(id: callID)?.state == (
             scenario == .rejectAfterReopen ? .rejected : .succeeded
