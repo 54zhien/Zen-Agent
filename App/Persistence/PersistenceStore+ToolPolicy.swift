@@ -64,7 +64,7 @@ extension PersistenceStore {
             mode: mode, revocationEpoch: UInt64(row.revocationEpoch))
     }
 
-    private static func policyName(_ mode: ToolPersistentPolicy) -> String {
+    static func policyName(_ mode: ToolPersistentPolicy) -> String {
         switch mode {
         case .alwaysAllow: "alwaysAllow"
         case .askEveryTime: "askEveryTime"

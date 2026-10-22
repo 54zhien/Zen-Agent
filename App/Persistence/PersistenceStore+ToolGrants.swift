@@ -55,6 +55,16 @@ extension PersistenceStore {
                   action.resourceRequirement.accepts(grant.resource),
                   action.egressRequirement.accepts(grant.destination) else { return false }
             if case .conversation = grant.kind, !action.allowsConversationGrant { return false }
+            // Anchor an implicit default's revision with its first issuance so
+            // the first explicit revision update can revoke that authority too.
+            // A rejected issuance creates no policy row; either insert failing
+            // rolls back both facts in this same transaction.
+            try db.execute(sql: """
+                INSERT INTO toolGlobalPolicy (toolID, actionID, descriptorRevision, mode, revocationEpoch)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(toolID, actionID) DO NOTHING
+                """, arguments: [current.toolID, current.actionID, current.descriptorRevision,
+                    Self.policyName(current.mode), Int64(current.revocationEpoch)])
             // Binding derivation belongs to trusted Runtime, not JSON/UI input.
             // The schema stores no second copy of the executable arguments.
             try ToolGrantRecord(id: id, grant: grant, approval: approval, conversationID: run.conversationID).insert(db)
