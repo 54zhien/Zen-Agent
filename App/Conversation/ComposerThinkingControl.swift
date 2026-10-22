@@ -12,7 +12,7 @@ struct ComposerThinkingControl: View {
     @State private var isSettling = false
     @State private var pendingSelection: ThinkingEffort?
     @State private var endpointPulse = 0
-    @State private var dragBoundary: Int?
+    @State private var dragSelectionIndex: Int?
     private var efforts: [ThinkingEffort] { presentation.supportedThinkingEfforts }
     private var selectedIndex: Int {
         efforts.firstIndex(where: { $0 == presentation.thinkingLevel }) ?? 0
@@ -127,13 +127,11 @@ struct ComposerThinkingControl: View {
                 selectionGeneration += 1
                 isSettling = false
                 isDragging = true
-                dragBoundary = nil
+                dragSelectionIndex = nil
                 move(to: fraction)
             }, onDrag: { fraction in
                 guard enabled, isDragging else { return }
                 move(to: fraction)
-            }, onOverscroll: { fraction in
-                overscroll(to: fraction)
             }, onDragEnded: { fraction in
                 guard enabled, isDragging else { synchronize(); return }
                 move(to: fraction)
@@ -164,23 +162,23 @@ struct ComposerThinkingControl: View {
         transaction.disablesAnimations = true
         withTransaction(transaction) { position = bounded * Double(max(0, efforts.count - 1)) }
         let index = min(max(0, Int(position.rounded())), max(0, efforts.count - 1))
-        if efforts.indices.contains(index) { presentation.previewThinkingEffort = efforts[index] }
-    }
-
-    private func overscroll(to fraction: Double) {
-        guard enabled, isDragging, efforts.count > 1 else { return }
-        // Ignore projection roundoff at the exact endpoint. This observes the
-        // finger only; thumb geometry and all settling animations stay clamped.
-        let boundary: Int? = fraction < -0.000001 ? 0 : fraction > 1.000001 ? efforts.count - 1 : nil
-        if let boundary, dragBoundary != boundary { WorkspaceHaptics.shared.play(.thinkingBoundary) }
-        dragBoundary = boundary
+        if efforts.indices.contains(index) {
+            presentation.previewThinkingEffort = efforts[index]
+            if isDragging {
+                // Track the finger's detent independently of committed model
+                // settings. Seed quietly on pickup, then tick on each change.
+                let changed = dragSelectionIndex.map { $0 != index } ?? false
+                dragSelectionIndex = index
+                if changed { WorkspaceHaptics.shared.play(.thinkingDetent) }
+            }
+        }
     }
 
     private func cancelPreview() {
         selectionGeneration += 1
         isDragging = false
         isSettling = false
-        dragBoundary = nil
+        dragSelectionIndex = nil
         presentation.previewThinkingEffort = nil
     }
 
@@ -213,7 +211,7 @@ struct ComposerThinkingControl: View {
             isSettling = false
             if presentation.selectedThinkingEffort != pendingSelection {
                 presentation.onSelectThinking(pendingSelection)
-                WorkspaceHaptics.shared.play(.thinkingDetent)
+                if !fromDrag { WorkspaceHaptics.shared.play(.thinkingDetent) }
             }
             presentation.previewThinkingEffort = nil
             if endpoint, !fromDrag || !alreadyArrived { endpointPulse &+= 1 }
