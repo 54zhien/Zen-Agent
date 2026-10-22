@@ -22,7 +22,7 @@ final class SettingsUITests: XCTestCase {
         editor.tap(); editor.typeText("existing account draft")
         let identity = nativeEditorIdentity(probe)
         app.openWorkspaceSidebar()
-        app.buttons["new-conversation-configure"].tap()
+        app.buttons["sidebar-settings"].tap()
         app.buttons["settings-models"].tap()
         let use = app.buttons["用于当前会话"]
         XCTAssertTrue(use.waitForExistence(timeout: 5))
@@ -41,7 +41,7 @@ final class SettingsUITests: XCTestCase {
     }
 
     @MainActor
-    func testAppSpacePersistedUnconfiguredConversationHasFormalConfigure() {
+    func testAppSpacePersistedUnconfiguredConversationConfiguresThroughSettings() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
@@ -63,12 +63,13 @@ final class SettingsUITests: XCTestCase {
         let identity = nativeEditorIdentity(probe)
         XCTAssertNotNil(identity)
         app.openWorkspaceSidebar()
-        let configure = app.buttons["new-conversation-configure"]
-        guard configure.waitForExistence(timeout: 5) else {
-            XCTFail("App Space-created durable unconfigured Conversation must expose Sidebar Configure")
+        let settingsButton = app.buttons["sidebar-settings"]
+        XCTAssertFalse(app.buttons["new-conversation-configure"].exists)
+        guard settingsButton.waitForExistence(timeout: 5) else {
+            XCTFail("The single Settings entry must configure an App Space-created unconfigured Conversation")
             return
         }
-        configure.tap()
+        settingsButton.tap()
         let settings = app.descendants(matching: .any)["settings-page"]
         XCTAssertTrue(settings.waitForExistence(timeout: 5))
         app.buttons["settings-providers"].tap()
@@ -91,7 +92,8 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(send.wait(for: \.isEnabled, toEqual: true, timeout: 5))
         send.tap()
         app.openWorkspaceSidebar()
-        XCTAssertFalse(configure.exists)
+        XCTAssertFalse(app.buttons["new-conversation-configure"].exists)
+        XCTAssertTrue(settingsButton.exists)
     }
 
     @MainActor
@@ -243,7 +245,39 @@ final class SettingsUITests: XCTestCase {
     }
 
     @MainActor
-    func testSoulEditorCloseReturnsFocusToTheSameNativeConversationEditor() {
+    func testSettingsToFilesRestoresComposerOnlyAfterFilesCloses() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launch()
+        let editor = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        editor.tap(); editor.typeText("Settings to Files draft")
+        expect { app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=true;") == true }
+        let identity = nativeEditorIdentity(probe)
+        XCTAssertNotNil(identity)
+        app.openWorkspaceSidebar()
+        let gear = app.buttons["sidebar-settings"]
+        XCTAssertTrue(gear.waitForExistence(timeout: 5))
+        gear.tap()
+        let files = app.buttons["settings-files"]
+        XCTAssertTrue(files.waitForExistence(timeout: 5))
+        if !files.isHittable { app.descendants(matching: .any)["settings-page"].swipeUp() }
+        files.tap()
+        let close = app.buttons["files-workspace-close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5))
+        expect { !app.descendants(matching: .any)["settings-page"].exists
+            && !app.keyboards.firstMatch.exists }
+        close.tap()
+        expect { !close.exists && !app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=false;") == true }
+        XCTAssertEqual(nativeEditorIdentity(probe), identity)
+        XCTAssertEqual(editor.value as? String, "Settings to Files draft")
+    }
+
+    @MainActor
+    func testSoulEditorCloseKeepsTheSameNativeOwnerWithSidebarDismissedFocus() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
@@ -258,8 +292,7 @@ final class SettingsUITests: XCTestCase {
         let identity = (probe.value as? String)?.split(separator: ";")
             .first(where: { $0.hasPrefix("editorIdentity=") }).map(String.init)
         XCTAssertNotNil(identity)
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        app.openWorkspaceSidebar()
         let destination = app.buttons["sidebar-settings"]
         guard destination.waitForExistence(timeout: 5),
               destination.wait(for: \.isEnabled, toEqual: true, timeout: 5),
@@ -280,13 +313,16 @@ final class SettingsUITests: XCTestCase {
         soul.typeText("Unsaved Soul editor input")
         app.buttons["settings-close"].tap()
         expect { !page.exists && !soul.exists
-            && app.keyboards.firstMatch.exists
-            && (probe.value as? String)?.contains("focused=true;") == true }
+            && !app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=false;") == true }
         XCTAssertEqual((probe.value as? String)?.split(separator: ";")
             .first(where: { $0.hasPrefix("editorIdentity=") }).map(String.init), identity)
         XCTAssertTrue((editor.value as? String)?.contains("focused Settings draft") == true)
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        editor.tap()
+        expect { app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=true;") == true }
         app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
     }
 
@@ -296,7 +332,7 @@ final class SettingsUITests: XCTestCase {
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launchEnvironment["ZEN_NEW_CONFIGURE_UI_TEST"] = "1"
         app.launch()
-        let configure = app.buttons["new-conversation-configure"]
+        let settingsButton = app.buttons["sidebar-settings"]
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         let editor = app.textViews["conversation-composer-input"]
         editor.tap()
@@ -305,12 +341,13 @@ final class SettingsUITests: XCTestCase {
         XCTAssertFalse(unavailableSend.exists && unavailableSend.isEnabled)
         let admissionProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         app.openWorkspaceSidebar()
-        XCTAssertTrue(configure.waitForExistence(timeout: 10))
-        configure.tap()
+        XCTAssertFalse(app.buttons["new-conversation-configure"].exists)
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10))
+        settingsButton.tap()
         let settings = app.descendants(matching: .any)["settings-page"]
         guard settings.waitForExistence(timeout: 5) else {
-            print("New Settings after Configure: \(admissionProbe.value as? String ?? "missing probe")")
-            XCTFail("Configure did not present Settings for its uncommitted New owner")
+            print("New Settings after gear: \(admissionProbe.value as? String ?? "missing probe")")
+            XCTFail("Settings did not capture its uncommitted New owner")
             return
         }
         app.buttons["settings-providers"].tap()
@@ -342,7 +379,8 @@ final class SettingsUITests: XCTestCase {
         settingsClose.tap()
         expect { !settings.exists }
         app.openWorkspaceSidebar()
-        XCTAssertTrue(configure.exists, "configuration alone must not commit the New Conversation")
+        XCTAssertTrue(settingsButton.exists, "Settings stays reachable after configuring the New Conversation")
+        XCTAssertFalse(app.buttons["new-conversation-configure"].exists)
         editor.tap()
         expect { !app.descendants(matching: .any)["sidebar-rail"].exists }
         XCTAssertTrue((editor.value as? String)?.contains("first Send keeps its original draft") == true)
@@ -351,7 +389,8 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(send.wait(for: \.isEnabled, toEqual: true, timeout: 5))
         send.tap()
         app.openWorkspaceSidebar()
-        expect { !configure.exists }
+        XCTAssertTrue(settingsButton.exists)
+        XCTAssertFalse(app.buttons["new-conversation-configure"].exists)
         editor.tap()
         expect { !app.descendants(matching: .any)["sidebar-rail"].exists }
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
@@ -372,8 +411,7 @@ final class SettingsUITests: XCTestCase {
         app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        app.openWorkspaceSidebar()
         let settings = app.buttons["sidebar-settings"]
         guard settings.waitForExistence(timeout: 5),
               settings.wait(for: \.isEnabled, toEqual: true, timeout: 5),
@@ -425,8 +463,7 @@ final class SettingsUITests: XCTestCase {
     private func openAppearance(in app: XCUIApplication) -> Bool {
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        app.openWorkspaceSidebar()
         let settings = app.buttons["sidebar-settings"]
         guard settings.waitForExistence(timeout: 5),
               settings.wait(for: \.isEnabled, toEqual: true, timeout: 5),

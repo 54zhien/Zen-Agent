@@ -2,7 +2,7 @@ import XCTest
 
 final class ConversationSearchUITests: XCTestCase {
     @MainActor
-    func testPlainExitRestoresTheSameNativeEditingOwner() {
+    func testPlainExitKeepsTheSameNativeOwnerWithSidebarDismissedFocus() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
@@ -25,14 +25,18 @@ final class ConversationSearchUITests: XCTestCase {
         app.buttons["conversation-search-close"].tap()
         expect { editor.exists }
         print("SEARCH_EXIT_NATIVE \(probe.value as? String ?? "missing")")
-        expect { (probe.value as? String)?.contains("focused=true;") == true }
+        expect { !app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=false;") == true }
         print("SEARCH_EXIT_NATIVE_SETTLED \(probe.value as? String ?? "missing")")
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
         XCTAssertEqual(editorIdentity(probe.value as? String), identity)
         XCTAssertTrue((editor.value as? String)?.contains("focused Search draft") == true)
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         XCTAssertFalse(input.exists)
         let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        editor.tap()
+        expect { app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=true;") == true }
         app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
     }
 
@@ -91,8 +95,7 @@ final class ConversationSearchUITests: XCTestCase {
     private func openSearch(_ app: XCUIApplication) -> Bool {
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        app.openWorkspaceSidebar()
         let search = app.buttons["sidebar-search"]
         guard search.waitForExistence(timeout: 5),
               search.wait(for: \.isEnabled, toEqual: true, timeout: 5) else {

@@ -189,46 +189,6 @@ struct AttachmentSendTests {
         #expect(coordinator.submission == .idle)
     }
 
-    @Test("attachmentIdentityCarriesVersionAndFingerprintWithoutBytes")
-    func attachmentIdentityCarriesVersionAndFingerprintWithoutBytes() throws {
-        let fingerprint = "sha256:\(String(repeating: "a", count: 64))"
-        let reference = AttachmentReference(
-            id: "asset-1",
-            versionID: "version-1",
-            fingerprint: fingerprint,
-            displayName: "scan.png",
-            kind: .image
-        )
-        let sendAttachment = SendAttachment(
-            assetID: reference.id,
-            versionID: reference.versionID,
-            fingerprint: reference.fingerprint,
-            kind: reference.kind,
-            displayName: reference.displayName
-        )
-
-        #expect(reference.versionID == "version-1")
-        #expect(reference.fingerprint == fingerprint)
-        #expect(Mirror(reflecting: reference).children.compactMap(\.label)
-            == ["id", "versionID", "fingerprint", "displayName", "kind"])
-        #expect(Mirror(reflecting: sendAttachment).children.compactMap(\.label)
-            == ["assetID", "versionID", "fingerprint", "kind", "displayName"])
-
-        let root = try #require(repositoryRoot())
-        let sourceURL = root.appendingPathComponent("App/Conversation/ComposerAttachment.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-        let declarationStart = try #require(source.range(of: "struct AttachmentReference"))
-        let declarationEnd = try #require(source[declarationStart.lowerBound...].firstIndex(of: "}"))
-        let declaration = source[declarationStart.lowerBound...declarationEnd]
-        for line in declaration.split(separator: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.hasPrefix("let ") else { continue }
-            for forbidden in ["Data", "URL", "bytes", "content"] {
-                #expect(!trimmed.localizedCaseInsensitiveContains(forbidden))
-            }
-        }
-    }
-
     @Test("ingestRejectsMismatchedAssetVersionOrFingerprint")
     func ingestRejectsMismatchedAssetVersionOrFingerprint() async throws {
         let supportRoot = temporarySupportRoot()
@@ -478,27 +438,4 @@ struct AttachmentSendTests {
             .appendingPathComponent("Application Support", isDirectory: true)
     }
 
-    private func repositoryRoot() -> URL? {
-        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-
-        for _ in 0..<8 {
-            var appIsDirectory: ObjCBool = false
-            let hasApp = FileManager.default.fileExists(
-                atPath: directory.appendingPathComponent("App", isDirectory: true).path,
-                isDirectory: &appIsDirectory
-            ) && appIsDirectory.boolValue
-            var testsIsDirectory: ObjCBool = false
-            let hasTests = FileManager.default.fileExists(
-                atPath: directory.appendingPathComponent("Tests", isDirectory: true).path,
-                isDirectory: &testsIsDirectory
-            ) && testsIsDirectory.boolValue
-            if hasApp && hasTests { return directory }
-
-            let parent = directory.deletingLastPathComponent()
-            guard parent != directory else { break }
-            directory = parent
-        }
-
-        return nil
-    }
 }

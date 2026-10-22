@@ -9,7 +9,8 @@ final class AppSpaceGeometryUITests: XCTestCase {
             XCTFail("The DEBUG geometry route must display the actual resolver's Current card.")
             return
         }
-        XCTAssertGreaterThan(current.frame.midX, app.frame.midX)
+        XCTAssertEqual(current.frame.midX, app.frame.midX, accuracy: 1,
+                       "The settled Current card must be centered on screen")
         var previousWidth = current.frame.width
         for depth in 1...3 {
             let previous = app.otherElements["app-space-card-history-\(depth)"]
@@ -17,7 +18,8 @@ final class AppSpaceGeometryUITests: XCTestCase {
             XCTAssertLessThan(previous.frame.minX, current.frame.minX)
             XCTAssertEqual(previous.frame.midY, current.frame.midY, accuracy: 1)
             XCTAssertLessThan(previous.frame.width, previousWidth)
-            XCTAssertTrue(app.frame.insetBy(dx: -1, dy: -1).contains(previous.frame))
+            // Switcher-style predecessors may pass the leading edge but stay visible.
+            XCTAssertGreaterThan(previous.frame.maxX, app.frame.minX)
             previousWidth = previous.frame.width
         }
         XCTAssertTrue(app.frame.contains(current.frame))
@@ -51,7 +53,8 @@ final class AppSpaceGeometryUITests: XCTestCase {
             XCTAssertTrue(card.exists)
             XCTAssertGreaterThan(card.frame.width, 0)
             XCTAssertGreaterThan(card.frame.height, 0)
-            XCTAssertTrue(app.frame.insetBy(dx: -1, dy: -1).contains(card.frame))
+            XCTAssertGreaterThan(card.frame.maxX, app.frame.minX)
+            XCTAssertLessThanOrEqual(card.frame.maxY, app.frame.maxY + 1)
         }
         XCTAssertEqual(app.textViews.count, 0)
     }

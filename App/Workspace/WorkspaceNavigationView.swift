@@ -7,8 +7,13 @@ private struct SidebarRailProgressLayer: View {
     let layout: SidebarRailLayout
     let travel: CGFloat
     let height: CGFloat
+    let pageSize: CGSize
+    let roundsPageBottom: Bool
+    let pageCornerRadius: CGFloat
+    let windowCornerRadius: CGFloat
     let onSelect: (WorkspaceOverlayRoute) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.layoutDirection) private var direction
 
     var body: some View {
         let progress = CGFloat(state.progress)
@@ -17,21 +22,29 @@ private struct SidebarRailProgressLayer: View {
         let isInteractive = state.isOpen && !isDragging && settlementID == nil
 
         if progress > 0 || settlementID != nil {
+            let settings = layout.settingsPlacement(windowCornerRadius: windowCornerRadius,
+                                                    isRightToLeft: direction == .rightToLeft)
             SidebarRailView(
-                availableRoutes: isInteractive ? availableRoutes : [],
-                conversationActions: isInteractive ? state.conversationActions : [],
+                availableRoutes: availableRoutes,
+                conversationActions: state.conversationActions,
+                isInteractive: isInteractive,
+                settingsLeadingShift: settings.leadingShift,
                 onAction: state.perform,
                 onSelect: onSelect
             )
             .padding(.leading, layout.leading)
             .padding(.trailing, layout.leading)
             .padding(.top, layout.top)
-            .padding(.bottom, layout.bottom)
+            .padding(.bottom, settings.bottom)
             .frame(width: travel, height: height)
-            // The native Surface covers the full viewport; reveal only the exposed
-            // portion of the rail above its hit region.
+            // A straight reveal edge cuts controls off inside the page's exposed
+            // corner area. Subtract the rounded page silhouette instead.
             .mask(alignment: .leading) {
-                Rectangle().frame(width: travel * progress)
+                SidebarRailRevealShape(pageSize: pageSize, radius: pageCornerRadius,
+                    roundsBottom: roundsPageBottom, offset: travel * progress,
+                    isRightToLeft: direction == .rightToLeft)
+                    .fill(style: FillStyle(eoFill: true))
+                    .clipped()
             }
             .opacity(SidebarProgressPresentation.opacity(forProgress: Double(progress)))
             .animation(reduceMotion || isDragging ? nil : .easeOut(duration: 0.22), value: progress)
@@ -51,27 +64,35 @@ struct WorkspaceNavigationView<Content: View>: View {
     let windowInsets: EdgeInsets
     let windowCornerRadius: CGFloat
     let keepsFullConversationViewport: Bool
+    let sidebarPageHeight: CGFloat?
+    let roundsSidebarPageBottom: Bool
     let content: Content
     let model: AppShellModel?
     let captureFocus: () -> ComposerOverlayFocus?
-    let canConfigureNew: (String) -> Bool
+    private struct SettingsPresentation: Identifiable {
+        let id: UUID
+        let model: SettingsWorkspaceModel
+    }
     @State private var overlays: WorkspaceOverlayCoordinator?
+    @State private var presentedSettingsID: UUID?
     @Environment(\.layoutDirection) private var direction
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(state: WorkspaceNavigationState, model: AppShellModel? = nil,
          captureFocus: @escaping () -> ComposerOverlayFocus? = { nil },
-         canConfigureNew: @escaping (String) -> Bool = { _ in false }, spatiallyAvailable: Bool,
+         spatiallyAvailable: Bool,
          windowInsets: EdgeInsets = EdgeInsets(), windowCornerRadius: CGFloat = 0,
          keepsFullConversationViewport: Bool = false,
+         sidebarPageHeight: CGFloat? = nil, roundsSidebarPageBottom: Bool = true,
          context: @escaping () -> WorkspaceSidebarNativeContext?, @ViewBuilder content: () -> Content) {
         self.state = state
         self.model = model; self.captureFocus = captureFocus
-        self.canConfigureNew = canConfigureNew
         self.spatiallyAvailable = spatiallyAvailable
         self.windowInsets = windowInsets
         self.windowCornerRadius = windowCornerRadius
         self.keepsFullConversationViewport = keepsFullConversationViewport
+        self.sidebarPageHeight = sidebarPageHeight
+        self.roundsSidebarPageBottom = roundsSidebarPageBottom
         self.context = context
         self.content = content()
     }
@@ -84,6 +105,11 @@ struct WorkspaceNavigationView<Content: View>: View {
                 SidebarRailProgressLayer(state: state,
                     availableRoutes: overlays?.availableRoutes ?? [], layout: rail,
                     travel: travel, height: geometry.size.height,
+                    pageSize: CGSize(width: geometry.size.width, height: sidebarPageHeight ?? geometry.size.height),
+                    roundsPageBottom: roundsSidebarPageBottom,
+                    pageCornerRadius: max(windowCornerRadius,
+                        model?.splitWorkspace != nil ? SplitTargetingGeometry.paneCornerRadius : 0),
+                    windowCornerRadius: windowCornerRadius,
                     onSelect: { route in
                         overlays?.enter(route, eligible: context()?.allowsOpening == true, captureFocus: captureFocus)
                     })
@@ -119,18 +145,24 @@ struct WorkspaceNavigationView<Content: View>: View {
                         .padding(.top, windowInsets.top)
                         .transition(.opacity).zIndex(100)
                 }
-                if state.overlay == .settings, let overlays, let settings = overlays.settings, let id = state.overlayID {
-                    SettingsWorkspaceView(model: settings, onClose: { overlays.close(expectedID: id) },
-                        onFiles: { overlays.openFilesFromSettings(expectedID: id) })
-                        .id(id).padding(.top, windowInsets.top)
-                        .transition(.opacity).zIndex(100)
-                }
             }
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: state.overlay)
             .background(Color(uiColor: .systemBackground))
             .background(WorkspaceSidebarGestureBridge(state: state, travel: travel,
                 isRightToLeft: direction == .rightToLeft, context: context))
+        }
+        .sheet(item: settingsPresentation, onDismiss: {
+            if let id = presentedSettingsID {
+                overlays?.settingsDidDismiss(expectedID: id)
+                presentedSettingsID = nil
+            }
+        }) { item in
+            SettingsWorkspaceView(model: item.model,
+                onClose: { overlays?.close(expectedID: item.id) },
+                onFiles: { overlays?.openFilesFromSettings(expectedID: item.id) })
+                .presentationDetents([.large])
+                .onAppear { presentedSettingsID = item.id }
         }
         .ignoresSafeArea(.container)
         // Request the admitted Rail edge explicitly from UIKit. Keep the
@@ -143,11 +175,20 @@ struct WorkspaceNavigationView<Content: View>: View {
                 overlays = WorkspaceOverlayCoordinator(store: store, shell: model, navigation: state)
             }
             state.onReset = { [weak overlays] in overlays?.reset() }
-            state.onConfigureNew = { [weak overlays] id in
-                overlays?.enterNewSettings(id: id, eligible: canConfigureNew(id), captureFocus: captureFocus)
-            }
         }
-        .onDisappear { overlays?.reset(); state.onReset = nil; state.onConfigureNew = nil }
+        .onDisappear { overlays?.reset(); state.onReset = nil }
+    }
+
+    private var settingsPresentation: Binding<SettingsPresentation?> {
+        let presentationID = state.overlayID
+        return Binding(get: {
+            guard state.overlay == .settings, let id = presentationID, state.overlayID == id,
+                  let settings = overlays?.settings else { return nil }
+            return SettingsPresentation(id: id, model: settings)
+        }, set: { item in
+            guard item == nil, let id = presentationID else { return }
+            overlays?.close(expectedID: id)
+        })
     }
 
     private var defersLeadingSystemGestures: Bool {

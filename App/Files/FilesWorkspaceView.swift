@@ -14,7 +14,7 @@ struct FilesWorkspaceView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        VStack(spacing: 0) {
+        NavigationStack {
             List {
                 if model.items.isEmpty, !model.isLoading {
                     Text("还没有文件").foregroundStyle(.secondary).accessibilityIdentifier("files-workspace-empty")
@@ -61,18 +61,19 @@ struct FilesWorkspaceView: View {
             }
             .listStyle(.plain)
             .scrollEdgeEffectStyle(.soft, for: .all)
-            .safeAreaBar(edge: .top, spacing: 0) {
-                HStack {
-                    Text("文件").font(Typography.font(for: .interfaceTitle, dynamicTypeSize: dynamicTypeSize))
-                    Spacer()
+            .navigationTitle("文件")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button { presentation = Presentation(kind: .importFile) } label: {
-                        Image(systemName: "plus").frame(width: 44, height: 44)
+                        Image(systemName: "plus")
                     }
                     .disabled(model.isWorking).accessibilityLabel("导入文件").accessibilityIdentifier("files-import")
-                    Button(action: onClose) { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(role: .close, action: onClose) { Image(systemName: "xmark") }
                         .accessibilityLabel("关闭文件页面").accessibilityIdentifier("files-workspace-close")
                 }
-                .padding(.horizontal, 20).padding(.vertical, 8)
             }
         }
         .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))

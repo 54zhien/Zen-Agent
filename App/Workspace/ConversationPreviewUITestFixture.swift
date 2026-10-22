@@ -24,12 +24,25 @@ struct ConversationPreviewUITestFixture: View {
                 protectionRequirement: .bestEffort)
             self.files = files
             let credentials = CredentialStore(secrets: KeychainSecretBackend(), metadataRepository: store)
-            let provider = FakeProvider()
+            let keyboardMenuFixture = ProcessInfo.processInfo.environment["ZEN_KEYBOARD_MENU_UI_TEST"] == "1"
+            let provider = keyboardMenuFixture
+                ? FakeProvider(instanceID: .init(rawValue: "preview-unavailable-instance"), modelNames: ["preview-model"])
+                : FakeProvider()
             let router = RunEventRouter()
             let runtime = AppAssembly.makeRuntime(store: store, provider: provider,
                 credentials: credentials, router: router, toolRegistry: .empty, managedFiles: files)
             let defaults = UserDefaults(suiteName: "ZenAgent.PreviewHandoffUITest")!
             defaults.removePersistentDomain(forName: "ZenAgent.PreviewHandoffUITest")
+            if keyboardMenuFixture {
+                let reference = CredentialReference(id: "keyboard-menu-ui-fixture-\(UUID())")
+                try credentials.provision(SecretValue("keyboard-menu-ui-fixture-key"), as: reference)
+                let instance = ProviderInstanceID(rawValue: "preview-unavailable-instance")
+                try store.createProviderInstance(ProviderInstance(id: instance, providerID: .deepSeek,
+                    displayName: "Keyboard menu fixture", baseURL: nil, configRevision: .initial,
+                    credentialReference: reference))
+                defaults.set(instance.rawValue, forKey: AppShellModel.defaultInstanceIDKey)
+                defaults.set("preview-model", forKey: AppShellModel.defaultModelIDKey)
+            }
             if ProcessInfo.processInfo.environment["ZEN_EXISTING_CONFIGURE_UI_TEST"] == "1" {
                 let reference = CredentialReference(id: "existing-configure-\(UUID())", kind: .apiKey)
                 try credentials.provision(SecretValue("existing-configure-ui-fixture-key"), as: reference)
@@ -56,6 +69,20 @@ struct ConversationPreviewUITestFixture: View {
     var body: some View {
         AppShellRootView(model: model)
             .padding(.bottom, hiddenViewportInset)
+            .overlay(alignment: .topLeading) {
+                // XCTest's public held-drag API has one endpoint. Lower-source
+                // keyboard cases prepare the arrangement through the real model;
+                // native gesture tests cover activating and returning to this zone.
+                if ProcessInfo.processInfo.environment["ZEN_BOTTOM_SOURCE_SPLIT_UI_TEST"] == "1",
+                   model.pane?.conversationID == "preview-ui-11", model.splitWorkspace == nil {
+                    Button("Prepare lower-source Split") {
+                        precondition(model.commitSplitDrop(SplitDropIntent(
+                            conversationID: model.conversationID, slot: .bottom)))
+                    }
+                    .accessibilityIdentifier("preview-bottom-source-split")
+                    .padding(.top, 150)
+                }
+            }
             .onChange(of: model.splitOpenError) { _, error in
                 guard error != nil,
                       ProcessInfo.processInfo.environment["ZEN_RECENT_SPLIT_FAILURE_UI_TEST"] == "1" else { return }
@@ -92,6 +119,13 @@ struct ConversationPreviewUITestFixture: View {
                 guard await model.openConversation(id: "preview-ui-11") else {
                     if !Task.isCancelled { fatalError("Preview history fixture could not open") }
                     return
+                }
+                // Sidebar pixel cases arrange their viewport independently of Lift;
+                // dedicated interaction tests still enter Split through the Composer.
+                if let source = ProcessInfo.processInfo.environment["ZEN_SIDEBAR_SPLIT_SOURCE_UI_TEST"],
+                   let slot = SplitDropSlot(rawValue: source) {
+                    precondition(model.commitSplitDrop(SplitDropIntent(
+                        conversationID: model.conversationID, slot: slot)))
                 }
             }
             .overlay(alignment: .bottomLeading) {

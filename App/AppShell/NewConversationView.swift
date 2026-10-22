@@ -65,7 +65,6 @@ struct NewConversationView: View {
         return isSource ? split.sourceSlot : split.emptySlot
     }
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @State private var isProviderSetupPresented = false
     @State private var isRecentConversationsPresented = false
     @State private var historyAction: Task<Void, Never>?
     @State private var recentOpenFailure: RecentConversationOpenFailure?
@@ -196,13 +195,6 @@ struct NewConversationView: View {
                     .background(.regularMaterial)
                 }
             }
-            .sheet(isPresented: $isProviderSetupPresented) {
-                if let providerSetup = model.providerSetup {
-                    ProviderSetupView(model: providerSetup)
-                } else {
-                    ProgressView()
-                }
-            }
             .onChange(of: model.persistedTurnCount) { previousCount, currentCount in
                 guard currentCount > previousCount else { return }
                 model.refreshRecentConversations()
@@ -271,7 +263,7 @@ struct NewConversationView: View {
                 }
             }
         }
-        .onChange(of: isProviderSetupPresented || isRecentConversationsPresented) { _, presented in
+        .onChange(of: isRecentConversationsPresented) { _, presented in
             lift?.setOverlayPresented(presented)
         }
         .onChange(of: isRecentConversationsPresented) { _, presented in
@@ -303,8 +295,6 @@ struct NewConversationView: View {
     private var sidebarActions: Set<WorkspaceConversationAction> {
         var result: Set<WorkspaceConversationAction> = [.new]
         if !model.recentConversations.isEmpty || model.recentListingError != nil { result.insert(.recent) }
-        if model.splitWorkspace == nil, canOpenAccessibleSplit { result.formUnion([.splitTop, .splitBottom]) }
-        if isSource, model.currentSettingsNewID == presentedID { result.insert(.configure) }
         return result
     }
     private func publishSidebarActions() {
@@ -317,16 +307,8 @@ struct NewConversationView: View {
             case .new:
                 if isSource { model.newConversation() } else { _ = model.createNewInSplit() }
             case .recent: isRecentConversationsPresented = true
-            case .splitTop: openAccessibleSplit(.top)
-            case .splitBottom: openAccessibleSplit(.bottom)
-            case .configure: configureNew()
             }
         }
-    }
-
-    private func configureNew() {
-        if let workspaceNavigation { workspaceNavigation.onConfigureNew?(presentedID) }
-        else { isProviderSetupPresented = true }
     }
 
     private func openRecentConversation(id: String) {
@@ -364,20 +346,6 @@ struct NewConversationView: View {
         historyAction = nil
         recentOpenTarget = nil
         recentOpenFailure = nil
-    }
-
-    private var canOpenAccessibleSplit: Bool {
-        guard let pane = model.pane, lift?.state.phase == .full else { return false }
-        return pane.composer.canBeginSurfaceLift(
-            keyboardVisible: pane.composer.draft.presentationState == .editing,
-            stableBottomAnchor: true)
-    }
-
-    private func openAccessibleSplit(_ slot: SplitDropSlot) {
-        guard canOpenAccessibleSplit else { return }
-        withAnimation(.easeOut(duration: 0.12)) {
-            _ = model.commitSplitDrop(SplitDropIntent(conversationID: model.conversationID, slot: slot))
-        }
     }
 
 }

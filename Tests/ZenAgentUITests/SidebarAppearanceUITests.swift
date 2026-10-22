@@ -152,8 +152,11 @@ final class SidebarAppearanceUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(top.minY, app.frame.minY + safeTop + 11,
                                     "The first control must begin below the status area")
         XCTAssertEqual(top.minY, app.frame.minY + max(safeTop + 12, radius - 28), accuracy: 1)
-        XCTAssertEqual(bottom.midX, top.midX, accuracy: 1,
-                       "The rail must keep its control column aligned from top to bottom")
+        // Settings shares the display corner's center when the corner is large
+        // enough to hold it; otherwise it keeps the control column.
+        let expectedSettingsMidX = radius >= 28 + 8 ? app.frame.minX + radius : top.midX
+        XCTAssertEqual(bottom.midX, expectedSettingsMidX, accuracy: 1,
+                       "Settings must be concentric with the display corner, or stay in the control column")
         XCTAssertEqual(top.minX - app.frame.minX, 20, accuracy: 1,
                        "The portrait rail must keep a 20pt exposed-screen gap around its controls")
         guard let sheet = rect("surfaceFrame", from: native) else {
@@ -211,11 +214,64 @@ final class SidebarAppearanceUITests: XCTestCase {
     }
 
     @MainActor
+    func testLightSplitPickerRestoresThePageBackground() throws {
+        for (sourceInTopPane, occupied) in [(true, false), (false, false), (true, true), (false, true)] {
+            let app = launchLightAppearance(splitSource: sourceInTopPane ? "top" : "bottom")
+            let picker = app.scrollViews["split-empty-pane-picker"]
+            XCTAssertTrue(picker.waitForExistence(timeout: 10))
+            let layout = sourceInTopPane ? "source in top pane" : "source in bottom pane"
+            let capture = app.screenshot()
+            attach(capture, named: "Light Split picker before Sidebar, \(layout)")
+            for x in [picker.frame.minX + 4, picker.frame.maxX - 4] {
+                let point = CGPoint(x: x, y: picker.frame.midY)
+                guard let luminance = sampledLuminance(capture, appFrame: app.frame, at: point) else {
+                    XCTFail("The rendered picker background must be measurable")
+                    return
+                }
+                XCTAssertGreaterThan(luminance, 0.8, "The light picker must not revert to a black page")
+            }
+            XCTAssertFalse(app.buttons["split-entry"].exists)
+            if occupied {
+                app.buttons["split-history-preview-ui-10"].tap()
+                XCTAssertTrue(app.descendants(matching: .any)["split-secondary-pane"].waitForExistence(timeout: 10))
+            }
+            let top = try XCTUnwrap(splitViewportFrame(app, slot: "top"))
+            let bottom = try XCTUnwrap(splitViewportFrame(app, slot: "bottom"))
+
+            app.openWorkspaceSidebar()
+            let rail = app.descendants(matching: .any)["sidebar-rail"]
+            XCTAssertTrue(rail.waitForExistence(timeout: 10))
+            XCTAssertTrue(app.buttons["sidebar-settings"].isHittable)
+            if !occupied { XCTAssertTrue(picker.exists, "The empty Pane picker should remain mounted beside the open Sidebar") }
+            let expanded = app.screenshot()
+            XCTAssertEqual(splitViewportFrame(app, slot: "top"), top)
+            XCTAssertEqual(splitViewportFrame(app, slot: "bottom"), bottom)
+            let sampleX = rail.frame.maxX + 90
+            for edgeY in [top.maxY, bottom.minY] {
+                var edgeSamples: [Double] = []
+                for offset in [CGFloat(-0.5), -0.25, 0, 0.25, 0.5] {
+                    // This fixture is blank here; its right-aligned bubble can reach the far edge.
+                    let luminance = sampledLuminance(expanded, appFrame: app.frame,
+                        at: CGPoint(x: sampleX, y: edgeY + offset))
+                    if let luminance { edgeSamples.append(luminance) }
+                }
+                XCTAssertLessThan(edgeSamples.min() ?? 1, 0.98,
+                    "Each expanded Split Pane must keep its own visible outline, including the picker")
+                let outside = edgeY == top.maxY ? edgeY + 1.5 : edgeY - 1.5
+                let shadow = try XCTUnwrap(sampledLuminance(expanded, appFrame: app.frame,
+                    at: CGPoint(x: sampleX, y: outside)))
+                XCTAssertLessThan(shadow, 0.995, "Each Pane must cast a faint shadow into the gap")
+                XCTAssertGreaterThan(shadow, 0.85, "The gap must not acquire a solid dark Divider background")
+            }
+            attach(expanded, named: "Split seam with Sidebar, \(layout), occupied=\(occupied)")
+            app.terminate()
+        }
+    }
+
+    @MainActor
     func testSplitLowerPaneKeepsLightBottomCornersAboveVisibleKeyboard() {
         let app = launchLightAppearance()
-        app.openWorkspaceSidebar()
-        app.buttons["split-entry"].tap()
-        app.buttons["split-open-top"].tap()
+        app.openWorkspaceSplit()
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()
@@ -276,11 +332,12 @@ final class SidebarAppearanceUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchLightAppearance() -> XCUIApplication {
+    private func launchLightAppearance(splitSource: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleInterfaceStyle", "Light"]
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
+        if let splitSource { app.launchEnvironment["ZEN_SIDEBAR_SPLIT_SOURCE_UI_TEST"] = splitSource }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         return app

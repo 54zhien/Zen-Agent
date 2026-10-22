@@ -4,7 +4,7 @@ import Testing
 
 @testable import ZenAgent
 
-@Suite("Tool approval UI red probes")
+@Suite("Tool approval projection and decisions")
 @MainActor
 struct ToolApprovalUITests {
 
@@ -126,22 +126,18 @@ struct ToolApprovalUITests {
         let cardB1 = try #require(approvalsB1.first)
         let cardB2 = try #require(approvalsB2.first)
 
-        #expect(renderedDisclosureText(cardA1) == renderedDisclosureText(cardA2))
-        #expect(renderedDisclosureText(cardA1).contains("Frozen target: quarterly report"))
-        #expect(renderedDisclosureText(cardA1).contains("Frozen impact: replace the existing report"))
-        #expect(renderedDisclosureText(cardB1) != renderedDisclosureText(cardB2))
-        #expect(renderedDisclosureText(cardB1).contains("Frozen target: first destination"))
-        #expect(renderedDisclosureText(cardB2).contains("Frozen impact: replace the second document"))
-
-        let sources = try #require(sourceFiles())
-        let textLines = (sources["App/Conversation/ToolApprovalCardView.swift"] ?? "")
-            .split(whereSeparator: \.isNewline)
-            .map(String.init)
-            .filter { $0.contains("Text(") }
-        #expect(textLines.contains { $0.contains("Text(approval.toolDisplayName)") })
-        #expect(textLines.contains { $0.contains("Text(approval.action)") })
-        #expect(textLines.contains { $0.contains("Text(approval.targetDescription)") })
-        #expect(textLines.contains { $0.contains("Text(approval.keyImpact)") })
+        for card in [cardA1, cardA2, cardB1, cardB2] {
+            #expect(card.toolDisplayName == "Frozen Intent Probe")
+            #expect(card.action == "Replace document")
+        }
+        for card in [cardA1, cardA2] {
+            #expect(card.targetDescription == "Frozen target: quarterly report")
+            #expect(card.keyImpact == "Frozen impact: replace the existing report")
+        }
+        #expect(cardB1.targetDescription == "Frozen target: first destination")
+        #expect(cardB1.keyImpact == "Frozen impact: create the first document")
+        #expect(cardB2.targetDescription == "Frozen target: second destination")
+        #expect(cardB2.keyImpact == "Frozen impact: replace the second document")
     }
 
     @Test("approvalOffersOnlySingleCallDecision")
@@ -157,18 +153,7 @@ struct ToolApprovalUITests {
         let run = try #require(try environment.store.run(id: call.agentRunID))
         let approvals = try await runtime.pendingToolApprovals(in: run.conversationID)
         let card = try #require(approvals.first)
-        let sources = try #require(sourceFiles())
-        let cardSource = try #require(sources["App/Conversation/ToolApprovalCardView.swift"])
-
-        #expect(ToolApprovalDecision.allCases == [ToolApprovalDecision.approveOnce, ToolApprovalDecision.rejectOnce])
         #expect(card.availableDecisions == [ToolApprovalDecision.approveOnce, ToolApprovalDecision.rejectOnce])
-        #expect(ToolApprovalDecision.approveOnce.title == "批准本次")
-        #expect(ToolApprovalDecision.rejectOnce.title == "拒绝本次")
-        #expect(cardSource.contains("ForEach(ToolApprovalDecision.allCases"))
-        #expect(!cardSource.contains("始终允许"))
-        #expect(!cardSource.contains("总是允许"))
-        #expect(!cardSource.localizedCaseInsensitiveContains("allowAlways"))
-        #expect(!cardSource.localizedCaseInsensitiveContains("allowConversation"))
     }
 
     @Test("approveResumesSameToolCallViaExecuteApproved")
@@ -804,11 +789,6 @@ struct ToolApprovalUITests {
     private func decodeIntent(from call: ToolCallRecord) throws -> ToolExecutionIntent {
         let json = try #require(call.executionIntent)
         return try JSONDecoder().decode(ToolExecutionIntent.self, from: Data(json.utf8))
-    }
-
-    private func renderedDisclosureText(_ approval: ToolApprovalProjection) -> String {
-        [approval.toolDisplayName, approval.action, approval.targetDescription, approval.keyImpact]
-            .joined(separator: "\n")
     }
 
     private func makeLiveStore(

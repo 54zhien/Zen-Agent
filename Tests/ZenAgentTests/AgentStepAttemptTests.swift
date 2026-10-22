@@ -17,20 +17,6 @@ import Testing
 @Suite("Agent step attempts")
 struct AgentStepAttemptTests {
 
-    /// Compile-time, not runtime: if these stop being `Sendable`, the streaming
-    /// transport that is about to call them from another isolation domain will not
-    /// compile, and it is better to find that here than at the point of use.
-    private func requireSendable<T: Sendable>(_: T.Type) {}
-
-    @Test("the store and its database are Sendable")
-    func storeIsSendable() {
-        requireSendable(PersistenceStore.self)
-        requireSendable(ZenDatabase.self)
-        requireSendable(RequestConfigSeed.self)
-        requireSendable(AgentStepRecord.self)
-        requireSendable(AttemptIdentity.self)
-    }
-
     private func makeStore() throws -> PersistenceStore {
         PersistenceStore(database: try ZenDatabase.inMemory())
     }

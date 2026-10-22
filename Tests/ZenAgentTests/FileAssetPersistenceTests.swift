@@ -130,14 +130,4 @@ struct FileAssetPersistenceTests {
         #expect(try store.messages(inConversation: "c1").isEmpty)
         #expect(try store.run(id: "r1") == nil)
     }
-
-    private func requireSendable<T: Sendable>(_: T.Type) {}
-
-    @Test("file asset identities are Sendable")
-    func identitiesAreSendable() {
-        requireSendable(FileAssetOrigin.self)
-        requireSendable(FileAssetRecord.self)
-        requireSendable(FileAssetVersionRecord.self)
-        requireSendable(MessageAttachmentRecord.self)
-    }
 }

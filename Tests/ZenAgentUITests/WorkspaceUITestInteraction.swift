@@ -2,25 +2,113 @@ import XCTest
 
 @MainActor
 extension XCUIApplication {
+    /// Upper-source entry exercises the real Composer drag. Lower-source keyboard
+    /// fixtures use an explicit arrangement setup, not a synthetic private gesture.
+    func openWorkspaceSplit(sourceInTopPane: Bool = true,
+                            file: StaticString = #filePath, line: UInt = #line) {
+        let editor = textViews["conversation-composer-input"]
+        guard editor.waitForExistence(timeout: 15) else {
+            XCTFail("Split requires the mounted Composer", file: file, line: line)
+            return
+        }
+        if !sourceInTopPane {
+            let setup = buttons["preview-bottom-source-split"]
+            guard setup.waitForExistence(timeout: 10) else {
+                XCTFail("Lower-source cases must opt into their arrangement fixture", file: file, line: line)
+                return
+            }
+            setup.tap()
+            XCTAssertTrue(descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10),
+                file: file, line: line)
+            return
+        }
+        let probe = descendants(matching: .any)["surface-native-interaction-probe"]
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (probe.value as? String)?.contains("liftReady=true;") == true
+        }, object: nil)
+        guard XCTWaiter.wait(for: [ready], timeout: 10) == .completed else {
+            XCTFail("Split requires native Lift readiness: \(String(describing: probe.value))", file: file, line: line)
+            return
+        }
+        let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 1,
+            thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+        let opened = descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10)
+        XCTAssertTrue(opened, "Composer drag must open the Split picker", file: file, line: line)
+        if !opened {
+            print("SPLIT_ENTRY_FAILURE \(probe.value as? String ?? "missing native probe")")
+        }
+    }
+
     func openWorkspaceSidebar(file: StaticString = #filePath, line: UInt = #line) {
         let rail = descendants(matching: .any)["sidebar-rail"]
-        if rail.exists { return }
         XCTAssertTrue(textViews["conversation-composer-input"].waitForExistence(timeout: 15), file: file, line: line)
         let probes = [descendants(matching: .any)["surface-native-interaction-probe"],
                       descendants(matching: .any)["split-secondary-native-interaction-probe"]]
+        if !rail.exists { dismissWorkspaceInputForSidebar(file: file, line: line) }
         if probes.contains(where: { $0.exists }) {
             let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 probes.contains { ($0.value as? String)?.contains(";sidebarCanOpen=true;") == true }
             }, object: nil)
             XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed, file: file, line: line)
         }
-        dragWorkspaceSidebarEdge()
+        if !rail.exists {
+            dragWorkspaceSidebarEdge()
+        }
         guard rail.waitForExistence(timeout: 10) else {
             let receipt = probes.filter { $0.exists }.map { String(describing: $0.value) }.joined(separator: "\n")
             XCTFail("Sidebar did not open after one edge gesture. Native receipt: \(receipt)", file: file, line: line)
             return
         }
-        XCTAssertTrue(buttons["sidebar-settings"].wait(for: \.isEnabled, toEqual: true, timeout: 10), file: file, line: line)
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let native = probes.filter { $0.exists }
+            return (native.isEmpty || native.contains {
+                ($0.value as? String)?.contains("sidebar=open=true,progress=1.0,drag=false,settlement=nil") == true
+            }) && self.buttons["sidebar-settings"].isEnabled
+                && self.buttons["sidebar-settings"].isHittable
+        }, object: nil)
+        let settlement = XCTWaiter.wait(for: [settled], timeout: 10)
+        if settlement != .completed {
+            XCTContext.runActivity(named: "Sidebar controls after native settlement") { activity in
+                let screenshot = XCTAttachment(screenshot: self.screenshot())
+                screenshot.lifetime = .keepAlways
+                activity.add(screenshot)
+                let hierarchy = XCTAttachment(string: self.debugDescription)
+                hierarchy.lifetime = .keepAlways
+                activity.add(hierarchy)
+            }
+            for id in ["sidebar-settings", "sidebar-files", "sidebar-search"] {
+                let matches = buttons.matching(identifier: id)
+                print("SIDEBAR_AX id=\(id) count=\(matches.count)")
+                for element in matches.allElementsBoundByIndex.prefix(4) {
+                    print("SIDEBAR_AX id=\(id) label=\(element.label) enabled=\(element.isEnabled) frame=\(element.frame)")
+                }
+            }
+        }
+        XCTAssertEqual(settlement, .completed,
+            "Sidebar controls must be hittable after native opening settles: \(probes.filter { $0.exists }.map { String(describing: $0.value) })",
+            file: file, line: line)
+    }
+
+    /// The first edge gesture belongs to the raised input owner; it must not
+    /// silently become a second attempt to open Sidebar after input disappears.
+    func dismissWorkspaceInputForSidebar(file: StaticString = #filePath, line: UInt = #line) {
+        let sheet = descendants(matching: .any)["composer-keyboard-sheet"]
+        guard keyboards.firstMatch.exists || sheet.exists else { return }
+        let rail = descendants(matching: .any)["sidebar-rail"]
+        let probes = [descendants(matching: .any)["surface-native-interaction-probe"],
+                      descendants(matching: .any)["split-secondary-native-interaction-probe"]]
+        XCTAssertFalse(rail.exists, file: file, line: line)
+        dragWorkspaceSidebarEdge()
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let native = probes.filter { $0.exists }
+            return !self.keyboards.firstMatch.exists && !sheet.exists && !rail.exists
+                && (native.isEmpty || native.allSatisfy {
+                    ($0.value as? String)?.contains("sidebar=open=false,progress=0.0,drag=false,settlement=nil") == true
+                })
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 10), .completed,
+            "The first edge swipe dismisses input without opening Sidebar", file: file, line: line)
     }
 
     func dragWorkspaceSidebarEdge(at verticalPosition: CGFloat = 0.3) {
@@ -31,7 +119,7 @@ extension XCUIApplication {
         let end = coordinate(withNormalizedOffset: CGVector(dx: 0.001 + 110 / viewport.width,
                                                             dy: verticalPosition))
         print("SIDEBAR_EDGE_PATH viewport=\(viewport) start=\(start.screenPoint) end=\(end.screenPoint) oldAbsoluteEnd=\(start.withOffset(CGVector(dx: 110, dy: 0)).screenPoint)")
-        start.press(forDuration: 0.05, thenDragTo: end)
+        start.press(forDuration: 0.2, thenDragTo: end)
     }
 
     func activateWorkspacePane(_ id: String, file: StaticString = #filePath, line: UInt = #line) {
@@ -77,7 +165,9 @@ extension XCUIApplication {
         XCTAssertTrue(readable.contains(point), file: file, line: line)
         XCTAssertTrue(pane.frame.contains(point), file: file, line: line)
         XCTAssertTrue(frame.contains(point), file: file, line: line)
-        XCTAssertLessThan(point.y, keyboards.firstMatch.frame.minY, file: file, line: line)
+        if keyboards.firstMatch.exists {
+            XCTAssertLessThan(point.y, keyboards.firstMatch.frame.minY, file: file, line: line)
+        }
         return point
     }
 

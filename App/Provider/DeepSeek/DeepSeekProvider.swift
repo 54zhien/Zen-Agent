@@ -28,6 +28,10 @@ struct DeepSeekProvider: ModelProvider {
         .tools,
     ]
 
+    // https://api-docs.deepseek.com/api/list-models/ (2026-10-20).
+    // Compatibility aliases do not represent additional effective effort levels.
+    private static let thinkingEfforts: Set<ThinkingEffort> = [.low, .high, .max]
+
     static let defaultBaseURL = URL(string: "https://api.deepseek.com")!
 
     let id = ProviderID.deepSeek
@@ -82,7 +86,9 @@ struct DeepSeekProvider: ModelProvider {
                 id: $0,
                 providerInstanceID: instance.id,
                 displayName: $0.rawValue,
-                capabilities: Self.adapterCapabilities
+                capabilities: Self.adapterCapabilities,
+                thinkingEfforts: Self.thinkingEfforts,
+                defaultThinkingEffort: .high
             )
         }
     }
@@ -132,7 +138,7 @@ struct DeepSeekProvider: ModelProvider {
         let secret = try Self.resolveSecret(seed.credentialBinding, from: credentials)
 
         let httpRequest = try makeHTTPRequest(
-            request, secret: secret, endpoint: seed.endpoint, streaming: false
+            request, secret: secret, endpoint: seed.endpoint, streaming: false, thinkingEffort: seed.thinkingEffort
         )
 
         let httpResponse: HTTPResponse
@@ -176,7 +182,7 @@ struct DeepSeekProvider: ModelProvider {
         let secret = try Self.resolveSecret(seed.credentialBinding, from: credentials)
 
         let httpRequest = try makeHTTPRequest(
-            request, secret: secret, endpoint: seed.endpoint, streaming: true
+            request, secret: secret, endpoint: seed.endpoint, streaming: true, thinkingEffort: seed.thinkingEffort
         )
 
         let upstream: HTTPStream
@@ -193,6 +199,11 @@ struct DeepSeekProvider: ModelProvider {
         request: ProviderChatRequest,
         against seed: RequestConfigSeed
     ) throws {
+        if let effort = seed.thinkingEffort {
+            guard Self.modelIDs.contains(seed.modelID), Self.thinkingEfforts.contains(effort) else {
+                throw ProviderError.invalidParameters("Frozen thinking effort is not supported by this model")
+            }
+        }
         guard request.modelID == seed.modelID else {
             throw ProviderError.configurationMismatch(
                 "the run was frozen against model \(seed.modelID.rawValue), not \(request.modelID.rawValue)"
@@ -470,7 +481,8 @@ struct DeepSeekProvider: ModelProvider {
         _ request: ProviderChatRequest,
         secret: SecretValue,
         endpoint: URL,
-        streaming: Bool
+        streaming: Bool,
+        thinkingEffort: ThinkingEffort?
     ) throws -> HTTPRequest {
         let body = DeepSeekChatRequest(
             model: request.modelID.rawValue,
@@ -485,7 +497,9 @@ struct DeepSeekProvider: ModelProvider {
                     )
                 )
             },
-            stream: streaming
+            stream: streaming,
+            thinking: thinkingEffort.map { _ in DeepSeekChatRequest.Thinking(type: "enabled") },
+            reasoning_effort: thinkingEffort?.rawValue
         )
 
         let encoded: Data

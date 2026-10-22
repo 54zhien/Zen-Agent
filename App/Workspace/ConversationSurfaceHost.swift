@@ -13,10 +13,18 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var isReturnProxyHidden: Bool
     var restingCornerRadius: CGFloat
     var squareBottomCorners: Bool
+    var displayCorners: CACornerMask
     var sidebarOffset: CGFloat
     var sidebarProgress: CGFloat
     var sidebarDragging: Bool
+    var sidebarOutlineExternallyDrawn: Bool
     var sidebarSettlement: UUID?
+    var sidebarShadowFrame: CGRect?
+    var sidebarShadowEnabled: Bool
+    var sidebarShadowContours: [SidebarShadowContour]
+    var workspaceResizeActive: Bool
+    var workspaceViewportSize: CGSize?
+    var workspaceBackgroundColor: UIColor
     var onSidebarSettled: ((UUID) -> Void)?
     var onNativeLayout: ((WorkspaceNativeLayoutReceipt?) -> Void)?
     var contentOwner: ObjectIdentifier?
@@ -29,8 +37,14 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
          isWorkspaceVisible: Bool = true,
          isInputSuppressed: Bool = false, isReturnProxyHidden: Bool = false,
          restingCornerRadius: CGFloat = 0, squareBottomCorners: Bool = false,
+         displayCorners: CACornerMask = [],
          sidebarOffset: CGFloat = 0, sidebarProgress: CGFloat = 0, sidebarDragging: Bool = false,
          sidebarSettlement: UUID? = nil,
+         sidebarShadowFrame: CGRect? = nil, sidebarShadowEnabled: Bool = true,
+         sidebarShadowContours: [SidebarShadowContour] = [],
+         workspaceResizeActive: Bool = false,
+         workspaceViewportSize: CGSize? = nil, workspaceBackgroundColor: UIColor = .systemBackground,
+         sidebarOutlineExternallyDrawn: Bool = false,
          onSidebarSettled: ((UUID) -> Void)? = nil,
          onNativeLayout: ((WorkspaceNativeLayoutReceipt?) -> Void)? = nil,
          contentOwner: ObjectIdentifier? = nil,
@@ -45,10 +59,18 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         self.isReturnProxyHidden = isReturnProxyHidden
         self.restingCornerRadius = restingCornerRadius
         self.squareBottomCorners = squareBottomCorners
+        self.displayCorners = displayCorners
         self.sidebarOffset = sidebarOffset
         self.sidebarProgress = sidebarProgress
         self.sidebarDragging = sidebarDragging
+        self.sidebarOutlineExternallyDrawn = sidebarOutlineExternallyDrawn
         self.sidebarSettlement = sidebarSettlement
+        self.sidebarShadowFrame = sidebarShadowFrame
+        self.sidebarShadowEnabled = sidebarShadowEnabled
+        self.sidebarShadowContours = sidebarShadowContours
+        self.workspaceResizeActive = workspaceResizeActive
+        self.workspaceViewportSize = workspaceViewportSize
+        self.workspaceBackgroundColor = workspaceBackgroundColor
         self.onSidebarSettled = onSidebarSettled
         self.onNativeLayout = onNativeLayout
         self.contentOwner = contentOwner
@@ -57,6 +79,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> ConversationSurfaceViewController<Content> {
         let controller = ConversationSurfaceViewController(content: content, request: request)
+        controller.setWorkspaceViewport(workspaceViewportSize, backgroundColor: workspaceBackgroundColor)
+        controller.topEdge.setResizeActive(workspaceResizeActive)
         controller.topEdge.setContentOwner(contentOwner)
         liftController?.bind(controller)
         controller.bindBrowse(browseController)
@@ -67,12 +91,17 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.setReturnProxyHidden(isReturnProxyHidden)
         controller.setWorkspaceVisible(isWorkspaceVisible)
         controller.setSquareBottomCorners(squareBottomCorners)
+        controller.setSidebarShadow(frame: sidebarShadowFrame, enabled: sidebarShadowEnabled,
+            contours: sidebarShadowContours)
+        controller.setDisplayCorners(displayCorners)
+        controller.setSidebarOutlineExternallyDrawn(sidebarOutlineExternallyDrawn)
         controller.setSidebar(offset: sidebarOffset, progress: sidebarProgress, dragging: sidebarDragging,
                               settlement: sidebarSettlement, completion: onSidebarSettled)
         return controller
     }
 
     func updateUIViewController(_ controller: ConversationSurfaceViewController<Content>, context: Context) {
+        controller.topEdge.setResizeActive(workspaceResizeActive)
         controller.topEdge.setContentOwner(contentOwner)
         // Content is installed once. Its own observed state drives updates; progress
         // must not replace the hosting root or invalidate the Timeline each frame.
@@ -90,8 +119,17 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.setReturnProxyHidden(isReturnProxyHidden)
         controller.setWorkspaceVisible(isWorkspaceVisible)
         controller.setSquareBottomCorners(squareBottomCorners)
+        controller.setSidebarShadow(frame: sidebarShadowFrame, enabled: sidebarShadowEnabled,
+            contours: sidebarShadowContours)
+        controller.setDisplayCorners(displayCorners)
+        controller.setSidebarOutlineExternallyDrawn(sidebarOutlineExternallyDrawn)
         controller.setSidebar(offset: sidebarOffset, progress: sidebarProgress, dragging: sidebarDragging,
                               settlement: sidebarSettlement, completion: onSidebarSettled)
+        // Match the outer SwiftUI frames, Divider and picker in the same keyboard
+        // transaction. A separate UIKit duration would expose the structural gap.
+        context.animate {
+            controller.setWorkspaceViewport(workspaceViewportSize, backgroundColor: workspaceBackgroundColor)
+        }
         controller.scheduleNativeLayoutReceipt()
     }
 
@@ -112,6 +150,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     let topEdge = ConversationTopEdgeMaterial(frame: .zero)
     private var restingCornerRadius: CGFloat = 0
     let surfaceView = SurfaceClipView()
+    // Sidebar owns only this ancestor's horizontal transform. Keyboard layout
+    // can then resize/recenter the retained Surface without retargeting it.
+    private let sidebarTransportView = UIView()
     private let sidebarDecoration = SidebarSurfaceDecoration()
     private var sidebarShadowView: UIView { sidebarDecoration.shadowView }
     private(set) var presentation = SurfaceGeometry.Presentation.full
@@ -134,11 +175,28 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private var sidebarSettlement: UUID?
     private var sidebarAnimator: UIViewPropertyAnimator?
     private var squareBottomCorners = false
+    private var displayCorners: CACornerMask = []
+    // Rounds a resting Split Pane's display corners with the display radius
+    // while its divider-facing corners keep the smaller resting radius. It is a
+    // bare layer mask: `UIView.mask` would lay out the hosted SwiftUI content
+    // synchronously from inside a SwiftUI update and re-enter its graph.
+    private let cornerMask: CAShapeLayer = {
+        let layer = CAShapeLayer()
+        layer.fillColor = UIColor.black.cgColor
+        return layer
+    }()
     private let windowCornerGeometry = WindowCornerGeometry()
     private var sidebarShadowDirection: CGFloat = -1
+    private var sidebarShadowFrame: CGRect?
+    private var sidebarShadowEnabled = true
+    private var sidebarShadowContours: [SidebarShadowContour] = []
+    private var workspaceViewportSize: CGSize?
+    private var workspaceBackgroundColor = UIColor.systemBackground
+    private var originalCanvasColors: (surface: UIColor?, content: UIColor?)?
 #if DEBUG
     // Tests pause the real animator so a busy simulator cannot skip settlement.
     var liftAnimatorForTesting: UIViewPropertyAnimator? { animator }
+    var sidebarAnimatorForTesting: UIViewPropertyAnimator? { sidebarAnimator }
     var sidebarSilhouetteBuildCount: Int { sidebarDecoration.silhouetteBuildCount }
 
     var visibilityDiagnostic: String {
@@ -170,6 +228,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             "editors=\(mounted.count)", "browse=\(browseInteraction?.diagnostic ?? "none")"]
         fields.append("sidebar=\(liftController?.workspaceNavigation?.nativeDiagnostic ?? "unbound")")
         fields.append("sidebarCanOpen=\(liftController?.sidebarNativeContext?()?.allowsOpening ?? false)")
+        fields.append("workspaceOwnsKeyboard=\(workspaceViewportSize != nil)")
         fields.append("timeline=\(liftController?.workspacePaneDiagnostic?() ?? "unbound")")
         if let window = view.window {
             fields.append("windowSafeTop=\(window.safeAreaInsets.top)")
@@ -252,10 +311,12 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         view.backgroundColor = .clear
         surfaceView.layer.cornerCurve = .continuous
         surfaceView.clipsToBounds = true
+        surfaceView.backgroundColor = .systemBackground
         cropMask.backgroundColor = .black
         cropMask.layer.cornerCurve = .continuous
-        view.addSubview(sidebarShadowView)
-        view.addSubview(surfaceView)
+        view.addSubview(sidebarTransportView)
+        sidebarTransportView.addSubview(sidebarShadowView)
+        sidebarTransportView.addSubview(surfaceView)
         addChild(contentController)
         let contentView = contentController.view!
         contentView.translatesAutoresizingMaskIntoConstraints = false
@@ -268,8 +329,13 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         ]
         NSLayoutConstraint.activate(contentConstraints)
         contentController.didMove(toParent: self)
+#if DEBUG
+        surfaceView.validationViewport = view
+        surfaceView.validationContent = contentView
+#endif
         surfaceView.addSubview(topEdge)
         sidebarDecoration.install(on: surfaceView)
+        updateWorkspaceCanvas()
         topEdge.configure(source: contentView, safeTop: view.safeAreaInsets.top)
         contentController.onContentLayout = { [weak topEdge] in topEdge?.invalidateContent() }
         contentController.registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) { [weak self]
@@ -281,8 +347,10 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         // Bounds and center remain independent of the presentation transform.
-        let bounds = CGRect(origin: .zero, size: view.bounds.size)
-        let center = CGPoint(x: view.bounds.midX + sidebarOffset, y: view.bounds.midY)
+        let bounds = surfaceLayoutBounds
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        if sidebarTransportView.bounds != bounds { sidebarTransportView.bounds = bounds }
+        if sidebarTransportView.center != center { sidebarTransportView.center = center }
         if surfaceView.bounds != bounds { surfaceView.bounds = bounds }
         if surfaceView.center != center { surfaceView.center = center }
         // Use the untransformed host's actual safe area. A lower Split pane and
@@ -304,6 +372,43 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         scheduleNativeLayoutReceipt()
     }
 
+    private var surfaceLayoutBounds: CGRect {
+        CGRect(origin: .zero, size: workspaceViewportSize ?? view.bounds.size)
+    }
+
+    /// Split receives an already keyboard-adjusted viewport from its workspace.
+    /// Preserve the hosting root and its native editors while changing ownership.
+    func setWorkspaceViewport(_ size: CGSize?, backgroundColor: UIColor = .systemBackground) {
+        if let size {
+            guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return }
+        }
+        guard workspaceViewportSize != size || workspaceBackgroundColor != backgroundColor else { return }
+        workspaceViewportSize = size
+        workspaceBackgroundColor = backgroundColor
+        if size == nil { contentController.safeAreaRegions.insert(.keyboard) }
+        else { contentController.safeAreaRegions.remove(.keyboard) }
+        guard isViewLoaded else { return }
+        updateWorkspaceCanvas()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        surfaceView.layoutIfNeeded()
+        contentController.view.layoutIfNeeded()
+    }
+
+    private func updateWorkspaceCanvas() {
+        if workspaceViewportSize != nil {
+            if originalCanvasColors == nil {
+                originalCanvasColors = (surfaceView.backgroundColor, contentController.view.backgroundColor)
+            }
+            surfaceView.backgroundColor = workspaceBackgroundColor
+            contentController.view.backgroundColor = workspaceBackgroundColor
+        } else if let originalCanvasColors {
+            surfaceView.backgroundColor = originalCanvasColors.surface
+            contentController.view.backgroundColor = originalCanvasColors.content
+            self.originalCanvasColors = nil
+        }
+    }
+
     func scheduleNativeLayoutReceipt() {
         // Return/resize cannot start while Sidebar owns transport. Navigation
         // samples must not allocate receipt tasks for an unchanged host frame.
@@ -321,6 +426,12 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     func setRestingCornerRadius(_ radius: CGFloat) {
         guard restingCornerRadius != radius else { return }
         restingCornerRadius = radius
+        updateSurfaceDecoration()
+    }
+
+    func setDisplayCorners(_ corners: CACornerMask) {
+        guard displayCorners != corners else { return }
+        displayCorners = corners
         updateSurfaceDecoration()
     }
 
@@ -362,6 +473,15 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         workspaceVisible && !inputSuppressed && !returnProxyHidden && !hasPresentedOverlay
     }
 
+    func setSidebarShadow(frame: CGRect?, enabled: Bool, contours: [SidebarShadowContour] = []) {
+        guard sidebarShadowFrame != frame || sidebarShadowEnabled != enabled
+                || sidebarShadowContours != contours else { return }
+        sidebarShadowFrame = frame
+        sidebarShadowEnabled = enabled
+        sidebarShadowContours = contours
+        if isViewLoaded { updateSurfaceDecoration() }
+    }
+
     func setSidebar(offset: CGFloat, progress: CGFloat = 0, dragging: Bool = false,
                     settlement: UUID?, completion: ((UUID) -> Void)?) {
         guard offset.isFinite, progress.isFinite else { return }
@@ -370,13 +490,11 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             updateSurfaceDecoration()
             return
         }
-        let displayedCenter = sidebarAnimator == nil ? nil : surfaceView.layer.presentation()?.position
-        let displayedShadowCenter = sidebarAnimator == nil ? nil : sidebarShadowView.layer.presentation()?.position
+        let displayedTransform = sidebarAnimator == nil ? nil : sidebarTransportView.layer.presentation()?.affineTransform()
         let displayedShadowAlpha = sidebarAnimator == nil ? nil : sidebarShadowView.layer.presentation()?.opacity
         sidebarAnimator?.stopAnimation(true)
         sidebarAnimator = nil
-        if let displayedCenter { surfaceView.center = displayedCenter }
-        if let displayedShadowCenter { sidebarShadowView.center = displayedShadowCenter }
+        if let displayedTransform { sidebarTransportView.transform = displayedTransform }
         if let displayedShadowAlpha { sidebarShadowView.alpha = CGFloat(displayedShadowAlpha) }
         sidebarOffset = offset
         sidebarProgress = min(1, max(0, progress))
@@ -385,22 +503,20 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         topEdge.setNavigationActive(dragging || settlement != nil)
         // Keep the exposed side while a closing settlement targets zero offset.
         if offset != 0 { sidebarShadowDirection = offset > 0 ? -1 : 1 }
-        // Lift alone owns transform. Navigation changes center while the native
-        // bounds and hosting child's original safe area remain unchanged.
-        let center = CGPoint(x: view.bounds.midX + offset, y: view.bounds.midY)
+        // Lift owns the Surface transform; keyboard layout owns bounds/center.
+        // The ancestor translates content and its shadow as one horizontal unit.
+        let translation = CGAffineTransform(translationX: offset, y: 0)
         let shadowAlpha = sidebarShadowAlpha(for: offset)
         guard let settlement else {
-            surfaceView.center = center
-            sidebarShadowView.center = center
+            sidebarTransportView.transform = translation
             sidebarShadowView.alpha = shadowAlpha
             sidebarDecoration.applyAppearance(surface: surfaceView, progress: sidebarProgress, traits: contentController.traitCollection)
             updateSurfaceDecoration()
             return
         }
-        sidebarShadowView.isHidden = !workspaceVisible || returnProxyHidden
+        sidebarShadowView.isHidden = !workspaceVisible || returnProxyHidden || !sidebarShadowEnabled
         if UIAccessibility.isReduceMotionEnabled {
-            surfaceView.center = center
-            sidebarShadowView.center = center
+            sidebarTransportView.transform = translation
             sidebarShadowView.alpha = shadowAlpha
             sidebarDecoration.applyAppearance(surface: surfaceView, progress: sidebarProgress, traits: contentController.traitCollection)
             updateSurfaceDecoration()
@@ -413,10 +529,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             return
         }
         let animation = UIViewPropertyAnimator(duration: 0.22, curve: .easeOut) { [weak self] in
-            self?.surfaceView.center = center
-            self?.sidebarShadowView.center = center
-            self?.sidebarShadowView.alpha = shadowAlpha
             guard let self else { return }
+            self.sidebarTransportView.transform = translation
+            self.sidebarShadowView.alpha = shadowAlpha
             self.sidebarDecoration.applyAppearance(surface: self.surfaceView, progress: self.sidebarProgress, traits: self.contentController.traitCollection)
         }
         sidebarAnimator = animation
@@ -439,8 +554,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         sidebarProgress = 0
         sidebarDragging = false
         topEdge.setNavigationActive(false)
-        surfaceView.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
-        sidebarShadowView.center = surfaceView.center
+        sidebarTransportView.transform = .identity
         sidebarShadowView.alpha = 0
         sidebarDecoration.applyAppearance(surface: surfaceView, progress: 0, traits: contentController.traitCollection)
         updateSurfaceDecoration()
@@ -473,7 +587,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         let fraction = presentation.clipFraction
         let cropped = fraction != CGSize(width: 1, height: 1)
         guard cropped || retainsAnimationMask else {
-            surfaceView.mask = nil
+            if surfaceView.mask === cropMask { surfaceView.mask = nil }
             surfaceView.visibleRect = nil
             updateSurfaceDecoration()
             return
@@ -495,8 +609,12 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     private func sidebarShadowAlpha(for offset: CGFloat) -> CGFloat {
-        let threshold = max(1, view.bounds.width * 0.15)
+        let threshold = max(1, (sidebarShadowFrame?.width ?? view.bounds.width) * 0.15)
         return min(1, abs(offset) / threshold)
+    }
+
+    func setSidebarOutlineExternallyDrawn(_ value: Bool) {
+        sidebarDecoration.setOutlineExternallyDrawn(value)
     }
 
     private func updateSurfaceDecoration() {
@@ -512,11 +630,22 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
         surfaceView.layer.cornerRadius = radius
         surfaceView.layer.maskedCorners = roundedCorners
-        let shadowVisible = workspaceVisible && !returnProxyHidden
+        let radii = cornerRadii(radius: radius, rounded: roundedCorners)
+        updateCornerMask(radii)
+        let sidebarPageVisible = workspaceVisible && !returnProxyHidden
+            && (sidebarProgress > 0 || sidebarOffset != 0 || sidebarSettlement != nil)
+        if sidebarPageVisible {
+            sidebarDecoration.updateOutlineGeometry(surface: surfaceView, radii: radii)
+        }
+        let shadowVisible = sidebarShadowEnabled && workspaceVisible && !returnProxyHidden
             && (sidebarOffset != 0 || sidebarSettlement != nil)
         if shadowVisible {
-            sidebarDecoration.updateGeometry(surface: surfaceView, radius: radius,
-                corners: roundedCorners, direction: sidebarShadowDirection)
+            let shadowRadii = sidebarShadowFrame.map { _ in
+                SurfaceCornerRadii(uniform: windowConcentricCornerRadius(), corners: allCorners)
+            }
+            sidebarDecoration.updateGeometry(surface: surfaceView, radii: radii,
+                direction: sidebarShadowDirection, shadowFrame: sidebarShadowFrame,
+                shadowRadii: shadowRadii, shadowContours: sidebarShadowContours)
         }
         if sidebarAnimator == nil {
             sidebarDecoration.applyAppearance(surface: surfaceView, progress: sidebarProgress, traits: contentController.traitCollection)
@@ -527,12 +656,46 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         }
     }
 
+    private func cornerRadii(radius: CGFloat, rounded: CACornerMask) -> SurfaceCornerRadii {
+        // Only a resting Pane has display corners; a lifted or cropped pose
+        // keeps one radius so its crop mask and Card edge stay concentric.
+        guard restingCornerRadius > 0, !displayCorners.isEmpty, isStableFullSurface else {
+            return SurfaceCornerRadii(uniform: radius, corners: rounded)
+        }
+        let display = max(radius, windowConcentricCornerRadius())
+        func value(_ corner: CACornerMask) -> CGFloat {
+            guard rounded.contains(corner) else { return 0 }
+            return displayCorners.contains(corner) ? display : radius
+        }
+        return SurfaceCornerRadii(topLeft: value(.layerMinXMinYCorner), topRight: value(.layerMaxXMinYCorner),
+            bottomLeft: value(.layerMinXMaxYCorner), bottomRight: value(.layerMaxXMaxYCorner))
+    }
+
+    private func updateCornerMask(_ radii: SurfaceCornerRadii) {
+        // A crop installs its own `UIView.mask`, which replaces this layer mask.
+        guard !radii.isUniform, surfaceView.mask == nil else {
+            if surfaceView.layer.mask === cornerMask { surfaceView.layer.mask = nil }
+            return
+        }
+        // The layer radius still clips the smaller corners; the mask adds the
+        // larger display corners, so their intersection is the intended shape.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cornerMask.frame = surfaceView.bounds
+        cornerMask.path = radii.path(in: surfaceView.bounds)
+        if surfaceView.layer.mask !== cornerMask { surfaceView.layer.mask = cornerMask }
+        CATransaction.commit()
+    }
+
     private func windowConcentricCornerRadius() -> CGFloat {
         guard let window = view.window else { return 0 }
         return windowCornerGeometry.radius(in: window)
     }
 
     func setLiftInteraction(_ phase: SurfaceLiftState.Phase, returnAction: @escaping () -> Bool) {
+        if phase == .armed || phase == .lifting || phase == .split {
+            surfaceView.alpha = 1
+        }
         surfaceView.setCurrentEdgeVisible(phase == .card)
         let frozen = phase == .settling || phase == .card || phase == .split
         contentController.view.isUserInteractionEnabled = workspaceVisible && !frozen && !inputSuppressed && !returnProxyHidden
@@ -544,7 +707,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         surfaceView.accessibilityHint = isNew ? "轻点创建新对话" : "轻点返回会话"
         surfaceView.accessibilityTraits = .button
         surfaceView.onActivate = frozen ? { [weak self] in
-            self?.browseInteraction?.cancel()
+            self?.browseInteraction?.cancel(preservingPresentation: true)
             return returnAction()
         } : nil
         surfaceView.accessibilityCustomActions = frozen
@@ -599,6 +762,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
                 if rendered { self.surfaceView.alpha = CGFloat(card.opacity) }
                 return rendered
             }, refreshAccessibility: { [weak self] in self?.liftController?.refreshCardAccessibility() })
+        (view as? SurfaceHitView)?.browseInteraction = browseInteraction
         browseInteraction?.updateAvailability()
     }
 
@@ -606,6 +770,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         unbindDeletion()
         browseInteraction?.unbind()
         browseInteraction = nil
+        (view as? SurfaceHitView)?.browseInteraction = nil
     }
 
     func bindDeletion(_ commit: AppSpaceCardDeletionInteraction.Commit?,
@@ -754,7 +919,11 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         updateCrop()
         let identity = UUID()
         animationIdentity = identity
-        let animation = UIViewPropertyAnimator(duration: 0.28, curve: .easeInOut) { [weak self] in
+        // Critically damped toward Full so the page never overshoots the screen;
+        // a slight spring toward a Card gives the landing its physical settle.
+        let animation = UIViewPropertyAnimator(duration: to > from ? 0.42 : 0.36,
+                                               dampingRatio: to > from ? 0.86 : 1)
+        animation.addAnimations { [weak self] in
             _ = self?.apply(.init(from: restingPose, to: target, progress: CGFloat(to)))
         }
         animation.isManualHitTestingEnabled = true
@@ -772,22 +941,25 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     func convergeLift(to pose: SurfaceGeometry.Pose, animated: Bool,
                       completion: @escaping (Bool) -> Void) {
-        // A reversed settlement starts at visible pixels, not the animator's
-        // cached endpoint or a scalar projected onto a different Lift path.
-        if animator != nil, let visible = surfaceView.layer.presentation() {
-            let available = CGSize(width: view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right,
-                height: view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom)
-            if available.width > 0, available.height > 0 {
-                let transform = visible.transform
-                let captured = SurfaceGeometry.Pose(scale: transform.m11,
-                    translation: CGSize(width: transform.m41 / available.width, height: transform.m42 / available.height),
-                    cornerRadius: visible.cornerRadius, clipFraction: presentation.clipFraction)
-                cancelLiftAnimation()
-                UIView.performWithoutAnimation { _ = apply(.init(to: captured, progress: 1), force: true) }
-            }
+        guard animated else {
+            captureVisibleLiftPose()
+            cancelLiftAnimation()
+            completion(apply(.init(to: pose, progress: 1)))
+            return
         }
+        // Full never overshoots the screen; a floating destination settles
+        // with a slight spring so the release reads as a physical landing.
+        morphLift(to: pose, response: pose == .full ? 0.34 : 0.42,
+                  dampingRatio: pose == .full ? 1 : 0.86, completion: completion)
+    }
+
+    /// Spring transport toward a pose. It always starts from the visible pixels
+    /// of any running transport, so repeated calls retarget without a jump.
+    func morphLift(to pose: SurfaceGeometry.Pose, response: TimeInterval, dampingRatio: CGFloat,
+                   completion: @escaping (Bool) -> Void) {
+        captureVisibleLiftPose()
         cancelLiftAnimation()
-        guard animated, !UIAccessibility.isReduceMotionEnabled else {
+        guard !UIAccessibility.isReduceMotionEnabled else {
             completion(apply(.init(to: pose, progress: 1)))
             return
         }
@@ -795,7 +967,8 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         updateCrop()
         let identity = UUID()
         animationIdentity = identity
-        let animation = UIViewPropertyAnimator(duration: 0.12, curve: .easeOut) { [weak self] in
+        let animation = UIViewPropertyAnimator(duration: response, dampingRatio: dampingRatio)
+        animation.addAnimations { [weak self] in
             _ = self?.apply(.init(to: pose, progress: 1))
         }
         animation.isManualHitTestingEnabled = true
@@ -811,6 +984,28 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         animation.startAnimation()
     }
 
+    var isMorphingLift: Bool { animator != nil }
+
+    // A reversed settlement starts at visible pixels, not the animator's
+    // cached endpoint or a scalar projected onto a different Lift path.
+    private func captureVisibleLiftPose() {
+        guard animator != nil, let visible = surfaceView.layer.presentation() else { return }
+        let available = CGSize(width: view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right,
+            height: view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom)
+        guard available.width > 0, available.height > 0 else { return }
+        let transform = visible.transform
+        let mask = cropMask.layer.presentation()?.bounds.size
+        let clip = mask.map { size in
+            CGSize(width: surfaceView.bounds.width > 0 ? min(1, max(0.0001, size.width / surfaceView.bounds.width)) : 1,
+                   height: surfaceView.bounds.height > 0 ? min(1, max(0.0001, size.height / surfaceView.bounds.height)) : 1)
+        } ?? presentation.clipFraction
+        let captured = SurfaceGeometry.Pose(scale: transform.m11,
+            translation: CGSize(width: transform.m41 / available.width, height: transform.m42 / available.height),
+            cornerRadius: max(0, visible.cornerRadius), clipFraction: clip)
+        cancelLiftAnimation()
+        UIView.performWithoutAnimation { _ = apply(.init(to: captured, progress: 1), force: true) }
+    }
+
     override var childForStatusBarStyle: UIViewController? { contentController }
     override var childForStatusBarHidden: UIViewController? { contentController }
     override var childForHomeIndicatorAutoHidden: UIViewController? { contentController }
@@ -819,32 +1014,42 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 @MainActor
 private final class SurfaceHitView: UIView {
     weak var surfaceView: SurfaceClipView?
+    weak var browseInteraction: AppSpaceBrowseInteraction?
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard let surfaceView else { return nil }
+        guard let surfaceView, isUserInteractionEnabled, !isHidden, alpha > 0.01,
+              !surfaceView.isHidden, (surfaceView.layer.presentation()?.opacity ?? surfaceView.layer.opacity) > 0.01,
+              self.point(inside: point, with: event) else { return nil }
+        // Both Sidebar transport and Lift can have presentation transforms.
+        // Convert through that hierarchy, rather than treating Surface as a
+        // direct child or using the Sidebar's already-committed model offset.
+        let displayed = surfaceView.layer.presentation() ?? surfaceView.layer
+        let local = displayed.convert(point, from: layer.presentation() ?? layer)
+        guard surfaceView.point(inside: local, with: event) else {
+            return browseInteraction?.acceptsCanvasTouches == true ? self : nil
+        }
         if surfaceView.onActivate == nil {
             // The retained controller still fills the viewport after Sidebar
             // translation. Its empty strip must pass through to the Rail below.
-            guard surfaceView.point(inside: surfaceView.visiblePoint(fromParent: point), with: event) else { return nil }
-            return super.hitTest(point, with: event)
+            return surfaceView.hitTest(local, with: event)
         }
-        guard isUserInteractionEnabled, !isHidden, alpha > 0.01,
-              !surfaceView.isHidden, (surfaceView.layer.presentation()?.opacity ?? surfaceView.layer.opacity) > 0.01,
-              self.point(inside: point, with: event) else { return nil }
         // UIKit's model transform already points at the destination. Route new
         // settlement touches through the still-visible transform and mask instead.
-        let local = surfaceView.visiblePoint(fromParent: point)
-        return surfaceView.point(inside: local, with: event) ? surfaceView : nil
+        return surfaceView
     }
 }
 
 @MainActor
 final class SurfaceClipView: UIView {
+#if DEBUG
+    weak var validationViewport: UIView?
+    weak var validationContent: UIView?
+#endif
     var visibleRect: CGRect? { didSet { updateCurrentEdge(replacesPresentation: true) } }
     var onActivate: (() -> Bool)?
     private var touchOrigin: CGPoint?
     private var touchMoved = false
-    private let currentEdge = CAShapeLayer()
+    private let currentEdge = CALayer()
     private var edgeRequested = false
     private var edgeRect = CGRect.null
     private var edgeRadius: CGFloat = -1
@@ -853,8 +1058,8 @@ final class SurfaceClipView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         currentEdge.name = "zen-current-card-edge"
-        currentEdge.fillColor = nil
-        currentEdge.lineWidth = 0.75
+        currentEdge.borderWidth = 0.75
+        currentEdge.cornerCurve = .continuous
         currentEdge.zPosition = 1
         currentEdge.isHidden = true
         layer.addSublayer(currentEdge)
@@ -881,7 +1086,7 @@ final class SurfaceClipView: UIView {
     private func updateEdgeColor() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        currentEdge.strokeColor = UIColor.label.resolvedColor(with: traitCollection)
+        currentEdge.borderColor = UIColor.label.resolvedColor(with: traitCollection)
             .withAlphaComponent(0.14).cgColor
         CATransaction.commit()
     }
@@ -892,7 +1097,6 @@ final class SurfaceClipView: UIView {
         let show = edgeRequested && radius > 0 && rect.width > 0 && rect.height > 0
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        currentEdge.frame = bounds
         currentEdge.isHidden = !show
         guard show else {
             currentEdge.removeAnimation(forKey: Self.edgeAnimationKey)
@@ -909,23 +1113,32 @@ final class SurfaceClipView: UIView {
             CATransaction.commit()
             return
         }
-        let inset = currentEdge.lineWidth / 2
-        let path = UIBezierPath(roundedRect: rect.insetBy(dx: inset, dy: inset),
-            cornerRadius: max(0, radius - inset)).cgPath
-        let previous = (currentEdge.presentation() as? CAShapeLayer)?.path ?? currentEdge.path
+        let previous = currentEdge.presentation() ?? currentEdge
+        let previousBounds = previous.bounds
+        let previousPosition = previous.position
+        let previousRadius = previous.cornerRadius
         currentEdge.removeAnimation(forKey: Self.edgeAnimationKey)
-        currentEdge.path = path
+        currentEdge.frame = rect
+        currentEdge.cornerRadius = radius
         edgeRect = rect
         edgeRadius = radius
-        // Browse animates the native crop inside this same UIView animation block.
-        // Ordinary gesture/cancellation samples replace the path without residual work.
-        if duration > 0, let previous {
-            let animation = CABasicAnimation(keyPath: "path")
-            animation.fromValue = previous
-            animation.toValue = path
-            animation.duration = duration
-            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            currentEdge.add(animation, forKey: Self.edgeAnimationKey)
+        if duration > 0 {
+            let values: [(String, Any, Any)] = [
+                ("bounds", NSValue(cgRect: previousBounds), NSValue(cgRect: currentEdge.bounds)),
+                ("position", NSValue(cgPoint: previousPosition), NSValue(cgPoint: currentEdge.position)),
+                ("cornerRadius", NSNumber(value: Double(previousRadius)), NSNumber(value: Double(radius)))
+            ]
+            let group = CAAnimationGroup()
+            group.animations = values.map { key, from, to in
+                let animation = CABasicAnimation(keyPath: key)
+                animation.fromValue = from
+                animation.toValue = to
+                animation.duration = duration
+                return animation
+            }
+            group.duration = duration
+            group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            currentEdge.add(group, forKey: Self.edgeAnimationKey)
         }
         CATransaction.commit()
     }
@@ -1024,8 +1237,9 @@ final class SurfaceHostingController<Content: View>: UIHostingController<Content
         let current = view.safeAreaInsets
         let added = additionalSafeAreaInsets
         // UIKit recalculates inherited insets from the transformed child's placement.
-        // Keep the untransformed container's layout safe area; keyboard handling remains
-        // the hosting controller's native SwiftUI path, independent of this correction.
+        // Keep the untransformed container's layout safe area. Keyboard avoidance
+        // is controlled separately by safeAreaRegions: Split's workspace owns it,
+        // while a Single hosting controller retains its native SwiftUI behavior.
         let corrected = UIEdgeInsets(top: added.top + target.top - current.top,
                                      left: added.left + target.left - current.left,
                                      bottom: added.bottom + target.bottom - current.bottom,

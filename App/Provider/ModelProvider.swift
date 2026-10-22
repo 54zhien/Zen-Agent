@@ -19,6 +19,9 @@ struct ModelDescriptor: Codable, Sendable, Equatable, Identifiable {
     var providerInstanceID: ProviderInstanceID
     var displayName: String
     var capabilities: Set<ModelCapability>
+    // Reasoning output alone does not imply support for effort control.
+    var thinkingEfforts: Set<ThinkingEffort>? = nil
+    var defaultThinkingEffort: ThinkingEffort? = nil
 }
 
 /// What a Provider implementation must be able to answer.

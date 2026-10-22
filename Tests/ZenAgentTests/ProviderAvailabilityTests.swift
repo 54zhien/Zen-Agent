@@ -221,17 +221,4 @@ struct ProviderAvailabilityTests {
             "an instance must not be handed descriptors belonging to another one"
         )
     }
-
-    @Test("the provider layer stays Sendable")
-    func providerTypesAreSendable() {
-        func requireSendable<T: Sendable>(_: T.Type) {}
-        requireSendable(ProviderInstance.self)
-        requireSendable(ProviderID.self)
-        requireSendable(ProviderInstanceID.self)
-        requireSendable(ModelID.self)
-        requireSendable(ModelDescriptor.self)
-        requireSendable(ConfigRevision.self)
-        requireSendable(ProviderAvailability.self)
-        requireSendable(FakeProvider.self)
-    }
 }

@@ -1,0 +1,430 @@
+# UI integration test alignment — 2026-10-21
+
+The owner finalized the current UI, authorized test-only adaptation and diagnosis,
+and requested direct merge after a passing gate, followed by S6. Product UI must
+remain unchanged; any required product correction stops for an impact explanation.
+
+## Frozen product and original evidence
+
+- UI baseline: `eb39a65d98116fbd53dccd6ba43cd9e685e8151d`;
+  tree `f811529a766980a1f22b0bbccf87e2a0e5f89d79`.
+- Integration PR: https://github.com/54zhien/Zen-Agent/pull/37.
+- Original full run: https://github.com/54zhien/Zen-Agent/actions/runs/39619632065.
+  Hygiene, generation, actual build, all 1,140 Swift Testing cases / 171 suites,
+  20 XCTest unit cases and the actual iPad axis case passed. Native Phone failures
+  are real assertion evidence; the whole run is not a passing gate. The final
+  workflow conclusion is `cancelled`: the Phone job exceeded its configured
+  65-minute limit. Phone did not produce a complete test summary, so no complete
+  Phone totals are asserted. The preceding assertion failures remain RED.
+- No unchanged retry or cancellation is used to replace that evidence.
+
+## Test ownership and changes
+
+- Sidebar setup explicitly verifies the first edge swipe dismisses raised input
+  without opening Sidebar, then uses a separate edge swipe to open it. Search,
+  Files and Settings use that setup. Keyboard-free cases retain a single opening
+  gesture. A raised-sheet case also preserves editor identity and draft.
+- Sidebar readiness includes native animation settlement and actual control
+  hittability. A failure retains the native receipt; it is not hidden by another
+  gesture, an arbitrary sleep, or a larger timeout.
+  First-swipe dismissal also waits for the native closed/settled receipt when
+  available, so transient AX absence cannot be mistaken for completed dismissal.
+- Thinking tests and App Space geometry are being aligned to the current controls
+  and the recorded centered-stack ruling. Split reading/AX failures require
+  independent attribution, not relaxed reading-position assertions.
+- Manual `ui-integration` CI selects the affected native UI regressions only.
+  It is diagnostic verification, not the final full gate; ordinary full selection
+  remains intact. No product test fixture, App source, resource, build setting,
+  dependency, generated project, animation or UI behavior is changed.
+
+Native verification of the adaptations, final source SHA/tree, full-gate outcome
+and merge receipt remain pending. S6 implementation starts only after UI merge.
+
+Focused runs on `e91095da3adbe5aa7686b77ef09826a2b1c75e7e`:
+
+- Lift and unchanged Split reading assertions:
+  https://github.com/54zhien/Zen-Agent/actions/runs/39630293867.
+- Affected UI integration regressions:
+  https://github.com/54zhien/Zen-Agent/actions/runs/39630300120.
+
+These runs do not include the subsequent first-swipe native closed/settled wait.
+Their results cannot validate that later change or replace the final full gate.
+
+## Native Split reading diagnosis — 2026-10-22
+
+Run `39630293867` completed **failure** on `e91095d`, with an actual build,
+48 Swift Testing cases / 4 suites passing and the three existing Lift UI cases
+passing. The unchanged secondary-Split reading case failed three assertions.
+No skipped or cancelled run is counted as acceptance.
+
+The exported screenshots establish a visible mismatch before the first Lift:
+the test requests Turn 10, but the source Pane displays responses 12–15. The
+after-Return screenshot preserves that same incorrect initial placement.
+This is not solely an AX query problem. The two matching AX nodes are a TextView
+with a null/infinite frame and a second offscreen node at y=-183.67; both are
+non-hittable. The later queued Turn 12 is visibly restored, with a finite y=179,
+but its assertion inherits the invalid initial anchor frame.
+
+The native reading trace identifies the conflicting requests:
+
+1. Sequence 18 requests `restoreAnchor(preview-reading-run-10, offset: 0.2)`.
+2. Lazy materialization supplies Turn 10's measured frame.
+3. Sequence 19 replaces it with `maintainBottomEdge(targetOffset: 1451)`.
+4. The resulting reading mode points to Turn 16, not the requested Turn 10;
+   the fixture reports `settled` once that replacement request is acknowledged.
+
+Read-only follow-up traced the observed conflict to fixture initialization:
+`preview-reading-position` is a DEBUG-only overlay that directly changes the
+reading mode, bypassing the real ScrollView input path. Real tracking/interacting
+input calls `userScrolled`, which ends the prior height-change capture before
+capturing the new read. A source swipe cancels the tap gesture rather than
+selecting another Split slot, so it can establish that normal precondition while
+the secondary Pane retains the shared Composer.
+
+The next test-only candidate adds one real source-pane swipe before deterministic
+fixture positioning and explicitly checks source editor count zero / secondary
+editor count one. Every existing anchor, Return and queued-hidden restoration
+assertion remains. Native verification must demonstrate both accepted scroll
+input and unchanged Composer targeting; this source audit alone is not a pass.
+
+A product correction to height/reading coordination would affect Split resizing,
+keyboard changes, Divider resizing or reading restoration and remains outside
+the authorized scope. No such product change is made. No assertion is relaxed
+and no test is skipped to merge. Merge and S6 remain gated on a real passing full
+run; the other affected-UI run remains independent evidence to collect.
+
+Artifact `12360617346` contains the result bundle, native logs, video and three
+named screenshots. Archive digest:
+`sha256:747054a856dd2e0d2cd7a49ccddf27900c5e5140443c7553282d89def9debaa8`.
+
+## Affected-UI result and narrower follow-up
+
+Run `39630300120` ended `cancelled` after its focused job exceeded 40 minutes.
+Native assertion failures before the timeout remain RED; no complete UI summary
+or result artifact was uploaded. Three App Space geometry cases and the six-level
+Thinking detail/persistence case passed. Model switching, Sidebar destinations
+and other recorded failures are not waived.
+
+The native model-menu snapshot exposes combined row labels such as
+`UI Test Model, 低 · 高 · Max`, rather than just the model name. Model tests now
+match the complete name followed by the comma boundary, retaining selection,
+three/four-level adaptation and persistence assertions.
+
+The new raised-sheet case omitted the existing `ZEN_KEYBOARD_MENU_UI_TEST`
+fixture opt-in; without a configured model, its plus button correctly did not
+exist. That case now opts into the same menu-capable preview fixture already used
+by the native Split keyboard-sheet test. It identifies the actual sheet and model
+row rather than assuming UIKit's Keyboard AX container must disappear for a
+custom replacement inputView. Dismissal/ownership/draft checks remain.
+
+Sidebar failures persist even when native receipts report fully open and settled.
+Some destinations have invalid AX activation points. Attribution is unresolved;
+no product correction is made. The failure helper now retains screenshot and
+full AX attachments and prints scoped match counts/frames. A smaller existing
+`sidebar-controls` selection covers representative keyboard-free, focused-input,
+raised-sheet, Settings and Search cases so failure evidence can finish uploading.
+The full test selection and existing wait tolerances are unchanged.
+
+The source-scroll setup candidate `53f3e03` is under native Lift verification:
+https://github.com/54zhien/Zen-Agent/actions/runs/39638592284.
+It does not include these subsequent model/Sidebar test changes.
+
+## Confirmed focused GREEN
+
+- `53f3e0365899c108159814abefce9f99227cecd7`, run `39638592284`:
+  actual generation/build and all 48 Swift Testing cases / 4 suites plus 4 UI
+  cases passed. The formerly failing secondary-Split case retains every original
+  assertion. Before/after Return, the real visible anchor is hittable at y=192.33;
+  source/secondary editor counts remain 0/1. The queued hidden request lands at
+  y=179.0 against expected y=178.93. Exported screenshots were visually checked:
+  anchor 10 remains at the same position before/after Return. No product edit.
+  Artifact `12365352609`, archive digest
+  `sha256:bce09b25c1514442f9a7cc4b9fba89269d76d5084ce1ff5b10863e6905fa87b6`.
+- `de1dbc25adc75be7219c5a9bd9284dbe1d1215f8`, run `39639287417`:
+  actual iPad axis UI case passed (1/1, 74.684s). Composer generation/build, all
+  1,140 Swift Testing cases / 171 suites, 20 XCTest unit cases and 6 selected UI
+  cases passed (`TEST SUCCEEDED`). These include model switching, three/four/six
+  Thinking levels, keyboard-sheet transitions and shared-Composer targeting.
+  This is a passing focused workflow, not the full gate. Artifact `12366450122`,
+  archive digest
+  `sha256:d938b7d2287eae9c181ffd05b866fb24db9e7ab7ca7a08ee5a1a93770dbc1adc`.
+
+Current-head Composer and representative Sidebar runs:
+https://github.com/54zhien/Zen-Agent/actions/runs/39639287417 and
+https://github.com/54zhien/Zen-Agent/actions/runs/39639293598.
+The final full gate remains pending.
+
+## Remaining Sidebar RED
+
+`de1dbc2`, run `39639293598`, completed **failure** with a real result bundle:
+7 relevant Swift cases passed; 7 UI cases failed with 11 assertions. Settings,
+Files and Search each have exactly one enabled AX Button with a finite on-screen
+frame: Settings `(34,784,56,56)`, Files `(20,250,56,56)`, Search `(20,130,56,56)`.
+Screenshots show the controls visible next to the translated page. Duplicate AX
+elements are therefore excluded; a settled native open state and visible pixels
+still do not prove actual touch routing or AX target resolution.
+
+Artifact `12364858615` retains screenshots and full AX hierarchies; archive digest
+`sha256:a46b0152844a0cfc408c85607c8950b9a48cec66b02d98b74b2b3d9161a551e7`.
+Read-only inspection found no conclusive covering view or recognizer in the
+available evidence. The next minimal test-only diagnostic preserves the original
+hittability failures, then taps once at Settings' finite visible center and checks
+the actual Settings route. Settings is clear of the preview fixture's overlay
+button near Search, so that overlay cannot confound this touch-path check.
+It is separately selectable as `sidebar-hit-path`, so
+the original failed tests are not rerun unchanged to replace their evidence.
+No coordinate tap is substituted into ordinary navigation tests to waive AX.
+No product/UI correction or merge is authorized by this diagnostic result alone.
+
+## UI boundary stop — Settings touch-path result
+
+Diagnostic source `241d940b650496e0e4c166fc420843c868a0fc9f`, run
+https://github.com/54zhien/Zen-Agent/actions/runs/39643483481, completed **failure**
+after a real generation/build/native run. Its original Sidebar readiness failure
+and explicit Settings AX failure remain, and its coordinate route assertion also
+fails (one UI case, three assertions):
+
+- Settings exists, is enabled, and has frame `(34,784,56,56)` inside app frame
+  `(0,0,402,874)`; AX hittability remains false.
+- A single app-level coordinate tap is delivered at visible center `(62,812)`.
+- The existing `settings-page` does not appear within the existing 5-second wait.
+
+This excludes an AX-target-only explanation for this observed navigation failure.
+It does not identify the precise native interceptor or rule out every routing
+condition; no product correction is inferred from a screenshot alone.
+Read-only verification confirms the launch supplies a real store and the overlay
+coordinator includes `.settings`, creates its model and presents
+`SettingsWorkspaceView`. The Settings identifier is therefore a valid destination
+in this fixture. The debug reading-position button is far from `(62,812)`.
+Before/after screenshots and AX hierarchies were inspected: the visible Sidebar
+stays in place and no Settings page appears. The unresolved boundary is product
+hit handling, callback delivery or route presentation, not an unsupported fixture.
+Artifact `12367455769` retains before/after screenshots, AX hierarchy and native
+result bundle, archive digest
+`sha256:0c3afa9af9aa54146752639bf92fefa703476d52fd65a38e8123d91a28c84a43`.
+
+Further correction of Sidebar hit testing or event routing crosses the owner's
+explicit UI-interaction freeze. Such a correction could alter how taps reach
+Sidebar controls versus the translated page and its gestures; layout, appearance,
+menu animation and haptics are not authorized edit targets. Product code remains
+byte-identical to the frozen `eb39a65` baseline. Stop here for the owner's direction;
+do not merge RED, silently waive the hit checks or begin S6 before UI integration.
+
+## Owner-authorized interaction investigation
+
+The owner subsequently answered “允许” to the explicit request to repair only
+Sidebar hit testing / event delivery while preserving appearance, layout,
+animation and haptics. This supersedes the boundary stop for that narrow scope.
+The existing coordinate-route RED stays authoritative. First add DEBUG-only
+native window-hit ancestry at two exposed Rail points and record whether the
+existing route callback fires; keep all original UI assertions. This gathers a
+discriminator before changing routing behavior. Full GREEN and review are still
+required before the already-authorized merge and S6 continuation.
+
+### Native hit discriminator and first candidate
+
+Diagnostic `3b36cd7`, run `39646338094`, actually generated/built and finished
+one UI case with two retained AX failures. The exposed Settings sample
+`(48,811.6)` hits `UIPlatformGlassInteractionView` at `(34,784,56,56)` with a
+zero-sized `_UIInheritedView` ancestor; it does not hit the translated Surface.
+The actual coordinate tap now calls `settings` with coordinator/eligibility true
+and opens `settings-page`. The earlier coordinate-route RED remains recorded:
+the diagnostic-only change does not prove stable routing or explain its variance.
+Artifact `12368243248`, digest
+`sha256:2cc84226f055ed85cf6bd29a6d8f013bfd0c981c019444ea8074225d0f77b67d`.
+
+The remaining reproducible failure is the semantic Button's AX target. The first
+single-factor candidate declares the existing 56pt rectangular interaction shape
+outside the styled native-glass label, rather than only before glass application
+inside the icon. It changes no layout, rendering, spring, feedback, admission or
+route. This is a hypothesis under native test, not a claimed repair. Original AX
+and real Settings-route assertions remain unchanged.
+
+The rectangular candidate `4fb1f68`, native run `39648934499`, **did not fix**
+the AX failure: one case, the same two AX failures, coordinate route true.
+Artifact `12370475660`, digest
+`sha256:f5c7b8055ea0a426866d664f7181a95742c41fb1d963b45bab8d48590faacaa2`.
+Remove that ineffective modifier rather than accumulating changes.
+
+The next isolated candidate fixes each semantic Button's accessibility activation
+point to its own relative center, retaining the original content shape and glass.
+Apple documents that the default activation point may derive from descendants
+instead of the accessibility frame center:
+https://developer.apple.com/documentation/swiftui/view/accessibilityactivationpoint(_:)-9l0w0
+The observed native glass hierarchy includes a zero-sized intermediary while the
+semantic frame and working coordinate center are finite. Descendant-derived
+activation is therefore a hypothesis to test; it is not yet an established cause.
+This changes accessibility gesture targeting, not drawing, physical hit shape,
+animation, haptics or route/admission. Preserve both AX and route assertions.
+
+The explicit-center candidate `c096fc5`, native run `39651444663`, also finishes
+**RED** after real generation/build: the same two AX failures; coordinate route
+true. Artifact `12370816515`, digest
+`sha256:2d7bc5bc419f41e66e3d50fe16e54b2548f2f5a6955157379c9c4214289815f2`.
+Remove the ineffective activation-point settings. A bad default point alone does
+not explain the failure.
+
+The third controlled candidate hides only the styled label's accessibility
+subtree, leaving the outer Button's explicit name/identifier/action and the
+native glass's ordinary interaction intact. This tests whether the label's
+native-glass AX descendants obscure the semantic Button. It changes no drawing,
+layout, hit shape, spring, disabled/admission condition or feedback. The existing
+existence, AX hittability and actual route assertions must all remain; if SwiftUI
+also hides the Button or the obstruction persists, this candidate must be removed.
+
+### Third control and restored UI boundary
+
+Label AX omission `62b7207`, native run `39654790096`, generated/built and ran
+one UI case with the same **two AX failures**. Unique Settings Button and spoken
+name assertions passed; frame remains `(34,784,56,56)` and coordinate route true.
+Thus hiding the label subtree did not solve the semantic hit failure. Artifact
+`12370993959`, digest
+`sha256:f5289dc14d0cf45828a523edb0360e5ddef0b301776fd854425aef4e6a996358`.
+
+All three ineffective modifiers and the temporary product hit/callback probes
+are now removed. `App/`, `Config/`, `Resources/`, and `project.yml` are restored
+byte-for-byte to frozen product `eb39a65`. Unique-ID/spoken-name regression checks
+and all earlier assertions/evidence remain. The known RED is not rerun unchanged
+or waived, and PR #37 remains unmerged; S6 has not started.
+
+Read-only history shows main already used native interactive glass inside the
+Settings label, but used `.plain` rather than the custom pressed scale/spring.
+The outer Rail mask also changed from a straight reveal to rounded subtraction.
+Neither difference is a proven cause. Further decisive omission controls would
+temporarily affect the frozen press animation or reveal clipping, so they need
+the owner's new direction before implementation. The concrete proposal is
+[the diagnostic plan](../Docs/superpowers/plans/2026-10-22-sidebar-ax-controls.md).
+### 2026-10-22 authorized independent Sidebar composition controls
+
+Owner requested another attempt after the concrete style/mask diagnostic proposal. Three independent launches retain all original semantic identity, AX hit, frame, and coordinate-route assertions: baseline; Settings-only plain ButtonStyle; Rail-only mask omission. Neither omission is a proposed final UI. Default control must reproduce the AX failure for causal interpretation. Source is restored after evidence before any final integration gate. Local syntax, YAML and 12 CI-script checks pass; native result is pending.
+
+Native run `39706894019`, source `34d15f05da2f1e6ef5fd80dd72ef923c6e7e339d`, generated and built successfully. Baseline, Settings plain style, and Rail without mask each failed the same two AX assertions; all three retained one enabled Settings Button named 设置, valid `(34,784,56,56)` frame, and successful coordinate entry to Settings. Overall: 3 cases, 6 assertion failures. Neither single omission resolves the defect; the baseline remains RED, so wrapper-induced GREEN is not a confound. Artifact `12395926891`, digest `sha256:9175011c0a40c8d8bb9c2e7ecfb6c9a320136eda36423c898f04e2b80320a8cb`.
+
+All diagnostic selector code, variant tests and temporary profile entries are removed; App/Config/Resources/project.yml again match frozen `eb39a65` before the next repair. Full and class-selected UI runs were not dispatched while diagnostic variants existed. Review also identified missing model-detail outside-dismiss coverage: restored the original outside tap with the accepted parent-menu-return assertions, retaining the independent close-button path. Native validation of that added coverage remains pending.
+
+### Parent page interaction-region candidate
+
+After restoring the controls in `06591d1`, the next hypothesis is the outer SwiftUI page container: the native page is translated to x=96 while its enclosing AX containers still span x=0/full viewport. Prior native hit evidence excludes the translated Surface at the Settings center; all three composition controls route coordinate taps successfully but fail AX. Add only an `.interaction` content shape to that outer container, using the existing signed Sidebar displacement. This narrows hit/AX ownership to the moving page without translating content again or changing pixels, mask, press animation, haptics, or routing. It is a candidate, not a proven cause. Existing native assertions remain the discriminator, followed by broad Sidebar and complete default-source gates if it passes.
+
+Apple documents `.interaction` as the shape kind for hit-testing and accessibility: https://developer.apple.com/documentation/swiftui/contentshapekinds/interaction . Native failure or changed visual behavior requires removing/revisiting the candidate, not weakening the gate.
+
+Candidate `a81c297` failed native run `39708999849`: helper settled-AX assertion failed, then XCTest threw `Activation point invalid and no suggested hit points based on element frame` during the explicit hit wait. The Button stayed unique/enabled with `(34,784,56,56)` frame. The exception ended the case before the coordinate-route check; that route is **not validated in this run**. 1 case, 2 failures; artifact `12396259531`, digest `sha256:be3821e652547e16b18220c6625ad9d705d46afe954c392021e9395b3f995915`. The content-shape candidate is removed.
+
+Independent Composer/iPad run `39709068950` at `a81c297` passed generation/build, 1140 Swift tests in 171 suites, 20 XCTest unit tests, 6 selected UI cases (including restored model-detail outside dismissal), and actual iPad axis 1/1. Artifact `12396164748`, digest `sha256:8c42ffd343259fb364076ff302c0dbfb387814371b34c97883fc6c06830f04c0`. This is focused evidence, not the full integration gate.
+
+### Rail sibling-order candidate
+
+After removing the failed page content shape in `4514dc0`, move the existing Rail `.zIndex(1)` from inside its conditional progress body to the `SidebarRailProgressLayer` call in the parent ZStack, where the full-page content is its actual sibling. The ordering value, visible Rail mask, geometry, styles, routes, transitions and haptics are unchanged. This tests whether the existing order declaration fails to establish semantic priority across the custom conditional layer; it is not yet an established cause. Existing native hit/coordinate assertions and screenshots remain required, and changed appearance would require removal or owner discussion.
+
+Native `e4f939a` / `39710617287` generated/built and failed the same two AX assertions (one case); coordinate Settings route passed. Artifact `12397061532`, digest `sha256:1c49d895201899c808ff2e602a3be05bd5d09f1126da175f0711bedf39191ff3`. Sibling ordering did not resolve the defect and is removed. Frozen product is restored again before the next boundary experiment.
+
+### Nonvisual AX boundary isolation
+
+Next diagnostic distinguishes the unchanged Rail component from full-page composition: (1) original baseline, (2) original full-page fixture with only the page content's AX subtree hidden once Sidebar is settled, (3) the unchanged SidebarRailView in a DEBUG-only minimal root fixture. The first two retain original AX/coordinate-route checks; the isolated component checks unique spoken Button, enabled/hittable finite frame and a real semantic tap delivering its action. Its receipt is explicitly a diagnostic action, not a Settings-page integration claim. Fixed fixture geometry reproduces the observed iPhone Rail frame and is not a new production layout rule. No style/glass/mask changes, no default/release fixture, and all switches/tests are removed after evidence. Full gate remains blocked until clean final source passes.
+
+Native `ce8831c` / `39711852563` generated/built and completed 3 cases with 4 assertion failures. The isolated unchanged Rail passed its semantic tap and action receipt, at the same Settings frame `(34,784,56,56)` as production (AX attachment `54918245-6AD0-4AB0-9FB9-1866B6A90CE4.txt`). Baseline and page-AX-hidden each retained two AX failures and successful coordinate routes. Crucially, the hidden variant's AX attachment `E99180CA-C21F-4BAC-A2CC-9DDC36B7325C.txt` still exposes the full conversation/editor/probe subtree. The attempted omission did not take effect at the native boundary, so it **cannot exclude page AX composition**. The component's isolated success narrows the investigation but does not prove a specific parent defect. Artifact `12397362697`, digest `sha256:eec4dca5e4c2e03434ecf4bfe2c5c2ee4238eeed9f805cdacd2b02d27b162f6a`.
+
+All five diagnostic source/test/workflow files are restored to `6f6478f` after collecting evidence. No diagnostic fixture or switch is a proposed production repair; frozen product and original native assertions remain the baseline.
+
+### Completed page boundary discriminator
+
+After cleanup `6a24254`, repeat the ineffective omission at the **completed** page accessibility wrapper, after its container/actions, and explicitly assert native conversation/editor absence. A separate launch disables only that page's hit-testing once settled, asserting its AX subtree remains. Both retain all original Settings identity/frame/AX/route assertions. DEBUG modifier values change without replacing the content subtree or retained native host; the release branch is identity. Baseline must still reproduce RED to exclude wrapper confounding. Neither control changes drawing, clipping, glass, animation or haptics, and neither is a proposed final behavior. These three diagnostic cases must be removed before any class-selected/full gate.
+
+Native `9b85983` / `39713354429` generated/built and ran 3 cases with 8 failures. Baseline retains 2 AX failures; completed-wrapper hide retains those plus 2 failed omission-precondition assertions (`paneExists=true`, `editorExists=true`); hit-disabled retains page AX and the same 2 Settings failures. All three coordinate routes passed. The attempted wrapper hide remains ineffective; wrapper hit disabling did not restore Settings. Native host still reports interaction enabled, so this does not establish a native-host exclusion. Artifact `12398207031`, digest `sha256:a847da414900e0beef68722532265d4503c80dbdc86fcd38a377d3a33aa4d102`. All three diagnostic files are restored to `6a24254` before the next experiment.
+
+### Test-fixture overlay isolation
+
+The full fixture has a separate outer reading-position Button overlay, outside the production Workspace wrapper. It appears in the captured screen above the Rail and is absent from the successful isolated component fixture. Next compare the unchanged baseline with only this **test-only** reading-position control omitted; explicitly require its absence and retain every Settings assertion. This changes no production UI. Baseline must remain RED; any variant success implicates the fixture overlay boundary, not product glass or animation. Remove the diagnostic switch/extra test before final validation, retaining a permanent fixture scoping change only if supported by native evidence.
+
+Native `e1f4d81` / `39714912488` generated/built and completed 2 cases with 4 failures: baseline and fixture-overlay omission retain the same 2 AX failures each; both coordinate routes pass at `(34,784,56,56)`. The explicit omission assertion passed. Artifact `12398034177`, digest `sha256:79cd7a8ad2628297014ff367c350b243cf1494455d62358444746ba74a50d28d`. The ineffective fixture switch, variant case and workflow selection are removed, restoring `App/`, `Config/`, `Resources/`, and `project.yml` byte-for-byte to `eb39a65`.
+
+The pre-tap AX attachments close the baseline-presence check: `E7756137-C449-40A3-B14D-785FABE7EFB0.txt` contains `preview-reading-position` at `(0,162,142.7,20.3)`; `748301D6-99E2-47D8-98A2-4389FDC1C25E.txt` does not. Both contain Settings at the same frame. Thus omission actually occurred, but it did not resolve the AX failure.
+
+Further examination of the earlier `9b85983` native receipt confirms that the hit-disabled variant inserted an `_UIInheritedView[interaction=false]` ancestor above `UIKitPlatformViewHost`; baseline has no such disabled ancestor. Thus page hit suppression did take effect at an ancestor even though SurfaceHitView itself stayed enabled. Settings still failed AX. This does not identify a defect in SurfaceHitView's local `point(inside:)` or justify changing that method.
+
+No current candidate meets the native merge gate. The next stronger discriminator would temporarily hide the retained native foreground page after Sidebar settlement. That visibly removes the conversation page in a diagnostic launch, so it crosses the owner's UI boundary and is **not implemented or authorized yet**. Concrete scope and restoration requirements are in [the proposed native-host diagnostic](../Docs/superpowers/plans/2026-10-22-sidebar-native-host-visibility-control.md). PR #37 remains draft/unmerged; S6 implementation remains pending UI integration.
+
+### Owner-authorized native foreground visibility control
+
+The owner now explicitly authorizes temporarily hiding the page for root-cause diagnosis and restoring it afterward, while preserving finalized UI. Baseline remains the original Settings test. A separately flagged DEBUG launch hides only the native foreground host when Sidebar progress is 1, dragging is false and native settlement is nil. It retains mounted content and ordinary workspace visibility ownership. Cancellation, return-proxy and workspace visibility updates recompute the independent diagnostic gate; teardown already cancels Sidebar. The native receipt reports actual root hidden state and content mounting. The test requires that omission receipt, records whether nested AX nodes persist, retains every original Settings hit/frame/route assertion, and requires the original editor identity plus visible/mounted host after Settings dismissal. Persistent AX nodes do not constitute successful AX exclusion. No final product repair is proposed by this control. Static Swift parsing, YAML/24 Bash checks and 12 Python CI-script tests pass; actual macOS build/test evidence is pending. Cleanup base is `6cb59a7` for the three diagnostic source/test/workflow files.
+
+Native `a57641b` / `39725274158` generated/built and completed 2 cases with 4 retained AX failures. The flagged launch proves `sidebarAXDiagnosticHidden=true;nativeHostHidden=true;nativeContentMounted=true`; the conversation and editor still exist in the AX snapshot. Both Settings coordinate routes pass. After actual Settings dismissal, the flagged case proves `sidebarAXDiagnosticHidden=false;nativeHostHidden=false;nativeContentMounted=true` and unchanged editor identity. The visibility and restoration preconditions passed; the original AX assertions did not. Thus native drawing omission did not restore Settings hitability and did not exclude the persistent nested AX branch. Neither run executes a semantic Settings tap, so coordinate-route success is not semantic activation acceptance. Artifact `12403471955`, digest `sha256:22a7059c7ef56c46e2e22ce193d66bc0608c96a4f313a9797a610ffe7c6bef51`. All three diagnostic source/test/workflow files are restored to `6cb59a7`; product source again matches frozen `eb39a65`.
+
+Rendered evidence confirms actual disappearance: baseline screenshot `2356CE5F-F949-4538-8F66-134CB549B768.png` shows the translated page/Composer; hidden screenshot `60FF26F6-337C-411C-A868-F2BF67D2735C.png` shows neither, with Rail still present. Yet baseline AX `FC72178F-8708-44DF-966E-7836F9426068.txt` and hidden AX `0F16C618-0F94-4A2D-86AE-684BE27A5ECA.txt` both retain two full-page `新对话，创建新对话` Buttons at `(96,0,402,874)`, plus Settings at `(34,784,56,56)`.
+
+Independent review identifies a concrete discrepancy to test next without changing pixels: in `.full`, `SurfaceClipView.isAccessibilityElement` is false and activation is nil, yet `setLiftInteraction` unconditionally leaves `.button` traits and the controller subsequently assigns its card label. Captured full-page AX contains a Button named `新对话，创建新对话` around the real conversation; the successful isolated Rail has no such parent. Its frame starts at x=96, so its presence alone does **not** prove it blocks Settings. The next single-factor control will omit only `.button` traits in `.full`, preserve label/hint/children/hierarchy/hitTest and all visual UI, verify the actual native trait and exported full-page AX role, and retain original Settings checks. Ineffective role omission is inconclusive; effective omission with RED excludes only that role, not all metadata. Restore the temporary switch and selectors after collecting evidence.
+
+Native full-role control `996caf2` / `39727050830` generated/built and completed 2 cases with 4 retained AX failures. The native trait assertion passed; baseline exported 2 full-page card Buttons, while the flagged case exported 0. Pane/editor existence and original editor identity assertions passed. Both Settings coordinate routes passed at the same valid frame, but both original AX assertions still failed in each case. Thus this was an effective role omission that did not resolve the failure; it excludes that Button role alone, not the remaining AX composition. Semantic re-entry was correctly not executed because the first hit precondition failed. Artifact `12404106595`, digest `sha256:92492f61ea53a3f6778627ea6554ba705c8e58710e02510d66737cc52a5a1bff`. All three diagnostic source/test/workflow files are restored to `c91e76f`; frozen product equality is verified again.
+
+Next evidence gap: prior full-page native hit receipt had a zero-sized `_UIInheritedView` above the working glass hit, while the isolated Rail passed semantic activation. No equivalent isolated native ancestry was captured, so that geometry difference is unproven. Add a temporary, noninteractive one-point native diagnostic reader to both contexts; compare actual window hit at the asserted Settings center, each ancestor's frame/bounds/point-inside/clipping/AX properties, and exported Settings frame. Keep uninstrumented full-page baseline RED, instrumented full-page RED, and instrumented isolated semantic GREEN as validity controls. If the probe changes these outcomes, interpret the comparison as confounded. No product layout/style/hit geometry changes are proposed by this observation-only control; remove it after native evidence.
+
+The first ancestry source `5ec4af9` / native run `39728772994` passed generation but **failed compilation**, before any UI case: current Swift replaces the diagnostic's `NSStringFromCGRect` / `NSStringFromCGPoint` names. Local parse did not type-check these UIKit/Foundation imports. This is an instrumentation build failure, not a native behavioral RED or a causal result. Replace only those diagnostic formatting calls with the existing Swift `String(describing:)` style, then build/test the corrected source. Artifact `12405060287`, digest `sha256:4eaa81801caffa3814e984522dc31d45d59fdc9405db56c99d9fe8ac705699e8`.
+
+Corrected ancestry source `d3ab57e` / native run `39729604809` generated/built and ran 3 cases, with 2 assertion failures in the uninstrumented baseline only. Isolated Rail plus probe passed its semantic tap/action receipt. Full page plus probe passed the original hit assertions and coordinate route, but did not execute a semantic tap. The probe therefore changes the result: this comparison is confounded and is not a product repair. Both passing contexts contain the same zero-sized immediate glass ancestor, excluding that size alone as the explanation. Full-page hit checks already pass before the explicit probe-value read; earlier AX snapshots may invoke that getter, so reading effects remain possible. Artifact `12405272394`, digest `sha256:51ab2cdc9d8e38602999c16b8ed9ca3abdae0451c49702c9646bccb068ae53cc`.
+
+Restored the three diagnostic source/test/workflow files to `4d30b4e` and removed the new native probe file. Product source again matches frozen `eb39a65`; no accepted UI change is retained. Next bounded comparison: unchanged baseline; same native probe class/insertion/size with no AX element and a constant getter; same probe exposed as AX with constant getter; original active JSON probe unchanged as positive control. Passive getters perform no native hit or AX reads. Retain every original hit/frame/coordinate assertion. First distinguish insertion, AX exposure, and active reading; do not add notification or geometry/scalar subdivisions before this result. Remove all variants afterward. GREEN with a probe remains diagnostic evidence, not merge acceptance.
+
+
+Task4 source prepared: four launches as planned, passive getters return the same constant before any hit/AX read; same class, 1pt insertion, label and identifier. Because isAccessibilityElement=false may still export a container, record actual exportedCount rather than assume subtree absence. Probe receipt is checked before presenting Settings. Original active JSON calculation/output retained. Swift parse, YAML/24 Git Bash script parses and12 Python CI-script tests pass; no UIKit SDK type-check/build claim. Cleanup baseb493ba4; native pending.
+
+Native `8673fec` / `39731842465` generated/built and completed 4 cases, with the original baseline's 2 AX failures only. Original active, passive AX constant, and passive-native constant all passed the original hit/frame/coordinate assertions. Passive AX exportedCount=1 and value=passive; passive-native also exportedCount=1 despite isAccessibilityElement=false. Every Settings frame remains `(34,784,56,56)` and every coordinate route passed. Active native/AX property sampling is therefore unnecessary for this recovery. The passive-native arm still exposes a node, so this does not exclude AX composition or identify native insertion alone as the cause. No full-page semantic tap was exercised. Artifact `12405957864`, digest `sha256:e209c984983b7d8b823ddfdeb92ad54ed374605ea86c4499f185c2d74b08f799`.
+
+All three diagnostic source/test/workflow files restored to `b493ba4`, temporary native file removed, and product diff against frozen `eb39a65` empty. Next compare unchanged baseline, original passive-native positive control, same native view without identifier/label, and a same-size Color.clear background. A retained unnamed 1pt AX node would invalidate the intended metadata-exclusion interpretation and must be reported. Background/composition-sensitive recovery is not itself a proven production repair. No UI changes adopted, no merge, no S6 implementation.
+
+Task5 prepared after the Task4 cleanup: baseline, original passive-native positive, metadata-free native, and Color.clear. Metadata-free omits ID/label/value as one factor and returns nil before any reads; false AX flag and native class/size/insertion stay. Pre-modal receipts require diagnostic ID count and actual `(0,62,1,1)` slot count 1 only in the positive, 0 in the other three. Retained all original Settings assertions. Task4 AX attachments confirm baseline slot0 and each probe slot1; baseline versus passive-native tree differs by the extra diagnostic node. Swift syntax, YAML/24 Bash and12 Python checks pass; native pending, cleanup basedf5862b. No semantic activation acceptance claim.
+
+Native `a025d45` / `39734092779` generated/built and ran 4 cases / 7 failures. Baseline failed to open Sidebar after its one edge gesture, then had three missing-Settings failures; it never reached the original AX failure, so the intended baseline validity condition did not hold. Primary receipt still has mounted content, ready timeline, sidebarCanOpen=true and stable captured/current owner. It records initial touch and failure priority, but no shouldBegin or changed callback; final edge state 0 with translation 110. The inactive secondary receipt's no-pane state must not be confused with the mounted primary. The precise reason for missing native edge begin is unknown; no gesture retry/timing change is adopted.
+
+Clear-background case has the original 2 AX failures, diagnostic ID/slot0, same `(34,784,56,56)` Settings frame and passing coordinate route. Metadata-free native has hit/frame/coordinate PASS but retains an unnamed 1pt AX node (ID0/slot1), failing the explicit omission assertion. Passive-native positive passes with ID1/slot1/valuepassive. Thus removing ID/label/value did not remove the wrapper node; the intended AX-exclusion comparison remains incomplete. Full-page semantic taps were not executed. Artifact `12406674301`, digest `sha256:5c3d8f56c87d24434d396c358ec8e69917211ca22ab50fc1129e4737c8fca6d7`.
+
+Restored all three diagnostic files to `df5862b`, removed the temporary native file, and verified product equality with frozen `eb39a65`. No transparent-background or probe workaround is retained. PR #37 remains draft/unmerged, with S6 implementation pending.
+
+Task6 prepared: matched metadata-free native accessibilityHidden(false/true), plus same fixture with all three overlay modifiers removed as a group. Decorated/plain branches retain same model/store/assembly, padding/error repair and exactly shared startup task body (mechanical comparison after indentation normalization); no additional Task or changed cancellation handling. Six cases include baseline/clear/visible-native/hidden-native/plain-fixture route and independent cold semantic tap. Launch requires expected preview pane; decorated first two fixture IDs present, plain all four absent; primary native receipt retained. Missing Settings still fails entry/existence then returns before invalid property reads. Existing one-edge and hit/frame/coordinate checks remain. Swift parse, YAML/24 Bash and12 Python checks pass; native pending. Cleanup basedef2740 for App/ZenAgentApp.swift, App/Workspace/ConversationPreviewUITestFixture.swift, Tests/ZenAgentUITests/SidebarUITests.swift and workflow, then remove temporary native file.
+
+Native `19fa097` / `39736662881` generated/built and ran 6 cases / 9 failures. Baseline again fails one-edge entry before original AX checks (2 failures including retained Settings existence), so original baseline validity is again absent. Fixture without all three overlay layers retains original 2 AX failures at `(34,784,56,56)` with coordinate route true; its independent cold semantic case also has 2 hit failures and **does not execute tap**. Expected pane, decorated presence and plain-fixture absence assertions passed. AX `840E3F31-8DA4-4A0C-8280-12790CB99B8A.txt` and `9F6F82C5-0527-45C4-B250-051B6F3D652F.txt` contain none of the four fixture-control IDs. Thus actual complete fixture-overlay omission does not recover Settings; do not adopt speculative fixture scoping as a repair.
+
+Matched native visible passes hit/frame/coordinate with unnamed slot1. Native accessibilityHidden(true) also passes hit/frame/coordinate, but retains the same unnamed slot1, failing its omission precondition. Full snapshots `49FD54CA-09C3-4D38-A5F9-79038E1036D2.txt` and `6DFB275F-0C88-4DD6-95D9-945B05413C24.txt` confirm the node remains at `(0,62,1,1)`. Clear case fails the settled-hit helper, then throws invalid activation point during explicit hit wait, before frame/coordinate checks; its route is **not reached**. Artifact `12408855041`, digest `sha256:83356752ba5ed8b2e467dbed1247b046a2101e0025d3d22a5abec8804f2d7235`.
+
+Restored all four diagnostic source/test/workflow files to `def2740` and removed the temporary native probe. Product source again matches frozen `eb39a65`. The native background's recovery remains an observer effect with persistent AX export, not an accepted repair. No merge or S6 implementation.
+
+
+### Notification and edge-preference control
+
+Task7 prepared after cleanup128cc71: no new view or AX node. Five cold launches compare original baseline, matched async no-post, no-post with read-only native edge preference receipt, one layoutChanged post plus coordinate route, and independent one-post semantic activation. A successful native opening UUID is captured only at actual animation completion and consumed by its matching settlement-to-nil transition; both arms share queue, generation/identity/window/visibility/cancellation guards. Counters require a real callback and distinguish notification invocation from processing. A missing Sidebar remains an entry failure, never a fabricated AX result. No gesture timing/retry changes.
+
+Independent review caught two diagnostic environment assignments in the wrong test scope; moved them into launch before app.launch and reviewed again before CI. No remaining review blocker. Swift parsing, YAML/24 Bash parses, 12 Python CI-script tests and diff whitespace checks pass. These are static results, not SDK compilation. Cleanup base128cc71 for ConversationSurfaceHost.swift, WorkspaceSidebarInteraction.swift, SidebarUITests.swift and workflow. AppRoot/preview fixture are unchanged. Native result pending.
+
+
+Native `0e9f1ec` / `39740636134` generated/built and ran 5 cases / 10 failures, with all five Sidebar openings actually settled. Unflagged baseline retained the helper AX failure, then threw invalid activation point during explicit hit wait, before frame/coordinate checks. Matched no-post and measurement no-post each recorded schedule1/callback1/post0 and retained the original two AX failures; both coordinate routes passed at `(34,784,56,56)`. Post route recorded1/1/1, retained the same two AX failures, and coordinate route passed. Independent cold post semantic recorded1/1/1, failed both hit checks and **did not execute tap**. This invocation did not recover AX; it does not prove assistive processing or an internal cache mechanism.
+
+The measured public controller preference is2 (left edge) before the one gesture and0 after successful opening. Reading it did not recover Settings. All openings worked in this run, so the earlier missing native begin remains unresolved; this does not validate the stale-preference hypothesis for those earlier failures. Source review identifies no complete guaranteed readiness-to-preference invalidation chain (native context early return can avoid downstream Observable reads, native Composer readiness has no dedicated publication), but indirect model/layout/Observable changes exist. A source notification gap is not causal proof.
+
+Artifact `12410250722`, digest `sha256:13e52ab194b67a8ee69c052c485df75c255e8b200fcb679560ad32c4df021579`; downloaded source receipt matches full diagnostic SHA. Native summary is5failed/0passed/0skipped on iPhone17Pro Simulator/iOS26.4.1. Semantic full AX `6D391985-398B-48BA-BE5E-5EB3FC668DE1.txt` retains Settings at the same valid frame. All four diagnostic source/test/workflow files restored to128cc71; App/Config/Resources/project.yml again match frozeneb39a65. No notification or measurement code adopted, no merge or S6 implementation.
+
+
+### Existing-probe physical-hit control
+
+Task8 prepared after cleanupddf4c9e. The existing primary probe value getter performs one cached physical Settings-center sample only when foreground/full/visible/open/settled. A temporary helper enum records public hit ancestry without creating any view or reading AX metadata; snapshot includes actual host/window/navigation identity and native/navigation state. Actual test frame must establish screen center(62,812) before interpretation. Three cold launches retain original baseline, sampled route and independent sampled semantic tap without fallback. A recovered hit is an observation effect, not a repair; persistent RED allows comparison with earlier probed GREEN physical ancestry. No layout flush, notification, gesture timing/retry or injected touch. Swift parse, YAML/24 Bash checks, 12 Python CI-script tests and diffcheck pass; native pending. Cleanupddf4c9e for three edited source/test/workflow files, plus delete helper.
+
+
+Task8 `510e997` / `39743930739` was deliberately cancelled after roughly25minutes to retrieve phase evidence. XcodeGen passed; the build had **not completed**. Raw log ends while compiling ZenAgentTests; there are zero UI test starts and zero native Settings samples. No compiler error is recorded before cancellation. This is not a behavioral RED/GREEN and provides no evidence of a runtime/AX-getter deadlock. Xcode26.6/SDK26.5 match Task7. Both application compilation and unrelated test-module compilation consumed substantially longer wall time than Task7; cause remains unknown.
+
+Partial artifact `12412345500`, digest `sha256:5611da5a6ed971aef0b2276345a7584c37a31f7e31804c18aff722c2a0416a4a`, includes matching source SHA, device list, incomplete result bundle and Focused.log. Upload succeeded after cancellation; no completed summary or attachments exist. Three diagnostic source/test/workflow files restored to cleanupddf4c9e and helper removed. Frozen product equality verified again. Keep the cancelled run and do not infer Settings behavior from it.
+
+
+Task8b prepares the same three UI controls using a temporary XcodeGen UI-only diagnostic scheme, selected only by sidebar-hit-path. The normal full scheme and all targets/configs/packages are unchanged. Move the new context JSON dictionary out of the generic host getter into its non-generic helper without changing invocation timing or values; this is compile isolation, not a claimed slow-compiler root cause. Existing40-minute native limit is retained and the new run will not be cancelled merely because it exceeds an older run duration. Static Swift parse, project/workflow YAML,24 Bash scripts,12 Python CI-script tests, selector resolution and diffcheck pass. Native pending. Cleanup9ce19d7 for project.yml plus host/test/workflow, then delete helper.
+
+
+### Task8b native outcome and restoration
+
+Source74f97d8cb2bb238133b4c62e3a5316ad536b9410 / run39748276274 / job119722169256 generated and built successfully with the temporary UI-only scheme. Native result:3 failed cases,6 failures,0 unexpected. Original baseline failed its first edge opening and Settings existence; no original AX comparison is valid for that launch. Both sampled launches settled open with progress1, full visible/unsuppressed host, no native/navigation drag or settlement, and matching host identity. Settings remained unique/enabled at(34,784,56,56), center(62,812). Both retain the original AX/hit failures. Independent semantic case did not tap because its hit guard failed; sampled route opened settings-page by app coordinate. Coordinate success is diagnostic only.
+
+The existing-probe cached query returns UIPlatformGlassInteractionView at Settings center in both RED launches. Its physical ancestor geometry, pointInside, clipping, visibility, alpha, interaction and transforms exactly match historical d3ab full+inserted-probe GREEN after excluding object addresses. The zero-sized inherited ancestor occurs in both. This narrows the discrepancy to hit-point/AX mapping versus physical native routing; it does not identify a framework bug or prove a particular skipped foreground host is responsible. Sampling is cached, not continuous, and a nil-event query is separate from a delivered touch. The raw AX snapshots retain only the existing five1pt probes and the same Settings frame; no diagnostic view/node was inserted.
+
+Artifact12412762451, digest sha256:adfe9a2eb098a4a223ff7be83720b91c9046870fca0cfb5664d72eb4e33129ab; downloaded source receipt matches exact SHA. All four temporary source/test/workflow/project files restored byte-for-byte to9ce19d7 and helper deleted. App/Config/Resources/project.yml again equal frozeneb39a65. No diagnostic code adopted, no merge or S6 implementation. The separate intermittent first-edge recognizer failure remains unresolved.
+
+
+Owner stop ruling: 2026-10-22, "实在解决不了就先算了". Stop further diagnostics. Prepared Task9 native root pointInside control was NOT committed/pushed/dispatched and has NO native result. All6tracked preparation files restored to704263e. Product App/Config/Resources/project.yml equals frozeneb39a65; no temporary hiding, probe, point override or diagnostic scheme retained. Keep prior RED/cancelled run evidence. Root cause remains unproved; no merge, no S6-03 implementation. User may explicitly resume later.
+
+
+Later owner instruction, "继续stage6吧": continue the next Blueprint Stage6 slice while this UI diagnostic remains parked. This authorizes Stage6 continuation, not a GREEN claim or merge of PR37. Preserve frozen UI and stop before any required UI change.

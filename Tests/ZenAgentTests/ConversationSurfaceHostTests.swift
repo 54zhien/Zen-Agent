@@ -15,6 +15,34 @@ private actor SurfaceCommandProbe {
 @Suite("Stable Conversation Surface", .serialized)
 @MainActor
 struct ConversationSurfaceHostTests {
+    @Test("a shadow-disabled Split picker still draws its Sidebar outline")
+    func shadowDisabledPaneKeepsOutlineGeometryAndProgress() throws {
+        let host = ConversationSurfaceViewController(content: Text("Split picker"))
+        host.loadViewIfNeeded()
+        host.view.frame = CGRect(x: 0, y: 0, width: 402, height: 420)
+        host.view.layoutIfNeeded()
+        host.setSidebarShadow(frame: nil, enabled: false)
+
+        let outline = try #require(host.surfaceView.subviews.first {
+            $0.layer.name == "zen-sidebar-page-outline"
+        })
+        let shape = try #require(outline.layer as? CAShapeLayer)
+        let shadow = try #require(host.surfaceView.superview?.subviews.first {
+            $0.layer.name == "zen-sidebar-shadow"
+        })
+
+        host.setSidebar(offset: 80, progress: 0.5, dragging: true, settlement: nil, completion: nil)
+        host.view.layoutIfNeeded()
+        #expect(shape.path != nil, "A Split picker needs perimeter geometry even when it does not own the shared shadow")
+        #expect(abs(outline.alpha - 0.5) < 0.001)
+        #expect(shadow.isHidden)
+
+        host.setSidebar(offset: 120, progress: 1, dragging: false, settlement: nil, completion: nil)
+        host.view.layoutIfNeeded()
+        #expect(abs(outline.alpha - 1) < 0.001)
+        #expect(shadow.isHidden)
+    }
+
     @Test("a late old Surface unbind cannot steal the new Surface's Browse transport")
     func browseTransportSurvivesReversedHostUpdateOrder() throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())

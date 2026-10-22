@@ -156,6 +156,17 @@ struct ComposerSendCoordinatorTests {
         #expect(coordinator.submission == .idle)
     }
 
+    @Test("selected thinking effort is captured by the Send command")
+    func thinkingEffortIsCapturedAtSend() {
+        let (controller, coordinator) = makeCoordinator(text: "think carefully")
+        controller.configuration?.thinkingEffort = .high
+        let command = coordinator.beginSend(capabilities: [.text, .streaming, .reasoning],
+            quoteCommitReady: true, imageInputReady: false, fileInputReady: false,
+            submissionID: "thinking-send")
+        controller.configuration?.thinkingEffort = .low
+        #expect(command?.thinkingEffort == .high)
+    }
+
     @Test("duplicateTapCreatesOnePendingCommand")
     func duplicateTapCreatesOnePendingCommand() {
         let (controller, coordinator) = makeCoordinator(text: "hello")

@@ -2,6 +2,75 @@ import XCTest
 
 final class SplitContainerUITests: XCTestCase {
     @MainActor
+    func testKeyboardSheetKeepsLatestMessageAboveComposerInSingleAndSplit() {
+        for split in [false, true] {
+            let app = XCUIApplication()
+            app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+            app.launchEnvironment["ZEN_KEYBOARD_MENU_UI_TEST"] = "1"
+            app.launchEnvironment["ZEN_BOTTOM_SOURCE_SPLIT_UI_TEST"] = "1"
+            app.launch()
+            let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+            XCTAssertTrue(source.waitForExistence(timeout: 15))
+            if split {
+                app.openWorkspaceSplit(sourceInTopPane: false)
+                let history = app.buttons["split-history-preview-ui-10"]
+                XCTAssertTrue(history.waitForExistence(timeout: 10))
+                history.tap()
+                XCTAssertTrue(app.descendants(matching: .any)["split-secondary-pane"].waitForExistence(timeout: 10))
+                app.activateWorkspacePane("preview-ui-11")
+            }
+            let lastMessage = app.descendants(matching: .any).matching(NSPredicate(
+                format: "label == %@ OR value == %@", "Assistant response 19", "Assistant response 19")).firstMatch
+            for _ in 0..<8 {
+                if lastMessage.exists && lastMessage.isHittable { break }
+                source.swipeUp(velocity: .fast)
+            }
+            XCTAssertTrue(lastMessage.exists && lastMessage.isHittable)
+            let input = app.textViews["conversation-composer-input"]
+            input.tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+            input.typeText("s")
+            let introduction = app.buttons["Continue"]
+            if introduction.waitForExistence(timeout: 2) { introduction.tap() }
+            input.typeText("heet occlusion draft")
+            let plus = app.buttons["conversation-composer-plus"]
+            guard plus.waitForExistence(timeout: 10) else {
+                XCTFail("Configured fixture must expose the real menu entrance")
+                app.terminate()
+                continue
+            }
+            let paneTopWithKeyboard = source.frame.minY
+            plus.tap()
+            let sheet = app.otherElements["composer-keyboard-sheet"]
+            XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+            let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+            expect {
+                guard let value = probe.value as? String,
+                      value.contains(";mode=followingBottom;"), value.contains(";request=nil;"),
+                      let metrics = self.timelineScrollMetrics(in: value) else { return false }
+                return abs(metrics.offset - max(0, metrics.contentHeight - metrics.viewport)) <= 0.5
+            }
+            print("KEYBOARD_SHEET_OCCLUSION split=\(split) message=\(lastMessage.frame) input=\(input.frame) sheet=\(sheet.frame) probe=\(probe.value ?? "missing")")
+            if split {
+                XCTAssertEqual(source.frame.minY, paneTopWithKeyboard, accuracy: 2,
+                    "Replacing the keyboard must retain the shortened Split layout")
+            }
+            XCTAssertLessThanOrEqual(lastMessage.frame.maxY, input.frame.minY - 8,
+                "The latest message must remain readable above the Composer while its sheet replaces the keyboard")
+            let image = XCTAttachment(screenshot: app.screenshot())
+            image.name = split ? "Split sheet keeps latest message visible" : "Single sheet keeps latest message visible"
+            image.lifetime = .keepAlways
+            add(image)
+            plus.tap()
+            XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+            if split { expect { abs(source.frame.minY - paneTopWithKeyboard) <= 2 } }
+            XCTAssertEqual(input.value as? String, "sheet occlusion draft")
+            app.terminate()
+        }
+    }
+
+    @MainActor
     func testSharedComposerKeepsFocusWhenTappingOppositeMessageBody() {
         let app = launchedOccupiedSplit()
         let input = app.textViews["conversation-composer-input"]
@@ -297,14 +366,59 @@ final class SplitContainerUITests: XCTestCase {
             return
         }
         split.tap()
-        XCTAssertTrue(app.otherElements["split-empty-pane-picker"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-11"].exists)
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
     }
 
     @MainActor
+    func testDividerResizesAfterAppSpaceReturn() {
+        for (conversation, occupied) in [("preview-ui-11", false), ("preview-ui-11", true), ("preview-ui-10", true)] {
+            let app: XCUIApplication
+            if occupied { app = launchedOccupiedSplit() }
+            else {
+                app = XCUIApplication()
+                app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+                app.launch()
+                app.openWorkspaceSplit()
+            }
+            app.activateWorkspacePane(conversation)
+            let divider = app.descendants(matching: .any)["split-divider"]
+            XCTAssertTrue(divider.waitForExistence(timeout: 10))
+            let originalY = divider.frame.midY
+            let input = app.textViews["conversation-composer-input"]
+            let start = input.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
+            let phase = app.otherElements[conversation == "preview-ui-11"
+                ? "surface-lift-state-probe" : "split-secondary-lift-state-probe"]
+            expect { phase.value as? String == "card" }
+            app.descendants(matching: .any)["workspace-current-card"].tap()
+            expect { phase.value as? String == "full" }
+            XCTAssertEqual(divider.frame.midY, originalY, accuracy: 1,
+                "Return must retain the Split ratio before the first resize")
+            recordNativeSurfaces(app, stage: "Divider Return \(conversation) occupied=\(occupied)")
+            let handle = app.descendants(matching: .any)["split-divider-handle"]
+            let down = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            down.press(forDuration: 0.15, thenDragTo: down.withOffset(CGVector(dx: 0, dy: 60)))
+            expect { divider.frame.midY > originalY + 25 }
+            let resizedY = divider.frame.midY
+            print("DIVIDER_AFTER_RESIZE \(String(describing: handle.value))")
+            let up = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            up.press(forDuration: 0.15, thenDragTo: up.withOffset(CGVector(dx: 0, dy: -45)))
+            expect { divider.frame.midY < resizedY - 20 }
+            XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch.exists)
+            if occupied {
+                XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch.exists)
+            } else {
+                XCTAssertTrue(app.descendants(matching: .any)["split-empty-pane-picker"].exists)
+            }
+            app.terminate()
+        }
+    }
+
+    @MainActor
     func testSourceSplitPaneLiftsToAppSpaceAndReturnsWithOtherPaneIntact() {
-        let app = launchedOccupiedSplit(usingDrag: true)
+        let app = launchedOccupiedSplit()
         app.activateWorkspacePane("preview-ui-11")
         let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
         XCTAssertTrue(editor.exists)
@@ -322,19 +436,32 @@ final class SplitContainerUITests: XCTestCase {
     @MainActor
     func testSecondarySplitPaneLiftsToAppSpaceAndReturnsWithSourceIntact() {
         let app = launchedOccupiedSplit()
+        let sourcePane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        // Enter reading through the real ScrollView before the deterministic
+        // fixture positions a Turn. Direct fixture injection otherwise bypasses
+        // userScrolled's release of Split's prior height-change capture.
+        sourcePane.swipeDown()
         let position = app.buttons["preview-reading-position"]
         position.tap()
         expect { (position.value as? String) == "settled" }
         let anchor = app.descendants(matching: .any).matching(NSPredicate(
             format: "label == %@ OR value == %@", "PREVIEW_READING_ANCHOR_10",
             "PREVIEW_READING_ANCHOR_10")).firstMatch
+        let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
+        let sourceProbe = app.otherElements["surface-native-interaction-probe"]
+        let secondaryProbe = app.otherElements["split-secondary-native-interaction-probe"]
+        expect {
+            sourceProbe.exists && secondaryProbe.exists
+                && (sourceProbe.value as? String)?.contains(";editors=0;") == true
+                && (secondaryProbe.value as? String)?.contains(";editors=1;") == true
+        }
+        recordSecondaryReadingDiagnostic(app, stage: "before initial anchor assertion",
+            position: position, anchor: anchor, sourcePane: sourcePane, editor: editor)
         XCTAssertTrue(anchor.exists && anchor.isHittable)
         let anchorFrame = anchor.frame
         // SwiftUI propagates the Pane identifier to its timeline and Composer
         // accessibility siblings. Measure the native timeline viewport explicitly.
-        let sourcePane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let sourceHeight = sourcePane.frame.height
-        let editor = app.textViews.matching(identifier: "conversation-composer-input").element(boundBy: 0)
         XCTAssertTrue(editor.exists)
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
@@ -346,6 +473,9 @@ final class SplitContainerUITests: XCTestCase {
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         XCTAssertTrue(app.descendants(matching: .any)["conversation-pane-preview-ui-11"].exists)
         expect { anchor.exists && anchor.isHittable && (position.value as? String) == "settled" }
+        recordSecondaryReadingDiagnostic(app, stage: "after Return wait",
+            position: position, anchor: anchor, sourcePane: sourcePane, editor: editor,
+            capturedAnchorFrame: anchorFrame, sourceHeight: sourceHeight)
         XCTAssertEqual(anchor.frame.minY, anchorFrame.minY, accuracy: 3,
                        "The hidden sibling must retain its reading position through remount")
 
@@ -364,6 +494,10 @@ final class SplitContainerUITests: XCTestCase {
         expect { requested.exists && requested.isHittable && (position.value as? String) == "settled" }
         XCTAssertLessThan(sourcePane.frame.height, sourceHeight - 30)
         let expectedY = anchorFrame.minY + (sourcePane.frame.height - sourceHeight) * 0.2
+        recordSecondaryReadingDiagnostic(app, stage: "final queued-request placement",
+            position: position, anchor: anchor, sourcePane: sourcePane, editor: editor,
+            capturedAnchorFrame: anchorFrame, sourceHeight: sourceHeight,
+            requested: requested, expectedY: expectedY)
         XCTAssertEqual(requested.frame.minY, expectedY, accuracy: 3,
                        "The remounted Timeline must apply its queued anchor using the new viewport")
     }
@@ -382,6 +516,50 @@ final class SplitContainerUITests: XCTestCase {
         for id in ["surface-native-interaction-probe", "split-secondary-native-interaction-probe"] {
             print("SPLIT_NATIVE \(stage) \(id): \(String(describing: app.otherElements[id].value))")
         }
+    }
+
+    @MainActor
+    private func recordSecondaryReadingDiagnostic(
+        _ app: XCUIApplication, stage: String, position: XCUIElement, anchor: XCUIElement,
+        sourcePane: XCUIElement, editor: XCUIElement, capturedAnchorFrame: CGRect? = nil,
+        sourceHeight: CGFloat? = nil, requested: XCUIElement? = nil, expectedY: CGFloat? = nil
+    ) {
+        let debug = app.descendants(matching: .any)["preview-reading-diagnostic"]
+        let sourceProbe = app.otherElements["surface-native-interaction-probe"]
+        let secondaryProbe = app.otherElements["split-secondary-native-interaction-probe"]
+        let sourceReceipt = sourceProbe.exists ? sourceProbe.value as? String : nil
+        let secondaryReceipt = secondaryProbe.exists ? secondaryProbe.value as? String : nil
+        let sourceComposerOwner = diagnosticField("composerOwnerIdentity", in: sourceReceipt)
+        let secondaryComposerOwner = diagnosticField("composerOwnerIdentity", in: secondaryReceipt)
+        let sourceEditorCount = diagnosticField("editors", in: sourceReceipt)
+        let secondaryEditorCount = diagnosticField("editors", in: secondaryReceipt)
+        let requestedSnapshot = requested.map { readingElementDiagnostic($0) } ?? "unavailable"
+        let matches = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label == %@ OR value == %@", "PREVIEW_READING_ANCHOR_10", "PREVIEW_READING_ANCHOR_10"))
+        print("SPLIT_READING \(stage) position=[\(readingElementDiagnostic(position))] anchor=[\(readingElementDiagnostic(anchor))] capturedAnchorFrame=\(String(describing: capturedAnchorFrame))")
+        print("SPLIT_READING \(stage) sourcePane=[\(readingElementDiagnostic(sourcePane));baselineHeight=\(String(describing: sourceHeight))] debug=[\(readingElementDiagnostic(debug))]")
+        print("SPLIT_READING \(stage) editor=[\(readingElementDiagnostic(editor))] composerOwners=[source=\(sourceComposerOwner);secondary=\(secondaryComposerOwner)] editorCounts=[source=\(sourceEditorCount);secondary=\(secondaryEditorCount)]")
+        print("SPLIT_READING \(stage) requested=[\(requestedSnapshot)] expectedY=\(String(describing: expectedY)) anchorMatches=\(matches.count)")
+        for match in matches.allElementsBoundByIndex.prefix(6) {
+            print("SPLIT_READING_MATCH \(stage) \(readingElementDiagnostic(match))")
+        }
+        recordNativeSurfaces(app, stage: stage)
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Split reading - \(stage)"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
+    private func readingElementDiagnostic(_ element: XCUIElement) -> String {
+        guard element.exists else { return "exists=false" }
+        return "exists=true;type=\(element.elementType.rawValue);identifier=\(element.identifier);label=\(element.label);value=\(String(describing: element.value));hittable=\(element.isHittable);frame=\(element.frame)"
+    }
+
+    private func diagnosticField(_ name: String, in receipt: String?) -> String {
+        guard let receipt, let marker = receipt.range(of: "\(name)=") else { return "unavailable" }
+        return String(receipt[marker.upperBound...].prefix { $0 != ";" })
     }
 
     private struct KeyboardTransitionSnapshot {
@@ -482,25 +660,11 @@ final class SplitContainerUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchedOccupiedSplit(usingDrag: Bool = false) -> XCUIApplication {
+    private func launchedOccupiedSplit() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
-        if usingDrag {
-            let editor = app.textViews["conversation-composer-input"]
-            XCTAssertTrue(editor.waitForExistence(timeout: 15))
-            let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            start.press(forDuration: 0.7,
-                        thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)))
-        } else {
-            app.openWorkspaceSidebar()
-        let entry = app.buttons["split-entry"]
-            XCTAssertTrue(entry.waitForExistence(timeout: 15))
-            entry.tap()
-            let action = app.buttons["split-open-top"]
-            XCTAssertTrue(action.waitForExistence(timeout: 10))
-            action.tap()
-        }
+        app.openWorkspaceSplit()
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()
@@ -516,7 +680,7 @@ final class SplitContainerUITests: XCTestCase {
     }
 
     @MainActor
-    func testBottomDropPlacesTheEmptyPickerAboveTheSourcePane() {
+    func testOrdinaryLiftTowardTheLowerCenterOpensCardsBeforeSplit() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
@@ -527,34 +691,29 @@ final class SplitContainerUITests: XCTestCase {
         }
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
         start.press(forDuration: 0.7,
-                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.57)))
-        let picker = app.otherElements["split-empty-pane-picker"]
-        XCTAssertTrue(picker.waitForExistence(timeout: 10))
-        XCTAssertLessThan(picker.frame.midY, editor.frame.midY)
+                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)))
+        let card = app.descendants(matching: .any)["workspace-current-card"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        XCTAssertTrue(card.label.contains("Workspace conversation 11"))
+        let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
+        XCTAssertFalse(picker.exists)
+        XCTAssertFalse(app.descendants(matching: .any)["split-secondary-pane"].exists)
     }
 
     @MainActor
-    func testAccessibleBottomSplitCreatesANewSecondConversationAndClosesWithoutDeletingIt() {
+    func testBottomSourcePickerCreatesANewSecondConversationAndClosesWithoutDeletingIt() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_BOTTOM_SOURCE_SPLIT_UI_TEST"] = "1"
         app.launch()
         let source = app.descendants(matching: .any)["conversation-pane-preview-ui-11"]
         XCTAssertTrue(source.waitForExistence(timeout: 15))
-        app.openWorkspaceSidebar()
-        let entry = app.buttons["split-entry"]
-        guard entry.waitForExistence(timeout: 10) else {
-            XCTFail("Accessible Split menu missing")
-            return
-        }
-        entry.tap()
-        let action = app.buttons["split-open-bottom"]
-        guard action.waitForExistence(timeout: 10) else {
-            XCTFail("Bottom Pane action missing")
-            return
-        }
-        action.tap()
-        let picker = app.otherElements["split-empty-pane-picker"]
+        app.openWorkspaceSplit(sourceInTopPane: false)
+        let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        let sourceEditor = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(sourceEditor.exists)
+        XCTAssertLessThan(picker.frame.midY, sourceEditor.frame.midY)
         let newCard = app.buttons["split-new-conversation"]
         XCTAssertTrue(newCard.waitForExistence(timeout: 10))
         newCard.tap()
@@ -585,8 +744,8 @@ final class SplitContainerUITests: XCTestCase {
         }
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7,
-                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)))
-        let picker = app.otherElements["split-empty-pane-picker"]
+                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+        let picker = app.descendants(matching: .any)["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
@@ -599,25 +758,13 @@ final class SplitContainerUITests: XCTestCase {
     }
 
     @MainActor
-    func testAccessibleTopSplitEntryOpensTheSameEmptyPanePicker() {
+    func testComposerTopSplitEntryOpensTheSameEmptyPanePicker() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
-        app.openWorkspaceSidebar()
-        let entry = app.buttons["split-entry"]
-        guard entry.waitForExistence(timeout: 10) else {
-            XCTFail("Accessible Split menu missing")
-            return
-        }
-        entry.tap()
-        let action = app.buttons["split-open-top"]
-        guard action.waitForExistence(timeout: 10) else {
-            XCTFail("Top Pane action missing")
-            return
-        }
-        action.tap()
-        XCTAssertTrue(app.otherElements["split-empty-pane-picker"].waitForExistence(timeout: 10))
+        app.openWorkspaceSplit()
+        XCTAssertTrue(app.descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10))
     }
 
     @MainActor
@@ -642,9 +789,9 @@ final class SplitContainerUITests: XCTestCase {
 
         let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.7,
-                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)))
+                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
 
-        XCTAssertTrue(app.otherElements["split-empty-pane-picker"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["split-empty-pane-picker"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         XCTAssertTrue((editor.value as? String)?.contains("Split source draft") == true)
         XCTAssertTrue(editor.isHittable)

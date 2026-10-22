@@ -307,3 +307,59 @@ still draft/open/unmerged on S5-11; no main merge, IPA or physical acceptance is
 included. Device edge/system navigation, VoiceOver and comfort remain for the
 owner's later pass. This closure is carried by the subsequent Search test-only
 publication; the exact tested predecessor tree above remains the build receipt.
+
+### Owner Sidebar revision — 2026-10-18 (local source only)
+
+The owner removed the Sidebar Split shortcut and its action/handler path.
+Composer drag targeting and App Space card Split actions retain their existing
+ownership. UI scenarios that previously used the removed shortcut now prepare
+Split through a real Composer drag; their product assertions remain in place.
+
+New Conversation uses SF Symbol `bubble`. New Conversation, Search and Recent
+share one vertical Liquid Glass union in that order, using Apple's
+`GlassEffectContainer` and `glassEffectUnion(id:namespace:)`. File, configuration
+and Settings controls retain their existing handlers and availability rules.
+The existing draft/session navigation paths remain unchanged.
+
+Local reference/order and diff-whitespace checks were performed. These edits
+have not been compiled or run on iOS; no new code gate or device acceptance is
+claimed. The owner requested no packaging or full test run for this iteration.
+
+### Sidebar feedback and scene suspension — 2026-10-18 (local source only)
+
+All enabled Rail buttons now issue one light impact before dispatching their
+existing action. Disabled controls keep their existing noninteractive behavior.
+
+The observed Sidebar collapse has two source paths: the non-active scene handler
+called `navigation.reset()`, and the Sidebar availability observer reset again
+because availability also included scene activity. Separate presentation validity
+from foreground gesture admission. Scene suspension now revokes transient gesture,
+settlement and pending-action ownership while retaining the stable Sidebar endpoint.
+Owner/window loss, actual view teardown and the existing 20-minute conversation
+resume policy remain separate reset boundaries.
+
+Added state regressions for interrupted opening/closing, stale action completion
+and overlay identity, plus an actual Home/activate Sidebar UI scenario. These tests
+have not run: Windows has no Swift/Xcode toolchain, and no full CI or package was
+requested. Static checks do not establish hardware haptics or device acceptance.
+
+### Inner Split corner and keyboard dismissal — 2026-10-18 (local source only)
+
+The owner reported that the upper Conversation's lower-left rounded cutout
+still exposed a blurred cover when the lower Pane contained the picker. A clear
+shadow view does not prevent `shadowPath` from filling its silhouette: the shared
+workspace outline also covers internal Split cutouts. The decoration now applies
+an even-odd exterior mask to exclude the silhouette interior while retaining the
+same outer shadow geometry and translation cache. Added a native mask-path
+regression at the upper Pane corner and divider/picker boundary.
+
+The owner also changed the stable-editing Sidebar behavior: committing an open
+Sidebar now ends editing in its owning window. Dismissal occurs after gesture
+commit so the keyboard transition cannot reject an admitted edge drag. It does
+not clear the draft or replace the native editor; closing the Sidebar does not
+restore keyboard focus automatically. Sidebar, Search, Files and Settings UI
+expectations were updated for this explicit product change, including manual
+refocus of the same retained draft. Historical focus-preservation receipts above
+remain historical evidence, not acceptance of the revised behavior.
+
+Diff/reference checks only; no build, native test execution or package was run.

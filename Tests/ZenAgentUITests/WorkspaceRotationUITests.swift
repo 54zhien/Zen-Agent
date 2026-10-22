@@ -26,12 +26,16 @@ final class WorkspaceRotationUITests: XCTestCase {
         XCUIDevice.shared.orientation = .landscapeLeft
         expect { app.frame.width > app.frame.height }
         expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
-        XCTAssertTrue(secondary.exists && input.isHittable)
+        XCTAssertTrue(secondary.exists && input.isHittable, rotationInputReceipt(app))
+        print("ROTATION_RESTING_RECEIPT \(rotationInputReceipt(app))")
         XCTAssertFalse(source.exists)
         let restingFrame = hostFrame(secondaryProbe)
         XCTAssertNotNil(restingFrame)
-        input.tap(); input.typeText(" landscape edit")
+        tapEditorCenter(app, input: input)
+        expect { (secondaryProbe.value as? String)?.contains(";focused=true;") == true }
+        input.typeText(" landscape edit")
         XCTAssertTrue(app.keyboards.firstMatch.exists)
+        print("ROTATION_EDITING_RECEIPT \(rotationInputReceipt(app))")
         XCTAssertEqual(hostFrame(secondaryProbe), restingFrame,
                        "Landscape Single must keep its whole page behind the moving keyboard")
         dismissKeyboard(app, pane: secondary, editor: input, probe: secondaryProbe)
@@ -70,12 +74,25 @@ final class WorkspaceRotationUITests: XCTestCase {
         card.tap()
         expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
         let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
-        XCTAssertTrue(source.exists && app.textViews["conversation-composer-input"].isHittable)
+        XCTAssertTrue(source.exists && app.textViews["conversation-composer-input"].isHittable,
+                      rotationInputReceipt(app))
+        print("ROTATION_RETURN_RESTING_RECEIPT \(rotationInputReceipt(app))")
+        let returnedInput = app.textViews["conversation-composer-input"]
+        let marker = "landscape returned draft"
+        tapEditorCenter(app, input: returnedInput)
+        let sourceProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        expect { (sourceProbe.value as? String)?.contains(";focused=true;") == true }
+        returnedInput.typeText(marker)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertTrue((returnedInput.value as? String)?.contains(marker) == true)
+        print("ROTATION_RETURN_EDITING_RECEIPT \(rotationInputReceipt(app))")
+        dismissKeyboard(app, pane: source, editor: returnedInput, probe: sourceProbe)
 
         XCUIDevice.shared.orientation = .portrait
         expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }
         XCTAssertTrue(source.exists)
         XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch.exists)
+        XCTAssertTrue((app.textViews["conversation-composer-input"].value as? String)?.contains(marker) == true)
     }
 
     @MainActor
@@ -83,19 +100,11 @@ final class WorkspaceRotationUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
-        app.openWorkspaceSidebar()
-        let entry = app.buttons["split-entry"]
-        XCTAssertTrue(entry.waitForExistence(timeout: 15))
-        entry.tap()
-        let action = app.buttons["split-open-top"]
-        XCTAssertTrue(action.waitForExistence(timeout: 5))
-        XCTAssertTrue(action.wait(for: \.isHittable, toEqual: true, timeout: 5))
-        print("ROTATION_SPLIT_ACTION frame=\(action.frame),enabled=\(action.isEnabled),hittable=\(action.isHittable)")
-        action.tap()
+        app.openWorkspaceSplit()
         let history = app.buttons["split-history-preview-ui-10"]
         guard history.waitForExistence(timeout: 10) else {
             let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
-            XCTFail("Split picker did not appear after the hittable menu action. Native receipt: \(String(describing: probe.value)); hierarchy: \(app.debugDescription)")
+            XCTFail("Split picker did not appear after the Composer drag. Native receipt: \(String(describing: probe.value)); hierarchy: \(app.debugDescription)")
             return app
         }
         history.tap()
@@ -162,6 +171,28 @@ final class WorkspaceRotationUITests: XCTestCase {
     private func editorTextLength(_ diagnostic: String?) -> Int? {
         diagnostic?.split(separator: ";").first { $0.hasPrefix("editorTextLength=") }
             .flatMap { Int($0.dropFirst("editorTextLength=".count)) }
+    }
+
+    @MainActor
+    private func tapEditorCenter(_ app: XCUIApplication, input: XCUIElement) {
+        let frame = input.frame
+        let point = app.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: frame.midX - app.frame.minX, dy: frame.midY - app.frame.minY))
+        print("ROTATION_PHYSICAL_TAP point=\(point.screenPoint)")
+        point.tap()
+    }
+
+    @MainActor
+    private func rotationInputReceipt(_ app: XCUIApplication) -> String {
+        let input = app.textViews["conversation-composer-input"]
+        let inputState = input.exists
+            ? "frame=\(input.frame),hittable=\(input.isHittable),center=\(input.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).screenPoint)"
+            : "missing"
+        let probes = ["surface-native-interaction-probe", "split-secondary-native-interaction-probe"].map { id in
+            let probe = app.descendants(matching: .any)[id]
+            return "\(id)=\(probe.exists ? String(describing: probe.value) : "missing")"
+        }.joined(separator: "\n")
+        return "orientation=\(XCUIDevice.shared.orientation.rawValue);app=\(app.frame);input=\(inputState)\n\(probes)"
     }
 
     @MainActor

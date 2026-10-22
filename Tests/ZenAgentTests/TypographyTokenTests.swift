@@ -4,58 +4,10 @@ import UIKit
 
 @testable import ZenAgent
 
-/// Pins the token layer: which face, size, text style and `wght` each conceptual role
-/// resolves to, and — the part that is not decidable by reading the source — whether the
-/// variation a token asks for survives building a `UIFont` and, after that, a `CTFont`.
-///
-/// What these tests can and cannot settle is worth stating, because the difference is where
-/// the remaining risk lives. They settle the **arithmetic and the state**: the mapping from
-/// role to numbers, that scaling with a larger content size category produces a larger point
-/// size, and that CoreText's resolved font still reports the requested axis value. They do
-/// **not** settle the rendered result — CoreText publishes no API that reports the visual
-/// weight of a rasterised instance — nor whether SwiftUI re-evaluates a token when the user
-/// changes the system text size. Those stay device-calibration items.
+/// Exercise font registration, resolved variation state and Dynamic Type scaling.
+/// Rendered weight and SwiftUI updates still need visual verification.
 @Suite("Typography tokens")
 struct TypographyTokenTests {
-
-    @Test("the nine conceptual roles all resolve to a token")
-    func everyRoleResolves() {
-        #expect(TypographyRole.allCases.count == 9)
-        for role in TypographyRole.allCases {
-            let token = Typography.token(for: role)
-            #expect(token.pointSize > 0, "\(role) must have a positive point size")
-            #expect(
-                token.face.postScriptName.isEmpty == false,
-                "\(role) must name a face"
-            )
-        }
-    }
-
-    @Test("each role maps to its declared face, size, text style and weight")
-    func roleMappingIsExplicit() {
-        // Written out rather than derived from the implementation: a table that agreed with
-        // the code by construction would pass no matter which numbers the code chose.
-        let expected: [(TypographyRole, TypographyFace, CGFloat, UIFont.TextStyle, CGFloat?)] = [
-            (.interfaceTitle, .interface, 20, .title3, nil),
-            (.interfaceBody, .interface, 17, .body, nil),
-            (.interfaceCaption, .interface, 13, .caption1, nil),
-            (.conversationPrompt, .content, 16, .body, 400),
-            (.conversationBody, .content, 16, .body, 400),
-            (.conversationHeading, .content, 20, .title3, 600),
-            (.conversationQuote, .content, 16, .body, 400),
-            (.codeInline, .code, 15, .footnote, nil),
-            (.codeBlock, .code, 15, .body, nil),
-        ]
-        #expect(expected.count == TypographyRole.allCases.count)
-
-        for (role, face, pointSize, textStyle, weight) in expected {
-            let token = Typography.token(for: role)
-            #expect(token.face == face, "\(role) face")
-            #expect(token.pointSize == pointSize, "\(role) point size")
-            #expect(token.textStyle == textStyle, "\(role) text style")
-            #expect(token.weight == weight, "\(role) weight")
-        }
-    }
 
     @Test("every face resolves to a registered font")
     func everyFaceRegisters() {

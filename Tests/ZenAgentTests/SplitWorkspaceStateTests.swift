@@ -12,7 +12,8 @@ struct SplitWorkspaceStateTests {
             viewport: CGRect(x: 0, y: 0, width: 402, height: 539), ratio: 0.5))
         #expect(proposed.viewport == raw.viewport)
         #expect(proposed.top == raw.top && proposed.bottom == raw.bottom)
-        #expect(proposed.top.height == 263.5 && proposed.bottom.height == 263.5)
+        let pane = (539 - SplitWorkspaceGeometry.dividerThickness) / 2
+        #expect(proposed.top.height == pane && proposed.bottom.height == pane)
         #expect(SplitWorkspaceGeometry(viewport: .null, ratio: 0.5) == nil)
         #expect(SplitWorkspaceGeometry(viewport: .zero, ratio: 0.5) == nil)
     }

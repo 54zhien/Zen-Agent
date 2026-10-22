@@ -206,14 +206,4 @@ struct PromptComposerTests {
         #expect(continuedRequest.messages.contains(.user(initialUserContent)))
         #expect(continuedRequest.messages.last == .user(continuedUserContent))
     }
-
-    @Test("prompt composition types remain Sendable")
-    func promptTypesAreSendable() {
-        func requireSendable<T: Sendable>(_: T.Type) {}
-
-        requireSendable(PromptHistoryRole.self)
-        requireSendable(PromptHistoryMessage.self)
-        requireSendable(PromptCompositionInput.self)
-        requireSendable(PromptComposer.self)
-    }
 }

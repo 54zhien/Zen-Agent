@@ -13,13 +13,14 @@ struct CurrentCardEdgeTests {
         view.layer.cornerRadius = 20
         view.visibleRect = CGRect(x: 40, y: 80, width: 320, height: 640)
         view.setCurrentEdgeVisible(true)
-        let edge = try #require(view.layer.sublayers?.first { $0.name == "zen-current-card-edge" } as? CAShapeLayer)
+        let edge = try #require(view.layer.sublayers?.first { $0.name == "zen-current-card-edge" })
+        #expect(edge.cornerCurve == .continuous)
         let changed = CGRect(x: 60, y: 160, width: 280, height: 480)
         UIView.animate(withDuration: 0.28) { view.visibleRect = changed }
         #expect(edge.animationKeys()?.count == 1)
         UIView.performWithoutAnimation { view.visibleRect = changed }
         #expect((edge.animationKeys() ?? []).isEmpty)
-        #expect(abs(try #require(edge.path).boundingBoxOfPath.minX - changed.minX) <= 1)
+        #expect(edge.frame == changed)
         for _ in 0..<20 {
             view.setCurrentEdgeVisible(false)
             #expect(!view.currentEdgeVisible)
@@ -49,16 +50,16 @@ struct CurrentCardEdgeTests {
         }
         let edges = (host.surfaceView.layer.sublayers ?? []).filter { $0.name == "zen-current-card-edge" }
         #expect(edges.count == 1)
-        let edge = try #require(edges.first as? CAShapeLayer)
-        let path = try #require(edge.path)
+        let edge = try #require(edges.first)
         let visible = try #require(host.surfaceView.visibleRect)
-        let bounds = path.boundingBoxOfPath
+        let bounds = edge.frame
         #expect(abs(bounds.minX - visible.minX) <= 1)
         #expect(abs(bounds.maxX - visible.maxX) <= 1)
         #expect(abs(bounds.minY - visible.minY) <= 1)
         #expect(abs(bounds.maxY - visible.maxY) <= 1)
-        #expect(!edge.isHidden && edge.lineWidth > 0 && edge.lineWidth <= 1)
-        #expect(edge.fillColor == nil || edge.fillColor?.alpha == 0)
+        #expect(!edge.isHidden && edge.borderWidth > 0 && edge.borderWidth <= 1)
+        #expect(edge.cornerCurve == host.surfaceView.layer.cornerCurve)
+        #expect(edge.backgroundColor == nil || edge.backgroundColor?.alpha == 0)
 
         #expect(host.apply(.full))
         host.setLiftInteraction(.full, returnAction: { true })

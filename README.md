@@ -28,11 +28,116 @@ Zen-Agent-Blueprint @ 99d30b815651fe987bab9f88e269a84a89318625
 Owner-approved Stage 5 supplement @ e6d8c5f9919a83672bea670bc7e49339e5f5373c
 Device feedback corrections @ 3b4b22c0df91be668406127c84c1822b359883c0
 Device glass and motion owner ruling @ 51b4dc33beec515c7d684d352060fbdeded1825e
+App Space centered stacks and Split device-feedback ruling @ 97fc04dea9ce0f2cd7e834de938e3450da4335d4
+Composer menu scale-motion owner ruling @ b3ca36734213f370c8b2b8d5608e1b772880a760
+Owner menu rollback and bounded card motion correction @ 45bfb3f6d8e61d63fc38fdb4bbdfe7e18c2c263f
+Owner Sidebar Split seam disappearance ruling @ 6d100234b7087c87461f6056c1fd8643b7dc90c2
+Owner shared Liquid Glass Composer menu ruling @ 5b23c35dee0bf701aca3f6dde46feffba6dbbb10
+Owner anchored Composer menu and subtle arrival-bounce ruling @ e695c74f3d6214f94401ce44cbcbf055cc4ac152
+Owner independent Split cards and two-way menu rebound correction @ e8930f6f1c184b905346ba9723434a49aa316e1f
+Owner preserved Split divider and Single-matched shadow ruling @ b31bfe45413a26f0365e56fe971ec67c2bdadbe1
+Owner slightly slower Composer menu timing ruling @ 275271047d85a2cd93d55051ec941fab2ca22308
+Owner trailing model checkmark and leading text alignment ruling @ 7fc0eb5d42a2d7a83da4e68ccb15e4df9180971d
+Owner smaller Composer plus symbol and plain button ruling @ 355c4634b01df15598f9813d796ce4f4c132d917
+Owner stationary Composer and expanded menu edge alignment ruling @ 815cb7905405ac14a74c6206280f1d02d2ac1200
+Owner retained menu hierarchy and continuous entrance geometry ruling @ 9c1ff3dad2cc9e0b5c203741da2d1355d9f8909e
+Owner visible source-circle materialization ruling @ f6a57a324ff47f49ffc7b8153d1c60d6b5d9676b
+Owner simultaneous glass expansion, content scaling and departing glyph ruling @ 019208582068f74b679495d9d228bd1b0971102f
+Owner Composer-aligned dismissal circle and continuous crossfade ruling @ caa8b789c5e865c7fbf537507de66f22b0f9ade2
+Owner visible contraction followed by circle/glyph crossfade correction @ 8652f16ef4a46c5dc0fc5f97fdc4241e40109091
+Owner immediate stationary glyph and first-circle-arrival fade ruling @ 638f2bbc17dd5f47ae43a9201c4fe847076378a8
+Owner stationary glyph beneath dismissal glass ruling @ ae479dae966c39ff888494915059647c2aaeb856
+Owner overlapping late-contraction glass fade ruling @ 06a780c8fde5aee6de1fdb29bf507d835d72de70
+Owner transparent contraction tail without material dematerialization @ ad7ec93e110e196ea5d3fe180766ab64fa40b58c
+Owner exact-circle replacement followed by a fixed-circle fade @ bd48b19dc99b1e66a99b8a80ad0eb0cbca0d2c15
+Owner native material dismissal with content-layer glyph reveal @ fd95564019ddf84604efc0363b965f592af9111e
+Owner accepted entrance/dismissal, matching corners, submenu and haptic refinement @ b2be74cdc176b686222b2590463c5332a4c065de
+Owner keyboard replacement sheet and Thinking label ruling @ ca5ffd514e75935174a66205439a44a0c6d3ef1d
+Owner SF menu symbols and six-level Thinking gauge ruling @ 79ecea35b6b062dd30a6e4677e92cbb3566cd22e
+Owner capability-backed Thinking selection and frozen request ruling @ 570b8c34309632fb2cf6050e06e5fca10a5d0e51
+Owner retained-responder inputView menu and concentric sheet ruling @ 3157898f6f5aa6e200aa0e0e0c40013ed202dc37
+Owner sequential native keyboard dismissal and reserved app-menu ruling @ ea2079ab6ac61dd0c145a0773f5c7adb491454ed
+Owner floating primary menu appearance ruling @ 05df074abc0dfa5df26dfb8966431a2800533d2b
+- Composer bottom details, concentric primary menu and vertical thinking control: Blueprint `919f3fe` (2026-10-21).
+- Composer symbol visibility and original paperclip: Blueprint `4746ed1` (2026-10-21).
+Owner curved black thinking control and coordinated detail return @ c50ca870c7921679a519d0ab79005ad75bc6db18
+Owner clearer circular rail, tap spring and softer detail entrance @ 97ca787d5e47e1b13ec860fef72b85a00816f118
+Owner fixed thinking layout, retained menu lifecycle and Split appearance ruling @ 17477d4ec32377640ee12b715de507952d75fa0e
+Owner refined Composer outlines and optical balance @ d1f5998e60f05d7ba63b712be5416c8b495b774e
+Owner thinking control layout, hit targets and shared handle appearance @ 25cc5f4e8e287fbbc3a20fdb14985367ba14ebb4
+Owner retraced plugin and restored outline weight @ e82a36c18dff0d14752b7aa14062a757326c7d2b
+Owner recessed thinking rail and optical alignment @ bf7dfb3
+Owner flat rail joins, silhouette centering and directional title @ 1238a73
+Owner shared gauge axis, selected capsules and delicate thinking feedback @ d249fb2
+Owner resonant continuous thinking feedback @ b6806f0
+Owner longer softer thinking resonance @ bd9ab17
+Owner tremulous resonance and immediate default feedback @ 73cec91
+Owner longer rising thinking resonance @ 798de08
+Owner sustained thinking hum and midpoint title @ 6397aa2
+Owner softer sustained hum and plain default capsule @ a74e62a
+Owner smaller model selection background corners @ f5b2b2e
+Owner input-first Sidebar dismissal and animated sheet exit @ 899c821
+Owner message symbol for new conversation @ bec8ccf
+Owner Composer anchor following sheet descent @ b6cf5db
+Owner system-animated Composer descent @ 883ae2a
+Owner bounded Composer performance optimization @ 6d9b054
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
 not merged into Blueprint `main`. It records the 2026-10-15 owner request for
 two-axis interactive Lift, synchronized Composer feedback and layered Sidebar visuals.
+
+The App Space ruling is on Blueprint branch `codex/appspace-inertial-browse-20261019`,
+not merged into Blueprint `main`. It records the owner's confirmed multi-card inertia,
+nearest-card snapping and opaque, continuously rounded card surfaces.
+The latest device correction centers the selected card with a tighter stack,
+admits short canvas flicks, and retains small bounded Split cards through release.
+The same unmerged Blueprint branch records the subsequent device ruling:
+restore the native Composer `+` menu transition, park passed cards closely on
+the right, and span the full bounded upward travel before reaching minimum size.
+The latest Sidebar correction preserves each Pane's complete outline and the
+approved fading Divider backdrop. The separate card silhouettes share Single's
+shadow compositing, excluding both translucent page interiors; the handle no
+longer casts its own shadow. Pane geometry and retained content state are unchanged.
+The subsequent menu correction retains a native glass parent panel behind its
+child panel. The child expands from the selected model row and contracts back to
+that row. Entrance animates the glass bounds and corners from the actual `+`
+bounds. The latest owner ruling starts the source-sized
+circle's materialization and upward/rightward expansion together, while menu
+content scales and fades in and the original glyph moves upward/rightward and
+fades out. There is no stationary materialization delay. Dismissal scales the
+content down as the panel contracts to a circle matching the Composer's actual
+lower-left corner radius and left/bottom edges. The glass remains visible through
+the first part of contraction, which retains the opening duration and spring parameters.
+Near the target circle, the same live panel animates its effect to nil while
+geometry continues. The return glyph is a separate child of the glass contentView,
+anchored at its lower-left edge, and fades in during that material animation.
+It does not inherit the menu content's scale. The actual button stays hidden until
+the overlay finishes and hands the glyph back at the original position. No window
+capture or replacement circle is used. The native material animation is not a
+promise of linear transparency; its visual result still needs device acceptance.
+The preserved rollback source is tagged codex/composer-rollback-26.10.23. Opening still uses
+the actual button bounds. The editor,
+Composer and actual controls remain stationary, with the original plain button
+at rest. The existing opening and child-menu presentation remain; the extra
+pre-contraction enlargement is removed.
+The owner accepted 26.10.29 entrance and dismissal on device; those animation
+functions and timing are retained. Both menu levels now use the Composer surface's
+resolved corner radius. Child entrance/return animate material and a centered,
+fixed-layout content canvas together; final typography and alignment stay intact.
+Existing custom haptic feedback is stronger, including independent Sidebar,
+card deletion and Split divider feedback. New changes remain pending device review.
+Model options share the header icon's leading edge, with the selected checkmark
+at the trailing edge in the same foreground color; the shared glass menu is retained.
+
+The keyboard replacement ruling is on Blueprint branch
+`codex/composer-keyboard-sheet-20261020`, not merged into Blueprint `main`.
+When the software keyboard is visible, `+` replaces it with an equally tall
+bottom glass sheet and rotates clockwise 45 degrees into a close control.
+The sheet lists Model, Thinking, Plugins, Images and Files with gray circular
+icon backgrounds. Close does not reopen the keyboard; tapping the editor does.
+The keyboard-hidden path retains its accepted floating-menu motion. See
+[the slice record](tasks/composer-keyboard-sheet.md) for implementation and validation status.
 
 This is a snapshot of the design state this work started from, not a permanent
 version pin. Update it when the blueprint changes in a way that affects

@@ -1,11 +1,21 @@
 import SwiftUI
 
 @MainActor
-struct ConversationPreviewView: View {
+struct ConversationPreviewView: View, Equatable {
     let summary: ConversationSummary?
-    var status: ConversationPreviewStatus = .ready
-    var isNewEntry = false
+    let status: ConversationPreviewStatus
+    let isNewEntry: Bool
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    init(summary: ConversationSummary?, status: ConversationPreviewStatus = .ready, isNewEntry: Bool = false) {
+        self.summary = summary
+        self.status = status
+        self.isNewEntry = isNewEntry
+    }
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.summary == rhs.summary && lhs.status == rhs.status && lhs.isNewEntry == rhs.isNewEntry
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {

@@ -6,6 +6,38 @@ import Testing
 @Suite("Settings edit scope")
 @MainActor
 struct SettingsScopeTests {
+    @Test("the single Settings route captures an unconfigured New and waits for its sheet to dismiss")
+    func gearSettingsOwnsConfigurationAndDeferredDismissal() async throws {
+        let fixture = try AppShellWiringTests().makeFixture(seed: .none, createInstance: false, setDefault: false)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        await fixture.model.launchRestorationTask?.value
+        let navigation = WorkspaceNavigationState()
+        let overlays = WorkspaceOverlayCoordinator(store: fixture.store, shell: fixture.model, navigation: navigation)
+        navigation.onReset = { [weak overlays] in overlays?.reset() }
+        #expect(navigation.openSidebar(eligible: true))
+        navigation.completeSettlement(try #require(navigation.settlementID))
+        overlays.enter(.settings, eligible: true, captureFocus: { nil })
+        let id = try #require(navigation.overlayID)
+        let settings = try #require(overlays.settings)
+        #expect(settings.isConfigureMode)
+        overlays.close(expectedID: id)
+        #expect(navigation.overlay == nil && overlays.settings === settings)
+        overlays.settingsDidDismiss(expectedID: UUID())
+        #expect(overlays.settings === settings, "A stale dismissal cannot release another presentation")
+        overlays.settingsDidDismiss(expectedID: id)
+        #expect(overlays.settings == nil)
+        navigation.completeSettlement(try #require(navigation.settlementID))
+        #expect(navigation.openSidebar(eligible: true))
+        navigation.completeSettlement(try #require(navigation.settlementID))
+        overlays.enter(.settings, eligible: true, captureFocus: { nil })
+        let replacement = try #require(overlays.settings)
+        overlays.settingsDidDismiss(expectedID: id)
+        #expect(overlays.settings === replacement && navigation.overlay == .settings)
+        navigation.reset()
+        overlays.settingsDidDismiss(expectedID: id)
+        #expect(overlays.settings == nil && navigation.overlay == nil)
+    }
+
     @Test("explicit Configure initializes the captured New without replacing its editor or creating a row")
     func configureKeepsTheUncommittedNewOwner() async throws {
         let fixture = try AppShellWiringTests().makeFixture(seed: .none, createInstance: false, setDefault: false)

@@ -754,27 +754,29 @@ struct AppShellWiringTests {
             try await Task.sleep(for: .milliseconds(25))
         }
         let card = try #require(findCard(host.view))
-        let native = try #require(card.gestureRecognizers?.compactMap { $0.delegate as? AppSpaceBrowseInteraction }.first)
+        var responder: UIResponder? = card
+        while let current = responder, !(current is UIViewController) { responder = current.next }
+        let viewport = try #require((responder as? UIViewController)?.view)
+        let native = try #require(viewport.gestureRecognizers?.compactMap { $0.delegate as? AppSpaceBrowseInteraction }.first)
         #expect(fixture.model.previewContent.summaries.isEmpty, "Workspace must retain only one summary window")
         #expect(native.controller.summaries.count <= 5)
         let action = try #require(card.accessibilityCustomActions?.first { $0.name == "上一会话" })
         let handler = try #require(action.actionHandler)
         #expect(handler(action))
-        let animator = try #require(native.animatorForTesting)
-        animator.pauseAnimation()
-        animator.fractionComplete = 0.4
+        #expect(native.isAnimating)
+        native.advance(deltaTime: 0.025)
         CATransaction.flush()
-        let pending = try #require(native.controller.state.pendingSettlement)
         if returnToFull {
             #expect(card.accessibilityActivate())
         } else {
-            let container = try #require(card.superview)
-            container.frame.size.width += 80
-            container.setNeedsLayout()
-            container.layoutIfNeeded()
+            // The immediate parent translates Sidebar content; resize the
+            // owning controller's viewport rather than that presentation wrapper.
+            viewport.frame.size.width += 80
+            viewport.setNeedsLayout()
+            viewport.layoutIfNeeded()
         }
-        #expect(native.animatorForTesting == nil)
-        #expect(!native.controller.complete(pending, finished: true))
+        #expect(!native.isAnimating)
+        for _ in 0..<240 { native.advance(deltaTime: 1.0 / 120) }
         #expect(native.controller.state.selected == .conversation("snap-interrupt-1"))
         if returnToFull {
             for _ in 0..<80 where lift.state.phase != .full || fixture.model.previewContent.isPresented {

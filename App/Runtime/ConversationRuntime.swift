@@ -205,7 +205,8 @@ actor ConversationRuntime {
         let seed = try provider.makeRequestConfigSeed(
             instance: instance,
             modelID: command.modelID,
-            credentialBinding: binding
+            credentialBinding: binding,
+            thinkingEffort: command.thinkingEffort
         )
 
         // 8. Build the user message, text part and preparing Parent Run.
@@ -1390,6 +1391,10 @@ actor ConversationRuntime {
         }
         for component in components {
             append(component, to: &encoded)
+        }
+        if let effort = command.thinkingEffort {
+            append("thinking-effort-v1", to: &encoded)
+            append(effort.rawValue, to: &encoded)
         }
         if !command.references.isEmpty {
             append("quote-references-v1", to: &encoded)

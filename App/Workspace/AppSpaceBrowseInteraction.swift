@@ -15,10 +15,18 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
     private let canBrowse: () -> Bool
     private let render: (AppSpaceBrowseGeometry.Card) -> Bool
     private let refreshAccessibility: () -> Void
-    private var animator: UIViewPropertyAnimator?
-    private var animationID: UUID?
+    private var displayLink: CADisplayLink?
+    private lazy var clockTarget = AppSpaceBrowseClockTarget(owner: self)
+    private var motion: AppSpaceBrowseMotion?
+    private var lastTimestamp: TimeInterval?
+    private var dragOffset = 0.0
+    private var lastTranslation = 0.0
+    private var recentVelocity = 0.0
+    private var recentSampleTime: TimeInterval = 0
+    private var preservesPresentation = false
+    var isAnimating: Bool { motion != nil }
+    private let windowCornerGeometry = WindowCornerGeometry()
 #if DEBUG
-    var animatorForTesting: UIViewPropertyAnimator? { animator }
     private var diagnosticEvents: [String] = []
     var diagnostic: String {
         "owner=\(isCurrentOwner),enabled=\(recognizer.isEnabled),native=\(recognizer.state.rawValue),phase=\(controller.state.phase),canBrowse=\(canBrowse());events="
@@ -50,7 +58,7 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
         recognizer.cancelsTouchesInView = true
         recognizer.delegate = self
         recognizer.addTarget(self, action: #selector(gestureChanged(_:)))
-        surface.addGestureRecognizer(recognizer)
+        coordinates.addGestureRecognizer(recognizer)
         controller.claimTransport(transportOwner) { [weak self] in self?.stateChanged() }
         updateViewport()
     }
@@ -62,7 +70,8 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
             record("viewport=\(coordinates.bounds.size) insets=\(coordinates.safeAreaInsets) phase=\(controller.state.phase)")
         }
 #endif
-        controller.updateViewport(size: coordinates.bounds.size, safeArea: coordinates.safeAreaInsets)
+        controller.updateViewport(size: coordinates.bounds.size, safeArea: coordinates.safeAreaInsets,
+            displayCornerRadius: coordinates.window.map { windowCornerGeometry.radius(in: $0) } ?? 0)
     }
 
     func updateAvailability() {
@@ -74,6 +83,10 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
     }
 
     var canNavigate: Bool { isCurrentOwner && canBrowse() && controller.state.phase == .idle }
+    var acceptsCanvasTouches: Bool {
+        isCurrentOwner && controller.isPresented && !controller.interactionSuspended
+            && canBrowse() && (controller.state.phase == .idle || isAnimating)
+    }
     var hasNavigationActions: Bool {
         isCurrentOwner && controller.isPresented && !controller.interactionSuspended && controller.state.phase == .idle
     }
@@ -86,7 +99,8 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
 #endif
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard isCurrentOwner, gestureRecognizer === recognizer, canBrowse(), controller.state.phase == .idle,
+        guard isCurrentOwner, gestureRecognizer === recognizer, canBrowse(),
+              controller.state.phase == .idle || isAnimating,
               controller.layout() != nil, let coordinates else {
 #if DEBUG
             record("begin denied owner=\(isCurrentOwner) canBrowse=\(canBrowse()) phase=\(controller.state.phase)")
@@ -108,85 +122,137 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
 #endif
         switch pan.state {
         case .began:
-            guard canBrowse(), controller.begin() else { return }
-            _ = controller.drag(displacement: Double(pan.translation(in: reference).x), travel: Double(layout.travel))
+            let catchesMotion = isAnimating
+            let caughtOffset = motion?.offset ?? controller.state.offset
+            stopMotion()
+            guard canBrowse(), catchesMotion || controller.begin() else { return }
+            dragOffset = caughtOffset
+            lastTranslation = 0
+            sampleVelocity(pan, reference: reference)
+            drag(pan, reference: reference, travel: Double(layout.travel))
         case .changed:
-            _ = controller.drag(displacement: Double(pan.translation(in: reference).x), travel: Double(layout.travel))
+            sampleVelocity(pan, reference: reference)
+            drag(pan, reference: reference, travel: Double(layout.travel))
         case .ended:
-            // UIKit may deliver the final displacement only with release. Its
-            // velocity can already be zero, so the last changed sample is stale.
-            _ = controller.drag(displacement: Double(pan.translation(in: reference).x), travel: Double(layout.travel))
-            settle(velocity: Double(pan.velocity(in: reference).x))
+            // Consume release displacement even without a changed callback. A
+            // brief flick can lift off after UIKit has zeroed its velocity.
+            drag(pan, reference: reference, travel: Double(layout.travel))
+            guard controller.state.phase == .dragging else { return }
+            let released = Double(pan.velocity(in: reference).x)
+            let velocity = (released == 0 && CACurrentMediaTime() - recentSampleTime <= 0.06
+                ? recentVelocity : released) / Double(layout.travel)
+            guard velocity.isFinite else { cancel(); return }
+            start(AppSpaceBrowseMotion(offset: min(1, max(-1, dragOffset)), velocity: velocity))
         case .cancelled, .failed: cancel()
         default: break
         }
+    }
+
+    private func sampleVelocity(_ pan: UIPanGestureRecognizer, reference: UIView) {
+        // A changed sample at rest deliberately clears momentum before release.
+        recentVelocity = Double(pan.velocity(in: reference).x)
+        recentSampleTime = CACurrentMediaTime()
     }
 
     @discardableResult
     func navigate(_ direction: Direction) -> Bool {
         guard isCurrentOwner, canBrowse(), controller.state.phase == .idle,
               (direction == .older ? controller.state.older : controller.state.newer) != nil,
-              let layout = controller.layout(), controller.begin() else { return false }
-        settle(velocity: Double(layout.travel) * (direction == .older ? 10 : -10))
+              controller.layout() != nil, controller.begin() else { return false }
+        var motion = AppSpaceBrowseMotion(offset: 0, velocity: 0)
+        motion.snap(to: direction == .older ? 1 : -1)
+        start(motion)
         return true
     }
 
-    private func settle(velocity: Double) {
-        guard isCurrentOwner, controller.state.phase == .dragging, let layout = controller.layout(),
-              let from = layout.cards.first(where: { $0.item == controller.state.selected }) else { cancel(); return }
-        let animated = !UIAccessibility.isReduceMotionEnabled
-        let settlement = withAnimation(animated ? .easeInOut(duration: 0.28) : nil) {
-            controller.end(velocity: velocity, travel: Double(layout.travel))
-        }
-        guard let settlement,
-              let to = controller.layout()?.cards.first(where: { $0.item == controller.state.selected }) else { cancel(); return }
-#if DEBUG
-        record("settle=\(settlement.destination) from=\(settlement.startOffset)")
-#endif
-        stopAnimator()
-        UIView.performWithoutAnimation { _ = render(from) }
-        guard animated else {
-            let rendered = render(to)
-            let committed = controller.complete(settlement, finished: rendered)
-            announce(committed: committed)
+    private func drag(_ pan: UIPanGestureRecognizer, reference: UIView, travel: Double) {
+        let translation = Double(pan.translation(in: reference).x)
+        dragOffset += (translation - lastTranslation) / travel
+        lastTranslation = translation
+        guard let remaining = withAnimation(nil, { controller.move(to: dragOffset) }) else {
+            cancel()
+            announce(committed: false)
             return
         }
-        let identity = UUID()
-        animationID = identity
-        let animation = UIViewPropertyAnimator(duration: 0.28, curve: .easeInOut) { [weak self] in
-            _ = self?.render(to)
-        }
-        animation.isManualHitTestingEnabled = true
-        animator = animation
-        animation.addCompletion { [weak self] position in
-            guard let self, self.isCurrentOwner, self.animationID == identity else { return }
-            self.animationID = nil
-            self.animator = nil
-            let committed = self.controller.complete(settlement, finished: position == .end)
-            self.announce(committed: committed)
-        }
-        animation.startAnimation()
+        dragOffset = remaining
     }
 
-    func cancel() {
+    private func start(_ value: AppSpaceBrowseMotion) {
+        stopMotion()
+        var motion = value
+        if let target = motion.target,
+           (target > 0 && controller.state.older == nil) || (target < 0 && controller.state.newer == nil) {
+            motion.snap(to: 0)
+        }
+        self.motion = motion
+        if UIAccessibility.isReduceMotionEnabled {
+            guard withAnimation(nil, { controller.move(to: motion.destinationWithoutAnimation) }) != nil else {
+                cancel()
+                announce(committed: false)
+                return
+            }
+            finishMotion()
+            return
+        }
+        let link = CADisplayLink(target: clockTarget, selector: #selector(AppSpaceBrowseClockTarget.tick(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
+        displayLink = link
+        link.add(to: .main, forMode: .common)
+    }
+
+    fileprivate func displayFrame(_ link: CADisplayLink) {
+        guard link === displayLink else { return }
+        let delta = lastTimestamp.map { link.timestamp - $0 } ?? (link.targetTimestamp - link.timestamp)
+        lastTimestamp = link.timestamp
+        advance(deltaTime: delta)
+    }
+
+    func advance(deltaTime: TimeInterval) {
+        guard isCurrentOwner, canBrowse(), controller.state.phase == .dragging,
+              var motion else { stopMotion(); return }
+        motion.advance(deltaTime: deltaTime)
+        guard let remaining = withAnimation(nil, { controller.move(to: motion.offset) }) else {
+            cancel()
+            announce(committed: false)
+            return
+        }
+        motion.rebase(by: motion.offset - remaining)
+        if abs(controller.state.offset - remaining) > 0.000001, motion.target != 0 {
+            motion.returnFromBoundary(offset: min(1, max(-1, remaining)))
+        }
+        self.motion = motion
+        if motion.isFinished { finishMotion() }
+    }
+
+    private func finishMotion() {
+        stopMotion()
+        guard let settlement = controller.end(velocity: 0, travel: 1) else { cancel(); return }
+        let committed = withAnimation(nil) { controller.complete(settlement, finished: true) }
+        announce(committed: committed)
+    }
+
+    func cancel(preservingPresentation: Bool = false) {
 #if DEBUG
         record("cancel owner=\(isCurrentOwner) phase=\(controller.state.phase)")
 #endif
-        stopAnimator()
+        stopMotion()
         guard isCurrentOwner else { return }
+        preservesPresentation = preservingPresentation
         withAnimation(nil) { controller.cancel() }
+        preservesPresentation = false
     }
 
     func unbind() {
         cancel()
         controller.releaseTransport(transportOwner)
-        surface?.removeGestureRecognizer(recognizer)
+        coordinates?.removeGestureRecognizer(recognizer)
     }
 
-    private func stopAnimator() {
-        animationID = nil
-        animator?.stopAnimation(true)
-        animator = nil
+    private func stopMotion() {
+        displayLink?.invalidate()
+        displayLink = nil
+        lastTimestamp = nil
+        motion = nil
     }
 
     private func announce(committed: Bool) {
@@ -200,8 +266,8 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
     private func stateChanged() {
         guard isCurrentOwner else { return }
         let state = controller.state
-        if state.pendingSettlement == nil { stopAnimator() }
-        if state.phase != .settling,
+        if state.phase == .idle { stopMotion() }
+        if !preservesPresentation, state.phase != .settling,
            let card = controller.layout()?.cards.first(where: { $0.item == state.selected }) {
             UIView.performWithoutAnimation { _ = render(card) }
         }
@@ -217,5 +283,15 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
             lastCanEditMetadata = controller.canEditCurrentMetadata
             refreshAccessibility()
         }
+    }
+}
+
+@MainActor
+private final class AppSpaceBrowseClockTarget: NSObject {
+    weak var owner: AppSpaceBrowseInteraction?
+    init(owner: AppSpaceBrowseInteraction) { self.owner = owner; super.init() }
+    @objc func tick(_ link: CADisplayLink) {
+        guard let owner else { link.invalidate(); return }
+        owner.displayFrame(link)
     }
 }

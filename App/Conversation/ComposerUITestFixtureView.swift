@@ -58,7 +58,13 @@ private final class ComposerUITestFixture {
             models: { requested in
                 [ModelDescriptor(
                     id: modelID, providerInstanceID: requested,
-                    displayName: "UI Test Model", capabilities: [.text, .streaming]
+                    displayName: "UI Test Model", capabilities: [.text, .streaming, .reasoning],
+                    thinkingEfforts: ProcessInfo.processInfo.environment["ZEN_COMPOSER_THINKING_LEVELS_TEST"] == "1"
+                        ? [.low, .high, .max] : Set(ThinkingEffort.allCases), defaultThinkingEffort: .high
+                ), ModelDescriptor(
+                    id: ModelID(rawValue: "composer-ui-test-long-model"), providerInstanceID: requested,
+                    displayName: "UI Test Model With A Longer Name", capabilities: [.text, .streaming, .reasoning],
+                    thinkingEfforts: [.low, .medium, .high, .xhigh], defaultThinkingEffort: .medium
                 )]
             },
             projection: { _ in await runs.projection() },
@@ -80,14 +86,38 @@ struct ComposerUITestFixtureView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ConversationPaneView(
-                pane: fixture.pane,
-                runtime: fixture.runtime,
-                actionBridge: fixture.bridge,
-                maxProviderSteps: 4
-            )
-            .navigationTitle("新会话")
+        if ProcessInfo.processInfo.environment["ZEN_COMPOSER_SYMBOL_PREVIEW"] == "1" {
+            VStack(spacing: 12) {
+                Text("思考图标 · 六档").font(.title2)
+                ForEach(ThinkingEffort.allCases, id: \.rawValue) { level in
+                    HStack(spacing: 20) {
+                        ComposerThinkingIcon(level: level)
+                            .frame(width: 21, height: 21)
+                            .frame(width: 38, height: 38)
+                            .background(Color(uiColor: .secondarySystemFill), in: Circle())
+                        Text(level.title).font(.body)
+                        Spacer()
+                        ComposerThinkingIcon(level: level)
+                            .frame(width: 56, height: 56)
+                            .frame(width: 70, height: 70)
+                            .background(Color(uiColor: .secondarySystemFill), in: Circle())
+                    }
+                    .frame(height: 76)
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(uiColor: .systemBackground))
+        } else {
+            NavigationStack {
+                ConversationPaneView(
+                    pane: fixture.pane,
+                    runtime: fixture.runtime,
+                    actionBridge: fixture.bridge,
+                    maxProviderSteps: 4
+                )
+                .navigationTitle("新会话")
+            }
         }
     }
 }

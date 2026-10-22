@@ -10,8 +10,7 @@ final class FilesWorkspaceUITests: XCTestCase {
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        app.openWorkspaceSidebar()
         let files = app.buttons["sidebar-files"]
         guard files.waitForExistence(timeout: 5),
               files.wait(for: \.isEnabled, toEqual: true, timeout: 5),
@@ -68,6 +67,16 @@ final class FilesWorkspaceUITests: XCTestCase {
 
     @MainActor
     func testFilesImportOpensTheSystemPickerAndCloseRestoresTheDraft() {
+        closeFilesRestoresTheDraft(importsFile: true)
+    }
+
+    @MainActor
+    func testFilesCloseWithoutAPickerRestoresTheDraft() {
+        closeFilesRestoresTheDraft(importsFile: false)
+    }
+
+    @MainActor
+    private func closeFilesRestoresTheDraft(importsFile: Bool) {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
@@ -81,8 +90,7 @@ final class FilesWorkspaceUITests: XCTestCase {
         let identity = editorIdentity(probe.value as? String)
         XCTAssertNotNil(identity)
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        app.openWorkspaceSidebar()
         let files = app.buttons["sidebar-files"]
         guard files.waitForExistence(timeout: 5),
               files.wait(for: \.isEnabled, toEqual: true, timeout: 5),
@@ -97,22 +105,27 @@ final class FilesWorkspaceUITests: XCTestCase {
             return
         }
         XCTAssertTrue(app.staticTexts["files-workspace-empty"].exists)
-        app.buttons["files-import"].tap()
-        let importPicker = app.descendants(matching: .any)["files-native-import"]
-        XCTAssertTrue(importPicker.waitForExistence(timeout: 5))
-        cancelNativePicker(importPicker, in: app)
-        expect { !importPicker.exists }
-        XCTAssertTrue(workspace.exists)
-        XCTAssertTrue(app.staticTexts["files-workspace-empty"].exists,
-                      "Picker cancellation must not create a catalog asset")
+        if importsFile {
+            app.buttons["files-import"].tap()
+            let importPicker = app.descendants(matching: .any)["files-native-import"]
+            XCTAssertTrue(importPicker.waitForExistence(timeout: 5))
+            cancelNativePicker(importPicker, in: app)
+            expect { !importPicker.exists }
+            XCTAssertTrue(workspace.exists)
+            XCTAssertTrue(app.staticTexts["files-workspace-empty"].exists,
+                          "Picker cancellation must not create a catalog asset")
+        }
         app.buttons["files-workspace-close"].tap()
         expect { !workspace.exists }
-        expect { (probe.value as? String)?.contains("focused=true;") == true }
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        expect { !app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=false;") == true }
         XCTAssertEqual(editorIdentity(probe.value as? String), identity)
         XCTAssertTrue((editor.value as? String)?.contains("draft retained through Files") == true)
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         let pane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
+        editor.tap()
+        expect { app.keyboards.firstMatch.exists
+            && (probe.value as? String)?.contains("focused=true;") == true }
         app.dismissWorkspaceKeyboard(pane: pane, editor: editor)
     }
 

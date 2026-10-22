@@ -453,7 +453,7 @@ rebase 到含 P6 的 main 后合入。合并条件按审查要求逐条满足：
 - [ ] `App/Persistence/PersistenceStore+TimelineReads.swift` —— 新建：`runs(inConversation:)` / `toolResults(forToolCallIDs:)`
 - [ ] `Tests/ZenAgentTests/ConversationTimelineProjectionTests.swift` —— 新建：契约 §6.1 的 13 条
 - [ ] `Tests/ZenAgentTests/ConversationTimelineLoaderTests.swift` —— 新建：契约 §6.2 的 5 条
-- [ ] `Tests/ZenAgentTests/ConversationTypographyDisciplineTests.swift` —— 新建：契约 §6.3 的 3 条静态关卡
+- [x] ~~`Tests/ZenAgentTests/ConversationTypographyDisciplineTests.swift` —— 新建：契约 §6.3 的 3 条静态关卡~~；2026-10-18 测试清理删除了这组源码拼写检查，保留字体注册、CoreText variation 与 Dynamic Type 的运行时测试。
 - [ ] `Tests/ZenAgentTests/PersistenceFixtures.swift` —— **只追加带默认值的参数**（`endReason` / `createdAt` / `updatedAt`）
 - [ ] `AGENTS.md` —— §8 Layout 补 `App/Conversation/` 一行
 

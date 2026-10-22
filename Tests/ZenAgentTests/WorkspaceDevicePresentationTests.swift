@@ -52,7 +52,7 @@ struct WorkspaceDevicePresentationTests {
         #expect(layout.divider.maxX == layout.bottom.minX)
         #expect(layout.divider.minX == layout.top.maxX)
         #expect(layout.top.width + layout.divider.width + layout.bottom.width == layout.viewport.width)
-        #expect(layout.divider.width == 12 && layout.divider.height == layout.viewport.height)
+        #expect(layout.divider.width == SplitWorkspaceGeometry.dividerThickness && layout.divider.height == layout.viewport.height)
         #expect(layout.top.height == layout.bottom.height)
     }
 }

@@ -66,16 +66,16 @@ final class SurfaceLiftUITests: XCTestCase {
 
     @MainActor
     func testComposerDragTargetsTopSplit() {
-        assertSplitTarget(.init(dx: 0.5, dy: 0.18), expected: "top")
+        assertComposerLift(.init(dx: 0.5, dy: 0.25), expectedSplitSlot: "top")
     }
 
     @MainActor
-    func testComposerDragTargetsBottomSplit() {
-        assertSplitTarget(.init(dx: 0.5, dy: 0.56), expected: "bottom")
+    func testShortComposerDragToLowerCenterKeepsCardPriority() {
+        assertComposerLift(.init(dx: 0.5, dy: 0.75), expectedSplitSlot: nil)
     }
 
     @MainActor
-    private func assertSplitTarget(_ destination: CGVector, expected slot: String) {
+    private func assertComposerLift(_ destination: CGVector, expectedSplitSlot slot: String?) {
         let app = launch()
         guard waitForPhase("full", app: app) else { return }
         let position = app.buttons["conversation-reading-test-position-older-turn"]
@@ -94,13 +94,21 @@ final class SurfaceLiftUITests: XCTestCase {
         let start = editor.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.5))
         let end = app.coordinate(withNormalizedOffset: destination)
         start.press(forDuration: 0.7, thenDragTo: end)
+        if slot == nil {
+            guard waitForPhase("card", app: app) else { return }
+            XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
+            let card = app.descendants(matching: .any)["workspace-current-card"]
+            XCTAssertTrue(card.exists)
+            card.tap()
+        }
+        XCTAssertTrue(waitForPhase("full", app: app),
+                      "Card Return and an unconsumed Split drop must restore the retained Full surface")
         let probe = app.otherElements["split-drop-intent-probe"]
         guard probe.waitForExistence(timeout: 10) else {
-            XCTFail("A real Composer drag must report its Split target")
+            XCTFail("A real Composer drag must expose its Split admission result")
             return
         }
-        XCTAssertEqual(probe.value as? String, slot)
-        XCTAssertTrue(waitForPhase("full", app: app), "Until a Split consumer is installed, release returns to Full")
+        XCTAssertEqual(probe.value as? String, slot ?? "none")
         XCTAssertEqual(editor.value as? String, saved)
         XCTAssertTrue(anchor.isHittable)
         XCTAssertEqual(anchor.frame.minY, originalAnchor.minY, accuracy: 3)

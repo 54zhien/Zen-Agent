@@ -15,6 +15,32 @@ struct SplitDividerView: UIViewRepresentable {
     var axis: SplitWorkspaceAxis = .topBottom
     var onAxis: ((SplitWorkspaceAxis) -> Void)? = nil
     var resizeDiagnostic: (() -> String)? = nil
+    var sidebarProgress: CGFloat = 0
+
+    var normalizedSidebarProgress: CGFloat {
+        sidebarProgress.isFinite ? min(1, max(0, sidebarProgress)) : 0
+    }
+
+    func handleSurfaceColor() -> UIColor {
+        let progress = normalizedSidebarProgress
+        let reduceTransparency = UIAccessibility.isReduceTransparencyEnabled
+        return UIColor { traits in
+            let appearance = SidebarPageAppearance(progress: 1,
+                dark: traits.userInterfaceStyle == .dark,
+                reduceTransparency: reduceTransparency)
+            let surface = appearance.surfaceColor(resolving: traits)
+            var surfaceRed: CGFloat = 1
+            var surfaceGreen: CGFloat = 1
+            var surfaceBlue: CGFloat = 1
+            var surfaceAlpha: CGFloat = 1
+            guard surface.getRed(&surfaceRed, green: &surfaceGreen, blue: &surfaceBlue, alpha: &surfaceAlpha) else {
+                return surface
+            }
+            func mixFromWhite(_ component: CGFloat) -> CGFloat { 1 + (component - 1) * progress }
+            return UIColor(red: mixFromWhite(surfaceRed), green: mixFromWhite(surfaceGreen),
+                blue: mixFromWhite(surfaceBlue), alpha: 1 + (surfaceAlpha - 1) * progress)
+        }
+    }
 
     func makeUIView(context: Context) -> SplitDividerHandle {
         let view = SplitDividerHandle()
@@ -22,7 +48,11 @@ struct SplitDividerView: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ view: SplitDividerHandle, context: Context) { view.configuration = self }
+    func updateUIView(_ view: SplitDividerHandle, context: Context) {
+        context.animate {
+            view.configuration = self
+        }
+    }
 
     static func dismantleUIView(_ view: SplitDividerHandle, coordinator: ()) {
         view.cancelPan()
@@ -37,31 +67,44 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
                 $0.axis == .topBottom ? "上方 \(Int($0.ratio * 100))%，下方 \(Int((1 - $0.ratio) * 100))%"
                     : "左侧 \(Int($0.ratio * 100))%，右侧 \(Int((1 - $0.ratio) * 100))%"
             }
-            var actions: [UIAccessibilityCustomAction] = []
-            if configuration?.canCloseTop == true {
-                actions.append(UIAccessibilityCustomAction(name: configuration?.axis == .leftRight ? "关闭左侧窗格" : "关闭上方窗格", target: self, selector: #selector(closeTop)))
+            if oldValue == nil || oldValue?.canCloseTop != configuration?.canCloseTop
+                || oldValue?.canCloseBottom != configuration?.canCloseBottom
+                || oldValue?.axis != configuration?.axis
+                || (oldValue?.onAxis != nil) != (configuration?.onAxis != nil) {
+                var actions: [UIAccessibilityCustomAction] = []
+                if configuration?.canCloseTop == true {
+                    actions.append(UIAccessibilityCustomAction(name: configuration?.axis == .leftRight ? "关闭左侧窗格" : "关闭上方窗格", target: self, selector: #selector(closeTop)))
+                }
+                if configuration?.canCloseBottom == true {
+                    actions.append(UIAccessibilityCustomAction(name: configuration?.axis == .leftRight ? "关闭右侧窗格" : "关闭下方窗格", target: self, selector: #selector(closeBottom)))
+                }
+                if configuration?.onAxis != nil {
+                    actions.append(UIAccessibilityCustomAction(name: "上下分屏", target: self, selector: #selector(verticalAxis)))
+                    actions.append(UIAccessibilityCustomAction(name: "左右分屏", target: self, selector: #selector(horizontalAxis)))
+                }
+                accessibilityCustomActions = actions
             }
-            if configuration?.canCloseBottom == true {
-                actions.append(UIAccessibilityCustomAction(name: configuration?.axis == .leftRight ? "关闭右侧窗格" : "关闭下方窗格", target: self, selector: #selector(closeBottom)))
-            }
-            if configuration?.onAxis != nil {
-                actions.append(UIAccessibilityCustomAction(name: "上下分屏", target: self, selector: #selector(verticalAxis)))
-                actions.append(UIAccessibilityCustomAction(name: "左右分屏", target: self, selector: #selector(horizontalAxis)))
-            }
-            accessibilityCustomActions = actions
 #if DEBUG
             if ProcessInfo.processInfo.environment["ZEN_PREVIEW_HANDOFF_UI_TEST"] == "1" {
                 accessibilityValue = (super.accessibilityValue ?? "") + ";pan=\(pan.state.rawValue);admitted=\(panAdmitted);last=\(lastPanDiagnostic);resize=\(configuration?.resizeDiagnostic?() ?? "none")"
             }
 #endif
             if oldValue?.closeIntent != configuration?.closeIntent, configuration?.closeIntent != nil {
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
             }
-            handle.backgroundColor = configuration?.closeIntent == nil ? .white : .systemOrange
+            handle.backgroundColor = configuration?.closeIntent == nil
+                ? configuration?.handleSurfaceColor() ?? .white
+                : .systemOrange
+            // Both appearances use the same white-to-page-color interpolation.
+            // Do not apply a second, dark-only fade to the handle.
+            handle.alpha = 1
             setNeedsLayout()
         }
     }
     private let handle = UIView()
+    private var displayLink: CADisplayLink?
+    private let clockTarget = SplitDividerClockTarget()
+    private var pendingDistance: Double?
     private var panAdmitted = false
     private var touchOrigin: CGPoint?
     private weak var touchWindow: UIWindow?
@@ -114,10 +157,15 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        clockTarget.owner = self
+        // The Workspace backdrop owns the gap. Only the handle
+        // draws here, keeping the native drag target independent of decoration.
+        isOpaque = false
         addSubview(handle)
         handle.isUserInteractionEnabled = false
         handle.backgroundColor = .white
-        handle.layer.cornerRadius = 2
+        handle.layer.cornerRadius = 1.5
+        handle.layer.name = "zen-split-divider-handle"
         pan.delegate = self
         pan.maximumNumberOfTouches = 1
         addGestureRecognizer(pan)
@@ -134,8 +182,8 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
     override func layoutSubviews() {
         super.layoutSubviews()
         handle.frame = configuration?.axis == .leftRight
-            ? CGRect(x: (bounds.width - 4) / 2, y: 0, width: 4, height: bounds.height)
-            : CGRect(x: 0, y: (bounds.height - 4) / 2, width: bounds.width, height: 4)
+            ? CGRect(x: (bounds.width - 3) / 2, y: 0, width: 3, height: bounds.height)
+            : CGRect(x: 0, y: (bounds.height - 3) / 2, width: bounds.width, height: 3)
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
@@ -157,8 +205,12 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
 #endif
             if panAdmitted { configuration.onMove(distance) }
         case .changed:
-            if panAdmitted { configuration.onMove(distance) }
+            if panAdmitted {
+                pendingDistance = distance
+                startClock()
+            }
         case .ended:
+            stopClock()
             if panAdmitted {
                 configuration.onMove(distance)
                 panAdmitted = false
@@ -175,6 +227,32 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
             accessibilityValue = "ratio=\(configuration.ratio);axis=\(configuration.axis);\(lastPanDiagnostic);resize=\(configuration.resizeDiagnostic?() ?? "none")"
         }
 #endif
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { cancelPan() }
+    }
+
+    private func startClock() {
+        guard displayLink == nil else { return }
+        let link = CADisplayLink(target: clockTarget, selector: #selector(SplitDividerClockTarget.tick(_:)))
+        let maximum = Float(window?.screen.maximumFramesPerSecond ?? 60)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    fileprivate func flushMove() {
+        guard panAdmitted, let distance = pendingDistance else { return }
+        pendingDistance = nil
+        configuration?.onMove(distance)
+    }
+
+    private func stopClock() {
+        displayLink?.invalidate()
+        displayLink = nil
+        pendingDistance = nil
     }
 
     private func displacement(_ pan: UIPanGestureRecognizer) -> Double {
@@ -194,6 +272,7 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
     @objc private func horizontalAxis() -> Bool { configuration?.onAxis?(.leftRight); return configuration?.onAxis != nil }
 
     func cancelPan() {
+        stopClock()
         touchOrigin = nil; touchWindow = nil
         guard panAdmitted else { return }
         panAdmitted = false
@@ -251,4 +330,13 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
         if let animator { animator.addCompletion(finished) } else { finished() }
     }
 #endif
+}
+
+@MainActor
+private final class SplitDividerClockTarget: NSObject {
+    weak var owner: SplitDividerHandle?
+    @objc func tick(_ link: CADisplayLink) {
+        guard let owner else { link.invalidate(); return }
+        owner.flushMove()
+    }
 }

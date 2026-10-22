@@ -2,6 +2,15 @@
 struct ConversationComposerConfiguration: Equatable, Sendable {
     var providerInstanceID: ProviderInstanceID
     var modelID: ModelID
+    var thinkingEffort: ThinkingEffort? = nil
+
+    mutating func selectModel(_ model: ModelDescriptor) {
+        providerInstanceID = model.providerInstanceID
+        modelID = model.id
+        if let thinkingEffort, !model.supportedThinkingEfforts.contains(thinkingEffort) {
+            self.thinkingEffort = nil
+        }
+    }
 }
 
 enum ComposerSendAvailability: Equatable, Sendable {

@@ -53,6 +53,7 @@ struct ConversationTimelineView: View {
     var onBlankBackgroundTap: () -> Void = {}
     var scrollBridge: ConversationPaneScrollBridge? = nil
     var bottomComposerClearance: CGFloat = 62
+    var onViewportFrameChanged: (CGRect) -> Void = { _ in }
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.surfaceLiftController) private var surfaceLift
@@ -81,6 +82,7 @@ struct ConversationTimelineView: View {
     @State private var latestBottomReferenceTurn: (runID: String, turnTop: Double)?
     @State private var activeScrollPhase: ScrollPhase = .idle
     @State private var pendingAppliedScroll: ConversationPaneScrollRequest?
+    @State private var nativeViewport = ConversationNativeScrollViewport()
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -175,10 +177,15 @@ struct ConversationTimelineView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .coordinateSpace(name: contentCoordinateSpace)
                 .background {
+                    ConversationScrollViewportReader(viewport: nativeViewport,
+                        onWindowFrameChanged: onViewportFrameChanged)
                     // Empty timelines also need a final layout receipt.
                     Color.clear.preference(key: ConversationTimelineTurnFramesKey.self,
                         value: ConversationTimelineTurnMeasurements(layoutRevision: layoutRevision))
                 }
+            }
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { _ in
+                if let frame = nativeViewport.windowFrame { onViewportFrameChanged(frame) }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear.frame(height: bottomComposerClearance)
@@ -259,6 +266,7 @@ struct ConversationTimelineView: View {
                                              workspaceRevision: workspaceRevision,
                                              layoutRevision: layoutRevision)
             } action: { previous, viewport in
+                if let frame = nativeViewport.windowFrame { onViewportFrameChanged(frame) }
                 surfaceLift?.invalidateTopEdge?()
 #if DEBUG
                 scrollBridge?.nativeGeometryDiagnostic = "offset=\(viewport.nativeGeometry.contentOffset);content=\(viewport.nativeGeometry.contentSize);insets=\(viewport.nativeGeometry.contentInsets);container=\(viewport.nativeGeometry.containerSize);visible=\(viewport.nativeGeometry.visibleRect)"
@@ -267,9 +275,25 @@ struct ConversationTimelineView: View {
                 // viewport still drains Run updates held while the Pane was hidden.
                 guard viewport.workspaceVisible, surfaceLift?.isWorkspaceVisible != false,
                       viewport.workspaceRevision == (surfaceLift?.workspaceVisibilityRevision ?? 0),
-                      viewport.layoutRevision == layoutRevision,
-                      viewport.geometry.isUsableForPane else {
+                      viewport.layoutRevision == layoutRevision else {
                     readingGeometryWasSuspended = true
+#if DEBUG
+                    scrollBridge?.recordViewportGapForUITest(viewport.geometry, suspendsReading: true,
+                        reason: "workspace-visible=\(viewport.workspaceVisible)-surface-visible=\(surfaceLift?.isWorkspaceVisible != false)-visibility=\(viewport.workspaceRevision)-expected=\(surfaceLift?.workspaceVisibilityRevision ?? 0)-layout=\(viewport.layoutRevision)-expected=\(layoutRevision)")
+#endif
+                    return
+                }
+                guard viewport.geometry.isUsableForPane else {
+                    // A keyboard resize can briefly have no usable ScrollView
+                    // height inside the same attached Pane. That is a missing
+                    // sample, not a Workspace return: retain its reading capture.
+                    let newAttachment = acceptedWorkspaceRevision != viewport.workspaceRevision
+                        || acceptedLayoutRevision != viewport.layoutRevision
+                    if newAttachment { readingGeometryWasSuspended = true }
+#if DEBUG
+                    scrollBridge?.recordViewportGapForUITest(viewport.geometry, suspendsReading: newAttachment,
+                        reason: "unusable")
+#endif
                     return
                 }
                 if !previous.workspaceVisible || (viewport.workspaceRevision > 0
@@ -305,7 +329,6 @@ struct ConversationTimelineView: View {
                 }
                 guard acceptsReadingGeometry else { return }
                 if scrollBridge?.hasDividerLease == true {
-                    if phase == .idle { scrollBridge?.endHeightChange() }
                     if let latestScrollGeometry { repairDividerPosition(latestScrollGeometry) }
                     return
                 }
@@ -320,7 +343,8 @@ struct ConversationTimelineView: View {
                         )
                     )
                 case .idle:
-                    scrollBridge?.endHeightChange()
+                    scrollBridge?.scrollBecameIdle(wasUserDriven: wasUserDriven,
+                        geometry: Self.paneGeometry(from: context.geometry))
                     applyPendingScrollIfReady()
                 case .decelerating, .animating:
                     break
@@ -335,6 +359,11 @@ struct ConversationTimelineView: View {
 #endif
                 scrollBridge.endHeightChange()
                 pendingAppliedScroll = nil
+                // The final viewport can arrive during Return settlement. Full
+                // then changes only the phase, so no new geometry callback is
+                // guaranteed to seed the remounted Pane's Divider snapshot.
+                latestBottomReferenceTurn = bottomVisibleTurn(in: turnFrames, geometry: latestScrollGeometry)
+                publishDividerViewport(latestScrollGeometry)
                 _ = scrollBridge.pane.updateReading(.geometryChanged(geometry: latestScrollGeometry, anchor: nil))
                 applyPendingScrollIfReady()
             }
@@ -343,6 +372,7 @@ struct ConversationTimelineView: View {
                 recordReadingRestoreForUITest("request")
 #endif
                 guard let request else {
+                    nativeViewport.cancelDividerRestoration()
                     pendingAppliedScroll = nil
                     materializingSequence = nil
                     materializationRequest = nil
@@ -363,6 +393,7 @@ struct ConversationTimelineView: View {
             }
             .onChange(of: scrollBridge?.dividerLeaseID) { _, _ in
                 dividerMaterialization = nil
+                if scrollBridge?.hasDividerLease != true { nativeViewport.cancelDividerRestoration() }
                 if let latestScrollGeometry { repairDividerPosition(latestScrollGeometry) }
             }
             .onAppear {
@@ -528,6 +559,10 @@ struct ConversationTimelineView: View {
         // Session anchor until Full and ignore its transient predecessor viewport.
         guard acceptsReadingGeometry else {
             readingGeometryWasSuspended = true
+#if DEBUG
+            scrollBridge.recordViewportGapForUITest(geometry, suspendsReading: true,
+                reason: "presentation-ready=\(isWorkspaceGeometryReady)-phase=\(String(describing: surfaceLift?.state.phase))")
+#endif
             return
         }
         publishDividerViewport(geometry)
@@ -582,7 +617,7 @@ struct ConversationTimelineView: View {
 
     private func publishReturnLayoutIfReady(_ geometry: ScrollGeometry) {
 #if DEBUG
-        scrollBridge?.timelineReceiptDiagnostic = "revision=\(layoutRevision);accepted=\(String(describing: acceptedLayoutRevision));measured=\(String(describing: measuredLayoutRevision));ready=\(acceptsReadingGeometry);viewport=\(geometry.viewportHeight)"
+        scrollBridge?.timelineReceiptDiagnostic = "revision=\(layoutRevision);accepted=\(String(describing: acceptedLayoutRevision));measured=\(String(describing: measuredLayoutRevision));ready=\(acceptsReadingGeometry);viewport=\(geometry.viewportHeight);nativeViewport=[\(nativeViewport.diagnostic)]"
 #endif
         guard acceptsReadingGeometry, acceptedLayoutRevision == layoutRevision,
               measuredLayoutRevision == layoutRevision, pendingAppliedScroll == nil else { return }
@@ -600,7 +635,7 @@ struct ConversationTimelineView: View {
 
     private func repairDividerPosition(_ geometry: ScrollGeometry) {
 #if DEBUG
-        scrollBridge?.timelineReceiptDiagnostic = "revision=\(layoutRevision);accepted=\(String(describing: acceptedLayoutRevision));measured=\(String(describing: measuredLayoutRevision));ready=\(acceptsReadingGeometry);viewport=\(geometry.viewportHeight)"
+        scrollBridge?.timelineReceiptDiagnostic = "revision=\(layoutRevision);accepted=\(String(describing: acceptedLayoutRevision));measured=\(String(describing: measuredLayoutRevision));ready=\(acceptsReadingGeometry);viewport=\(geometry.viewportHeight);nativeViewport=[\(nativeViewport.diagnostic)]"
 #endif
         guard acceptsReadingGeometry, let scrollBridge, scrollBridge.hasDividerLease,
               acceptedLayoutRevision == layoutRevision, measuredLayoutRevision == layoutRevision else { return }
@@ -618,6 +653,7 @@ struct ConversationTimelineView: View {
         acknowledgeAppliedScrollIfReady(geometry)
         applyPendingScrollIfReady()
         scrollBridge.acknowledgeDividerResize(revision: layoutRevision, geometry: geometry)
+        if !scrollBridge.hasDividerLease { nativeViewport.cancelDividerRestoration() }
     }
 
 #if DEBUG
@@ -713,11 +749,14 @@ struct ConversationTimelineView: View {
 #if DEBUG
         recordReadingRestoreForUITest("apply")
 #endif
+        // A Divider lease ends on measured arrival, so a newer native viewport
+        // may retry its still-pending command. The native bridge skips writes
+        // already at target; ordinary reading retains sequence deduplication.
         guard acceptsScrollRequests, let scrollBridge,
               scrollBridge.pane.scrollRequest?.sequence == request.sequence,
               (!isUserDrivenScroll || scrollBridge.hasDividerLease),
               (!scrollBridge.hasDividerLease || (acceptedLayoutRevision == layoutRevision && measuredLayoutRevision == layoutRevision)),
-              pendingAppliedScroll?.sequence != request.sequence,
+              (pendingAppliedScroll?.sequence != request.sequence || scrollBridge.hasDividerLease),
               let geometry = latestScrollGeometry
         else { return }
 
@@ -751,6 +790,27 @@ struct ConversationTimelineView: View {
 #if DEBUG
         recordReadingRestoreForUITest("issue", geometry: geometry, issuedTarget: restoreTarget)
 #endif
+        if scrollBridge.hasDividerLease {
+            let target: Double?
+            switch request.action {
+            case .restoreAnchor: target = restoreTarget
+            case .maintainBottomEdge(let offset): target = offset
+            case .scrollToBottom: target = max(0, geometry.contentHeight - geometry.viewportHeight)
+            case .none: target = nil
+            }
+            guard let target, let lease = scrollBridge.dividerLeaseID else {
+                pendingAppliedScroll = nil
+                return
+            }
+            nativeViewport.restoreDividerOffset(target, geometry: geometry, whileCurrent: { [weak scrollBridge] in
+                scrollBridge?.dividerLeaseID == lease
+                    && scrollBridge?.pane.scrollRequest?.sequence == request.sequence
+            })
+            // Only an observed geometry callback acknowledges arrival and ends
+            // the lease. A command accepted by UIKit is not a reading receipt.
+            acknowledgeAppliedScrollIfReady(geometry)
+            return
+        }
         // A larger viewport can leave the old offset beyond the new bottom.
         // Let native layout clamp it instead of issuing another scroll command:
         // that command dismisses UITextView's selection menu during keyboard hide.
@@ -967,7 +1027,8 @@ private struct TimelineItemView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var inlineSpacing = Metrics.inlineSpacing
     @ScaledMetric(relativeTo: .body) private var secondaryInset = Metrics.secondaryInset
-    @ScaledMetric(relativeTo: .body) private var readingInset = Metrics.capsulePadding
+    @ScaledMetric(relativeTo: .body) private var readingInset = Metrics.readingInset
+    @ScaledMetric(relativeTo: .body) private var assistantLead = Metrics.assistantLead
 
     @ViewBuilder
     var body: some View {
@@ -990,6 +1051,7 @@ private struct TimelineItemView: View {
                 maximumNumberOfLines: 0
             )
             .padding(.horizontal, readingInset)
+            .padding(.top, assistantLead)
 
         case .reasoning(let text):
             Text(text)
@@ -1076,11 +1138,13 @@ private struct TimelineItemView: View {
     }
 }
 
-/// The user's own message, kept in the same left column as the assistant's text.
+/// The user's own message: a quiet trailing bubble that hugs its text.
 ///
-/// Two lines collapsed, tap to expand the whole message. The expansion is presentation
-/// state only — it never touches the stored message, and collapsing it again is not a
-/// message edit (Blueprint 3.1).
+/// The assistant's answer is the reading column itself, so the two voices are told
+/// apart by placement and surface rather than by competing weight. Collapsed to a few
+/// lines; a tap expands the whole message. The expansion is presentation state only —
+/// it never touches the stored message, and collapsing it again is not a message edit
+/// (Blueprint 3.1).
 private struct PromptCapsuleView: View {
     let text: String
     let source: TimelineTextSource?
@@ -1089,21 +1153,27 @@ private struct PromptCapsuleView: View {
     let onSelectionHandleDragChanged: (Bool) -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isExpanded = false
-    @ScaledMetric(relativeTo: .body) private var capsulePadding = Metrics.capsulePadding
+    @ScaledMetric(relativeTo: .body) private var horizontalPadding = Metrics.capsuleHorizontalPadding
+    @ScaledMetric(relativeTo: .body) private var verticalPadding = Metrics.capsuleVerticalPadding
+    @ScaledMetric(relativeTo: .body) private var leadingClearance = Metrics.promptLeadingClearance
 
     var body: some View {
         promptText
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(capsulePadding)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
             // The Blueprint asks for a semantic `userPromptSurface` token with its own light
-            // and dark values. That token layer is not this item's job, so the system's
-            // semantic background stands in rather than a palette invented here.
+            // and dark values. Until that token layer exists, the system's semantic fill
+            // stands in: it adapts to both appearances without a palette invented here.
             .background(
-                Color(.secondarySystemBackground),
+                Color(.tertiarySystemFill),
                 in: RoundedRectangle(cornerRadius: Metrics.capsuleCornerRadius, style: .continuous)
             )
             .contentShape(RoundedRectangle(cornerRadius: Metrics.capsuleCornerRadius, style: .continuous))
+            .padding(.leading, leadingClearance)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .animation(reduceMotion ? nil : .spring(duration: 0.32, bounce: 0.12), value: isExpanded)
             .accessibilityAction(named: Text("引用整段")) {
                 quoteEntireText()
             }
@@ -1118,6 +1188,7 @@ private struct PromptCapsuleView: View {
                 typographyRole: .conversationPrompt,
                 dynamicTypeSize: dynamicTypeSize,
                 maximumNumberOfLines: isExpanded ? 0 : Metrics.collapsedPromptLines,
+                hugsContent: true,
                 onSingleTap: { isExpanded.toggle() },
                 onDragPhaseChanged: onQuoteDragPhaseChanged,
                 onSelectionHandleDragChanged: onSelectionHandleDragChanged
@@ -1128,6 +1199,7 @@ private struct PromptCapsuleView: View {
                 .tracking(Typography.readingSpacing(for: .conversationPrompt).tracking)
                 .lineSpacing(Typography.readingSpacing(for: .conversationPrompt).lineSpacing)
                 .lineLimit(isExpanded ? nil : Metrics.collapsedPromptLines)
+                .fixedSize(horizontal: false, vertical: true)
                 .onTapGesture { isExpanded.toggle() }
         }
     }
@@ -1152,9 +1224,11 @@ private struct PromptCapsuleView: View {
 private enum Metrics {
     /// Between two Turns. Deliberately much larger than the spacing inside one: this gap is
     /// what marks a turn boundary, standing in for a divider.
-    static let betweenTurns: CGFloat = 28
+    static let betweenTurns: CGFloat = 36
     /// Between the items of one Turn — tight enough that they read as one utterance.
     static let withinTurn: CGFloat = 10
+    /// Extra air between the user's bubble and the answer that starts below it.
+    static let assistantLead: CGFloat = 6
     /// Leading inset for secondary content (reasoning, tool activity), which sits under the
     /// text it belongs to rather than beside it.
     static let secondaryInset: CGFloat = 2
@@ -1162,13 +1236,19 @@ private enum Metrics {
     static let inlineSpacing: CGFloat = 8
     /// Screen-edge inset for the whole reading column.
     static let contentInset: CGFloat = 20
-    /// Padding inside the user prompt capsule.
-    static let capsulePadding: CGFloat = 12
-    /// Corner radius of the user prompt capsule. Continuous, so it reads as one soft surface
+    /// The answer starts on the column edge the bubble's trailing side also meets.
+    static let readingInset: CGFloat = 2
+    /// Padding inside the user prompt bubble.
+    static let capsuleHorizontalPadding: CGFloat = 14
+    static let capsuleVerticalPadding: CGFloat = 10
+    /// The bubble never spans the column: its leading clearance keeps it visibly the
+    /// user's side of the conversation even for long prompts.
+    static let promptLeadingClearance: CGFloat = 48
+    /// Corner radius of the user prompt bubble. Continuous, so it reads as one soft surface
     /// rather than as four arcs. Not scaled with text: it is a shape, not a distance.
-    static let capsuleCornerRadius: CGFloat = 16
-    /// A prompt reads as two lines while collapsed; a tap expands it to the whole message.
-    static let collapsedPromptLines = 2
+    static let capsuleCornerRadius: CGFloat = 20
+    /// A prompt reads as a few lines while collapsed; a tap expands it to the whole message.
+    static let collapsedPromptLines = 3
     /// Secondary activity collapses to a single line — a pointer to what happened rather than
     /// a summary of it.
     static let collapsedSecondaryLines = 1

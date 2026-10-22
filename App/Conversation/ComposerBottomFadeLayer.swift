@@ -3,6 +3,7 @@ import UIKit
 /// A quiet page-colored backing under the floating input, without another
 /// hierarchy snapshot competing with scrolling or the keyboard animation.
 final class ComposerBottomFadeLayer: CAGradientLayer {
+    private var resolvedBackground: UIColor?
     override init() {
         super.init()
         name = "zen-composer-bottom-fade"
@@ -19,11 +20,18 @@ final class ComposerBottomFadeLayer: CAGradientLayer {
         let end = min(bounds.maxY, max(bounds.minY, bottom))
         let start = max(bounds.minY, composerFrame.minY - 36)
         let color = UIColor.systemBackground.resolvedColor(with: traits)
+        let nextFrame = CGRect(x: bounds.minX, y: start, width: bounds.width, height: max(0, end - start))
+        let hidden = bounds.isEmpty || composerFrame.isEmpty || end <= start
+        let colorChanged = resolvedBackground?.isEqual(color) != true
+        guard frame != nextFrame || isHidden != hidden || colorChanged else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        frame = CGRect(x: bounds.minX, y: start, width: bounds.width, height: max(0, end - start))
-        colors = [CGFloat(0), 0.28, 0.78, 1].map { color.withAlphaComponent($0).cgColor }
-        isHidden = bounds.isEmpty || composerFrame.isEmpty || end <= start
+        if frame != nextFrame { frame = nextFrame }
+        if colorChanged {
+            colors = [CGFloat(0), 0.28, 0.78, 1].map { color.withAlphaComponent($0).cgColor }
+            resolvedBackground = color
+        }
+        if isHidden != hidden { isHidden = hidden }
         CATransaction.commit()
     }
 }
