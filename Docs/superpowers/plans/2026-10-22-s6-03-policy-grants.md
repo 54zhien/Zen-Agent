@@ -20,7 +20,7 @@
 
 ## Tasks
 
-- [ ] Add compile-safe unused storage signatures and native tests for roundtrip/reopen/migration, scope isolation, duplicate issuance, stale snapshot, policy tighten/widen, explicit revoke, original lifecycle terminal/Undo, malformed storage, byte identity and concurrent tighten/issue. Push once and obtain actual native behavioral RED; compile failure is not RED.
+- [x] Add compile-safe unused storage signatures and native tests for roundtrip/reopen/migration, scope isolation, duplicate issuance, stale snapshot, policy tighten/widen, explicit revoke, original lifecycle terminal/Undo, malformed storage, byte identity and concurrent tighten/issue. Push once and obtain actual native behavioral RED; compile failure is not RED.
 - [ ] Implement v14 migration, separate Policy and Grant persistence extensions and row conversion. Use transactional lifecycle triggers for original owners. Run static checks, push and obtain actual XcodeGen/build/unit/UI gate result. Preserve inherited failures separately; no unchanged rerun to wash GREEN.
 - [ ] Fresh review of whole slice; fix real findings with focused tests and native evidence. Record exact source/run/digest. No PR merge or Stage6 aggregate closure without actual evidence; no S6-04 UI work without examining impact first.
 
@@ -33,3 +33,8 @@ Ruling after source/security review: match the existing ConversationRuntime appr
 Correction to cancellation inference: source1611e65/run39754034808 was cancelled too early to establish RED. Main's20XCTest passed, then Swift Testing started09:28:26; the captured log has zero S6-03 case starts/issues and no completed Swift summary, zero Phone UI starts. Pad1/1 did pass. Main spent substantially longer compiling than Pad; Pad timing is not evidence that main had finished units. Preserve this incomplete run, never call it behavioral RED or full GREEN. Raw logs retained.
 
 Ruling: add a temporary manual s6_contract_red selector to the existing workflow, running only the two new native suites and omitting the independent Pad job only for this RED profile. This is a source/test-selection change justified by the missing target execution, not an unchanged rerun. No production behavior changes; stubs remain. Let this targeted job complete, no timing-based cancellation. Remove every workflow/profile change byte-for-byte to1611e65 before implementation's clean full CI. The prior full-suite plan is superseded only for RED evidence acquisition; final full gate is unchanged.
+
+
+Implementation ruling: grant subject-list reads retain named issuance IDs alongside the existing ToolScopedGrant values, so recovery can revoke the original row without deriving an ID from displayed scope. This is a storage address, not a second Policy model; there are no existing production callers to migrate. The reopen test verifies the ID/value projection. Added both call-terminal-first and run-terminal-first variants to the existing lifecycle contract before implementation verification. No per-variant RED is claimed beyond the observed13-function/20issue source.
+
+v14 implementation prepared: separate Policy/Grant tables and lifecycle triggers; original root Parent Run validated in the issuing transaction; immutable scope/version/endpoint and expected Policy floor; no upsert/revival; strict scope decoding. Workflow restored to main, no temporary selector retained. UI/Runtime/Config/Resources/project.yml unchanged. Static/native final verification pending.

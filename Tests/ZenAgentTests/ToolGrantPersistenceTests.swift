@@ -16,6 +16,9 @@ struct ToolGrantPersistenceTests {
         }
         let store = PersistenceStore(database: try ZenDatabase.open(at: url.path()))
         #expect(try store.toolGrant(id: "g") == expected)
+        let entries = try store.toolGrants(subject: .parentConversation("c"))
+        #expect(entries.map { $0.id } == ["g"])
+        #expect(entries.first?.grant == expected)
         #expect(try store.toolGrants(subject: .parentConversation("other")).isEmpty)
         let saved = try #require(try store.toolGrant(id: "g"))
         #expect(!ToolGrantScopeMatcher.matches(grant: saved, call: GrantStorageFixture.context(version: "v2")))
@@ -42,15 +45,19 @@ struct ToolGrantPersistenceTests {
         #expect(try store.toolGrant(id: "g")?.validity == .revoked)
     }
 
-    @Test func originalCallTerminalConsumesOnceAndOriginalRunEndRevokesRunSubject() throws {
+    @Test(arguments: [false, true])
+    func originalCallTerminalConsumesOnceAndOriginalRunEndRevokesRunSubject(terminalCallFirst: Bool) throws {
         let store = try GrantStorageFixture.store()
         let once = GrantStorageFixture.grant(subject: .run("r"), once: true)
         try #require(try store.issueToolGrant(id: "once", grant: once, expectedPolicy: GrantStorageFixture.policy(store)))
         try #require(try store.issueToolGrant(id: "run", grant: GrantStorageFixture.grant(subject: .run("r")), expectedPolicy: GrantStorageFixture.policy(store)))
-        try store.settleToolCallForCancellation(id: "call")
-        #expect(try store.toolGrant(id: "once")?.validity == .consumed)
+        if terminalCallFirst {
+            try store.settleToolCallForCancellation(id: "call")
+            #expect(try store.toolGrant(id: "once")?.validity == .consumed)
+        }
         try store.finishRun(id: "r", state: .cancelled, endReason: .cancelledByUser)
         #expect(try store.toolGrant(id: "run")?.validity == .revoked)
+        #expect(try store.toolGrant(id: "once")?.validity == .consumed)
         #expect(try !store.issueToolGrant(id: "late", grant: once, expectedPolicy: GrantStorageFixture.policy(store)))
     }
 
