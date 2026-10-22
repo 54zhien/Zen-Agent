@@ -33,7 +33,28 @@ final class SidebarUITests: XCTestCase {
 
     @MainActor
     func testSidebarSettingsCoordinateRoutePreservesAXFailure() {
-        let app = launch()
+        exerciseSidebarSettingsRoute(launch(), passiveMode: "baseline")
+    }
+
+    @MainActor
+    func testSidebarSettingsWithPassiveNativeProbe() {
+        let app = launch(nativeContext: "full", probeMode: "passive-native")
+        exerciseSidebarSettingsRoute(app, passiveMode: "passive-native")
+    }
+
+    @MainActor
+    func testSidebarSettingsWithMetadataFreeNativeProbe() {
+        exerciseSidebarSettingsRoute(launch(nativeContext: "full", probeMode: "metadata-free"),
+                                     passiveMode: "metadata-free")
+    }
+
+    @MainActor
+    func testSidebarSettingsWithClearBackground() {
+        exerciseSidebarSettingsRoute(launch(nativeContext: "clear"), passiveMode: "clear")
+    }
+
+    @MainActor
+    private func exerciseSidebarSettingsRoute(_ app: XCUIApplication, passiveMode: String) {
         app.openWorkspaceSidebar()
 
         let settings = app.buttons["sidebar-settings"]
@@ -64,6 +85,17 @@ final class SidebarUITests: XCTestCase {
             && settingsFrameIsPositive && frameIsWithinApp
         print("SIDEBAR_SETTINGS_ROUTE before frame=\(settingsFrame) app=\(appFrame) exists=\(settingsExists) hittable=\(settingsHittable) finite=\(frameIsFinite) positive=\(settingsFrameIsPositive) withinApp=\(frameIsWithinApp)")
         attachSidebarSettingsRouteEvidence(app, stage: "before-coordinate-tap")
+        let probes = app.descendants(matching: .any).matching(identifier: "sidebar-native-hit-probe")
+        let count = probes.count
+        let hierarchy = app.debugDescription
+        let slotCount = hierarchy.components(separatedBy: .newlines)
+            .filter { $0.contains("{{0.0, 62.0}, {1.0, 1.0}}") }.count
+        let isPositive = passiveMode == "passive-native"
+        XCTAssertEqual(count, isPositive ? 1 : 0)
+        XCTAssertEqual(slotCount, isPositive ? 1 : 0,
+                       "The measured diagnostic AX slot must match the intended omission")
+        if isPositive { XCTAssertEqual(probes.firstMatch.value as? String, "passive") }
+        print("SIDEBAR_COMPOSITION mode=\(passiveMode) exportedCount=\(count) diagnosticSlotCount=\(slotCount)")
         XCTAssertTrue(frameIsUsable,
             "Settings AX frame must be finite, positive, and within the app: settings=\(settingsFrame), app=\(appFrame)")
         guard frameIsUsable else {
@@ -401,9 +433,11 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(withKeyboardMenu: Bool = false) -> XCUIApplication {
+    private func launch(withKeyboardMenu: Bool = false, nativeContext: String? = nil, probeMode: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        if let nativeContext { app.launchEnvironment["ZEN_SIDEBAR_AX_NATIVE_CONTEXT"] = nativeContext }
+        if let probeMode { app.launchEnvironment["ZEN_SIDEBAR_AX_PROBE_MODE"] = probeMode }
         if withKeyboardMenu { app.launchEnvironment["ZEN_KEYBOARD_MENU_UI_TEST"] = "1" }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))

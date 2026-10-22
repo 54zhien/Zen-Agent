@@ -1,6 +1,6 @@
 # Proposed Sidebar native-host visibility diagnostic
 
-**Status: visibility, role and ancestry controls finished and removed; probe-effect comparison next.**
+**Status: visibility, role, ancestry and passive controls removed; metadata/composition comparison next.**
 
 The owner froze UI and requires a stop before UI-affecting changes. Existing
 permission covers test adaptations, narrow nonvisual interaction diagnosis, and
@@ -92,3 +92,11 @@ evidence. It changes no product layout, style or geometry.
 ## Probe observer-effect follow-up
 Ancestry39729604809 invalidated the required instrumented-full RED control: original full stays RED, but both probed contexts are GREEN. Zero-sized immediate glass ancestor appears in both passing contexts. All ancestry source has been removed atb493ba4.
 Compare four independent launches: original baseline; same 1pt noninteractive native probe with isAccessibilityElement=false and passive constant getter; same probe with isAccessibilityElement=true and same constant getter; original active JSON getter as replication control. Same ID/label are retained, so passive-native exported node count must be recorded rather than assuming false removes the whole native container. Passive getters return before native hit or AX reads. Probe receipts occur before Settings presentation. Each launch retains original hit/frame/coordinate assertions; no source UI/layout/style changes are adopted. Remove diagnostic source/test/profile after evidence, cleanup baseb493ba4. Native results are pending; local parsing alone is not completion.
+
+Native39731842465 built and ran4 cases; baseline retained2 AX failures, all three probes passed. Both passive variants exported one node. Active reads are unnecessary, but AX exposure remains. Controls removed indf5862b, product matches frozeneb39a65.
+
+## Metadata/composition discriminator
+
+Compare four launches: original baseline; unchanged passive-native positive; same native class/insertion/size with false AX flag and no identifier/label/value; same-size Color.clear background. The metadata-free getter returns nil immediately. The positive root branch remains unchanged; Color.clear uses a separate DEBUG fixture branch. A new branch may itself affect composition, so baseline RED and positive GREEN are mandatory. These controls can locate sensitivity to metadata or composition, not prove an internal framework cache mechanism.
+
+Before Settings presentation, retain the original hit/frame/route assertions, capture full AX and screenshot, and count the known diagnostic `(0,62,1,1)` AX slot. Require its absence in metadata-free and clear arms, and no diagnostic identifier; a failed omission precondition is inconclusive. Existing named fixture probes at `(0,0,1,1)` remain. No new drawing/layout/style/haptic change. Restore the three source/test/profile files todf5862b and remove the temporary native file after evidence; no full gate while variants exist.
