@@ -20,7 +20,7 @@ struct ToolPolicyContinuationTests {
         let runtime = ConversationRuntime(store: fixture.store, provider: provider,
             credentials: fixture.credentials, toolRegistry: registry)
         let runID = try await runtime.start(I05RuntimeTestFixtures.command())
-        try await runtime.waitForCompletion(runID: runID)
+        try await Fixtures.awaitTerminalRun(in: fixture.store, runtime: runtime, runID: runID)
         #expect(try fixture.store.run(id: runID)?.state == .completed)
         let calls = try fixture.store.toolCalls(inRun: runID).sorted { ($0.batchSequence ?? 0) < ($1.batchSequence ?? 0) }
         #expect(calls.map(\.state) == [.rejected, .succeeded])
@@ -57,7 +57,7 @@ struct ToolPolicyContinuationTests {
         #expect(try fixture.store.toolCall(id: original.id)?.state == .waitingForApproval)
         #expect(await toolLedger.snapshot().isEmpty)
         try await runtime.approve(toolCallID: original.id)
-        try await runtime.waitForCompletion(runID: runID)
+        try await Fixtures.awaitTerminalRun(in: fixture.store, runtime: runtime, runID: runID)
         #expect(try fixture.store.run(id: runID)?.state == .completed)
         let calls = try fixture.store.toolCalls(inRun: runID)
         #expect(calls.map(\.id) == [original.id])

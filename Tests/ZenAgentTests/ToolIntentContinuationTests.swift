@@ -160,7 +160,7 @@ struct ToolIntentContinuationTests {
         #expect(card.toolCallID == callID)
         #expect(await effects.snapshot().isEmpty)
         try await runtime.resolveToolApproval(card.request(for: .approveOnce))
-        try await runtime.waitForCompletion(runID: runID)
+        try await Fixtures.awaitTerminalRun(in: store, runtime: runtime, runID: runID)
         #expect(try store.run(id: runID)?.state == .completed)
         #expect(try store.toolCalls(inRun: runID).map(\.id) == [callID])
         #expect(try store.toolCall(id: callID)?.executionIntent == original)
@@ -196,7 +196,7 @@ struct ToolIntentContinuationTests {
         let runtime = ConversationRuntime(store: fixture.store, provider: provider, credentials: fixture.credentials,
             toolRegistry: try Fixtures.automaticallyAllowedRegistry(in: fixture.store, tools: [CalculatorTool()]))
         let runID = try await runtime.start(I05RuntimeTestFixtures.command())
-        try await runtime.waitForCompletion(runID: runID)
+        try await Fixtures.awaitTerminalRun(in: fixture.store, runtime: runtime, runID: runID)
         #expect(try fixture.store.run(id: runID)?.state == .completed)
         let calls = try fixture.store.toolCalls(inRun: runID).sorted { ($0.batchSequence ?? 0) < ($1.batchSequence ?? 0) }
         #expect(calls.count == 2)
