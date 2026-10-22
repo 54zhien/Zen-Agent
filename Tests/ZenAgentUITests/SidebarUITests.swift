@@ -33,8 +33,46 @@ final class SidebarUITests: XCTestCase {
 
     @MainActor
     func testSidebarSettingsCoordinateRoutePreservesAXFailure() {
-        let app = launch()
+        _ = exerciseSidebarSettingsRoute(launch(), omitsFullSurfaceRole: false)
+    }
+
+    @MainActor
+    func testSidebarSettingsWithoutFullSurfaceButtonRole() {
+        let app = launch(omitFullSurfaceRole: true)
+        guard exerciseSidebarSettingsRoute(app, omitsFullSurfaceRole: true) else { return }
+        app.buttons["settings-close"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["settings-page"].waitForNonExistence(timeout: 5))
         app.openWorkspaceSidebar()
+        app.buttons["sidebar-settings"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["settings-page"].waitForExistence(timeout: 5))
+        attachSidebarSettingsRouteEvidence(app, stage: "after-semantic-settings-tap")
+    }
+
+    @MainActor
+    private func exerciseSidebarSettingsRoute(_ app: XCUIApplication, omitsFullSurfaceRole: Bool) -> Bool {
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        expect { self.editorIdentity(probe.value as? String) != nil }
+        let originalEditor = editorIdentity(probe.value as? String)
+        app.openWorkspaceSidebar()
+
+        let expectedRole = "surfaceRoleButton=\(!omitsFullSurfaceRole);"
+        let nativeRoleMatches = (probe.value as? String)?.contains(expectedRole) == true
+        XCTAssertTrue(nativeRoleMatches,
+                      "The native full-page trait control must actually take effect")
+        let cardButtons = app.buttons.matching(NSPredicate(format: "label == %@", "新对话，创建新对话"))
+            .allElementsBoundByIndex.filter { $0.frame.width >= app.frame.width * 0.95
+                && $0.frame.height >= app.frame.height * 0.95 }
+        print("SIDEBAR_FULL_ROLE omitted=\(omitsFullSurfaceRole) exportedFullPageButtons=\(cardButtons.count)")
+        let exportedRoleMatches = omitsFullSurfaceRole ? cardButtons.isEmpty : !cardButtons.isEmpty
+        if omitsFullSurfaceRole {
+            XCTAssertEqual(cardButtons.count, 0, "The anomalous full-page Button role must actually disappear")
+        } else {
+            XCTAssertGreaterThan(cardButtons.count, 0, "Baseline must expose the role under investigation")
+        }
+        XCTAssertTrue(app.scrollViews["conversation-pane-preview-ui-11"].exists)
+        XCTAssertTrue(app.textViews["conversation-composer-input"].exists)
+        XCTAssertEqual(editorIdentity(probe.value as? String), originalEditor)
+        receipt("full-surface-role-control", probe)
 
         let settings = app.buttons["sidebar-settings"]
         let settingsExists = settings.waitForExistence(timeout: 5)
@@ -68,7 +106,7 @@ final class SidebarUITests: XCTestCase {
             "Settings AX frame must be finite, positive, and within the app: settings=\(settingsFrame), app=\(appFrame)")
         guard frameIsUsable else {
             print("SIDEBAR_SETTINGS_ROUTE after route=skipped-invalid-frame")
-            return
+            return false
         }
 
         let center = CGPoint(x: settingsFrame.midX, y: settingsFrame.midY)
@@ -84,6 +122,7 @@ final class SidebarUITests: XCTestCase {
             "The app-level Settings coordinate must open the existing Settings page")
         print("SIDEBAR_SETTINGS_ROUTE after route=app-coordinate center=\(center) page=\(destinationAppeared)")
         attachSidebarSettingsRouteEvidence(app, stage: "after-coordinate-tap")
+        return nativeRoleMatches && exportedRoleMatches && settingsHittable && destinationAppeared
     }
 
     @MainActor
@@ -401,9 +440,10 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(withKeyboardMenu: Bool = false) -> XCUIApplication {
+    private func launch(withKeyboardMenu: Bool = false, omitFullSurfaceRole: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        if omitFullSurfaceRole { app.launchEnvironment["ZEN_SIDEBAR_AX_OMIT_FULL_ROLE"] = "1" }
         if withKeyboardMenu { app.launchEnvironment["ZEN_KEYBOARD_MENU_UI_TEST"] = "1" }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))

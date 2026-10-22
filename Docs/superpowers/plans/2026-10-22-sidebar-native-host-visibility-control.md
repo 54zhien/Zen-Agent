@@ -1,6 +1,6 @@
 # Proposed Sidebar native-host visibility diagnostic
 
-**Status: native diagnostic finished; visibility override removed after evidence.**
+**Status: visibility control finished and removed; nonvisual role follow-up pending.**
 
 The owner froze UI and requires a stop before UI-affecting changes. Existing
 permission covers test adaptations, narrow nonvisual interaction diagnosis, and
@@ -68,3 +68,17 @@ that result and restore diagnostic source. Do not weaken existing assertions,
 keep the page hidden as a fix, merge, or start S6 on diagnostic success alone.
 Production UI changes beyond this specific temporary omission still require the
 owner's separate direction.
+
+## Nonvisual follow-up after visibility restoration
+
+Independent review and the native snapshots identify full-phase card Button
+traits around the actual conversation despite `isAccessibilityElement=false`.
+The task record contains the observation and its causal limits. After restoring
+all visibility code in `c91e76f`, run a separate DEBUG control that changes only
+the full-phase Surface trait from `.button` to `[]`. Leave its label/hint,
+hierarchy, physical hit-testing and all pixels unchanged. Require a native trait
+receipt and disappearance of the exported full-page Button role, preserve native
+pane/editor/identity and every original Settings assertion, and add a semantic
+Settings re-entry only after the control and coordinate/hit checks pass. An
+ineffective exported-role omission is inconclusive. Remove the flag, extra case
+and temporary profile selection after native evidence; cleanup base `c91e76f`.

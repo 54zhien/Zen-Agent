@@ -225,6 +225,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             "contentInteraction=\(contentController.view.isUserInteractionEnabled)",
             "contentAXHidden=\(contentController.view.accessibilityElementsHidden)",
             "surfaceAX=\(surfaceView.isAccessibilityElement)", "activate=\(surfaceView.onActivate != nil)",
+            "surfaceRoleButton=\(surfaceView.accessibilityTraits.contains(.button))",
             "editors=\(mounted.count)", "browse=\(browseInteraction?.diagnostic ?? "none")"]
         fields.append("sidebar=\(liftController?.workspaceNavigation?.nativeDiagnostic ?? "unbound")")
         fields.append("sidebarCanOpen=\(liftController?.sidebarNativeContext?()?.allowsOpening ?? false)")
@@ -706,6 +707,13 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         let isNew = browseInteraction?.controller.isNewEntry == true
         surfaceView.accessibilityHint = isNew ? "轻点创建新对话" : "轻点返回会话"
         surfaceView.accessibilityTraits = .button
+#if DEBUG
+        // Isolate stale card role export without changing its label, actions,
+        // hierarchy or rendering. The UI test must verify the exported role too.
+        if phase == .full, ProcessInfo.processInfo.environment["ZEN_SIDEBAR_AX_OMIT_FULL_ROLE"] == "1" {
+            surfaceView.accessibilityTraits = []
+        }
+#endif
         surfaceView.onActivate = frozen ? { [weak self] in
             self?.browseInteraction?.cancel(preservingPresentation: true)
             return returnAction()
