@@ -33,12 +33,65 @@ final class SidebarUITests: XCTestCase {
 
     @MainActor
     func testSidebarSettingsCoordinateRoutePreservesAXFailure() {
-        let app = launch()
+        exerciseSidebarSettingsRoute(launch(), passiveMode: "baseline")
+    }
+
+    @MainActor
+    func testSidebarSettingsWithVisibleMetadataFreeNativeProbe() {
+        exerciseSidebarSettingsRoute(launch(nativeContext: "full", probeMode: "metadata-free"),
+                                     passiveMode: "native-visible")
+    }
+
+    @MainActor
+    func testSidebarSettingsWithAXHiddenNativeProbe() {
+        exerciseSidebarSettingsRoute(launch(nativeContext: "full", probeMode: "metadata-free", hidesNativeProbe: true),
+                                     passiveMode: "native-hidden")
+    }
+
+    @MainActor
+    func testSidebarSettingsWithClearBackground() {
+        exerciseSidebarSettingsRoute(launch(nativeContext: "clear"), passiveMode: "clear")
+    }
+
+    @MainActor
+    func testSidebarSettingsWithoutFixtureOverlayLayers() {
+        exerciseSidebarSettingsRoute(launch(omitsFixtureOverlays: true), passiveMode: "fixture-bare")
+    }
+
+    @MainActor
+    func testSidebarSettingsSemanticTapWithoutFixtureOverlayLayers() {
+        let app = launch(omitsFixtureOverlays: true)
+        app.openWorkspaceSidebar()
+        let settings = app.buttons["sidebar-settings"]
+        let exists = settings.waitForExistence(timeout: 5)
+        XCTAssertTrue(exists)
+        guard exists else { return }
+        XCTAssertEqual(app.buttons.matching(identifier: "sidebar-settings").count, 1)
+        XCTAssertEqual(settings.label, "设置")
+        XCTAssertTrue(settings.isEnabled)
+        XCTAssertEqual(settings.frame.width, 56, accuracy: 0.1)
+        XCTAssertEqual(settings.frame.height, 56, accuracy: 0.1)
+        XCTAssertTrue(app.frame.contains(settings.frame))
+        let hittable = settings.wait(for: \.isHittable, toEqual: true, timeout: 5)
+        XCTAssertTrue(hittable)
+        attachSidebarSettingsRouteEvidence(app, stage: "fixture-bare-before-semantic-tap")
+        guard hittable else { return }
+        settings.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["settings-page"].waitForExistence(timeout: 5))
+        attachSidebarSettingsRouteEvidence(app, stage: "fixture-bare-after-semantic-tap")
+    }
+
+    @MainActor
+    private func exerciseSidebarSettingsRoute(_ app: XCUIApplication, passiveMode: String) {
         app.openWorkspaceSidebar()
 
         let settings = app.buttons["sidebar-settings"]
         let settingsExists = settings.waitForExistence(timeout: 5)
         XCTAssertTrue(settingsExists, "Sidebar Settings destination must exist")
+        guard settingsExists else {
+            attachSidebarSettingsRouteEvidence(app, stage: "missing-settings")
+            return
+        }
         XCTAssertEqual(app.buttons.matching(identifier: "sidebar-settings").count, 1,
                        "The semantic Settings Button must remain unique")
         XCTAssertEqual(settings.label, "设置", "The semantic Button must retain its spoken name")
@@ -64,6 +117,16 @@ final class SidebarUITests: XCTestCase {
             && settingsFrameIsPositive && frameIsWithinApp
         print("SIDEBAR_SETTINGS_ROUTE before frame=\(settingsFrame) app=\(appFrame) exists=\(settingsExists) hittable=\(settingsHittable) finite=\(frameIsFinite) positive=\(settingsFrameIsPositive) withinApp=\(frameIsWithinApp)")
         attachSidebarSettingsRouteEvidence(app, stage: "before-coordinate-tap")
+        let probes = app.descendants(matching: .any).matching(identifier: "sidebar-native-hit-probe")
+        let count = probes.count
+        let hierarchy = app.debugDescription
+        let slotCount = hierarchy.components(separatedBy: .newlines)
+            .filter { $0.contains("{{0.0, 62.0}, {1.0, 1.0}}") }.count
+        let isPositive = passiveMode == "native-visible"
+        XCTAssertEqual(count, 0)
+        XCTAssertEqual(slotCount, isPositive ? 1 : 0,
+                       "The measured diagnostic AX slot must match the intended omission")
+        print("SIDEBAR_COMPOSITION mode=\(passiveMode) exportedCount=\(count) diagnosticSlotCount=\(slotCount)")
         XCTAssertTrue(frameIsUsable,
             "Settings AX frame must be finite, positive, and within the app: settings=\(settingsFrame), app=\(appFrame)")
         guard frameIsUsable else {
@@ -401,12 +464,26 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(withKeyboardMenu: Bool = false) -> XCUIApplication {
+    private func launch(withKeyboardMenu: Bool = false, nativeContext: String? = nil, probeMode: String? = nil, hidesNativeProbe: Bool = false, omitsFixtureOverlays: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        if let nativeContext { app.launchEnvironment["ZEN_SIDEBAR_AX_NATIVE_CONTEXT"] = nativeContext }
+        if let probeMode { app.launchEnvironment["ZEN_SIDEBAR_AX_PROBE_MODE"] = probeMode }
+        if hidesNativeProbe { app.launchEnvironment["ZEN_SIDEBAR_AX_HIDE_NATIVE"] = "1" }
+        if omitsFixtureOverlays { app.launchEnvironment["ZEN_SIDEBAR_OMIT_FIXTURE_OVERLAYS"] = "1" }
         if withKeyboardMenu { app.launchEnvironment["ZEN_KEYBOARD_MENU_UI_TEST"] = "1" }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.scrollViews["conversation-pane-preview-ui-11"].waitForExistence(timeout: 15),
+                      "The expected fixture conversation must load before any Sidebar gesture")
+        let fixtureIDs = ["preview-reading-position", "preview-reading-diagnostic",
+                          "preview-hidden-reading-position", "preview-bottom-source-split"]
+        for id in fixtureIDs.prefix(omitsFixtureOverlays ? 4 : 2) {
+            XCTAssertEqual(app.descendants(matching: .any)[id].exists, !omitsFixtureOverlays,
+                           "Fixture layer receipt for \(id)")
+        }
+        let primary = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        print("SIDEBAR_LAUNCH fixtureBare=\(omitsFixtureOverlays) primary=\(primary.value as? String ?? "missing")")
         return app
     }
 

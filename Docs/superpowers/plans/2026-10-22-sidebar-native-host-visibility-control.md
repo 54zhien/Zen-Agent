@@ -1,6 +1,6 @@
 # Proposed Sidebar native-host visibility diagnostic
 
-**Status: visibility, role, ancestry and passive controls removed; metadata/composition comparison next.**
+**Status: all prior controls removed; completed-node omission and fixture-layer comparison next.**
 
 The owner froze UI and requires a stop before UI-affecting changes. Existing
 permission covers test adaptations, narrow nonvisual interaction diagnosis, and
@@ -100,3 +100,16 @@ Native39731842465 built and ran4 cases; baseline retained2 AX failures, all thre
 Compare four launches: original baseline; unchanged passive-native positive; same native class/insertion/size with false AX flag and no identifier/label/value; same-size Color.clear background. The metadata-free getter returns nil immediately. The positive root branch remains unchanged; Color.clear uses a separate DEBUG fixture branch. A new branch may itself affect composition, so baseline RED and positive GREEN are mandatory. These controls can locate sensitivity to metadata or composition, not prove an internal framework cache mechanism.
 
 Before Settings presentation, retain the original hit/frame/route assertions, capture full AX and screenshot, and count the known diagnostic `(0,62,1,1)` AX slot. Require its absence in metadata-free and clear arms, and no diagnostic identifier; a failed omission precondition is inconclusive. Existing named fixture probes at `(0,0,1,1)` remain. No new drawing/layout/style/haptic change. Restore the three source/test/profile files todf5862b and remove the temporary native file after evidence; no full gate while variants exist.
+
+Native39734092779 built:4cases/7failures. Baseline one-edge entry failed before original AX checks; primary mounted/ready/eligible owner stable but no edge begin/callback observed. Clear retains originalAXRED/slot0. Metadata-free hit+coordinate pass but unnamedslot1 remains; omission precondition fails. Passive positive passes. Overall causal comparison incomplete. All source removed indef2740; frozen product restored.
+
+## Completed AX omission and fixture-layer discriminator
+
+Two remaining boundaries can be tested in independent launches in one native build:
+
+1. Same metadata-free native view, with matched outer accessibilityHidden(false/true) after the frame/hit modifier. Require slot1 and hit GREEN in the visible positive, slot0 in the hidden control; complete snapshots must also exclude a relocated unnamed node. Any failed precondition is inconclusive. No native geometry, drawing, layout or behavior changes.
+2. Same preview fixture model/store/assembly and startup/cancellation logic, with its three test-only overlay modifiers omitted as a group. The earlier reading-Button omission left those modifiers intact. Both decorated and plain branches retain bottom padding, error repair and the same task body (shared async function, no new Task). The five workspace readiness probes remain. Require expected preview-ui-11 pane and actual absence of all four fixture-control identifiers. This tests fixture composition without changing production AppShellRootView or frozen UI.
+
+Six cases: original baseline; Color.clear negative; metadata-free native visible positive; native AX-hidden; fixture without overlay layers with original route checks; separate cold launch of the latter exercising real Settings.tap() and destination receipt. No coordinate fallback in the semantic case. Preserve one edge gesture and all original hit/frame/coordinate assertions. Require expected loaded pane before gestures and record primary receipt. If Settings is absent, retain existence and entry failures then return before invalid label reads; do not invent a hit/route result. Baseline must reproduce original AX RED and visible native positive must reproduce GREEN for comparison validity.
+
+Remove all temporary source/test/profile edits after evidence, cleanup basedef2740; added native file is deleted. No full gate/merge while controls exist. A recovered diagnostic branch is not a production repair, and no UI-related permanent hosting change is authorized by this plan.
