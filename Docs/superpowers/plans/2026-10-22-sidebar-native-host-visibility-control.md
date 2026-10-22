@@ -127,3 +127,12 @@ Measurement reads only existing window.rootViewController and the bounded public
 Restore ConversationSurfaceHost.swift, WorkspaceSidebarInteraction.swift, SidebarUITests.swift and workflow to128cc71 after evidence. Root app and preview fixture remain frozen throughout. No permanent UI or hosting change is proposed.
 
 Native39740636134 built5cases/10failures. All openings settled; no-post receipts1/1/0 and post receipts1/1/1 all retain AX failure. Post semantic did not tap; post/no-post/measurement coordinate routes pass, baseline activation exception precedes route. Measured preference2 before gesture,0 after open; earlier failed-entry cause remains unknown. All4files restored128cc71; frozen product equal. Complete evidence is in the task record.
+
+
+## Existing-probe physical-hit receipt
+
+The earlier ancestry comparison inserted a new UIView and changed the result. Next use only the existing primary SurfaceInteractionProbe value channel; no view, AX node, SwiftUI branch, layout flush, notification or injected touch is added. A DEBUG environment flag permits one cached physical window.hitTest sample at the measured fixture screen point(62,812), only while foreground/full/visible/open/progress1/settled with no overlay. Record public physical ancestor geometry, transforms, clipping/interaction/visibility and pointInside only; do not read AX metadata. The actual Settings frame/center must match this fixed diagnostic point before interpreting the receipt.
+
+Three independent cold launches: unchanged baseline; sampled original route; sampled semantic tap only if original hit checks pass, without coordinate fallback. Keep one-edge and original hit/name/unique/enabled/frame checks. If sampling changes RED to GREEN, it is another observer effect, not a repair. If it stays RED, compare physical ancestry with the historical probed GREEN while preserving that comparison's source/run limits. A failed entry or missing cached sample is an invalid precondition.
+
+Restore ConversationSurfaceHost.swift, SidebarUITests.swift and workflow to cleanupddf4c9e and remove the temporary helper file after native evidence. No permanent UI changes.

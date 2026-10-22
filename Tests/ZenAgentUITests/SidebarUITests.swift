@@ -33,12 +33,49 @@ final class SidebarUITests: XCTestCase {
 
     @MainActor
     func testSidebarSettingsCoordinateRoutePreservesAXFailure() {
-        let app = launch()
+        exerciseSidebarSettingsRoute(launch(), sampled: false)
+    }
+
+    @MainActor
+    func testSidebarSettingsWithExistingProbeNativeHit() {
+        exerciseSidebarSettingsRoute(launch(samplesSettingsNativeHit: true), sampled: true)
+    }
+
+    @MainActor
+    func testSidebarSettingsSemanticTapWithExistingProbeNativeHit() {
+        let app = launch(samplesSettingsNativeHit: true)
+        app.openWorkspaceSidebar()
+        let settings = app.buttons["sidebar-settings"]
+        let exists = settings.waitForExistence(timeout: 5)
+        XCTAssertTrue(exists)
+        guard exists else { return }
+        attachExistingProbeHit(app, settings: settings)
+        XCTAssertEqual(app.buttons.matching(identifier: "sidebar-settings").count, 1)
+        XCTAssertEqual(settings.label, "设置")
+        XCTAssertTrue(settings.isEnabled)
+        XCTAssertEqual(settings.frame.width, 56, accuracy: 0.5)
+        XCTAssertEqual(settings.frame.height, 56, accuracy: 0.5)
+        XCTAssertTrue(app.frame.contains(settings.frame))
+        let hittable = settings.wait(for: \.isHittable, toEqual: true, timeout: 5)
+        XCTAssertTrue(hittable)
+        attachSidebarSettingsRouteEvidence(app, stage: "existing-probe-before-semantic-tap")
+        guard hittable else { return }
+        settings.tap()
+        let appeared = app.descendants(matching: .any)["settings-page"].waitForExistence(timeout: 5)
+        XCTAssertTrue(appeared)
+        print("SIDEBAR_EXISTING_PROBE_SEMANTIC tapped=true page=\(appeared)")
+        attachSidebarSettingsRouteEvidence(app, stage: "existing-probe-after-semantic-tap")
+    }
+
+    @MainActor
+    private func exerciseSidebarSettingsRoute(_ app: XCUIApplication, sampled: Bool) {
         app.openWorkspaceSidebar()
 
         let settings = app.buttons["sidebar-settings"]
         let settingsExists = settings.waitForExistence(timeout: 5)
         XCTAssertTrue(settingsExists, "Sidebar Settings destination must exist")
+        guard settingsExists else { return }
+        if sampled { attachExistingProbeHit(app, settings: settings) }
         XCTAssertEqual(app.buttons.matching(identifier: "sidebar-settings").count, 1,
                        "The semantic Settings Button must remain unique")
         XCTAssertEqual(settings.label, "设置", "The semantic Button must retain its spoken name")
@@ -401,17 +438,55 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(withKeyboardMenu: Bool = false) -> XCUIApplication {
+    private func launch(withKeyboardMenu: Bool = false, samplesSettingsNativeHit: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        if samplesSettingsNativeHit { app.launchEnvironment["ZEN_SIDEBAR_EXISTING_PROBE_HIT"] = "1" }
         if withKeyboardMenu { app.launchEnvironment["ZEN_KEYBOARD_MENU_UI_TEST"] = "1" }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.scrollViews["conversation-pane-preview-ui-11"].waitForExistence(timeout: 15))
         return app
     }
 
     private func editorIdentity(_ diagnostic: String?) -> String? {
         diagnostic?.split(separator: ";").first { $0.hasPrefix("editorIdentity=") }.map(String.init)
+    }
+
+    @MainActor
+    private func attachExistingProbeHit(_ app: XCUIApplication, settings: XCUIElement) {
+        // Fixed screen point is diagnostic-only, never a navigation fallback.
+        XCTAssertEqual(settings.frame.midX, 62, accuracy: 0.5)
+        XCTAssertEqual(settings.frame.midY, 812, accuracy: 0.5)
+        let value = app.descendants(matching: .any)["surface-native-interaction-probe"].value as? String ?? "missing"
+        let prefix = "sidebarSettingsNativeHit="
+        let sample = value.components(separatedBy: ";").first { $0.hasPrefix(prefix) }
+            .map { String($0.dropFirst(prefix.count)) }
+        XCTAssertNotNil(sample, "The existing primary probe must capture the settled native hit")
+        if let sample, let data = sample.data(using: .utf8),
+           let receipt = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            XCTAssertEqual((receipt["sampleCount"] as? NSNumber)?.intValue, 1)
+            XCTAssertEqual((receipt["sampleX"] as? NSNumber)?.doubleValue, 62)
+            XCTAssertEqual((receipt["sampleY"] as? NSNumber)?.doubleValue, 812)
+            XCTAssertEqual(receipt["state"] as? String, "foreground-full-visible-open-settled")
+            XCTAssertFalse((receipt["chain"] as? [[String: Any]] ?? []).isEmpty)
+            let context = receipt["context"] as? [String: Any]
+            XCTAssertEqual((context?["nativeProgress"] as? NSNumber)?.doubleValue, 1)
+            XCTAssertEqual(context?["nativeSettlement"] as? String, "nil")
+            XCTAssertEqual(context?["navigationOpen"] as? Bool, true)
+            XCTAssertEqual(context?["navigationDragging"] as? Bool, false)
+            XCTAssertEqual(context?["workspaceVisible"] as? Bool, true)
+            let host = value.components(separatedBy: ";").first { $0.hasPrefix("host=") }
+                .map { String($0.dropFirst("host=".count)) }
+            XCTAssertEqual(receipt["hostIdentity"] as? String, host)
+            print("SIDEBAR_EXISTING_PROBE_NATIVE \(sample)")
+        } else {
+            XCTFail("Native hit receipt must be valid JSON")
+        }
+        let attachment = XCTAttachment(string: value)
+        attachment.name = "Existing primary probe native Settings hit"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor

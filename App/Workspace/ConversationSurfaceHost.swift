@@ -203,6 +203,8 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         "visible=\(workspaceVisible),hidden=\(view.isHidden),axHidden=\(contentController.view.accessibilityElementsHidden),suppressed=\(inputSuppressed),proxyHidden=\(returnProxyHidden)"
     }
 
+    private var sidebarSettingsNativeHitSample: String?
+
     var interactionDiagnostic: String {
         func editors(in node: UIView) -> [UITextView] {
             if let editor = node as? UITextView,
@@ -230,6 +232,28 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         fields.append("sidebarCanOpen=\(liftController?.sidebarNativeContext?()?.allowsOpening ?? false)")
         fields.append("workspaceOwnsKeyboard=\(workspaceViewportSize != nil)")
         fields.append("timeline=\(liftController?.workspacePaneDiagnostic?() ?? "unbound")")
+        if ProcessInfo.processInfo.environment["ZEN_SIDEBAR_EXISTING_PROBE_HIT"] == "1" {
+            if sidebarSettingsNativeHitSample == nil,
+               workspaceVisible, !inputSuppressed, !returnProxyHidden, !hasPresentedOverlay,
+               liftController?.state.phase == .full,
+               let navigation = liftController?.workspaceNavigation,
+               navigation.isOpen, !navigation.isDragging, navigation.settlementID == nil,
+               navigation.overlay == nil, sidebarProgress == 1, !sidebarDragging,
+               sidebarSettlement == nil, let window = viewIfLoaded?.window,
+               window.windowScene?.activationState == .foregroundActive {
+                sidebarSettingsNativeHitSample = SidebarNativeSettingsHitDiagnostic.capture(window: window, host: self,
+                    context: ["nativeProgress": sidebarProgress, "nativeDragging": sidebarDragging,
+                        "nativeSettlement": String(describing: sidebarSettlement),
+                        "navigationIdentity": String(describing: ObjectIdentifier(navigation)),
+                        "navigationOpen": navigation.isOpen, "navigationDragging": navigation.isDragging,
+                        "navigationSettlement": String(describing: navigation.settlementID),
+                        "workspaceVisible": workspaceVisible, "inputSuppressed": inputSuppressed,
+                        "returnProxyHidden": returnProxyHidden])
+            }
+            if let sidebarSettingsNativeHitSample {
+                fields.append("sidebarSettingsNativeHit=\(sidebarSettingsNativeHitSample)")
+            }
+        }
         if let window = view.window {
             fields.append("windowSafeTop=\(window.safeAreaInsets.top)")
             fields.append("windowCornerRadius=\(windowConcentricCornerRadius())")
