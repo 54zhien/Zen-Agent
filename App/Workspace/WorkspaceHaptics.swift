@@ -24,8 +24,10 @@ final class WorkspaceHaptics {
         case splitCommit
         /// A Composer control (More, Send, Stop) was pressed.
         case control
-        /// A resonant hum for a Thinking detent or committed selection.
+        /// A system tick when the Thinking selection changes.
         case thinkingDetent
+        /// A soft impact when the finger crosses beyond either Thinking endpoint.
+        case thinkingBoundary
     }
 
     private let rigid = UIImpactFeedbackGenerator(style: .rigid)
@@ -54,6 +56,7 @@ final class WorkspaceHaptics {
         case .splitCommit: heavy.impactOccurred(intensity: 1)
         case .control: rigid.impactOccurred(intensity: 1)
         case .thinkingDetent: thinking.play()
+        case .thinkingBoundary: thinking.playBoundary()
         }
         prepare()
     }

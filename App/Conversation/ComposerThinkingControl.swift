@@ -127,11 +127,13 @@ struct ComposerThinkingControl: View {
                 selectionGeneration += 1
                 isSettling = false
                 isDragging = true
-                dragBoundary = fraction <= 0 ? 0 : fraction >= 1 ? efforts.count - 1 : nil
+                dragBoundary = nil
                 move(to: fraction)
             }, onDrag: { fraction in
                 guard enabled, isDragging else { return }
                 move(to: fraction)
+            }, onOverscroll: { fraction in
+                overscroll(to: fraction)
             }, onDragEnded: { fraction in
                 guard enabled, isDragging else { synchronize(); return }
                 move(to: fraction)
@@ -163,8 +165,14 @@ struct ComposerThinkingControl: View {
         withTransaction(transaction) { position = bounded * Double(max(0, efforts.count - 1)) }
         let index = min(max(0, Int(position.rounded())), max(0, efforts.count - 1))
         if efforts.indices.contains(index) { presentation.previewThinkingEffort = efforts[index] }
-        let boundary: Int? = bounded <= 0 ? 0 : bounded >= 1 ? efforts.count - 1 : nil
-        if let boundary, dragBoundary != boundary { WorkspaceHaptics.shared.play(.thinkingDetent) }
+    }
+
+    private func overscroll(to fraction: Double) {
+        guard enabled, isDragging, efforts.count > 1 else { return }
+        // Ignore projection roundoff at the exact endpoint. This observes the
+        // finger only; thumb geometry and all settling animations stay clamped.
+        let boundary: Int? = fraction < -0.000001 ? 0 : fraction > 1.000001 ? efforts.count - 1 : nil
+        if let boundary, dragBoundary != boundary { WorkspaceHaptics.shared.play(.thinkingBoundary) }
         dragBoundary = boundary
     }
 
@@ -205,7 +213,7 @@ struct ComposerThinkingControl: View {
             isSettling = false
             if presentation.selectedThinkingEffort != pendingSelection {
                 presentation.onSelectThinking(pendingSelection)
-                if !fromDrag || !endpoint || !alreadyArrived { WorkspaceHaptics.shared.play(.thinkingDetent) }
+                WorkspaceHaptics.shared.play(.thinkingDetent)
             }
             presentation.previewThinkingEffort = nil
             if endpoint, !fromDrag || !alreadyArrived { endpointPulse &+= 1 }
