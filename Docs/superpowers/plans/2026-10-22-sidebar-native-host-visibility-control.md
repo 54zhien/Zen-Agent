@@ -1,6 +1,6 @@
 # Proposed Sidebar native-host visibility diagnostic
 
-**Status: visibility control finished and removed; nonvisual role follow-up pending.**
+**Status: visibility and role controls finished and removed; native ancestry follow-up pending.**
 
 The owner froze UI and requires a stop before UI-affecting changes. Existing
 permission covers test adaptations, narrow nonvisual interaction diagnosis, and
@@ -82,3 +82,9 @@ pane/editor/identity and every original Settings assertion, and add a semantic
 Settings re-entry only after the control and coordinate/hit checks pass. An
 ineffective exported-role omission is inconclusive. Remove the flag, extra case
 and temporary profile selection after native evidence; cleanup base `c91e76f`.
+
+The role omission took effect (2 exported Buttons to 0) but retained the AX
+failure. All role-control source is restored. The task record defines a further
+observation-only comparison of native hit ancestry in the full and isolated
+fixtures; preserve positive/negative validity controls and remove its probe after
+evidence. It changes no product layout, style or geometry.

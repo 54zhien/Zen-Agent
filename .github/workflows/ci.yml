@@ -831,8 +831,7 @@ jobs:
               UDID=$(python3 -c 'import json,sys; print(next(d["udid"] for ds in json.load(open(sys.argv[1]))["devices"].values() for d in ds if d.get("isAvailable") and d["name"].startswith("iPhone")))' "$evidence/devices.json")
               xcrun simctl bootstatus "$UDID" -b
               if [ "$TEST_SCOPE" = sidebar-hit-path ]; then
-                tests=(-only-testing:ZenAgentUITests/SidebarUITests/testSidebarSettingsCoordinateRoutePreservesAXFailure
-                  -only-testing:ZenAgentUITests/SidebarUITests/testSidebarSettingsWithoutFullSurfaceButtonRole)
+                tests=(-only-testing:ZenAgentUITests/SidebarUITests/testSidebarSettingsCoordinateRoutePreservesAXFailure)
               elif [ "$TEST_SCOPE" = ui-integration ]; then
                 tests=(-only-testing:ZenAgentUITests/AppSpaceGeometryUITests
                   -only-testing:ZenAgentUITests/ComposerMotionUITests
