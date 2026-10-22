@@ -1,6 +1,6 @@
 # Proposed Sidebar native-host visibility diagnostic
 
-**Status: owner approved this temporary diagnostic on 2026-10-22; implementing.**
+**Status: native diagnostic finished; visibility override removed after evidence.**
 
 The owner froze UI and requires a stop before UI-affecting changes. Existing
 permission covers test adaptations, narrow nonvisual interaction diagnosis, and

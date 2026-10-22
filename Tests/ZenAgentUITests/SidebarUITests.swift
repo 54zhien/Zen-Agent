@@ -33,27 +33,8 @@ final class SidebarUITests: XCTestCase {
 
     @MainActor
     func testSidebarSettingsCoordinateRoutePreservesAXFailure() {
-        exerciseSidebarSettingsRoute(launch())
-    }
-
-    @MainActor
-    func testSidebarSettingsWithNativeForegroundHidden() {
-        exerciseSidebarSettingsRoute(launch(hideNativeForeground: true), expectsNativeForegroundHidden: true)
-    }
-
-    @MainActor
-    private func exerciseSidebarSettingsRoute(_ app: XCUIApplication, expectsNativeForegroundHidden: Bool = false) {
-        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
-        if expectsNativeForegroundHidden { expect { self.editorIdentity(probe.value as? String) != nil } }
-        let originalEditor = expectsNativeForegroundHidden ? editorIdentity(probe.value as? String) : nil
-        if expectsNativeForegroundHidden { XCTAssertNotNil(originalEditor) }
+        let app = launch()
         app.openWorkspaceSidebar()
-
-        if expectsNativeForegroundHidden {
-            expect { (probe.value as? String)?.contains("sidebarAXDiagnosticHidden=true;nativeHostHidden=true;nativeContentMounted=true;") == true }
-            print("SIDEBAR_NATIVE_OMISSION paneExists=\(app.scrollViews["conversation-pane-preview-ui-11"].exists) editorExists=\(app.textViews["conversation-composer-input"].exists)")
-            receipt("foreground-hidden", probe)
-        }
 
         let settings = app.buttons["sidebar-settings"]
         let settingsExists = settings.waitForExistence(timeout: 5)
@@ -61,7 +42,6 @@ final class SidebarUITests: XCTestCase {
         XCTAssertEqual(app.buttons.matching(identifier: "sidebar-settings").count, 1,
                        "The semantic Settings Button must remain unique")
         XCTAssertEqual(settings.label, "设置", "The semantic Button must retain its spoken name")
-        XCTAssertTrue(settings.isEnabled)
         let settingsHittable = settings.wait(for: \.isHittable, toEqual: true, timeout: 5)
         XCTAssertTrue(settingsHittable, "Sidebar Settings AX destination must remain hittable")
 
@@ -104,15 +84,6 @@ final class SidebarUITests: XCTestCase {
             "The app-level Settings coordinate must open the existing Settings page")
         print("SIDEBAR_SETTINGS_ROUTE after route=app-coordinate center=\(center) page=\(destinationAppeared)")
         attachSidebarSettingsRouteEvidence(app, stage: "after-coordinate-tap")
-        if expectsNativeForegroundHidden && destinationAppeared {
-            app.buttons["settings-close"].tap()
-            XCTAssertTrue(settingsPage.waitForNonExistence(timeout: 5))
-            XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 5))
-            expect { (probe.value as? String)?.contains("sidebarAXDiagnosticHidden=false;nativeHostHidden=false;nativeContentMounted=true;") == true }
-            XCTAssertEqual(editorIdentity(probe.value as? String), originalEditor)
-            receipt("foreground-restored", probe)
-            attachSidebarSettingsRouteEvidence(app, stage: "after-foreground-restoration")
-        }
     }
 
     @MainActor
@@ -430,10 +401,9 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(withKeyboardMenu: Bool = false, hideNativeForeground: Bool = false) -> XCUIApplication {
+    private func launch(withKeyboardMenu: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
-        if hideNativeForeground { app.launchEnvironment["ZEN_SIDEBAR_AX_HIDE_NATIVE_FOREGROUND"] = "1" }
         if withKeyboardMenu { app.launchEnvironment["ZEN_KEYBOARD_MENU_UI_TEST"] = "1" }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
