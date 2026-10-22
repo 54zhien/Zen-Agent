@@ -33,7 +33,38 @@ final class SidebarUITests: XCTestCase {
 
     @MainActor
     func testSidebarSettingsCoordinateRoutePreservesAXFailure() {
-        let app = launch()
+        exerciseSidebarSettingsRoute(launch())
+    }
+
+    @MainActor
+    func testSidebarSettingsWithPageAXHiddenControl() {
+        exerciseSidebarSettingsRoute(launch(hidePageAX: true))
+    }
+
+    @MainActor
+    func testIsolatedSidebarSemanticSettingsAction() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_SIDEBAR_AX_ISOLATED"] = "1"
+        app.launch()
+        let settings = app.buttons["sidebar-settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 15))
+        XCTAssertEqual(app.buttons.matching(identifier: "sidebar-settings").count, 1)
+        XCTAssertEqual(settings.label, "设置")
+        XCTAssertTrue(settings.isEnabled)
+        XCTAssertTrue(settings.wait(for: \.isHittable, toEqual: true, timeout: 5))
+        let frame = settings.frame
+        XCTAssertTrue([frame.minX, frame.minY, frame.width, frame.height].allSatisfy { $0.isFinite })
+        XCTAssertGreaterThan(frame.width, 0)
+        XCTAssertGreaterThan(frame.height, 0)
+        XCTAssertTrue(app.frame.contains(frame))
+        attachSidebarSettingsRouteEvidence(app, stage: "isolated-before-semantic-tap")
+        settings.tap()
+        XCTAssertTrue(app.staticTexts["sidebar-isolated-settings-receipt"].waitForExistence(timeout: 5))
+        attachSidebarSettingsRouteEvidence(app, stage: "isolated-after-semantic-tap")
+    }
+
+    @MainActor
+    private func exerciseSidebarSettingsRoute(_ app: XCUIApplication) {
         app.openWorkspaceSidebar()
 
         let settings = app.buttons["sidebar-settings"]
@@ -401,10 +432,11 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(withKeyboardMenu: Bool = false) -> XCUIApplication {
+    private func launch(withKeyboardMenu: Bool = false, hidePageAX: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         if withKeyboardMenu { app.launchEnvironment["ZEN_KEYBOARD_MENU_UI_TEST"] = "1" }
+        if hidePageAX { app.launchEnvironment["ZEN_SIDEBAR_AX_HIDE_PAGE"] = "1" }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         return app

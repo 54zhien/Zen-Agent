@@ -178,3 +178,34 @@ private struct SidebarRailButtonStyle: ButtonStyle {
             .animation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0.3), value: configuration.isPressed)
     }
 }
+
+#if DEBUG
+/// A temporary component boundary, using the measured iPhone fixture geometry.
+/// The receipt proves action delivery only, not the production Settings route.
+@MainActor
+struct SidebarAXIsolationFixture: View {
+    @State private var receivedSettings = false
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .topLeading) {
+                SidebarRailView(availableRoutes: [.search, .files, .settings],
+                    conversationActions: [.new, .recent], settingsLeadingShift: 14,
+                    onSelect: { if $0 == .settings { receivedSettings = true } })
+                    .padding(.horizontal, 16)
+                    .padding(.top, 74)
+                    .padding(.bottom, 34)
+                    .frame(width: 96, height: geometry.size.height)
+                if receivedSettings {
+                    Text("Settings action received")
+                        .accessibilityIdentifier("sidebar-isolated-settings-receipt")
+                        .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+            .background(Color(uiColor: .systemBackground))
+        }
+        .ignoresSafeArea()
+    }
+}
+#endif

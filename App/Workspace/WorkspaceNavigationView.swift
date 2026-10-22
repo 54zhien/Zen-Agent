@@ -119,7 +119,7 @@ struct WorkspaceNavigationView<Content: View>: View {
                     // Only the single page spans behind the moving keyboard.
                     // Split, the Rail, and overlays retain the keyboard-safe viewport.
                     .ignoresSafeArea(.all, edges: keepsFullConversationViewport ? .bottom : [])
-                    .accessibilityHidden(state.overlay != nil)
+                    .accessibilityHidden(state.overlay != nil || hidesPageAXForDiagnostic)
                     .accessibilityElement(children: .contain)
                     .accessibilityActions {
                         if spatiallyAvailable, !state.isOpen, !state.isDragging,
@@ -189,6 +189,15 @@ struct WorkspaceNavigationView<Content: View>: View {
             guard item == nil, let id = presentationID else { return }
             overlays?.close(expectedID: id)
         })
+    }
+
+    private var hidesPageAXForDiagnostic: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["ZEN_SIDEBAR_AX_HIDE_PAGE"] == "1"
+            && state.isOpen && !state.isDragging && state.settlementID == nil
+        #else
+        false
+        #endif
     }
 
     private var defersLeadingSystemGestures: Bool {
