@@ -29,9 +29,9 @@ final class SidebarAXNativeProbeView: UIView {
                 let local = current.convert(point, from: window)
                 chain.append([
                     "type": String(describing: type(of: current)),
-                    "frame": NSStringFromCGRect(current.frame),
-                    "windowFrame": NSStringFromCGRect(current.convert(current.bounds, to: window)),
-                    "bounds": NSStringFromCGRect(current.bounds),
+                    "frame": String(describing: current.frame),
+                    "windowFrame": String(describing: current.convert(current.bounds, to: window)),
+                    "bounds": String(describing: current.bounds),
                     "transform": String(describing: current.transform),
                     "pointInside": current.point(inside: local, with: nil),
                     "clips": current.clipsToBounds,
@@ -41,18 +41,18 @@ final class SidebarAXNativeProbeView: UIView {
                     "axElement": current.isAccessibilityElement,
                     "axHidden": current.accessibilityElementsHidden,
                     "axTraits": current.accessibilityTraits.rawValue,
-                    "axFrame": NSStringFromCGRect(current.accessibilityFrame),
-                    "axActivation": NSStringFromCGPoint(current.accessibilityActivationPoint)
+                    "axFrame": String(describing: current.accessibilityFrame),
+                    "axActivation": String(describing: current.accessibilityActivationPoint)
                 ])
                 node = current.superview
             }
             let result: [String: Any] = ["sampleX": screenPoint.x, "sampleY": screenPoint.y,
                 "event": "nil",
-                "windowPoint": NSStringFromCGPoint(point),
+                "windowPoint": String(describing: point),
                 "windowIdentity": String(describing: ObjectIdentifier(window)),
-                "windowBounds": NSStringFromCGRect(window.bounds),
+                "windowBounds": String(describing: window.bounds),
                 "windowLevel": window.windowLevel.rawValue, "keyWindow": window.isKeyWindow,
-                "screenBounds": NSStringFromCGRect(screen.bounds), "chain": chain]
+                "screenBounds": String(describing: screen.bounds), "chain": chain]
             guard let data = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]),
                   let value = String(data: data, encoding: .utf8) else { return "encoding-failed" }
             return value
