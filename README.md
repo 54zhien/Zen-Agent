@@ -45,14 +45,17 @@ its `Design/ADR/`; engineering/tooling trade-offs belong to this repository's
 
 ## Status
 
-As of 2026-10-11, Stage 5's reviewed baseline is integrated on `main` through
-[PR #35](https://github.com/54zhien/Zen-Agent/pull/35) at
-`52a456bb53d10360aa6d485202f4bd05e2c6bdbf`. This checkout additionally contains
-the S6-01 Policy foundation and S6-02 frozen-intent work, followed by the
-`codex/fix-split-content-focus` repair candidate. These branch changes are not
-yet main integration or physical-device acceptance. Current known defects,
-root-cause evidence and verification boundaries are tracked in
-[the stability repair record](tasks/known-issues-stability.md).
+As of 2026-10-22, Stage 5 and the S6-01/02 foundation are on `main`,
+followed by S6-03 Policy/grant persistence through
+[PR #38](https://github.com/54zhien/Zen-Agent/pull/38) at
+`1fd98c6572553d257120d99b1f7eabb9c859448a`. Its merge tree is identical
+to the candidate verified by full native CI `39761453960`; post-merge CI is
+tracked separately. This branch adds the scoped S6-04a Runtime Policy integration
+candidate, tracked in [its gate record](tasks/s6-04a-runtime-policy.md).
+S6-04 system consent and scope-choice interaction remain open; this is not full
+Stage 6 or physical-device acceptance. The accepted UI checkout and draft
+[PR #37](https://github.com/54zhien/Zen-Agent/pull/37) remain separately parked.
+Earlier stability evidence remains in [the repair record](tasks/known-issues-stability.md).
 
 The following is the historical 2026-10-05 slice snapshot. Its individual PR
 states describe that date; use the current integration receipt above for main.

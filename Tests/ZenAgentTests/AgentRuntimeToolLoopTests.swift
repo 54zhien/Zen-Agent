@@ -98,7 +98,8 @@ struct I07RecordingTool: ToolExecutable {
             sideEffect: .externalWrite,
             approvalRequirement: approvalRequirement,
             actions: [ToolPolicyActionMetadata(toolID: id, actionID: id, descriptorRevision: "i07-test-tool.v1",
-                risk: .high, allowsAutomaticApproval: false, allowsConversationGrant: false,
+                risk: approvalRequirement == .required ? .high : .low,
+                allowsAutomaticApproval: approvalRequirement == .notRequired, allowsConversationGrant: false,
                 resourceRequirement: .target, egressRequirement: .notRequired)]
         )
     }
@@ -112,7 +113,10 @@ struct I07RecordingTool: ToolExecutable {
         return try ToolIntentCodec.freeze(
             descriptor: descriptor, actionID: descriptor.id,
             normalizedArgumentsJSON: normalized,
-            resource: .target(callID), destination: .notRequired
+            resource: .target(callID), destination: .notRequired,
+            approvalDisclosure: ToolApprovalDisclosure(toolDisplayName: descriptor.displayName,
+                action: "Record a test dispatch", targetDescription: "Virtual call \(callID)",
+                keyImpact: "Records in a test ledger")
         )
     }
 
@@ -344,6 +348,7 @@ struct AgentRuntimeToolLoopTests {
                 ledger: toolLedger
             ),
         ])
+        try Fixtures.allowAutomaticToolPolicies(in: fixture.store, registry: toolRegistry)
         let runtime = ConversationRuntime(
             store: fixture.store,
             provider: provider,

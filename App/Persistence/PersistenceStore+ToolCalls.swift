@@ -22,14 +22,15 @@ extension PersistenceStore {
     /// Rejects only the original undispatched attempt and commits its result in
     /// the same transaction. It never rewrites the frozen execution intent.
     func rejectUndispatchedToolCall(
-        id: String, expectedAttempt: Int, result: ToolResultRecord, at now: Date = Date()
+        id: String, expectedAttempt: Int, result: ToolResultRecord, at now: Date = Date(),
+        failureReason: ToolCallFailureReason? = nil
     ) throws {
         guard result.toolCallID == id else { throw PersistenceError.invalidTransition("rejection result identity mismatch") }
         try database.write { db in
             try db.execute(sql: """
-                UPDATE toolCall SET state = ?, updatedAt = ?
+                UPDATE toolCall SET state = ?, failureReason = ?, updatedAt = ?
                 WHERE id = ? AND attempt = ? AND state IN (?, ?, ?, ?)
-                """, arguments: [ToolCallState.rejected.rawValue, now, id, expectedAttempt,
+                """, arguments: [ToolCallState.rejected.rawValue, failureReason?.rawValue, now, id, expectedAttempt,
                     ToolCallState.validated.rawValue, ToolCallState.waitingForApproval.rawValue,
                     ToolCallState.approved.rawValue, ToolCallState.prepared.rawValue])
             guard db.changesCount == 1 else {
@@ -80,8 +81,8 @@ extension PersistenceStore {
 
             guard let nextState else { return }
             try db.execute(
-                sql: "UPDATE toolCall SET state = ?, updatedAt = ? WHERE id = ?",
-                arguments: [nextState.rawValue, now, id]
+                sql: "UPDATE toolCall SET state = ?, failureReason = ?, updatedAt = ? WHERE id = ?",
+                arguments: [nextState.rawValue, nextState == .indeterminate ? ToolCallFailureReason.outcomeUnknown.rawValue : nil, now, id]
             )
         }
     }
@@ -93,7 +94,7 @@ extension PersistenceStore {
             try db.execute(
                 sql: """
                     UPDATE toolCall
-                    SET state = ?, updatedAt = ?
+                    SET state = ?, failureReason = 'outcomeUnknown', updatedAt = ?
                     WHERE id = ? AND state = ?
                     """,
                 arguments: [

@@ -310,8 +310,8 @@ actor AgentRuntime {
 
     /// Records an approval decision on the waiting ToolCall and wakes the suspended
     /// serial batch. The same ToolCall identity is resumed; no replacement call exists.
-    func approveToolCall(toolCallID: String) throws {
-        try toolRuntime.approve(toolCallID: toolCallID)
+    func approveToolCall(toolCallID: String, displayedIntentBinding: String? = nil) throws {
+        try toolRuntime.approve(toolCallID: toolCallID, displayedIntentBinding: displayedIntentBinding)
         toolDecisionWaiters.removeValue(forKey: toolCallID)?.resume()
     }
 
@@ -375,43 +375,46 @@ actor AgentRuntime {
 
                 _ = try toolRuntime.validatePendingIntent(toolCallID: call.id)
                 call = try store.toolCall(id: call.id) ?? call
-                if call.state == .waitingForApproval {
-                    await waitForToolDecision(toolCallID: call.id)
-                    if stopRequested.contains(runID) || Task.isCancelled {
-                        throw ControlError.stopRequested
-                    }
-                    guard let decided = try store.toolCall(id: call.id) else {
-                        throw RunRequestRebuildError.incompleteCommittedInput
-                    }
-                    call = decided
-                }
-
-                if call.state == .approved || call.state == .prepared {
-                    if try store.run(id: runID)?.state == .waitingForApproval {
-                        try await transition(
-                            runID: runID,
-                            to: .executingTools,
-                            continuation: continuation,
-                            project: project
-                        )
-                    }
-                    do {
-                        if call.state == .approved {
-                            _ = try await toolRuntime.executeApproved(toolCallID: call.id)
-                        } else {
-                            _ = try await toolRuntime.executePrepared(toolCallID: call.id)
+                var needsApprovalEvent = try store.run(id: runID)?.state != .waitingForApproval
+                while call.state == .waitingForApproval || call.state == .approved || call.state == .prepared {
+                    if call.state == .waitingForApproval {
+                        if needsApprovalEvent {
+                            try await emit(.toolCallChanged(runID: runID,
+                                providerCallID: call.providerCallID ?? call.id, state: call.state),
+                                continuation: continuation, project: project)
+                            try await emit(.approvalRequired(runID: runID, toolCallID: call.id),
+                                continuation: continuation, project: project)
                         }
-                    } catch {
-                        if stopRequested.contains(runID) || Task.isCancelled {
-                            throw ControlError.stopRequested
+                        if try store.run(id: runID)?.state != .waitingForApproval {
+                            try await transition(runID: runID, to: .waitingForApproval,
+                                continuation: continuation, project: project)
                         }
-                        // ToolRuntime records an executor failure and model-visible
-                        // result before throwing. Only that durable result can continue.
+                        await waitForToolDecision(toolCallID: call.id)
+                        if stopRequested.contains(runID) || Task.isCancelled { throw ControlError.stopRequested }
+                        guard let decided = try store.toolCall(id: call.id) else {
+                            throw RunRequestRebuildError.incompleteCommittedInput
+                        }
+                        call = decided
                     }
-                    guard let updated = try store.toolCall(id: call.id) else {
-                        throw RunRequestRebuildError.incompleteCommittedInput
+                    if call.state == .approved || call.state == .prepared {
+                        if try store.run(id: runID)?.state == .waitingForApproval {
+                            try await transition(runID: runID, to: .executingTools,
+                                continuation: continuation, project: project)
+                        }
+                        do {
+                            if call.state == .approved { _ = try await toolRuntime.executeApproved(toolCallID: call.id) }
+                            else { _ = try await toolRuntime.executePrepared(toolCallID: call.id) }
+                        } catch {
+                            if stopRequested.contains(runID) || Task.isCancelled { throw ControlError.stopRequested }
+                            if let pending = try store.toolCall(id: call.id),
+                               pending.state == .approved || pending.state == .prepared { throw error }
+                        }
+                        guard let updated = try store.toolCall(id: call.id) else {
+                            throw RunRequestRebuildError.incompleteCommittedInput
+                        }
+                        call = updated
+                        needsApprovalEvent = call.state == .waitingForApproval
                     }
-                    call = updated
                 }
 
                 if call.state == .dispatched {
@@ -1190,7 +1193,7 @@ actor AgentRuntime {
                 }
             }
 
-            guard let record = try store.toolCalls(inRun: runID).first(where: {
+            guard var record = try store.toolCalls(inRun: runID).first(where: {
                 $0.providerCallID == providerCall.id &&
                     $0.batchID == batch.batchID &&
                     $0.batchSequence == sequence
@@ -1206,73 +1209,42 @@ actor AgentRuntime {
                 )
             )
 
-            if record.state == .waitingForApproval ||
-                record.state == .waitingForSystemPermissionConsent {
+            if record.state == .waitingForApproval || record.state == .waitingForSystemPermissionConsent {
                 for completed in completedCalls.dropFirst(emittedCallCount) {
-                    try await emit(
-                        .toolCallChanged(
-                            runID: runID,
-                            providerCallID: completed.providerCall.id,
-                            state: completed.record.state
-                        ),
-                        continuation: continuation,
-                        project: project
-                    )
-                    if completed.record.state == .waitingForApproval ||
-                        completed.record.state == .waitingForSystemPermissionConsent {
-                        try await emit(
-                            .approvalRequired(
-                                runID: runID,
-                                toolCallID: completed.record.id
-                            ),
-                            continuation: continuation,
-                            project: project
-                        )
-                    }
+                    try await emit(.toolCallChanged(runID: runID,
+                        providerCallID: completed.providerCall.id, state: completed.record.state),
+                        continuation: continuation, project: project)
                 }
                 emittedCallCount = completedCalls.count
-                try await transition(
-                    runID: runID,
-                    to: .waitingForApproval,
-                    continuation: continuation,
-                    project: project
-                )
-                await waitForToolDecision(toolCallID: record.id)
-                if stopRequested.contains(runID) || Task.isCancelled {
-                    throw ControlError.stopRequested
-                }
-                try await transition(
-                    runID: runID,
-                    to: .executingTools,
-                    continuation: continuation,
-                    project: project
-                )
-
-                var settledRecord = try store.toolCall(id: record.id) ?? record
-                if settledRecord.state == .approved {
-                    do {
-                        _ = try await toolRuntime.executeApproved(toolCallID: record.id)
-                    } catch {
-                        if stopRequested.contains(runID) || Task.isCancelled {
-                            throw ControlError.stopRequested
-                        }
+                while record.state == .waitingForApproval || record.state == .waitingForSystemPermissionConsent {
+                    try await emit(.approvalRequired(runID: runID, toolCallID: record.id),
+                        continuation: continuation, project: project)
+                    if try store.run(id: runID)?.state != .waitingForApproval {
+                        try await transition(runID: runID, to: .waitingForApproval,
+                            continuation: continuation, project: project)
                     }
-                    settledRecord = try store.toolCall(id: record.id) ?? settledRecord
+                    await waitForToolDecision(toolCallID: record.id)
+                    if stopRequested.contains(runID) || Task.isCancelled { throw ControlError.stopRequested }
+                    if try store.run(id: runID)?.state == .waitingForApproval {
+                        try await transition(runID: runID, to: .executingTools,
+                            continuation: continuation, project: project)
+                    }
+                    var settled = try store.toolCall(id: record.id) ?? record
+                    if settled.state == .approved || settled.state == .prepared {
+                        do {
+                            if settled.state == .approved { _ = try await toolRuntime.executeApproved(toolCallID: settled.id) }
+                            else { _ = try await toolRuntime.executePrepared(toolCallID: settled.id) }
+                        } catch {
+                            if stopRequested.contains(runID) || Task.isCancelled { throw ControlError.stopRequested }
+                        }
+                        settled = try store.toolCall(id: settled.id) ?? settled
+                    }
+                    completedCalls[completedCalls.count - 1] = ToolBatchCall(providerCall: providerCall,
+                        record: settled, result: try store.toolResult(toolCallID: settled.id))
+                    try await emit(.toolCallChanged(runID: runID, providerCallID: providerCall.id, state: settled.state),
+                        continuation: continuation, project: project)
+                    record = settled
                 }
-                completedCalls[completedCalls.count - 1] = ToolBatchCall(
-                    providerCall: providerCall,
-                    record: settledRecord,
-                    result: try store.toolResult(toolCallID: settledRecord.id)
-                )
-                try await emit(
-                    .toolCallChanged(
-                        runID: runID,
-                        providerCallID: providerCall.id,
-                        state: settledRecord.state
-                    ),
-                    continuation: continuation,
-                    project: project
-                )
             }
         }
 

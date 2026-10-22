@@ -103,7 +103,7 @@ struct ToolRuntimePolicyTests {
     }
 
     @Test func settingsWideningDoesNotActivateOldWaitingAdmission() async throws {
-        let f = try RuntimePolicyFixture(requiresApproval: true)
+        let f = try RuntimePolicyFixture()
         _ = try await f.complete()
         let call = try f.call()
         // An old persisted approval is not a current trusted grant. This models
@@ -206,6 +206,47 @@ struct ToolRuntimePolicyTests {
         #expect(try store.toolCalls(inRun: "r").count == 1)
     }
 
+    @Test func highRiskStillNeedsApprovalUnderAlwaysAllow() async throws {
+        let f = try RuntimePolicyFixture(policy: .alwaysAllow, risk: .high)
+        #expect(try await f.complete() == nil)
+        #expect(try f.call().state == .waitingForApproval)
+        #expect(await f.probe.entries().isEmpty)
+    }
+
+    @Test func missingDisclosureRejectsInsteadOfCreatingInvisibleApproval() async throws {
+        let f = try RuntimePolicyFixture(providesDisclosure: false)
+        #expect(try await f.complete() != nil)
+        #expect(try f.call().state == .rejected)
+        #expect(await f.probe.entries().isEmpty)
+    }
+
+    @Test func stopBeforeCheckpointRemainsNotExecuted() async throws {
+        let f = try RuntimePolicyFixture(policy: .alwaysAllow, dependencyCheck: { store in
+            try store.database.write { db in
+                try db.execute(sql: "UPDATE agentRun SET state = 'stopping' WHERE id = 'r'")
+            }
+        })
+        do { _ = try await f.complete() }
+        catch { }
+        #expect(await f.probe.entries().isEmpty)
+        #expect(try f.call().state == .notExecuted)
+        #expect(try f.store.toolResult(toolCallID: f.call().id) == nil)
+    }
+
+    @Test func corruptStoredGrantCannotReachExecutor() async throws {
+        let f = try RuntimePolicyFixture(requiresApproval: true)
+        _ = try await f.complete()
+        let call = try f.call()
+        try f.runtime.approve(toolCallID: call.id)
+        let id = try #require(try f.store.toolGrants(subject: .parentConversation("c")).first?.id)
+        try f.store.database.write { db in
+            try db.execute(sql: "UPDATE toolScopedGrant SET resource = '{' WHERE id = ?", arguments: [id])
+        }
+        _ = try await f.runtime.executeApproved(toolCallID: call.id)
+        #expect(await f.probe.entries().isEmpty)
+        #expect(try f.call().state == .rejected)
+    }
+
     @Test func duplicateDispatchEntersExecutorAtMostOnce() async throws {
         let f = try RuntimePolicyFixture(requiresApproval: true)
         _ = try await f.complete()
@@ -231,6 +272,7 @@ private struct RuntimePolicyFixture: Sendable {
 
     init(database: ZenDatabase? = nil, policy: ToolPersistentPolicy? = nil,
          requiresApproval: Bool = false, safetyCap: ToolPolicySafetyCap = .unrestricted,
+         risk: ToolActionRisk = .low, providesDisclosure: Bool = true,
          dependencyCheck: @escaping @Sendable (PersistenceStore) throws -> Void = { _ in }) throws {
         let store = PersistenceStore(database: try database ?? ZenDatabase.inMemory())
         try store.commitUserTurnAndCreateParentRun(Fixtures.send(conversationID: "c", messageID: "m", runID: "r", runState: .executingTools))
@@ -238,7 +280,7 @@ private struct RuntimePolicyFixture: Sendable {
             try store.setToolPolicy(toolID: RuntimePolicyTool.id, actionID: "read", descriptorRevision: "r1", mode: policy)
         }
         let probe = RuntimePolicyProbe()
-        let tool = RuntimePolicyTool(store: store, probe: probe, requiresApproval: requiresApproval,
+        let tool = RuntimePolicyTool(store: store, probe: probe, requiresApproval: requiresApproval, risk: risk, providesDisclosure: providesDisclosure,
             dependencyCheck: dependencyCheck)
         self.store = store; self.probe = probe; self.tool = tool
         runtime = ToolRuntime(store: store, registry: try ToolRegistry(tools: [tool]), safetyCap: safetyCap)
@@ -273,6 +315,8 @@ private struct RuntimePolicyTool: ToolExecutable {
     let store: PersistenceStore
     let probe: RuntimePolicyProbe
     var requiresApproval = false
+    var risk: ToolActionRisk = .low
+    var providesDisclosure = true
     var dependencyCheck: @Sendable (PersistenceStore) throws -> Void = { _ in }
 
     var descriptor: ToolDescriptor {
@@ -280,15 +324,15 @@ private struct RuntimePolicyTool: ToolExecutable {
             inputSchema: .object([:]), revision: "r1", sideEffect: .none,
             approvalRequirement: requiresApproval ? .required : .notRequired,
             actions: [ToolPolicyActionMetadata(toolID: Self.id, actionID: "read", descriptorRevision: "r1",
-                risk: .low, allowsAutomaticApproval: true, allowsConversationGrant: true,
+                risk: risk, allowsAutomaticApproval: risk == .low, allowsConversationGrant: true,
                 resourceRequirement: .notRequired, egressRequirement: .notRequired)])
     }
     func prepare(callID: String, argumentsJSON: String) throws -> ToolExecutionIntent {
         try ToolArgumentJSON.requireEmptyObject(argumentsJSON)
         return try ToolIntentCodec.freeze(descriptor: descriptor, actionID: "read", normalizedArgumentsJSON: "{}",
             resource: .notRequired, destination: .notRequired,
-            approvalDisclosure: ToolApprovalDisclosure(toolDisplayName: "Policy probe", action: "Read",
-                targetDescription: "No external resource", keyImpact: "Local test operation"))
+            approvalDisclosure: providesDisclosure ? ToolApprovalDisclosure(toolDisplayName: "Policy probe", action: "Read",
+                targetDescription: "No external resource", keyImpact: "Local test operation") : nil)
     }
     func validateDependencies(_ intent: ToolExecutionIntent) throws { try dependencyCheck(store) }
     func execute(_ intent: ToolExecutionIntent, idempotencyKey: String) async throws -> ToolExecutionResult {

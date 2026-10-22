@@ -19,17 +19,20 @@ struct ToolApprovalRequest: Sendable, Equatable {
     let conversationID: String
     let runtimeInstanceID: String
     let decision: ToolApprovalDecision
+    let intentBinding: String?
 
     fileprivate init(
         toolCallID: String,
         conversationID: String,
         runtimeInstanceID: String,
-        decision: ToolApprovalDecision
+        decision: ToolApprovalDecision,
+        intentBinding: String?
     ) {
         self.toolCallID = toolCallID
         self.conversationID = conversationID
         self.runtimeInstanceID = runtimeInstanceID
         self.decision = decision
+        self.intentBinding = intentBinding
     }
 }
 
@@ -42,6 +45,7 @@ struct ToolApprovalProjection: Identifiable, Sendable, Equatable {
     let action: String
     let targetDescription: String
     let keyImpact: String
+    let intentBinding: String?
 
     var id: String { toolCallID }
     var availableDecisions: [ToolApprovalDecision] { ToolApprovalDecision.allCases }
@@ -50,7 +54,8 @@ struct ToolApprovalProjection: Identifiable, Sendable, Equatable {
         toolCallID: String,
         conversationID: String,
         runtimeInstanceID: String,
-        disclosure: ToolApprovalDisclosure
+        disclosure: ToolApprovalDisclosure,
+        intentBinding: String? = nil
     ) {
         self.toolCallID = toolCallID
         self.conversationID = conversationID
@@ -59,6 +64,7 @@ struct ToolApprovalProjection: Identifiable, Sendable, Equatable {
         self.action = disclosure.action
         self.targetDescription = disclosure.targetDescription
         self.keyImpact = disclosure.keyImpact
+        self.intentBinding = intentBinding
     }
 
     func request(for decision: ToolApprovalDecision) -> ToolApprovalRequest {
@@ -66,7 +72,8 @@ struct ToolApprovalProjection: Identifiable, Sendable, Equatable {
             toolCallID: toolCallID,
             conversationID: conversationID,
             runtimeInstanceID: runtimeInstanceID,
-            decision: decision
+            decision: decision,
+            intentBinding: intentBinding
         )
     }
 }

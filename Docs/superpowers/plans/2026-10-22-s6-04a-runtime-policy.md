@@ -24,7 +24,7 @@
 ## Files
 
 - App/Tool/ToolRuntime.swift: adapt existing admission/approval/dispatch boundaries; unused cap input only before RED.
-- New App/Tool/ToolIntentBinding.swift: trusted binding and conservative human-readable disclosure fallback for stateless intents lacking one.
+- New App/Tool/ToolIntentBinding.swift: trusted binding over exact frozen JSON; never synthesize or rewrite approval disclosures.
 - App/Persistence/Records.swift: optional typed ToolCall failure reason, preserving old initializers/records.
 - App/Persistence/Migrations.swift + new Migrations+ToolAuthorization.swift: v15 call admission facts and nullable failure reason.
 - New App/Persistence/ToolCallPolicyRecord.swift: strict durable projection of existing policy/admission values.
@@ -45,8 +45,14 @@
 
 ## Tasks
 
-- [ ] Add black-box runtime contracts against existing APIs plus an unused default cap argument. Static parse/check; commit/push and run a disclosed focused native RED suite to completion. No production Policy behavior before observed assertions.
+- [x] Add black-box runtime contracts against existing APIs plus an unused default cap argument. Static parse/check; commit/push and run a disclosed focused native RED suite to completion. No production Policy behavior before observed assertions.
 - [ ] Implement admission/approval/guarded dispatch and typed original-call failures. Adapt only fixtures that intentionally require automatic policy or valid recovery admission; keep security regressions. Static checks, one normal complete native generation/build/unit/Phone UI/Pad gate.
 - [ ] Fresh whole-slice review, one test-first Important/Critical fix pass if needed, exact-head final receipt and integration only after real complete gate. Preserve every failed/cancelled/skipped provenance; never rerun unchanged to wash a failure.
 
 Final native source/run/tree/review and merge receipt belong on the PR/external receipt, avoiding source edits merely to record the CI run. Existing authorization to continue the approved roadmap is carried forward; no repeated design or execution permission is requested for this narrower slice.
+
+Ruling after actual code inspection: missing complete frozen disclosure must reject explicitly rather than create an invisible waiting card. Do not invent UI prose or rewrite a persisted intent. Synthetic old functional fixtures will declare complete trusted disclosures; real built-in disclosure/consent interaction remains S6-04b before tool exposure. Added four focused controls (high risk, absent disclosure, stop before checkpoint, corrupt grant) before implementation; the already-dispatched immutable RED source has17 functions, so no individual native RED is claimed for these extra controls.
+
+Additional boundary discovered before implementation: legacy manually persisted waiting calls lack admission, so the explicit Approval request must carry the hash of the exact JSON displayed. Add a data-only witness field through ToolApprovalProjection/Request, ConversationRuntime and AgentRuntime to ToolRuntime approval. A stale card rejects the original call, never authorizes a replacement target. Add a black-box legacy-card mutation test using existing UI-request APIs. No View file/layout/animation changes; this closes the existing approval boundary rather than adding scope-choice UI.
+
+Implementation source ready for one fresh whole-slice review before the final full native gate, avoiding invalidating a running final gate for predictable review fixes. Extra real-flow controls cover v14 upgrade without invented admission, deny + allowed batch continuation, revoked approval returning to the original waiter, and disk cold prepared call reapproval through its displayed witness. These integration additions have not individually observed native RED. Local frontend parse,12 Python tests, YAML/workflow equivalence and bash syntax pass; native SDK build still pending.

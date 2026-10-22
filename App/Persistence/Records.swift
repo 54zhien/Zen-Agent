@@ -444,6 +444,11 @@ struct AttemptIdentity: Codable, Sendable, Equatable {
     var attempt: Int
 }
 
+/// Durable ToolCall failure semantics, separate from the Run's EndReason.
+enum ToolCallFailureReason: String, Codable, Sendable, Equatable {
+    case policyDenied, dependencyChanged, reapprovalNeeded, outcomeUnknown
+}
+
 struct ToolCallRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Identifiable {
     static let databaseTableName = "toolCall"
 
@@ -451,6 +456,7 @@ struct ToolCallRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Id
     var agentRunID: String
     var action: String
     var state: ToolCallState
+    var failureReason: ToolCallFailureReason? = nil
     /// JSON, normalised and frozen before approval. The executor consumes this same
     /// value, so an approval cannot be redirected to a different target.
     var executionIntent: String?

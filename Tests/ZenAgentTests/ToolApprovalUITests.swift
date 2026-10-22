@@ -8,6 +8,30 @@ import Testing
 @MainActor
 struct ToolApprovalUITests {
 
+    @Test("a legacy card cannot approve a replacement intent after it was displayed")
+    func legacyApprovalCarriesTheDisplayedIntentWitness() async throws {
+        let id = "legacy-displayed-intent"
+        let environment = try makeEnvironment(conversationIDs: [id])
+        let tool = try #require(environment.toolRegistry.executor(id: Self.toolID))
+        var intent = try tool.prepare(callID: "legacy-card-call", argumentsJSON: "{}")
+        let call = try persistPendingCall(in: environment.store, conversationID: id,
+            runID: "legacy-card-run", callID: "legacy-card-call", intent: intent)
+        let runtime = makeProjectionRuntime(for: environment)
+        let cards = try await runtime.pendingToolApprovals(in: id)
+        let card = try #require(cards.first)
+        intent.resourceScope = .target("replacement-target")
+        intent.targetIdentity = "replacement-target"
+        let changedJSON = try encodeIntent(intent)
+        try environment.store.database.write { db in
+            try db.execute(sql: "UPDATE toolCall SET executionIntent = ? WHERE id = ?", arguments: [changedJSON, call.id])
+        }
+        try await runtime.resolveToolApproval(card.request(for: .approveOnce))
+        #expect(try environment.store.toolCall(id: call.id)?.state == .rejected)
+        #expect(try environment.store.toolResult(toolCallID: call.id) != nil)
+        #expect(try environment.store.toolGrants(subject: .parentConversation(id)).isEmpty)
+        #expect(await environment.sideEffectLedger.snapshot().isEmpty)
+    }
+
     private static let toolID = "stage2_side_effect"
     private static let continuationText = "model continued after the tool decision"
 

@@ -108,6 +108,67 @@ struct ToolIntentContinuationTests {
         }
     }
 
+    @Test("cold prepared call without admission waits for its displayed approval", .timeLimit(.minutes(1)))
+    func coldPreparedCallReapprovesAndContinues() async throws {
+        let url = try Fixtures.scratchPath(name: "policy-cold-prepared.sqlite")
+        defer { Fixtures.cleanUp(url) }
+        let runID = "policy-cold-run", callID = "policy-cold-call"
+        let effects = SideEffectLedger()
+        let tool = Stage2SideEffectTool(ledger: effects)
+        let initialProvider = Stage2ScriptedProvider(ledger: Stage2ProviderLedger(), scripts: [.events([])])
+        let original = String(decoding: try JSONEncoder().encode(tool.prepare(callID: callID, argumentsJSON: "{}")), as: UTF8.self)
+        do {
+            let first = try Stage2GateFixture.makeDiskComponents(at: url)
+            var commit = Fixtures.send(conversationID: Stage2GateFixture.conversationID,
+                messageID: "user-policy-cold", runID: runID, runState: .preparing)
+            commit.conversation = try #require(try first.store.conversation(id: Stage2GateFixture.conversationID))
+            commit.run.requestConfigSeed = try initialProvider.makeRequestConfigSeed(instance: first.instance,
+                modelID: Stage2GateFixture.modelID, credentialBinding: CredentialBindingSnapshot(
+                    reference: Stage2GateFixture.credentialReference, generation: 1))
+            try first.store.commitUserTurnAndCreateParentRun(commit)
+            let d = tool.descriptor
+            let snapshot = RunExecutionSnapshot(providerID: .deepSeek, providerAdapterRevision: initialProvider.adapterRevision,
+                prompt: PromptExecutionSnapshot(runtimeSafetyBaseline: PromptTemplateCatalog.currentRuntimeSafetyRevision,
+                    zenCore: PromptTemplateCatalog.currentZenCoreRevision, providerAdapterInstructions: ""),
+                modelCapabilities: [.text, .streaming, .tools], exposedTools: [ToolExposureSnapshot(
+                    toolID: d.id, descriptorRevision: d.revision, displayName: d.displayName,
+                    description: d.description, inputSchema: d.inputSchema)], maxProviderSteps: 4)
+            try first.store.completeExecutionSnapshot(runID: runID, encodedSnapshot: try ExecutionSnapshotCodec.encode(snapshot))
+            try first.store.recordStep(Fixtures.step(stepID: "policy-cold-step", runID: runID))
+            try first.store.transitionRun(id: runID, expectedState: .preparing, to: .requestingModel)
+            try first.store.transitionRun(id: runID, expectedState: .requestingModel, to: .toolRequested)
+            try first.store.transitionRun(id: runID, expectedState: .toolRequested, to: .executingTools)
+            try first.store.createToolCall(ToolCallRecord(id: callID, agentRunID: runID, action: d.id,
+                state: .prepared, executionIntent: original, attempt: 1, providerCallID: "policy-cold-provider-call",
+                batchID: "batch-\(runID)-0-1", batchSequence: 0, createdAt: Fixtures.epoch, updatedAt: Fixtures.epoch))
+        }
+        let store = try Stage2GateFixture.reopen(url)
+        let credentials = CredentialStore(secrets: InMemorySecretBackend(), metadataRepository: InMemoryCredentialMetadataRepository())
+        try credentials.provision(SecretValue("stage2-gate-secret"), as: Stage2GateFixture.credentialReference)
+        let requests = Stage2ProviderLedger()
+        let runtime = ConversationRuntime(store: store, provider: Stage2ScriptedProvider(ledger: requests,
+            scripts: [.events([.textDelta("continued"), .finish(.stop)])]), credentials: credentials,
+            toolRegistry: try ToolRegistry(tools: [tool]))
+        _ = try await runtime.reconcileColdStartRuns()
+        var cards: [ToolApprovalProjection] = []
+        for _ in 0..<1000 {
+            cards = try await runtime.pendingToolApprovals(in: Stage2GateFixture.conversationID)
+            if !cards.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let card = try #require(cards.first)
+        #expect(card.toolCallID == callID)
+        #expect(await effects.snapshot().isEmpty)
+        try await runtime.resolveToolApproval(card.request(for: .approveOnce))
+        try await runtime.waitForCompletion(runID: runID)
+        #expect(try store.run(id: runID)?.state == .completed)
+        #expect(try store.toolCalls(inRun: runID).map(\.id) == [callID])
+        #expect(try store.toolCall(id: callID)?.executionIntent == original)
+        #expect(try store.toolCall(id: callID)?.state == .succeeded)
+        #expect(await effects.snapshot().count == 1)
+        #expect(await requests.requestsSnapshot().count == 1)
+    }
+
     @Test func invalidArgumentsPersistStableOriginalResult() async throws {
         let store = try S6IntentFixture.store()
         let runtime = ToolRuntime(store: store, registry: try ToolRegistry(tools: [CalculatorTool()]))
@@ -133,7 +194,7 @@ struct ToolIntentContinuationTests {
              .finish(.toolCalls)], [.textDelta("continued"), .finish(.stop)]
         ], toolLedger: I07ToolLedger(), store: fixture.store, conversationID: I05RuntimeTestFixtures.conversationID)
         let runtime = ConversationRuntime(store: fixture.store, provider: provider, credentials: fixture.credentials,
-            toolRegistry: try ToolRegistry(tools: [CalculatorTool()]))
+            toolRegistry: try Fixtures.automaticallyAllowedRegistry(in: fixture.store, tools: [CalculatorTool()]))
         let runID = try await runtime.start(I05RuntimeTestFixtures.command())
         try await runtime.waitForCompletion(runID: runID)
         #expect(try fixture.store.run(id: runID)?.state == .completed)
