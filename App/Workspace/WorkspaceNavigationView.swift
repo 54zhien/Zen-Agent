@@ -119,6 +119,11 @@ struct WorkspaceNavigationView<Content: View>: View {
                     // Only the single page spans behind the moving keyboard.
                     // Split, the Rail, and overlays retain the keyboard-safe viewport.
                     .ignoresSafeArea(.all, edges: keepsFullConversationViewport ? .bottom : [])
+                    // UIKit translates the page while this SwiftUI container
+                    // retains its viewport frame. Its interaction region must
+                    // follow the page instead of covering the revealed Rail.
+                    .contentShape(.interaction, Rectangle().offset(
+                        x: (direction == .rightToLeft ? -1 : 1) * travel * CGFloat(state.progress), y: 0))
                     .accessibilityHidden(state.overlay != nil)
                     .accessibilityElement(children: .contain)
                     .accessibilityActions {

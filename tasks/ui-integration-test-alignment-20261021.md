@@ -302,3 +302,9 @@ Native run `39706894019`, source `34d15f05da2f1e6ef5fd80dd72ef923c6e7e339d`, gen
 
 All diagnostic selector code, variant tests and temporary profile entries are removed; App/Config/Resources/project.yml again match frozen `eb39a65` before the next repair. Full and class-selected UI runs were not dispatched while diagnostic variants existed. Review also identified missing model-detail outside-dismiss coverage: restored the original outside tap with the accepted parent-menu-return assertions, retaining the independent close-button path. Native validation of that added coverage remains pending.
 
+### Parent page interaction-region candidate
+
+After restoring the controls in `06591d1`, the next hypothesis is the outer SwiftUI page container: the native page is translated to x=96 while its enclosing AX containers still span x=0/full viewport. Prior native hit evidence excludes the translated Surface at the Settings center; all three composition controls route coordinate taps successfully but fail AX. Add only an `.interaction` content shape to that outer container, using the existing signed Sidebar displacement. This narrows hit/AX ownership to the moving page without translating content again or changing pixels, mask, press animation, haptics, or routing. It is a candidate, not a proven cause. Existing native assertions remain the discriminator, followed by broad Sidebar and complete default-source gates if it passes.
+
+Apple documents `.interaction` as the shape kind for hit-testing and accessibility: https://developer.apple.com/documentation/swiftui/contentshapekinds/interaction . Native failure or changed visual behavior requires removing/revisiting the candidate, not weakening the gate.
+
