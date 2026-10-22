@@ -66,24 +66,7 @@ struct ConversationPreviewUITestFixture: View {
         }
     }
 
-    @ViewBuilder
     var body: some View {
-        if ProcessInfo.processInfo.environment["ZEN_SIDEBAR_OMIT_FIXTURE_OVERLAYS"] == "1" {
-            AppShellRootView(model: model)
-                .padding(.bottom, hiddenViewportInset)
-                .onChange(of: model.splitOpenError) { _, error in
-                    guard error != nil,
-                          ProcessInfo.processInfo.environment["ZEN_RECENT_SPLIT_FAILURE_UI_TEST"] == "1" else { return }
-                    do { try ConversationPreviewUITestSeed.restoreRecentSplitFailure(in: store) }
-                    catch { fatalError("Recent Split fixture could not restore") }
-                }
-                .task { await prepareHistoryIfNeeded() }
-        } else {
-            decoratedRoot
-        }
-    }
-
-    private var decoratedRoot: some View {
         AppShellRootView(model: model)
             .padding(.bottom, hiddenViewportInset)
             .overlay(alignment: .topLeading) {
@@ -108,7 +91,43 @@ struct ConversationPreviewUITestFixture: View {
                 do { try ConversationPreviewUITestSeed.restoreRecentSplitFailure(in: store) }
                 catch { fatalError("Recent Split fixture could not restore") }
             }
-            .task { await prepareHistoryIfNeeded() }
+            .task {
+                guard !didOpenHistory else { return }
+                didOpenHistory = true
+                if ProcessInfo.processInfo.environment["ZEN_NEW_CONFIGURE_UI_TEST"] == "1"
+                    || ProcessInfo.processInfo.environment["ZEN_REAUTH_UI_TEST"] == "1" { return }
+                if ProcessInfo.processInfo.environment["ZEN_FILES_PREVIEW_UI_TEST"] == "1" {
+                    let files = files, store = store
+                    do {
+                        try await Task.detached {
+                            let copy = try files.ingest(data: Data("Managed native preview/export fixture".utf8),
+                                displayName: "managed-preview.txt", mediaType: "text/plain", in: store)
+                            let now = Date()
+                            try store.createFileAsset(FileAssetRecord(id: "managed-preview-fixture",
+                                displayName: copy.displayName, currentVersionID: "managed-preview-version",
+                                origin: .imported, createdAt: now, updatedAt: now), initialVersion: FileAssetVersionRecord(
+                                    id: "managed-preview-version", assetID: "managed-preview-fixture",
+                                    contentFingerprint: copy.fingerprint, byteCount: copy.byteCount,
+                                    mediaType: copy.mediaType, createdAt: now))
+                            _ = try files.removeUnreferencedAsset(id: copy.assetID, in: store, protectedAssetIDs: [])
+                        }.value
+                    } catch {
+                        if !Task.isCancelled { fatalError("Managed preview fixture could not seed") }
+                        return
+                    }
+                }
+                guard await model.openConversation(id: "preview-ui-11") else {
+                    if !Task.isCancelled { fatalError("Preview history fixture could not open") }
+                    return
+                }
+                // Sidebar pixel cases arrange their viewport independently of Lift;
+                // dedicated interaction tests still enter Split through the Composer.
+                if let source = ProcessInfo.processInfo.environment["ZEN_SIDEBAR_SPLIT_SOURCE_UI_TEST"],
+                   let slot = SplitDropSlot(rawValue: source) {
+                    precondition(model.commitSplitDrop(SplitDropIntent(
+                        conversationID: model.conversationID, slot: slot)))
+                }
+            }
             .overlay(alignment: .bottomLeading) {
                 Text("pending=\(String(describing: model.pane?.scrollRequest?.sequence)) \(model.pane?.previewReadingDiagnosticForUITest ?? "Preview")")
                     .font(.system(size: 1)).frame(width: 1, height: 1)
@@ -155,45 +174,5 @@ struct ConversationPreviewUITestFixture: View {
                 }
             }
     }
-
-    // Both diagnostic roots must share startup and cancellation ownership.
-    private func prepareHistoryIfNeeded() async {
-        guard !didOpenHistory else { return }
-        didOpenHistory = true
-        if ProcessInfo.processInfo.environment["ZEN_NEW_CONFIGURE_UI_TEST"] == "1"
-            || ProcessInfo.processInfo.environment["ZEN_REAUTH_UI_TEST"] == "1" { return }
-        if ProcessInfo.processInfo.environment["ZEN_FILES_PREVIEW_UI_TEST"] == "1" {
-            let files = files, store = store
-            do {
-                try await Task.detached {
-                    let copy = try files.ingest(data: Data("Managed native preview/export fixture".utf8),
-                        displayName: "managed-preview.txt", mediaType: "text/plain", in: store)
-                    let now = Date()
-                    try store.createFileAsset(FileAssetRecord(id: "managed-preview-fixture",
-                        displayName: copy.displayName, currentVersionID: "managed-preview-version",
-                        origin: .imported, createdAt: now, updatedAt: now), initialVersion: FileAssetVersionRecord(
-                            id: "managed-preview-version", assetID: "managed-preview-fixture",
-                            contentFingerprint: copy.fingerprint, byteCount: copy.byteCount,
-                            mediaType: copy.mediaType, createdAt: now))
-                    _ = try files.removeUnreferencedAsset(id: copy.assetID, in: store, protectedAssetIDs: [])
-                }.value
-            } catch {
-                if !Task.isCancelled { fatalError("Managed preview fixture could not seed") }
-                return
-            }
-        }
-        guard await model.openConversation(id: "preview-ui-11") else {
-            if !Task.isCancelled { fatalError("Preview history fixture could not open") }
-            return
-        }
-        // Sidebar pixel cases arrange their viewport independently of Lift;
-        // dedicated interaction tests still enter Split through the Composer.
-        if let source = ProcessInfo.processInfo.environment["ZEN_SIDEBAR_SPLIT_SOURCE_UI_TEST"],
-           let slot = SplitDropSlot(rawValue: source) {
-            precondition(model.commitSplitDrop(SplitDropIntent(
-                conversationID: model.conversationID, slot: slot)))
-        }
-    }
-
 }
 #endif
