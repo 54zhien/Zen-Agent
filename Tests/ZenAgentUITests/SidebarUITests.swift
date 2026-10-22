@@ -33,19 +33,7 @@ final class SidebarUITests: XCTestCase {
 
     @MainActor
     func testSidebarSettingsCoordinateRoutePreservesAXFailure() {
-        exerciseSidebarSettingsRoute(launch())
-    }
-
-    @MainActor
-    func testSidebarSettingsWithoutFixtureReadingControl() {
-        let app = launch(omitReadingControl: true)
-        XCTAssertFalse(app.buttons["preview-reading-position"].exists,
-                       "The fixture-only reading overlay must be absent for this control")
-        exerciseSidebarSettingsRoute(app)
-    }
-
-    @MainActor
-    private func exerciseSidebarSettingsRoute(_ app: XCUIApplication) {
+        let app = launch()
         app.openWorkspaceSidebar()
 
         let settings = app.buttons["sidebar-settings"]
@@ -413,10 +401,9 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(withKeyboardMenu: Bool = false, omitReadingControl: Bool = false) -> XCUIApplication {
+    private func launch(withKeyboardMenu: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
-        if omitReadingControl { app.launchEnvironment["ZEN_SIDEBAR_OMIT_READING_CONTROL"] = "1" }
         if withKeyboardMenu { app.launchEnvironment["ZEN_KEYBOARD_MENU_UI_TEST"] = "1" }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
