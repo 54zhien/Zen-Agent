@@ -194,6 +194,20 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private var workspaceBackgroundColor = UIColor.systemBackground
     private var originalCanvasColors: (surface: UIColor?, content: UIColor?)?
 #if DEBUG
+    private var sidebarAXDiagnosticHidden = false
+    private var sidebarAXVisibilityDiagnosticEnabled: Bool {
+        ProcessInfo.processInfo.environment["ZEN_SIDEBAR_AX_HIDE_NATIVE_FOREGROUND"] == "1"
+    }
+
+    // An independent drawing/visibility gate: the ordinary workspace setter
+    // detaches hosted content and must not be used to arrange this control.
+    private func updateSidebarAXVisibilityDiagnostic() {
+        guard sidebarAXVisibilityDiagnosticEnabled || sidebarAXDiagnosticHidden else { return }
+        sidebarAXDiagnosticHidden = sidebarAXVisibilityDiagnosticEnabled && workspaceVisible
+            && !returnProxyHidden && sidebarProgress == 1 && !sidebarDragging && sidebarSettlement == nil
+        view.isHidden = !workspaceVisible || sidebarAXDiagnosticHidden
+    }
+
     // Tests pause the real animator so a busy simulator cannot skip settlement.
     var liftAnimatorForTesting: UIViewPropertyAnimator? { animator }
     var sidebarAnimatorForTesting: UIViewPropertyAnimator? { sidebarAnimator }
@@ -227,6 +241,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             "surfaceAX=\(surfaceView.isAccessibilityElement)", "activate=\(surfaceView.onActivate != nil)",
             "editors=\(mounted.count)", "browse=\(browseInteraction?.diagnostic ?? "none")"]
         fields.append("sidebar=\(liftController?.workspaceNavigation?.nativeDiagnostic ?? "unbound")")
+        fields.append("sidebarAXDiagnosticHidden=\(sidebarAXDiagnosticHidden)")
+        fields.append("nativeHostHidden=\(view.isHidden)")
+        fields.append("nativeContentMounted=\(contentController.view.superview === surfaceView)")
         fields.append("sidebarCanOpen=\(liftController?.sidebarNativeContext?()?.allowsOpening ?? false)")
         fields.append("workspaceOwnsKeyboard=\(workspaceViewportSize != nil)")
         fields.append("timeline=\(liftController?.workspacePaneDiagnostic?() ?? "unbound")")
@@ -484,6 +501,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     func setSidebar(offset: CGFloat, progress: CGFloat = 0, dragging: Bool = false,
                     settlement: UUID?, completion: ((UUID) -> Void)?) {
+#if DEBUG
+        defer { updateSidebarAXVisibilityDiagnostic() }
+#endif
         guard offset.isFinite, progress.isFinite else { return }
         guard sidebarOffset != offset || sidebarSettlement != settlement
                 || sidebarProgress != progress || sidebarDragging != dragging else {
@@ -547,6 +567,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func cancelSidebar() {
+#if DEBUG
+        defer { updateSidebarAXVisibilityDiagnostic() }
+#endif
         sidebarAnimator?.stopAnimation(true)
         sidebarAnimator = nil
         sidebarSettlement = nil
@@ -564,6 +587,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         returnProxyHidden = hidden
         surfaceView.isHidden = hidden
         updateSurfaceDecoration()
+#if DEBUG
+        updateSidebarAXVisibilityDiagnostic()
+#endif
     }
 
     override func viewSafeAreaInsetsDidChange() {
@@ -841,6 +867,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         view.isHidden = !visible
         view.isUserInteractionEnabled = visible
         view.accessibilityElementsHidden = !visible
+#if DEBUG
+        updateSidebarAXVisibilityDiagnostic()
+#endif
         updateSurfaceDecoration()
         // didMoveToWindow/layout run while the retained host is still hidden.
         // Recheck the queued responder after that final visibility gate opens.

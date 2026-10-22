@@ -1,11 +1,13 @@
 # Proposed Sidebar native-host visibility diagnostic
 
-**Status: awaiting owner approval; no implementation.**
+**Status: owner approved this temporary diagnostic on 2026-10-22; implementing.**
 
 The owner froze UI and requires a stop before UI-affecting changes. Existing
 permission covers test adaptations, narrow nonvisual interaction diagnosis, and
 the earlier specific style/mask controls. This proposal has a different visible
-effect and is therefore presented separately.
+effect and was therefore presented separately. The owner authorized temporary
+page hiding, further root-cause diagnosis and restoration after testing; finalized
+product UI remains frozen.
 
 ## Evidence and question
 
