@@ -326,3 +326,7 @@ Native `ce8831c` / `39711852563` generated/built and completed 3 cases with 4 as
 
 All five diagnostic source/test/workflow files are restored to `6f6478f` after collecting evidence. No diagnostic fixture or switch is a proposed production repair; frozen product and original native assertions remain the baseline.
 
+### Completed page boundary discriminator
+
+After cleanup `6a24254`, repeat the ineffective omission at the **completed** page accessibility wrapper, after its container/actions, and explicitly assert native conversation/editor absence. A separate launch disables only that page's hit-testing once settled, asserting its AX subtree remains. Both retain all original Settings identity/frame/AX/route assertions. DEBUG modifier values change without replacing the content subtree or retained native host; the release branch is identity. Baseline must still reproduce RED to exclude wrapper confounding. Neither control changes drawing, clipping, glass, animation or haptics, and neither is a proposed final behavior. These three diagnostic cases must be removed before any class-selected/full gate.
+

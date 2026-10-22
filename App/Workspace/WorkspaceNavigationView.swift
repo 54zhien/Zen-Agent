@@ -132,6 +132,7 @@ struct WorkspaceNavigationView<Content: View>: View {
                             Button("关闭侧边栏") { state.closeSidebar() }
                         }
                     }
+                    .modifier(SidebarPageBoundaryDiagnostic(state: state))
                 if state.overlay == .search, let overlays, let id = state.overlayID {
                     ConversationSearchView(model: overlays.search, onClose: { overlays.close(expectedID: id) },
                         onSelect: { id in _ = overlays.select(id) })
@@ -195,5 +196,26 @@ struct WorkspaceNavigationView<Content: View>: View {
         guard spatiallyAvailable, state.overlay == nil else { return false }
         return (!state.isOpen && context()?.allowsOpening == true)
             || state.isDragging || state.settlementID != nil
+    }
+}
+
+/// Temporary nonvisual controls at the completed page wrapper. Their test must
+/// verify which subtree actually disappeared before interpreting the Rail result.
+@MainActor
+private struct SidebarPageBoundaryDiagnostic: ViewModifier {
+    let state: WorkspaceNavigationState
+
+    @ViewBuilder func body(content: Content) -> some View {
+#if DEBUG
+        let mode = ProcessInfo.processInfo.environment["ZEN_SIDEBAR_PAGE_BOUNDARY"]
+        let settled = state.isOpen && !state.isDragging && state.settlementID == nil
+        // Keep structural identity across opening: replacing this subtree would
+        // recreate the retained native page and confound the boundary experiment.
+        content
+            .accessibilityHidden(state.overlay != nil || (settled && mode == "hide-ax"))
+            .allowsHitTesting(!(settled && mode == "disable-hit"))
+#else
+        content
+#endif
     }
 }

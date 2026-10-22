@@ -33,8 +33,35 @@ final class SidebarUITests: XCTestCase {
 
     @MainActor
     func testSidebarSettingsCoordinateRoutePreservesAXFailure() {
-        let app = launch()
+        exerciseSidebarSettingsRoute(launch())
+    }
+
+    @MainActor
+    func testSidebarSettingsWithCompletedPageAXHidden() {
+        exerciseSidebarSettingsRoute(launch(pageBoundary: "hide-ax"), pageBoundary: "hide-ax")
+    }
+
+    @MainActor
+    func testSidebarSettingsWithPageHitDisabled() {
+        exerciseSidebarSettingsRoute(launch(pageBoundary: "disable-hit"), pageBoundary: "disable-hit")
+    }
+
+    @MainActor
+    private func exerciseSidebarSettingsRoute(_ app: XCUIApplication, pageBoundary: String? = nil) {
         app.openWorkspaceSidebar()
+
+        if let pageBoundary {
+            let paneExists = app.scrollViews["conversation-pane-preview-ui-11"].exists
+            let editorExists = app.textViews["conversation-composer-input"].exists
+            print("SIDEBAR_PAGE_BOUNDARY mode=\(pageBoundary) paneExists=\(paneExists) editorExists=\(editorExists)")
+            if pageBoundary == "hide-ax" {
+                XCTAssertFalse(paneExists, "AX omission must actually remove the native conversation subtree")
+                XCTAssertFalse(editorExists, "AX omission must actually remove the editor")
+            } else {
+                XCTAssertTrue(paneExists, "Hit-only control must retain page AX")
+                XCTAssertTrue(editorExists, "Hit-only control must retain editor AX")
+            }
+        }
 
         let settings = app.buttons["sidebar-settings"]
         let settingsExists = settings.waitForExistence(timeout: 5)
@@ -401,9 +428,10 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(withKeyboardMenu: Bool = false) -> XCUIApplication {
+    private func launch(withKeyboardMenu: Bool = false, pageBoundary: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        if let pageBoundary { app.launchEnvironment["ZEN_SIDEBAR_PAGE_BOUNDARY"] = pageBoundary }
         if withKeyboardMenu { app.launchEnvironment["ZEN_KEYBOARD_MENU_UI_TEST"] = "1" }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
