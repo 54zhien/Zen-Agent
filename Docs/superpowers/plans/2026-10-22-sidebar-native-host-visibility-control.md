@@ -136,3 +136,7 @@ The earlier ancestry comparison inserted a new UIView and changed the result. Ne
 Three independent cold launches: unchanged baseline; sampled original route; sampled semantic tap only if original hit checks pass, without coordinate fallback. Keep one-edge and original hit/name/unique/enabled/frame checks. If sampling changes RED to GREEN, it is another observer effect, not a repair. If it stays RED, compare physical ancestry with the historical probed GREEN while preserving that comparison's source/run limits. A failed entry or missing cached sample is an invalid precondition.
 
 Restore ConversationSurfaceHost.swift, SidebarUITests.swift and workflow to cleanupddf4c9e and remove the temporary helper file after native evidence. No permanent UI changes.
+
+Apple documents [isHittable](https://developer.apple.com/documentation/xcuiautomation/xcuielement/ishittable) as hit-point computation, and permits nil event for an out-of-event-handler [UIView.hitTest](https://developer.apple.com/documentation/uikit/uiview/hittest(_:with:)) query. The physical query is valid observation, but is not proof of a delivered touch or VoiceOver activation; keep actual route/semantic receipts separate.
+
+Task8 run39743930739 was cancelled after approximately25minutes to collect phase evidence. It had not completed compilation (last ZenAgentTests compile), zero UI starts/samples and no compiler error before cancellation. No runtime conclusion. Partial artifact/source preserved; all three files restoredddf4c9e/helperdeleted.
