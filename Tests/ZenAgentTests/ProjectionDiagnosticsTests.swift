@@ -79,6 +79,7 @@ private func runProjectionScenario(
             ledger: toolLedger
         ),
     ])
+    try Fixtures.allowAutomaticToolPolicies(in: fixture.store, registry: toolRegistry)
     let runtime = ConversationRuntime(
         store: fixture.store,
         provider: provider,
@@ -115,7 +116,8 @@ private func runProjectionScenario(
 
     var observedError: ConversationProjectionError?
     do {
-        _ = try await runtime.send(I05RuntimeTestFixtures.command())
+        let runID = try await runtime.start(I05RuntimeTestFixtures.command())
+        try await Fixtures.awaitTerminalRun(in: fixture.store, runtime: runtime, runID: runID)
     } catch let error as ConversationProjectionError {
         observedError = error
     }

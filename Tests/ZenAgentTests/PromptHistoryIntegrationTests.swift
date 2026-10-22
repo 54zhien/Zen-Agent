@@ -524,7 +524,7 @@ struct PromptHistoryIntegrationTests {
             store: components.store,
             provider: provider,
             credentials: components.credentials,
-            toolRegistry: try ToolRegistry(tools: [CalculatorTool()])
+            toolRegistry: try Fixtures.automaticallyAllowedRegistry(in: components.store, tools: [CalculatorTool()])
         )
         _ = try await runtime.send(Stage2GateFixture.command(text: "Run calculator"))
         _ = try await runtime.send(Stage2GateFixture.command(text: "After tool turn"))
