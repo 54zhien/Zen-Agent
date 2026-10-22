@@ -189,7 +189,19 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             if let candidate = view as? UIScrollView { scroll = candidate; break }
             hit = view.superview
         }
-        return "edgeState=\(edge.state.rawValue),translation=\(edge.translation(in: window)),velocity=\(edge.velocity(in: window)),location=\(edge.location(in: window)),origin=\(String(describing: edgeTouchOrigin)),captured=\(String(describing: edgeTouchOwner)),currentHost=\(String(describing: current?.hostID)),currentPane=\(String(describing: current?.paneID)),window=\(ObjectIdentifier(window)),scrollPan=\(scroll.map { "state=\($0.panGestureRecognizer.state.rawValue),translation=\($0.panGestureRecognizer.translation(in: window))" } ?? "none")"
+        var edgePreference = ""
+        if ProcessInfo.processInfo.environment["ZEN_SIDEBAR_EDGE_PREFERENCE_PROBE"] == "1" {
+            var node = window.rootViewController
+            var seen = Set<ObjectIdentifier>()
+            var values: [String] = []
+            while let controller = node, values.count < 8,
+                  seen.insert(ObjectIdentifier(controller)).inserted {
+                values.append("\(type(of: controller)):\(controller.preferredScreenEdgesDeferringSystemGestures.rawValue)")
+                node = controller.childForScreenEdgesDeferringSystemGestures
+            }
+            edgePreference = ";screenEdgePreferences=\(values.joined(separator: ">"));sceneActivation=\(String(describing: window.windowScene?.activationState))"
+        }
+        return "edgeState=\(edge.state.rawValue),translation=\(edge.translation(in: window)),velocity=\(edge.velocity(in: window)),location=\(edge.location(in: window)),origin=\(String(describing: edgeTouchOrigin)),captured=\(String(describing: edgeTouchOwner)),currentHost=\(String(describing: current?.hostID)),currentPane=\(String(describing: current?.paneID)),window=\(ObjectIdentifier(window)),scrollPan=\(scroll.map { "state=\($0.panGestureRecognizer.state.rawValue),translation=\($0.panGestureRecognizer.translation(in: window))" } ?? "none")\(edgePreference)"
     }
 #endif
 

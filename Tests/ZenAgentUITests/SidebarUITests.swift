@@ -33,12 +33,60 @@ final class SidebarUITests: XCTestCase {
 
     @MainActor
     func testSidebarSettingsCoordinateRoutePreservesAXFailure() {
-        let app = launch()
+        exerciseSidebarSettingsRoute(launch(), noticeMode: nil)
+    }
+
+    @MainActor
+    func testSidebarSettingsWithMatchedNoPost() {
+        exerciseSidebarSettingsRoute(launch(noticeMode: "noop"), noticeMode: "noop")
+    }
+
+    @MainActor
+    func testSidebarSettingsWithEdgePreferenceMeasurement() {
+        exerciseSidebarSettingsRoute(launch(noticeMode: "noop", measuresEdgePreference: true), noticeMode: "noop")
+    }
+
+    @MainActor
+    func testSidebarSettingsWithLayoutNotice() {
+        exerciseSidebarSettingsRoute(launch(noticeMode: "post"), noticeMode: "post")
+    }
+
+    @MainActor
+    func testSidebarSettingsSemanticTapWithLayoutNotice() {
+        let app = launch(noticeMode: "post")
+        app.openWorkspaceSidebar()
+        let settings = app.buttons["sidebar-settings"]
+        let exists = settings.waitForExistence(timeout: 5)
+        XCTAssertTrue(exists)
+        attachNoticeReceipt(app, mode: "post", expectsCompletion: exists)
+        guard exists else { return }
+        XCTAssertEqual(app.buttons.matching(identifier: "sidebar-settings").count, 1)
+        XCTAssertEqual(settings.label, "设置")
+        XCTAssertTrue(settings.isEnabled)
+        XCTAssertEqual(settings.frame.width, 56, accuracy: 0.1)
+        XCTAssertEqual(settings.frame.height, 56, accuracy: 0.1)
+        XCTAssertTrue(app.frame.contains(settings.frame))
+        let hittable = settings.wait(for: \.isHittable, toEqual: true, timeout: 5)
+        XCTAssertTrue(hittable)
+        attachSidebarSettingsRouteEvidence(app, stage: "notice-before-semantic-tap")
+        guard hittable else { return }
+        settings.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["settings-page"].waitForExistence(timeout: 5))
+        attachSidebarSettingsRouteEvidence(app, stage: "notice-after-semantic-tap")
+    }
+
+    @MainActor
+    private func exerciseSidebarSettingsRoute(_ app: XCUIApplication, noticeMode: String?) {
         app.openWorkspaceSidebar()
 
         let settings = app.buttons["sidebar-settings"]
         let settingsExists = settings.waitForExistence(timeout: 5)
         XCTAssertTrue(settingsExists, "Sidebar Settings destination must exist")
+        attachNoticeReceipt(app, mode: noticeMode, expectsCompletion: settingsExists)
+        guard settingsExists else {
+            attachSidebarSettingsRouteEvidence(app, stage: "missing-settings")
+            return
+        }
         XCTAssertEqual(app.buttons.matching(identifier: "sidebar-settings").count, 1,
                        "The semantic Settings Button must remain unique")
         XCTAssertEqual(settings.label, "设置", "The semantic Button must retain its spoken name")
@@ -401,17 +449,63 @@ final class SidebarUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(withKeyboardMenu: Bool = false) -> XCUIApplication {
+    private func launch(withKeyboardMenu: Bool = false, noticeMode: String? = nil, measuresEdgePreference: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        if let noticeMode { app.launchEnvironment["ZEN_SIDEBAR_AX_NOTICE_MODE"] = noticeMode }
+        if measuresEdgePreference { app.launchEnvironment["ZEN_SIDEBAR_EDGE_PREFERENCE_PROBE"] = "1" }
         if withKeyboardMenu { app.launchEnvironment["ZEN_KEYBOARD_MENU_UI_TEST"] = "1" }
         app.launch()
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.scrollViews["conversation-pane-preview-ui-11"].waitForExistence(timeout: 15))
+        if measuresEdgePreference {
+            let primary = app.descendants(matching: .any)["surface-native-interaction-probe"]
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                (primary.value as? String)?.contains(";sidebarCanOpen=true;") == true
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
+            let value = primary.value as? String ?? "missing"
+            XCTAssertTrue(value.contains(";screenEdgePreferences="))
+            let fields = value.components(separatedBy: ";").filter {
+                $0.hasPrefix("screenEdgePreferences=") || $0.hasPrefix("sceneActivation=")
+            }
+            print("SIDEBAR_EDGE_PREFERENCES before \(fields.joined(separator: ";"))")
+            let attachment = XCTAttachment(string: value)
+            attachment.name = "Edge preference before the one native gesture"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
         return app
     }
 
     private func editorIdentity(_ diagnostic: String?) -> String? {
         diagnostic?.split(separator: ";").first { $0.hasPrefix("editorIdentity=") }.map(String.init)
+    }
+
+    @MainActor
+    private func attachNoticeReceipt(_ app: XCUIApplication, mode: String?, expectsCompletion: Bool) {
+        let primary = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        if mode != nil, expectsCompletion {
+            let callback = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                (primary.value as? String)?.contains(";sidebarAXNoticeCallbackCount=1;") == true
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [callback], timeout: 5), .completed,
+                           "The matched completion callback must actually run")
+        }
+        let value = primary.value as? String ?? "missing"
+        let keys = ["sidebarAXNoticeMode=", "sidebarAXNoticeScheduledCount=", "sidebarAXNoticeCallbackCount=",
+                    "sidebarAXNoticePostCount=", "sidebarAXNoticeQueuedID=", "screenEdgePreferences=", "sceneActivation="]
+        let fields = value.components(separatedBy: ";").filter { item in keys.contains { item.hasPrefix($0) } }
+        print("SIDEBAR_NOTICE expectedMode=\(mode ?? "off") opened=\(expectsCompletion) \(fields.joined(separator: ";"))")
+        if expectsCompletion {
+            XCTAssertTrue(value.contains(";sidebarAXNoticeScheduledCount=\(mode == nil ? 0 : 1);"))
+            XCTAssertTrue(value.contains(";sidebarAXNoticeCallbackCount=\(mode == nil ? 0 : 1);"))
+            XCTAssertTrue(value.contains(";sidebarAXNoticePostCount=\(mode == "post" ? 1 : 0);"))
+        }
+        let attachment = XCTAttachment(string: value)
+        attachment.name = "Native Sidebar matched notice receipt"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor

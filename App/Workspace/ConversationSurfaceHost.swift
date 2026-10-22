@@ -174,6 +174,15 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private var sidebarDragging = false
     private var sidebarSettlement: UUID?
     private var sidebarAnimator: UIViewPropertyAnimator?
+#if DEBUG
+    private let sidebarAXNoticeMode = ProcessInfo.processInfo.environment["ZEN_SIDEBAR_AX_NOTICE_MODE"]
+    private var sidebarAXCompletedOpening: UUID?
+    private var sidebarAXNoticeGeneration: UInt64 = 0
+    private var sidebarAXNoticeScheduledCount = 0
+    private var sidebarAXNoticeCallbackCount = 0
+    private var sidebarAXNoticePostCount = 0
+    private var sidebarAXNoticeQueuedID: UUID?
+#endif
     private var squareBottomCorners = false
     private var displayCorners: CACornerMask = []
     // Rounds a resting Split Pane's display corners with the display radius
@@ -226,6 +235,11 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             "contentAXHidden=\(contentController.view.accessibilityElementsHidden)",
             "surfaceAX=\(surfaceView.isAccessibilityElement)", "activate=\(surfaceView.onActivate != nil)",
             "editors=\(mounted.count)", "browse=\(browseInteraction?.diagnostic ?? "none")"]
+        fields.append("sidebarAXNoticeMode=\(sidebarAXNoticeMode ?? "off")")
+        fields.append("sidebarAXNoticeScheduledCount=\(sidebarAXNoticeScheduledCount)")
+        fields.append("sidebarAXNoticeCallbackCount=\(sidebarAXNoticeCallbackCount)")
+        fields.append("sidebarAXNoticePostCount=\(sidebarAXNoticePostCount)")
+        fields.append("sidebarAXNoticeQueuedID=\(String(describing: sidebarAXNoticeQueuedID))")
         fields.append("sidebar=\(liftController?.workspaceNavigation?.nativeDiagnostic ?? "unbound")")
         fields.append("sidebarCanOpen=\(liftController?.sidebarNativeContext?()?.allowsOpening ?? false)")
         fields.append("workspaceOwnsKeyboard=\(workspaceViewportSize != nil)")
@@ -442,6 +456,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func setInputSuppressed(_ suppressed: Bool) {
+#if DEBUG
+        if inputSuppressed != suppressed { invalidateSidebarAXNotice() }
+#endif
         inputSuppressed = suppressed
         liftController?.refreshCardAccessibility()
     }
@@ -482,6 +499,55 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
         if isViewLoaded { updateSurfaceDecoration() }
     }
 
+#if DEBUG
+    private func invalidateSidebarAXNotice() {
+        sidebarAXNoticeGeneration &+= 1
+        sidebarAXCompletedOpening = nil
+    }
+
+    // A nil settlement can also mean suspension; only the actual successful
+    // native completion may arm this experiment, on the active opening owner.
+    private func markSidebarAXSuccessfulOpening(_ id: UUID) {
+        guard sidebarAXNoticeMode == "noop" || sidebarAXNoticeMode == "post",
+              sidebarSettlement == id, sidebarProgress == 1, !sidebarDragging,
+              workspaceVisible, !inputSuppressed, !returnProxyHidden,
+              viewIfLoaded?.window?.windowScene?.activationState == .foregroundActive,
+              let navigation = liftController?.workspaceNavigation,
+              navigation.settlementID == id, navigation.isOpen,
+              !navigation.isDragging, navigation.overlay == nil else { return }
+        sidebarAXCompletedOpening = id
+    }
+
+    private func queueSidebarAXNotice(_ id: UUID) {
+        guard sidebarAXNoticeMode == "noop" || sidebarAXNoticeMode == "post",
+              let window = viewIfLoaded?.window,
+              let navigation = liftController?.workspaceNavigation else { return }
+        let generation = sidebarAXNoticeGeneration
+        sidebarAXNoticeQueuedID = id
+        sidebarAXNoticeScheduledCount += 1
+        // Both arms perform this same hop and cancellation path. A call counter
+        // records invocation only; UIKit supplies no processing acknowledgement.
+        DispatchQueue.main.async { [weak self, weak window, weak navigation] in
+            guard let self, let window, let navigation,
+                  self.sidebarAXNoticeGeneration == generation,
+                  self.sidebarAXNoticeQueuedID == id,
+                  self.viewIfLoaded?.window === window,
+                  window.windowScene?.activationState == .foregroundActive,
+                  self.workspaceVisible, !self.inputSuppressed, !self.returnProxyHidden,
+                  !self.hasPresentedOverlay, self.liftController?.state.phase == .full,
+                  self.liftController?.workspaceNavigation === navigation,
+                  self.sidebarSettlement == nil, self.sidebarProgress == 1, !self.sidebarDragging,
+                  navigation.isOpen, !navigation.isDragging,
+                  navigation.settlementID == nil, navigation.overlay == nil else { return }
+            self.sidebarAXNoticeCallbackCount += 1
+            if self.sidebarAXNoticeMode == "post" {
+                self.sidebarAXNoticePostCount += 1
+                UIAccessibility.post(notification: .layoutChanged, argument: nil)
+            }
+        }
+    }
+#endif
+
     func setSidebar(offset: CGFloat, progress: CGFloat = 0, dragging: Bool = false,
                     settlement: UUID?, completion: ((UUID) -> Void)?) {
         guard offset.isFinite, progress.isFinite else { return }
@@ -490,6 +556,13 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             updateSurfaceDecoration()
             return
         }
+#if DEBUG
+        let completedOpening = sidebarSettlement == sidebarAXCompletedOpening
+            && sidebarAXCompletedOpening != nil && settlement == nil
+            && progress == 1 && !dragging ? sidebarAXCompletedOpening : nil
+        invalidateSidebarAXNotice()
+        defer { if let completedOpening { queueSidebarAXNotice(completedOpening) } }
+#endif
         let displayedTransform = sidebarAnimator == nil ? nil : sidebarTransportView.layer.presentation()?.affineTransform()
         let displayedShadowAlpha = sidebarAnimator == nil ? nil : sidebarShadowView.layer.presentation()?.opacity
         sidebarAnimator?.stopAnimation(true)
@@ -524,6 +597,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
                 await Task.yield()
                 guard self?.sidebarSettlement == settlement else { return }
                 self?.topEdge.setNavigationActive(false)
+#if DEBUG
+                self?.markSidebarAXSuccessfulOpening(settlement)
+#endif
                 completion?(settlement)
             }
             return
@@ -541,12 +617,18 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             self.sidebarAnimator = nil
             self.topEdge.setNavigationActive(false)
             self.updateSurfaceDecoration()
+#if DEBUG
+            self.markSidebarAXSuccessfulOpening(settlement)
+#endif
             completion?(settlement)
         }
         animation.startAnimation()
     }
 
     func cancelSidebar() {
+#if DEBUG
+        invalidateSidebarAXNotice()
+#endif
         sidebarAnimator?.stopAnimation(true)
         sidebarAnimator = nil
         sidebarSettlement = nil
@@ -561,6 +643,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func setReturnProxyHidden(_ hidden: Bool) {
+#if DEBUG
+        if returnProxyHidden != hidden { invalidateSidebarAXNotice() }
+#endif
         returnProxyHidden = hidden
         surfaceView.isHidden = hidden
         updateSurfaceDecoration()
@@ -807,6 +892,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func setWorkspaceVisible(_ visible: Bool) {
+#if DEBUG
+        if workspaceVisible != visible { invalidateSidebarAXNotice() }
+#endif
         loadViewIfNeeded()
         topEdge.setWorkspaceVisible(visible)
         let contentView = contentController.view!
@@ -867,6 +955,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     }
 
     func resetLiftPresentation() {
+#if DEBUG
+        invalidateSidebarAXNotice()
+#endif
         cancelLiftAnimation()
         // A transient zero viewport cannot resolve pixels, but the next layout
         // must still use Full instead of resurrecting the interrupted request.

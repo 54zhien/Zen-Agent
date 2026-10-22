@@ -1,6 +1,6 @@
 # Proposed Sidebar native-host visibility diagnostic
 
-**Status: all prior controls removed; completed-node omission and fixture-layer comparison next.**
+**Status: all prior controls removed; notification and edge-preference diagnostics next.**
 
 The owner froze UI and requires a stop before UI-affecting changes. Existing
 permission covers test adaptations, narrow nonvisual interaction diagnosis, and
@@ -113,3 +113,15 @@ Two remaining boundaries can be tested in independent launches in one native bui
 Six cases: original baseline; Color.clear negative; metadata-free native visible positive; native AX-hidden; fixture without overlay layers with original route checks; separate cold launch of the latter exercising real Settings.tap() and destination receipt. No coordinate fallback in the semantic case. Preserve one edge gesture and all original hit/frame/coordinate assertions. Require expected loaded pane before gestures and record primary receipt. If Settings is absent, retain existence and entry failures then return before invalid label reads; do not invent a hit/route result. Baseline must reproduce original AX RED and visible native positive must reproduce GREEN for comparison validity.
 
 Remove all temporary source/test/profile edits after evidence, cleanup basedef2740; added native file is deleted. No full gate/merge while controls exist. A recovered diagnostic branch is not a production repair, and no UI-related permanent hosting change is authorized by this plan.
+
+Native39736662881 built6cases/9failures: baseline again never opened; plain-fixture omission effective but AX still RED and cold semantic tap not executed; native hidden omission ineffective (unnamedslot1 remains); visible native passes; clear throws invalid activation point before coordinate route. All temporary source restored and pushed at128cc71, frozen product matches. Full evidence is in the task record.
+
+## Notification and native edge-preference discriminator
+
+Do not add any view or AX node. Five independent launches use restored fixture/root: unflagged baseline; matched no-post async path; no-post plus read-only root/child edge-preference measurement; one-post route; separate cold one-post semantic tap. Expected pane and existing one-edge/hit/frame/coordinate checks remain. No gesture timing or retry changes.
+
+The native controller owns a DEBUG successful-opening UUID marker, generation token, schedule/callback/post counters. Only native animator completion at .end (or successful Reduce Motion completion) with current navigation settlement UUID and open state may mark success. The later matching native UUID-to-nil update consumes it. Both no-post and post modes enqueue the same weak callback and run identical guards; only the final UIAccessibility.post differs. Invalidate on changed Sidebar state, cancellation, real visibility/input-suppression/return-proxy changes. Callback requires same window, foregroundActive scene, visible/full controller, no overlay or input suppression, open/not-dragging/settled navigation and unchanged token. One post maximum per consumed completion; no retries. Counters prove calls only, not assistive-app processing.
+
+Measurement reads only existing window.rootViewController and the bounded public childForScreenEdgesDeferringSystemGestures chain, without loading views or calling update methods. Its separate no-post control must retain the AX failure to exclude reader-induced recovery. Preference values are requested configuration, not system arbitration acknowledgement. Apple documents layoutChanged as a layout notification, not a cache invalidation guarantee; GREEN only establishes notification-sensitive behavior. See [notification](https://developer.apple.com/documentation/uikit/uiaccessibility/notification/layoutchanged), [post](https://developer.apple.com/documentation/uikit/uiaccessibility/post(notification:argument:)), and [edge preference](https://developer.apple.com/documentation/uikit/uiviewcontroller/preferredscreenedgesdeferringsystemgestures).
+
+Restore ConversationSurfaceHost.swift, WorkspaceSidebarInteraction.swift, SidebarUITests.swift and workflow to128cc71 after evidence. Root app and preview fixture remain frozen throughout. No permanent UI or hosting change is proposed.
