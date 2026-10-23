@@ -38,6 +38,12 @@ final class ToolRuntime: @unchecked Sendable {
         self.systemConsent = ToolSystemConsentRuntime(store: store, registry: registry, safetyCap: safetyCap)
     }
 
+    func validateSkillDependencies(_ snapshot: RunExecutionSnapshot) throws {
+        guard !snapshot.prompt.skillReferences.isEmpty else { return }
+        guard let credentials else { throw SkillError.erasedDependency }
+        _ = try SkillRuntime(store: store, credentials: credentials, registry: registry).resolveFrozen(snapshot.prompt.skillReferences)
+    }
+
     /// Completes one provider tool call through validation, frozen intent persistence,
     /// approval (when required), dispatch and durable settlement.
     ///

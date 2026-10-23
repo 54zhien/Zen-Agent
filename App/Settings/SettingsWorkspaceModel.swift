@@ -15,6 +15,8 @@ final class SettingsWorkspaceModel {
     let menus: ModelMenuPreferences
     let soul: SoulSettingsModel
     let memory: MemorySettingsModel
+    let skills: SkillSettingsModel
+    let environment: EnvironmentSettingsModel
     let tools: ToolSettingsModel
     let storage: SettingsStorageModel?
     private(set) var catalog: [SettingsProviderCatalog] = []
@@ -43,6 +45,7 @@ final class SettingsWorkspaceModel {
          files: ManagedFileStore?,
          toolRegistry: ToolRegistry = .empty,
          toolSafetyCap: ToolPolicySafetyCap = .unrestricted,
+         onStopExtensionRuns: EnvironmentRuntime.StopRuns? = nil,
          onConfigure: (@MainActor (AppExecutionTarget) throws -> Bool)? = nil,
          onProviderCommitted: @escaping @MainActor (ProviderInstanceID) async -> Void = { _ in },
          onDefault: @escaping (AppExecutionTarget, Bool) -> Void) {
@@ -52,6 +55,10 @@ final class SettingsWorkspaceModel {
         self.onConfigure = onConfigure
         soul = SoulSettingsModel(store: store)
         memory = MemorySettingsModel(runtime: MemoryRuntime(store: store, credentials: credentials))
+        let skillsRuntime = SkillRuntime(store: store, credentials: credentials, registry: toolRegistry, stopRuns: onStopExtensionRuns)
+        skills = SkillSettingsModel(runtime: skillsRuntime)
+        environment = EnvironmentSettingsModel(runtime: EnvironmentRuntime(store: store, credentials: credentials,
+            stopRuns: onStopExtensionRuns), skills: skillsRuntime)
         tools = ToolSettingsModel(store: store, registry: toolRegistry, safetyCap: toolSafetyCap)
         storage = files.map { SettingsStorageModel(store: store, files: $0) }
         if let instance = defaults.string(forKey: AppShellModel.defaultInstanceIDKey),
@@ -170,6 +177,6 @@ final class SettingsWorkspaceModel {
     func invalidate() {
         active = false; selection &+= 1; isSelectingDefault = false
         configurationSelection &+= 1; isConfiguringConversation = false
-        soul.invalidate(); memory.invalidate(); tools.invalidate(); storage?.invalidate()
+        soul.invalidate(); memory.invalidate(); skills.invalidate(); environment.invalidate(); tools.invalidate(); storage?.invalidate()
     }
 }

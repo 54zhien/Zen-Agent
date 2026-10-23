@@ -4,7 +4,8 @@ import CryptoKit
 enum EnvironmentBindingIdentity {
     static func fingerprint(skillID: String, keys: [String], references: [EnvironmentRevisionReference]) -> String {
         var data = Data()
-        let values = ["environment-binding-v1", skillID] + keys.sorted() + references.sorted {
+        let values = ["environment-binding-v1", skillID, "keys", String(keys.count)] + keys.sorted()
+            + ["references", String(references.count)] + references.sorted {
             ($0.variableID, $0.revisionID) < ($1.variableID, $1.revisionID)
         }.flatMap { [$0.variableID, $0.revisionID] }
         for value in values {

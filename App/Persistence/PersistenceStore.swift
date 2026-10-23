@@ -158,6 +158,7 @@ struct SendCommit: Sendable {
     var attachments: [MessageAttachmentRecord] = []
     var quoteReferences: [MessageQuoteReferenceRecord] = []
     var run: AgentRunRecord
+    var skillReferences: [SkillActivationReference] = []
 }
 
 /// The data layer's public surface.
@@ -302,6 +303,7 @@ struct PersistenceStore: Sendable {
                 }
 
                 try run.insert(db)
+                try Self.commitSkillSelection(commit.skillReferences, runID: run.id, db: db)
                 return nil
             }
         } catch let error as DatabaseError where error.resultCode == .SQLITE_CONSTRAINT {

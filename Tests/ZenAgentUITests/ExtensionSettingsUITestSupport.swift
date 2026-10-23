@@ -2,6 +2,11 @@ import XCTest
 
 extension XCTestCase {
     @MainActor
+    func waitForExtension(_ condition: @escaping () -> Bool) -> Bool {
+        XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)], timeout: 5) == .completed
+    }
+
+    @MainActor
     func openExtensionSettings(_ app: XCUIApplication, id: String, title: String) -> Bool {
         app.openWorkspaceSidebar()
         let settings = app.buttons["sidebar-settings"]
@@ -18,7 +23,7 @@ extension XCTestCase {
     }
 
     @MainActor
-    func tapExtensionLabel(_ label: XCUIElement, in app: XCUIApplication) -> Bool {
+    func tapExtensionLabel(_ label: XCUIElement, in app: XCUIApplication, tap: Bool = true) -> Bool {
         for _ in 0..<24 {
             let form = app.collectionViews.firstMatch
             guard form.exists else { break }
@@ -37,7 +42,7 @@ extension XCTestCase {
             guard !viewport.isEmpty, !viewport.isNull else { break }
             let target = label.exists ? label.frame : .null
             if !target.isNull, !target.isEmpty, viewport.contains(target), label.isHittable {
-                label.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                if tap { label.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
                 return true
             }
             let down = !target.isNull && target.minY < viewport.minY

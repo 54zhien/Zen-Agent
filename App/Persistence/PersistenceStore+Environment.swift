@@ -4,9 +4,13 @@ import GRDB
 extension PersistenceStore {
     func environmentVariables() throws -> [EnvironmentItem] {
         try database.read { db in
-            try EnvironmentVariableRecord.fetchAll(db, sql: "SELECT * FROM environmentVariable ORDER BY scope,key,id")
-                .map { try Self.environmentItem($0, db: db) }
+            try Self.environmentItems(db: db)
         }
+    }
+
+    static func environmentItems(db: Database) throws -> [EnvironmentItem] {
+        try EnvironmentVariableRecord.fetchAll(db, sql: "SELECT * FROM environmentVariable ORDER BY scope,key,id")
+            .map { try Self.environmentItem($0, db: db) }
     }
 
     func environmentScopeExists(_ scope: EnvironmentScope) throws -> Bool {

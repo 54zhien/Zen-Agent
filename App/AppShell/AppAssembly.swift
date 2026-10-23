@@ -354,6 +354,10 @@ actor ConversationStartContext {
             }
             return runID
         } catch {
+            // An existing submission with another payload is a rejected Send,
+            // never evidence that this draft was committed.
+            if case ConversationRuntimeError.submissionIDPayloadConflict = error { throw error }
+            if case PersistenceError.submissionIDPayloadConflict = error { throw error }
             do {
                 if try store.conversation(id: conversationID) != nil {
                     isPersisted = true

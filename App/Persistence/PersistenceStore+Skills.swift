@@ -2,6 +2,21 @@ import Foundation
 import GRDB
 
 extension PersistenceStore {
+    func validateExtensionDependencies(runID: String, snapshot: RunExecutionSnapshot) throws {
+        try database.read { try Self.validateExtensionDependencies(runID: runID, snapshot: snapshot, db: $0) }
+    }
+
+    static func validateExtensionDependencies(runID: String, snapshot: RunExecutionSnapshot, db: Database) throws {
+        let json = try db.tableExists("runSkillSelection")
+            ? String.fetchOne(db, sql: "SELECT selectionJSON FROM runSkillSelection WHERE runID = ?", arguments: [runID]) : nil
+        let committed = try json.map { try JSONDecoder().decode([SkillActivationReference].self, from: Data($0.utf8)) } ?? []
+        guard committed == snapshot.prompt.skillReferences else { throw SkillError.erasedDependency }
+        let items = try Self.resolveSkillItems(committed, db: db)
+        guard items.allSatisfy({ item in item.definition.requiredTools.allSatisfy { required in
+            snapshot.exposedTools.contains { $0.toolID == required }
+        } }) else { throw SkillError.erasedDependency }
+    }
+
     func seedSkillCatalog() throws {
         try database.write { db in
             for item in SkillCatalog.items {
@@ -69,6 +84,11 @@ extension PersistenceStore {
                   !requireCurrent || record.currentRevisionID == reference.revisionID else { throw SkillError.erasedDependency }
             let item = try Self.skillItem(record, revisionID: reference.revisionID, db: db)
             let variables = try Self.resolveEnvironmentReferences(reference.environmentReferences, db: db)
+            if requireCurrent {
+                let selected = try EnvironmentResolution.select(skillID: item.id, declaredKeys: item.definition.environmentKeys,
+                    available: Self.environmentItems(db: db))
+                guard Set(selected.map(\.reference)) == Set(reference.environmentReferences) else { throw SkillError.editConflict }
+            }
             guard variables.allSatisfy({ $0.scope == .global || $0.scope == .skill(item.id) }),
                   Set(variables.map(\.key)) == Set(item.definition.environmentKeys),
                   Set(variables.map(\.key)).count == variables.count,

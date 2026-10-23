@@ -66,6 +66,7 @@ extension PersistenceStore {
             if let encoded = run.executionSnapshot {
                 let snapshot = try ExecutionSnapshotCodec.decode(encoded)
                 _ = try resolveMemoryReferences(snapshot.prompt.memoryReferences, db: db)
+                try validateExtensionDependencies(runID: run.id, snapshot: snapshot, db: db)
             }
         } catch {
             // Final authority and exact Memory versions share the dispatch write.
