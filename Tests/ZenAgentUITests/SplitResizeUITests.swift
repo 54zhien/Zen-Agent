@@ -157,8 +157,14 @@ final class SplitResizeUITests: XCTestCase {
             print("CLOSE_EDITOR_INPUT_READY keyboard=\(keyboardVisible);focused=\(focused);settled=\(String(describing: settled));receipt=\(receipt)")
             return keyboardVisible && focused && settled == true
         }
+        XCTAssertTrue(editor.isHittable, "The retained editor must remain reachable above the keyboard")
+        XCTAssertLessThanOrEqual(editor.frame.maxY, app.keyboards.firstMatch.frame.minY,
+                                 "The retained editor must follow the current window keyboard guide")
         editor.typeText("survivor after explicit close")
         XCTAssertTrue((editor.value as? String)?.contains("survivor after explicit close") == true)
+        let capture = XCTAttachment(screenshot: app.screenshot())
+        capture.lifetime = .keepAlways
+        add(capture)
     }
 
     @MainActor

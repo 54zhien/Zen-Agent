@@ -52,6 +52,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var bottomConstraint: NSLayoutConstraint!
     private var renderedBottomSpacing: CGFloat = 12
     private weak var keyboardAnchorView: UIView?
+    private var keyboardAnchorObserver: ComposerKeyboardAnchorObserver?
     private var configuration: Configuration?
     private var currentState: ComposerPresentationState = .resting
     private var keyboardTiming: (duration: TimeInterval, options: UIView.AnimationOptions)?
@@ -321,9 +322,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         super.didMoveToSuperview()
         bindKeyboardAnchor()
         // Equal-sized portals can have different Window origins.
-        lastActiveKeyboardFrame = .null
-        lastLocalKeyboardFrame = .null
-        setNeedsLayout()
+        invalidateKeyboardGeometry()
         updateBottomFadeLayer()
 #if DEBUG
         liftInteraction?.recordHostLifecycle("superview=\(String(describing: superview.map { type(of: $0) }))")
@@ -335,7 +334,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let nextWindow = superview?.window
         let root = nextWindow?.rootViewController?.view
         let nextAnchor = root?.window === nextWindow ? root : nil
-        guard keyboardAnchorView !== nextAnchor || !bottomConstraint.isActive else { return }
+        let observationMatches = (nextAnchor == nil) == (keyboardAnchorObserver == nil)
+        guard keyboardAnchorView !== nextAnchor || !bottomConstraint.isActive || !observationMatches else { return }
+        keyboardAnchorObserver?.invalidate()
+        keyboardAnchorObserver = nil
         keyboardAnchorView = nextAnchor
         // The focused editor can move from the shared dock through a shortened
         // Split portal without a keyboard-frame notification. Read its stable
@@ -344,7 +346,20 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let guide = nextAnchor?.keyboardLayoutGuide ?? keyboardLayoutGuide
         guide.usesBottomSafeArea = true
         guide.followsUndockedKeyboard = false
+        if let anchor = nextAnchor {
+            keyboardAnchorObserver = ComposerKeyboardAnchorObserver(guide: guide) { [weak self, weak anchor] in
+                guard let self, let anchor, let window = self.window,
+                      self.keyboardAnchorView === anchor, anchor.window === window else { return }
+                // A retained portal's local guide can stop moving after transfer.
+                // Invalidate from the root guide without reentering its layout pass.
+                self.invalidateKeyboardGeometry()
+            }
+        }
         bottomConstraint.isActive = true
+        invalidateKeyboardGeometry()
+    }
+
+    private func invalidateKeyboardGeometry() {
         lastActiveKeyboardFrame = .null
         lastLocalKeyboardFrame = .null
         setNeedsLayout()
