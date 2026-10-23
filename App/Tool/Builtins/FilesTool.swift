@@ -4,7 +4,9 @@ import Foundation
 struct FilesTool: ToolOutcomeConfirming {
     let files: ManagedFileStore
     let store: PersistenceStore
-    let sessions: ConversationSessionStore?
+    // The shell owns Sessions. Their Composer bridges retain Runtime, so a
+    // strong reference here would keep the entire presentation graph alive.
+    weak var sessions: ConversationSessionStore?
     init(files: ManagedFileStore, store: PersistenceStore, sessions: ConversationSessionStore? = nil) {
         self.files = files; self.store = store; self.sessions = sessions
     }

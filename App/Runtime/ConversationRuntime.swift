@@ -316,7 +316,7 @@ actor ConversationRuntime {
                     soulVersionID: effectiveSoulVersion?.id
                 ),
                 modelCapabilities: descriptor.capabilities,
-                exposedTools: toolRegistry.descriptors.map {
+                exposedTools: descriptor.capabilities.contains(.tools) ? toolRegistry.descriptors.map {
                     ToolExposureSnapshot(
                         toolID: $0.id,
                         descriptorRevision: $0.revision,
@@ -324,7 +324,7 @@ actor ConversationRuntime {
                         description: $0.description,
                         inputSchema: $0.inputSchema
                     )
-                },
+                } : [],
                 maxProviderSteps: command.maxProviderSteps
             )
             try store.completeExecutionSnapshot(
@@ -362,9 +362,9 @@ actor ConversationRuntime {
             currentUserMessage: command.text,
             currentUserQuotedSnapshots: committedQuoteSnapshots,
             soulInstructions: effectiveSoulVersion?.instructions,
-            tools: toolRegistry.descriptors.map {
+            tools: snapshot.exposedTools.map {
                 ProviderToolDefinition(
-                    name: $0.id,
+                    name: $0.toolID,
                     description: $0.description,
                     parameters: $0.inputSchema
                 )
