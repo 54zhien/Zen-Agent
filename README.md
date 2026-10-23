@@ -54,18 +54,25 @@ passed. The intermittent Sidebar issue remains tracked in
 [issue #40](https://github.com/54zhien/Zen-Agent/issues/40); a passing run does
 not prove it fixed.
 
-The owner authorized completing all Stage 6 and its necessary tool Settings,
-scoped approval and explicit system-consent additions. This branch implements
-S6-04b–07: separate system consent, exact conversation grants, managed Files
-read/create/modify/delete, bounded sanitized results and callable tool Settings.
-The complete backend passed native generation/build and 1214 Swift tests plus
-20 XCTest at f8516bb; UI/exposure and final aggregate validation remain in progress;
-see the [Stage 6 gate matrix](tasks/stage6-completion.md) and
+Stage 6 S6-04b-07 is implemented in [PR #41](https://github.com/54zhien/Zen-Agent/pull/41):
+separate system consent, exact conversation grants, managed Files read/create/modify/delete,
+bounded sanitized results and callable-tool Settings. The normal complete
+[Phone/iPad gate](https://github.com/54zhien/Zen-Agent/actions/runs/39913184297)
+passed at `c4b5e987821b73945143ae72fcea477c0682160a`: 1,224 Swift tests in
+187 suites, 20 XCTest unit tests, 85 Phone UI passes plus one Pad-only platform
+skip, and the native Pad test passed separately in the same run. All six Stage 6
+UI cases passed. The single fresh review's two important findings have actual
+RED-to-GREEN evidence; there are no deferred review minors.
+
+The implementation/native gate is complete. Physical-device acceptance remains
+separate and open; the injectable system-permission driver is not device evidence.
+See the [Stage 6 closure and boundaries](tasks/stage6-completion.md) and
 [implementation plan](Docs/superpowers/plans/2026-10-23-stage6-completion.md).
-Stage 6 aggregate and physical-device acceptance remain open. The accepted UI
-checkout and draft [PR #37](https://github.com/54zhien/Zen-Agent/pull/37) remain
-separately parked. Earlier stability evidence remains in
-[the repair record](tasks/known-issues-stability.md).
+The final receipt changes only those two documents and this README; application,
+tests and build inputs remain identical to the tested source. Merge identity/tree
+and post-merge CI are recorded on PR #41. The accepted UI checkout and draft
+[PR #37](https://github.com/54zhien/Zen-Agent/pull/37) remain separately parked.
+Earlier stability evidence remains in [the repair record](tasks/known-issues-stability.md).
 
 The following is the historical 2026-10-05 slice snapshot. Its individual PR
 states describe that date; use the current integration receipt above for main.
