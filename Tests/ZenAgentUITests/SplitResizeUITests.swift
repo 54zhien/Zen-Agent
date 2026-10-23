@@ -151,8 +151,11 @@ final class SplitResizeUITests: XCTestCase {
         // Inject input only after the current native editor and anchor are ready.
         expect {
             let receipt = probe.value as? String ?? ""
-            return app.keyboards.firstMatch.exists && receipt.contains(";focused=true;")
-                && self.composerSettled(in: receipt, field: "sidebarEligibility") == true
+            let keyboardVisible = app.keyboards.firstMatch.exists
+            let focused = receipt.contains(";focused=true;")
+            let settled = self.composerSettled(in: receipt, field: "sidebarEligibility")
+            print("CLOSE_EDITOR_INPUT_READY keyboard=\(keyboardVisible);focused=\(focused);settled=\(String(describing: settled));receipt=\(receipt)")
+            return keyboardVisible && focused && settled == true
         }
         editor.typeText("survivor after explicit close")
         XCTAssertTrue((editor.value as? String)?.contains("survivor after explicit close") == true)
