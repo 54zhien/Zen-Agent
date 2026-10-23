@@ -230,9 +230,10 @@ struct ToolSystemPermissionTests {
             try store.commitUserTurnAndCreateParentRun(Fixtures.send(conversationID: "c", messageID: "m", runID: "r", runState: .executingTools))
             var call = Fixtures.toolCall(id: "old", runID: "r", action: "tool", state: .rejected, intent: "immutable")
             call.failureReason = .policyDenied
+            let legacyCall = call
             // Seed the actual old schema; today's result type includes v17 columns.
             try store.database.write { db in
-                try call.insert(db)
+                try legacyCall.insert(db)
                 try db.execute(sql: "INSERT INTO toolResult(toolCallID, payload, createdAt) VALUES (?, ?, ?)",
                     arguments: ["old", "safe", Fixtures.epoch])
             }
