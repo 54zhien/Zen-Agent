@@ -24,7 +24,15 @@ struct EnvironmentSecretHandoffTests {
             return variable
         }
         await savingStarted.wait()
-        for _ in 0..<100 { await Task.yield() }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        var writerQueued = false
+        while ContinuousClock.now < deadline {
+            writerQueued = await fixture.store.memoryAccessGate.hasQueuedWriterForTesting
+            let savingFinished = await saved.opened
+            if writerQueued || savingFinished { break }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        #expect(writerQueued, "The real Secret save must reach the held handoff gate")
         let savedDuringHandoff = await saved.opened
         #expect(!savedDuringHandoff)
         #expect(try environment.list().isEmpty)

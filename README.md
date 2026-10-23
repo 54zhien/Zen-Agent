@@ -30,6 +30,7 @@ Device feedback corrections @ 3b4b22c0df91be668406127c84c1822b359883c0
 Device glass and motion owner ruling @ 51b4dc33beec515c7d684d352060fbdeded1825e
 Stage 6 intent snapshot @ fffca086f4451a7bd0988959058ddcfe5eb6c13d
 Stage 7 Memory owner decisions @ b0662058d3e87bb200b677bc86cfad050b4315cb
+Stage 8 Skills/Environment owner decisions @ e17d65eb1a1e037cb9e4d80ec4208dcbea582fb1
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -104,6 +105,15 @@ The final receipt changes only this README, the Stage 7 evidence record and its
 implementation plan; application, tests and build inputs match the tested source.
 PR #42 and Blueprint decision PR #7 remain draft and unmerged. Physical-device
 protection/layout and long-term extraction-quality acceptance remain open.
+
+Stage 8 Skills and scoped Environment is in implementation/native verification
+on `codex/stage8-skills-environment-20261024`, stacked on Stage 7 receipt
+`f335204b387e9a5ca10fa2091dbb24e4e3368296`. The owner approved native Settings
+Forms, next-successful-Send manual selection and Global-to-active-Skill overrides.
+These decisions are recorded in draft/open/unmerged
+[Blueprint PR #8](https://github.com/54zhien/Zen-Agent-Blueprint/pull/8).
+See the [Stage 8 evidence and boundaries](tasks/stage8-skills-environment.md).
+No Stage 8 full gate, merge, package or physical-device acceptance is claimed yet.
 
 The following is the historical 2026-10-05 slice snapshot. Its individual PR
 states describe that date; use the current integration receipt above for main.

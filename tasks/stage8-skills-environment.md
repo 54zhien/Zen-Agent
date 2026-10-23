@@ -104,6 +104,26 @@ The native plugin UI case covers opening/selection; durable actual Send and
 continuation behavior are exercised by the native runtime/coordinator tests.
 Do not represent the UI selection case alone as a UI-to-network Send test.
 
+The review's Minor handoff-test readiness issue is corrected: a DEBUG-only read
+of the real gate's waiting writers replaces the fixed 100 scheduler yields. The
+test must observe the actual queued writer, then still verifies no early save,
+an empty variable list and the real Provider request after release. It cannot
+pass solely because the saving task was delayed. The same reviewer checked this
+bounded correction; Release gate scheduling is unchanged. Native coverage of the
+stronger test remains part of the final gate.
+
+The `alreadyExists`/failed-reservation-clear foreign-reference scenario is
+explicitly declined: production creates the fresh opaque Environment UUID inside
+the shared lock, checks metadata absence before reservation, and exposes no
+caller-selected reference. Provider allocators use API-key references. Future
+import or externally specified Environment references require a new durable
+ownership design rather than inheriting this allocation proof.
+
+The complete failed native archives are retained locally with GitHub-matching
+SHA256 digests: `39996935302` (`1a3c8e56…`), `40001312420` (`d43c7e7e…`),
+`40002938531` (`cc002c6f…`) and `40003222328` (`8f65f77b…`). Full digests,
+byte counts and original artifact IDs are in the retained evidence ledger.
+
 - Stage 8 ships real Keychain storage, versioned bindings and a trusted resolver.
   Existing tools have no authenticated Secret input; MCP belongs to Stage 9.
   Cost: saved Secrets have no authenticated production action yet, disclosed in

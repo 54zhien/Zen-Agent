@@ -14,6 +14,12 @@ actor MemoryAccessGate {
     private var writing = false
     private var waiting: [Waiter] = []
 
+#if DEBUG
+    // Observation only: ordering regressions must prove that the real writer
+    // reached this queue, instead of inferring readiness from scheduler yields.
+    var hasQueuedWriterForTesting: Bool { waiting.contains { $0.exclusive } }
+#endif
+
     func withRead<T: Sendable>(_ body: @Sendable () async throws -> T) async rethrows -> T {
         await acquire(exclusive: false)
         defer { readers -= 1; drain() }
