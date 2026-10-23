@@ -146,7 +146,7 @@ final class EnvironmentSettingsModel {
         do {
             let runtime = runtime
             let saved = try await Task.detached {
-                try runtime.saveSecret(id: id, expectedRevisionID: expectedRevisionID, scope: scope,
+                try await runtime.saveSecret(id: id, expectedRevisionID: expectedRevisionID, scope: scope,
                                        key: key, value: value)
             }.value
             guard active else { return nil }
@@ -250,7 +250,7 @@ final class EnvironmentSettingsModel {
         case .cycle: return "变量引用形成循环，无法保存。"
         case .secretInterpolation: return "密钥不能插入技能指令或普通输出。"
         case .resourceInUse: return "依赖运行尚未停止，删除请求已保留为待处理状态。"
-        case .cleanupPending: return "变量已处理，但密钥清理仍待重试。"
+        case .cleanupPending: return "密钥清理仍待重试；请刷新后查看变量状态。"
         case nil:
             switch operation {
             case .save: return "变量未保存，编辑内容仍保留，请重试。"

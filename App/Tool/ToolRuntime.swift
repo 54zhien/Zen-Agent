@@ -402,35 +402,37 @@ final class ToolRuntime: @unchecked Sendable {
             throw error
         }
 
-        var executionResult: ToolExecutionResult
-        do { executionResult = ToolResultGuard.sanitize(rawResult, knownSecrets: try knownSecrets(runID: call.agentRunID)) }
-        catch { executionResult = .failure(.redactionUnavailable) }
-        if rawResult.failure == nil, let publicationFailure = executionResult.failure {
-            if let confirming = executor as? any ToolOutcomeConfirming,
-               let observed = try? confirming.confirmedResult(intent, idempotencyKey: call.id),
-               observed.failure == nil {
-                // Publication failure cannot undo a committed effect. The original
-                // immutable receipt proves completion without disclosing its result.
-                executionResult = Self.completedResultWithheld
-            } else if executor.descriptor.sideEffect == .externalWrite {
-                // A failed publication is not proof that the external effect failed.
-                // Leave the original checkpoint uncertain and never invite a retry.
-                try store.markToolCallIndeterminate(id: call.id, at: now)
-                throw publicationFailure
+        return try store.memoryAccessGate.environmentCredentialLock.withLock {
+            var executionResult: ToolExecutionResult
+            do { executionResult = ToolResultGuard.sanitize(rawResult, knownSecrets: try knownSecrets(runID: call.agentRunID)) }
+            catch { executionResult = .failure(.redactionUnavailable) }
+            if rawResult.failure == nil, let publicationFailure = executionResult.failure {
+                if let confirming = executor as? any ToolOutcomeConfirming,
+                   let observed = try? confirming.confirmedResult(intent, idempotencyKey: call.id),
+                   observed.failure == nil {
+                    // Publication failure cannot undo a committed effect. The original
+                    // immutable receipt proves completion without disclosing its result.
+                    executionResult = Self.completedResultWithheld
+                } else if executor.descriptor.sideEffect == .externalWrite {
+                    // A failed publication is not proof that the external effect failed.
+                    // Leave the original checkpoint uncertain and never invite a retry.
+                    try store.markToolCallIndeterminate(id: call.id, at: now)
+                    throw publicationFailure
+                }
             }
+            try store.finishDispatchedToolCall(
+                id: call.id,
+                expectedAttempt: call.attempt,
+                state: executionResult.failure == nil ? .succeeded : .failed,
+                result: ToolResultRecord(
+                    toolCallID: call.id,
+                    payload: executionResult.content,
+                    createdAt: now, kind: executionResult.kind, failureCode: executionResult.failure
+                ),
+                at: now
+            )
+            return executionResult
         }
-        try store.finishDispatchedToolCall(
-            id: call.id,
-            expectedAttempt: call.attempt,
-            state: executionResult.failure == nil ? .succeeded : .failed,
-            result: ToolResultRecord(
-                toolCallID: call.id,
-                payload: executionResult.content,
-                createdAt: now, kind: executionResult.kind, failureCode: executionResult.failure
-            ),
-            at: now
-        )
-        return executionResult
     }
 
     /// Receipt confirmation is a query of an already completed effect, without
@@ -443,12 +445,35 @@ final class ToolRuntime: @unchecked Sendable {
               let executor = registry.executor(id: intent.toolID) as? any ToolOutcomeConfirming,
               let observed = try executor.confirmedResult(intent, idempotencyKey: call.id) else { return false }
         guard observed.failure == nil else { return false }
-        var result: ToolExecutionResult
-        do { result = ToolResultGuard.sanitize(observed, knownSecrets: try knownSecrets(runID: call.agentRunID)) }
-        catch { result = .failure(.redactionUnavailable) }
-        if result.failure != nil { result = Self.completedResultWithheld }
-        return try store.confirmToolFileOutcome(callID: call.id, attempt: call.attempt,
-            intentBinding: ToolIntentBinding.make(json), result: result)
+        return try store.memoryAccessGate.environmentCredentialLock.withLock {
+            var result: ToolExecutionResult
+            do { result = ToolResultGuard.sanitize(observed, knownSecrets: try knownSecrets(runID: call.agentRunID)) }
+            catch { result = .failure(.redactionUnavailable) }
+            if result.failure != nil { result = Self.completedResultWithheld }
+            return try store.confirmToolFileOutcome(callID: call.id, attempt: call.attempt,
+                intentBinding: ToolIntentBinding.make(json), result: result)
+        }
+    }
+
+    /// A historical result may predate a value becoming Secret. Revalidate only
+    /// the outgoing Tool-role copy under the provider handoff lease; retain the
+    /// original durable result and never replay its executor.
+    func requestRedactingToolResults(_ request: ProviderChatRequest, runID: String) throws -> ProviderChatRequest {
+        guard request.messages.contains(where: { if case .toolResult = $0 { return true }; return false }) else { return request }
+        let secrets: [SecretValue]
+        do { secrets = try knownSecrets(runID: runID) }
+        catch { throw ToolResultFailure.redactionUnavailable }
+        var outgoing = request
+        outgoing.messages = request.messages.map { message in
+            guard case .toolResult(let id, let content) = message else { return message }
+            // A changed managed-file identity must become a fixed failure, not
+            // a redacted reference that appears to address a different file.
+            let object = try? ToolArgumentJSON.object(from: content)
+            let kind: ToolResultKind = object?["kind"] as? String == "managedFile" ? .reference : .text
+            let result = ToolResultGuard.sanitize(ToolExecutionResult(content: content, kind: kind), knownSecrets: secrets)
+            return .toolResult(toolCallID: id, content: result.content)
+        }
+        return outgoing
     }
 
     // This is a trusted fixed completion notice, with no executor data or

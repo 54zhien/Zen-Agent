@@ -88,6 +88,18 @@ struct DeepSeekProviderTests {
             )
         }
 
+        func retireOwnedEnvironmentSecret(
+            reference: CredentialReference,
+            generation: Int,
+            at now: Date
+        ) throws {
+            try base.retireOwnedEnvironmentSecret(
+                reference: reference,
+                generation: generation,
+                at: now
+            )
+        }
+
         func resolve(
             _ reference: CredentialReference
         ) throws -> SecretValue? {

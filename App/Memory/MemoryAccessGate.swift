@@ -1,8 +1,9 @@
 import Foundation
 
 actor MemoryAccessGate {
-    // Provision/attach and orphan cleanup are synchronous compound operations.
-    // Share their lock across connections so cleanup cannot retire a live save.
+    // Keep known-secret validation through content/result commit atomic with
+    // Environment secret publication and owned cleanup across DB connections.
+    // Take a handoff lease before this synchronous lock; never await with it held.
     nonisolated let environmentCredentialLock = NSRecursiveLock()
     static func forDatabase(_ path: String?) -> MemoryAccessGate { MemoryGateRegistry.shared.gate(for: path) }
     private struct Waiter {

@@ -5,7 +5,9 @@ import Foundation
 enum SecretContentGuard {
     static func knownSecrets(store: PersistenceStore, credentials: (any CredentialStoring)?) throws -> [SecretValue] {
         let references = Set(try store.providerInstances().compactMap(\.credentialReference)
-            + store.environmentCredentialBindings().map { $0.reference })
+            + store.environmentCredentialBindings().map { $0.reference }
+            + store.pendingEnvironmentCredentialRetirements().map { $0.reference }
+            + store.retainedCredentialReferencesForContentValidation())
         guard let credentials else {
             guard references.isEmpty else { throw EnvironmentError.validationUnavailable }
             return []

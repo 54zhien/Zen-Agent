@@ -45,7 +45,7 @@ struct SkillEnvironmentTests {
     func secretBoundary() async throws {
         let (environment, skills) = try fixture()
         let item = try skills.saveUser(definition: .init(name: "Secret", summary: "", instructions: "Use service"))
-        let secret = try environment.saveSecret(key: "AUTH", value: SecretValue("fixture-scoped-secret"))
+        let secret = try await environment.saveSecret(key: "AUTH", value: SecretValue("fixture-scoped-secret"))
         let binding = try environment.bind(skillID: item.id, declaredKeys: ["AUTH"])
         #expect(!String(decoding: try JSONEncoder().encode(binding), as: UTF8.self).contains("fixture-scoped-secret"))
         #expect(throws: EnvironmentError.secretInterpolation) {

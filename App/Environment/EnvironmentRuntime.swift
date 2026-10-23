@@ -29,21 +29,26 @@ struct EnvironmentRuntime: Sendable {
     @discardableResult
     func savePlain(id: String? = nil, expectedRevisionID: String? = nil, scope: EnvironmentScope = .global,
                    key: String, value: String) throws -> EnvironmentItem {
-        try validateIdentity(scope: scope, key: key)
-        guard EnvironmentValidation.allowsPlain(value) else { throw EnvironmentError.invalidValue }
-        do {
-            guard try SecretContentGuard.allows(value, store: store, credentials: credentials) else { throw EnvironmentError.unsafeContent }
-        } catch EnvironmentError.unsafeContent { throw EnvironmentError.unsafeContent }
-        catch { throw EnvironmentError.validationUnavailable }
-        return try store.saveEnvironmentValue(id: id, expectedRevisionID: expectedRevisionID,
-            scope: scope, key: key, value: .plain(value))
+        try store.memoryAccessGate.environmentCredentialLock.withLock {
+            try validateIdentity(scope: scope, key: key)
+            guard EnvironmentValidation.allowsPlain(value) else { throw EnvironmentError.invalidValue }
+            do {
+                guard try SecretContentGuard.allows(value, store: store, credentials: credentials) else { throw EnvironmentError.unsafeContent }
+            } catch EnvironmentError.unsafeContent { throw EnvironmentError.unsafeContent }
+            catch { throw EnvironmentError.validationUnavailable }
+            return try store.saveEnvironmentValue(id: id, expectedRevisionID: expectedRevisionID,
+                scope: scope, key: key, value: .plain(value))
+        }
     }
 
     @discardableResult
     func saveSecret(id: String? = nil, expectedRevisionID: String? = nil, scope: EnvironmentScope = .global,
-                    key: String, value: SecretValue) throws -> EnvironmentItem {
-        try store.memoryAccessGate.environmentCredentialLock.withLock {
-            try saveSecretLocked(id: id, expectedRevisionID: expectedRevisionID, scope: scope, key: key, value: value)
+                    key: String, value: SecretValue) async throws -> EnvironmentItem {
+        try await store.memoryAccessGate.withWrite {
+            try Task.checkCancellation()
+            return try store.memoryAccessGate.environmentCredentialLock.withLock {
+                try saveSecretLocked(id: id, expectedRevisionID: expectedRevisionID, scope: scope, key: key, value: value)
+            }
         }
     }
 
@@ -53,28 +58,41 @@ struct EnvironmentRuntime: Sendable {
         guard !value.revealed.isEmpty, value.revealed.utf8.count <= EnvironmentValidation.maximumPlainUTF8Bytes,
               ToolResultGuard.isText(value.revealed) else { throw EnvironmentError.invalidValue }
         let reference = CredentialReference(id: "environment-\(UUID().uuidString)", kind: .environmentSecret)
-        do { try credentials.provision(value, as: reference, principalFingerprint: nil, at: Date()) }
-        catch { throw EnvironmentError.validationUnavailable }
         let binding = CredentialBindingSnapshot(reference: reference, generation: 1)
+
+        do {
+            guard try credentials.metadata(for: reference) == nil else {
+                throw CredentialError.alreadyExists(reference)
+            }
+        } catch CredentialError.alreadyExists(let existing) where existing == reference {
+            throw EnvironmentError.validationUnavailable
+        } catch {
+            throw EnvironmentError.validationUnavailable
+        }
+
+        do { try store.queueEnvironmentCredentialRetirement(binding) }
+        catch { throw EnvironmentError.cleanupPending }
+
+        do {
+            try credentials.provision(value, as: reference, principalFingerprint: nil, at: Date())
+        } catch CredentialError.alreadyExists(let existing) where existing == reference {
+            do { try store.completeEnvironmentCredentialRetirement(binding) }
+            catch { throw EnvironmentError.cleanupPending }
+            throw EnvironmentError.validationUnavailable
+        } catch {
+            do {
+                try retryCredentialCleanup()
+            } catch { throw EnvironmentError.cleanupPending }
+            throw EnvironmentError.validationUnavailable
+        }
+
         do {
             return try store.saveEnvironmentValue(id: id, expectedRevisionID: expectedRevisionID,
-                scope: scope, key: key, value: .secret(binding))
+                scope: scope, key: key, value: .secret(binding), clearingCredentialRetirement: binding)
         } catch {
             let original = error
-            do {
-                try store.queueEnvironmentCredentialRetirement(binding)
-                try retryCredentialCleanup()
-            } catch {
-                // A failed DB queue write must not turn a newly provisioned value
-                // into an attached credential or revoke the old committed version.
-                do {
-                    if let metadata = try credentials.metadata(for: reference), metadata.status == .active,
-                       metadata.bindingGeneration == binding.generation {
-                        try credentials.logout(reference, at: Date())
-                    }
-                }
-                catch { throw EnvironmentError.cleanupPending }
-            }
+            do { try retryCredentialCleanup() }
+            catch { throw EnvironmentError.cleanupPending }
             throw original
         }
     }
@@ -110,10 +128,12 @@ struct EnvironmentRuntime: Sendable {
         var pending = false
         for binding in try store.pendingEnvironmentCredentialRetirements() {
             do {
-                if try !store.environmentCredentialIsReferenced(binding.reference),
-                   let metadata = try credentials.metadata(for: binding.reference), metadata.status == .active,
-                   metadata.bindingGeneration == binding.generation {
-                    try credentials.logout(binding.reference, at: Date())
+                if try !store.environmentCredentialIsReferenced(binding.reference) {
+                    try credentials.retireOwnedEnvironmentSecret(
+                        reference: binding.reference,
+                        generation: binding.generation,
+                        at: Date()
+                    )
                 }
                 try store.completeEnvironmentCredentialRetirement(binding)
             } catch { pending = true }

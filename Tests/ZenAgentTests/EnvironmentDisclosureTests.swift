@@ -15,7 +15,7 @@ struct EnvironmentDisclosureTests {
             .events([.textDelta("The tool result was received."), .finish(.stop)])
         ])
         let environment = EnvironmentRuntime(store: fixture.store, credentials: fixture.credentials)
-        _ = try environment.saveSecret(key: "FIXTURE_REGION_TOKEN", value: SecretValue(secret))
+        _ = try await environment.saveSecret(key: "FIXTURE_REGION_TOKEN", value: SecretValue(secret))
 
         // This global secret is intentionally not activated through any Skill.
         let command = fixture.command(text: "Run the fixture disclosure probe")

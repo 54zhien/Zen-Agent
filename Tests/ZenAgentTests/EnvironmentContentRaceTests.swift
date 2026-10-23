@@ -253,12 +253,14 @@ struct EnvironmentContentRaceTests {
             }
         }
         #expect(continuedResults.count == 1)
+        // The pending Secret writer owns the handoff lease before the blocked
+        // result is released. Its classification must apply to the later POST,
+        // even when the content commit legitimately linearized first.
+        #expect(!continuedResults.contains { $0.contains(secret) })
         if race.secretCommittedBeforeRelease {
             #expect(!storedResult.payload.contains(secret))
-            #expect(!continuedResults.contains { $0.contains(secret) })
         } else {
             #expect(storedResult.payload.contains(secret))
-            #expect(continuedResults.contains { $0.contains(secret) })
         }
     }
 }

@@ -9,18 +9,20 @@ struct MemoryRuntime: Sendable {
     func formAfterCompletedRun(runID: String) {
         do {
             guard let input = try store.prepareMemoryFormation(runID: runID) else { return }
-            let candidates: [MemoryCandidate]
-            do {
-                // Check the full source before canonicalization can hide a known
-                // credential or turn an unsafe fragment into an innocent fact.
-                try validate(input.text, maximumUTF8Bytes: MemoryCandidateExtractor.maximumSourceUTF8Bytes)
-                candidates = MemoryCandidateExtractor.extract(input.text)
-                for candidate in candidates { try validate(candidate.content) }
-            } catch {
-                try store.commitMemoryCandidates([], from: input)
-                return
+            try store.memoryAccessGate.environmentCredentialLock.withLock {
+                let candidates: [MemoryCandidate]
+                do {
+                    // Check the full source before canonicalization can hide a known
+                    // credential or turn an unsafe fragment into an innocent fact.
+                    try validate(input.text, maximumUTF8Bytes: MemoryCandidateExtractor.maximumSourceUTF8Bytes)
+                    candidates = MemoryCandidateExtractor.extract(input.text)
+                    for candidate in candidates { try validate(candidate.content) }
+                } catch {
+                    try store.commitMemoryCandidates([], from: input)
+                    return
+                }
+                try store.commitMemoryCandidates(candidates, from: input)
             }
-            try store.commitMemoryCandidates(candidates, from: input)
         } catch {
             // Memory is best effort. Neither raw source nor credential failures
             // belong in diagnostics, and the completed Run keeps its outcome.
@@ -46,8 +48,10 @@ struct MemoryRuntime: Sendable {
 
     @discardableResult
     func save(id: String? = nil, expectedRevisionID: String? = nil, content: String) throws -> MemoryItem {
-        try validate(content)
-        return try store.saveMemory(id: id, expectedRevisionID: expectedRevisionID, content: content)
+        try store.memoryAccessGate.environmentCredentialLock.withLock {
+            try validate(content)
+            return try store.saveMemory(id: id, expectedRevisionID: expectedRevisionID, content: content)
+        }
     }
 
     func validate(_ content: String, maximumUTF8Bytes: Int = MemoryContentPolicy.maximumUTF8Bytes) throws {

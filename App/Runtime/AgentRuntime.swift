@@ -647,7 +647,8 @@ actor AgentRuntime {
                         try store.invalidateMemoryRun(id: runID)
                         throw error
                     }
-                    return try await provider.stream(requestForDispatch,
+                    let outgoing = try toolRuntime.requestRedactingToolResults(requestForDispatch, runID: runID)
+                    return try await provider.stream(outgoing,
                         seed: runForRequest.requestConfigSeed, credentials: credentials)
                 }
 

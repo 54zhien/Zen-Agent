@@ -62,10 +62,10 @@ struct SkillRuntimeTests {
         #expect(try store.toolGrantsForSettings().isEmpty)
     }
     @Test("known Environment secrets cannot become Skill instruction text")
-    func secrets() throws {
+    func secrets() async throws {
         let (store, credentials, runtime) = try fixture()
         let env = EnvironmentRuntime(store: store, credentials: credentials)
-        try env.saveSecret(key: "SERVICE_AUTH", value: SecretValue("fixture-skill-private"))
+        try await env.saveSecret(key: "SERVICE_AUTH", value: SecretValue("fixture-skill-private"))
         #expect(throws: SkillError.unsafeContent) {
             try runtime.saveUser(definition: .init(name: "Unsafe", summary: "", instructions: "Use fixture-skill-private"))
         }

@@ -66,7 +66,7 @@ struct SkillPromptIntegrationTests {
         try credentials.provision(SecretValue("fixture-persisted-provider-key"), as: providerReference)
         let skills = SkillRuntime(store: fixture.store, credentials: credentials, registry: .empty)
         let environment = EnvironmentRuntime(store: fixture.store, credentials: credentials)
-        let variable = try environment.saveSecret(key: "AUTH", value: SecretValue("fixture-private-auth-value"))
+        let variable = try await environment.saveSecret(key: "AUTH", value: SecretValue("fixture-private-auth-value"))
         let item = try skills.saveUser(definition: .init(name: "Service", summary: "", instructions: "State service limitations honestly.", environmentKeys: ["AUTH"]))
         try await skills.setEnabled(id: item.id, enabled: true)
         let runtime = ConversationRuntime(store: fixture.store, provider: fixture.provider, credentials: credentials)

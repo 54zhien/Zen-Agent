@@ -24,9 +24,17 @@ extension PersistenceStore {
     }
 
     func saveEnvironmentValue(id: String?, expectedRevisionID: String?, scope: EnvironmentScope,
-                              key: String, value: EnvironmentStoredValue, at now: Date = Date()) throws -> EnvironmentItem {
+                              key: String, value: EnvironmentStoredValue,
+                              clearingCredentialRetirement bindingToClear: CredentialBindingSnapshot? = nil,
+                              at now: Date = Date()) throws -> EnvironmentItem {
         guard EnvironmentValidation.allowsKey(key) else { throw EnvironmentError.invalidKey }
         if case .plain(let plain) = value, !EnvironmentValidation.allowsPlain(plain) { throw EnvironmentError.invalidValue }
+        if let bindingToClear {
+            guard bindingToClear.reference.kind == .environmentSecret,
+                  bindingToClear.generation > 0,
+                  case .secret(let storedBinding) = value,
+                  storedBinding == bindingToClear else { throw EnvironmentError.invalidValue }
+        }
         return try database.write { db in
             guard try Self.environmentScopeExists(scope, db: db) else { throw EnvironmentError.invalidScope }
             let revisionID = UUID().uuidString
@@ -57,6 +65,9 @@ extension PersistenceStore {
                     credentialGeneration: binding.generation, createdAt: now)
             }
             try revision.insert(db)
+            if let bindingToClear {
+                try Self.completeCredentialRetirement(bindingToClear, db: db)
+            }
             return try Self.environmentItem(variable, revision: revision, db: db)
         }
     }
@@ -145,9 +156,16 @@ extension PersistenceStore {
             arguments: [binding.reference.id, binding.reference.kind.rawValue, binding.generation, Date()])
     }
 
+    private static func completeCredentialRetirement(_ binding: CredentialBindingSnapshot, db: Database) throws {
+        try db.execute(sql: "DELETE FROM extensionCredentialRetirement WHERE referenceID = ? AND kind = ? AND generation = ?",
+            arguments: [binding.reference.id, binding.reference.kind.rawValue, binding.generation])
+    }
+
     func queueEnvironmentCredentialRetirement(_ binding: CredentialBindingSnapshot) throws {
         try database.write { db in
-            guard try !Self.credentialIsReferenced(binding.reference, db: db) else { return }
+            guard try !Self.credentialIsReferenced(binding.reference, db: db) else {
+                throw EnvironmentError.erasedDependency
+            }
             try Self.queueCredentialRetirement(binding, db: db)
         }
     }
@@ -175,7 +193,6 @@ extension PersistenceStore {
     }
 
     func completeEnvironmentCredentialRetirement(_ binding: CredentialBindingSnapshot) throws {
-        try database.write { try $0.execute(sql: "DELETE FROM extensionCredentialRetirement WHERE referenceID = ? AND kind = ? AND generation = ?",
-            arguments: [binding.reference.id, binding.reference.kind.rawValue, binding.generation]) }
+        try database.write { try Self.completeCredentialRetirement(binding, db: $0) }
     }
 }

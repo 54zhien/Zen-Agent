@@ -37,18 +37,20 @@ struct SkillRuntime: Sendable {
     }
     @discardableResult
     func saveUser(id: String? = nil, expectedRevisionID: String? = nil, definition: SkillDefinition) throws -> SkillItem {
-        if let id, let item = try list().first(where: { $0.id == id }), item.source == .builtIn { throw SkillError.builtInReadOnly }
-        guard SkillValidation.allows(definition) else { throw SkillError.invalidDefinition }
-        do {
-            let content = [definition.name, definition.summary, definition.instructions]
-                + definition.requiredTools + definition.optionalTools + definition.requiredMCPServers
-                + definition.environmentKeys + definition.triggerTerms
-            for value in content {
-                guard try SecretContentGuard.allows(value, store: store, credentials: credentials) else { throw SkillError.unsafeContent }
-            }
-        } catch SkillError.unsafeContent { throw SkillError.unsafeContent }
-        catch { throw SkillError.validationUnavailable }
-        return try store.saveUserSkill(id: id, expectedRevisionID: expectedRevisionID, definition: definition)
+        try store.memoryAccessGate.environmentCredentialLock.withLock {
+            if let id, let item = try list().first(where: { $0.id == id }), item.source == .builtIn { throw SkillError.builtInReadOnly }
+            guard SkillValidation.allows(definition) else { throw SkillError.invalidDefinition }
+            do {
+                let content = [definition.name, definition.summary, definition.instructions]
+                    + definition.requiredTools + definition.optionalTools + definition.requiredMCPServers
+                    + definition.environmentKeys + definition.triggerTerms
+                for value in content {
+                    guard try SecretContentGuard.allows(value, store: store, credentials: credentials) else { throw SkillError.unsafeContent }
+                }
+            } catch SkillError.unsafeContent { throw SkillError.unsafeContent }
+            catch { throw SkillError.validationUnavailable }
+            return try store.saveUserSkill(id: id, expectedRevisionID: expectedRevisionID, definition: definition)
+        }
     }
     func dependencies(id: String) throws -> ExtensionDependencySummary {
         .init(activeRunIDs: try store.skillDependentRunIDs(id: id))

@@ -46,6 +46,12 @@ available under their original refs; no unchanged rerun is used as correction.
 | [39994385716](https://github.com/54zhien/Zen-Agent/actions/runs/39994385716) | `9b3284b` | App/test compilation passed; 23 Swift tests in 6 suites, behavioral RED 11 across draft consumption, actual Send, payload conflict and cold original-owner recovery. |
 | [39995345439](https://github.com/54zhien/Zen-Agent/actions/runs/39995345439) | `3a8e24c` | App/test compilation passed; 22 Swift tests in 6 suites, Environment/orphan/scoped resolver/Skill lifecycle/snapshot/real-socket streaming GREEN. One authority test had an incorrect successful-Run expectation; its security assertions already passed. |
 | [39996964522](https://github.com/54zhien/Zen-Agent/actions/runs/39996964522) | `c1d4e28` | App/test compilation passed; 35 Swift tests in 9 suites GREEN, including draft selection, actual requests, payload conflict and cold Skill/file-proof settlement. |
+| [39998482466](https://github.com/54zhien/Zen-Agent/actions/runs/39998482466) | `bde5cf9` | 10 Swift tests in 4 suites; actual recovered Run gained a newly registered Tool despite empty frozen exposure, RED 2. Other authority/Secret cases passed. |
+| [40000509025](https://github.com/54zhien/Zen-Agent/actions/runs/40000509025) | `f55c42c` | 11 Swift tests in 5 suites GREEN: exact frozen exposure, result redaction, live approval and three queued revocations. |
+| [39996935302](https://github.com/54zhien/Zen-Agent/actions/runs/39996935302) | `c1d4e28` | 6 native UI cases: 3 passed, 3 failed in confirmation query/Form gestures; no plugin behavior reached. Actual screenshots, AX and full failed archive retained. |
+| [40001312420](https://github.com/54zhien/Zen-Agent/actions/runs/40001312420) | `fc23aed` | 5 native UI cases: Environment 3 and Skills entry passed; largest-text detail asserted before its lazy instruction row was scrolled into the AX hierarchy. |
+| [40002938531](https://github.com/54zhien/Zen-Agent/actions/runs/40002938531) | `8944664` | Configured Composer reached the actual plugin row; 1 native UI case RED because the entry remained disabled. |
+| [40003222328](https://github.com/54zhien/Zen-Agent/actions/runs/40003222328) | `4e58030` | App/test compilation passed; 8 Swift tests in 4 suites, behavioral RED 15 across content commit races, ambiguous provisioning, handoff ordering and retained Provider credentials. |
 
 The streaming failure used the pre-existing small-open-body URLProtocol fixture;
 existing characterization tests already show that fixture can withhold the first
@@ -67,12 +73,46 @@ The frozen-Send GREEN log SHA256 is
 
 ## Rulings and costs
 
+The one independent whole-branch review covers base `f335204` through the final
+source, including the actual Composer wiring. Its three Important findings were
+reproduced through the production owners in run `40003222328` before correction:
+
+1. A newly saved Environment Secret could overtake an old secret inventory before
+   Plain, Skill, manual/automatic Memory or ToolResult committed. The corrective
+   boundary serializes validation/redaction through the SQLite commit, and Secret
+   publication takes the existing exclusive handoff lease. Every Provider handoff
+   also re-sanitizes only outgoing ToolResult copies against the current inventory;
+   an earlier legal result is retained as history without replaying its executor.
+2. CredentialStore could keep freshly owned Keychain bytes when metadata publication
+   and its verification read both failed, leaving no metadata row for startup scans.
+   A durable content-free ownership reservation precedes provisioning and clears in
+   the same transaction that attaches its revision. Pending cleanup may delete only
+   that owned Environment reference/generation, including after database reopening.
+3. Reauthentication deliberately retains an old Key for frozen Runs, but the current
+   Provider attachment omitted it from content validation. Trusted inventory now
+   includes retained active metadata, nonterminal frozen bindings and pending owned
+   Environment retirements. It never becomes a workflow/executor input.
+
+These corrections are awaiting native GREEN. The original RED log SHA256 is
+`7A5405952F5F7CF58195E05E503F4BC6EFC333A6327B6477B4C10FE08AF4CB96`.
+The pre-existing Provider credential-mutation concurrency protocol is explicitly
+declined-to-judge in this Stage 8 review: those Stage 7 writers are unchanged and
+no before/after regression was demonstrated. This is not a claim that they have
+the new Environment publication transaction's guarantees.
+
+The native plugin UI case covers opening/selection; durable actual Send and
+continuation behavior are exercised by the native runtime/coordinator tests.
+Do not represent the UI selection case alone as a UI-to-network Send test.
+
 - Stage 8 ships real Keychain storage, versioned bindings and a trusted resolver.
   Existing tools have no authenticated Secret input; MCP belongs to Stage 9.
   Cost: saved Secrets have no authenticated production action yet, disclosed in
   Settings. No fake secret-consuming executor is introduced.
 - Ordinary Secret edits use fresh opaque references. Cost: retained historical
-  bindings need lifecycle cleanup; explicit erasure remains stronger than replay.
+  bindings consume Keychain storage until explicit deletion. The Minor pruning
+  concern is deferred because non-erased frozen revisions remain valid even without
+  a nonterminal Run; automatic pruning would change that contract. Explicit erasure
+  remains stronger than replay.
 - Scope and key are immutable identity. Cost: rename/move uses explicit
   dependency-aware delete/add rather than changing frozen reference meaning.
 - Revocation and final removal straddle original-owner settlement outside the
