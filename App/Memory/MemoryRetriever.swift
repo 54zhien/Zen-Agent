@@ -9,8 +9,7 @@ enum MemoryRetriever {
         let queryTerms = terms(query)
         let ranked = records.compactMap { record -> (MemoryItem, Int)? in
             guard !record.archived, record.content.utf8.count <= 1_024 else { return nil }
-            let applicablePreference = ["response.language", "response.length"].contains(record.factKey ?? "")
-            let score = terms(record.content).intersection(queryTerms).count * 10 + (applicablePreference ? 3 : 0)
+            let score = terms(record.content).intersection(queryTerms).count * 10 + (applies(record.factKey, to: query) ? 3 : 0)
             return score > 0 ? (record, score) : nil
         }.sorted {
             if $0.1 != $1.1 { return $0.1 > $1.1 }
@@ -29,6 +28,18 @@ enum MemoryRetriever {
 
     static func normalized(_ text: String) -> String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX")).lowercased()
+    }
+
+    private static func applies(_ key: String?, to query: String) -> Bool {
+        let pattern: String
+        switch key {
+        case "response.language", "response.length": return true
+        case "identity.name": pattern = #"(?i)\bmy name\b|\bcall me\b|我的名字|我叫什么"#
+        case "project.primary": pattern = #"(?i)\bmy (?:main )?project\b|我的(?:主要)?项目"#
+        case "environment.os": pattern = #"(?i)\bmy (?:development )?(?:environment|os)\b|\bwhich (?:operating system|os)\b|我的开发环境|我(?:平时)?用什么.*开发|我用.*系统"#
+        default: return false
+        }
+        return query.range(of: pattern, options: .regularExpression) != nil
     }
 
     private static func terms(_ text: String) -> Set<String> {

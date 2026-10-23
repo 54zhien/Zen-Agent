@@ -4,6 +4,15 @@ import Testing
 
 @Suite("Memory bounded local retrieval")
 struct MemoryRetrievalTests {
+    @Test func supportedFactsRemainRetrievableAcrossUserLanguages() {
+        let records = [item("name", "用户的名字是 Azusa。", key: "identity.name"),
+                       item("project", "用户的主要项目是 Zen-Agent。", key: "project.primary"),
+                       item("os", "用户平时使用 Windows 开发。", key: "environment.os")]
+        #expect(MemoryRetriever.select(query: "What is my name?", records: records).map(\.id) == ["name"])
+        #expect(MemoryRetriever.select(query: "What is my main project?", records: records).map(\.id) == ["project"])
+        #expect(MemoryRetriever.select(query: "Which OS do I develop on?", records: records).map(\.id) == ["os"])
+        #expect(MemoryRetriever.select(query: "gardening flowers", records: records).isEmpty)
+    }
     @Test("Latin and Chinese terms select relevant active facts without dumping unrelated records")
     func relevance() {
         let records = [item("windows", "I develop on Windows using Swift"), item("mac", "I use macOS"),
@@ -25,8 +34,8 @@ struct MemoryRetrievalTests {
         #expect(MemoryRetriever.select(query: "Windows", records: [item("big", "Windows " + String(repeating: "中", count: 400))]).isEmpty)
     }
 
-    private func item(_ id: String, _ content: String, archived: Bool = false) -> MemoryItem {
-        MemoryItem(id: id, revisionID: id + "-v", content: content, origin: .manual, factKey: nil,
+    private func item(_ id: String, _ content: String, archived: Bool = false, key: String? = nil) -> MemoryItem {
+        MemoryItem(id: id, revisionID: id + "-v", content: content, origin: .manual, factKey: key,
             archived: archived, createdAt: .distantPast, updatedAt: .distantPast, sources: [])
     }
 }
