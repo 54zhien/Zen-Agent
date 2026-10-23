@@ -52,22 +52,30 @@ extension XCTestCase {
     @MainActor
     func tapExtensionLabel(_ label: XCUIElement, in app: XCUIApplication, tap: Bool = true,
                            allowPartial: Bool = false) -> Bool {
-        for _ in 0..<24 {
+        for attempt in 0..<24 {
             let form = app.collectionViews.firstMatch
             guard form.exists else { break }
-            var viewport = form.frame.intersection(app.frame)
+            let formFrame = form.frame
+            var viewport = formFrame.intersection(app.frame)
             let nav = app.navigationBars.firstMatch
-            if nav.exists {
-                let top = max(viewport.minY, nav.frame.maxY)
+            let navFrame = nav.exists ? nav.frame : .null
+            if !navFrame.isNull {
+                let top = max(viewport.minY, navFrame.maxY)
                 viewport = CGRect(x: viewport.minX, y: top, width: viewport.width, height: max(0, viewport.maxY - top))
             }
             let track = form.descendants(matching: .other).matching(NSPredicate(format: "label BEGINSWITH %@", "Vertical scroll bar")).firstMatch
-            if track.exists, track.frame.height > 0 {
-                let frame = CGRect(x: viewport.minX, y: track.frame.minY, width: viewport.width, height: track.frame.height)
+            let trackFrame = track.exists ? track.frame : .null
+            if !trackFrame.isNull, trackFrame.height > 0 {
+                let frame = CGRect(x: viewport.minX, y: trackFrame.minY, width: viewport.width, height: trackFrame.height)
                 if viewport.intersects(frame) { viewport = viewport.intersection(frame) }
             }
             viewport = viewport.insetBy(dx: 4, dy: 4)
-            guard !viewport.isEmpty, !viewport.isNull else { break }
+            // A navigation push can expose frames from different layout passes.
+            // Reject that sample without abandoning the remaining bounded attempts.
+            guard !viewport.isEmpty, !viewport.isNull else {
+                print("EXTENSION_FORM_INVALID_SAMPLE attempt=\(attempt) form=\(formFrame) nav=\(navFrame) track=\(trackFrame) viewport=\(viewport)")
+                continue
+            }
             let target = label.exists ? label.frame : .null
             // Read-only instructions can be taller than the entire viewport at
             // accessibility sizes. Reveal a readable part without requiring the
@@ -80,8 +88,8 @@ extension XCTestCase {
                 return true
             }
             let down = !target.isNull && target.minY < viewport.minY
-            let upper = (viewport.minY + viewport.height * 0.25 - form.frame.minY) / form.frame.height
-            let lower = (viewport.maxY - viewport.height * 0.25 - form.frame.minY) / form.frame.height
+            let upper = (viewport.minY + viewport.height * 0.25 - formFrame.minY) / formFrame.height
+            let lower = (viewport.maxY - viewport.height * 0.25 - formFrame.minY) / formFrame.height
             let start = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? upper : lower))
             let end = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? lower : upper))
             print("EXTENSION_FORM_DRAG viewport=\(viewport) target=\(target) start=\(start.screenPoint) end=\(end.screenPoint)")
