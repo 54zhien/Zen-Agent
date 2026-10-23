@@ -29,6 +29,7 @@ Owner-approved Stage 5 supplement @ e6d8c5f9919a83672bea670bc7e49339e5f5373c
 Device feedback corrections @ 3b4b22c0df91be668406127c84c1822b359883c0
 Device glass and motion owner ruling @ 51b4dc33beec515c7d684d352060fbdeded1825e
 Stage 6 intent snapshot @ fffca086f4451a7bd0988959058ddcfe5eb6c13d
+Stage 7 Memory owner decisions @ b0662058d3e87bb200b677bc86cfad050b4315cb
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -43,6 +44,12 @@ draft/open/unmerged; it records the owner's Split Lift/Return, landscape and
 Sidebar rulings. Design conflicts are resolved upstream in the Blueprint and
 its `Design/ADR/`; engineering/tooling trade-offs belong to this repository's
 `Docs/ADR/`.
+
+The Stage 7 Memory decisions are [Blueprint PR #7](https://github.com/54zhien/Zen-Agent-Blueprint/pull/7),
+draft/open/unmerged: approved native Settings management, retained Memory with a
+source-missing marker after Conversation deletion, and device/iCloud system backup
+with the protected user database. They record the owner's decisions, not native
+or physical-device implementation acceptance.
 
 ## Status
 
@@ -73,6 +80,16 @@ tests and build inputs remain identical to the tested source. Merge identity/tre
 and post-merge CI are recorded on PR #41. The accepted UI checkout and draft
 [PR #37](https://github.com/54zhien/Zen-Agent/pull/37) remain separately parked.
 Earlier stability evidence remains in [the repair record](tasks/known-issues-stability.md).
+
+Stage 7 Memory is in progress on `codex/stage7-memory-20261023`, starting at PR #41's
+merge `49e77fb4eeaee7f4fad1b97b319d6b1de5cb991f`. Storage/management, bounded
+retrieval/frozen references and conservative local automatic formation are wired.
+Native source `eb43734` passed 1,262 Swift tests/199 suites and 20 XCTest unit tests;
+its Memory UI run retained five failed assertions. The single independent review
+found two Important issues, reproduced through actual cold-start and formed-fact
+entry points before correction. Corrective source `965d067` is awaiting native
+verification. Full unchanged Phone/iPad CI and new-page screenshot review are still
+required. See [Stage 7 evidence and boundaries](tasks/stage7-memory.md).
 
 The following is the historical 2026-10-05 slice snapshot. Its individual PR
 states describe that date; use the current integration receipt above for main.
