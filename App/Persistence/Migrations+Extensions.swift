@@ -1,6 +1,34 @@
 import GRDB
 
 extension Migrations {
+    static func registerV23(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v23_skills") { db in
+            try db.execute(sql: """
+                CREATE TABLE skillRecord (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    source TEXT NOT NULL CHECK(source IN ('builtIn','userCreated')),
+                    enabled BOOLEAN NOT NULL DEFAULT 0,
+                    currentRevisionID TEXT NOT NULL,
+                    state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active','deleting')),
+                    createdAt DATETIME NOT NULL, updatedAt DATETIME NOT NULL
+                );
+                CREATE TABLE skillRevision (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    skillID TEXT NOT NULL REFERENCES skillRecord(id) ON DELETE CASCADE,
+                    definition TEXT NOT NULL CHECK(json_valid(definition)),
+                    createdAt DATETIME NOT NULL
+                );
+                CREATE INDEX skillRevision_by_skill ON skillRevision(skillID);
+                CREATE TRIGGER skillRevision_reject_update BEFORE UPDATE ON skillRevision
+                BEGIN SELECT RAISE(ABORT, 'Skill revisions are immutable'); END;
+                CREATE TABLE runSkillSelection (
+                    runID TEXT PRIMARY KEY NOT NULL REFERENCES agentRun(id) ON DELETE CASCADE,
+                    selectionJSON TEXT NOT NULL CHECK(json_valid(selectionJSON))
+                );
+                """)
+        }
+    }
+
     static func registerV22(_ migrator: inout DatabaseMigrator) {
         migrator.registerMigration("v22_environment") { db in
             try db.execute(sql: """

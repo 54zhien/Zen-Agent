@@ -74,7 +74,7 @@ struct ExecutionSnapshotTests {
 
         failure = nil
         do {
-            _ = try ExecutionSnapshotCodec.decode(#"{"formatVersion":1,"providerID":"deepseek"}"#)
+            _ = try ExecutionSnapshotCodec.decode(#"{"formatVersion":\#(RunExecutionSnapshot.currentFormatVersion),"providerID":"deepseek"}"#)
         } catch {
             failure = error
         }

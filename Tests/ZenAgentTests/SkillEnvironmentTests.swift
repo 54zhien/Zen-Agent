@@ -31,7 +31,8 @@ struct SkillEnvironmentTests {
         #expect(throws: EnvironmentError.missingReference) { try environment.bind(skillID: item.id, declaredKeys: ["A"]) }
         let valid = try environment.bind(skillID: item.id, declaredKeys: ["A", "B"])
         #expect(try environment.interpolate("${A}", binding: valid, skillID: item.id, declaredKeys: ["A", "B"]) == "value")
-        let b = try #require(environment.list().first { $0.key == "B" })
+        let listed = try environment.list()
+        let b = try #require(listed.first { $0.key == "B" })
         try environment.savePlain(id: b.id, expectedRevisionID: b.revisionID, key: "B", value: "${A}")
         #expect(throws: EnvironmentError.cycle) { try environment.bind(skillID: item.id, declaredKeys: ["A", "B"]) }
         #expect(throws: EnvironmentError.missingReference) { try environment.bind(skillID: item.id, declaredKeys: ["ABSENT"]) }

@@ -46,7 +46,8 @@ struct SkillErasureTests {
 
             // A content-free, valid v2 Skill identity whose backing definition has
             // already been removed exercises missing-reference recovery directly.
-            let storedRun = try #require(store.run(id: runID))
+            let persistedRun = try store.run(id: runID)
+            let storedRun = try #require(persistedRun)
             let encoded = try #require(storedRun.executionSnapshot)
             runSnapshot = try snapshotByAddingRevokedSkillReference(encoded)
             try store.database.write { db in

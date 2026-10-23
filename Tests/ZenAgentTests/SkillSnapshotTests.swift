@@ -22,7 +22,9 @@ struct SkillSnapshotTests {
         let snapshot = RunExecutionSnapshot(providerID: .deepSeek, providerAdapterRevision: "a",
             prompt: .init(runtimeSafetyBaseline: "r", zenCore: "c", providerAdapterInstructions: "a"),
             modelCapabilities: [.text], exposedTools: [], maxProviderSteps: 4)
-        var object = try #require(JSONSerialization.jsonObject(with: Data(ExecutionSnapshotCodec.encode(snapshot).utf8)) as? [String: Any])
+        let encoded = try ExecutionSnapshotCodec.encode(snapshot)
+        let decodedObject = try JSONSerialization.jsonObject(with: Data(encoded.utf8))
+        var object = try #require(decodedObject as? [String: Any])
         object["formatVersion"] = 1
         let legacy = String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
         #expect(try ExecutionSnapshotCodec.decode(legacy).prompt.skillReferences.isEmpty)

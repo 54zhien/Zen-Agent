@@ -7,7 +7,9 @@ import Foundation
 /// this value identifies the prompt, capabilities and tools that the run is allowed to
 /// execute with.
 struct RunExecutionSnapshot: Codable, Sendable, Equatable {
-    static let currentFormatVersion = 1
+    // A v1 build must refuse new workflow semantics instead of silently dropping
+    // unknown prompt fields on recovery. This build can still read legacy v1.
+    static let currentFormatVersion = 2
 
     enum FormatError: Error, Equatable, Sendable {
         case unversioned
@@ -62,7 +64,7 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
         guard let version = try? container.decode(Int.self, forKey: .formatVersion) else {
             throw FormatError.unversioned
         }
-        guard version == Self.currentFormatVersion else {
+        guard version == 1 || version == Self.currentFormatVersion else {
             throw FormatError.unsupportedVersion(version)
         }
 
@@ -70,6 +72,7 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
             providerID = try container.decode(ProviderID.self, forKey: .providerID)
             providerAdapterRevision = try container.decode(String.self, forKey: .providerAdapterRevision)
             prompt = try container.decode(PromptExecutionSnapshot.self, forKey: .prompt)
+            guard version != 1 || prompt.skillReferences.isEmpty else { throw FormatError.malformedCurrentVersion(version) }
             modelCapabilities = try container.decode(Set<ModelCapability>.self, forKey: .modelCapabilities)
             exposedTools = try container.decode([ToolExposureSnapshot].self, forKey: .exposedTools)
             maxProviderSteps = try container.decode(Int.self, forKey: .maxProviderSteps)
@@ -122,6 +125,7 @@ struct PromptExecutionSnapshot: Codable, Sendable, Equatable {
         case providerAdapterInstructions
         case soulVersionID
         case memoryReferences
+        case skillReferences
     }
 
     init(from decoder: Decoder) throws {
@@ -132,6 +136,10 @@ struct PromptExecutionSnapshot: Codable, Sendable, Equatable {
         // v1 snapshots written before Soul did not contain this optional identity.
         soulVersionID = try container.decodeIfPresent(String.self, forKey: .soulVersionID)
         memoryReferences = try container.decodeIfPresent([MemoryRevisionReference].self, forKey: .memoryReferences) ?? []
+        skillReferences = try container.decodeIfPresent([SkillActivationReference].self, forKey: .skillReferences) ?? []
+        guard SkillActivationReference.areWellFormed(skillReferences) else {
+            throw DecodingError.dataCorruptedError(forKey: .skillReferences, in: container, debugDescription: "Invalid Skill references")
+        }
         guard memoryReferences.count <= 6, Set(memoryReferences).count == memoryReferences.count,
               memoryReferences.allSatisfy({ !$0.memoryID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                   && !$0.revisionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -148,6 +156,7 @@ struct PromptExecutionSnapshot: Codable, Sendable, Equatable {
         try container.encode(providerAdapterInstructions, forKey: .providerAdapterInstructions)
         try container.encode(soulVersionID, forKey: .soulVersionID)
         if !memoryReferences.isEmpty { try container.encode(memoryReferences, forKey: .memoryReferences) }
+        if !skillReferences.isEmpty { try container.encode(skillReferences, forKey: .skillReferences) }
     }
 }
 

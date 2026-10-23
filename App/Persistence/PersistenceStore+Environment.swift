@@ -58,14 +58,16 @@ extension PersistenceStore {
     }
 
     func resolveEnvironmentReferences(_ references: [EnvironmentRevisionReference]) throws -> [EnvironmentItem] {
+        try database.read { try Self.resolveEnvironmentReferences(references, db: $0) }
+    }
+
+    static func resolveEnvironmentReferences(_ references: [EnvironmentRevisionReference], db: Database) throws -> [EnvironmentItem] {
         guard references.count <= 64, Set(references).count == references.count else { throw EnvironmentError.erasedDependency }
-        return try database.read { db in
-            try references.map { reference in
+        return try references.map { reference in
                 guard let record = try EnvironmentVariableRecord.fetchOne(db, key: reference.variableID), record.state == "active",
                       let revision = try EnvironmentRevisionRecord.fetchOne(db, key: reference.revisionID), revision.variableID == record.id
                 else { throw EnvironmentError.erasedDependency }
                 return try Self.environmentItem(record, revision: revision, db: db)
-            }
         }
     }
 
@@ -95,11 +97,11 @@ extension PersistenceStore {
 
     private static func environmentDependentRunIDs(id: String, db: Database) throws -> [String] {
         try String.fetchAll(db, sql: """
-            SELECT DISTINCT r.id FROM agentRun r,
-                json_tree(CASE WHEN json_valid(r.executionSnapshot) THEN r.executionSnapshot ELSE '{}' END) AS context
-            WHERE r.state NOT IN ('completed','failed','cancelled')
-                AND context.key = 'variableID' AND context.value = ? ORDER BY r.id
-            """, arguments: [id])
+            SELECT r.id FROM agentRun r WHERE r.state NOT IN ('completed','failed','cancelled') AND (
+                EXISTS (SELECT 1 FROM json_tree(CASE WHEN json_valid(r.executionSnapshot) THEN r.executionSnapshot ELSE '{}' END) j WHERE j.key = 'variableID' AND j.value = ?)
+                OR EXISTS (SELECT 1 FROM runSkillSelection s, json_tree(s.selectionJSON) j WHERE s.runID = r.id AND j.key = 'variableID' AND j.value = ?)
+            ) ORDER BY r.id
+            """, arguments: [id, id])
     }
 
     func beginEnvironmentDeletion(id: String) throws -> [String] {
