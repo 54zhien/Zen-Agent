@@ -45,6 +45,7 @@ struct ToolRejectionContinuationTests {
                 ledger: toolLedger
             ),
         ])
+        try Fixtures.allowAutomaticToolPolicies(in: fixture.store, registry: toolRegistry)
         let runtime = ConversationRuntime(
             store: fixture.store,
             provider: provider,

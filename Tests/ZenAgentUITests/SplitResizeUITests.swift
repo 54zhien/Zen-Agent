@@ -332,7 +332,10 @@ final class SplitResizeUITests: XCTestCase {
         let entry = app.buttons["split-entry"]
         XCTAssertTrue(entry.waitForExistence(timeout: 15))
         entry.tap()
-        app.buttons["split-open-top"].tap()
+        let splitAction = app.buttons["split-open-top"]
+        XCTAssertTrue(splitAction.waitForExistence(timeout: 10),
+                      "The native split menu action must exist before selecting it")
+        splitAction.tap()
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()

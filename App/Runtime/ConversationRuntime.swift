@@ -1022,7 +1022,8 @@ actor ConversationRuntime {
                     toolCallID: call.id,
                     conversationID: run.conversationID,
                     runtimeInstanceID: approvalRuntimeInstanceID,
-                    disclosure: disclosure
+                    disclosure: disclosure,
+                    intentBinding: ToolIntentBinding.make(encodedIntent)
                 ))
             }
         }
@@ -1033,7 +1034,7 @@ actor ConversationRuntime {
     /// Validates the originating Runtime and owning Parent Conversation before
     /// forwarding the one-call decision to the existing AgentRuntime path.
     func resolveToolApproval(_ request: ToolApprovalRequest) async throws {
-        guard request.runtimeInstanceID == approvalRuntimeInstanceID else {
+        guard ToolPolicyIdentity.equals(request.runtimeInstanceID, approvalRuntimeInstanceID) else {
             throw ToolApprovalResolutionError.staleRuntimeInstance
         }
         guard let call = try store.toolCall(id: request.toolCallID) else {
@@ -1042,7 +1043,7 @@ actor ConversationRuntime {
         guard let run = try store.run(id: call.agentRunID) else {
             throw ToolApprovalResolutionError.runNotFound(call.agentRunID)
         }
-        guard run.conversationID == request.conversationID else {
+        guard ToolPolicyIdentity.equals(run.conversationID, request.conversationID) else {
             throw ToolApprovalResolutionError.conversationMismatch
         }
         guard run.kind == .parent, run.parentRunID == nil else {
@@ -1054,15 +1055,15 @@ actor ConversationRuntime {
 
         switch request.decision {
         case .approveOnce:
-            try await approve(toolCallID: call.id)
+            try await approve(toolCallID: call.id, displayedIntentBinding: request.intentBinding)
         case .rejectOnce:
             _ = try await reject(toolCallID: call.id)
         }
     }
 
     /// Resolves an approval gate without creating a replacement ToolCall.
-    func approve(toolCallID: String) async throws {
-        try await agentRuntime.approveToolCall(toolCallID: toolCallID)
+    func approve(toolCallID: String, displayedIntentBinding: String? = nil) async throws {
+        try await agentRuntime.approveToolCall(toolCallID: toolCallID, displayedIntentBinding: displayedIntentBinding)
     }
 
     /// Persists a real rejection and lets the waiting batch continue in order.

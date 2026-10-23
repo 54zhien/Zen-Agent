@@ -52,6 +52,7 @@ final class ToolRuntimeTests: XCTestCase {
         let store = try PersistenceStore(database: database)
         let observation = I06SideEffectObservation()
         let registry = try ToolRegistry(tools: [I06SideEffectTool(observation: observation)])
+        try Fixtures.allowAutomaticToolPolicies(in: store, registry: registry)
         let runtime = ToolRuntime(store: store, registry: registry)
 
         let result = try await runtime.complete(
@@ -87,6 +88,7 @@ final class ToolRuntimeTests: XCTestCase {
         let registry = try ToolRegistry(
             tools: [I06SideEffectTool(observation: observation, failure: .sentinel)]
         )
+        try Fixtures.allowAutomaticToolPolicies(in: store, registry: registry)
         let runtime = ToolRuntime(store: store, registry: registry)
 
         do {
@@ -128,6 +130,7 @@ final class ToolRuntimeTests: XCTestCase {
         let registry = try ToolRegistry(
             tools: [I06SideEffectTool(observation: observation, approval: .required)]
         )
+        try Fixtures.allowAutomaticToolPolicies(in: store, registry: registry)
         let runtime = ToolRuntime(store: store, registry: registry)
 
         let result = try await runtime.complete(
@@ -159,6 +162,7 @@ final class ToolRuntimeTests: XCTestCase {
         let registry = try ToolRegistry(
             tools: [I06SideEffectTool(observation: observation, approval: .required)]
         )
+        try Fixtures.allowAutomaticToolPolicies(in: store, registry: registry)
         let runtime = ToolRuntime(store: store, registry: registry)
 
         _ = try await runtime.complete(
@@ -228,7 +232,8 @@ private struct I06SideEffectTool: ToolExecutable {
             sideEffect: .externalWrite,
             approvalRequirement: approval,
             actions: [ToolPolicyActionMetadata(toolID: "side_effect", actionID: "side_effect", descriptorRevision: "1",
-                risk: .high, allowsAutomaticApproval: false, allowsConversationGrant: false,
+                risk: approval == .required ? .high : .low,
+                allowsAutomaticApproval: approval == .notRequired, allowsConversationGrant: false,
                 resourceRequirement: .target, egressRequirement: .provider)]
         )
     }
@@ -242,7 +247,9 @@ private struct I06SideEffectTool: ToolExecutable {
             descriptor: descriptor, actionID: descriptor.id,
             normalizedArgumentsJSON: "{}",
             resource: .target("test-target"),
-            destination: .provider(instanceID: "test-provider", endpointIdentity: "test-destination")
+            destination: .provider(instanceID: "test-provider", endpointIdentity: "test-destination"),
+            approvalDisclosure: ToolApprovalDisclosure(toolDisplayName: descriptor.displayName,
+                action: "Record a test dispatch", targetDescription: "Virtual test target", keyImpact: "Records in a test ledger")
         )
     }
 

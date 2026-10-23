@@ -447,7 +447,7 @@ struct Stage2GateTests {
             store: components.store,
             provider: provider,
             credentials: components.credentials,
-            toolRegistry: try ToolRegistry(tools: [CalculatorTool()])
+            toolRegistry: try Fixtures.automaticallyAllowedRegistry(in: components.store, tools: [CalculatorTool()])
         )
         return try await runtime.send(Stage2GateFixture.command(text: Self.question))
     }

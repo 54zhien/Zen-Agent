@@ -304,10 +304,10 @@ jobs:
     name: Build and test
     needs: repo-hygiene
     runs-on: macos-26
-    # FULL37317707058 passed all 954 Swift, 20 XCTest and 56 UI tests and
-    # printed TEST SUCCEEDED, but the 45-minute job deadline cancelled cleanup.
-    # This job headroom changes no per-test timeout, retry or suite selection.
-    timeout-minutes: 65
+    # Full39769209066 passed all native tests and uploaded evidence, but its
+    # 65-minute deadline cancelled cleanup. Keep headroom for the measured full
+    # suite. This changes no xcodebuild timeout, retry or suite selection.
+    timeout-minutes: 85
     steps:
       - uses: actions/checkout@v4
 

@@ -4,6 +4,7 @@ enum ToolRuntimeError: Error, Equatable, Sendable {
     case unknownTool(String)
     case toolCallNotFound(String)
     case invalidContinuationIdentity
+    case approvalRequired(String)
     case invalidToolCallState(id: String, expected: ToolCallState, actual: ToolCallState)
     case missingExecutionIntent(String)
     case invalidStoredExecutionIntent(String)
@@ -20,15 +21,17 @@ enum ToolRuntimeError: Error, Equatable, Sendable {
 /// The runtime deliberately keeps the dispatch marker and executor call as two
 /// separate operations. `markToolCallDispatched` commits before `execute` is entered;
 /// a crash after that commit is therefore recovered as uncertain rather than retried.
-/// S6-02 validates frozen semantics and compatibility. The full Effective Policy,
-/// grants and system permission authority are integrated in the later S6-04 slice.
+/// The original frozen payload, policy admission and current grants are checked
+/// at the transactional dispatch boundary. System-consent wiring remains S6-04b.
 final class ToolRuntime: @unchecked Sendable {
     private let store: PersistenceStore
     private let registry: ToolRegistry
+    private let safetyCap: ToolPolicySafetyCap
 
-    init(store: PersistenceStore, registry: ToolRegistry) {
+    init(store: PersistenceStore, registry: ToolRegistry, safetyCap: ToolPolicySafetyCap = .unrestricted) {
         self.store = store
         self.registry = registry
+        self.safetyCap = safetyCap
     }
 
     /// Completes one provider tool call through validation, frozen intent persistence,
@@ -87,9 +90,7 @@ final class ToolRuntime: @unchecked Sendable {
         }
 
         let intentJSON = try encode(intent)
-        let state: ToolCallState = descriptor.approvalRequirement == .required
-            ? .waitingForApproval
-            : .prepared
+        let state = ToolCallState.validated
         let call = ToolCallRecord(
             id: callID,
             agentRunID: agentRunID,
@@ -103,12 +104,14 @@ final class ToolRuntime: @unchecked Sendable {
             createdAt: now,
             updatedAt: now
         )
-        try store.createToolCall(call)
-
-        guard state == .prepared else {
-            return nil
+        try Task.checkCancellation()
+        let admitted = try store.createToolCallWithPolicy(call, descriptor: descriptor, safetyCap: safetyCap, at: now)
+        switch admitted.state {
+        case .prepared: return try await executePrepared(toolCallID: callID, at: now)
+        case .rejected: return try storedResult(for: admitted.id)
+        case .notExecuted: throw CancellationError()
+        default: return nil
         }
-        return try await executePrepared(toolCallID: callID, at: now)
     }
 
     /// Converts an unavailable provider call into a durable model-visible rejection.
@@ -233,8 +236,19 @@ final class ToolRuntime: @unchecked Sendable {
     /// Records approval on the existing waiting call. Execution is intentionally a
     /// separate operation so approval presentation cannot accidentally cross the
     /// durable-dispatch boundary.
-    func approve(toolCallID: String) throws {
-        try store.approveToolCall(id: toolCallID)
+    func approve(toolCallID: String, displayedIntentBinding: String? = nil) throws {
+        if try validatePendingIntent(toolCallID: toolCallID, requireAdmission: false) != nil { return }
+        let call = try requiredToolCall(id: toolCallID)
+        guard let json = call.executionIntent,
+              let intent = try? ToolIntentCodec.decodeForDisplay(json),
+              let descriptor = registry.executor(id: intent.toolID)?.descriptor else {
+            throw ToolRuntimeError.missingExecutionIntent(toolCallID)
+        }
+        let approved = try store.approveToolCallWithPolicy(id: call.id, expectedAttempt: call.attempt,
+            descriptor: descriptor, safetyCap: safetyCap, checkedIntentBinding: ToolIntentBinding.make(json),
+            displayedIntentBinding: displayedIntentBinding, at: Date())
+        if approved.state == .waitingForApproval { throw ToolRuntimeError.approvalRequired(call.id) }
+        if approved.state == .notExecuted { throw CancellationError() }
     }
 
     /// Rejects the waiting call and stores the model-visible rejection as its result.
@@ -267,6 +281,7 @@ final class ToolRuntime: @unchecked Sendable {
             )
         }
         if let rejection = try validatePendingIntent(toolCallID: call.id, at: now) { return rejection }
+        try requireExecutablePendingCall(call.id)
         try store.markToolCallPrepared(id: toolCallID, at: now)
         return try await executePrepared(toolCallID: toolCallID, at: now)
     }
@@ -286,6 +301,7 @@ final class ToolRuntime: @unchecked Sendable {
             )
         }
         if let rejection = try validatePendingIntent(toolCallID: call.id, at: now) { return rejection }
+        try requireExecutablePendingCall(call.id)
         guard let executionIntent = call.executionIntent else {
             throw ToolRuntimeError.missingExecutionIntent(toolCallID)
         }
@@ -302,8 +318,19 @@ final class ToolRuntime: @unchecked Sendable {
             throw ToolExecutionError.invalidIntent
         }
 
-        // This write must complete before the executor is entered.
-        try store.markToolCallDispatched(id: toolCallID, at: now)
+        try Task.checkCancellation()
+        // Current authority and the original attempt commit together. The exact
+        // JSON this checkpoint authorizes is the payload passed to execute below.
+        let dispatched = try store.dispatchToolCallWithPolicy(id: call.id, expectedAttempt: call.attempt,
+            descriptor: executor.descriptor, safetyCap: safetyCap,
+            checkedIntentBinding: ToolIntentBinding.make(executionIntent), at: now)
+        switch dispatched.state {
+        case .dispatched: break
+        case .rejected: return try storedResult(for: call.id)
+        case .notExecuted: throw CancellationError()
+        case .waitingForApproval: throw ToolRuntimeError.approvalRequired(call.id)
+        default: throw ToolRuntimeError.invalidToolCallState(id: call.id, expected: .dispatched, actual: dispatched.state)
+        }
 
         let executionResult: ToolExecutionResult
         do {
@@ -359,30 +386,54 @@ final class ToolRuntime: @unchecked Sendable {
 
     /// Cold recovery and dispatch share this check. Terminal calls are historical
     /// results, while dispatched calls remain owned by uncertain-outcome recovery.
-    func validatePendingIntent(toolCallID: String, at now: Date = Date()) throws -> ToolExecutionResult? {
+    func validatePendingIntent(toolCallID: String, at now: Date = Date(),
+                               requireAdmission: Bool = true) throws -> ToolExecutionResult? {
         let call = try requiredToolCall(id: toolCallID)
         guard [ToolCallState.validated, .waitingForApproval, .approved, .prepared].contains(call.state) else { return nil }
-        let failure: ToolIntentFailure
+        let descriptor: ToolDescriptor
         do {
             guard let json = call.executionIntent else { throw ToolIntentFailure.malformedIntent }
             let intent = try ToolIntentCodec.decodeForDisplay(json)
             guard let executor = registry.executor(id: intent.toolID),
                   ToolPolicyIdentity.equals(call.action, intent.toolID)
             else { throw ToolIntentFailure.descriptorChanged }
-            try ToolIntentCodec.validate(intent, descriptor: executor.descriptor)
+            descriptor = executor.descriptor
+            try ToolIntentCodec.validate(intent, descriptor: descriptor)
             try executor.validateDependencies(intent)
-            return nil
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            failure = (error as? ToolIntentFailure) ?? .dependenciesChanged
+            let failure = (error as? ToolIntentFailure) ?? .dependenciesChanged
+            let reason: ToolCallFailureReason = switch failure {
+            case .descriptorChanged, .actionChanged, .legacyIntentRequiresReapproval, .unsupportedVersion:
+                .reapprovalNeeded
+            default: .dependencyChanged
+            }
+            let result = ToolExecutionResult(content: failure.resultContent)
+            try store.rejectUndispatchedToolCall(id: call.id, expectedAttempt: call.attempt,
+                result: ToolResultRecord(toolCallID: call.id, payload: result.content, createdAt: now),
+                at: now, failureReason: reason)
+            return result
         }
-        let result = ToolExecutionResult(content: failure.resultContent)
-        try store.rejectUndispatchedToolCall(
-            id: call.id, expectedAttempt: call.attempt,
-            result: ToolResultRecord(toolCallID: call.id, payload: result.content, createdAt: now), at: now
-        )
-        return result
+        if requireAdmission, let json = call.executionIntent {
+            let reconciled = try store.reconcileToolCallPolicy(id: call.id, expectedAttempt: call.attempt,
+                descriptor: descriptor, safetyCap: safetyCap, checkedIntentBinding: ToolIntentBinding.make(json), at: now)
+            if reconciled.state == .rejected { return try storedResult(for: call.id) }
+        }
+        return nil
+    }
+
+    private func requireExecutablePendingCall(_ id: String) throws {
+        let call = try requiredToolCall(id: id)
+        if call.state == .waitingForApproval { throw ToolRuntimeError.approvalRequired(id) }
+        if call.state == .notExecuted { throw CancellationError() }
+    }
+
+    private func storedResult(for id: String) throws -> ToolExecutionResult {
+        guard let result = try store.toolResult(toolCallID: id) else {
+            throw ToolRuntimeError.invalidStoredExecutionIntent(id)
+        }
+        return ToolExecutionResult(content: result.payload)
     }
 
     private func encode(_ intent: ToolExecutionIntent) throws -> String {

@@ -180,7 +180,7 @@ struct AppColdStartRecoveryTests {
         #expect((await ledger.requestsSnapshot()).isEmpty)
     }
 
-    @Test("prepared or settled tool batch continues the same run after disk reopen", arguments: [false, true])
+    @Test("authorized prepared or settled tool batch continues the same run after disk reopen", arguments: [false, true])
     func completedToolBatchContinuesOnce(alreadySettled: Bool) async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("zen-tool-continuation-\(UUID().uuidString).sqlite")
@@ -253,7 +253,7 @@ struct AppColdStartRecoveryTests {
                 to: .executingTools
             )
             let intent = try tool.prepare(callID: callID, argumentsJSON: "{}")
-            try first.store.createToolCall(ToolCallRecord(
+            let pending = ToolCallRecord(
                 id: callID,
                 agentRunID: runID,
                 action: descriptor.id,
@@ -265,7 +265,13 @@ struct AppColdStartRecoveryTests {
                 batchSequence: 0,
                 createdAt: Fixtures.epoch,
                 updatedAt: Fixtures.epoch
-            ))
+            )
+            _ = try first.store.createToolCallWithPolicy(pending, descriptor: descriptor,
+                safetyCap: .unrestricted, at: Fixtures.epoch)
+            let authorizer = ToolRuntime(store: first.store, registry: try ToolRegistry(tools: [tool]))
+            try authorizer.approve(toolCallID: callID,
+                displayedIntentBinding: ToolIntentBinding.make(try #require(pending.executionIntent)))
+            try first.store.markToolCallPrepared(id: callID, at: Fixtures.epoch)
             if alreadySettled {
                 try first.store.markToolCallDispatched(id: callID)
                 let result = try await tool.execute(intent, idempotencyKey: callID)
@@ -308,7 +314,7 @@ struct AppColdStartRecoveryTests {
         )
         let report = try await runtime.reconcileColdStartRuns()
         #expect(report.continuedRunIDs == [runID])
-        try await runtime.waitForCompletion(runID: runID)
+        try await Fixtures.awaitRuntimeCompletion(in: reopened, runtime: runtime, runID: runID)
         #expect(try reopened.run(id: runID)?.state == .completed)
         #expect(try reopened.toolCall(id: callID)?.state == .succeeded)
         #expect(try reopened.steps(inRun: runID).count == 2)
@@ -547,7 +553,7 @@ struct AppColdStartRecoveryTests {
             backend.unreadableReferences.remove("cred-1")
             let retry = try await runtime.retryColdStartRecovery()
             #expect(retry.continuedRunIDs == [runID])
-            try await runtime.waitForCompletion(runID: runID)
+            try await Fixtures.awaitRuntimeCompletion(in: reopened, runtime: runtime, runID: runID)
             #expect(try reopened.run(id: runID)?.state == .completed)
             #expect((await ledger.requestsSnapshot()).count == 1)
         } else {
@@ -647,7 +653,11 @@ struct AppColdStartRecoveryTests {
                 updatedAt: Fixtures.epoch
             ))
             if scenario == .approveBeforeReopen {
-                try first.store.approveToolCall(id: callID)
+                // A state flag is not an approval. Persist the real original-call
+                // grant before simulating process loss.
+                let authorizer = ToolRuntime(store: first.store, registry: try ToolRegistry(tools: [tool]))
+                let saved = try #require(try first.store.toolCall(id: callID)?.executionIntent)
+                try authorizer.approve(toolCallID: callID, displayedIntentBinding: ToolIntentBinding.make(saved))
             }
         }
 
@@ -683,7 +693,7 @@ struct AppColdStartRecoveryTests {
                 for: scenario == .rejectAfterReopen ? .rejectOnce : .approveOnce
             ))
         }
-        try await runtime.waitForCompletion(runID: runID)
+        try await Fixtures.awaitRuntimeCompletion(in: reopened, runtime: runtime, runID: runID)
 
         #expect(try reopened.toolCall(id: callID)?.state == (
             scenario == .rejectAfterReopen ? .rejected : .succeeded
