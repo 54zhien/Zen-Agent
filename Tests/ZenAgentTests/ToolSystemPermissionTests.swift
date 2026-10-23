@@ -83,6 +83,51 @@ struct ToolSystemPermissionTests {
         #expect(await f.driver.executions == 0)
     }
 
+    @Test func explicitConversationScopeSurvivesOneCallButNotAnotherSubject() async throws {
+        let f = try SystemPermissionFixture(status: .notRequired, policy: .askEveryTime)
+        _ = try await f.complete()
+        let call = try f.call()
+        try f.runtime.approve(toolCallID: call.id, scope: .conversation)
+        let issued = try #require(try f.store.toolGrants(subject: .parentConversation("c")).first)
+        #expect(issued.grant.kind == .conversation)
+        #expect(issued.grant.issuedFor?.toolCallID == call.id)
+        #expect(issued.grant.resource == .notRequired && issued.grant.destination == .notRequired)
+        _ = try await f.runtime.executeApproved(toolCallID: call.id)
+        #expect(try f.store.toolGrant(id: issued.id)?.validity == .active)
+        #expect(try await f.runtime.complete(agentRunID: "r", providerCallID: "next", toolID: "system_probe",
+            argumentsJSON: "{}", batchID: "b", batchSequence: 1)?.content == "permission-result")
+        try f.store.commitUserTurnAndCreateParentRun(Fixtures.send(conversationID: "other", messageID: "m2", runID: "r2", runState: .executingTools))
+        #expect(try await f.runtime.complete(agentRunID: "r2", providerCallID: "pc2", toolID: "system_probe",
+            argumentsJSON: "{}", batchID: "b2", batchSequence: 0) == nil)
+        #expect(try f.store.toolCalls(inRun: "r2").first?.state == .waitingForApproval)
+        #expect(await f.driver.executions == 2)
+    }
+
+    @Test func deniedPolicyCannotIssueConversationGrant() async throws {
+        let f = try SystemPermissionFixture(status: .notRequired, policy: .askEveryTime)
+        _ = try await f.complete()
+        let call = try f.call()
+        try f.store.setToolPolicy(toolID: "system_probe", actionID: "probe", descriptorRevision: "1", mode: .deny)
+        try f.runtime.approve(toolCallID: call.id, scope: .conversation)
+        #expect(try f.call().state == .rejected)
+        #expect(try f.store.toolGrants(subject: .parentConversation("c")).isEmpty)
+        #expect(await f.driver.executions == 0)
+    }
+
+    @Test func conversationRevocationRequiresOriginalNewCallApproval() async throws {
+        let f = try SystemPermissionFixture(status: .notRequired, policy: .askEveryTime)
+        _ = try await f.complete()
+        let call = try f.call()
+        try f.runtime.approve(toolCallID: call.id, scope: .conversation)
+        _ = try await f.runtime.executeApproved(toolCallID: call.id)
+        let grant = try #require(try f.store.toolGrants(subject: .parentConversation("c")).first)
+        try #require(try f.store.revokeToolGrant(id: grant.id))
+        #expect(try await f.runtime.complete(agentRunID: "r", providerCallID: "later", toolID: "system_probe",
+            argumentsJSON: "{}", batchID: "b", batchSequence: 1) == nil)
+        #expect(try f.store.toolCalls(inRun: "r").filter { $0.state == .waitingForApproval }.count == 1)
+        #expect(await f.driver.executions == 1)
+    }
+
     @Test func settingsTighteningBlocksSystemRequestFromOldCard() async throws {
         let f = try SystemPermissionFixture(status: .notDetermined)
         _ = try await f.complete()

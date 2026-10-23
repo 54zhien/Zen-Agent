@@ -25,3 +25,16 @@ extension ToolRuntime {
         throw ToolSystemPermissionError.unavailable
     }
 }
+
+/// Explicit runtime choice; persistent policy remains a separate Settings concern.
+enum ToolApprovalScope: Sendable { case once, conversation }
+
+extension ToolRuntime {
+    func approve(toolCallID: String, displayedIntentBinding: String? = nil,
+                 scope: ToolApprovalScope) throws {
+        switch scope {
+        case .once: try approve(toolCallID: toolCallID, displayedIntentBinding: displayedIntentBinding)
+        case .conversation: throw ToolSystemPermissionError.unavailable
+        }
+    }
+}
