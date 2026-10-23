@@ -62,6 +62,24 @@ struct ToolSettingsTests {
         #expect(try f.store.toolResult(toolCallID: call.id) == nil)
     }
 
+    @Test(arguments: [true, false])
+    func invalidationCauseComesFromTheOwningTransaction(policy: Bool) async throws {
+        let f = try ToolSettingsFixture()
+        let call = try await f.waitingCall()
+        try f.runtime.approve(toolCallID: call.id, displayedIntentBinding: ToolIntentBinding.make(try #require(call.executionIntent)), scope: .conversation)
+        if policy {
+            try f.store.setToolPolicy(toolID: "calculator", actionID: "calculator", descriptorRevision: "1", mode: .deny)
+        } else {
+            try f.store.transitionRun(id: "r", expectedState: .executingTools, to: .failed, endReason: .providerFailed)
+            try f.store.beginDeletion(conversationID: "c")
+        }
+        let model = ToolSettingsModel(store: f.store, registry: f.registry)
+        await model.load()
+        let grant = try #require(model.grants.first)
+        #expect(grant.grant.validity == .revoked)
+        #expect(grant.invalidationReason?.contains(policy ? "策略" : "主体") == true)
+    }
+
     @Test func unavailableExecutorCannotBePresentedAsCallableButOldGrantsStayRevocable() async throws {
         let f = try ToolSettingsFixture()
         let call = try await f.waitingCall()
