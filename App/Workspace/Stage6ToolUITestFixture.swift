@@ -9,12 +9,12 @@ struct Stage6ToolUITestFixture: View {
     @State private var model: AppShellModel
     @State private var observer: Stage6ToolUIObserver
     @State private var opened = false
-    private let store: PersistenceStore
+    @State private var store: PersistenceStore
 
     init() {
         do {
             let store = PersistenceStore(database: try ZenDatabase.inMemory())
-            self.store = store
+            _store = State(initialValue: store)
             let credentials = CredentialStore(secrets: Stage6UISecrets(), metadataRepository: store)
             let reference = CredentialReference(id: "stage6-ui-key")
             try credentials.provision(SecretValue("stage6-ui-fixture-secret"), as: reference)
@@ -41,12 +41,13 @@ struct Stage6ToolUITestFixture: View {
             let arguments = system ? "{}" : try ToolArgumentJSON.normalizedObject(["assetID": file.assetID])
             let provider = Stage6UIProvider(base: FakeProvider(capabilities: [.text, .streaming, .tools]),
                 toolName: system ? "stage6_system" : "files",
-                arguments: arguments)
+                arguments: arguments, observer: observer)
             let router = RunEventRouter()
             let runtime = ConversationRuntime(store: store, provider: provider, credentials: credentials,
                 onEvent: { [weak router, weak observer] event in
+                    await observer?.observe(event, routed: false)
                     await router?.handle(event)
-                    await observer?.observe(event)
+                    await observer?.observe(event, routed: true)
                 }, registerRecoveredRun: { [weak router] runID, conversationID in
                     await router?.registerRecoveredRun(runID: runID, conversationID: conversationID)
                 }, toolRegistry: registry, managedFileStore: files)
@@ -84,8 +85,9 @@ struct Stage6ToolUITestFixture: View {
             try store.toolCalls(inRun: $0.id)
         }) ?? []
         let call = calls.last
+        let runs = (try? store.runs(inConversation: "stage6-conversation")) ?? []
         let grants = (try? store.toolGrants(subject: .parentConversation("stage6-conversation"))) ?? []
-        return "state=\(call?.state.rawValue ?? "none");failure=\(call?.failureReason?.rawValue ?? "none");requests=\(observer.requests);executions=\(observer.executions);activeGrants=\(grants.filter { $0.grant.validity == .active }.count)"
+        return "state=\(call?.state.rawValue ?? "none");failure=\(call?.failureReason?.rawValue ?? "none");requests=\(observer.requests);executions=\(observer.executions);activeGrants=\(grants.filter { $0.grant.validity == .active }.count);run=\(runs.last?.state.rawValue ?? "none");event=\(observer.lastEvent);providerRequests=\(observer.providerRequests)"
     }
 }
 
@@ -94,8 +96,14 @@ private final class Stage6ToolUIObserver {
     var revision = 0
     var requests = 0
     var executions = 0
+    var providerRequests = 0
+    var lastEvent = "none"
     var status: ToolSystemPermissionState = .notDetermined
-    func observe(_ event: AgentEvent) { revision += 1 }
+    func observe(_ event: AgentEvent, routed: Bool) {
+        lastEvent = "\(String(describing: event)):\(routed ? "routed" : "routing")"
+        revision += 1
+    }
+    func providerRequested() { providerRequests += 1 }
     func request() { requests += 1; status = .authorized }
     func execute() { executions += 1 }
 }
@@ -130,6 +138,7 @@ private struct Stage6UIProvider: ModelProvider {
     let base: FakeProvider
     let toolName: String
     let arguments: String
+    let observer: Stage6ToolUIObserver
     var id: ProviderID { base.id }
     var adapterRevision: String { base.adapterRevision }
     var adapterPromptInstructions: String { base.adapterPromptInstructions }
@@ -142,6 +151,7 @@ private struct Stage6UIProvider: ModelProvider {
             resolvedEndpoint: URL(string: "https://stage6-provider.invalid/chat/completions")!)
     }
     func stream(_ request: ProviderChatRequest, seed: RequestConfigSeed, credentials: any CredentialStoring) async throws -> AsyncThrowingStream<ProviderStreamEvent, Error> {
+        await observer.providerRequested()
         let continued = request.messages.contains { if case .toolResult = $0 { return true }; return false }
         return AsyncThrowingStream { continuation in
             if continued { continuation.yield(.textDelta("stage6-continued")); continuation.yield(.finish(.stop)) }

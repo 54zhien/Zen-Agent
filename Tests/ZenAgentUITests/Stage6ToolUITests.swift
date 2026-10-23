@@ -103,8 +103,8 @@ final class Stage6ToolUITests: XCTestCase {
         let send = app.buttons["conversation-composer-send"]
         guard waitEnabled(send) else { XCTFail("Production Composer bridge must be ready"); return false }
         send.tap()
-        guard app.otherElements["tool-approval-card"].waitForExistence(timeout: 15) else {
-            XCTFail("Real Runtime must publish an approval card"); return false
+        guard app.descendants(matching: .any)["tool-approval-card"].waitForExistence(timeout: 15) else {
+            XCTFail("Real Runtime must publish an approval card: \(app.staticTexts["stage6-tool-observation"].label)"); return false
         }
         return true
     }
@@ -113,7 +113,7 @@ final class Stage6ToolUITests: XCTestCase {
     private func tapDecision(_ title: String, app: XCUIApplication) -> Bool {
         let button = app.buttons[title]
         guard button.waitForExistence(timeout: 5) else { XCTFail("Missing decision: \(title)"); return false }
-        let card = app.otherElements["tool-approval-card"]
+        let card = app.descendants(matching: .any)["tool-approval-card"]
         for _ in 0..<8 where !button.isHittable { card.swipeUp() }
         guard button.isHittable else { XCTFail("Decision must be reachable: \(title)"); return false }
         button.tap()
