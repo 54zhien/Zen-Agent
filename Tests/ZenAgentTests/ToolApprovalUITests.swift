@@ -451,8 +451,8 @@ struct ToolApprovalUITests {
         try await stopIfActive(pair.second, in: environment.store)
     }
 
-    @Test("systemPermissionWaitDoesNotShowToolApproval")
-    func systemPermissionWaitDoesNotShowToolApproval() async throws {
+    @Test("systemPermissionWaitProjectsDistinctCardWithoutToolGrant")
+    func systemPermissionWaitProjectsDistinctCardWithoutToolGrant() async throws {
         let environment = try makeEnvironment()
         let call = try makePersistedApproval(
             in: environment,
@@ -474,8 +474,12 @@ struct ToolApprovalUITests {
         liveStore.reconcilePendingToolApprovals(approvals)
 
         #expect(rebuiltRuns.isEmpty)
-        #expect(approvals.isEmpty)
-        #expect(liveStore.state.pendingToolApprovals.isEmpty)
+        #expect(approvals.count == 1)
+        let systemCard = try #require(approvals.first)
+        #expect(systemCard.kind == .systemPermission)
+        #expect(!systemCard.availableDecisions.contains(.approveOnce))
+        #expect(!systemCard.availableDecisions.contains(.approveConversation))
+        #expect(liveStore.state.pendingToolApprovals == approvals)
         #expect(liveStore.state.timeline.turns == [turn])
         #expect(try environment.store.toolCall(id: call.id)?.state == .waitingForSystemPermissionConsent)
     }
