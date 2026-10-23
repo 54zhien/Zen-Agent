@@ -242,7 +242,7 @@ struct ToolPolicyActionMetadata: Codable, Sendable, Equatable {
     }
 }
 
-enum ToolPersistentPolicy: Sendable, Equatable {
+enum ToolPersistentPolicy: Sendable, Hashable {
     case alwaysAllow, askEveryTime, deny
 }
 

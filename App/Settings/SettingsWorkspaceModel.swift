@@ -14,6 +14,7 @@ final class SettingsWorkspaceModel {
     let appearance: AppearanceSettings
     let menus: ModelMenuPreferences
     let soul: SoulSettingsModel
+    let tools: ToolSettingsModel
     let storage: SettingsStorageModel?
     private(set) var catalog: [SettingsProviderCatalog] = []
     private(set) var defaultTarget: AppExecutionTarget?
@@ -39,6 +40,8 @@ final class SettingsWorkspaceModel {
     init(store: PersistenceStore, credentials: any CredentialStoring, provider: any ModelProvider,
          defaults: UserDefaults, appearance: AppearanceSettings, menus: ModelMenuPreferences,
          files: ManagedFileStore?,
+         toolRegistry: ToolRegistry = .empty,
+         toolSafetyCap: ToolPolicySafetyCap = .unrestricted,
          onConfigure: (@MainActor (AppExecutionTarget) throws -> Bool)? = nil,
          onProviderCommitted: @escaping @MainActor (ProviderInstanceID) async -> Void = { _ in },
          onDefault: @escaping (AppExecutionTarget, Bool) -> Void) {
@@ -47,6 +50,7 @@ final class SettingsWorkspaceModel {
         self.onProviderCommitted = onProviderCommitted
         self.onConfigure = onConfigure
         soul = SoulSettingsModel(store: store)
+        tools = ToolSettingsModel(store: store, registry: toolRegistry, safetyCap: toolSafetyCap)
         storage = files.map { SettingsStorageModel(store: store, files: $0) }
         if let instance = defaults.string(forKey: AppShellModel.defaultInstanceIDKey),
            let model = defaults.string(forKey: AppShellModel.defaultModelIDKey) {
@@ -164,6 +168,6 @@ final class SettingsWorkspaceModel {
     func invalidate() {
         active = false; selection &+= 1; isSelectingDefault = false
         configurationSelection &+= 1; isConfiguringConversation = false
-        soul.invalidate(); storage?.invalidate()
+        soul.invalidate(); tools.invalidate(); storage?.invalidate()
     }
 }
