@@ -7,6 +7,90 @@ import Testing
 @Suite("Managed Files Tool writes")
 @MainActor
 struct FilesToolWriteTests {
+    @Test(arguments: [true, false])
+    func committedFileEffectSurvivesResultPublicationFailure(shortCredential: Bool) async throws {
+        let base = try I05RuntimeTestFixtures.makeFixture()
+        let backend = InMemorySecretBackend()
+        let reference = try #require(base.instance.credentialReference)
+        let credentials = CredentialStore(secrets: backend, metadataRepository: base.store)
+        try credentials.provision(SecretValue(shortCredential ? "tool" : "completion-fixture-key"), as: reference)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = ManagedFileStore(applicationSupportRoot: root, protectionRequirement: .bestEffort,
+            temporaryFileObserver: { _, phase in
+                if !shortCredential, phase == .protectedAfterWrite {
+                    backend.unreadableReferences.insert(reference.id)
+                }
+            })
+        let sessions = ConversationSessionStore()
+        let registry = try ToolRegistry(tools: [FilesTool(files: files, store: base.store, sessions: sessions)])
+        let ledger = I07ProviderLedger()
+        let provider = I07ScriptedProvider(ledger: ledger, instanceID: base.instance.id, scripts: [
+            [.toolCall(.init(id: "publication-create", index: 0, name: "files",
+                argumentsJSON: #"{"action":"create","displayName":"completed.txt","content":"committed bytes"}"#)), .finish(.toolCalls)],
+            [.textDelta("continued"), .finish(.stop)]
+        ], store: base.store, conversationID: I05RuntimeTestFixtures.conversationID)
+        let runtime = ConversationRuntime(store: base.store, provider: provider, credentials: credentials,
+            toolRegistry: registry, managedFileStore: files)
+        let runID = try await runtime.start(I05RuntimeTestFixtures.command())
+        do {
+            var card: ToolApprovalProjection?
+            for _ in 0..<1000 {
+                card = try await runtime.pendingToolApprovals(in: I05RuntimeTestFixtures.conversationID).first
+                if card != nil { break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            let approval = try #require(card)
+            try await runtime.resolveToolApproval(approval.request(for: .approveOnce))
+            try await Fixtures.awaitRuntimeCompletion(in: base.store, runtime: runtime, runID: runID)
+            let call = try #require(try base.store.toolCall(id: approval.toolCallID))
+            let result = try #require(try base.store.toolResult(toolCallID: call.id))
+            #expect(call.state == .succeeded)
+            #expect(result.failureCode == nil)
+            #expect(result.payload.contains(#""execution":"completed""#))
+            #expect(result.payload.contains(#""result":"withheld""#))
+            let receipt = try #require(try base.store.toolFileOperation(callID: call.id, attempt: call.attempt,
+                intentBinding: ToolIntentBinding.make(try #require(call.executionIntent))))
+            #expect(try base.store.fileAsset(id: receipt.assetID)?.currentVersionID == receipt.versionID)
+            #expect(try Data(contentsOf: files.blobURL(forFingerprint: receipt.fingerprint)) == Data("committed bytes".utf8))
+            #expect(try base.store.database.read { try Int.fetchOne($0, sql: "SELECT count(*) FROM fileAsset") } == 1)
+            let requests = await ledger.requestsSnapshot()
+            let returned = requests.last?.messages.compactMap { message -> String? in
+                if case .toolResult(_, let content) = message { return content }; return nil
+            }
+            #expect(requests.count == 2)
+            #expect(returned == [result.payload])
+        } catch {
+            try? await runtime.stop(runID: runID)
+            try? await Fixtures.awaitRuntimeCompletion(in: base.store, runtime: runtime, runID: runID)
+            throw error
+        }
+    }
+
+    @Test(arguments: [true, false])
+    func recoveryConfirmsCommittedReceiptWhenResultCannotBePublished(shortCredential: Bool) async throws {
+        let f = try FileWriteFixture()
+        defer { f.cleanUp() }
+        let backend = InMemorySecretBackend()
+        let credentials = CredentialStore(secrets: backend, metadataRepository: f.store)
+        let reference = try #require(try f.store.run(id: "r")).requestConfigSeed.credentialBinding.reference
+        try credentials.provision(SecretValue(shortCredential ? "tool" : "completion-fixture-key"), as: reference)
+        let runtime = try ToolRuntime(store: f.store, registry: ToolRegistry(tools: [f.tool]), credentials: credentials)
+        let call = try await f.prepare(["action": "create", "displayName": "recovered.txt", "content": "receipt bytes"])
+        try f.approve(call)
+        let json = try #require(call.executionIntent)
+        try f.store.markToolCallPrepared(id: call.id)
+        _ = try f.store.dispatchToolCallWithPolicy(id: call.id, expectedAttempt: call.attempt,
+            descriptor: f.tool.descriptor, safetyCap: .unrestricted, checkedIntentBinding: ToolIntentBinding.make(json), at: Date())
+        _ = try await f.tool.execute(ToolIntentCodec.decodeForDisplay(json), idempotencyKey: call.id)
+        if !shortCredential { backend.unreadableReferences.insert(reference.id) }
+        try await RunRecovery(store: f.store, toolRuntime: runtime).recover(runID: "r")
+        #expect(try f.store.toolCall(id: call.id)?.state == .succeeded)
+        #expect(try f.store.toolResult(toolCallID: call.id)?.payload.contains(#""execution":"completed""#) == true)
+        #expect(try f.store.database.read { try Int.fetchOne($0, sql: "SELECT count(*) FROM fileAsset") } == 1)
+        #expect(try runtime.confirmToolOutcome(toolCallID: call.id) == false)
+    }
+
     @Test func fileExecutorDoesNotOwnItsPresentationSessionStore() throws {
         let f = try FileWriteFixture()
         defer { f.cleanUp() }

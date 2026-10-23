@@ -5,6 +5,30 @@ import Testing
 
 @Suite("Tool result guard")
 struct ToolResultGuardTests {
+    @Test(arguments: [
+        #"{"password":"prefix\"remaining-secret","safe":"normal"}"#,
+        #"{"nested":[{"api_key":"first\"remaining-secret"}],"safe":"normal"}"#,
+        #"{"pass\u0077ord":"remaining-secret","safe":"normal"}"#
+    ])
+    func structuredCredentialFieldsAreRedactedSemantically(content: String) throws {
+        let result = ToolResultGuard.sanitize(.init(content: content), knownSecrets: [])
+        #expect(!result.content.contains("remaining-secret"))
+        #expect(result.content.contains("normal"))
+        _ = try JSONSerialization.jsonObject(with: Data(result.content.utf8))
+    }
+
+    @Test(arguments: [
+        #"{"data":"\u0061bcdefgh"}"#,
+        #"{"nested":[{"data":"\u0061\u0062cdefgh"}]}"#,
+        #""\u0061bcdefgh""#
+    ])
+    func unicodeEscapedKnownSecretsAreRemovedBeforeJSONCanDecodeThem(content: String) throws {
+        let result = ToolResultGuard.sanitize(.init(content: content), knownSecrets: [SecretValue("abcdefgh")])
+        let decoded = try JSONSerialization.jsonObject(with: Data(result.content.utf8), options: [.fragmentsAllowed])
+        #expect(!String(describing: decoded).contains("abcdefgh"))
+        #expect(result.content.contains("[REDACTED]"))
+    }
+
     @Test func redactionCannotRewriteAReferenceIdentity() throws {
         let content = try ToolArgumentJSON.normalizedObject(["kind": "managedFile", "assetID": "tool-call",
             "versionID": "tool-version-call", "fingerprint": "sha256:" + String(repeating: "0", count: 64), "reason": "create"])

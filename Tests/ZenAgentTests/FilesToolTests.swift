@@ -113,6 +113,50 @@ struct FilesToolTests {
         }
     }
 
+    @Test func escapedJSONFileCredentialsNeverReachPersistenceOrProvider() async throws {
+        let f = try I05RuntimeTestFixtures.makeFixture()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = ManagedFileStore(applicationSupportRoot: root, protectionRequirement: .bestEffort)
+        let body = #"{"data":"\u006905-test-secret","nested":[{"password":"prefix\"remaining-secret"}]}"#
+        let file = try files.ingest(data: Data(body.utf8), displayName: "escaped.json", in: f.store)
+        let registry = try ToolRegistry(tools: [FilesTool(files: files, store: f.store)])
+        let ledger = I07ProviderLedger()
+        let provider = I07ScriptedProvider(ledger: ledger, instanceID: f.instance.id, scripts: [
+            [.toolCall(.init(id: "escaped-file", index: 0, name: "files",
+                argumentsJSON: try ToolArgumentJSON.normalizedObject(["assetID": file.assetID]))), .finish(.toolCalls)],
+            [.textDelta("continued"), .finish(.stop)]
+        ], store: f.store, conversationID: I05RuntimeTestFixtures.conversationID)
+        let runtime = ConversationRuntime(store: f.store, provider: provider, credentials: f.credentials,
+            toolRegistry: registry, managedFileStore: files)
+        let runID = try await runtime.start(I05RuntimeTestFixtures.command())
+        do {
+            var card: ToolApprovalProjection?
+            for _ in 0..<1000 {
+                card = try await runtime.pendingToolApprovals(in: I05RuntimeTestFixtures.conversationID).first
+                if card != nil { break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            let approval = try #require(card)
+            try await runtime.resolveToolApproval(approval.request(for: .approveOnce))
+            try await Fixtures.awaitRuntimeCompletion(in: f.store, runtime: runtime, runID: runID)
+            let payload = try #require(try f.store.toolResult(toolCallID: approval.toolCallID)).payload
+            #expect(!payload.contains("remaining-secret"))
+            let object = try ToolArgumentJSON.object(from: payload)
+            #expect(object["data"] as? String != "i05-test-secret")
+            let requests = await ledger.requestsSnapshot()
+            let returned = requests.last?.messages.compactMap { message -> String? in
+                if case .toolResult(_, let content) = message { return content }; return nil
+            }
+            #expect(requests.count == 2)
+            #expect(returned == [payload])
+        } catch {
+            try? await runtime.stop(runID: runID)
+            try? await Fixtures.awaitRuntimeCompletion(in: f.store, runtime: runtime, runID: runID)
+            throw error
+        }
+    }
+
     @Test(arguments: ["{\"path\":\"/etc/passwd\"}", "{\"assetID\":\"../escape\"}", "{\"assetID\":\"missing\",\"destination\":\"https://evil.invalid\"}"])
     func modelPathsAndDestinationsAreRejected(arguments: String) throws {
         let f = try FileToolFixture()
