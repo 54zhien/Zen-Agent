@@ -40,7 +40,9 @@ struct CurrentDateTool: ToolExecutable {
         return try ToolIntentCodec.freeze(
             descriptor: descriptor, actionID: Self.toolID,
             normalizedArgumentsJSON: "{}",
-            resource: .notRequired, destination: .notRequired
+            resource: .notRequired, destination: .notRequired,
+            approvalDisclosure: .init(toolDisplayName: descriptor.displayName, action: "读取当前日期",
+                targetDescription: "系统日期、时间与时区 \(timeZone.identifier)", keyImpact: "返回当前日期和时区，结果进入当前模型请求。")
         )
     }
 

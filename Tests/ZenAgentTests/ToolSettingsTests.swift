@@ -6,6 +6,16 @@ import Testing
 @Suite("Callable tool Settings")
 @MainActor
 struct ToolSettingsTests {
+    @Test func builtinsProvideCompleteFrozenApprovalDisclosure() throws {
+        let tools: [any ToolExecutable] = [CalculatorTool(), CurrentDateTool(),
+            DeviceInfoTool(snapshot: .init(osFamily: "iOS", osVersion: "26", deviceIdiom: "phone", genericModelClass: "phone"))]
+        for tool in tools {
+            let args = tool.descriptor.id == "calculator" ? "{\"expression\":\"1+1\"}" : "{}"
+            let intent = try tool.prepare(callID: "disclosure-control", argumentsJSON: args)
+            #expect(intent.approvalDisclosure?.isComplete == true)
+        }
+    }
+
     @Test func actualRegistryAndPersistentPolicyAreDisplayed() async throws {
         let f = try ToolSettingsFixture()
         let model = ToolSettingsModel(store: f.store, registry: f.registry)

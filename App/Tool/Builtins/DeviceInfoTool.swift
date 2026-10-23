@@ -85,7 +85,9 @@ struct DeviceInfoTool: ToolExecutable {
         return try ToolIntentCodec.freeze(
             descriptor: descriptor, actionID: Self.toolID,
             normalizedArgumentsJSON: "{}",
-            resource: .notRequired, destination: .notRequired
+            resource: .notRequired, destination: .notRequired,
+            approvalDisclosure: .init(toolDisplayName: descriptor.displayName, action: "读取设备概况",
+                targetDescription: "操作系统与通用设备类别（不含设备标识符）", keyImpact: "仅返回白名单内的系统与设备概况，结果进入当前模型请求。")
         )
     }
 
