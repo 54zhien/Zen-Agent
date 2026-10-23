@@ -29,6 +29,7 @@ Owner-approved Stage 5 supplement @ e6d8c5f9919a83672bea670bc7e49339e5f5373c
 Device feedback corrections @ 3b4b22c0df91be668406127c84c1822b359883c0
 Device glass and motion owner ruling @ 51b4dc33beec515c7d684d352060fbdeded1825e
 Stage 6 intent snapshot @ fffca086f4451a7bd0988959058ddcfe5eb6c13d
+Stage 7 Memory owner decisions @ b0662058d3e87bb200b677bc86cfad050b4315cb
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -43,6 +44,12 @@ draft/open/unmerged; it records the owner's Split Lift/Return, landscape and
 Sidebar rulings. Design conflicts are resolved upstream in the Blueprint and
 its `Design/ADR/`; engineering/tooling trade-offs belong to this repository's
 `Docs/ADR/`.
+
+The Stage 7 Memory decisions are [Blueprint PR #7](https://github.com/54zhien/Zen-Agent-Blueprint/pull/7),
+draft/open/unmerged: approved native Settings management, retained Memory with a
+source-missing marker after Conversation deletion, and device/iCloud system backup
+with the protected user database. They record the owner's decisions, not native
+or physical-device implementation acceptance.
 
 ## Status
 
@@ -73,6 +80,30 @@ tests and build inputs remain identical to the tested source. Merge identity/tre
 and post-merge CI are recorded on PR #41. The accepted UI checkout and draft
 [PR #37](https://github.com/54zhien/Zen-Agent/pull/37) remain separately parked.
 Earlier stability evidence remains in [the repair record](tasks/known-issues-stability.md).
+
+Stage 7 Memory's implementation/native gate is complete in draft
+[PR #42](https://github.com/54zhien/Zen-Agent/pull/42), based on PR #41's merge
+`49e77fb4eeaee7f4fad1b97b319d6b1de5cb991f`. Storage and user management, bounded
+retrieval with immutable references, and conservative local automatic formation
+are wired. The original, unmodified full
+[Phone/iPad gate](https://github.com/54zhien/Zen-Agent/actions/runs/39973149365)
+passed at source `e6cf31a92f8d9dea741a629fef68957d1c05e500`, tree
+`5791a1a17720cfee76c8b9c1f2d387372046b3ce`: 1,266 Swift tests in 200 suites,
+20 XCTest unit tests, 89 Phone UI passes plus one expected Pad-only skip, and
+one native Pad test passed separately. All four Memory UI cases passed.
+
+The single independent review's two Important findings have native RED-to-GREEN
+coverage through the real cold-start and formed-fact entry points; no review
+minors are deferred. Dark and largest-text light portrait/landscape captures
+were inspected. Both earlier full Phone failures, their native recordings,
+diagnostic limitations and subsequent corrections are preserved in the
+[Stage 7 evidence record](tasks/stage7-memory.md). Final route corrections
+change UI automation only; application code remains identical to `965d067`.
+
+The final receipt changes only this README, the Stage 7 evidence record and its
+implementation plan; application, tests and build inputs match the tested source.
+PR #42 and Blueprint decision PR #7 remain draft and unmerged. Physical-device
+protection/layout and long-term extraction-quality acceptance remain open.
 
 The following is the historical 2026-10-05 slice snapshot. Its individual PR
 states describe that date; use the current integration receipt above for main.

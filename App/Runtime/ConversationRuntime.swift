@@ -302,10 +302,12 @@ actor ConversationRuntime {
         let committedQuoteSnapshots: [String]
         let committedPromptHistory: [PromptHistoryMessage]
         let promptSections: PromptSystemSections
+        let relevantMemory: [MemoryContext]
         do {
             effectiveSoulVersion = try store.effectiveSoulVersion(
                 conversationID: command.conversationID
             )
+            relevantMemory = MemoryRuntime(store: store, credentials: credentials).retrieve(query: command.text)
             snapshot = RunExecutionSnapshot(
                 providerID: provider.id,
                 providerAdapterRevision: provider.adapterRevision,
@@ -313,7 +315,8 @@ actor ConversationRuntime {
                     runtimeSafetyBaseline: PromptTemplateCatalog.currentRuntimeSafetyRevision,
                     zenCore: PromptTemplateCatalog.currentZenCoreRevision,
                     providerAdapterInstructions: provider.adapterPromptInstructions,
-                    soulVersionID: effectiveSoulVersion?.id
+                    soulVersionID: effectiveSoulVersion?.id,
+                    memoryReferences: relevantMemory.map(\.reference)
                 ),
                 modelCapabilities: descriptor.capabilities,
                 exposedTools: descriptor.capabilities.contains(.tools) ? toolRegistry.descriptors.map {
@@ -362,6 +365,7 @@ actor ConversationRuntime {
             currentUserMessage: command.text,
             currentUserQuotedSnapshots: committedQuoteSnapshots,
             soulInstructions: effectiveSoulVersion?.instructions,
+            relevantMemories: relevantMemory.map(\.content),
             tools: snapshot.exposedTools.map {
                 ProviderToolDefinition(
                     name: $0.toolID,
@@ -453,6 +457,10 @@ actor ConversationRuntime {
                 guard let run = try store.run(id: runID), run.state.isActive else { continue }
                 conversationID = run.conversationID
                 await registerRecoveredRun(run.id, run.conversationID)
+                if try await settleErasedMemoryIfNeeded(run) {
+                    report.settledRunIDs.append(runID)
+                    continue
+                }
                 let outcome: (RunState, EndReason)?
                 switch run.state {
                 case .preparing:
@@ -639,6 +647,17 @@ actor ConversationRuntime {
                     endReason: outcome.1
                 )
                 report.settledRunIDs.append(runID)
+            } catch MemoryError.erasedDependency {
+                // Deletion may win after the preflight but before reconstruction.
+                // Route that race through the same owner, not a read-error retry.
+                do {
+                    guard let current = try store.run(id: runID),
+                          try await settleErasedMemoryIfNeeded(current) else { throw MemoryError.erasedDependency }
+                    report.settledRunIDs.append(runID)
+                } catch {
+                    issueCategory = .persistenceOrReadFailure
+                    report.failedRunIDs.append(runID)
+                }
             } catch {
                 if conversationID == nil {
                     // Reading the identity bypasses the potentially damaged seed.
@@ -650,6 +669,21 @@ actor ConversationRuntime {
             }
         }
         return report
+    }
+
+    private func settleErasedMemoryIfNeeded(_ run: AgentRunRecord) async throws -> Bool {
+        guard run.state.isActive else { return true }
+        var revoked = run.recoveryAction == .invalidate
+        if !revoked, let encoded = run.executionSnapshot,
+           let snapshot = try? ExecutionSnapshotCodec.decode(encoded) {
+            do { _ = try store.resolveMemoryReferences(snapshot.prompt.memoryReferences) }
+            catch MemoryError.erasedDependency { revoked = true }
+        }
+        guard revoked else { return false }
+        try store.invalidateMemoryRun(id: run.id)
+        try await agentRuntime.recoverInvalidatedMemoryRun(runID: run.id,
+            project: { event in try await self.applyAndPublish(event) })
+        return true
     }
 
     private func settleRecoveredRun(
@@ -1099,6 +1133,7 @@ actor ConversationRuntime {
             // caller-facing stream remains live; applying here would reintroduce
             // the terminal-state race that the acknowledgement boundary closes.
             for try await _ in stream { }
+            MemoryRuntime(store: store, credentials: credentials).formAfterCompletedRun(runID: runID)
         } catch let error as ConversationProjectionError {
             completionErrors[runID] = error
             await failCommittedRun(runID: runID)

@@ -86,6 +86,13 @@ struct AppAssembly {
                 at: supportDirectory,
                 withIntermediateDirectories: true
             )
+            // New SQLite sidecars inherit the same explicitly chosen protection.
+            // Memory shares User Data backup; this is not app cloud sync.
+            try UserDataFileProtection.apply(to: supportDirectory.path)
+            var backedUpDirectory = supportDirectory
+            var backupValues = URLResourceValues()
+            backupValues.isExcludedFromBackup = false
+            try backedUpDirectory.setResourceValues(backupValues)
             database = try ZenDatabase.open(
                 at: supportDirectory.appending(path: "ZenAgent.sqlite").path
             )

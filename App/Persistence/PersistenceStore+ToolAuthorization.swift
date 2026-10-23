@@ -56,8 +56,21 @@ extension PersistenceStore {
     static func authorizeToolCall(_ db: Database, call: ToolCallRecord, descriptor: ToolDescriptor,
         safetyCap: ToolPolicySafetyCap, checkedIntentBinding: String?,
         operation: ToolAuthorizationOperation, at now: Date) throws -> ToolCallRecord {
-        if try AgentRunRecord.fetchOne(db, key: call.agentRunID)?.state == .stopping {
+        let run = try AgentRunRecord.fetchOne(db, key: call.agentRunID)
+        if run?.state == .stopping {
             return try updateAuthorizationCall(db, call: call, state: .notExecuted, failure: nil, at: now)
+        }
+        do {
+            guard let run else { throw MemoryError.erasedDependency }
+            if run.recoveryAction == .invalidate { throw MemoryError.erasedDependency }
+            if let encoded = run.executionSnapshot {
+                let snapshot = try ExecutionSnapshotCodec.decode(encoded)
+                _ = try resolveMemoryReferences(snapshot.prompt.memoryReferences, db: db)
+            }
+        } catch {
+            // Final authority and exact Memory versions share the dispatch write.
+            // A previously displayed approval cannot outlive explicit erasure.
+            return try rejectAuthorizationCall(db, call: call, failure: .dependencyChanged, at: now)
         }
         let facts: ToolAuthorizationFacts
         do {

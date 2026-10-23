@@ -19,6 +19,7 @@ struct ConversationPreviewUITestFixture: View {
                 ? PersistenceStore(database: try ZenDatabase.inMemory())
                 : try ConversationPreviewUITestSeed.makeStore()
             _store = State(initialValue: store)
+            if ProcessInfo.processInfo.environment["ZEN_MEMORY_UI_TEST"] == "seed" { try store.seedMemoryForUITest() }
             let files = ManagedFileStore(applicationSupportRoot: FileManager.default.temporaryDirectory
                 .appendingPathComponent("PreviewFiles-\(UUID())", isDirectory: true),
                 protectionRequirement: .bestEffort)
@@ -30,6 +31,11 @@ struct ConversationPreviewUITestFixture: View {
                 credentials: credentials, router: router, toolRegistry: .empty, managedFiles: files)
             let defaults = UserDefaults(suiteName: "ZenAgent.PreviewHandoffUITest")!
             defaults.removePersistentDomain(forName: "ZenAgent.PreviewHandoffUITest")
+            if ProcessInfo.processInfo.environment["ZEN_MEMORY_UI_TEST"] != nil,
+               let appearance = ProcessInfo.processInfo.environment["ZEN_MEMORY_UI_APPEARANCE"],
+               AppAppearance(rawValue: appearance) != nil {
+                defaults.set(appearance, forKey: "zen.appearance.v1")
+            }
             if ProcessInfo.processInfo.environment["ZEN_EXISTING_CONFIGURE_UI_TEST"] == "1" {
                 let reference = CredentialReference(id: "existing-configure-\(UUID())", kind: .apiKey)
                 try credentials.provision(SecretValue("existing-configure-ui-fixture-key"), as: reference)
@@ -113,7 +119,8 @@ struct ConversationPreviewUITestFixture: View {
                     .accessibilityIdentifier("preview-hidden-reading-position")
                     .accessibilityValue(model.pane?.scrollRequest == nil ? "settled" : "pending")
                     .padding(.top, 100)
-                } else if !model.previewContent.isPresented {
+                } else if !model.previewContent.isPresented,
+                          ProcessInfo.processInfo.environment["ZEN_MEMORY_UI_TEST"] == nil {
                     Button("Position older Turn") {
                         let deep = ProcessInfo.processInfo.environment["ZEN_PREVIEW_DEEP_READING_UI_TEST"] == "1"
                         let runID = "preview-reading-run-\(deep ? 120 : 10)"

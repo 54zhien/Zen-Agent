@@ -78,6 +78,7 @@ struct RunRequestRebuilder {
             runtimeSafetyRevision: snapshot.prompt.runtimeSafetyBaseline,
             zenCoreRevision: snapshot.prompt.zenCore
         )
+        let memory = try store.resolveMemoryReferences(snapshot.prompt.memoryReferences)
         return PromptComposer().compose(PromptCompositionInput(
             modelID: run.requestConfigSeed.modelID,
             providerAdapterInstructions: snapshot.prompt.providerAdapterInstructions,
@@ -85,6 +86,7 @@ struct RunRequestRebuilder {
             currentUserMessage: userText,
             currentUserQuotedSnapshots: quotes,
             soulInstructions: soulInstructions,
+            relevantMemories: memory.map(\.content),
             tools: snapshot.exposedTools.map {
                 ProviderToolDefinition(
                     name: $0.toolID,

@@ -97,17 +97,20 @@ struct PromptExecutionSnapshot: Codable, Sendable, Equatable {
     var zenCore: String
     var providerAdapterInstructions: String
     var soulVersionID: String?
+    var memoryReferences: [MemoryRevisionReference] = []
 
     init(
         runtimeSafetyBaseline: String,
         zenCore: String,
         providerAdapterInstructions: String,
-        soulVersionID: String? = nil
+        soulVersionID: String? = nil,
+        memoryReferences: [MemoryRevisionReference] = []
     ) {
         self.runtimeSafetyBaseline = runtimeSafetyBaseline
         self.zenCore = zenCore
         self.providerAdapterInstructions = providerAdapterInstructions
         self.soulVersionID = soulVersionID
+        self.memoryReferences = memoryReferences
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -115,6 +118,7 @@ struct PromptExecutionSnapshot: Codable, Sendable, Equatable {
         case zenCore
         case providerAdapterInstructions
         case soulVersionID
+        case memoryReferences
     }
 
     init(from decoder: Decoder) throws {
@@ -124,6 +128,14 @@ struct PromptExecutionSnapshot: Codable, Sendable, Equatable {
         providerAdapterInstructions = try container.decode(String.self, forKey: .providerAdapterInstructions)
         // v1 snapshots written before Soul did not contain this optional identity.
         soulVersionID = try container.decodeIfPresent(String.self, forKey: .soulVersionID)
+        memoryReferences = try container.decodeIfPresent([MemoryRevisionReference].self, forKey: .memoryReferences) ?? []
+        guard memoryReferences.count <= 6, Set(memoryReferences).count == memoryReferences.count,
+              memoryReferences.allSatisfy({ !$0.memoryID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                  && !$0.revisionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                  && $0.memoryID.utf8.count <= 128 && $0.revisionID.utf8.count <= 128 }) else {
+            throw DecodingError.dataCorruptedError(forKey: .memoryReferences, in: container,
+                debugDescription: "Invalid Memory revision references")
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -132,6 +144,7 @@ struct PromptExecutionSnapshot: Codable, Sendable, Equatable {
         try container.encode(zenCore, forKey: .zenCore)
         try container.encode(providerAdapterInstructions, forKey: .providerAdapterInstructions)
         try container.encode(soulVersionID, forKey: .soulVersionID)
+        if !memoryReferences.isEmpty { try container.encode(memoryReferences, forKey: .memoryReferences) }
     }
 }
 

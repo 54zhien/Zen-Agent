@@ -39,6 +39,7 @@ actor AgentRuntime {
 
     private enum ControlError: Error {
         case stopRequested
+        case staleAttempt
         case projectionFailed(ConversationProjectionError)
     }
 
@@ -274,8 +275,10 @@ actor AgentRuntime {
             }
         }
 
-        stopRequested.insert(runID)
-        execution.task.cancel()
+        if active[runID] != nil {
+            stopRequested.insert(runID)
+            execution.task.cancel()
+        }
     }
 
     /// Cancels a persisted suspended run after its in-memory execution has gone away.
@@ -624,14 +627,26 @@ actor AgentRuntime {
                 if stopRequested.contains(runID) || Task.isCancelled {
                     throw ControlError.stopRequested
                 }
-                guard let runForRequest = try store.run(id: runID) else {
-                    throw AgentRuntimeError.runNotFound(runID)
+                let requestForDispatch = currentRequest
+                let store = store, provider = provider, credentials = credentials
+                let providerStream = try await store.memoryAccessGate.withRead {
+                    try Task.checkCancellation()
+                    // Waiting for erasure yields execution. Stop and recovery may
+                    // have changed the durable owner before this lease was granted.
+                    guard let runForRequest = try store.run(id: runID) else { throw ControlError.staleAttempt }
+                    if runForRequest.state == .stopping { throw ControlError.stopRequested }
+                    guard runForRequest.state == .requestingModel || runForRequest.state == .streaming,
+                          try store.accepts(identity) else { throw ControlError.staleAttempt }
+                    do {
+                        _ = try MemoryRuntime(store: store, credentials: credentials)
+                            .resolveFrozen(snapshot.prompt.memoryReferences)
+                    } catch {
+                        try store.invalidateMemoryRun(id: runID)
+                        throw error
+                    }
+                    return try await provider.stream(requestForDispatch,
+                        seed: runForRequest.requestConfigSeed, credentials: credentials)
                 }
-                let providerStream = try await provider.stream(
-                    currentRequest,
-                    seed: runForRequest.requestConfigSeed,
-                    credentials: credentials
-                )
 
                 var pendingToolCalls: [ProviderToolCall] = []
                 var terminal = false
@@ -855,6 +870,9 @@ actor AgentRuntime {
                 finishStream(runID: runID, continuation: continuation)
                 return
             }
+        } catch ControlError.staleAttempt {
+            // The newer durable owner settles its own attempt; this task cannot
+            // fail that owner merely because it was waiting for a Memory lease.
         } catch ControlError.stopRequested {
             do {
                 completionError = try await finishCancellationAfterSettlement(
@@ -1372,6 +1390,14 @@ actor AgentRuntime {
 
     // MARK: - Event and lifecycle helpers
 
+    func recoverInvalidatedMemoryRun(runID: String, project: @escaping AgentEventProjection) async throws {
+        guard active[runID] == nil else { throw AgentRuntimeError.alreadyRunning(runID) }
+        // Keep the original ToolRuntime's receipt-confirmation capability. The
+        // cold-start coordinator must not rebuild a request or replay an effect.
+        try await RunRecovery(store: store, toolRuntime: toolRuntime, credentials: credentials,
+            eventProjection: project).recover(runID: runID)
+    }
+
     private func acceptsProviderOutput(
         runID: String,
         identity: AttemptIdentity
@@ -1752,6 +1778,7 @@ actor AgentRuntime {
         error: Error,
         run: AgentRunRecord
     ) -> FailureDisposition {
+        if error is MemoryError { return .failed(.dependencyUnavailable) }
         if let failure = error as? ProviderRuntimeFailure {
             switch failure {
             case .stepLimit,

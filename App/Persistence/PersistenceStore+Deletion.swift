@@ -267,6 +267,11 @@ extension PersistenceStore {
                 try tombstone.upsert(db)
             }
 
+            // Memory has an independent user-managed lifetime; preserve its fact
+            // and mark provenance only after the Undo window has ended.
+            if try db.tableExists("memorySource") {
+                try db.execute(sql: "UPDATE memorySource SET missing = 1 WHERE conversationID = ?", arguments: [conversationID])
+            }
             // Body first: message parts follow their message by cascade.
             try db.execute(sql: "DELETE FROM message WHERE conversationID = ?", arguments: [conversationID])
             try db.execute(sql: """
