@@ -19,6 +19,7 @@ struct ConversationPreviewUITestFixture: View {
                 ? PersistenceStore(database: try ZenDatabase.inMemory())
                 : try ConversationPreviewUITestSeed.makeStore()
             _store = State(initialValue: store)
+            if ProcessInfo.processInfo.environment["ZEN_MEMORY_UI_TEST"] == "seed" { try store.seedMemoryForUITest() }
             let files = ManagedFileStore(applicationSupportRoot: FileManager.default.temporaryDirectory
                 .appendingPathComponent("PreviewFiles-\(UUID())", isDirectory: true),
                 protectionRequirement: .bestEffort)

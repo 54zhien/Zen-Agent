@@ -14,6 +14,7 @@ final class SettingsWorkspaceModel {
     let appearance: AppearanceSettings
     let menus: ModelMenuPreferences
     let soul: SoulSettingsModel
+    let memory: MemorySettingsModel
     let tools: ToolSettingsModel
     let storage: SettingsStorageModel?
     private(set) var catalog: [SettingsProviderCatalog] = []
@@ -50,6 +51,7 @@ final class SettingsWorkspaceModel {
         self.onProviderCommitted = onProviderCommitted
         self.onConfigure = onConfigure
         soul = SoulSettingsModel(store: store)
+        memory = MemorySettingsModel(runtime: MemoryRuntime(store: store, credentials: credentials))
         tools = ToolSettingsModel(store: store, registry: toolRegistry, safetyCap: toolSafetyCap)
         storage = files.map { SettingsStorageModel(store: store, files: $0) }
         if let instance = defaults.string(forKey: AppShellModel.defaultInstanceIDKey),
@@ -168,6 +170,6 @@ final class SettingsWorkspaceModel {
     func invalidate() {
         active = false; selection &+= 1; isSelectingDefault = false
         configurationSelection &+= 1; isConfiguringConversation = false
-        soul.invalidate(); tools.invalidate(); storage?.invalidate()
+        soul.invalidate(); memory.invalidate(); tools.invalidate(); storage?.invalidate()
     }
 }

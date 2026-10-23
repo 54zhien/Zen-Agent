@@ -51,6 +51,11 @@ final class ZenDatabase: Sendable {
 
         let queue = try DatabaseQueue(path: path, configuration: configuration)
         try migrator.migrate(queue)
+#if os(iOS)
+        for file in [path, path + "-wal", path + "-shm"] where FileManager.default.fileExists(atPath: file) {
+            try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: file)
+        }
+#endif
         return ZenDatabase(dbQueue: queue, persistentPath: path)
     }
 

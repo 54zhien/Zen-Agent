@@ -40,11 +40,12 @@ struct SettingsPrivacyView: View {
     var body: some View {
         Form {
             Section("本地数据") {
-                Text("会话、消息、Soul 版本和请求快照保存在应用的本地数据库。托管文件保存在应用数据目录。")
+                Text("会话、消息、Soul 版本、记忆和请求快照保存在应用的本地数据库。托管文件保存在应用数据目录。记忆随受 iOS 数据保护的用户数据库参与设备/iCloud 系统备份；这不是应用内云同步。")
                 Text("API Key 保存在 Keychain；数据库只保存凭据引用。设置列表不展示密钥。")
             }
             Section("模型请求") {
                 Text("发送请求时，所选 Provider 接收该请求需要的内容。Workspace 文件存在与 Agent 读取权限分别管理。")
+                Text("启用记忆时，相关记忆会作为上下文发送给本轮所选 Provider。可在 Agent → 记忆查看、编辑、关闭或删除。删除会阻止后续请求继续使用已删除记忆；已发送的内容无法从 Provider 撤回，历史系统备份由系统管理。")
             }
             Section("临时副本") {
                 Text("预览与导出使用临时副本。清理缓存不会删除会话、Soul 或托管文件。")

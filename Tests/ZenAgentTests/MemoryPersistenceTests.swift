@@ -5,6 +5,34 @@ import Testing
 
 @Suite("Stage7 Memory persistence")
 struct MemoryPersistenceTests {
+    @Test("real v19 disk upgrade preserves Conversation and adds Memory without a reset")
+    func migration() throws {
+        let url = try Fixtures.scratchPath(name: "memory-v19.sqlite")
+        defer { Fixtures.cleanUp(url) }
+        do {
+            let queue = try DatabaseQueue(path: url.path)
+            try Migrations.makeMigrator().migrate(queue, upTo: "v19_tool_grant_invalidation_facts")
+            try queue.write { try Fixtures.conversation(id: "before-memory").insert($0) }
+        }
+        let store = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+        #expect(try store.conversation(id: "before-memory") != nil)
+        #expect(try store.database.read { try $0.tableExists("memoryRecord") })
+    }
+
+#if os(iOS)
+    @Test("database and existing WAL sidecars have explicit native data protection")
+    func fileProtection() throws {
+        let url = try Fixtures.scratchPath(name: "memory-protection.sqlite")
+        defer { Fixtures.cleanUp(url) }
+        let database = try ZenDatabase.open(at: url.path)
+        _ = try database.read { try $0.tableExists("memoryRecord") }
+        for path in [url.path, url.path + "-wal", url.path + "-shm"] where FileManager.default.fileExists(atPath: path) {
+            let attributes = try FileManager.default.attributesOfItem(atPath: path)
+            #expect(attributes[.protectionKey] as? FileProtectionType == .completeUntilFirstUserAuthentication)
+        }
+    }
+#endif
+
     @Test("real schema has records, immutable revisions, provenance and no candidate body receipt")
     func schema() throws {
         let database = try ZenDatabase.inMemory()

@@ -104,14 +104,16 @@ struct SettingsTextField: UIViewRepresentable {
 struct SettingsInstructionsInput: UIViewRepresentable {
     @Binding var text: String
     let focus: SettingsInputFocus
+    var accessibilityLabel = "Soul 指令"
+    var accessibilityIdentifier = "settings-soul-instructions"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView()
         view.delegate = context.coordinator
         view.backgroundColor = .clear; view.textColor = .label; view.tintColor = .label
-        view.accessibilityLabel = "Soul 指令"
-        view.accessibilityIdentifier = "settings-soul-instructions"
+        view.accessibilityLabel = accessibilityLabel
+        view.accessibilityIdentifier = accessibilityIdentifier
         return view
     }
     func updateUIView(_ view: UITextView, context: Context) {
