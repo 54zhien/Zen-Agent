@@ -22,7 +22,16 @@ enum ToolResultGuard {
                   object["kind"] as? String == "managedFile", object["assetID"] is String,
                   object["versionID"] is String, object["fingerprint"] is String else { return .failure(.invalidResult) }
         }
+        let decoded = try? JSONSerialization.jsonObject(with: Data(result.content.utf8), options: [.fragmentsAllowed])
         var text = result.content
+        if let decoded {
+            let redacted = redactJSON(decoded, knownSecrets: knownSecrets)
+            if redacted.changed {
+                guard let data = try? JSONSerialization.data(withJSONObject: redacted.value, options: [.sortedKeys, .fragmentsAllowed]),
+                      let encoded = String(data: data, encoding: .utf8) else { return .failure(.redactionUnavailable) }
+                text = encoded
+            }
+        }
         for secret in knownSecrets where !secret.revealed.isEmpty {
             text = text.replacingOccurrences(of: secret.revealed, with: "[REDACTED]")
             // JSON may have escaped a credential before it reached this boundary.
@@ -33,7 +42,7 @@ enum ToolResultGuard {
             }
         }
         let patterns: [(String, String)] = [
-            (#"(?i)("(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|secret|authorization)"\s*:\s*")[^"]*(")"#, "$1[REDACTED]$2"),
+            (#"(?i)("(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|secret|authorization)"\s*:\s*")(?:\\.|[^"\\])*(")"#, "$1[REDACTED]$2"),
             (#"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+"#, "Bearer [REDACTED]"),
             (#"\bsk-[A-Za-z0-9_-]{16,}"#, "[REDACTED]"),
             (#"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|secret)\s*[:=]\s*[^\s,;]+"#, "$1=[REDACTED]"),
@@ -50,5 +59,47 @@ enum ToolResultGuard {
         }
         guard text.utf8.count <= maximumUTF8Bytes else { return .failure(.resultTooLarge) }
         return ToolExecutionResult(content: text, kind: result.kind, failure: result.failure)
+    }
+
+    /// Decode JSON before matching: equivalent string/key encodings must not
+    /// escape redaction. Preserve original bytes when nothing changed so a
+    /// reference is never rewritten merely by serialization.
+    private static func redactJSON(_ value: Any, knownSecrets: [SecretValue]) -> (value: Any, changed: Bool) {
+        if let object = value as? [String: Any] {
+            var output: [String: Any] = [:]
+            var changed = false
+            for (key, child) in object {
+                let safeKey = redactKnownText(key, knownSecrets: knownSecrets)
+                let normalized = key.lowercased().filter { $0 != "_" && $0 != "-" }
+                if ["apikey", "accesstoken", "refreshtoken", "token", "password", "secret", "authorization"].contains(normalized) {
+                    output[safeKey] = "[REDACTED]"
+                    changed = true
+                } else {
+                    let result = redactJSON(child, knownSecrets: knownSecrets)
+                    output[safeKey] = result.value
+                    changed = changed || result.changed
+                }
+                changed = changed || !safeKey.utf8.elementsEqual(key.utf8)
+            }
+            return (output, changed)
+        }
+        if let array = value as? [Any] {
+            let values = array.map { redactJSON($0, knownSecrets: knownSecrets) }
+            return (values.map(\.value), values.contains { $0.changed })
+        }
+        if let string = value as? String {
+            let safe = redactKnownText(string, knownSecrets: knownSecrets)
+            return (safe, !safe.utf8.elementsEqual(string.utf8))
+        }
+        if let number = value as? NSNumber, knownSecrets.contains(where: { $0.revealed == number.stringValue }) {
+            return ("[REDACTED]", true)
+        }
+        return (value, false)
+    }
+
+    private static func redactKnownText(_ source: String, knownSecrets: [SecretValue]) -> String {
+        knownSecrets.reduce(source) { value, secret in
+            secret.revealed.isEmpty ? value : value.replacingOccurrences(of: secret.revealed, with: "[REDACTED]")
+        }
     }
 }
