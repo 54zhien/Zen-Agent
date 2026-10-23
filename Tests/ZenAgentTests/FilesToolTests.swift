@@ -27,6 +27,56 @@ struct FilesToolTests {
         #expect(try f.store.fileAsset(id: file.assetID)?.currentVersionID == file.versionID)
     }
 
+    @Test func realContinuationUsesFrozenDestinationAndSanitizedFileContent() async throws {
+        let f = try I05RuntimeTestFixtures.makeFixture()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = ManagedFileStore(applicationSupportRoot: root, protectionRequirement: .bestEffort)
+        let file = try files.ingest(data: Data("document i05-test-secret".utf8), displayName: "read.txt", in: f.store)
+        let registry = try ToolRegistry(tools: [FilesTool(files: files, store: f.store)])
+        try f.store.setToolPolicy(toolID: "files", actionID: "read", descriptorRevision: "1", mode: .alwaysAllow)
+        let ledger = I07ProviderLedger()
+        let args = try ToolArgumentJSON.normalizedObject(["assetID": file.assetID])
+        let provider = I07ScriptedProvider(ledger: ledger, instanceID: f.instance.id, scripts: [
+            [.toolCall(.init(id: "file-call", index: 0, name: "files", argumentsJSON: args)), .finish(.toolCalls)],
+            [.textDelta("continued"), .finish(.stop)]
+        ], store: f.store, conversationID: I05RuntimeTestFixtures.conversationID)
+        let runtime = ConversationRuntime(store: f.store, provider: provider, credentials: f.credentials, toolRegistry: registry, managedFileStore: files)
+        let runID = try await runtime.start(I05RuntimeTestFixtures.command())
+        do {
+            var card: ToolApprovalProjection?
+            for _ in 0..<1000 {
+                card = try await runtime.pendingToolApprovals(in: I05RuntimeTestFixtures.conversationID).first
+                if card != nil { break }
+                if try f.store.run(id: runID)?.state.isActive == false { break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            let approval = try #require(card)
+            let call = try #require(try f.store.toolCall(id: approval.toolCallID))
+            let intent = try ToolIntentCodec.decodeForDisplay(try #require(call.executionIntent))
+            let seed = try #require(try f.store.run(id: runID)).requestConfigSeed
+            #expect(intent.destinationScope == .provider(instanceID: f.instance.id.rawValue, endpointIdentity: seed.endpoint.absoluteString))
+            #expect(approval.targetDescription.contains(file.versionID))
+            #expect(approval.keyImpact.contains(seed.endpoint.absoluteString))
+            try await runtime.resolveToolApproval(approval.request(for: .approveOnce))
+            try await Fixtures.awaitRuntimeCompletion(in: f.store, runtime: runtime, runID: runID)
+            let payload = try #require(try f.store.toolResult(toolCallID: call.id)).payload
+            #expect(payload.contains("document"))
+            #expect(!payload.contains("i05-test-secret"))
+            let requests = await ledger.requestsSnapshot()
+            #expect(requests.count == 2)
+            let returned = requests.last?.messages.compactMap { message -> String? in
+                if case .toolResult(_, let content) = message { return content }; return nil
+            }
+            #expect(returned == [payload])
+            #expect(try f.store.run(id: runID)?.state == .completed)
+        } catch {
+            try? await runtime.stop(runID: runID)
+            try? await Fixtures.awaitRuntimeCompletion(in: f.store, runtime: runtime, runID: runID)
+            throw error
+        }
+    }
+
     @Test(arguments: ["{\"path\":\"/etc/passwd\"}", "{\"assetID\":\"../escape\"}", "{\"assetID\":\"missing\",\"destination\":\"https://evil.invalid\"}"])
     func modelPathsAndDestinationsAreRejected(arguments: String) throws {
         let f = try FileToolFixture()
