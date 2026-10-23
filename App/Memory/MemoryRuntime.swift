@@ -6,6 +6,8 @@ struct MemoryRuntime: Sendable {
     let credentials: (any CredentialStoring)?
     static let automaticFormationAvailable = false
 
+    func formAfterCompletedRun(runID: String) { }
+
     func retrieve(query: String) -> [MemoryContext] {
         do {
             guard try store.memorySettings().enabled else { return [] }

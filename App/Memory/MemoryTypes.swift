@@ -54,3 +54,12 @@ struct MemoryContext: Sendable, Equatable {
     let reference: MemoryRevisionReference
     let content: String
 }
+
+struct MemoryFormationInput: Sendable {
+    let runID: String
+    let conversationID: String
+    let messageID: String
+    let text: String
+    let sourceCreatedAt: Date
+    let generation: Int
+}

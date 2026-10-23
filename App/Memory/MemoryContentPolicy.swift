@@ -3,7 +3,7 @@ import Foundation
 enum MemoryContentPolicy {
     static let maximumUTF8Bytes = 1_024
 
-    static func allows(_ content: String) -> Bool {
+    static func allows(_ content: String, maximumUTF8Bytes: Int = maximumUTF8Bytes) -> Bool {
         guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               content.utf8.count <= maximumUTF8Bytes,
               content.unicodeScalars.allSatisfy({ $0.value >= 32 || [9, 10, 13].contains($0.value) })
