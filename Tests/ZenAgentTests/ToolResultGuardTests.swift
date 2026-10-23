@@ -47,6 +47,13 @@ struct ToolResultGuardTests {
         #expect(try f.call().state == .failed)
     }
 
+    @Test func unpublishableExternalSuccessWithoutProofRemainsIndeterminate() async throws {
+        let f = try ResultGuardFixture(content: String(repeating: "x", count: 65_537), sideEffect: .externalWrite)
+        do { _ = try await f.complete() } catch { }
+        #expect(try f.call().state == .indeterminate)
+        #expect(try f.store.toolResult(toolCallID: f.call().id) == nil)
+    }
+
     @Test func credentialFieldsAndBearerTokensAreRedactedBeforeStorage() async throws {
         let token = "sk-" + String(repeating: "x", count: 32)
         let f = try ResultGuardFixture(content: "{\"api_key\":\"\(token)\",\"text\":\"normal\"} Authorization: Bearer abcdefghijklmnopqrstuvwxyz")
@@ -89,11 +96,11 @@ struct ToolResultGuardTests {
 private struct ResultGuardFixture: Sendable {
     let store: PersistenceStore
     let runtime: ToolRuntime
-    init(content: String, throwsSecret: Bool = false) throws {
+    init(content: String, throwsSecret: Bool = false, sideEffect: ToolSideEffect = .none) throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
         try store.commitUserTurnAndCreateParentRun(Fixtures.send(conversationID: "c", messageID: "m", runID: "r", runState: .executingTools))
         let registry = try Fixtures.automaticallyAllowedRegistry(in: store,
-            tools: [ResultGuardProbe(content: content, throwsSecret: throwsSecret)])
+            tools: [ResultGuardProbe(content: content, throwsSecret: throwsSecret, sideEffect: sideEffect)])
         self.store = store; runtime = ToolRuntime(store: store, registry: registry)
     }
     func complete() async throws -> ToolExecutionResult? {
@@ -106,8 +113,9 @@ private struct ResultGuardFixture: Sendable {
 private struct ResultGuardProbe: ToolExecutable {
     let content: String
     let throwsSecret: Bool
+    let sideEffect: ToolSideEffect
     var descriptor: ToolDescriptor {
-        ToolDescriptor(id: "result_guard_probe", displayName: "Result guard probe", description: "Test-only result", inputSchema: .object([:]), revision: "1", sideEffect: .none, approvalRequirement: .notRequired,
+        ToolDescriptor(id: "result_guard_probe", displayName: "Result guard probe", description: "Test-only result", inputSchema: .object([:]), revision: "1", sideEffect: sideEffect, approvalRequirement: .notRequired,
             actions: [.init(toolID: "result_guard_probe", actionID: "result", descriptorRevision: "1", risk: .low, allowsAutomaticApproval: true, allowsConversationGrant: true, resourceRequirement: .notRequired, egressRequirement: .notRequired)])
     }
     func prepare(callID: String, argumentsJSON: String) throws -> ToolExecutionIntent {
