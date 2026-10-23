@@ -92,6 +92,33 @@ struct ToolSettingsTests {
         #expect(await model.revokeGrant(id: grant.id))
         #expect(try f.store.toolGrant(id: grant.id)?.validity == .revoked)
     }
+
+    @Test func changedActionVersionRequiresReconfirmationInGrantDisclosure() async throws {
+        let f = try ToolSettingsFixture()
+        let call = try await f.waitingCall()
+        try f.runtime.approve(toolCallID: call.id,
+            displayedIntentBinding: ToolIntentBinding.make(try #require(call.executionIntent)), scope: .conversation)
+        let model = ToolSettingsModel(store: f.store, registry: try ToolRegistry(tools: [RevisedSettingsCalculator()]))
+        await model.load()
+        let row = try #require(model.grants.first)
+        #expect(row.grant.descriptorRevision == "1")
+        #expect(row.invalidationReason?.contains("需要重新确认") == true)
+        #expect(try f.store.toolGrant(id: row.id)?.descriptorRevision == "1")
+        #expect(await model.revokeGrant(id: row.id))
+    }
+}
+
+private struct RevisedSettingsCalculator: ToolExecutable {
+    var descriptor: ToolDescriptor {
+        var value = CalculatorTool().descriptor
+        value.revision = "2"
+        value.actions = [.init(toolID: value.id, actionID: "calculator", descriptorRevision: value.revision,
+            risk: .low, allowsAutomaticApproval: true, allowsConversationGrant: true,
+            resourceRequirement: .notRequired, egressRequirement: .notRequired)]
+        return value
+    }
+    func prepare(callID: String, argumentsJSON: String) throws -> ToolExecutionIntent { throw ToolIntentFailure.preparationFailed }
+    func execute(_ intent: ToolExecutionIntent, idempotencyKey: String) async throws -> ToolExecutionResult { throw ToolIntentFailure.preparationFailed }
 }
 
 @MainActor
