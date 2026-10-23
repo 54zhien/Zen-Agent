@@ -59,6 +59,7 @@ jobs:
           xcodebuild test -project ZenAgent.xcodeproj -scheme ZenAgent \
             -configuration Debug -destination "id=$UDID" \
             -only-testing:ZenAgentUITests/WorkspacePadAxisUITests \
+            -only-testing:ZenAgentUITests/SidebarColdLaunchDiagnosticsUITests \
             -resultBundlePath "$RUNNER_TEMP/PadWorkspace.xcresult" \
             2>&1 | tee "$RUNNER_TEMP/PadWorkspace.log"
           if grep -Fq 'Restarting after unexpected exit, crash, or test timeout' "$RUNNER_TEMP/PadWorkspace.log"; then
