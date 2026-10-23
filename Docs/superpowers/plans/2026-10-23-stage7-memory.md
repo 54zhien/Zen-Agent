@@ -65,5 +65,5 @@
 
 - [x] Reconcile spec coverage and changed-path scope. One fresh reviewer reads entire branch and Review Focus; fix Important/Critical with actual RED→GREEN once; record deferred minors/rulings.
 - [ ] Run local YAML/path/hygiene and actual native XcodeGen/build/all unit/integration/approved UI. Final normal exact-head Phone/iPad gate remains mandatory; no diagnostic selector accepted as closure.
-- [ ] Inspect new page screenshots at narrow width/largest text/light/dark and relevant keyboard/navigation behavior; report device and model-quality limits separately.
+- [x] Inspect new page screenshots at narrow width/largest text/light/dark and relevant keyboard/navigation behavior; report device and model-quality limits separately.
 - [ ] Update README, gate matrix and exact SHA/tree/CI receipts. Create draft PR and attach it; leave merge for concrete final approval unless subsequently authorized. Preserve all failed/compile/cancelled provenance.

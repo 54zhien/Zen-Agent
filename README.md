@@ -84,12 +84,15 @@ Earlier stability evidence remains in [the repair record](tasks/known-issues-sta
 Stage 7 Memory is in progress on `codex/stage7-memory-20261023`, starting at PR #41's
 merge `49e77fb4eeaee7f4fad1b97b319d6b1de5cb991f`. Storage/management, bounded
 retrieval/frozen references and conservative local automatic formation are wired.
-Native source `eb43734` passed 1,262 Swift tests/199 suites and 20 XCTest unit tests;
-its Memory UI run retained five failed assertions. The single independent review
-found two Important issues, reproduced through actual cold-start and formed-fact
-entry points before correction. Corrective source `965d067` is awaiting native
-verification. Full unchanged Phone/iPad CI and new-page screenshot review are still
-required. See [Stage 7 evidence and boundaries](tasks/stage7-memory.md).
+The focused [native gate](https://github.com/54zhien/Zen-Agent/actions/runs/39948046060)
+passes at source `81e89f4`: 1,266 Swift tests/200 suites, 20 XCTest unit tests and all
+four Memory UI cases. The single independent review's two Important findings have
+native RED-to-GREEN coverage, including the actual cold-start and formed-fact entry
+points. The unchanged full [Phone/iPad gate](https://github.com/54zhien/Zen-Agent/actions/runs/39948782164)
+failed at `0a63fb9`: Pad and all units/existing UI passed, but the largest-text
+Memory entry case failed. Native diagnosis is in progress; full-screen Memory
+portrait/landscape visual evidence is complete. This is not Stage7 closure.
+See [Stage 7 evidence and boundaries](tasks/stage7-memory.md).
 
 The following is the historical 2026-10-05 slice snapshot. Its individual PR
 states describe that date; use the current integration receipt above for main.
