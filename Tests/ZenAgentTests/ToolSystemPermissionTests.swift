@@ -174,6 +174,34 @@ struct ToolSystemPermissionTests {
         #expect(try f.call().state == .prepared)
     }
 
+    @Test func observedGrantCanSettleBeforeTheSameOwnersCallback() async throws {
+        let f = try SystemPermissionFixture(status: .notDetermined)
+        await f.driver.pauseRequests()
+        _ = try await f.complete()
+        let call = try f.call()
+        let binding = ToolIntentBinding.make(try #require(call.executionIntent))
+        let request = Task { try await f.runtime.resolveSystemPermission(toolCallID: call.id,
+            displayedIntentBinding: binding, consent: true) }
+        for _ in 0..<1000 {
+            if try f.store.toolSystemConsent(id: call.id)?.phase == .requesting { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        await f.driver.set(.authorized)
+        do {
+            try await f.runtime.recoverSystemPermission(toolCallID: call.id)
+            #expect(try f.call().state == .prepared)
+            await f.driver.releaseRequests()
+            try await request.value
+            #expect(try f.call().state == .prepared)
+            #expect(await f.driver.requests == 1)
+            #expect(await f.driver.executions == 0)
+        } catch {
+            await f.driver.releaseRequests()
+            _ = try? await request.value
+            throw error
+        }
+    }
+
     @Test func staleSystemWitnessDoesNotPromptOrReplaceTheIntent() async throws {
         let f = try SystemPermissionFixture(status: .notDetermined)
         _ = try await f.complete()
@@ -298,9 +326,21 @@ private actor SystemPermissionDriver {
     var requests = 0
     var executions = 0
     var observedDispatch = false
+    private var paused = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
     init(status: ToolSystemPermissionState) { self.status = status }
     func set(_ value: ToolSystemPermissionState) { status = value }
-    func request() { requests += 1; status = .authorized }
+    func pauseRequests() { paused = true }
+    func releaseRequests() {
+        paused = false; status = .authorized
+        let pending = waiting; waiting.removeAll()
+        for continuation in pending { continuation.resume() }
+    }
+    func request() async {
+        requests += 1
+        if paused { await withCheckedContinuation { waiting.append($0) } }
+        else { status = .authorized }
+    }
     func execute(dispatched: Bool) { executions += 1; observedDispatch = dispatched }
 }
 

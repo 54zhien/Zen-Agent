@@ -25,7 +25,8 @@ struct ToolSystemConsentRuntime: Sendable {
         }
     }
 
-    func resolve(id: String, binding: String, consent: Bool) async throws {
+    func resolve(id: String, binding: String, consent: Bool,
+                 revalidate: @Sendable () throws -> Bool) async throws {
         let (call, intent, executor) = try pending(id: id)
         guard ToolPolicyIdentity.equals(ToolIntentBinding.make(try requiredJSON(call)), binding) else {
             throw PersistenceError.invalidTransition("System decision is for a stale displayed intent")
@@ -40,6 +41,7 @@ struct ToolSystemConsentRuntime: Sendable {
             return
         }
         let status = try await read(driver, intent: intent)
+        guard try revalidate() else { return }
         if status != .notDetermined {
             _ = try change(call, binding: binding, descriptor: executor.descriptor,
                 command: .recover(owner: owner, status: status))
@@ -65,12 +67,13 @@ struct ToolSystemConsentRuntime: Sendable {
         }
     }
 
-    func recover(id: String) async throws {
+    func recover(id: String, revalidate: @Sendable () throws -> Bool) async throws {
         let (call, intent, executor) = try pending(id: id)
         let status: ToolSystemPermissionState
         if let driver = executor as? any ToolSystemPermissionProviding {
             status = try await read(driver, intent: intent)
         } else { status = .unavailable }
+        guard try revalidate() else { return }
         _ = try change(call, binding: ToolIntentBinding.make(try requiredJSON(call)),
             descriptor: executor.descriptor, command: .recover(owner: owner, status: status))
     }

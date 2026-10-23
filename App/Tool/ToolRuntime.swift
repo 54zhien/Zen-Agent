@@ -323,13 +323,19 @@ final class ToolRuntime: @unchecked Sendable {
         }
 
         try Task.checkCancellation()
-        let systemChecked = try await systemConsent.preflight(call: call, intent: intent, executor: executor)
-        if systemChecked.state == .rejected { return try storedResult(for: call.id) }
-        if systemChecked.state == .waitingForSystemPermissionConsent {
-            throw ToolSystemPermissionError.consentRequired(call.id)
+        if executor is any ToolSystemPermissionProviding {
+            let systemChecked = try await systemConsent.preflight(call: call, intent: intent, executor: executor)
+            if systemChecked.state == .rejected { return try storedResult(for: call.id) }
+            if systemChecked.state == .waitingForSystemPermissionConsent {
+                throw ToolSystemPermissionError.consentRequired(call.id)
+            }
+            if systemChecked.state == .waitingForApproval { throw ToolRuntimeError.approvalRequired(call.id) }
+            if systemChecked.state == .notExecuted { throw CancellationError() }
+            // OS reads can suspend. Revalidate the frozen dependencies after
+            // returning, then leave no await before the existing dispatch write.
+            if let rejection = try validatePendingIntent(toolCallID: call.id, at: now) { return rejection }
+            try requireExecutablePendingCall(call.id)
         }
-        if systemChecked.state == .waitingForApproval { throw ToolRuntimeError.approvalRequired(call.id) }
-        if systemChecked.state == .notExecuted { throw CancellationError() }
         // Current authority and the original attempt commit together. The exact
         // JSON this checkpoint authorizes is the payload passed to execute below.
         let dispatched = try store.dispatchToolCallWithPolicy(id: call.id, expectedAttempt: call.attempt,
@@ -437,13 +443,15 @@ final class ToolRuntime: @unchecked Sendable {
     func resolveSystemPermission(toolCallID: String, displayedIntentBinding: String,
                                  consent: Bool) async throws {
         if try validatePendingIntent(toolCallID: toolCallID) != nil { return }
-        try await systemConsent.resolve(id: toolCallID, binding: displayedIntentBinding, consent: consent)
+        try await systemConsent.resolve(id: toolCallID, binding: displayedIntentBinding, consent: consent,
+            revalidate: { try self.validatePendingIntent(toolCallID: toolCallID) == nil })
     }
 
     func recoverSystemPermission(toolCallID: String) async throws {
         if try validatePendingIntent(toolCallID: toolCallID) != nil { return }
         guard try requiredToolCall(id: toolCallID).state == .waitingForSystemPermissionConsent else { return }
-        try await systemConsent.recover(id: toolCallID)
+        try await systemConsent.recover(id: toolCallID,
+            revalidate: { try self.validatePendingIntent(toolCallID: toolCallID) == nil })
     }
 
     private func requireExecutablePendingCall(_ id: String) throws {

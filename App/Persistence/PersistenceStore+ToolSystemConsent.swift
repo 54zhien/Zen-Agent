@@ -65,14 +65,17 @@ extension PersistenceStore {
                 value.phase = .declined; try value.update(db)
                 return try Self.rejectAuthorizationCall(db, call: call, failure: .systemPermissionDenied, at: now)
             case .finish(let owner, let requestID, let status):
-                guard call.state == .waitingForSystemPermissionConsent, var value = interaction,
+                // A real OS-status observation may already have settled this
+                // request while its callback was draining. It cannot undo that.
+                guard call.state == .waitingForSystemPermissionConsent else { return call }
+                guard var value = interaction,
                       value.phase == .requesting, value.requestOwner == owner, value.requestID == requestID else {
                     throw PersistenceError.invalidTransition("System callback lost request ownership")
                 }
                 value.phase = .completed; try value.update(db)
                 return try Self.settleToolSystemAccess(db, call: call, status: status, at: now)
             case .recover(let owner, let status):
-                if let value = interaction, value.phase == .requesting, value.requestOwner == owner { return call }
+                if let value = interaction, value.phase == .requesting, value.requestOwner == owner, status == .notDetermined { return call }
                 if status == .notDetermined, var value = interaction {
                     value.phase = .waiting; value.requestID = nil; value.requestOwner = nil
                     try value.update(db)
