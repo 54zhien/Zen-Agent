@@ -11,16 +11,14 @@ final class Stage6ToolUITests: XCTestCase {
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         guard openTools(app) else { return }
         let picker = app.buttons["tool-policy-files-read"]
-        for _ in 0..<6 where !picker.isHittable { app.swipeUp() }
-        XCTAssertTrue(picker.isHittable)
+        XCTAssertTrue(reveal(picker, in: app), "Policy must be inside the usable viewport")
         snapshot(app, "Tool Settings largest Dynamic Type dark portrait")
         app.buttons["settings-close"].tap()
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in app.frame.width > app.frame.height }, object: nil)], timeout: 10) == .completed)
         guard openTools(app) else { return }
-        for _ in 0..<6 where !picker.isHittable { app.swipeUp() }
-        XCTAssertTrue(picker.isHittable)
+        XCTAssertTrue(reveal(picker, in: app), "Policy must be inside the usable viewport")
         XCTAssertTrue(app.buttons["settings-close"].waitForExistence(timeout: 5))
         snapshot(app, "Tool Settings largest Dynamic Type dark landscape")
         app.buttons["settings-close"].tap()
@@ -139,14 +137,30 @@ final class Stage6ToolUITests: XCTestCase {
         guard settings.waitForExistence(timeout: 5) else { XCTFail("Settings entry missing"); return false }
         settings.tap()
         let agent = app.buttons["settings-agent"]
-        let page = app.descendants(matching: .any)["settings-page"]
-        for _ in 0..<8 where !agent.isHittable { page.swipeUp() }
-        guard agent.waitForExistence(timeout: 5), agent.isHittable else { XCTFail("Agent entry missing"); return false }
+        guard reveal(agent, in: app) else { XCTFail("Agent entry missing"); return false }
         agent.tap()
+        guard app.navigationBars["Agent"].waitForExistence(timeout: 5) else { XCTFail("Agent page did not open"); return false }
         let tools = app.buttons["settings-tools"]
-        guard tools.waitForExistence(timeout: 5) else { XCTFail("Tool Settings missing"); return false }
+        guard reveal(tools, in: app) else { XCTFail("Tool Settings missing"); return false }
         tools.tap()
         return true
+    }
+
+    @MainActor
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        let top = max(app.frame.minY, app.navigationBars.firstMatch.frame.maxY) + 8
+        let bottom = app.frame.maxY - 34
+        for _ in 0..<16 {
+            if element.exists, element.isHittable,
+               element.frame.minY >= top, element.frame.maxY <= bottom { return true }
+            let moveDown = element.exists && element.frame.minY < top
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.6))
+            let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: moveDown ? 0.8 : 0.4))
+            // Short held drags avoid inertial overshoot. AX can claim a row is
+            // hittable while its center is underneath the existing navigation bar.
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: 100, thenHoldForDuration: 0.2)
+        }
+        return element.exists && element.isHittable && element.frame.minY >= top && element.frame.maxY <= bottom
     }
 
     @MainActor
