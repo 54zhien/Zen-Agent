@@ -202,6 +202,64 @@ struct ToolSystemPermissionTests {
         }
     }
 
+    @Test func policyReapprovalDoesNotForgetAnInflightSystemRequest() async throws {
+        let f = try SystemPermissionFixture(status: .notDetermined)
+        await f.driver.pauseRequests()
+        _ = try await f.complete()
+        let call = try f.call()
+        let binding = ToolIntentBinding.make(try #require(call.executionIntent))
+        let pending = Task { try await f.runtime.resolveSystemPermission(toolCallID: call.id, displayedIntentBinding: binding, consent: true) }
+        do {
+            for _ in 0..<1000 {
+                if try f.store.toolSystemConsent(id: call.id)?.phase == .requesting { break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            try #require(try f.store.toolSystemConsent(id: call.id)?.phase == .requesting)
+            try f.store.setToolPolicy(toolID: "system_probe", actionID: "probe", descriptorRevision: "1", mode: .askEveryTime)
+            _ = try f.runtime.validatePendingIntent(toolCallID: call.id)
+            try #require(try f.call().state == .waitingForApproval)
+            try f.runtime.approve(toolCallID: call.id, displayedIntentBinding: binding)
+            do { _ = try await f.runtime.executeApproved(toolCallID: call.id) }
+            catch ToolSystemPermissionError.consentRequired { }
+            #expect(try f.store.toolSystemConsent(id: call.id)?.phase == .requesting)
+            await f.driver.releaseRequests()
+            try await pending.value
+            #expect(try f.call().state == .prepared)
+            #expect(await f.driver.requests == 1)
+        } catch {
+            await f.driver.releaseRequests()
+            _ = try? await pending.value
+            throw error
+        }
+    }
+
+    @Test func anotherRuntimeInTheLiveProcessCannotResetAnInflightRequest() async throws {
+        let f = try SystemPermissionFixture(status: .notDetermined)
+        await f.driver.pauseRequests()
+        _ = try await f.complete()
+        let call = try f.call()
+        let binding = ToolIntentBinding.make(try #require(call.executionIntent))
+        let pending = Task { try await f.runtime.resolveSystemPermission(toolCallID: call.id, displayedIntentBinding: binding, consent: true) }
+        do {
+            for _ in 0..<1000 {
+                if try f.store.toolSystemConsent(id: call.id)?.phase == .requesting { break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            try #require(try f.store.toolSystemConsent(id: call.id)?.phase == .requesting)
+            let secondOwner = ToolRuntime(store: f.store, registry: f.registry)
+            try await secondOwner.recoverSystemPermission(toolCallID: call.id)
+            #expect(try f.store.toolSystemConsent(id: call.id)?.phase == .requesting)
+            await f.driver.releaseRequests()
+            try await pending.value
+            #expect(try f.call().state == .prepared)
+            #expect(await f.driver.requests == 1)
+        } catch {
+            await f.driver.releaseRequests()
+            _ = try? await pending.value
+            throw error
+        }
+    }
+
     @Test func staleSystemWitnessDoesNotPromptOrReplaceTheIntent() async throws {
         let f = try SystemPermissionFixture(status: .notDetermined)
         _ = try await f.complete()
