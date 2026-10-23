@@ -476,6 +476,9 @@ struct ToolResultRecord: Codable, FetchableRecord, PersistableRecord, Sendable, 
     var payload: String
     var createdAt: Date
 
+    var kind: ToolResultKind = .text
+    var failureCode: ToolResultFailure? = nil
+
     var id: String { toolCallID }
 }
 

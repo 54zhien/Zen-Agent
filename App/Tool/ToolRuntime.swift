@@ -22,15 +22,17 @@ enum ToolRuntimeError: Error, Equatable, Sendable {
 /// separate operations. `markToolCallDispatched` commits before `execute` is entered;
 /// a crash after that commit is therefore recovered as uncertain rather than retried.
 /// The original frozen payload, policy admission and current grants are checked
-/// at the transactional dispatch boundary. System-consent wiring remains S6-04b.
+/// at the transactional dispatch boundary. OS consent is a separate explicit interaction before dispatch.
 final class ToolRuntime: @unchecked Sendable {
     private let store: PersistenceStore
     private let registry: ToolRegistry
     private let safetyCap: ToolPolicySafetyCap
     private let systemConsent: ToolSystemConsentRuntime
+    private let credentials: (any CredentialStoring)?
 
-    init(store: PersistenceStore, registry: ToolRegistry, safetyCap: ToolPolicySafetyCap = .unrestricted) {
+    init(store: PersistenceStore, registry: ToolRegistry, safetyCap: ToolPolicySafetyCap = .unrestricted, credentials: (any CredentialStoring)? = nil) {
         self.store = store
+        self.credentials = credentials
         self.registry = registry
         self.safetyCap = safetyCap
         self.systemConsent = ToolSystemConsentRuntime(store: store, registry: registry, safetyCap: safetyCap)
@@ -68,7 +70,7 @@ final class ToolRuntime: @unchecked Sendable {
         let callID = UUID().uuidString
         let intent: ToolExecutionIntent
         do {
-            intent = try executor.prepare(callID: callID, argumentsJSON: argumentsJSON)
+            intent = try executor.prepare(callID: callID, argumentsJSON: argumentsJSON, context: preparationContext(runID: agentRunID))
             try ToolIntentCodec.validate(intent, descriptor: descriptor)
         } catch is CancellationError {
             throw CancellationError()
@@ -349,9 +351,9 @@ final class ToolRuntime: @unchecked Sendable {
         default: throw ToolRuntimeError.invalidToolCallState(id: call.id, expected: .dispatched, actual: dispatched.state)
         }
 
-        let executionResult: ToolExecutionResult
+        let rawResult: ToolExecutionResult
         do {
-            executionResult = try await executor.execute(
+            rawResult = try await executor.execute(
                 intent,
                 idempotencyKey: call.id
             )
@@ -363,9 +365,7 @@ final class ToolRuntime: @unchecked Sendable {
                 try store.markToolCallIndeterminate(id: call.id, at: now)
                 throw error
             }
-            let failureResult = ToolExecutionResult(
-                content: "Tool execution failed: \(String(describing: error))"
-            )
+            let failureResult = ToolExecutionResult.failure(.executionFailed)
             try store.finishDispatchedToolCall(
                 id: call.id,
                 expectedAttempt: call.attempt,
@@ -373,21 +373,24 @@ final class ToolRuntime: @unchecked Sendable {
                 result: ToolResultRecord(
                     toolCallID: call.id,
                     payload: failureResult.content,
-                    createdAt: now
+                    createdAt: now, kind: failureResult.kind, failureCode: failureResult.failure
                 ),
                 at: now
             )
             throw error
         }
 
+        let executionResult: ToolExecutionResult
+        do { executionResult = ToolResultGuard.sanitize(rawResult, knownSecrets: try knownSecrets(runID: call.agentRunID)) }
+        catch { executionResult = .failure(.redactionUnavailable) }
         try store.finishDispatchedToolCall(
             id: call.id,
             expectedAttempt: call.attempt,
-            state: .succeeded,
+            state: executionResult.failure == nil ? .succeeded : .failed,
             result: ToolResultRecord(
                 toolCallID: call.id,
                 payload: executionResult.content,
-                createdAt: now
+                createdAt: now, kind: executionResult.kind, failureCode: executionResult.failure
             ),
             at: now
         )
@@ -416,7 +419,7 @@ final class ToolRuntime: @unchecked Sendable {
             else { throw ToolIntentFailure.descriptorChanged }
             descriptor = executor.descriptor
             try ToolIntentCodec.validate(intent, descriptor: descriptor)
-            try executor.validateDependencies(intent)
+            try executor.validateDependencies(intent, context: preparationContext(runID: call.agentRunID))
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -464,7 +467,28 @@ final class ToolRuntime: @unchecked Sendable {
         guard let result = try store.toolResult(toolCallID: id) else {
             throw ToolRuntimeError.invalidStoredExecutionIntent(id)
         }
-        return ToolExecutionResult(content: result.payload)
+        return ToolExecutionResult(content: result.payload, kind: result.kind, failure: result.failureCode)
+    }
+
+    private func preparationContext(runID: String) throws -> ToolPreparationContext {
+        guard let run = try store.run(id: runID) else { throw ToolIntentFailure.dependenciesChanged }
+        return ToolPreparationContext(requestConfigSeed: run.requestConfigSeed)
+    }
+
+    private func knownSecrets(runID: String) throws -> [SecretValue] {
+        guard let credentials else { return [] }
+        let seed = try preparationContext(runID: runID).requestConfigSeed
+        var secrets: [SecretValue] = []
+        if let secret = try credentials.resolve(frozenReference: seed.credentialBinding.reference,
+                                                generation: seed.credentialBinding.generation) { secrets.append(secret) }
+        let references = Set(try store.providerInstances().compactMap(\.credentialReference))
+        for reference in references {
+            if try credentials.metadata(for: reference)?.status == .active {
+                guard let secret = try credentials.resolve(reference) else { throw ToolResultFailure.redactionUnavailable }
+                secrets.append(secret)
+            }
+        }
+        return secrets
     }
 
     private func encode(_ intent: ToolExecutionIntent) throws -> String {

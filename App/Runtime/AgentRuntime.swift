@@ -154,7 +154,8 @@ actor AgentRuntime {
         self.credentials = credentials
         self.toolRuntime = toolRuntime ?? ToolRuntime(
             store: store,
-            registry: ToolRegistry.empty
+            registry: ToolRegistry.empty,
+                credentials: credentials
         )
     }
 

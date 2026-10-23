@@ -27,6 +27,42 @@ struct FilesToolTests {
         #expect(try f.store.fileAsset(id: file.assetID)?.currentVersionID == file.versionID)
     }
 
+    @Test func exactUTF8BudgetIsAcceptedWithoutSplittingCharacters() async throws {
+        let f = try FileToolFixture()
+        defer { f.cleanUp() }
+        let text = String(repeating: "界", count: 21_845) + "x"
+        #expect(text.utf8.count == 65_536)
+        let file = try f.ingest(text)
+        let result = try await f.tool.execute(f.prepare(file.assetID), idempotencyKey: "call")
+        #expect(result.content == text)
+    }
+
+    @Test func symlinkedBlobCannotEscapeTheManagedRoot() async throws {
+        let f = try FileToolFixture()
+        defer { f.cleanUp() }
+        let file = try f.ingest("inside")
+        let intent = try f.prepare(file.assetID)
+        let blob = try f.files.blobURL(forFingerprint: file.fingerprint)
+        let outside = f.root.appendingPathComponent("outside.txt")
+        try Data("inside".utf8).write(to: outside)
+        try FileManager.default.removeItem(at: blob)
+        try FileManager.default.createSymbolicLink(at: blob, withDestinationURL: outside)
+        do { _ = try await f.tool.execute(intent, idempotencyKey: "call"); Issue.record("Symlink must be rejected") } catch { }
+    }
+
+    @Test func aDifferentCurrentVersionCannotReplaceApprovedBytes() async throws {
+        let f = try FileToolFixture()
+        defer { f.cleanUp() }
+        let file = try f.ingest("old")
+        let intent = try f.prepare(file.assetID)
+        let other = try f.ingest("new")
+        try f.store.advanceFileAsset(id: file.assetID,
+            to: FileAssetVersionRecord(id: UUID().uuidString, assetID: file.assetID,
+                contentFingerprint: other.fingerprint, byteCount: other.byteCount, mediaType: nil, createdAt: Date()))
+        #expect(throws: (any Error).self) { try f.tool.validateDependencies(intent) }
+        do { _ = try await f.tool.execute(intent, idempotencyKey: "call"); Issue.record("Changed version must be rejected") } catch { }
+    }
+
     @Test func realContinuationUsesFrozenDestinationAndSanitizedFileContent() async throws {
         let f = try I05RuntimeTestFixtures.makeFixture()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

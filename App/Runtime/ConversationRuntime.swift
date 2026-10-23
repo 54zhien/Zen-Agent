@@ -94,7 +94,8 @@ actor ConversationRuntime {
             credentials: credentials,
             toolRuntime: toolRuntime ?? ToolRuntime(
                 store: store,
-                registry: resolvedRegistry
+                registry: resolvedRegistry,
+                credentials: credentials
             )
         )
         self.onEvent = onEvent

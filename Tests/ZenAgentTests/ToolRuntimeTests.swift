@@ -118,7 +118,7 @@ final class ToolRuntimeTests: XCTestCase {
         XCTAssertEqual(idempotencyKeys, [call.id])
         XCTAssertEqual(
             try store.toolResult(toolCallID: call.id)?.payload,
-            "Tool execution failed: sentinel"
+            "Tool result: executionFailed."
         )
     }
 
