@@ -4,6 +4,10 @@ import Foundation
 struct FilesTool: ToolExecutable {
     let files: ManagedFileStore
     let store: PersistenceStore
+    let sessions: ConversationSessionStore?
+    init(files: ManagedFileStore, store: PersistenceStore, sessions: ConversationSessionStore? = nil) {
+        self.files = files; self.store = store; self.sessions = sessions
+    }
     var descriptor: ToolDescriptor {
         ToolDescriptor(id: "files", displayName: "Files", description: "Read a managed UTF-8 text file by FileAsset identity.",
             inputSchema: .object(["type": .string("object"), "properties": .object(["assetID": .object(["type": .string("string")])]), "required": .array([.string("assetID")]), "additionalProperties": .bool(false)]),
