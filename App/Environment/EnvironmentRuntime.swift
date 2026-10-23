@@ -13,6 +13,12 @@ struct EnvironmentRuntime: Sendable {
 
     func list() throws -> [EnvironmentItem] { try store.environmentVariables() }
 
+    func dependencies(id: String) throws -> ExtensionDependencySummary {
+        .init(activeRunIDs: try store.environmentDependentRunIDs(id: id))
+    }
+
+    func pendingCleanupCount() throws -> Int { try store.pendingEnvironmentCredentialRetirements().count }
+
     @discardableResult
     func savePlain(id: String? = nil, expectedRevisionID: String? = nil, scope: EnvironmentScope = .global,
                    key: String, value: String) throws -> EnvironmentItem {
