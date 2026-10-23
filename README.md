@@ -81,7 +81,7 @@ and post-merge CI are recorded on PR #41. The accepted UI checkout and draft
 [PR #37](https://github.com/54zhien/Zen-Agent/pull/37) remain separately parked.
 Earlier stability evidence remains in [the repair record](tasks/known-issues-stability.md).
 
-Stage 7 Memory is in progress on `codex/stage7-memory-20261023`, starting at PR #41's
+Stage 7 Memory is in progress in draft [PR #42](https://github.com/54zhien/Zen-Agent/pull/42), starting at PR #41's
 merge `49e77fb4eeaee7f4fad1b97b319d6b1de5cb991f`. Storage/management, bounded
 retrieval/frozen references and conservative local automatic formation are wired.
 The focused [native gate](https://github.com/54zhien/Zen-Agent/actions/runs/39948046060)
@@ -90,8 +90,11 @@ four Memory UI cases. The single independent review's two Important findings hav
 native RED-to-GREEN coverage, including the actual cold-start and formed-fact entry
 points. The unchanged full [Phone/iPad gate](https://github.com/54zhien/Zen-Agent/actions/runs/39948782164)
 failed at `0a63fb9`: Pad and all units/existing UI passed, but the largest-text
-Memory entry case failed. Native diagnosis is in progress; full-screen Memory
-portrait/landscape visual evidence is complete. This is not Stage7 closure.
+Memory entry case failed. Direct native probes subsequently entered Memory at
+the same center point, leaving the original cause unproven. The corrective test
+at `b5f6cb1` waits for Agent, taps its visible Memory label once and verifies the
+destination; App/UI code is unchanged. New focused/full gates are pending.
+Full-screen Memory portrait/landscape visual evidence is complete. This is not Stage7 closure.
 See [Stage 7 evidence and boundaries](tasks/stage7-memory.md).
 
 The following is the historical 2026-10-05 slice snapshot. Its individual PR
