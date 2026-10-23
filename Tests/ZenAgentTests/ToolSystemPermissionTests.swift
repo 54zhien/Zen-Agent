@@ -141,9 +141,9 @@ private struct SystemPermissionProbe: ToolSystemPermissionProviding {
     func systemPermissionState(for intent: ToolExecutionIntent) async throws -> ToolSystemPermissionState { await driver.status }
     func requestSystemPermission(for intent: ToolExecutionIntent) async throws { await driver.request() }
     func prepare(callID: String, argumentsJSON: String) throws -> ToolExecutionIntent {
-        try ToolIntentCodec.makeIntent(descriptor: descriptor, actionID: "probe", normalizedArgumentsJSON: "{}",
+        try ToolIntentCodec.freeze(descriptor: descriptor, actionID: "probe", normalizedArgumentsJSON: "{}",
             resource: .notRequired, destination: .notRequired,
-            disclosure: ToolApprovalDisclosure(toolDisplayName: "Test capability", action: "Probe", targetDescription: "Local test",
+            approvalDisclosure: ToolApprovalDisclosure(toolDisplayName: "Test capability", action: "Probe", targetDescription: "Local test",
                 keyImpact: "Test-only request"))
     }
     func execute(_ intent: ToolExecutionIntent, idempotencyKey: String) async throws -> ToolExecutionResult {
