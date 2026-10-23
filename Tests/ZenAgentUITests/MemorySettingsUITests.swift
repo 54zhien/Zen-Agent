@@ -73,7 +73,7 @@ final class MemorySettingsUITests: XCTestCase {
 
     @MainActor
     private func capture(_ name: String, _ app: XCUIApplication) {
-        let image = XCTAttachment(screenshot: app.screenshot())
+        let image = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         image.name = name; image.lifetime = .keepAlways; add(image)
     }
 
