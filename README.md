@@ -81,25 +81,29 @@ and post-merge CI are recorded on PR #41. The accepted UI checkout and draft
 [PR #37](https://github.com/54zhien/Zen-Agent/pull/37) remain separately parked.
 Earlier stability evidence remains in [the repair record](tasks/known-issues-stability.md).
 
-Stage 7 Memory is in progress in draft [PR #42](https://github.com/54zhien/Zen-Agent/pull/42), starting at PR #41's
-merge `49e77fb4eeaee7f4fad1b97b319d6b1de5cb991f`. Storage/management, bounded
-retrieval/frozen references and conservative local automatic formation are wired.
-The corrected focused [native gate](https://github.com/54zhien/Zen-Agent/actions/runs/39960244127)
-passes at source `b5f6cb1`: 1,266 Swift tests/200 suites, 20 XCTest unit tests and all
-four Memory UI cases. The single independent review's two Important findings have
-native RED-to-GREEN coverage, including the actual cold-start and formed-fact entry
-points. The unchanged full [Phone/iPad gate](https://github.com/54zhien/Zen-Agent/actions/runs/39948782164)
-failed at `0a63fb9`: Pad and all units/existing UI passed, but the largest-text
-Memory entry case failed. Direct native probes subsequently entered Memory at
-the same center point, leaving the original cause unproven. The corrective test
-at `b5f6cb1` waits for Agent, taps its visible Memory label once and verifies the
-destination; App/UI code is unchanged. The focused gate passes; the second
-normal [Phone/iPad gate](https://github.com/54zhien/Zen-Agent/actions/runs/39960601140)
-failed at `2863bce` only when the largest-text landscape test tapped an Agent row
-already hidden behind the navigation bar. Native bounds now drive the test's
-scrolling and one label tap; App/UI code remains unchanged. New gates are pending.
-Full-screen Memory portrait/landscape visual evidence is complete. This is not Stage7 closure.
-See [Stage 7 evidence and boundaries](tasks/stage7-memory.md).
+Stage 7 Memory's implementation/native gate is complete in draft
+[PR #42](https://github.com/54zhien/Zen-Agent/pull/42), based on PR #41's merge
+`49e77fb4eeaee7f4fad1b97b319d6b1de5cb991f`. Storage and user management, bounded
+retrieval with immutable references, and conservative local automatic formation
+are wired. The original, unmodified full
+[Phone/iPad gate](https://github.com/54zhien/Zen-Agent/actions/runs/39973149365)
+passed at source `e6cf31a92f8d9dea741a629fef68957d1c05e500`, tree
+`5791a1a17720cfee76c8b9c1f2d387372046b3ce`: 1,266 Swift tests in 200 suites,
+20 XCTest unit tests, 89 Phone UI passes plus one expected Pad-only skip, and
+one native Pad test passed separately. All four Memory UI cases passed.
+
+The single independent review's two Important findings have native RED-to-GREEN
+coverage through the real cold-start and formed-fact entry points; no review
+minors are deferred. Dark and largest-text light portrait/landscape captures
+were inspected. Both earlier full Phone failures, their native recordings,
+diagnostic limitations and subsequent corrections are preserved in the
+[Stage 7 evidence record](tasks/stage7-memory.md). Final route corrections
+change UI automation only; application code remains identical to `965d067`.
+
+The final receipt changes only this README, the Stage 7 evidence record and its
+implementation plan; application, tests and build inputs match the tested source.
+PR #42 and Blueprint decision PR #7 remain draft and unmerged. Physical-device
+protection/layout and long-term extraction-quality acceptance remain open.
 
 The following is the historical 2026-10-05 slice snapshot. Its individual PR
 states describe that date; use the current integration receipt above for main.

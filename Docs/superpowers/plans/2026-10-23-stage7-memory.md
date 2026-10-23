@@ -64,6 +64,8 @@
 **Files:** Stage7 source/test range; `tasks/stage7-memory.md`, README and this plan. Blueprint owner-decision note and stage-plan unresolved list, in a separate Blueprint branch/PR.
 
 - [x] Reconcile spec coverage and changed-path scope. One fresh reviewer reads entire branch and Review Focus; fix Important/Critical with actual RED→GREEN once; record deferred minors/rulings.
-- [ ] Run local YAML/path/hygiene and actual native XcodeGen/build/all unit/integration/approved UI. Final normal exact-head Phone/iPad gate remains mandatory; no diagnostic selector accepted as closure.
+- [x] Run local YAML/path/hygiene and actual native XcodeGen/build/all unit/integration/approved UI. Final normal exact-head Phone/iPad gate remains mandatory; no diagnostic selector accepted as closure.
 - [x] Inspect new page screenshots at narrow width/largest text/light/dark and relevant keyboard/navigation behavior; report device and model-quality limits separately.
-- [ ] Update README, gate matrix and exact SHA/tree/CI receipts. Create draft PR and attach it; leave merge for concrete final approval unless subsequently authorized. Preserve all failed/compile/cancelled provenance.
+- [x] Update README, gate matrix and exact SHA/tree/CI receipts. Create draft PR and attach it; leave merge for concrete final approval unless subsequently authorized. Preserve all failed/compile/cancelled provenance.
+
+Final source gate: `e6cf31a92f8d9dea741a629fef68957d1c05e500` / tree `5791a1a17720cfee76c8b9c1f2d387372046b3ce`, normal CI39973149365 SUCCESS.1,266Swift/200suites +20XCTest +89PhoneUI passes/1Pad-only skip +1nativePad pass; all4MemoryUI pass. Draft PR42 is attached and unmerged. Physical-device and long-term extraction-quality acceptance remain open. Exact failed/native/review/receipt boundaries: [stage record](../../../tasks/stage7-memory.md).

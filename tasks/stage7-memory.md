@@ -1,4 +1,4 @@
-# Stage 7 Memory — in progress
+# Stage 7 Memory — implementation/native gate complete
 
 Base PR41 merge `49e77fb4eeaee7f4fad1b97b319d6b1de5cb991f`. Original Stage6/UI worktrees remain untouched. Stage6 post-merge CI39920575387 was running at entry; no passing claim inferred from partial jobs.
 
@@ -10,14 +10,13 @@ Spec: [design](../Docs/superpowers/specs/2026-10-23-stage7-memory-design.md). Pl
 
 | Slice | Source | Native | Device |
 |---|---|---|---|
-| Store and user management | `1b39e08` | Owned suites + 2 Memory UI pass in39939362121; overall run retains intentional Task3 RED | open |
-| Retriever and frozen Prompt context | `1b39e08` | Owned retrieval/request/recovery/warm-erasure suites pass in39939362121 | open |
-| Automatic extraction/dedup/conflict | `eb43734` | 1,262 Swift + 20 XCTest pass in39941638246; Memory UI retained5assertion failures | open |
-| Review corrections and Memory UI | `81e89f4` | 1,266 Swift/200 suites + 20 XCTest + 4 Memory UI pass in39948046060 | open |
-| Navigation harness correction | `b5f6cb1` | 1,266 Swift/200 suites + 20 XCTest + 4 Memory UI pass in39960244127 | open |
-| Whole Stage7 | `2863bce` | Normal39960601140 failed at the landscape Agent route; native viewport correction awaiting new gates | open |
+| Store and user management | `e6cf31a` | Store/service/disk/protection-request regressions and all4MemoryUI pass in39973149365 | open |
+| Retriever and frozen Prompt context | `e6cf31a` | Retrieval/actual-request/version/erasure/warm+cold recovery regressions pass in39973149365 | open |
+| Automatic extraction/dedup/conflict | `e6cf31a` | Formation/current-user/provenance/receipts/conflicts/toggle+clear races pass in39973149365 | open |
+| Review corrections and viewport | `e6cf31a` | Both Important findings and the largest-text portrait/landscape path pass in39973149365 | open |
+| Whole Stage7 | `e6cf31a` | Normal39973149365 SUCCESS:1,266Swift/200suites +20XCTest +89PhoneUI passes/1Pad-only skip +1Pad pass | open |
 
-Automatic extraction was wired only after user management and retrieval had real native evidence. The focused native gate passes, including the review corrections and all four Memory UI cases. Complete dark/largest-light portrait/landscape screenshots have been reviewed. Two normal full Phone failures remain preserved; the current viewport correction still needs native gates and this is not Stage7 closure.
+The implementation/native gate is complete in draft, unmerged [PR42](https://github.com/54zhien/Zen-Agent/pull/42). Automatic extraction was wired only after user management and retrieval had real native evidence. Dark/largest-light portrait/landscape screenshots have been reviewed. Both normal full Phone failures remain preserved below; the final original-workflow gate passes. Physical-device protection/layout and long-term extraction quality remain separate, open acceptance work. No Stage8 work or merge is authorized by this receipt.
 
 ## Evidence ledger
 
@@ -97,6 +96,20 @@ Phone job120437432022 failed:1,266Swift/200suites in144.682s and20XCTest in0.962
 
 The complete native hierarchy and recording identify a concrete harness error: Agent's row was at(78,-34,718,90), its visible-text frame at(110,-19,205.7,60), while the navigation bar ended at y78. `isHittable` nevertheless allowed the helper to stop scrolling. The synthesized event was at(240,28) in the874×402 parent window, inside the navigation bar. The page remained Settings. The former one-direction drag had overshot the target; this is not evidence that the app should accept a tap through its navigation bar.
 
-The current corrective test requires the actual label's full frame to lie inside the native Form viewport, clipped by the observed navigation bar and scroll-indicator track. It scrolls back down when the label is above that viewport, holds before releasing each measured drag to stop inertia, and taps the observed label center once. Zero/unresolved frames are not considered visible. Root Agent, Memory entry and the largest-text list item all use that same check. `withVelocity:100/thenHoldForDuration:0.2` reuses the already-native-tested Stage6 gesture API. App/UI/runtime/build inputs remain unchanged. Focused UI and a new full normal source gate are still required.
+The corrective test requires the actual label's full frame to lie inside the native Form viewport, clipped by the observed navigation bar and scroll-indicator track. It scrolls back down when the label is above that viewport, holds before releasing each measured drag to stop inertia, and taps the observed label center once. Zero/unresolved frames are not considered visible. Root Agent, Memory entry and the largest-text list item all use that same check. `withVelocity:100/thenHoldForDuration:0.2` reuses the already-native-tested Stage6 gesture API. App/UI/runtime/build inputs remain unchanged. Subsequent focused and complete native evidence follows.
 
-Draft implementation [PR42](https://github.com/54zhien/Zen-Agent/pull/42) is attached and explicitly retains the failed gate. It is unmerged; the original UI/Stage6 worktrees remain parked.
+Viewport-focused GREEN [39973062658](https://github.com/54zhien/Zen-Agent/actions/runs/39973062658), source`e6cf31a92f8d9dea741a629fef68957d1c05e500`/diagnostic`fc72a697c18d3c259c747e7dbb14df12f420172d`, job120480567442: XcodeGen/App build and4MemoryUI passed in349.242s. Unit tests and Pad are deliberately not selected in this diagnostic, so this is UI evidence only. The native log shows the landscape viewport(4,82,866,254), rejects the partially clipped Agent text at y287…347 and performs another held drag before accepting y170…230. Memory entry text(y218…278) and the list summary(y245…305) also fit the measured viewport before their single taps. Largest-light portrait/landscape screenshots were inspected again through the current tested route; value and save/close controls fit. Log SHA256`0A65C08E01C193FDF0A27703A560451B8B893675BDD2604E61525E8259A0BEA1`; artifact12511475765/7411122bytes retained.
+
+Final normal full [39973149365](https://github.com/54zhien/Zen-Agent/actions/runs/39973149365) succeeded with the original unmodified `ci.yml` through workflow_dispatch at source`e6cf31a92f8d9dea741a629fef68957d1c05e500`, tree`5791a1a17720cfee76c8b9c1f2d387372046b3ce`. The manual event avoids duplicate PR/push runs without changing the full default test selection. Pad job120480874056 passed1case in110.055s; direct decoded log SHA256`7767DC2FB477023070166DB040F921319B16A33C06ED0A29483A367A404A81F8`. The actual failed recording was visually inspected: the blurred Agent text was behind the top bar while Files/Storage remained visible, corroborating the native hierarchy/event.
+
+## Final source receipt
+
+- Source `e6cf31a92f8d9dea741a629fef68957d1c05e500`, tree `5791a1a17720cfee76c8b9c1f2d387372046b3ce`; normal CI39973149365 SUCCESS, hygiene job120480809034 SUCCESS, Phone job120480873970 SUCCESS, Pad job120480874056 SUCCESS.
+- XcodeGen/App build passed. Swift Testing1,266tests/200suites passed in162.922s; XCTest20unit tests passed in1.541s. Phone90UI cases ran in3215.023s:89passed,1expected `WorkspacePadAxisUITests` iPad-destination skip,0failures. The same run's separate Pad job passed that native axis test.
+- All4MemoryUI passed in297.046s: switches/clear50.393s, edit/delete57.301s, original draft30.851s, largest-text portrait/landscape158.502s. Both review corrections pass through the production entry/request paths. No review minor is deferred.
+- One `ZenAgentTests.xctest` start, one `ZenAgentUITests.xctest` start, zero runtime restart banners; the printed shell grep guard is excluded from the banner count. The normal restart guard passed; failure-only termination diagnostics were correctly skipped.
+- Saved rendered Phone log SHA256 `5C12285730C00F977BB3FB5C40AC0093652B7EE0C9357867F0A53F5D66BAB6AE`; direct decoded Pad log SHA256 `7767DC2FB477023070166DB040F921319B16A33C06ED0A29483A367A404A81F8`. Final xcresult artifact12514980448/391140127bytes. Failed, compile-only, subset, probe and duplicate-cancellation provenance above is not replaced by this success.
+- Workflow/project/Config inputs are identical to base49e77fb. App code has not changed since965d067; later navigation/capture corrections affect only the Memory UI tests. The final receipt changes only README, this record and the implementation plan, with App/Tests/build inputs identical to the tested source. The receipt commit itself is not claimed as a separate native build.
+- Base `main` remains49e77fb at closeout; implementation PR42 and Blueprint decision PR7 remain draft/open/unmerged. Original UI/Stage6 worktrees remain untouched. Local ignored logs, native recordings and inspected captures are retained under `.superpowers/evidence/2026-10-23-stage7-memory` after archiving this plan's scratch workspace.
+
+Draft implementation [PR42](https://github.com/54zhien/Zen-Agent/pull/42) is attached and records the final passing gate alongside both earlier full Phone failures. It is unmerged; the original UI/Stage6 worktrees remain parked.
