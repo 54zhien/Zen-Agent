@@ -43,7 +43,7 @@ Activated workflow instructions remain below the current user's explicit request
 
 ## Environment and secrets
 
-Validate bounded keys and values, same-scope uniqueness and real Skill targets. Resolve only declared references in an explicit context. Missing keys, cycles/invalid references and unsupported scope targets produce typed non-secret errors; never merge all stored scopes into a global dictionary or use process setenv.
+Validate bounded keys and values, same-scope uniqueness and real Skill targets. Scope/key are a variable identity and remain fixed after creation; changing either requires an explicit dependency-aware delete and a new variable. Value edits alone create immutable revisions, so frozen references never silently change key or scope. Resolve only declared references in an explicit context. Missing keys, cycles/invalid references and unsupported scope targets produce typed non-secret errors; never merge all stored scopes into a global dictionary or use process setenv.
 
 Plain values may be fixed by immutable revision for the Run. Secret values are never Codable configuration or snapshot payloads: store only credential reference plus binding/config identity. Persist a reference only after Keychain provisioning succeeds. Failed metadata persistence must clean up only the newly owned credential, without deleting shared or previously committed references. Reuse existing Keychain accessibility/synchronization policy.
 
@@ -62,6 +62,8 @@ Existing tool exposure is frozen from the registry. The code map found that Agen
 Before deleting a variable or user-created Skill, show affected definitions/configurations and nonterminal Runs. Confirmation must stop/settle dependent execution or retain a pending destructive operation until a safe point; it must never leave an executing Run half-configured. Explicit deletion/security tightening overrides immutable history: no subsequent provider handoff, tool dispatch or recovery may use erased/revoked content. Ordinary edits remain separate from destructive revocation.
 
 Reuse and extend the existing per-database handoff/deletion coordination rather than introducing independent locks that can deadlock. Stop-state and attempt checks remain under the actual handoff/dispatch gate. A late request/result cannot reopen a stopped Run or write into another owner. Cold recovery must settle the original Run and release its active slot. Existing uncertain external-file-operation proof must be confirmed through its original path without replaying a side effect.
+
+Destructive flow first marks the dependency revoked/deleting under the existing gate, then asks the original ConversationRuntime owner to Stop/settle affected Runs outside that gate, and only removes bodies after they are terminal. Failed settlement leaves a visible retryable pending deletion; it does not reactivate the dependency or switch identity. Keychain cleanup uses a durable content-free retirement queue so a temporary Keychain failure can be retried without retaining deleted plain/Skill bodies.
 
 Remove erased user-created instruction/plain-value revisions from content storage; retained diagnostics contain only minimal identifiers/fingerprints/time. Delete Keychain bytes only when the operation owns them and no surviving reference requires them. Data/privacy language acknowledges that local deletion cannot retract content already transmitted to a provider or historical system backups.
 

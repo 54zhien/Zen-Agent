@@ -83,4 +83,14 @@ struct EnvironmentRuntimeTests {
         #expect(backend.storedSecret(for: binding.reference, generation: binding.generation) == nil)
         #expect(throws: EnvironmentError.erasedDependency) { try runtime.resolveFrozen([first.reference]) }
     }
+
+    @Test("interrupted provisioning leaves no unattached Environment credential after cleanup retry")
+    func interruptedProvisioning() throws {
+        let (_, backend, credentials, runtime) = try fixture()
+        let reference = CredentialReference(id: "environment-interrupted-fixture", kind: .environmentSecret)
+        try credentials.provision(SecretValue("fixture-unattached"), as: reference)
+        try runtime.retryCredentialCleanup()
+        #expect(backend.storedSecret(for: reference, generation: 1) == nil)
+        #expect(try credentials.metadata(for: reference)?.status == .authenticationRequired)
+    }
 }

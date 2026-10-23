@@ -529,13 +529,7 @@ final class ToolRuntime: @unchecked Sendable {
         var secrets: [SecretValue] = []
         if let secret = try credentials.resolve(frozenReference: seed.credentialBinding.reference,
                                                 generation: seed.credentialBinding.generation) { secrets.append(secret) }
-        let references = Set(try store.providerInstances().compactMap(\.credentialReference))
-        for reference in references {
-            if try credentials.metadata(for: reference)?.status == .active {
-                guard let secret = try credentials.resolve(reference) else { throw ToolResultFailure.redactionUnavailable }
-                secrets.append(secret)
-            }
-        }
+        secrets.append(contentsOf: try SecretContentGuard.knownSecrets(store: store, credentials: credentials))
         return secrets
     }
 

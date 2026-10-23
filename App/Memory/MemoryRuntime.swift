@@ -71,19 +71,6 @@ struct MemoryRuntime: Sendable {
     }
 
     private func knownSecrets() throws -> [SecretValue] {
-        let references = Set(try store.providerInstances().compactMap(\.credentialReference))
-        guard let credentials else {
-            guard references.isEmpty else { throw MemoryError.validationUnavailable }
-            return []
-        }
-        var result: [SecretValue] = []
-        for reference in references {
-            guard let metadata = try credentials.metadata(for: reference) else { throw MemoryError.validationUnavailable }
-            if metadata.status == .active {
-                guard let secret = try credentials.resolve(reference) else { throw MemoryError.validationUnavailable }
-                result.append(secret)
-            }
-        }
-        return result
+        try SecretContentGuard.knownSecrets(store: store, credentials: credentials)
     }
 }

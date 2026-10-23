@@ -41,10 +41,11 @@ extension SecretValue: CustomReflectable {
 
 /// Which kind of secret a reference points at.
 ///
-/// Only the one kind Stage 1 needs. Access/refresh token pairs arrive with OAuth, and
-/// adding cases now would be inventing a shape for a flow that does not exist.
+/// Environment secrets have a distinct purpose while sharing the same protected
+/// backend. Their opaque reference IDs remain globally unique across both kinds.
 enum CredentialKind: String, Codable, Sendable {
     case apiKey
+    case environmentSecret
 }
 
 /// A stable, non-secret handle for a credential.

@@ -3,6 +3,7 @@ import Foundation
 enum EnvironmentError: Error, Equatable, Sendable {
     case invalidKey, invalidValue, duplicateKey, editConflict, notFound, invalidScope
     case validationUnavailable, unsafeContent, erasedDependency, missingReference, cycle, secretInterpolation
+    case resourceInUse, cleanupPending
 }
 
 struct EnvironmentScope: Codable, Sendable, Equatable, Hashable {
@@ -29,5 +30,6 @@ struct EnvironmentItem: Sendable, Equatable, Identifiable {
     let key: String
     let value: EnvironmentStoredValue
     let updatedAt: Date
+    var pendingDeletion: Bool = false
     var reference: EnvironmentRevisionReference { .init(variableID: id, revisionID: revisionID) }
 }
