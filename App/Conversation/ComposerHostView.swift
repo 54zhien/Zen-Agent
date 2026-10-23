@@ -27,6 +27,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let onModel: (ModelID) -> Void
         let onHeightChanged: (CGFloat) -> Void
         var liftInteraction: ComposerLiftInteraction.Configuration? = nil
+        var skillSelectionOwner: ComposerSkillMenu.Owner? = nil
+        var selectedSkillIDs: [String] = []
+        var loadSkills: @Sendable () async throws -> [ComposerSkillOption] = { [] }
+        var onSkill: (String?) -> Void = { _ in }
     }
 
     private let surface = UIView()
@@ -529,6 +533,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         updateShelf(next)
         plus.isHidden = !next.showsPlus
         plus.menu = makeMenu(next)
+        plus.accessibilityValue = next.selectedSkillIDs.isEmpty
+            ? "自动选择 Skill" : "已选择 \(next.selectedSkillIDs.count) 个 Skill"
         switch next.primary {
         case .none:
             primary.isHidden = true
@@ -747,9 +753,18 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         }
         let modelMenu = UIMenu(title: "模型", image: UIImage(systemName: "cpu"),
                                children: modelActions.isEmpty ? [disabled("模型", "cpu")] : modelActions)
+        let owner = configuration.skillSelectionOwner
+        let skillMenu = ComposerSkillMenu.make(load: configuration.loadSkills,
+            currentSelection: { [weak self] in
+                guard let current = self?.configuration, current.skillSelectionOwner == owner else { return nil }
+                return current.selectedSkillIDs
+            }, select: { [weak self] id in
+                guard let current = self?.configuration, current.skillSelectionOwner == owner else { return }
+                current.onSkill(id)
+            })
         return UIMenu(children: [
             disabled("添加图片", "photo"), disabled("添加文件", "doc"),
-            disabled("插件", "puzzlepiece"), modelMenu,
+            skillMenu, modelMenu,
             disabled("推理强度", "slider.horizontal.3")
         ])
     }

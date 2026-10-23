@@ -71,12 +71,15 @@ final class SkillsSettingsUITests: XCTestCase {
         guard openExtensionSettings(app, id: "settings-skills", title: "Skills") else { return }
         let row = app.buttons["skill-item-zen.calculate"]
         guard tapExtensionLabel(row.staticTexts["计算核验"], in: app) else { return }
-        XCTAssertTrue(app.staticTexts["skill-instructions-readonly"].waitForExistence(timeout: 5))
+        guard tapExtensionLabel(app.staticTexts["skill-instructions-readonly"], in: app,
+                                tap: false, allowPartial: true) else { return }
         captureExtension("Skill largest portrait detail", app)
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 5))
         guard openExtensionSettings(app, id: "settings-skills", title: "Skills") else { return }
         guard tapExtensionLabel(app.buttons["skill-item-zen.calculate"].staticTexts["计算核验"], in: app) else { return }
+        guard tapExtensionLabel(app.staticTexts["skill-instructions-readonly"], in: app,
+                                tap: false, allowPartial: true) else { return }
         captureExtension("Skill largest landscape detail", app)
     }
 

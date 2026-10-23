@@ -50,7 +50,8 @@ extension XCTestCase {
     }
 
     @MainActor
-    func tapExtensionLabel(_ label: XCUIElement, in app: XCUIApplication, tap: Bool = true) -> Bool {
+    func tapExtensionLabel(_ label: XCUIElement, in app: XCUIApplication, tap: Bool = true,
+                           allowPartial: Bool = false) -> Bool {
         for _ in 0..<24 {
             let form = app.collectionViews.firstMatch
             guard form.exists else { break }
@@ -68,7 +69,13 @@ extension XCTestCase {
             viewport = viewport.insetBy(dx: 4, dy: 4)
             guard !viewport.isEmpty, !viewport.isNull else { break }
             let target = label.exists ? label.frame : .null
-            if !target.isNull, !target.isEmpty, viewport.contains(target), label.isHittable {
+            // Read-only instructions can be taller than the entire viewport at
+            // accessibility sizes. Reveal a readable part without requiring the
+            // impossible whole-row fit; interactive targets still require it.
+            let visible = allowPartial && !tap
+                ? viewport.intersection(target).height >= min(44, target.height)
+                : viewport.contains(target) && label.isHittable
+            if !target.isNull, !target.isEmpty, visible {
                 if tap { label.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
                 return true
             }
