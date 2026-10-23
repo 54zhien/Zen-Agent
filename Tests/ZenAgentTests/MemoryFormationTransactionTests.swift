@@ -5,6 +5,18 @@ import Testing
 
 @Suite("Memory formation transactional fences")
 struct MemoryFormationTransactionTests {
+    @Test func aDelayedOlderCompletionCannotOverwriteANewerUserAssertion() async throws {
+        let fixture = try MemoryPromptFixture.make()
+        let oldID = try await fixture.send(text: "我偏好中文回答")
+        try fixture.store.database.write { try $0.execute(sql: "DELETE FROM memoryExtractionReceipt") }
+        let prepared = try fixture.store.prepareMemoryFormation(runID: oldID)
+        let oldInput = try #require(prepared)
+        _ = try await fixture.send(text: "我偏好英文回答")
+        try fixture.store.commitMemoryCandidates(MemoryCandidateExtractor.extract(oldInput.text), from: oldInput)
+        #expect(try fixture.store.memories().count == 1)
+        #expect(try fixture.store.memories().first?.content == "用户偏好使用英文回答。")
+    }
+
     @Test func clearAndToggleInvalidateAQueuedCandidateAndOldSources() async throws {
         let fixture = try MemoryPromptFixture.make()
         let runID = try await fixture.send(text: "我偏好中文回答")
