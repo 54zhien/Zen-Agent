@@ -7,6 +7,7 @@ struct ToolSettingsView: View {
     var body: some View {
         Form {
             Section {
+                Text("工具来源：App 内置")
                 Text("长期策略在每次调用时重新检查。授权不会替代 iOS 权限，也不会自动恢复正在等待的调用。")
                     .foregroundStyle(.secondary)
                 Text(capDescription)
@@ -29,6 +30,13 @@ struct ToolSettingsView: View {
                     }
                     .accessibilityIdentifier("tool-policy-\(row.toolID)-\(row.action.actionID)")
                     .disabled(model.isWorking)
+                    if !ToolPolicyIdentity.equals(row.policy.descriptorRevision, row.action.descriptorRevision) {
+                        Text("已保存策略属于旧动作版本，需要重新确认。").foregroundStyle(.secondary)
+                        Button("使用当前版本并每次询问") {
+                            Task { _ = await model.setPolicy(toolID: row.toolID, actionID: row.action.actionID,
+                                descriptorRevision: row.action.descriptorRevision, mode: .askEveryTime) }
+                        }.disabled(model.isWorking)
+                    }
                     LabeledContent("系统权限", value: systemDescription(row.systemState))
                     Text(actionDescription(row.action)).foregroundStyle(.secondary)
                 } header: {
@@ -38,6 +46,8 @@ struct ToolSettingsView: View {
                 }
             }
             Section("授权记录") {
+                Text("授权仅适用于记录中的主体、动作版本、资源和目标。策略收紧、动作变化或主体结束后需要重新检查；撤销不会恢复已结束的调用。")
+                    .foregroundStyle(.secondary)
                 if model.grants.isEmpty { Text("暂无授权记录").foregroundStyle(.secondary) }
                 ForEach(model.grants) { row in
                     VStack(alignment: .leading, spacing: 8) {

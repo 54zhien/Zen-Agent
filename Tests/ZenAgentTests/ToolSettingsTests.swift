@@ -95,6 +95,7 @@ struct ToolSettingsTests {
 
     @Test func changedActionVersionRequiresReconfirmationInGrantDisclosure() async throws {
         let f = try ToolSettingsFixture()
+        try f.store.setToolPolicy(toolID: "calculator", actionID: "calculator", descriptorRevision: "1", mode: .askEveryTime)
         let call = try await f.waitingCall()
         try f.runtime.approve(toolCallID: call.id,
             displayedIntentBinding: ToolIntentBinding.make(try #require(call.executionIntent)), scope: .conversation)
@@ -103,8 +104,12 @@ struct ToolSettingsTests {
         let row = try #require(model.grants.first)
         #expect(row.grant.descriptorRevision == "1")
         #expect(row.invalidationReason?.contains("需要重新确认") == true)
+        #expect(model.actions.first?.policy.descriptorRevision == "1")
         #expect(try f.store.toolGrant(id: row.id)?.descriptorRevision == "1")
         #expect(await model.revokeGrant(id: row.id))
+        #expect(await model.setPolicy(toolID: "calculator", actionID: "calculator", descriptorRevision: "2", mode: .askEveryTime))
+        #expect(model.actions.first?.policy.descriptorRevision == "2")
+        #expect(try f.store.toolGrant(id: row.id)?.validity == .revoked)
     }
 }
 

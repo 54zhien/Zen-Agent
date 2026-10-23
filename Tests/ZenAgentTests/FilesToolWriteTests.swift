@@ -194,7 +194,14 @@ struct FilesToolWriteTests {
         let writer = Task { try await f.runtime.executeApproved(toolCallID: modify.id) }
         let remover = Task { try await f.runtime.executeApproved(toolCallID: deletion.id) }
         _ = try await writer.value
-        _ = try await remover.value
+        do { _ = try await remover.value }
+        catch ToolIntentFailure.dependenciesChanged {
+            // The writer may win after dispatch but before the delete's
+            // executor revalidation. Runtime preserves the thrown error and
+            // records the safe typed outcome; it must never delete new bytes.
+            #expect(try f.store.toolCall(id: deletion.id)?.state == .failed)
+            #expect(try f.store.toolResult(toolCallID: deletion.id)?.failureCode == .dependencyChanged)
+        }
         let asset = try #require(try f.store.fileAsset(id: file.assetID))
         let version = try #require(try f.store.fileAssetVersion(id: asset.currentVersionID))
         #expect(version.id != file.versionID)

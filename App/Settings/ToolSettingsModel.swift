@@ -69,7 +69,8 @@ final class ToolSettingsModel {
             actions = rows
             self.grants = grants.map {
                 ToolSettingsGrantRow(id: $0.id, grant: $0.grant,
-                    invalidationReason: Self.invalidationText($0.invalidation, validity: $0.grant.validity))
+                    invalidationReason: Self.invalidationText($0.invalidation, validity: $0.grant.validity)
+                        ?? currentDescriptorNotice(for: $0.grant))
             }
             errorMessage = nil
         } catch {
@@ -117,6 +118,20 @@ final class ToolSettingsModel {
     }
 
     func invalidate() { active = false; generation &+= 1 }
+
+    private func currentDescriptorNotice(for grant: ToolScopedGrant) -> String? {
+        guard grant.validity == .active else { return nil }
+        guard let descriptor = registry.executor(id: grant.toolID)?.descriptor else {
+            return "工具当前不可用；授权记录仍可撤销。"
+        }
+        // This explains a declared identity mismatch, without recomputing
+        // effective permission or altering the original issuance.
+        guard ToolPolicyIdentity.equals(descriptor.revision, grant.descriptorRevision),
+              descriptor.actions.contains(where: { ToolPolicyIdentity.equals($0.actionID, grant.actionID) }) else {
+            return "动作版本或可用动作已变化，需要重新确认。"
+        }
+        return nil
+    }
 
     private static func invalidationText(_ reason: ToolGrantInvalidationReason?, validity: ToolGrantValidity) -> String? {
         if validity == .consumed { return "本次授权已消费或原调用已结束。" }
