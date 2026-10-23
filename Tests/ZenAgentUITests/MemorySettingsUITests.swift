@@ -50,8 +50,7 @@ final class MemorySettingsUITests: XCTestCase {
         XCTAssertTrue(app.switches["memory-enabled"].waitForExistence(timeout: 5))
         capture("Memory largest light portrait controls", app)
         let row = app.buttons["memory-item-fixture-memory"]
-        for _ in 0..<8 where !row.isHittable { app.swipeUp() }
-        XCTAssertTrue(row.isHittable); row.tap()
+        guard tapVisibleLabel(row.staticTexts.firstMatch, in: app) else { return }
         XCTAssertTrue(app.textViews["memory-content"].waitForExistence(timeout: 5))
         capture("Memory largest light portrait editor", app)
         app.swipeUp()
@@ -62,8 +61,7 @@ final class MemorySettingsUITests: XCTestCase {
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 5))
         guard openMemory(app) else { return }
         let landscapeRow = app.buttons["memory-item-fixture-memory"]
-        guard reveal(landscapeRow, in: app) else { return }
-        landscapeRow.tap()
+        guard tapVisibleLabel(landscapeRow.staticTexts.firstMatch, in: app) else { return }
         let landscapeEditor = app.textViews["memory-content"]
         XCTAssertTrue(landscapeEditor.waitForExistence(timeout: 5))
         XCTAssertEqual(landscapeEditor.value as? String, "I work on Windows")
@@ -95,19 +93,58 @@ final class MemorySettingsUITests: XCTestCase {
     private func reveal(_ element: XCUIElement, in app: XCUIApplication,
                         file: StaticString = #filePath, line: UInt = #line) -> Bool {
         for _ in 0..<24 {
-            if element.isHittable { return true }
             let form = app.collectionViews.firstMatch
             guard form.exists else { break }
-            // Both endpoints use one observed app-space frame. The native
-            // landscape recording showed app.swipeUp leaving this Form at top.
-            let start = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.78))
-            let end = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.28))
-            print("MEMORY_FORM_DRAG frame=\(form.frame) start=\(start.screenPoint) end=\(end.screenPoint)")
-            start.press(forDuration: 0.05, thenDragTo: end)
+            let viewport = visibleFormViewport(form, in: app)
+            guard !viewport.isEmpty, !viewport.isNull else { break }
+            let target = element.exists ? element.frame : nil
+            // Native evidence exposed a hittable Agent row at y=-34...56
+            // behind a bar ending at y=78. Hittability alone permits a wrong tap.
+            if let target, viewport.contains(target), element.isHittable {
+                print("MEMORY_ROUTE_READY viewport=\(viewport) target=\(target)")
+                return true
+            }
+            let downward = target.map { $0.minY < viewport.minY } ?? false
+            let upper = (viewport.minY + viewport.height * 0.25 - form.frame.minY) / form.frame.height
+            let lower = (viewport.maxY - viewport.height * 0.25 - form.frame.minY) / form.frame.height
+            let start = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: downward ? upper : lower))
+            let end = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: downward ? lower : upper))
+            print("MEMORY_FORM_DRAG viewport=\(viewport) target=\(String(describing: target)) down=\(downward) start=\(start.screenPoint) end=\(end.screenPoint)")
+            // Hold before release to stop inertial overshoot; both endpoints
+            // remain in the observed Form's coordinate system in landscape.
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: 100, thenHoldForDuration: 0.2)
         }
         captureHierarchy("Memory route reveal failure", app)
         XCTFail("Memory route control did not become hittable: \(element.identifier)", file: file, line: line)
         return false
+    }
+
+    @MainActor
+    private func visibleFormViewport(_ form: XCUIElement, in app: XCUIApplication) -> CGRect {
+        var viewport = form.frame.intersection(app.frame)
+        let navigation = app.navigationBars.firstMatch
+        if navigation.exists {
+            let top = max(viewport.minY, navigation.frame.maxY)
+            viewport = CGRect(x: viewport.minX, y: top, width: viewport.width,
+                              height: max(0, viewport.maxY - top))
+        }
+        let indicator = form.descendants(matching: .other)
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "Vertical scroll bar")).firstMatch
+        if indicator.exists, indicator.frame.height > 0 {
+            let track = CGRect(x: viewport.minX, y: indicator.frame.minY,
+                               width: viewport.width, height: indicator.frame.height)
+            if viewport.intersects(track) { viewport = viewport.intersection(track) }
+        }
+        return viewport.insetBy(dx: 4, dy: 4)
+    }
+
+    @MainActor
+    private func tapVisibleLabel(_ label: XCUIElement, in app: XCUIApplication) -> Bool {
+        guard reveal(label, in: app) else { return false }
+        let point = label.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        print("MEMORY_ROUTE_LABEL frame=\(label.frame) point=\(point.screenPoint)")
+        point.tap()
+        return true
     }
 
     @MainActor
@@ -186,25 +223,16 @@ final class MemorySettingsUITests: XCTestCase {
         guard settings.waitForExistence(timeout: 5) else { XCTFail("Settings missing"); return false }
         settings.tap()
         let agent = app.buttons["settings-agent"]
-        guard reveal(agent, in: app) else { return false }
-        agent.tap()
+        guard tapVisibleLabel(agent.staticTexts.firstMatch, in: app) else { return false }
         guard app.navigationBars["Agent"].waitForExistence(timeout: 5) else {
             captureHierarchy("Memory route did not reach Agent", app)
             XCTFail("Agent destination did not open"); return false
         }
         let memory = app.buttons["settings-memory"]
-        guard reveal(memory, in: app) else { return false }
         // The full run's row-center event stayed on Agent, while isolated
         // direct-center probes navigated. Use the visible label and verify
         // the destination after one tap instead of assuming the push completed.
-        let label = memory.staticTexts.firstMatch
-        guard label.waitForExistence(timeout: 5),
-              label.wait(for: \.isHittable, toEqual: true, timeout: 5) else {
-            captureHierarchy("Memory route label was not ready", app)
-            XCTFail("Memory navigation label was not hittable"); return false
-        }
-        print("MEMORY_ROUTE_LABEL frame=\(label.frame)")
-        label.tap()
+        guard tapVisibleLabel(memory.staticTexts.firstMatch, in: app) else { return false }
         guard app.switches["memory-enabled"].waitForExistence(timeout: 5) else {
             captureHierarchy("Memory route did not reach its destination", app)
             capture("Memory route did not reach its destination", app)
