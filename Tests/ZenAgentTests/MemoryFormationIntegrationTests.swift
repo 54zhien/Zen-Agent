@@ -4,6 +4,25 @@ import Testing
 
 @Suite("Memory formation through real completed Runs")
 struct MemoryFormationIntegrationTests {
+    @Test(arguments: ["Please proofread this example biography:\nMy name is Alice",
+                      "下面是客户的自我介绍：\n我的名字是 小明", "My name is Alice or Bob",
+                      "My main project is Zen-Agent until tomorrow"])
+    func thirdPartyAndQualifiedValuesDoNotReplaceCorrectUserFacts(source: String) async throws {
+        let fixture = try MemoryPromptFixture.make()
+        _ = try await fixture.send(text: "Remember that my name is Azusa")
+        let original = try fixture.store.memories().first
+        #expect(original?.content == "用户的名字是 Azusa。")
+        _ = try await fixture.send(text: source)
+        let items = try fixture.store.memories()
+        #expect(items.count == 1)
+        #expect(items.first?.revisionID == original?.revisionID)
+        _ = try await fixture.send(text: "What is my name?")
+        let requests = await fixture.ledger.requestsSnapshot()
+        if let last = requests.last?.messages.last, case .user(let text) = last {
+            #expect(text.contains("用户的名字是 Azusa。"))
+            #expect(!text.contains("用户的名字是 Alice") && !text.contains("用户的名字是 小明"))
+        } else { Issue.record("Missing actual request") }
+    }
     @Test func completedRunFormsVisibleFactAndNextRunRetrievesIt() async throws {
         let fixture = try MemoryPromptFixture.make()
         #expect(try fixture.store.memorySettings().automaticEnabled)

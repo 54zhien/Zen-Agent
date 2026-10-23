@@ -4,6 +4,14 @@ import Testing
 
 @Suite("Conservative local Memory extraction")
 struct MemoryExtractionTests {
+    @Test func sourceContextAndOpenValuesCannotInventUserIdentity() {
+        for text in ["Please proofread this example biography:\nMy name is Alice",
+                     "下面是客户的自我介绍：\n我的名字是 小明", "My name is Alice or Bob",
+                     "My main project is Zen-Agent until tomorrow", "我的主要项目是 Zen-Agent，持续到明天",
+                     "If this example were true:\nMy name is Alice"] {
+            #expect(MemoryCandidateExtractor.extract(text).isEmpty)
+        }
+    }
     @Test func stableBilingualFacts() {
         let cases: [(String, String, String)] = [
             ("我偏好中文回答", "response.language", "用户偏好使用中文回答。"),
