@@ -49,8 +49,9 @@ struct FilesToolWriteTests {
             #expect(result.failureCode == nil)
             #expect(result.payload.contains(#""execution":"completed""#))
             #expect(result.payload.contains(#""result":"withheld""#))
+            let executionIntent = try #require(call.executionIntent)
             let receipt = try #require(try base.store.toolFileOperation(callID: call.id, attempt: call.attempt,
-                intentBinding: ToolIntentBinding.make(try #require(call.executionIntent))))
+                intentBinding: ToolIntentBinding.make(executionIntent)))
             #expect(try base.store.fileAsset(id: receipt.assetID)?.currentVersionID == receipt.versionID)
             #expect(try Data(contentsOf: files.blobURL(forFingerprint: receipt.fingerprint)) == Data("committed bytes".utf8))
             #expect(try base.store.database.read { try Int.fetchOne($0, sql: "SELECT count(*) FROM fileAsset") } == 1)
