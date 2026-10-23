@@ -27,15 +27,21 @@ struct ToolApprovalCardView: View {
                 }
 
                 disclosureRow(title: "授权范围") {
-                    Text("仅本次调用")
+                    Text(approval.scopeDescription)
                 }
 
                 disclosureRow(title: "授权对象") {
                     Text("本 Conversation 的 Parent Run")
                 }
 
+                if approval.kind == .systemPermission {
+                    disclosureRow(title: "系统权限") {
+                        Text(approval.systemPermissionDescription ?? "权限交互状态不可用，请停止后重新检查。")
+                        if approval.systemPermissionPhase == .requesting { Text("正在等待 iOS 权限请求结果。") }
+                    }
+                }
                 VStack(spacing: 10) {
-                    ForEach(ToolApprovalDecision.allCases, id: \.self) { decision in
+                    ForEach(approval.availableDecisions, id: \.self) { decision in
                         Button(decision.title) {
                             guard !isResolving,
                                   approval.availableDecisions.contains(decision)
@@ -44,7 +50,7 @@ struct ToolApprovalCardView: View {
                             onDecision(request)
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(decision == .rejectOnce ? .red : .accentColor)
+                        .tint(decision == .rejectOnce || decision == .declineSystemPermission ? .red : .accentColor)
                         .disabled(isResolving || !approval.availableDecisions.contains(decision))
                         .frame(maxWidth: .infinity)
                     }

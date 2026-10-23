@@ -173,8 +173,8 @@ struct RunRecovery: Sendable {
     }
 
     private func recoverApproval(run: AgentRunRecord) async throws {
-        let allCalls = try store.toolCalls(inRun: run.id)
-        let calls = allCalls.filter { $0.state == .waitingForApproval }
+        let allCalls = try await reconcileSystemConsent(in: run)
+        let calls = allCalls.filter { $0.state == .waitingForApproval || $0.state == .waitingForSystemPermissionConsent }
         if calls.isEmpty, allCalls.contains(where: {
             $0.state == .approved || $0.state == .prepared
         }) {
@@ -202,8 +202,18 @@ struct RunRecovery: Sendable {
         }
     }
 
-    private func recoverToolCheckpoint(run: AgentRunRecord) async throws {
+    private func reconcileSystemConsent(in run: AgentRunRecord) async throws -> [ToolCallRecord] {
         let calls = try store.toolCalls(inRun: run.id)
+        if let toolRuntime {
+            for call in calls where call.state == .waitingForSystemPermissionConsent {
+                try await toolRuntime.recoverSystemPermission(toolCallID: call.id)
+            }
+        }
+        return try store.toolCalls(inRun: run.id)
+    }
+
+    private func recoverToolCheckpoint(run: AgentRunRecord) async throws {
+        let calls = try await reconcileSystemConsent(in: run)
         guard !calls.isEmpty else {
             try await transition(runID: run.id, to: .continuing)
             return
@@ -222,7 +232,7 @@ struct RunRecovery: Sendable {
             return
         }
 
-        let approvalCalls = calls.filter { $0.state == .waitingForApproval }
+        let approvalCalls = calls.filter { $0.state == .waitingForApproval || $0.state == .waitingForSystemPermissionConsent }
         if !approvalCalls.isEmpty {
             try await transition(runID: run.id, to: .waitingForApproval)
             for call in batchOrdered(approvalCalls) {

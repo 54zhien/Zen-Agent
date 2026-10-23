@@ -17,24 +17,5 @@ enum ToolSystemPermissionError: Error, Equatable {
     case consentRequired(String)
 }
 
-extension ToolRuntime {
-    // Compile-ready conservative RED boundary. The owner path is implemented
-    // only after the native contracts demonstrate missing behavior.
-    func resolveSystemPermission(toolCallID: String, displayedIntentBinding: String,
-                                 consent: Bool) async throws {
-        throw ToolSystemPermissionError.unavailable
-    }
-}
-
 /// Explicit runtime choice; persistent policy remains a separate Settings concern.
 enum ToolApprovalScope: Sendable { case once, conversation }
-
-extension ToolRuntime {
-    func approve(toolCallID: String, displayedIntentBinding: String? = nil,
-                 scope: ToolApprovalScope) throws {
-        switch scope {
-        case .once: try approve(toolCallID: toolCallID, displayedIntentBinding: displayedIntentBinding)
-        case .conversation: throw ToolSystemPermissionError.unavailable
-        }
-    }
-}

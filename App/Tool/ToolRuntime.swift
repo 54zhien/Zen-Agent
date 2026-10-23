@@ -27,11 +27,13 @@ final class ToolRuntime: @unchecked Sendable {
     private let store: PersistenceStore
     private let registry: ToolRegistry
     private let safetyCap: ToolPolicySafetyCap
+    private let systemConsent: ToolSystemConsentRuntime
 
     init(store: PersistenceStore, registry: ToolRegistry, safetyCap: ToolPolicySafetyCap = .unrestricted) {
         self.store = store
         self.registry = registry
         self.safetyCap = safetyCap
+        self.systemConsent = ToolSystemConsentRuntime(store: store, registry: registry, safetyCap: safetyCap)
     }
 
     /// Completes one provider tool call through validation, frozen intent persistence,
@@ -107,7 +109,9 @@ final class ToolRuntime: @unchecked Sendable {
         try Task.checkCancellation()
         let admitted = try store.createToolCallWithPolicy(call, descriptor: descriptor, safetyCap: safetyCap, at: now)
         switch admitted.state {
-        case .prepared: return try await executePrepared(toolCallID: callID, at: now)
+        case .prepared:
+            do { return try await executePrepared(toolCallID: callID, at: now) }
+            catch ToolSystemPermissionError.consentRequired { return nil }
         case .rejected: return try storedResult(for: admitted.id)
         case .notExecuted: throw CancellationError()
         default: return nil
@@ -236,7 +240,7 @@ final class ToolRuntime: @unchecked Sendable {
     /// Records approval on the existing waiting call. Execution is intentionally a
     /// separate operation so approval presentation cannot accidentally cross the
     /// durable-dispatch boundary.
-    func approve(toolCallID: String, displayedIntentBinding: String? = nil) throws {
+    func approve(toolCallID: String, displayedIntentBinding: String? = nil, scope: ToolApprovalScope = .once) throws {
         if try validatePendingIntent(toolCallID: toolCallID, requireAdmission: false) != nil { return }
         let call = try requiredToolCall(id: toolCallID)
         guard let json = call.executionIntent,
@@ -246,7 +250,7 @@ final class ToolRuntime: @unchecked Sendable {
         }
         let approved = try store.approveToolCallWithPolicy(id: call.id, expectedAttempt: call.attempt,
             descriptor: descriptor, safetyCap: safetyCap, checkedIntentBinding: ToolIntentBinding.make(json),
-            displayedIntentBinding: displayedIntentBinding, at: Date())
+            displayedIntentBinding: displayedIntentBinding, scope: scope, at: Date())
         if approved.state == .waitingForApproval { throw ToolRuntimeError.approvalRequired(call.id) }
         if approved.state == .notExecuted { throw CancellationError() }
     }
@@ -319,6 +323,13 @@ final class ToolRuntime: @unchecked Sendable {
         }
 
         try Task.checkCancellation()
+        let systemChecked = try await systemConsent.preflight(call: call, intent: intent, executor: executor)
+        if systemChecked.state == .rejected { return try storedResult(for: call.id) }
+        if systemChecked.state == .waitingForSystemPermissionConsent {
+            throw ToolSystemPermissionError.consentRequired(call.id)
+        }
+        if systemChecked.state == .waitingForApproval { throw ToolRuntimeError.approvalRequired(call.id) }
+        if systemChecked.state == .notExecuted { throw CancellationError() }
         // Current authority and the original attempt commit together. The exact
         // JSON this checkpoint authorizes is the payload passed to execute below.
         let dispatched = try store.dispatchToolCallWithPolicy(id: call.id, expectedAttempt: call.attempt,
@@ -389,7 +400,7 @@ final class ToolRuntime: @unchecked Sendable {
     func validatePendingIntent(toolCallID: String, at now: Date = Date(),
                                requireAdmission: Bool = true) throws -> ToolExecutionResult? {
         let call = try requiredToolCall(id: toolCallID)
-        guard [ToolCallState.validated, .waitingForApproval, .approved, .prepared].contains(call.state) else { return nil }
+        guard [ToolCallState.validated, .waitingForApproval, .waitingForSystemPermissionConsent, .approved, .prepared].contains(call.state) else { return nil }
         let descriptor: ToolDescriptor
         do {
             guard let json = call.executionIntent else { throw ToolIntentFailure.malformedIntent }
@@ -421,6 +432,18 @@ final class ToolRuntime: @unchecked Sendable {
             if reconciled.state == .rejected { return try storedResult(for: call.id) }
         }
         return nil
+    }
+
+    func resolveSystemPermission(toolCallID: String, displayedIntentBinding: String,
+                                 consent: Bool) async throws {
+        if try validatePendingIntent(toolCallID: toolCallID) != nil { return }
+        try await systemConsent.resolve(id: toolCallID, binding: displayedIntentBinding, consent: consent)
+    }
+
+    func recoverSystemPermission(toolCallID: String) async throws {
+        if try validatePendingIntent(toolCallID: toolCallID) != nil { return }
+        guard try requiredToolCall(id: toolCallID).state == .waitingForSystemPermissionConsent else { return }
+        try await systemConsent.recover(id: toolCallID)
     }
 
     private func requireExecutablePendingCall(_ id: String) throws {

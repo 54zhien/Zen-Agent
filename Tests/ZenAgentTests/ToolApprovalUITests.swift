@@ -184,11 +184,11 @@ struct ToolApprovalUITests {
         let sources = try #require(sourceFiles())
         let cardSource = try #require(sources["App/Conversation/ToolApprovalCardView.swift"])
 
-        #expect(ToolApprovalDecision.allCases == [ToolApprovalDecision.approveOnce, ToolApprovalDecision.rejectOnce])
+        #expect(ToolApprovalDecision.allCases == [.approveOnce, .approveConversation, .rejectOnce, .requestSystemPermission, .declineSystemPermission])
         #expect(card.availableDecisions == [ToolApprovalDecision.approveOnce, ToolApprovalDecision.rejectOnce])
         #expect(ToolApprovalDecision.approveOnce.title == "批准本次")
         #expect(ToolApprovalDecision.rejectOnce.title == "拒绝本次")
-        #expect(cardSource.contains("ForEach(ToolApprovalDecision.allCases"))
+        #expect(cardSource.contains("ForEach(approval.availableDecisions"))
         #expect(!cardSource.contains("始终允许"))
         #expect(!cardSource.contains("总是允许"))
         #expect(!cardSource.localizedCaseInsensitiveContains("allowAlways"))
@@ -861,7 +861,7 @@ struct ToolApprovalUITests {
         guard let sources = sourceFiles() else { return }
         let card = sources["App/Conversation/ToolApprovalCardView.swift"] ?? ""
         let timeline = sources["App/Conversation/ConversationTimelineView.swift"] ?? ""
-        guard let decisionButtons = closureBody(in: card, after: "ForEach(ToolApprovalDecision.allCases") else {
+        guard let decisionButtons = closureBody(in: card, after: "ForEach(approval.availableDecisions") else {
             Issue.record("could not locate the ToolApprovalCardView decision button action")
             return
         }

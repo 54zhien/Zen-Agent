@@ -1006,7 +1006,8 @@ actor ConversationRuntime {
         let runs = try store.runs(inConversation: conversationID)
 
         for run in runs where run.kind == .parent && run.parentRunID == nil {
-            for call in try store.toolCalls(inRun: run.id) where call.state == .waitingForApproval {
+            for call in try store.toolCalls(inRun: run.id)
+                where call.state == .waitingForApproval || call.state == .waitingForSystemPermissionConsent {
                 guard let encodedIntent = call.executionIntent,
                       let intent = try? JSONDecoder().decode(
                         ToolExecutionIntent.self,
@@ -1018,12 +1019,18 @@ actor ConversationRuntime {
                     continue
                 }
 
+                let systemConsent = call.state == .waitingForSystemPermissionConsent
+                    ? try store.toolSystemConsent(id: call.id) : nil
                 approvals.append(ToolApprovalProjection(
                     toolCallID: call.id,
                     conversationID: run.conversationID,
                     runtimeInstanceID: approvalRuntimeInstanceID,
                     disclosure: disclosure,
-                    intentBinding: ToolIntentBinding.make(encodedIntent)
+                    intentBinding: ToolIntentBinding.make(encodedIntent),
+                    kind: call.state == .waitingForSystemPermissionConsent ? .systemPermission : .tool,
+                    allowsConversationGrant: intent.policyAction?.allowsConversationGrant == true,
+                    systemPermissionDescription: systemConsent?.capabilityDescription,
+                    systemPermissionPhase: systemConsent?.phase
                 ))
             }
         }
@@ -1049,21 +1056,29 @@ actor ConversationRuntime {
         guard run.kind == .parent, run.parentRunID == nil else {
             throw ToolApprovalResolutionError.notParentCall
         }
-        guard call.state == .waitingForApproval else {
-            throw ToolApprovalResolutionError.callNotWaitingForApproval(request.toolCallID)
-        }
-
         switch request.decision {
-        case .approveOnce:
-            try await approve(toolCallID: call.id, displayedIntentBinding: request.intentBinding)
-        case .rejectOnce:
-            _ = try await reject(toolCallID: call.id)
+        case .requestSystemPermission, .declineSystemPermission:
+            guard call.state == .waitingForSystemPermissionConsent else {
+                throw ToolApprovalResolutionError.callNotWaitingForApproval(request.toolCallID)
+            }
+            guard let binding = request.intentBinding else { throw ToolApprovalResolutionError.staleIntent }
+            try await agentRuntime.resolveSystemPermission(toolCallID: call.id, displayedIntentBinding: binding,
+                consent: request.decision == .requestSystemPermission)
+        case .approveOnce, .approveConversation, .rejectOnce:
+            guard call.state == .waitingForApproval else {
+                throw ToolApprovalResolutionError.callNotWaitingForApproval(request.toolCallID)
+            }
+            if request.decision == .rejectOnce { _ = try await reject(toolCallID: call.id) }
+            else {
+                try await approve(toolCallID: call.id, displayedIntentBinding: request.intentBinding,
+                    scope: request.decision == .approveConversation ? .conversation : .once)
+            }
         }
     }
 
     /// Resolves an approval gate without creating a replacement ToolCall.
-    func approve(toolCallID: String, displayedIntentBinding: String? = nil) async throws {
-        try await agentRuntime.approveToolCall(toolCallID: toolCallID, displayedIntentBinding: displayedIntentBinding)
+    func approve(toolCallID: String, displayedIntentBinding: String? = nil, scope: ToolApprovalScope = .once) async throws {
+        try await agentRuntime.approveToolCall(toolCallID: toolCallID, displayedIntentBinding: displayedIntentBinding, scope: scope)
     }
 
     /// Persists a real rejection and lets the waiting batch continue in order.
