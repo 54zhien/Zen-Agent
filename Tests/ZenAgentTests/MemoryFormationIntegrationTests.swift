@@ -60,4 +60,26 @@ struct MemoryFormationIntegrationTests {
         _ = try await fixture.send(text: "我偏好中文回答")
         #expect(try fixture.store.memories().isEmpty)
     }
+
+    @Test func credentialSourceAndFailedRunsNeverFormFactsOrChangeTheRunOutcome() async throws {
+        let fixture = try MemoryPromptFixture.make()
+        let runID = try await fixture.send(text: "记住：我的主要项目是 memory-fixture-private-value")
+        #expect(try fixture.store.memories().isEmpty)
+        #expect(try fixture.store.run(id: runID)?.state == .completed)
+        let failed = try MemoryPromptFixture.make(scripts: [.failure(prefix: [])])
+        let failedID = try await failed.send(text: "我偏好中文回答")
+        #expect(try failed.store.run(id: failedID)?.state == .failed)
+        #expect(try failed.store.memories().isEmpty)
+    }
+
+    @Test func enablingAutomaticFormationDoesNotBackfillACompletedOldStatement() async throws {
+        let fixture = try MemoryPromptFixture.make()
+        try fixture.store.setMemoryAutomatic(false)
+        let oldRunID = try await fixture.send(text: "我偏好中文回答")
+        try fixture.store.setMemoryAutomatic(true)
+        MemoryRuntime(store: fixture.store, credentials: fixture.credentials).formAfterCompletedRun(runID: oldRunID)
+        #expect(try fixture.store.memories().isEmpty)
+        _ = try await fixture.send(text: "我偏好中文回答")
+        #expect(try fixture.store.memories().count == 1)
+    }
 }
