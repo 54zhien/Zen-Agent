@@ -28,7 +28,7 @@ final class EnvironmentSettingsUITests: XCTestCase {
         XCTAssertNotEqual(reopened.value as? String, "fixture-ui-secret")
         captureExtension("Environment existing Secret has no reveal path", app)
         guard tapExtensionLabel(app.buttons["environment-delete"], in: app) else { return }
-        let confirm = app.buttons["确认删除变量"]
+        let confirm = app.buttons["environment-delete-confirm"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         captureExtension("Environment dependency deletion confirmation", app)
         confirm.tap()

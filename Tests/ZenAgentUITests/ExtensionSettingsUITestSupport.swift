@@ -13,7 +13,10 @@ extension XCTestCase {
         guard settings.waitForExistence(timeout: 5) else { XCTFail("Settings entry missing"); return false }
         settings.tap()
         let agent = app.buttons["settings-agent"]
-        guard tapExtensionLabel(agent.staticTexts.firstMatch, in: app) else { return false }
+        guard tapExtensionLabel(agent.staticTexts.firstMatch, in: app, tap: false) else { return false }
+        // At largest type the DEBUG preview-position control covers the label's
+        // center. The same measured NavigationLink has an unobstructed right side.
+        agent.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
         guard app.navigationBars["Agent"].waitForExistence(timeout: 5) else { XCTFail("Agent destination missing"); return false }
         let entry = app.buttons[id]
         guard entry.waitForExistence(timeout: 5) else { captureExtension("Missing \(title) entry", app); XCTFail("Formal \(title) entry missing"); return false }
@@ -46,10 +49,11 @@ extension XCTestCase {
                 return true
             }
             let down = !target.isNull && target.minY < viewport.minY
-            let upper = max(0.1, (viewport.minY - app.frame.minY + 8) / app.frame.height)
-            let lower = min(0.9, (viewport.maxY - app.frame.minY - 8) / app.frame.height)
-            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? upper : lower))
-            let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? lower : upper))
+            let upper = (viewport.minY + viewport.height * 0.25 - form.frame.minY) / form.frame.height
+            let lower = (viewport.maxY - viewport.height * 0.25 - form.frame.minY) / form.frame.height
+            let start = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? upper : lower))
+            let end = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? lower : upper))
+            print("EXTENSION_FORM_DRAG viewport=\(viewport) target=\(target) start=\(start.screenPoint) end=\(end.screenPoint)")
             start.press(forDuration: 0.05, thenDragTo: end, withVelocity: 100, thenHoldForDuration: 0.2)
         }
         captureExtension("Extension route not visible", app)
