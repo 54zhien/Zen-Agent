@@ -351,6 +351,17 @@ struct ToolSystemPermissionTests {
         }
     }
 
+    @Test func executorPermissionFailureKeepsAStableSystemDiagnosis() async throws {
+        let f = try SystemPermissionFixture(status: .authorized)
+        await f.driver.denyExecution()
+        do { _ = try await f.complete() } catch { }
+        let call = try f.call()
+        #expect(call.state == .failed)
+        #expect(try f.store.toolResult(toolCallID: call.id)?.failureCode == .systemPermissionDenied)
+        #expect(await f.driver.observedDispatch)
+        #expect(await f.driver.requests == 0)
+    }
+
     @Test func settingsTighteningBlocksSystemRequestFromOldCard() async throws {
         let f = try SystemPermissionFixture(status: .notDetermined)
         _ = try await f.complete()
@@ -392,6 +403,8 @@ private actor SystemPermissionDriver {
     var requests = 0
     var executions = 0
     var observedDispatch = false
+    private var denyOnExecution = false
+    func denyExecution() { denyOnExecution = true }
     private var paused = false
     private var waiting: [CheckedContinuation<Void, Never>] = []
     init(status: ToolSystemPermissionState) { self.status = status }
@@ -407,7 +420,10 @@ private actor SystemPermissionDriver {
         if paused { await withCheckedContinuation { waiting.append($0) } }
         else { status = .authorized }
     }
-    func execute(dispatched: Bool) { executions += 1; observedDispatch = dispatched }
+    func execute(dispatched: Bool) throws {
+        executions += 1; observedDispatch = dispatched
+        if denyOnExecution { throw ToolSystemPermissionError.denied }
+    }
 }
 
 private struct SystemPermissionProbe: ToolSystemPermissionProviding {
@@ -430,7 +446,7 @@ private struct SystemPermissionProbe: ToolSystemPermissionProviding {
                 keyImpact: "Test-only request"))
     }
     func execute(_ intent: ToolExecutionIntent, idempotencyKey: String) async throws -> ToolExecutionResult {
-        await driver.execute(dispatched: try store.toolCall(id: idempotencyKey)?.state == .dispatched)
+        try await driver.execute(dispatched: store.toolCall(id: idempotencyKey)?.state == .dispatched)
         return ToolExecutionResult(content: "permission-result")
     }
 }

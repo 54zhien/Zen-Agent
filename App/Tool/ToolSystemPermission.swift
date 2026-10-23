@@ -14,6 +14,7 @@ protocol ToolSystemPermissionProviding: ToolExecutable {
 
 enum ToolSystemPermissionError: Error, Equatable {
     case unavailable
+    case denied
     case consentRequired(String)
 }
 
