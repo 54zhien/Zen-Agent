@@ -14,7 +14,14 @@ struct EnvironmentRuntime: Sendable {
     func list() throws -> [EnvironmentItem] { try store.environmentVariables() }
 
     func dependencies(id: String) throws -> ExtensionDependencySummary {
-        .init(activeRunIDs: try store.environmentDependentRunIDs(id: id))
+        let variables = try list()
+        guard let item = variables.first(where: { $0.id == id }) else { throw EnvironmentError.notFound }
+        let names = try store.skills().filter { skill in
+            guard skill.definition.environmentKeys.contains(item.key) else { return false }
+            if let owner = item.scope.skillID { return owner == skill.id }
+            return !variables.contains { $0.scope == .skill(skill.id) && $0.key == item.key }
+        }.map { $0.definition.name }
+        return .init(skillNames: names.sorted(), activeRunIDs: try store.environmentDependentRunIDs(id: id))
     }
 
     func pendingCleanupCount() throws -> Int { try store.pendingEnvironmentCredentialRetirements().count }

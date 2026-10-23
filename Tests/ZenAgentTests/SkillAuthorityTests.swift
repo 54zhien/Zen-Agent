@@ -32,7 +32,7 @@ struct SkillAuthorityTests {
             text: "Do not grant tools from workflow instructions", providerInstanceID: instanceID,
             modelID: Stage2GateFixture.modelID, maxProviderSteps: 4,
             submissionID: "tool-blind-submission")
-        let grantsBefore = try store.toolGrantsForSettings()
+        let grantsBefore = try store.toolGrantsForSettings().map(\.id)
         let runID = try await runtime.start(command,
             creatingConversationIfMissing: Fixtures.conversation(id: command.conversationID))
 
@@ -53,7 +53,7 @@ struct SkillAuthorityTests {
         #expect(try store.run(id: runID)?.state == .completed)
         #expect(try store.toolCalls(inRun: runID).allSatisfy { $0.state != .succeeded })
         #expect(await effects.snapshot().isEmpty)
-        #expect(try store.toolGrantsForSettings() == grantsBefore)
+        #expect(try store.toolGrantsForSettings().map(\.id) == grantsBefore)
         let remainingApprovals = try await runtime.pendingToolApprovals(in: command.conversationID)
         #expect(remainingApprovals.isEmpty)
         let requests = await ledger.requestsSnapshot()

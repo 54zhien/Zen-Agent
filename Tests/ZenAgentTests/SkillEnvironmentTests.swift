@@ -8,7 +8,7 @@ struct SkillEnvironmentTests {
     func scopeAndVersions() throws {
         let (environment, skills) = try fixture()
         let first = try skills.saveUser(definition: .init(name: "First", summary: "", instructions: "Use ${REGION}", environmentKeys: ["REGION"]))
-        let sibling = try skills.saveUser(definition: .init(name: "Sibling", summary: "", instructions: "Use ${REGION}"))
+        let sibling = try skills.saveUser(definition: .init(name: "Sibling", summary: "", instructions: "Use ${REGION}", environmentKeys: ["REGION"]))
         try environment.savePlain(key: "REGION", value: "global")
         let own = try environment.savePlain(scope: .skill(first.id), key: "REGION", value: "own")
         try environment.savePlain(scope: .skill(sibling.id), key: "REGION", value: "sibling")
