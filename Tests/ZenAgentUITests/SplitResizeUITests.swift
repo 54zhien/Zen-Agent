@@ -147,6 +147,13 @@ final class SplitResizeUITests: XCTestCase {
                        "Closing the opposite Pane must retain the survivor's actual UITextView")
         let editor = app.textViews["conversation-composer-input"]
         editor.tap()
+        // Closure retains the editor, but keyboard presentation settles separately.
+        // Inject input only after the current native editor and anchor are ready.
+        expect {
+            let receipt = probe.value as? String ?? ""
+            return app.keyboards.firstMatch.exists && receipt.contains(";focused=true;")
+                && self.composerSettled(in: receipt, field: "sidebarEligibility") == true
+        }
         editor.typeText("survivor after explicit close")
         XCTAssertTrue((editor.value as? String)?.contains("survivor after explicit close") == true)
     }
