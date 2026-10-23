@@ -1390,6 +1390,14 @@ actor AgentRuntime {
 
     // MARK: - Event and lifecycle helpers
 
+    func recoverInvalidatedMemoryRun(runID: String, project: @escaping AgentEventProjection) async throws {
+        guard active[runID] == nil else { throw AgentRuntimeError.alreadyRunning(runID) }
+        // Keep the original ToolRuntime's receipt-confirmation capability. The
+        // cold-start coordinator must not rebuild a request or replay an effect.
+        try await RunRecovery(store: store, toolRuntime: toolRuntime, credentials: credentials,
+            eventProjection: project).recover(runID: runID)
+    }
+
     private func acceptsProviderOutput(
         runID: String,
         identity: AttemptIdentity

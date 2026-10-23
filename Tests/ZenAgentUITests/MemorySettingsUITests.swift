@@ -13,13 +13,14 @@ final class MemorySettingsUITests: XCTestCase {
         let enabled = app.switches["memory-enabled"], automatic = app.switches["memory-automatic"]
         XCTAssertTrue(automatic.waitForExistence(timeout: 5))
         XCTAssertEqual(automatic.value as? String, "1")
-        automatic.tap()
+        captureHierarchy("Memory controls before native switch interaction", app)
+        tapSwitch(automatic)
         expect { automatic.value as? String == "0" }
-        enabled.tap()
+        tapSwitch(enabled)
         expect { enabled.value as? String == "0" }
         XCTAssertFalse(automatic.isEnabled)
         XCTAssertTrue(app.buttons["memory-item-fixture-memory"].exists)
-        enabled.tap()
+        tapSwitch(enabled)
         expect { enabled.value as? String == "1" }
         XCTAssertEqual(automatic.value as? String, "0", "Turning Memory on must preserve the automatic choice")
         capture("Memory dark controls", app)
@@ -56,7 +57,17 @@ final class MemorySettingsUITests: XCTestCase {
         app.swipeUp()
         capture("Memory largest light portrait provenance", app)
         XCUIDevice.shared.orientation = .landscapeLeft
-        XCTAssertTrue(app.navigationBars["记忆详情"].waitForExistence(timeout: 5))
+        // Existing Workspace policy closes overlays on window-size changes.
+        // Re-enter through the real route to inspect the landscape page itself.
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 5))
+        guard openMemory(app) else { return }
+        let landscapeRow = app.buttons["memory-item-fixture-memory"]
+        for _ in 0..<10 where !landscapeRow.isHittable { app.swipeUp() }
+        XCTAssertTrue(landscapeRow.isHittable); landscapeRow.tap()
+        let landscapeEditor = app.textViews["memory-content"]
+        XCTAssertTrue(landscapeEditor.waitForExistence(timeout: 5))
+        XCTAssertEqual(landscapeEditor.value as? String, "I work on Windows")
+        captureHierarchy("Memory largest landscape hierarchy", app)
         capture("Memory largest light landscape", app)
     }
 
@@ -64,6 +75,20 @@ final class MemorySettingsUITests: XCTestCase {
     private func capture(_ name: String, _ app: XCUIApplication) {
         let image = XCTAttachment(screenshot: app.screenshot())
         image.name = name; image.lifetime = .keepAlways; add(image)
+    }
+
+    @MainActor
+    private func captureHierarchy(_ name: String, _ app: XCUIApplication) {
+        let tree = XCTAttachment(string: app.debugDescription)
+        tree.name = name; tree.lifetime = .keepAlways; add(tree)
+    }
+
+    @MainActor
+    private func tapSwitch(_ element: XCUIElement) {
+        // SwiftUI exposes the label and trailing native thumb as one AX Switch.
+        // Its row midpoint is the label; exercise the rendered thumb itself.
+        XCTAssertTrue(element.isHittable)
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
     }
 
     @MainActor

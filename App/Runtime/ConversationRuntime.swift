@@ -457,6 +457,10 @@ actor ConversationRuntime {
                 guard let run = try store.run(id: runID), run.state.isActive else { continue }
                 conversationID = run.conversationID
                 await registerRecoveredRun(run.id, run.conversationID)
+                if try await settleErasedMemoryIfNeeded(run) {
+                    report.settledRunIDs.append(runID)
+                    continue
+                }
                 let outcome: (RunState, EndReason)?
                 switch run.state {
                 case .preparing:
@@ -643,6 +647,17 @@ actor ConversationRuntime {
                     endReason: outcome.1
                 )
                 report.settledRunIDs.append(runID)
+            } catch MemoryError.erasedDependency {
+                // Deletion may win after the preflight but before reconstruction.
+                // Route that race through the same owner, not a read-error retry.
+                do {
+                    guard let current = try store.run(id: runID),
+                          try await settleErasedMemoryIfNeeded(current) else { throw MemoryError.erasedDependency }
+                    report.settledRunIDs.append(runID)
+                } catch {
+                    issueCategory = .persistenceOrReadFailure
+                    report.failedRunIDs.append(runID)
+                }
             } catch {
                 if conversationID == nil {
                     // Reading the identity bypasses the potentially damaged seed.
@@ -654,6 +669,21 @@ actor ConversationRuntime {
             }
         }
         return report
+    }
+
+    private func settleErasedMemoryIfNeeded(_ run: AgentRunRecord) async throws -> Bool {
+        guard run.state.isActive else { return true }
+        var revoked = run.recoveryAction == .invalidate
+        if !revoked, let encoded = run.executionSnapshot,
+           let snapshot = try? ExecutionSnapshotCodec.decode(encoded) {
+            do { _ = try store.resolveMemoryReferences(snapshot.prompt.memoryReferences) }
+            catch MemoryError.erasedDependency { revoked = true }
+        }
+        guard revoked else { return false }
+        try store.invalidateMemoryRun(id: run.id)
+        try await agentRuntime.recoverInvalidatedMemoryRun(runID: run.id,
+            project: { event in try await self.applyAndPublish(event) })
+        return true
     }
 
     private func settleRecoveredRun(
