@@ -73,3 +73,36 @@ Original UI checkout/PR37 remain parked and untouched.
 - Restore normal workflow: diagnostic selectors, intentionally skipped axes and in-progress runs
   never stand in for final acceptance. Verify final exact-source XcodeGen/App/unit/Phone/Pad results.
 - Record merge tree equality and post-merge CI separately. No Stage7–10 or IPA/signing work.
+
+## Final review and current limits
+
+The single fresh whole-branch review at1694a5b found2Important,0Critical,0Minor:
+semantic JSON credential redaction and preserving committed file effects when result publication
+fails. The corrective pass is open; neither review findings nor aggregate Stage6 are closed yet.
+Original4368cf3/[39906018910](https://github.com/54zhien/Zen-Agent/actions/runs/39906018910)
+failed test compilation because SwiftTesting cannot recursively expand nested `#require`;
+corrected137d4a7/[39907003747](https://github.com/54zhien/Zen-Agent/actions/runs/39907003747)
+and no-proof control163f910/[39907096691](https://github.com/54zhien/Zen-Agent/actions/runs/39907096691)
+are pending. Compile failure is not behavioral RED. The semantic guard passed the actual
+Windows Foundation executable regression after6observed pre-fix issues; Apple integration remains required.
+
+- Backend64eab58/[39904355414](https://github.com/54zhien/Zen-Agent/actions/runs/39904355414)
+  passed1217Swift/187suites137.702s plus20XCTest22.995s, generation/App build.
+- Exposure/lifetime4876b20/[39902575800](https://github.com/54zhien/Zen-Agent/actions/runs/39902575800)
+  passed1216Swift/187suites140.973s plus20XCTest; production model capability and weak SessionStore ownership verified.
+- Formal empty-registry Settings entry616dba7/[39902024495](https://github.com/54zhien/Zen-Agent/actions/runs/39902024495)
+  passed1UItest37.935s and retains the original draft.
+- Actual tool UI493f8bd/[39904143921](https://github.com/54zhien/Zen-Agent/actions/runs/39904143921)
+  failed6assertions across6tests247.743s. Native hierarchy showed3cards whose root identifier was
+  overwritten by the existing Pane identifier;1system card was genuinely absent despite a routed waiting event.
+  ca20b9f uses event revision refresh and stale-read cancellation without changing geometry or gestures;
+  tests locate surviving child elements. Landscape QA follows the existing navigation-reset behavior.
+  Follow-up[39906491974](https://github.com/54zhien/Zen-Agent/actions/runs/39906491974) is pending.
+
+Inherited cold continuation reconstructs only the first protocol round. Missing later-round committed
+transcript settles the Run as unrecoverable instead of silently omitting history. Recovery still queries
+original immutable file receipts before continuation reconstruction; it never replays an uncertain write.
+This limit is separate from confirming the truth of an already committed file operation.
+No real Calendar/microphone/location executor or MCP is exposed; physical OS behavior remains separate
+acceptance. Future all-local-data erase must explicitly own the minimal uncertain receipt/tombstone cleanup;
+there is no such erase API in this checkout.

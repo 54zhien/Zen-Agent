@@ -390,9 +390,17 @@ final class ToolRuntime: @unchecked Sendable {
             throw error
         }
 
-        let executionResult: ToolExecutionResult
+        var executionResult: ToolExecutionResult
         do { executionResult = ToolResultGuard.sanitize(rawResult, knownSecrets: try knownSecrets(runID: call.agentRunID)) }
         catch { executionResult = .failure(.redactionUnavailable) }
+        if rawResult.failure == nil, executionResult.failure != nil,
+           let confirming = executor as? any ToolOutcomeConfirming,
+           let observed = try? confirming.confirmedResult(intent, idempotencyKey: call.id),
+           observed.failure == nil {
+            // Publication failure cannot undo a committed effect. The original
+            // immutable receipt proves completion without disclosing its result.
+            executionResult = Self.completedResultWithheld
+        }
         try store.finishDispatchedToolCall(
             id: call.id,
             expectedAttempt: call.attempt,
@@ -416,11 +424,20 @@ final class ToolRuntime: @unchecked Sendable {
               let intent = try? ToolIntentCodec.decodeForDisplay(json),
               let executor = registry.executor(id: intent.toolID) as? any ToolOutcomeConfirming,
               let observed = try executor.confirmedResult(intent, idempotencyKey: call.id) else { return false }
-        let result = ToolResultGuard.sanitize(observed, knownSecrets: try knownSecrets(runID: call.agentRunID))
-        guard result.failure == nil else { return false }
+        guard observed.failure == nil else { return false }
+        var result: ToolExecutionResult
+        do { result = ToolResultGuard.sanitize(observed, knownSecrets: try knownSecrets(runID: call.agentRunID)) }
+        catch { result = .failure(.redactionUnavailable) }
+        if result.failure != nil { result = Self.completedResultWithheld }
         return try store.confirmToolFileOutcome(callID: call.id, attempt: call.attempt,
             intentBinding: ToolIntentBinding.make(json), result: result)
     }
+
+    // This is a trusted fixed completion notice, with no executor data or
+    // credential-derived bytes. Only immutable completion proof permits its use.
+    private static let completedResultWithheld = ToolExecutionResult(
+        content: #"{"execution":"completed","result":"withheld"}"#
+    )
 
     private func requiredToolCall(id: String) throws -> ToolCallRecord {
         guard let call = try store.toolCall(id: id) else {
