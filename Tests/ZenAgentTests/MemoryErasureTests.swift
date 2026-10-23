@@ -36,6 +36,7 @@ struct MemoryErasureTests {
         await releaseStoppingProjection.open()
         try await stopping.value
         try await fixture.runtime.waitForCompletion(runID: runID)
+        #expect(try store.run(id: runID)?.state == .cancelled)
     }
 
     @Test("a displayed tool approval cannot dispatch or continue after its Memory dependency was erased", .timeLimit(.minutes(1)))
