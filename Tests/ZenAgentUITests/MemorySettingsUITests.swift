@@ -62,8 +62,8 @@ final class MemorySettingsUITests: XCTestCase {
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 5))
         guard openMemory(app) else { return }
         let landscapeRow = app.buttons["memory-item-fixture-memory"]
-        for _ in 0..<10 where !landscapeRow.isHittable { app.swipeUp() }
-        XCTAssertTrue(landscapeRow.isHittable); landscapeRow.tap()
+        guard reveal(landscapeRow, in: app) else { return }
+        landscapeRow.tap()
         let landscapeEditor = app.textViews["memory-content"]
         XCTAssertTrue(landscapeEditor.waitForExistence(timeout: 5))
         XCTAssertEqual(landscapeEditor.value as? String, "I work on Windows")
@@ -89,6 +89,25 @@ final class MemorySettingsUITests: XCTestCase {
         // Its row midpoint is the label; exercise the rendered thumb itself.
         XCTAssertTrue(element.isHittable)
         element.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+    }
+
+    @MainActor
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication,
+                        file: StaticString = #filePath, line: UInt = #line) -> Bool {
+        for _ in 0..<24 {
+            if element.isHittable { return true }
+            let form = app.collectionViews.firstMatch
+            guard form.exists else { break }
+            // Both endpoints use one observed app-space frame. The native
+            // landscape recording showed app.swipeUp leaving this Form at top.
+            let start = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.78))
+            let end = form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.28))
+            print("MEMORY_FORM_DRAG frame=\(form.frame) start=\(start.screenPoint) end=\(end.screenPoint)")
+            start.press(forDuration: 0.05, thenDragTo: end)
+        }
+        captureHierarchy("Memory route reveal failure", app)
+        XCTFail("Memory route control did not become hittable: \(element.identifier)", file: file, line: line)
+        return false
     }
 
     @MainActor
@@ -167,11 +186,10 @@ final class MemorySettingsUITests: XCTestCase {
         guard settings.waitForExistence(timeout: 5) else { XCTFail("Settings missing"); return false }
         settings.tap()
         let agent = app.buttons["settings-agent"]
-        for _ in 0..<5 where !agent.isHittable { app.swipeUp() }
-        guard agent.waitForExistence(timeout: 5) else { XCTFail("Agent missing"); return false }
+        guard reveal(agent, in: app) else { return false }
         agent.tap()
         let memory = app.buttons["settings-memory"]
-        guard memory.waitForExistence(timeout: 5) else { XCTFail("Memory missing"); return false }
+        guard reveal(memory, in: app) else { return false }
         memory.tap(); return true
     }
 }
