@@ -1,6 +1,44 @@
 import XCTest
 
 final class MemorySettingsUITests: XCTestCase {
+
+    @MainActor
+    func testLargestMemoryEntryHitRegionsProbe() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_MEMORY_UI_TEST"] = "seed"
+        app.launchEnvironment["ZEN_MEMORY_UI_APPEARANCE"] = "light"
+        app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
+        app.openWorkspaceSidebar()
+        let settings = app.buttons["sidebar-settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5)); settings.tap()
+        let agent = app.buttons["settings-agent"]
+        guard reveal(agent, in: app) else { return }; agent.tap()
+        let memory = app.buttons["settings-memory"]
+        guard reveal(memory, in: app) else { return }
+        captureHierarchy("Memory probe before center tap", app)
+        let center = memory.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        print("MEMORY_ENTRY_CENTER frame=\(memory.frame) point=\(center.screenPoint)")
+        center.tap()
+        let centered = app.switches["memory-enabled"].waitForExistence(timeout: 5)
+        print("MEMORY_ENTRY_CENTER_NAVIGATED=\(centered)")
+        if !centered {
+            captureHierarchy("Memory probe center failed", app)
+            capture("Memory probe center failed", app)
+            let label = memory.staticTexts.firstMatch
+            XCTAssertTrue(label.waitForExistence(timeout: 5)); XCTAssertTrue(label.isHittable)
+            print("MEMORY_ENTRY_LABEL frame=\(label.frame)")
+            label.tap()
+            XCTAssertTrue(app.switches["memory-enabled"].waitForExistence(timeout: 5))
+            print("MEMORY_ENTRY_LABEL_NAVIGATED=\(app.switches["memory-enabled"].exists)")
+        }
+        captureHierarchy("Memory probe final", app)
+        capture("Memory probe final", app)
+    }
+
     @MainActor
     func testDarkMemorySwitchesAndConfirmedClearAll() {
         let app = XCUIApplication()
@@ -73,7 +111,7 @@ final class MemorySettingsUITests: XCTestCase {
 
     @MainActor
     private func capture(_ name: String, _ app: XCUIApplication) {
-        let image = XCTAttachment(screenshot: app.screenshot())
+        let image = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         image.name = name; image.lifetime = .keepAlways; add(image)
     }
 
