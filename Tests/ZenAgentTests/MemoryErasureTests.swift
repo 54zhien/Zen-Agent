@@ -4,6 +4,32 @@ import Testing
 
 @Suite("Memory warm erasure authority")
 struct MemoryErasureTests {
+    @Test("erasure waits for an actual Runtime provider handoff and later Runs cannot send its content", .timeLimit(.minutes(1)))
+    func inFlightProviderErasure() async throws {
+        let fixture = try MemoryPromptFixture.make()
+        let memory = MemoryRuntime(store: fixture.store, credentials: fixture.credentials)
+        let item = try memory.save(content: "Windows uses IN_FLIGHT_MEMORY")
+        let entered = MemoryTestLatch(), release = MemoryTestLatch(), erased = MemoryTestLatch()
+        defer { Task { await release.open() } }
+        let provider = MemoryHandoffBarrierProvider(base: fixture.provider, entered: entered, release: release)
+        let runtime = ConversationRuntime(store: fixture.store, provider: provider, credentials: fixture.credentials)
+        let runID = try await runtime.start(fixture.command(text: "Windows problem"),
+            creatingConversationIfMissing: Fixtures.conversation(id: "memory-conversation"))
+        await entered.wait()
+        let deletion = Task { try await memory.delete(id: item.id); await erased.open() }
+        for _ in 0..<100 { await Task.yield() }
+        #expect(await !erased.opened)
+        #expect(try fixture.store.memoryRevision(id: item.revisionID) != nil)
+        await release.open()
+        try await deletion.value
+        try await runtime.waitForCompletion(runID: runID)
+        _ = try await fixture.send(text: "Windows problem")
+        let requests = await fixture.ledger.requestsSnapshot()
+        #expect(requests.count == 2)
+        if let first = requests.first?.messages.last, case .user(let text) = first { #expect(text.contains("IN_FLIGHT_MEMORY")) }
+        if let last = requests.last?.messages.last, case .user(let text) = last { #expect(!text.contains("IN_FLIGHT_MEMORY")) }
+    }
+
     @Test("Stop committed while a provider handoff is queued prevents its POST before the Stop projection returns", .timeLimit(.minutes(1)))
     func queuedHandoffStop() async throws {
         let writerEntered = MemoryTestLatch(), releaseWriter = MemoryTestLatch()
@@ -90,5 +116,23 @@ struct MemoryErasureTests {
         guard let last = request.messages.last, case .user(let content) = last else { Issue.record("Missing reconstructed user context"); return }
         #expect(content.contains("OLD_FROZEN_VALUE"))
         #expect(!content.contains("NEW_CURRENT_VALUE"))
+    }
+}
+
+private struct MemoryHandoffBarrierProvider: ModelProvider {
+    let base: Stage2ScriptedProvider
+    let entered: MemoryTestLatch
+    let release: MemoryTestLatch
+    var id: ProviderID { base.id }
+    var adapterRevision: String { base.adapterRevision }
+    var adapterPromptInstructions: String { base.adapterPromptInstructions }
+    func knownModels(for instance: ProviderInstance) -> [ModelDescriptor] { base.knownModels(for: instance) }
+    func descriptor(for modelID: ModelID, in instance: ProviderInstance) -> ModelDescriptor? { base.descriptor(for: modelID, in: instance) }
+    func makeRequestConfigSeed(instance: ProviderInstance, modelID: ModelID, credentialBinding: CredentialBindingSnapshot) throws -> RequestConfigSeed {
+        try base.makeRequestConfigSeed(instance: instance, modelID: modelID, credentialBinding: credentialBinding)
+    }
+    func stream(_ request: ProviderChatRequest, seed: RequestConfigSeed, credentials: any CredentialStoring) async throws -> AsyncThrowingStream<ProviderStreamEvent, Error> {
+        await entered.open(); await release.wait()
+        return try await base.stream(request, seed: seed, credentials: credentials)
     }
 }
