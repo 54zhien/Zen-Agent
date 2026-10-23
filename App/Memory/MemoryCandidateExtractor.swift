@@ -14,10 +14,11 @@ enum MemoryCandidateExtractor {
     static func extract(_ text: String) -> [MemoryCandidate] {
         guard text.utf8.count <= maximumSourceUTF8Bytes,
               MemoryContentPolicy.allows(text, maximumUTF8Bytes: maximumSourceUTF8Bytes),
-              text.range(of: #"[\"“”‘’`>？?]|(?i:\b(today|tonight|temporarily|used to|said|translate)\b)|今天|这次|暂时|翻译|他说|她说"#,
+              text.range(of: #"[\"“”‘’`>？?]|(?i:\b(today|tonight|temporarily|used to|said|translate|not|never|no longer|for now|this task|this time)\b)|今天|这次|暂时|不是|不再|翻译|他说|她说"#,
                          options: .regularExpression) == nil else { return [] }
         var candidates: [MemoryCandidate] = []
-        for sentence in text.components(separatedBy: CharacterSet(charactersIn: "\n。!！")) {
+        let sentences = text.replacingOccurrences(of: #"\.[ \t]+"#, with: "\n", options: .regularExpression)
+        for sentence in sentences.components(separatedBy: CharacterSet(charactersIn: "\n。!！")) {
             var value = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
             if value.hasSuffix(".") { value.removeLast() }
             let explicit = value.range(of: #"^(?i:remember(?: that)?\s*[:：]?\s*)|^记住\s*[:：]?\s*"#, options: .regularExpression)
