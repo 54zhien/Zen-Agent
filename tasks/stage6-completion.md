@@ -27,9 +27,9 @@ Original UI checkout/PR37 remain parked and untouched.
 | S6-03 persistent Policy/grants | on main | prior gate | separate |
 | S6-04a original Runtime authority | on main | normal post-merge full GREEN above | pending |
 | S6-04b OS consent/conversation scope | branch implementation |1179Swift+20XCTest GREEN at795676c | pending; injectable driver is not OS-device acceptance |
-| S6-05 Files.read/egress/result guard | branch implementation | final scoped candidate pending | pending |
-| S6-06 create/modify/delete | contracts only; no production writes | corrected behavioral RED pending | pending |
-| S6-07 callable tool Settings/exposure | fail-closed model contract only; no production exposure | behavioral RED pending | pending |
+| S6-05 Files.read/egress/result guard | branch implementation |1193Swift+20XCTest GREEN at255ebbf; whole backend GREEN below | pending |
+| S6-06 create/modify/delete | branch implementation, shared reservation and immutable recovery receipts | whole backend GREEN below | pending |
+| S6-07 callable tool Settings/exposure | backend and approved UI/real registry wired | backend GREEN; UI/exposure follow-up pending | pending |
 | Aggregate Stage6 | OPEN | normal final exact-head Phone/Pad gate pending | OPEN |
 
 ## Evidence and failures retained
@@ -57,10 +57,18 @@ Original UI checkout/PR37 remain parked and untouched.
   Settings0439077/run39895607623 inherited that known fixture and was cancelled early by us.
   Earlier ca429d5/run39889227112 was likewise cancelled for a known test-helper compile defect.
 
+## Backend closure and follow-up evidence
+
+- Whole backend f8516bb42eec521f881a7189f49af2261efd4cae / [39900808186](https://github.com/54zhien/Zen-Agent/actions/runs/39900808186) / job120241751603 passed:1214Swift in186suites155.819s,20XCTest, XcodeGen/App build. Includes actual managed bytes, version CAS, warm/pendingSend/twoPane deletion protection, before-publication and result-commit cancellation, concurrent modify/delete, minimal uncertain receipts, query-only recovery, consent races, persisted Settings and revocation causes. Unit-only diagnostic; no PhoneUI, Pad deliberately skipped. RawlogSHA256C0FE95C62040D053D05A564534CF482559BADF9369889D0A4EC703C7F362409C.
+- Actual managed-write REDf8f999f/[39896540449](https://github.com/54zhien/Zen-Agent/actions/runs/39896540449):1203Swift/186suites146.826s/10issues. b98127a/39899183274 passed writes/consent while the then-empty Settings model remained RED.
+- Consent request ownership RED907f416/39897008021 and actual executor-denial RED16aa8fe/39897582158 were fixed with a process-wide owner, same-process request preservation and stable typed denial. Full backend GREEN above includes these regressions.
+- Native Tool Settings entry REDd9f1c4d/[39896795718](https://github.com/54zhien/Zen-Agent/actions/runs/39896795718):1UItest/1failure51.905s, missing settings-tools after reaching the existing Agent page; App/test build passed.
+- Exposure/lifetime RED320356f/[39901462556](https://github.com/54zhien/Zen-Agent/actions/runs/39901462556):1216Swift/187suites111.098s/3issues plus20XCTest passed. Exactly unsupported-model snapshot/request exposure and strong presentation-owner retention failed; supported-model control and all other tests passed. Fix4876b20 uses model capability and frozen snapshot, plus a weak reference to the actual SessionStore. Native follow-up pending.
+- Old fixture-only compile failures and early cancellations remain failures, not behavioral evidence:346f875/39895412525 captured a mutable record in a Sendable closure; a736d27/39896048892 and0760144/39895723506 inherited known fixture errors and were cancelled. Final read255ebbf/[39896566572](https://github.com/54zhien/Zen-Agent/actions/runs/39896566572) passed1193Swift/184suites147.091s plus20XCTest.
+
 ## Remaining final gates
 
-- Finish managed mutation/receipt recovery and shared Session reservation integration.
-- Finish Settings policy/scope/revocation facts and expose only real production executors.
+- Finish native UI/exposure verification and action-version reconfirmation disclosure.
 - One fresh-context whole-branch review and required corrective RED→GREEN checks.
 - Restore normal workflow: diagnostic selectors, intentionally skipped axes and in-progress runs
   never stand in for final acceptance. Verify final exact-source XcodeGen/App/unit/Phone/Pad results.

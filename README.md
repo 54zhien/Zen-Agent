@@ -28,6 +28,7 @@ Zen-Agent-Blueprint @ 99d30b815651fe987bab9f88e269a84a89318625
 Owner-approved Stage 5 supplement @ e6d8c5f9919a83672bea670bc7e49339e5f5373c
 Device feedback corrections @ 3b4b22c0df91be668406127c84c1822b359883c0
 Device glass and motion owner ruling @ 51b4dc33beec515c7d684d352060fbdeded1825e
+Stage 6 intent snapshot @ fffca086f4451a7bd0988959058ddcfe5eb6c13d
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -55,7 +56,10 @@ not prove it fixed.
 
 The owner authorized completing all Stage 6 and its necessary tool Settings,
 scoped approval and explicit system-consent additions. This branch implements
-S6-04b and is completing Files/result protection and callable tool Settings;
+S6-04b–07: separate system consent, exact conversation grants, managed Files
+read/create/modify/delete, bounded sanitized results and callable tool Settings.
+The complete backend passed native generation/build and 1214 Swift tests plus
+20 XCTest at f8516bb; UI/exposure and final aggregate validation remain in progress;
 see the [Stage 6 gate matrix](tasks/stage6-completion.md) and
 [implementation plan](Docs/superpowers/plans/2026-10-23-stage6-completion.md).
 Stage 6 aggregate and physical-device acceptance remain open. The accepted UI
