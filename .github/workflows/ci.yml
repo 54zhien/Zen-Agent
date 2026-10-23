@@ -19,6 +19,10 @@ on:
         description: 'Temporary native complete-unit Stage6 diagnostic, not final gate'
         type: boolean
         default: false
+      stage6_tools_ui_red:
+        description: 'Temporary native Stage6 tool Settings UI diagnostic, not final gate'
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -30,7 +34,7 @@ permissions:
 jobs:
 
   pad-workspace:
-    if: ${{ inputs.stage6_unit_red != true }}
+    if: ${{ inputs.stage6_unit_red != true && inputs.stage6_tools_ui_red != true }}
     name: iPad workspace axis
     needs: repo-hygiene
     runs-on: macos-26
@@ -381,7 +385,9 @@ jobs:
           python3 -B .github/scripts/test_stage5_test_profile.py
           TEST_SCOPE=$(python3 -B .github/scripts/stage5_test_profile.py)
           TEST_ARGS=(test)
-          if [ "${{ inputs.stage6_unit_red }}" = "true" ]; then
+          if [ "${{ inputs.stage6_tools_ui_red }}" = "true" ]; then
+            TEST_ARGS+=(-only-testing:ZenAgentUITests/Stage6ToolUITests)
+          elif [ "${{ inputs.stage6_unit_red }}" = "true" ]; then
             TEST_ARGS+=(-only-testing:ZenAgentTests)
           fi
           if [ "$TEST_SCOPE" = "review-red" ]; then
