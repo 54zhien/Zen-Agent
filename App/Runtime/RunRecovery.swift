@@ -58,6 +58,10 @@ struct RunRecovery: Sendable {
         guard recoveringRun.recoveryAction != nil else {
             throw RunRecoveryError.recoveryActionMissing(runID)
         }
+        if recoveringRun.recoveryAction == .invalidate {
+            try await failAfterMemoryInvalidation(run: recoveringRun)
+            return
+        }
 
         do {
             try validateCredentialBinding(for: recoveringRun)
@@ -80,6 +84,14 @@ struct RunRecovery: Sendable {
         } catch {
             try await fail(runID: runID, reason: .unrecoverable)
             return
+        }
+        if let snapshot {
+            do { _ = try store.resolveMemoryReferences(snapshot.prompt.memoryReferences) }
+            catch {
+                try store.invalidateMemoryRun(id: runID)
+                try await failAfterMemoryInvalidation(run: recoveringRun)
+                return
+            }
         }
 
         switch checkpointState {
@@ -128,10 +140,21 @@ struct RunRecovery: Sendable {
         // `restart` remains a representable action for other product flows, but this
         // engine never selects it. A reprepare action already recorded by suspension is
         // retained; all other recoveries begin as an in-place resume.
-        if run.recoveryAction == .reprepare {
-            return .reprepare
-        }
+        if run.recoveryAction == .reprepare { return .reprepare }
+        if run.recoveryAction == .invalidate { return .invalidate }
         return .resume
+    }
+
+    private func failAfterMemoryInvalidation(run: AgentRunRecord) async throws {
+        // Erasure revokes future work, never the truth of an already dispatched
+        // file operation. Query original proof without replay before settling.
+        for call in try store.toolCalls(inRun: run.id) where call.state == .dispatched || call.state == .indeterminate {
+            if let toolRuntime { _ = try toolRuntime.confirmToolOutcome(toolCallID: call.id) }
+            if try store.toolCall(id: call.id)?.state == .dispatched {
+                try store.markToolCallIndeterminate(id: call.id)
+            }
+        }
+        try await fail(runID: run.id, reason: .dependencyUnavailable)
     }
 
     private func validateCredentialBinding(for run: AgentRunRecord) throws {

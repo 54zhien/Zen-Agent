@@ -24,10 +24,12 @@ import GRDB
 final class ZenDatabase: Sendable {
     private let dbQueue: DatabaseQueue
     let persistentPath: String?
+    let memoryAccessGate: MemoryAccessGate
 
     private init(dbQueue: DatabaseQueue, persistentPath: String? = nil) {
         self.dbQueue = dbQueue
         self.persistentPath = persistentPath
+        self.memoryAccessGate = MemoryAccessGate.forDatabase(persistentPath)
     }
 
     /// Opens (or creates) a store at `path` and brings its schema up to date.

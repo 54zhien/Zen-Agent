@@ -26,8 +26,13 @@ final class MemorySettingsUITests: XCTestCase {
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
         // Regular-width native confirmations omit Cancel and dismiss outside.
         if app.buttons["取消"].exists { app.buttons["取消"].tap() }
-        else { app.navigationBars["记忆详情"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
-        XCTAssertTrue(confirmation.wait(for: \.exists, toEqual: false, timeout: 5))
+        else {
+            // The native popup covers the navigation title. Its actual AX
+            // dismiss region is the safe outside target, verified in the recording.
+            let outside = app.otherElements["PopoverDismissRegion"]
+            XCTAssertTrue(outside.waitForExistence(timeout: 5)); outside.tap()
+        }
+        guard confirmation.wait(for: \.exists, toEqual: false, timeout: 5) else { XCTFail("Native confirmation did not cancel"); return }
         XCTAssertTrue(app.navigationBars["记忆详情"].exists)
         deletion.tap()
         app.buttons["确认删除记忆"].tap()

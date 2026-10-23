@@ -13,6 +13,7 @@ enum MemoryContentPolicy {
         let patterns = [
             #"(?i)(api[_ -]?key|access[_ -]?token|refresh[_ -]?token|password|secret|authorization|cookie)\s*[\"']?\s*[:=：]"#,
             #"(?i)\bBearer\s+\S+|\bsk-[A-Za-z0-9_-]{16,}"#,
+            #"(?i)\b(password|secret|token|api[_ -]?key)\s+(is|are)\b|\btoken\s*[:=]"#,
             #"(?i)https?://[^\s/]+:[^\s/]+@|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"#,
             #"-----BEGIN [A-Z ]*PRIVATE KEY-----"#,
             #"(密码|密钥|令牌|口令|验证码|私钥)\s*(是|为|[:：=])"#,

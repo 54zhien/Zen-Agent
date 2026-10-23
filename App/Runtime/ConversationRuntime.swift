@@ -302,10 +302,12 @@ actor ConversationRuntime {
         let committedQuoteSnapshots: [String]
         let committedPromptHistory: [PromptHistoryMessage]
         let promptSections: PromptSystemSections
+        let relevantMemory: [MemoryContext]
         do {
             effectiveSoulVersion = try store.effectiveSoulVersion(
                 conversationID: command.conversationID
             )
+            relevantMemory = MemoryRuntime(store: store, credentials: credentials).retrieve(query: command.text)
             snapshot = RunExecutionSnapshot(
                 providerID: provider.id,
                 providerAdapterRevision: provider.adapterRevision,
@@ -313,7 +315,8 @@ actor ConversationRuntime {
                     runtimeSafetyBaseline: PromptTemplateCatalog.currentRuntimeSafetyRevision,
                     zenCore: PromptTemplateCatalog.currentZenCoreRevision,
                     providerAdapterInstructions: provider.adapterPromptInstructions,
-                    soulVersionID: effectiveSoulVersion?.id
+                    soulVersionID: effectiveSoulVersion?.id,
+                    memoryReferences: relevantMemory.map(\.reference)
                 ),
                 modelCapabilities: descriptor.capabilities,
                 exposedTools: descriptor.capabilities.contains(.tools) ? toolRegistry.descriptors.map {
@@ -362,6 +365,7 @@ actor ConversationRuntime {
             currentUserMessage: command.text,
             currentUserQuotedSnapshots: committedQuoteSnapshots,
             soulInstructions: effectiveSoulVersion?.instructions,
+            relevantMemories: relevantMemory.map(\.content),
             tools: snapshot.exposedTools.map {
                 ProviderToolDefinition(
                     name: $0.toolID,

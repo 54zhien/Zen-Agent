@@ -1,7 +1,7 @@
 import Foundation
 
 actor MemoryAccessGate {
-    static let shared = MemoryAccessGate()
+    static func forDatabase(_ path: String?) -> MemoryAccessGate { MemoryGateRegistry.shared.gate(for: path) }
     private struct Waiter {
         let exclusive: Bool
         let continuation: CheckedContinuation<Void, Never>
@@ -42,6 +42,31 @@ actor MemoryAccessGate {
             }
             readers += 1
             waiting.removeFirst().continuation.resume()
+        }
+    }
+}
+
+private final class WeakMemoryGate {
+    weak var value: MemoryAccessGate?
+    init(_ value: MemoryAccessGate) { self.value = value }
+}
+
+/// Multiple connections to one database coordinate; unrelated test/user stores
+/// never wait on each other's provider handoffs. No user content is cached here.
+private final class MemoryGateRegistry: @unchecked Sendable {
+    static let shared = MemoryGateRegistry()
+    private let lock = NSLock()
+    private var byPath: [String: WeakMemoryGate] = [:]
+
+    func gate(for path: String?) -> MemoryAccessGate {
+        guard let path else { return MemoryAccessGate() }
+        let key = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+        return lock.withLock {
+            byPath = byPath.filter { $0.value.value != nil }
+            if let existing = byPath[key]?.value { return existing }
+            let created = MemoryAccessGate()
+            byPath[key] = WeakMemoryGate(created)
+            return created
         }
     }
 }

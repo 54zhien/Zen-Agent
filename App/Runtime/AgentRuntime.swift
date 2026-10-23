@@ -627,11 +627,20 @@ actor AgentRuntime {
                 guard let runForRequest = try store.run(id: runID) else {
                     throw AgentRuntimeError.runNotFound(runID)
                 }
-                let providerStream = try await provider.stream(
-                    currentRequest,
-                    seed: runForRequest.requestConfigSeed,
-                    credentials: credentials
-                )
+                let requestForDispatch = currentRequest
+                let store = store, provider = provider, credentials = credentials
+                let providerStream = try await store.memoryAccessGate.withRead {
+                    try Task.checkCancellation()
+                    do {
+                        _ = try MemoryRuntime(store: store, credentials: credentials)
+                            .resolveFrozen(snapshot.prompt.memoryReferences)
+                    } catch {
+                        try store.invalidateMemoryRun(id: runID)
+                        throw error
+                    }
+                    return try await provider.stream(requestForDispatch,
+                        seed: runForRequest.requestConfigSeed, credentials: credentials)
+                }
 
                 var pendingToolCalls: [ProviderToolCall] = []
                 var terminal = false
@@ -1752,6 +1761,7 @@ actor AgentRuntime {
         error: Error,
         run: AgentRunRecord
     ) -> FailureDisposition {
+        if error is MemoryError { return .failed(.dependencyUnavailable) }
         if let failure = error as? ProviderRuntimeFailure {
             switch failure {
             case .stepLimit,

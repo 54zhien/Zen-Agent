@@ -6,6 +6,23 @@ struct MemoryRuntime: Sendable {
     let credentials: (any CredentialStoring)?
     static let automaticFormationAvailable = false
 
+    func retrieve(query: String) -> [MemoryContext] {
+        do {
+            guard try store.memorySettings().enabled else { return [] }
+            let selected = MemoryRetriever.select(query: query, records: try store.memories(activeOnly: true))
+            return try selected.map { item in
+                try validate(item.content)
+                return MemoryContext(reference: item.reference, content: item.content)
+            }
+        } catch { return [] }
+    }
+
+    func resolveFrozen(_ references: [MemoryRevisionReference]) throws -> [MemoryContext] {
+        let contexts = try store.resolveMemoryReferences(references)
+        for context in contexts { try validate(context.content) }
+        return contexts
+    }
+
     @discardableResult
     func save(id: String? = nil, expectedRevisionID: String? = nil, content: String) throws -> MemoryItem {
         try validate(content)
@@ -26,10 +43,10 @@ struct MemoryRuntime: Sendable {
         try store.setMemoryAutomatic(enabled)
     }
     func delete(id: String) async throws {
-        try await MemoryAccessGate.shared.withWrite { try store.deleteMemory(id: id) }
+        try await store.memoryAccessGate.withWrite { try store.deleteMemory(id: id) }
     }
     func clear() async throws {
-        try await MemoryAccessGate.shared.withWrite { try store.clearMemory() }
+        try await store.memoryAccessGate.withWrite { try store.clearMemory() }
     }
 
     private func knownSecrets() throws -> [SecretValue] {

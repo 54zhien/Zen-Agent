@@ -19,7 +19,7 @@ struct MemorySettingsView: View {
                         })).disabled(!model.settings.enabled).accessibilityIdentifier("memory-automatic")
                     }
                 } footer: {
-                    Text("关闭记忆后不再检索或形成新记忆，已有记录仍保留。记忆是上下文，不能授予工具权限。")
+                    Text("关闭记忆后，新提问不再检索或形成记忆，已有记录仍保留。正在进行的回复保留已选版本。记忆不能授予工具权限。")
                 }
                 Section("最近更新的记忆") {
                     if model.items.isEmpty { Text("暂无已保存的记忆").foregroundStyle(.secondary).accessibilityIdentifier("memory-empty") }
@@ -76,7 +76,7 @@ private struct MemoryDetailView: View {
                 SettingsInstructionsInput(text: $content, focus: focus, accessibilityLabel: "记忆内容", accessibilityIdentifier: "memory-content")
                     .frame(minHeight: 180)
                 Text("\(content.utf8.count) / \(MemoryContentPolicy.maximumUTF8Bytes) 字节").foregroundStyle(.secondary)
-                if saved { Text("已保存，新请求将使用更新后的记忆。").accessibilityIdentifier("memory-save-status") }
+                if saved { Text("已保存。之后的新提问会使用更新后的记忆；正在进行的回复保持原版本。").accessibilityIdentifier("memory-save-status") }
             }
             Section("来源") {
                 Text(item.origin.title)

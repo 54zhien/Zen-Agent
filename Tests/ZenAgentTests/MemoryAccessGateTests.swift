@@ -14,6 +14,18 @@ actor MemoryTestLatch {
 
 @Suite("Memory erasure handoff coordination")
 struct MemoryAccessGateTests {
+    @Test("database aliases share a gate while independent stores remain independent")
+    func scope() {
+        let root = FileManager.default.temporaryDirectory
+        let first = MemoryAccessGate.forDatabase(root.appendingPathComponent("gate-a.sqlite").path)
+        let alias = MemoryAccessGate.forDatabase(root.appendingPathComponent("unused/../gate-a.sqlite").path)
+        let second = MemoryAccessGate.forDatabase(root.appendingPathComponent("gate-b.sqlite").path)
+        #expect(first === alias)
+        #expect(first !== second)
+        let transient = MemoryAccessGate.forDatabase(nil)
+        #expect(transient !== MemoryAccessGate.forDatabase(nil))
+    }
+
     @Test("erasure waits for an already initiated async provider handoff")
     func exclusion() async {
         let gate = MemoryAccessGate()

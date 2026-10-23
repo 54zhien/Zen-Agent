@@ -2,6 +2,30 @@ import Foundation
 import GRDB
 
 extension PersistenceStore {
+    var memoryAccessGate: MemoryAccessGate { database.memoryAccessGate }
+
+    func resolveMemoryReferences(_ references: [MemoryRevisionReference]) throws -> [MemoryContext] {
+        try database.read { db in try Self.resolveMemoryReferences(references, db: db) }
+    }
+
+    static func resolveMemoryReferences(_ references: [MemoryRevisionReference], db: Database) throws -> [MemoryContext] {
+        guard references.count <= 6 else { throw MemoryError.erasedDependency }
+        var bytes = 0
+        return try references.map { reference in
+            guard let revision = try MemoryRevisionRecord.fetchOne(db, key: reference.revisionID),
+                  revision.memoryID.utf8.elementsEqual(reference.memoryID.utf8),
+                  try MemoryRecord.fetchOne(db, key: reference.memoryID) != nil,
+                  revision.content.utf8.count <= MemoryContentPolicy.maximumUTF8Bytes else { throw MemoryError.erasedDependency }
+            bytes += revision.content.utf8.count
+            guard bytes <= MemoryRetriever.maximumCombinedUTF8Bytes else { throw MemoryError.erasedDependency }
+            return MemoryContext(reference: reference, content: revision.content)
+        }
+    }
+
+    func invalidateMemoryRun(id: String) throws {
+        try database.write { try $0.execute(sql: "UPDATE agentRun SET recoveryAction = 'invalidate' WHERE id = ? AND state NOT IN ('completed','failed','cancelled')", arguments: [id]) }
+    }
+
     func memorySettings() throws -> MemorySettings {
         try database.read { try Self.memorySettings($0) }
     }
