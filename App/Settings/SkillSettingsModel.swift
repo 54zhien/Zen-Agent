@@ -169,7 +169,10 @@ final class SkillSettingsModel {
         case .disabled: return "技能当前已停用，请先启用后重试。"
         case .missingDependency: return "技能仍有缺失依赖，请检查依赖配置。"
         case .unsafeContent: return "这段指令包含不允许保存的内容，请移除敏感凭据或不安全指令。"
-        case .resourceInUse: return "技能正在被运行使用，删除请求已保留为待处理状态。"
+        case .resourceInUse:
+            return operation == .delete
+                ? "技能已撤销，删除尚未完成；请停止相关运行后重试。"
+                : "技能已停用，相关运行尚未停止；请停止运行后重试。"
         case .validationUnavailable: return "技能暂时无法保存，请稍后重试。"
         case nil:
             switch operation {

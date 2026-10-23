@@ -268,6 +268,9 @@ struct AppAssembly {
             },
             projectionUpdates: { conversationID in
                 await runtime.projectionUpdates(conversationID: conversationID)
+            },
+            skills: { instanceID, modelID in
+                try await runtime.availableSkills(providerInstanceID: instanceID, modelID: modelID)
             }
         )
     }

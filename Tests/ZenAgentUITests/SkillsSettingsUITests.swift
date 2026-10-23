@@ -2,6 +2,24 @@ import XCTest
 
 final class SkillsSettingsUITests: XCTestCase {
     @MainActor
+    func testComposerPluginEntryProvidesAutomaticSkillSelection() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launch()
+        let plus = app.buttons["conversation-composer-plus"]
+        XCTAssertTrue(plus.waitForExistence(timeout: 15)); plus.tap()
+        let plugins = app.buttons["插件"]
+        XCTAssertTrue(plugins.waitForExistence(timeout: 5))
+        captureExtension("Composer plugin entry", app)
+        XCTAssertTrue(plugins.isEnabled)
+        guard plugins.isEnabled else { return }
+        plugins.tap()
+        let automatic = app.buttons["自动选择"]
+        XCTAssertTrue(automatic.waitForExistence(timeout: 5)); automatic.tap()
+        XCTAssertTrue(waitForExtension { plus.value as? String == "自动选择 Skill" })
+    }
+
+    @MainActor
     func testExplicitUserSaveAndComposerSelectionKeepTheNativeMenu() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"

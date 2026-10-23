@@ -72,6 +72,20 @@ actor ConversationRuntime {
 
     var activeOperationCount: Int { operations.count }
 
+    func availableSkills(providerInstanceID: ProviderInstanceID?, modelID: ModelID?) throws -> [ComposerSkillOption] {
+        let supportsTools: Bool
+        if let providerInstanceID, let modelID,
+           let instance = try store.providerInstance(id: providerInstanceID) {
+            supportsTools = provider.descriptor(for: modelID, in: instance)?.capabilities.contains(.tools) == true
+        } else { supportsTools = false }
+        let skills = SkillRuntime(store: store, credentials: credentials,
+            registry: supportsTools ? toolRegistry : .empty)
+        return try skills.list().filter { $0.enabled && !$0.pendingDeletion }.map { item in
+            ComposerSkillOption(id: item.id, name: item.definition.name,
+                isAvailable: try skills.dependencyStatus(for: item).isAvailable)
+        }
+    }
+
     init(
         store: PersistenceStore,
         provider: any ModelProvider,
