@@ -2,6 +2,77 @@ import XCTest
 
 final class MemorySettingsUITests: XCTestCase {
     @MainActor
+    func testDarkMemorySwitchesAndConfirmedClearAll() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_MEMORY_UI_TEST"] = "seed"
+        app.launchEnvironment["ZEN_MEMORY_UI_APPEARANCE"] = "dark"
+        app.launch()
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
+        guard openMemory(app) else { return }
+        let enabled = app.switches["memory-enabled"], automatic = app.switches["memory-automatic"]
+        XCTAssertTrue(automatic.waitForExistence(timeout: 5))
+        XCTAssertEqual(automatic.value as? String, "1")
+        automatic.tap()
+        expect { automatic.value as? String == "0" }
+        enabled.tap()
+        expect { enabled.value as? String == "0" }
+        XCTAssertFalse(automatic.isEnabled)
+        XCTAssertTrue(app.buttons["memory-item-fixture-memory"].exists)
+        enabled.tap()
+        expect { enabled.value as? String == "1" }
+        XCTAssertEqual(automatic.value as? String, "0", "Turning Memory on must preserve the automatic choice")
+        capture("Memory dark controls", app)
+        app.swipeUp()
+        let clear = app.buttons["memory-clear"]
+        for _ in 0..<4 where !clear.isHittable { app.swipeUp() }
+        XCTAssertTrue(clear.isHittable); clear.tap()
+        let confirmation = app.buttons["确认清空全部记忆"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        capture("Memory clear confirmation", app)
+        confirmation.tap()
+        XCTAssertTrue(app.staticTexts["memory-empty"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testLargestTextLightAndLandscapeMemoryPages() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_MEMORY_UI_TEST"] = "seed"
+        app.launchEnvironment["ZEN_MEMORY_UI_APPEARANCE"] = "light"
+        app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        app.launch()
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
+        guard openMemory(app) else { return }
+        XCTAssertTrue(app.switches["memory-enabled"].waitForExistence(timeout: 5))
+        capture("Memory largest light portrait controls", app)
+        let row = app.buttons["memory-item-fixture-memory"]
+        for _ in 0..<8 where !row.isHittable { app.swipeUp() }
+        XCTAssertTrue(row.isHittable); row.tap()
+        XCTAssertTrue(app.textViews["memory-content"].waitForExistence(timeout: 5))
+        capture("Memory largest light portrait editor", app)
+        app.swipeUp()
+        capture("Memory largest light portrait provenance", app)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(app.navigationBars["记忆详情"].waitForExistence(timeout: 5))
+        capture("Memory largest light landscape", app)
+    }
+
+    @MainActor
+    private func capture(_ name: String, _ app: XCUIApplication) {
+        let image = XCTAttachment(screenshot: app.screenshot())
+        image.name = name; image.lifetime = .keepAlways; add(image)
+    }
+
+    @MainActor
+    private func expect(_ condition: @escaping () -> Bool, file: StaticString = #filePath, line: UInt = #line) {
+        let pending = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [pending], timeout: 5), .completed, file: file, line: line)
+    }
+
+    @MainActor
     func testEditAndConfirmedErasureUseTheFormalMemoryPage() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"

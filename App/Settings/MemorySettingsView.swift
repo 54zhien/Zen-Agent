@@ -84,7 +84,7 @@ private struct MemoryDetailView: View {
                 ForEach(item.sources) { source in
                     VStack(alignment: .leading, spacing: 6) {
                         Text(source.kind.title)
-                        Text(source.missing ? "来源会话已删除" : "来源会话：\(source.conversationID ?? "用户管理")")
+                        Text(source.missing ? "来源会话已删除" : "来源会话：\(source.conversationTitle.flatMap { $0.isEmpty ? nil : $0 } ?? "未命名会话")")
                             .foregroundStyle(.secondary).textSelection(.enabled)
                     }
                 }

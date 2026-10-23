@@ -28,6 +28,7 @@ struct MemorySource: Codable, Sendable, Equatable, Identifiable {
     let messageID: String?
     let kind: MemoryOrigin
     var missing: Bool
+    var conversationTitle: String? = nil
 }
 
 struct MemoryItem: Sendable, Equatable, Identifiable {

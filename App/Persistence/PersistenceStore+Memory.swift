@@ -102,7 +102,13 @@ extension PersistenceStore {
     static func memoryItem(_ record: MemoryRecord, db: Database) throws -> MemoryItem {
         guard let revision = try MemoryRevisionRecord.fetchOne(db, key: record.currentRevisionID), revision.memoryID == record.id
         else { throw MemoryError.erasedDependency }
-        let sources = try MemorySourceRecord.fetchAll(db, sql: "SELECT * FROM memorySource WHERE memoryID = ? ORDER BY createdAt, id", arguments: [record.id]).map(\.source)
+        let sources = try MemorySourceRecord.fetchAll(db, sql: "SELECT * FROM memorySource WHERE memoryID = ? ORDER BY createdAt, id", arguments: [record.id]).map { record in
+            var source = record.source
+            if !source.missing, let id = source.conversationID {
+                source.conversationTitle = try ConversationRecord.fetchOne(db, key: id)?.title
+            }
+            return source
+        }
         return MemoryItem(id: record.id, revisionID: revision.id, content: revision.content, origin: record.origin,
             factKey: record.factKey, archived: record.state == "archived", createdAt: record.createdAt,
             updatedAt: record.updatedAt, sources: sources)
