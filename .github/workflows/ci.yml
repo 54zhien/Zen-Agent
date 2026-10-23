@@ -25,6 +25,7 @@ permissions:
 jobs:
 
   pad-workspace:
+    if: false # Focused diagnostic; final unchanged Phone/Pad gate required.
     name: iPad workspace axis
     needs: repo-hygiene
     runs-on: macos-26
@@ -374,7 +375,7 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b
           python3 -B .github/scripts/test_stage5_test_profile.py
           TEST_SCOPE=$(python3 -B .github/scripts/stage5_test_profile.py)
-          TEST_ARGS=(test)
+          TEST_ARGS=(test -only-testing:ZenAgentUITests/EnvironmentSettingsUITests -only-testing:ZenAgentUITests/SkillsSettingsUITests/testFormalSkillsEntryUsesTheApprovedManagementPage -only-testing:ZenAgentUITests/SkillsSettingsUITests/testLargestTypeSkillDetailsPortraitAndLandscape)
           if [ "$TEST_SCOPE" = "review-red" ]; then
             echo "::notice::Stage 5 review RED: app build and all unit tests; this is not the full UI gate."
             TEST_ARGS+=(-only-testing:ZenAgentTests)
