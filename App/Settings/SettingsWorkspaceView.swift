@@ -27,7 +27,7 @@ struct SettingsWorkspaceView: View {
                         label: { Label("外观", systemImage: "circle.lefthalf.filled") }
                 }
                 Section("Agent") {
-                    NavigationLink { SettingsAgentView(model: model.soul, focus: focus) }
+                    NavigationLink { SettingsAgentView(model: model.soul, tools: model.tools, focus: focus) }
                         label: { Label("Agent", systemImage: "sparkle") }
                         .accessibilityIdentifier("settings-agent")
                 }
@@ -85,11 +85,14 @@ struct SettingsWorkspaceView: View {
 @MainActor
 private struct SettingsAgentView: View {
     let model: SoulSettingsModel
+    let tools: ToolSettingsModel
     let focus: SettingsInputFocus
     var body: some View {
         Form {
             NavigationLink { SoulSettingsView(model: model, focus: focus) }
                 label: { Text("Soul") }.accessibilityIdentifier("settings-soul")
+            NavigationLink { ToolSettingsView(model: tools) }
+                label: { Text("可调用工具") }.accessibilityIdentifier("settings-tools")
         }.navigationTitle("Agent").settingsCloseToolbar()
     }
 }

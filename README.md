@@ -28,6 +28,7 @@ Zen-Agent-Blueprint @ 99d30b815651fe987bab9f88e269a84a89318625
 Owner-approved Stage 5 supplement @ e6d8c5f9919a83672bea670bc7e49339e5f5373c
 Device feedback corrections @ 3b4b22c0df91be668406127c84c1822b359883c0
 Device glass and motion owner ruling @ 51b4dc33beec515c7d684d352060fbdeded1825e
+Stage 6 intent snapshot @ fffca086f4451a7bd0988959058ddcfe5eb6c13d
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -45,15 +46,31 @@ its `Design/ADR/`; engineering/tooling trade-offs belong to this repository's
 
 ## Status
 
-As of 2026-10-22, Stage 5 and the S6-01/02 foundation are on `main`,
-followed by S6-03 Policy/grant persistence through
-[PR #38](https://github.com/54zhien/Zen-Agent/pull/38) at
-`1fd98c6572553d257120d99b1f7eabb9c859448a`. Its merge tree is identical
-to the candidate verified by full native CI `39761453960`; post-merge CI is
-tracked separately. This branch adds the scoped S6-04a Runtime Policy integration
-candidate, tracked in [its gate record](tasks/s6-04a-runtime-policy.md).
-S6-04 system consent and scope-choice interaction remain open; this is not full
-Stage 6 or physical-device acceptance. The accepted UI checkout and draft
+As of 2026-10-23, Stage 5 and S6-01/02/03/04a are on `main` through
+[PR #39](https://github.com/54zhien/Zen-Agent/pull/39) at
+`e2e31972cd894da96ef110c8a2ebc3078cfd7d61`. Its normal post-merge
+[Phone/iPad CI](https://github.com/54zhien/Zen-Agent/actions/runs/39888595366)
+passed. The intermittent Sidebar issue remains tracked in
+[issue #40](https://github.com/54zhien/Zen-Agent/issues/40); a passing run does
+not prove it fixed.
+
+Stage 6 S6-04b-07 is implemented in [PR #41](https://github.com/54zhien/Zen-Agent/pull/41):
+separate system consent, exact conversation grants, managed Files read/create/modify/delete,
+bounded sanitized results and callable-tool Settings. The normal complete
+[Phone/iPad gate](https://github.com/54zhien/Zen-Agent/actions/runs/39913184297)
+passed at `c4b5e987821b73945143ae72fcea477c0682160a`: 1,224 Swift tests in
+187 suites, 20 XCTest unit tests, 85 Phone UI passes plus one Pad-only platform
+skip, and the native Pad test passed separately in the same run. All six Stage 6
+UI cases passed. The single fresh review's two important findings have actual
+RED-to-GREEN evidence; there are no deferred review minors.
+
+The implementation/native gate is complete. Physical-device acceptance remains
+separate and open; the injectable system-permission driver is not device evidence.
+See the [Stage 6 closure and boundaries](tasks/stage6-completion.md) and
+[implementation plan](Docs/superpowers/plans/2026-10-23-stage6-completion.md).
+The final receipt changes only those two documents and this README; application,
+tests and build inputs remain identical to the tested source. Merge identity/tree
+and post-merge CI are recorded on PR #41. The accepted UI checkout and draft
 [PR #37](https://github.com/54zhien/Zen-Agent/pull/37) remain separately parked.
 Earlier stability evidence remains in [the repair record](tasks/known-issues-stability.md).
 

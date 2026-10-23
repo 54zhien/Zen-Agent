@@ -51,6 +51,12 @@ struct ToolExecutionIntent: Codable, Sendable, Equatable {
 
 struct ToolExecutionResult: Sendable, Equatable {
     var content: String
+    var kind: ToolResultKind = .text
+    var failure: ToolResultFailure? = nil
+
+    static func failure(_ code: ToolResultFailure) -> Self {
+        Self(content: "Tool result: \(code.rawValue).", kind: .error, failure: code)
+    }
 }
 
 protocol ToolExecutable: Sendable {
@@ -66,11 +72,20 @@ protocol ToolExecutable: Sendable {
         idempotencyKey: String
     ) async throws -> ToolExecutionResult
 
+    func prepare(callID: String, argumentsJSON: String, context: ToolPreparationContext) throws -> ToolExecutionIntent
+    func validateDependencies(_ intent: ToolExecutionIntent, context: ToolPreparationContext) throws
+
     /// Trusted dependency check; may reject, never replace the frozen intent.
     func validateDependencies(_ intent: ToolExecutionIntent) throws
 }
 
 extension ToolExecutable {
+    func prepare(callID: String, argumentsJSON: String, context: ToolPreparationContext) throws -> ToolExecutionIntent {
+        try prepare(callID: callID, argumentsJSON: argumentsJSON)
+    }
+    func validateDependencies(_ intent: ToolExecutionIntent, context: ToolPreparationContext) throws {
+        try validateDependencies(intent)
+    }
     func validateDependencies(_ intent: ToolExecutionIntent) throws {
         // A scoped executor must supply a trusted live resolver. Only stateless
         // actions can prove their lack of mutable dependencies without one.

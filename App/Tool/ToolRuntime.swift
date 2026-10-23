@@ -22,16 +22,20 @@ enum ToolRuntimeError: Error, Equatable, Sendable {
 /// separate operations. `markToolCallDispatched` commits before `execute` is entered;
 /// a crash after that commit is therefore recovered as uncertain rather than retried.
 /// The original frozen payload, policy admission and current grants are checked
-/// at the transactional dispatch boundary. System-consent wiring remains S6-04b.
+/// at the transactional dispatch boundary. OS consent is a separate explicit interaction before dispatch.
 final class ToolRuntime: @unchecked Sendable {
     private let store: PersistenceStore
     private let registry: ToolRegistry
     private let safetyCap: ToolPolicySafetyCap
+    private let systemConsent: ToolSystemConsentRuntime
+    private let credentials: (any CredentialStoring)?
 
-    init(store: PersistenceStore, registry: ToolRegistry, safetyCap: ToolPolicySafetyCap = .unrestricted) {
+    init(store: PersistenceStore, registry: ToolRegistry, safetyCap: ToolPolicySafetyCap = .unrestricted, credentials: (any CredentialStoring)? = nil) {
         self.store = store
+        self.credentials = credentials
         self.registry = registry
         self.safetyCap = safetyCap
+        self.systemConsent = ToolSystemConsentRuntime(store: store, registry: registry, safetyCap: safetyCap)
     }
 
     /// Completes one provider tool call through validation, frozen intent persistence,
@@ -66,7 +70,7 @@ final class ToolRuntime: @unchecked Sendable {
         let callID = UUID().uuidString
         let intent: ToolExecutionIntent
         do {
-            intent = try executor.prepare(callID: callID, argumentsJSON: argumentsJSON)
+            intent = try executor.prepare(callID: callID, argumentsJSON: argumentsJSON, context: preparationContext(runID: agentRunID))
             try ToolIntentCodec.validate(intent, descriptor: descriptor)
         } catch is CancellationError {
             throw CancellationError()
@@ -107,7 +111,9 @@ final class ToolRuntime: @unchecked Sendable {
         try Task.checkCancellation()
         let admitted = try store.createToolCallWithPolicy(call, descriptor: descriptor, safetyCap: safetyCap, at: now)
         switch admitted.state {
-        case .prepared: return try await executePrepared(toolCallID: callID, at: now)
+        case .prepared:
+            do { return try await executePrepared(toolCallID: callID, at: now) }
+            catch ToolSystemPermissionError.consentRequired { return nil }
         case .rejected: return try storedResult(for: admitted.id)
         case .notExecuted: throw CancellationError()
         default: return nil
@@ -236,7 +242,7 @@ final class ToolRuntime: @unchecked Sendable {
     /// Records approval on the existing waiting call. Execution is intentionally a
     /// separate operation so approval presentation cannot accidentally cross the
     /// durable-dispatch boundary.
-    func approve(toolCallID: String, displayedIntentBinding: String? = nil) throws {
+    func approve(toolCallID: String, displayedIntentBinding: String? = nil, scope: ToolApprovalScope = .once) throws {
         if try validatePendingIntent(toolCallID: toolCallID, requireAdmission: false) != nil { return }
         let call = try requiredToolCall(id: toolCallID)
         guard let json = call.executionIntent,
@@ -246,7 +252,7 @@ final class ToolRuntime: @unchecked Sendable {
         }
         let approved = try store.approveToolCallWithPolicy(id: call.id, expectedAttempt: call.attempt,
             descriptor: descriptor, safetyCap: safetyCap, checkedIntentBinding: ToolIntentBinding.make(json),
-            displayedIntentBinding: displayedIntentBinding, at: Date())
+            displayedIntentBinding: displayedIntentBinding, scope: scope, at: Date())
         if approved.state == .waitingForApproval { throw ToolRuntimeError.approvalRequired(call.id) }
         if approved.state == .notExecuted { throw CancellationError() }
     }
@@ -319,6 +325,19 @@ final class ToolRuntime: @unchecked Sendable {
         }
 
         try Task.checkCancellation()
+        if executor is any ToolSystemPermissionProviding {
+            let systemChecked = try await systemConsent.preflight(call: call, intent: intent, executor: executor)
+            if systemChecked.state == .rejected { return try storedResult(for: call.id) }
+            if systemChecked.state == .waitingForSystemPermissionConsent {
+                throw ToolSystemPermissionError.consentRequired(call.id)
+            }
+            if systemChecked.state == .waitingForApproval { throw ToolRuntimeError.approvalRequired(call.id) }
+            if systemChecked.state == .notExecuted { throw CancellationError() }
+            // OS reads can suspend. Revalidate the frozen dependencies after
+            // returning, then leave no await before the existing dispatch write.
+            if let rejection = try validatePendingIntent(toolCallID: call.id, at: now) { return rejection }
+            try requireExecutablePendingCall(call.id)
+        }
         // Current authority and the original attempt commit together. The exact
         // JSON this checkpoint authorizes is the payload passed to execute below.
         let dispatched = try store.dispatchToolCallWithPolicy(id: call.id, expectedAttempt: call.attempt,
@@ -332,9 +351,9 @@ final class ToolRuntime: @unchecked Sendable {
         default: throw ToolRuntimeError.invalidToolCallState(id: call.id, expected: .dispatched, actual: dispatched.state)
         }
 
-        let executionResult: ToolExecutionResult
+        let rawResult: ToolExecutionResult
         do {
-            executionResult = try await executor.execute(
+            rawResult = try await executor.execute(
                 intent,
                 idempotencyKey: call.id
             )
@@ -346,9 +365,17 @@ final class ToolRuntime: @unchecked Sendable {
                 try store.markToolCallIndeterminate(id: call.id, at: now)
                 throw error
             }
-            let failureResult = ToolExecutionResult(
-                content: "Tool execution failed: \(String(describing: error))"
-            )
+            let diagnosis: ToolResultFailure
+            if let system = error as? ToolSystemPermissionError {
+                switch system {
+                case .denied: diagnosis = .systemPermissionDenied
+                case .unavailable: diagnosis = .dependencyUnavailable
+                case .consentRequired: diagnosis = .executionFailed
+                }
+            } else {
+                diagnosis = (error as? ToolIntentFailure) == .dependenciesChanged ? .dependencyChanged : .executionFailed
+            }
+            let failureResult = ToolExecutionResult.failure(diagnosis)
             try store.finishDispatchedToolCall(
                 id: call.id,
                 expectedAttempt: call.attempt,
@@ -356,26 +383,67 @@ final class ToolRuntime: @unchecked Sendable {
                 result: ToolResultRecord(
                     toolCallID: call.id,
                     payload: failureResult.content,
-                    createdAt: now
+                    createdAt: now, kind: failureResult.kind, failureCode: failureResult.failure
                 ),
                 at: now
             )
             throw error
         }
 
+        var executionResult: ToolExecutionResult
+        do { executionResult = ToolResultGuard.sanitize(rawResult, knownSecrets: try knownSecrets(runID: call.agentRunID)) }
+        catch { executionResult = .failure(.redactionUnavailable) }
+        if rawResult.failure == nil, let publicationFailure = executionResult.failure {
+            if let confirming = executor as? any ToolOutcomeConfirming,
+               let observed = try? confirming.confirmedResult(intent, idempotencyKey: call.id),
+               observed.failure == nil {
+                // Publication failure cannot undo a committed effect. The original
+                // immutable receipt proves completion without disclosing its result.
+                executionResult = Self.completedResultWithheld
+            } else if executor.descriptor.sideEffect == .externalWrite {
+                // A failed publication is not proof that the external effect failed.
+                // Leave the original checkpoint uncertain and never invite a retry.
+                try store.markToolCallIndeterminate(id: call.id, at: now)
+                throw publicationFailure
+            }
+        }
         try store.finishDispatchedToolCall(
             id: call.id,
             expectedAttempt: call.attempt,
-            state: .succeeded,
+            state: executionResult.failure == nil ? .succeeded : .failed,
             result: ToolResultRecord(
                 toolCallID: call.id,
                 payload: executionResult.content,
-                createdAt: now
+                createdAt: now, kind: executionResult.kind, failureCode: executionResult.failure
             ),
             at: now
         )
         return executionResult
     }
+
+    /// Receipt confirmation is a query of an already completed effect, without
+    /// policy widening or executor re-entry. A missing proof stays indeterminate.
+    func confirmToolOutcome(toolCallID: String) throws -> Bool {
+        let call = try requiredToolCall(id: toolCallID)
+        guard call.state == .dispatched || call.state == .indeterminate,
+              let json = call.executionIntent,
+              let intent = try? ToolIntentCodec.decodeForDisplay(json),
+              let executor = registry.executor(id: intent.toolID) as? any ToolOutcomeConfirming,
+              let observed = try executor.confirmedResult(intent, idempotencyKey: call.id) else { return false }
+        guard observed.failure == nil else { return false }
+        var result: ToolExecutionResult
+        do { result = ToolResultGuard.sanitize(observed, knownSecrets: try knownSecrets(runID: call.agentRunID)) }
+        catch { result = .failure(.redactionUnavailable) }
+        if result.failure != nil { result = Self.completedResultWithheld }
+        return try store.confirmToolFileOutcome(callID: call.id, attempt: call.attempt,
+            intentBinding: ToolIntentBinding.make(json), result: result)
+    }
+
+    // This is a trusted fixed completion notice, with no executor data or
+    // credential-derived bytes. Only immutable completion proof permits its use.
+    private static let completedResultWithheld = ToolExecutionResult(
+        content: #"{"execution":"completed","result":"withheld"}"#
+    )
 
     private func requiredToolCall(id: String) throws -> ToolCallRecord {
         guard let call = try store.toolCall(id: id) else {
@@ -389,7 +457,7 @@ final class ToolRuntime: @unchecked Sendable {
     func validatePendingIntent(toolCallID: String, at now: Date = Date(),
                                requireAdmission: Bool = true) throws -> ToolExecutionResult? {
         let call = try requiredToolCall(id: toolCallID)
-        guard [ToolCallState.validated, .waitingForApproval, .approved, .prepared].contains(call.state) else { return nil }
+        guard [ToolCallState.validated, .waitingForApproval, .waitingForSystemPermissionConsent, .approved, .prepared].contains(call.state) else { return nil }
         let descriptor: ToolDescriptor
         do {
             guard let json = call.executionIntent else { throw ToolIntentFailure.malformedIntent }
@@ -399,7 +467,7 @@ final class ToolRuntime: @unchecked Sendable {
             else { throw ToolIntentFailure.descriptorChanged }
             descriptor = executor.descriptor
             try ToolIntentCodec.validate(intent, descriptor: descriptor)
-            try executor.validateDependencies(intent)
+            try executor.validateDependencies(intent, context: preparationContext(runID: call.agentRunID))
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -423,6 +491,20 @@ final class ToolRuntime: @unchecked Sendable {
         return nil
     }
 
+    func resolveSystemPermission(toolCallID: String, displayedIntentBinding: String,
+                                 consent: Bool) async throws {
+        if try validatePendingIntent(toolCallID: toolCallID) != nil { return }
+        try await systemConsent.resolve(id: toolCallID, binding: displayedIntentBinding, consent: consent,
+            revalidate: { try self.validatePendingIntent(toolCallID: toolCallID) == nil })
+    }
+
+    func recoverSystemPermission(toolCallID: String) async throws {
+        if try validatePendingIntent(toolCallID: toolCallID) != nil { return }
+        guard try requiredToolCall(id: toolCallID).state == .waitingForSystemPermissionConsent else { return }
+        try await systemConsent.recover(id: toolCallID,
+            revalidate: { try self.validatePendingIntent(toolCallID: toolCallID) == nil })
+    }
+
     private func requireExecutablePendingCall(_ id: String) throws {
         let call = try requiredToolCall(id: id)
         if call.state == .waitingForApproval { throw ToolRuntimeError.approvalRequired(id) }
@@ -433,7 +515,28 @@ final class ToolRuntime: @unchecked Sendable {
         guard let result = try store.toolResult(toolCallID: id) else {
             throw ToolRuntimeError.invalidStoredExecutionIntent(id)
         }
-        return ToolExecutionResult(content: result.payload)
+        return ToolExecutionResult(content: result.payload, kind: result.kind, failure: result.failureCode)
+    }
+
+    private func preparationContext(runID: String) throws -> ToolPreparationContext {
+        guard let run = try store.run(id: runID) else { throw ToolIntentFailure.dependenciesChanged }
+        return ToolPreparationContext(requestConfigSeed: run.requestConfigSeed)
+    }
+
+    private func knownSecrets(runID: String) throws -> [SecretValue] {
+        guard let credentials else { return [] }
+        let seed = try preparationContext(runID: runID).requestConfigSeed
+        var secrets: [SecretValue] = []
+        if let secret = try credentials.resolve(frozenReference: seed.credentialBinding.reference,
+                                                generation: seed.credentialBinding.generation) { secrets.append(secret) }
+        let references = Set(try store.providerInstances().compactMap(\.credentialReference))
+        for reference in references {
+            if try credentials.metadata(for: reference)?.status == .active {
+                guard let secret = try credentials.resolve(reference) else { throw ToolResultFailure.redactionUnavailable }
+                secrets.append(secret)
+            }
+        }
+        return secrets
     }
 
     private func encode(_ intent: ToolExecutionIntent) throws -> String {

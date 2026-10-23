@@ -22,10 +22,10 @@ extension PersistenceStore {
 
     func approveToolCallWithPolicy(id: String, expectedAttempt: Int, descriptor: ToolDescriptor,
                                   safetyCap: ToolPolicySafetyCap, checkedIntentBinding: String,
-                                  displayedIntentBinding: String?, at now: Date) throws -> ToolCallRecord {
+                                  displayedIntentBinding: String?, scope: ToolApprovalScope = .once, at now: Date) throws -> ToolCallRecord {
         try changeToolCallAuthorization(id: id, expectedAttempt: expectedAttempt, descriptor: descriptor,
             safetyCap: safetyCap, checkedIntentBinding: checkedIntentBinding,
-            operation: .approval(displayedIntentBinding), at: now)
+            operation: .approval(displayedIntentBinding, scope), at: now)
     }
 
     /// The current policy/grants and original owner are read in the write that
@@ -53,7 +53,7 @@ extension PersistenceStore {
         }
     }
 
-    private static func authorizeToolCall(_ db: Database, call: ToolCallRecord, descriptor: ToolDescriptor,
+    static func authorizeToolCall(_ db: Database, call: ToolCallRecord, descriptor: ToolDescriptor,
         safetyCap: ToolPolicySafetyCap, checkedIntentBinding: String?,
         operation: ToolAuthorizationOperation, at now: Date) throws -> ToolCallRecord {
         if try AgentRunRecord.fetchOne(db, key: call.agentRunID)?.state == .stopping {
@@ -70,7 +70,7 @@ extension PersistenceStore {
         guard checkedIntentBinding.map({ ToolPolicyIdentity.equals($0, facts.binding) }) == true else {
             return try rejectAuthorizationCall(db, call: call, failure: .dependencyChanged, at: now)
         }
-        if case .approval(let displayedBinding) = operation,
+        if case .approval(let displayedBinding, _) = operation,
            let displayedBinding, !ToolPolicyIdentity.equals(displayedBinding, facts.binding) {
             return try rejectAuthorizationCall(db, call: call, failure: .dependencyChanged, at: now)
         }
@@ -87,7 +87,7 @@ extension PersistenceStore {
             try ToolCallPolicyRecord(toolCallID: call.id, policy: facts.input.currentPolicy,
                 disposition: disposition, intentBinding: facts.binding).insert(db)
         }
-        if case .approval(let displayedBinding) = operation {
+        if case .approval(let displayedBinding, let scope) = operation {
             // Old rows have no prior admission binding. Only a witness carried
             // from the displayed card can approve that first legacy decision.
             if facts.isNew && displayedBinding == nil {
@@ -102,8 +102,16 @@ extension PersistenceStore {
                 let context = facts.input.call
                 let witness = ToolGrantApprovalBinding(toolCallID: call.id, agentRunID: call.agentRunID,
                     intentBinding: facts.binding)
-                let grant = ToolScopedGrant(kind: .once(toolCallID: call.id, agentRunID: call.agentRunID,
-                        intentBinding: facts.binding), subject: context.subject,
+                let kind: ToolGrantKind
+                switch scope {
+                case .once: kind = .once(toolCallID: call.id, agentRunID: call.agentRunID, intentBinding: facts.binding)
+                case .conversation:
+                    guard facts.input.action?.allowsConversationGrant == true else {
+                        return try rejectAuthorizationCall(db, call: call, failure: .reapprovalNeeded, at: now)
+                    }
+                    kind = .conversation
+                }
+                let grant = ToolScopedGrant(kind: kind, subject: context.subject,
                     toolID: context.toolID, actionID: context.actionID, descriptorRevision: context.descriptorRevision,
                     resource: context.resource, destination: context.destination, validity: .active,
                     revocationEpoch: facts.input.currentPolicy.revocationEpoch, issuedFor: witness)
@@ -195,7 +203,7 @@ extension PersistenceStore {
         return try updateAuthorizationCall(db, call: call, state: .waitingForApproval, failure: failure, at: now)
     }
 
-    private static func rejectAuthorizationCall(_ db: Database, call: ToolCallRecord,
+    static func rejectAuthorizationCall(_ db: Database, call: ToolCallRecord,
         failure: ToolCallFailureReason, at now: Date) throws -> ToolCallRecord {
         let rejected = try updateAuthorizationCall(db, call: call, state: .rejected, failure: failure, at: now)
         try ToolResultRecord(toolCallID: call.id,
@@ -203,7 +211,7 @@ extension PersistenceStore {
         return rejected
     }
 
-    private static func updateAuthorizationCall(_ db: Database, call: ToolCallRecord,
+    static func updateAuthorizationCall(_ db: Database, call: ToolCallRecord,
         state: ToolCallState, failure: ToolCallFailureReason?, at now: Date) throws -> ToolCallRecord {
         try db.execute(sql: """
             UPDATE toolCall SET state = ?, failureReason = ?, updatedAt = ?
@@ -218,15 +226,15 @@ extension PersistenceStore {
     }
 }
 
-private enum ToolAuthorizationOperation: Sendable {
-    case creation, reconcile, approval(String?), dispatch
+enum ToolAuthorizationOperation: Sendable {
+    case creation, reconcile, approval(String?, ToolApprovalScope), dispatch
     var isCreation: Bool { if case .creation = self { true } else { false } }
     func accepts(_ state: ToolCallState) -> Bool {
         switch self {
         case .creation: state == .validated
         case .approval: state == .waitingForApproval
         case .dispatch: state == .prepared
-        case .reconcile: [.validated, .waitingForApproval, .approved, .prepared].contains(state)
+        case .reconcile: [.validated, .waitingForApproval, .waitingForSystemPermissionConsent, .approved, .prepared].contains(state)
         }
     }
 }

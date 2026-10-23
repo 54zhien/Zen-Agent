@@ -29,10 +29,10 @@ extension PersistenceStore {
         try database.write { db in
             try db.execute(sql: """
                 UPDATE toolCall SET state = ?, failureReason = ?, updatedAt = ?
-                WHERE id = ? AND attempt = ? AND state IN (?, ?, ?, ?)
+                WHERE id = ? AND attempt = ? AND state IN (?, ?, ?, ?, ?)
                 """, arguments: [ToolCallState.rejected.rawValue, failureReason?.rawValue, now, id, expectedAttempt,
                     ToolCallState.validated.rawValue, ToolCallState.waitingForApproval.rawValue,
-                    ToolCallState.approved.rawValue, ToolCallState.prepared.rawValue])
+                    ToolCallState.waitingForSystemPermissionConsent.rawValue, ToolCallState.approved.rawValue, ToolCallState.prepared.rawValue])
             guard db.changesCount == 1 else {
                 throw PersistenceError.invalidTransition("rejection requires the original undispatched attempt")
             }

@@ -46,7 +46,9 @@ struct CalculatorTool: ToolExecutable {
         return try ToolIntentCodec.freeze(
             descriptor: descriptor, actionID: Self.toolID,
             normalizedArgumentsJSON: normalizedArgumentsJSON,
-            resource: .notRequired, destination: .notRequired
+            resource: .notRequired, destination: .notRequired,
+            approvalDisclosure: .init(toolDisplayName: descriptor.displayName, action: "计算表达式",
+                targetDescription: expression, keyImpact: "仅计算该表达式，结果进入当前模型请求。")
         )
     }
 

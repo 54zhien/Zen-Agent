@@ -447,6 +447,7 @@ struct AttemptIdentity: Codable, Sendable, Equatable {
 /// Durable ToolCall failure semantics, separate from the Run's EndReason.
 enum ToolCallFailureReason: String, Codable, Sendable, Equatable {
     case policyDenied, dependencyChanged, reapprovalNeeded, outcomeUnknown
+    case systemPermissionDenied, dependencyUnavailable
 }
 
 struct ToolCallRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Identifiable {
@@ -474,6 +475,9 @@ struct ToolResultRecord: Codable, FetchableRecord, PersistableRecord, Sendable, 
     var toolCallID: String
     var payload: String
     var createdAt: Date
+
+    var kind: ToolResultKind = .text
+    var failureCode: ToolResultFailure? = nil
 
     var id: String { toolCallID }
 }

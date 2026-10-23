@@ -64,6 +64,7 @@ final class AppShellModel {
         return SettingsWorkspaceModel(store: dependencies.store, credentials: dependencies.credentials,
             provider: dependencies.provider, defaults: userDefaults, appearance: appearance, menus: modelMenus,
             files: dependencies.managedFiles,
+            toolRegistry: dependencies.toolRegistry, toolSafetyCap: dependencies.toolSafetyCap,
             onConfigure: onConfigure,
             onProviderCommitted: { [weak self] instanceID in
                 await self?.refreshSendAvailability(for: instanceID)
@@ -756,7 +757,7 @@ final class AppShellModel {
     private(set) var cardDeletion: AppSpaceConversationDeletion?
     @ObservationIgnored private var startedAssembly = false
     @ObservationIgnored private var backgroundedAtInProcess: Date?
-    @ObservationIgnored private let sessions = ConversationSessionStore()
+    @ObservationIgnored private let sessions: ConversationSessionStore
     @ObservationIgnored private var configurationRefreshIDs: [ProviderInstanceID: UUID] = [:]
     @ObservationIgnored private var navigationID = UUID()
     @ObservationIgnored private var openTicket: (conversationID: String, ticket: UUID)?
@@ -779,6 +780,7 @@ final class AppShellModel {
 
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
+        sessions = ConversationSessionStore()
         appearance = AppearanceSettings(defaults: userDefaults)
         modelMenus = ModelMenuPreferences(defaults: userDefaults)
         self.router = RunEventRouter()
@@ -789,6 +791,7 @@ final class AppShellModel {
         userDefaults: UserDefaults
     ) {
         self.userDefaults = userDefaults
+        sessions = dependencies.sessions ?? ConversationSessionStore()
         appearance = AppearanceSettings(defaults: userDefaults)
         modelMenus = ModelMenuPreferences(defaults: userDefaults)
         self.dependencies = dependencies
@@ -833,7 +836,7 @@ final class AppShellModel {
         router = RunEventRouter()
 
         do {
-            let assembled = try AppAssembly.assemble(router: router)
+            let assembled = try AppAssembly.assemble(router: router, sessions: sessions)
             dependencies = assembled
             cardActions = AppSpaceConversationActions(store: assembled.store)
             installCardDeletion(assembled)

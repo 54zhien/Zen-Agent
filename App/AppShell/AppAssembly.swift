@@ -58,15 +58,22 @@ struct AppAssembly {
         let runtime: ConversationRuntime
         let router: RunEventRouter
         let managedFiles: ManagedFileStore?
+        let toolRegistry: ToolRegistry
+        let toolSafetyCap: ToolPolicySafetyCap
+        let sessions: ConversationSessionStore?
 
         init(store: PersistenceStore, credentials: any CredentialStoring, provider: any ModelProvider,
-             runtime: ConversationRuntime, router: RunEventRouter, managedFiles: ManagedFileStore? = nil) {
+             runtime: ConversationRuntime, router: RunEventRouter, managedFiles: ManagedFileStore? = nil,
+             toolRegistry: ToolRegistry = .empty, toolSafetyCap: ToolPolicySafetyCap = .unrestricted,
+             sessions: ConversationSessionStore? = nil) {
             self.store = store; self.credentials = credentials; self.provider = provider
             self.runtime = runtime; self.router = router; self.managedFiles = managedFiles
+            self.toolRegistry = toolRegistry; self.toolSafetyCap = toolSafetyCap; self.sessions = sessions
         }
     }
 
-    static func assemble(router: RunEventRouter) throws -> Dependencies {
+    @MainActor
+    static func assemble(router: RunEventRouter, sessions: ConversationSessionStore) throws -> Dependencies {
         let database: ZenDatabase
         do {
             let supportDirectory = try FileManager.default.url(
@@ -93,8 +100,9 @@ struct AppAssembly {
         )
         let transport = LiveHTTPTransport.make()
         let provider = DeepSeekProvider(transport: transport)
-        let toolRegistry = ToolRegistry.empty
         let managedFiles = try ManagedFileStore.applicationDefault()
+        let toolRegistry = try ToolRegistry(tools: [CalculatorTool(), CurrentDateTool(), DeviceInfoTool(),
+            FilesTool(files: managedFiles, store: store, sessions: sessions)])
         let runtime = makeRuntime(
             store: store,
             provider: provider,
@@ -109,7 +117,9 @@ struct AppAssembly {
             provider: provider,
             runtime: runtime,
             router: router,
-            managedFiles: managedFiles
+            managedFiles: managedFiles,
+            toolRegistry: toolRegistry,
+            sessions: sessions
         )
     }
 
@@ -119,7 +129,8 @@ struct AppAssembly {
         credentials: any CredentialStoring,
         router: RunEventRouter,
         toolRegistry: ToolRegistry,
-        managedFiles: ManagedFileStore? = nil
+        managedFiles: ManagedFileStore? = nil,
+        toolSafetyCap: ToolPolicySafetyCap = .unrestricted
     ) -> ConversationRuntime {
         // The shell owns presentation routing. A cached Send bridge retains
         // Runtime; retaining Router here would cycle through its registered Pane
@@ -138,6 +149,7 @@ struct AppAssembly {
                 )
             },
             toolRegistry: toolRegistry,
+            toolRuntime: ToolRuntime(store: store, registry: toolRegistry, safetyCap: toolSafetyCap, credentials: credentials),
             managedFileStore: managedFiles
         )
     }

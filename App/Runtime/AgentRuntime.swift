@@ -154,7 +154,8 @@ actor AgentRuntime {
         self.credentials = credentials
         self.toolRuntime = toolRuntime ?? ToolRuntime(
             store: store,
-            registry: ToolRegistry.empty
+            registry: ToolRegistry.empty,
+                credentials: credentials
         )
     }
 
@@ -310,9 +311,15 @@ actor AgentRuntime {
 
     /// Records an approval decision on the waiting ToolCall and wakes the suspended
     /// serial batch. The same ToolCall identity is resumed; no replacement call exists.
-    func approveToolCall(toolCallID: String, displayedIntentBinding: String? = nil) throws {
-        try toolRuntime.approve(toolCallID: toolCallID, displayedIntentBinding: displayedIntentBinding)
+    func approveToolCall(toolCallID: String, displayedIntentBinding: String? = nil, scope: ToolApprovalScope = .once) throws {
+        try toolRuntime.approve(toolCallID: toolCallID, displayedIntentBinding: displayedIntentBinding, scope: scope)
         toolDecisionWaiters.removeValue(forKey: toolCallID)?.resume()
+    }
+
+    func resolveSystemPermission(toolCallID: String, displayedIntentBinding: String, consent: Bool) async throws {
+        defer { toolDecisionWaiters.removeValue(forKey: toolCallID)?.resume() }
+        try await toolRuntime.resolveSystemPermission(toolCallID: toolCallID,
+            displayedIntentBinding: displayedIntentBinding, consent: consent)
     }
 
     /// Records a real model-visible rejection and wakes the suspended serial batch.
@@ -376,8 +383,8 @@ actor AgentRuntime {
                 _ = try toolRuntime.validatePendingIntent(toolCallID: call.id)
                 call = try store.toolCall(id: call.id) ?? call
                 var needsApprovalEvent = try store.run(id: runID)?.state != .waitingForApproval
-                while call.state == .waitingForApproval || call.state == .approved || call.state == .prepared {
-                    if call.state == .waitingForApproval {
+                while call.state == .waitingForApproval || call.state == .waitingForSystemPermissionConsent || call.state == .approved || call.state == .prepared {
+                    if call.state == .waitingForApproval || call.state == .waitingForSystemPermissionConsent {
                         if needsApprovalEvent {
                             try await emit(.toolCallChanged(runID: runID,
                                 providerCallID: call.providerCallID ?? call.id, state: call.state),
@@ -413,7 +420,7 @@ actor AgentRuntime {
                             throw RunRequestRebuildError.incompleteCommittedInput
                         }
                         call = updated
-                        needsApprovalEvent = call.state == .waitingForApproval
+                        needsApprovalEvent = call.state == .waitingForApproval || call.state == .waitingForSystemPermissionConsent
                     }
                 }
 

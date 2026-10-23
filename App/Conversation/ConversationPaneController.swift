@@ -189,7 +189,11 @@ final class ConversationPaneController {
 #endif
 
     func refreshPendingApprovals(using runtime: ConversationRuntime) async throws {
-        try await liveStore.refreshPendingToolApprovals(using: runtime)
+        while !Task.isCancelled {
+            let owner = liveStore
+            try await owner.refreshPendingToolApprovals(using: runtime)
+            if owner === liveStore { return }
+        }
     }
 
     private func reloadTimelineAndReportNewRuns() throws -> Set<String> {
