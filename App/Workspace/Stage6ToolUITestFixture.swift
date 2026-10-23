@@ -53,6 +53,9 @@ struct Stage6ToolUITestFixture: View {
             let suite = "ZenAgent.Stage6UITest"
             let defaults = UserDefaults(suiteName: suite)!
             defaults.removePersistentDomain(forName: suite)
+            if ProcessInfo.processInfo.environment["ZEN_STAGE6_TOOL_UI_LARGE"] == "1" {
+                defaults.set(AppAppearance.dark.rawValue, forKey: "zen.appearance.v1")
+            }
             _model = State(initialValue: AppShellModel(dependencies: .init(store: store, credentials: credentials,
                 provider: provider, runtime: runtime, router: router, managedFiles: files,
                 toolRegistry: registry, sessions: sessions), userDefaults: defaults))
@@ -61,6 +64,8 @@ struct Stage6ToolUITestFixture: View {
 
     var body: some View {
         AppShellRootView(model: model)
+            .environment(\.dynamicTypeSize, ProcessInfo.processInfo.environment["ZEN_STAGE6_TOOL_UI_LARGE"] == "1"
+                ? .accessibility5 : .large)
             .task {
                 guard !opened else { return }
                 opened = true

@@ -2,6 +2,26 @@ import XCTest
 
 final class Stage6ToolUITests: XCTestCase {
     @MainActor
+    func testToolsSettingsLargeTextDarkAndLandscapeKeepControlsReachable() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_STAGE6_TOOL_UI_TEST"] = "files"
+        app.launchEnvironment["ZEN_STAGE6_TOOL_UI_LARGE"] = "1"
+        app.launch()
+        defer { XCUIDevice.shared.orientation = .portrait }
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
+        guard openTools(app) else { return }
+        let picker = app.buttons["tool-policy-files-read"]
+        for _ in 0..<6 where !picker.isHittable { app.swipeUp() }
+        XCTAssertTrue(picker.isHittable)
+        snapshot(app, "Tool Settings largest Dynamic Type dark portrait")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(app.buttons["settings-close"].waitForExistence(timeout: 5))
+        snapshot(app, "Tool Settings largest Dynamic Type dark landscape")
+        app.buttons["settings-close"].tap()
+        XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testFileDisclosureConversationGrantAndSettingsRevocation() {
         let app = launchTool("files")
         guard sendAndWaitForCard(app) else { return }
