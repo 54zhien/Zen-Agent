@@ -20,10 +20,12 @@ struct ToolApprovalCardView: View {
 
                 disclosureRow(title: "目标对象") {
                     Text(approval.targetDescription)
+                        .accessibilityIdentifier("tool-approval-target")
                 }
 
                 disclosureRow(title: "关键影响") {
                     Text(approval.keyImpact)
+                        .accessibilityIdentifier("tool-approval-impact")
                 }
 
                 disclosureRow(title: "授权范围") {
@@ -61,6 +63,7 @@ struct ToolApprovalCardView: View {
         }
         .scrollEdgeEffectStyle(.soft, for: .all)
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("tool-approval-card")
     }
 
     private func disclosureRow<Content: View>(
