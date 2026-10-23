@@ -21,9 +21,12 @@ enum MemoryCandidateExtractor {
         for sentence in sentences.components(separatedBy: CharacterSet(charactersIn: "\n。!！")) {
             var value = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
             if value.hasSuffix(".") { value.removeLast() }
+            if value.isEmpty { continue }
             let explicit = value.range(of: #"^(?i:remember(?: that)?\s*[:：]?\s*)|^记住\s*[:：]?\s*"#, options: .regularExpression)
             if let explicit { value.removeSubrange(explicit) }
-            guard let fact = recognize(value) else { continue }
+            // Dropping an unrecognized introduction would turn an example,
+            // proofreading request or third-party biography into user identity.
+            guard let fact = recognize(value) else { return [] }
             candidates.append(MemoryCandidate(content: fact.1, factKey: fact.0, origin: explicit == nil ? .automatic : .explicitUser))
         }
         // Two incompatible assertions in the same source provide no safe winner.
@@ -47,6 +50,8 @@ enum MemoryCandidateExtractor {
                   let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
                   let range = (1..<match.numberOfRanges).compactMap({ Range(match.range(at: $0), in: value) }).first else { continue }
             let captured = String(value[range]).trimmingCharacters(in: .whitespaces)
+            guard captured.range(of: #"(?i)\b(or|and|until|unless|if|when|for|during|tomorrow|yesterday|because|but|while|then|before|after|since|who|whose|that|which|was|were|would|could|should|will|example|sample|customer|client)\b|或者|直到|明天|昨天|如果|客户|示例|例子|自我介绍"#,
+                                 options: .regularExpression) == nil else { return nil }
             let fact: String
             switch kind {
             case "language": fact = "用户偏好使用\(["中文", "chinese"].contains(captured.lowercased()) ? "中文" : "英文")回答。"
