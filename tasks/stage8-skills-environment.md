@@ -2,6 +2,8 @@
 
 Status: implementation and native verification in progress. No completion,
 merge, package delivery or physical-device acceptance is claimed by this record.
+Implementation [PR #43](https://github.com/54zhien/Zen-Agent/pull/43) is draft,
+stacked on the separately unmerged Stage 7 PR #42.
 
 Base: Stage 7 receipt `f335204b387e9a5ca10fa2091dbb24e4e3368296`, on
 `codex/stage8-skills-environment-20261024`. Stage 7 PR #42 remains separately
@@ -52,6 +54,8 @@ available under their original refs; no unchanged rerun is used as correction.
 | [40001312420](https://github.com/54zhien/Zen-Agent/actions/runs/40001312420) | `fc23aed` | 5 native UI cases: Environment 3 and Skills entry passed; largest-text detail asserted before its lazy instruction row was scrolled into the AX hierarchy. |
 | [40002938531](https://github.com/54zhien/Zen-Agent/actions/runs/40002938531) | `8944664` | Configured Composer reached the actual plugin row; 1 native UI case RED because the entry remained disabled. |
 | [40003222328](https://github.com/54zhien/Zen-Agent/actions/runs/40003222328) | `4e58030` | App/test compilation passed; 8 Swift tests in 4 suites, behavioral RED 15 across content commit races, ambiguous provisioning, handoff ordering and retained Provider credentials. |
+| [40005275452](https://github.com/54zhien/Zen-Agent/actions/runs/40005275452) | `a2f4c5d` | App/test compilation passed; all 7 native management/Composer UI cases GREEN in 551.885 seconds. |
+| [40006020779](https://github.com/54zhien/Zen-Agent/actions/runs/40006020779) | `2f3d9ab` | 1,314 Swift tests in 220 suites, 4 issues in 169.393 seconds; 20 XCTest units passed. All three Important review regressions GREEN; two stale Composer source contracts and one Files continuation regression remained. |
 
 The streaming failure used the pre-existing small-open-body URLProtocol fixture;
 existing characterization tests already show that fixture can withhold the first
@@ -93,7 +97,10 @@ reproduced through the production owners in run `40003222328` before correction:
    includes retained active metadata, nonterminal frozen bindings and pending owned
    Environment retirements. It never becomes a workflow/executor input.
 
-These corrections are awaiting native GREEN. The original RED log SHA256 is
+The three Important corrections are native GREEN in `40006020779`, including
+real disk reopening after ambiguous provisioning, all five content-commit races
+and actual reauthentication. That broader all-unit gate still failed for the
+separate contracts/continuation issues above. The original RED log SHA256 is
 `7A5405952F5F7CF58195E05E503F4BC6EFC333A6327B6477B4C10FE08AF4CB96`.
 The pre-existing Provider credential-mutation concurrency protocol is explicitly
 declined-to-judge in this Stage 8 review: those Stage 7 writers are unchanged and
@@ -103,6 +110,18 @@ the new Environment publication transaction's guarantees.
 The native plugin UI case covers opening/selection; durable actual Send and
 continuation behavior are exercised by the native runtime/coordinator tests.
 Do not represent the UI selection case alone as a UI-to-network Send test.
+
+The all-unit Files failure retained the committed effect and its immutable receipt,
+but unconditional outgoing inventory reading blocked its fixed result-withheld
+notice when protected credentials became unreadable. The correction exempts only
+the exact fixed UTF-8 notice backed by the current Run's unique succeeded call,
+matching durable result and same-attempt/intent-binding file receipt. It sends no
+receipt payload. Same-text unproven calls, suffixes and mixed unknown results still
+require readable inventory. Existing request/result assertions and timing remain;
+new negative controls verify the exception cannot admit arbitrary content. The
+same reviewer checked this bounded correction. The obsolete Composer contracts
+now explicitly include the approved draft IDs and the active Skill menu while
+retaining the image/file and model-catalog assertions.
 
 The review's Minor handoff-test readiness issue is corrected: a DEBUG-only read
 of the real gate's waiting writers replaces the fixed 100 scheduler yields. The
@@ -129,8 +148,8 @@ byte counts and original artifact IDs are in the retained evidence ledger.
   Cost: saved Secrets have no authenticated production action yet, disclosed in
   Settings. No fake secret-consuming executor is introduced.
 - Ordinary Secret edits use fresh opaque references. Cost: retained historical
-  bindings consume Keychain storage until explicit deletion. The Minor pruning
-  concern is deferred because non-erased frozen revisions remain valid even without
+  bindings consume Keychain storage until explicit deletion. The pruning concern
+  is declined as a bug because non-erased frozen revisions remain valid even without
   a nonterminal Run; automatic pruning would change that contract. Explicit erasure
   remains stronger than replay.
 - Scope and key are immutable identity. Cost: rename/move uses explicit
@@ -147,9 +166,8 @@ byte counts and original artifact IDs are in the retained evidence ledger.
 
 ## Remaining gate
 
-Complete the Composer selector, inspect actual native UI captures, verify live
-and queued erasure/Secret results/frozen exposure, conduct the one independent
-whole-branch review and corrective pass, and run the unchanged complete source
-Phone/Pad workflow. Record final source/tree and receipt-only input equivalence
+Inspect actual native UI captures, confirm the final bounded Files/contracts/test
+readiness corrections, and run the unchanged complete source Phone/Pad workflow.
+Record final source/tree and receipt-only input equivalence
 before claiming the implementation/native gate complete. Physical-device UI,
 Keychain/data-protection behavior and user experience remain separate acceptance.

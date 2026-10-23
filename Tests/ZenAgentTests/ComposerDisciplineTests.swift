@@ -42,6 +42,7 @@ struct ComposerDisciplineTests {
             "references",
             "attachments",
             "presentationState",
+            "selectedSkillIDs",
         ]
         let members = storedProperties(in: body)
         let actual = Set(members.filter { $0.isStored }.map { $0.name })
@@ -49,6 +50,8 @@ struct ComposerDisciplineTests {
         #expect(actual == expected, "stored properties were \(actual), expected exactly \(expected)")
         #expect(body.contains("text:String"), "text must have the String type")
         #expect(body.contains("references:[QuoteReference]"), "references must be [QuoteReference]")
+        #expect(members.first(where: { $0.name == "selectedSkillIDs" && $0.isStored })?.type == "[String]",
+                "manual Skills belong to the Conversation draft as IDs")
         #expect(
             members.first(where: { $0.name == "text" && $0.isStored })?.type == "String",
             "text must be a stored String, without a wrapper or optional"

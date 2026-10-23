@@ -107,7 +107,7 @@ PR #42 and Blueprint decision PR #7 remain draft and unmerged. Physical-device
 protection/layout and long-term extraction-quality acceptance remain open.
 
 Stage 8 Skills and scoped Environment is in implementation/native verification
-on `codex/stage8-skills-environment-20261024`, stacked on Stage 7 receipt
+in draft [PR #43](https://github.com/54zhien/Zen-Agent/pull/43), stacked on Stage 7 receipt
 `f335204b387e9a5ca10fa2091dbb24e4e3368296`. The owner approved native Settings
 Forms, next-successful-Send manual selection and Global-to-active-Skill overrides.
 These decisions are recorded in draft/open/unmerged

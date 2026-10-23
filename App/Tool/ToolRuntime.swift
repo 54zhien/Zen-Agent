@@ -459,21 +459,37 @@ final class ToolRuntime: @unchecked Sendable {
     /// the outgoing Tool-role copy under the provider handoff lease; retain the
     /// original durable result and never replay its executor.
     func requestRedactingToolResults(_ request: ProviderChatRequest, runID: String) throws -> ProviderChatRequest {
-        guard request.messages.contains(where: { if case .toolResult = $0 { return true }; return false }) else { return request }
-        let secrets: [SecretValue]
-        do { secrets = try knownSecrets(runID: runID) }
-        catch { throw ToolResultFailure.redactionUnavailable }
         var outgoing = request
-        outgoing.messages = request.messages.map { message in
-            guard case .toolResult(let id, let content) = message else { return message }
+        var inventory: [SecretValue]?
+        for (index, message) in request.messages.enumerated() {
+            guard case .toolResult(let id, let content) = message else { continue }
+            // Only the exact fixed notice backed by this Run's immutable file
+            // completion proof is independent of executor/credential input.
+            if (try? hasConfirmedFileCompletionNotice(content, providerCallID: id, runID: runID)) == true { continue }
+            if inventory == nil {
+                do { inventory = try knownSecrets(runID: runID) }
+                catch { throw ToolResultFailure.redactionUnavailable }
+            }
+            guard let secrets = inventory else { throw ToolResultFailure.redactionUnavailable }
             // A changed managed-file identity must become a fixed failure, not
             // a redacted reference that appears to address a different file.
             let object = try? ToolArgumentJSON.object(from: content)
             let kind: ToolResultKind = object?["kind"] as? String == "managedFile" ? .reference : .text
             let result = ToolResultGuard.sanitize(ToolExecutionResult(content: content, kind: kind), knownSecrets: secrets)
-            return .toolResult(toolCallID: id, content: result.content)
+            outgoing.messages[index] = .toolResult(toolCallID: id, content: result.content)
         }
         return outgoing
+    }
+
+    private func hasConfirmedFileCompletionNotice(_ content: String, providerCallID: String, runID: String) throws -> Bool {
+        guard content.utf8.elementsEqual(Self.completedResultWithheld.content.utf8) else { return false }
+        let matches = try store.toolCalls(inRun: runID).filter { $0.providerCallID == providerCallID }
+        guard matches.count == 1, let call = matches.first, call.state == .succeeded,
+              let json = call.executionIntent, let result = try store.toolResult(toolCallID: call.id),
+              result.kind == .text, result.failureCode == nil,
+              result.payload.utf8.elementsEqual(content.utf8) else { return false }
+        return try store.toolFileOperation(callID: call.id, attempt: call.attempt,
+            intentBinding: ToolIntentBinding.make(json)) != nil
     }
 
     // This is a trusted fixed completion notice, with no executor data or
