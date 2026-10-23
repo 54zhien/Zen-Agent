@@ -97,7 +97,8 @@ final class MemorySettingsUITests: XCTestCase {
             guard form.exists else { break }
             let viewport = visibleFormViewport(form, in: app)
             guard !viewport.isEmpty, !viewport.isNull else { break }
-            let target = element.exists ? element.frame : nil
+            let measured = element.exists ? element.frame : CGRect.null
+            let target: CGRect? = measured.isEmpty || measured.isNull ? nil : measured
             // Native evidence exposed a hittable Agent row at y=-34...56
             // behind a bar ending at y=78. Hittability alone permits a wrong tap.
             if let target, viewport.contains(target), element.isHittable {

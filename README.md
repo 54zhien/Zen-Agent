@@ -84,8 +84,8 @@ Earlier stability evidence remains in [the repair record](tasks/known-issues-sta
 Stage 7 Memory is in progress in draft [PR #42](https://github.com/54zhien/Zen-Agent/pull/42), starting at PR #41's
 merge `49e77fb4eeaee7f4fad1b97b319d6b1de5cb991f`. Storage/management, bounded
 retrieval/frozen references and conservative local automatic formation are wired.
-The focused [native gate](https://github.com/54zhien/Zen-Agent/actions/runs/39948046060)
-passes at source `81e89f4`: 1,266 Swift tests/200 suites, 20 XCTest unit tests and all
+The corrected focused [native gate](https://github.com/54zhien/Zen-Agent/actions/runs/39960244127)
+passes at source `b5f6cb1`: 1,266 Swift tests/200 suites, 20 XCTest unit tests and all
 four Memory UI cases. The single independent review's two Important findings have
 native RED-to-GREEN coverage, including the actual cold-start and formed-fact entry
 points. The unchanged full [Phone/iPad gate](https://github.com/54zhien/Zen-Agent/actions/runs/39948782164)
@@ -93,7 +93,11 @@ failed at `0a63fb9`: Pad and all units/existing UI passed, but the largest-text
 Memory entry case failed. Direct native probes subsequently entered Memory at
 the same center point, leaving the original cause unproven. The corrective test
 at `b5f6cb1` waits for Agent, taps its visible Memory label once and verifies the
-destination; App/UI code is unchanged. New focused/full gates are pending.
+destination; App/UI code is unchanged. The focused gate passes; the second
+normal [Phone/iPad gate](https://github.com/54zhien/Zen-Agent/actions/runs/39960601140)
+failed at `2863bce` only when the largest-text landscape test tapped an Agent row
+already hidden behind the navigation bar. Native bounds now drive the test's
+scrolling and one label tap; App/UI code remains unchanged. New gates are pending.
 Full-screen Memory portrait/landscape visual evidence is complete. This is not Stage7 closure.
 See [Stage 7 evidence and boundaries](tasks/stage7-memory.md).
 
