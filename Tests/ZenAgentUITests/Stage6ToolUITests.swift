@@ -35,7 +35,7 @@ final class Stage6ToolUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["tool-approval-impact"].label.contains("https://stage6-provider.invalid/chat/completions"))
         snapshot(app, "Frozen file and Provider disclosure")
         guard tapDecision("允许本会话", app: app) else { return }
-        XCTAssertTrue(app.staticTexts["stage6-continued"].waitForExistence(timeout: 15))
+        XCTAssertTrue(continuedText(app).waitForExistence(timeout: 15))
         XCTAssertTrue(waitObservation(app, contains: "activeGrants=1"))
         guard openTools(app) else { return }
         let revoke = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tool-revoke-")).firstMatch
@@ -44,8 +44,14 @@ final class Stage6ToolUITests: XCTestCase {
         revoke.tap()
         XCTAssertTrue(app.staticTexts["用户已撤销此授权。"].waitForExistence(timeout: 5))
         snapshot(app, "Original scoped grant revoked")
+        XCTAssertFalse(revoke.exists)
         app.buttons["settings-close"].tap()
-        XCTAssertTrue(waitObservation(app, contains: "activeGrants=0"))
+        guard openTools(app) else { return }
+        let revoked = app.staticTexts["用户已撤销此授权。"]
+        for _ in 0..<10 where !revoked.isHittable { app.swipeUp() }
+        XCTAssertTrue(revoked.waitForExistence(timeout: 5))
+        XCTAssertFalse(revoke.exists)
+        app.buttons["settings-close"].tap()
     }
 
     @MainActor
@@ -80,7 +86,7 @@ final class Stage6ToolUITests: XCTestCase {
         XCTAssertTrue(waitObservation(app, contains: "requests=0;executions=0;activeGrants=0"))
         snapshot(app, "Independent system consent")
         guard tapDecision("请求系统权限", app: app) else { return }
-        XCTAssertTrue(app.staticTexts["stage6-continued"].waitForExistence(timeout: 15))
+        XCTAssertTrue(continuedText(app).waitForExistence(timeout: 15))
         XCTAssertTrue(waitObservation(app, contains: "requests=1;executions=1;activeGrants=0"))
     }
 
@@ -90,7 +96,7 @@ final class Stage6ToolUITests: XCTestCase {
         guard sendAndWaitForCard(app), tapDecision("暂不请求", app: app) else { return }
         XCTAssertTrue(waitObservation(app, contains: "state=rejected"))
         XCTAssertTrue(waitObservation(app, contains: "requests=0;executions=0;activeGrants=0"))
-        XCTAssertTrue(app.staticTexts["stage6-continued"].waitForExistence(timeout: 15))
+        XCTAssertTrue(continuedText(app).waitForExistence(timeout: 15))
     }
 
     @MainActor
@@ -133,12 +139,20 @@ final class Stage6ToolUITests: XCTestCase {
         guard settings.waitForExistence(timeout: 5) else { XCTFail("Settings entry missing"); return false }
         settings.tap()
         let agent = app.buttons["settings-agent"]
-        guard agent.waitForExistence(timeout: 5) else { XCTFail("Agent entry missing"); return false }
+        let page = app.descendants(matching: .any)["settings-page"]
+        for _ in 0..<8 where !agent.isHittable { page.swipeUp() }
+        guard agent.waitForExistence(timeout: 5), agent.isHittable else { XCTFail("Agent entry missing"); return false }
         agent.tap()
         let tools = app.buttons["settings-tools"]
         guard tools.waitForExistence(timeout: 5) else { XCTFail("Tool Settings missing"); return false }
         tools.tap()
         return true
+    }
+
+    @MainActor
+    private func continuedText(_ app: XCUIApplication) -> XCUIElement {
+        app.textViews.matching(NSPredicate(format: "value == %@ OR label == %@",
+            "stage6-continued", "stage6-continued")).firstMatch
     }
 
     @MainActor
