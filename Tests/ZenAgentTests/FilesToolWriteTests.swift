@@ -7,6 +7,16 @@ import Testing
 @Suite("Managed Files Tool writes")
 @MainActor
 struct FilesToolWriteTests {
+    @Test func fileExecutorDoesNotOwnItsPresentationSessionStore() throws {
+        let f = try FileWriteFixture()
+        defer { f.cleanUp() }
+        var owner: ConversationSessionStore? = ConversationSessionStore()
+        weak var observed = owner
+        let registry = try ToolRegistry(tools: [FilesTool(files: f.files, store: f.store, sessions: owner)])
+        owner = nil
+        withExtendedLifetime(registry) { #expect(observed == nil) }
+    }
+
     @Test func createRequiresExactApprovalAndPublishesManagedBytes() async throws {
         let f = try FileWriteFixture()
         defer { f.cleanUp() }
