@@ -1103,6 +1103,7 @@ actor ConversationRuntime {
             // caller-facing stream remains live; applying here would reintroduce
             // the terminal-state race that the acknowledgement boundary closes.
             for try await _ in stream { }
+            MemoryRuntime(store: store, credentials: credentials).formAfterCompletedRun(runID: runID)
         } catch let error as ConversationProjectionError {
             completionErrors[runID] = error
             await failCommittedRun(runID: runID)

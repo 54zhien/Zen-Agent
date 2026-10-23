@@ -37,11 +37,11 @@ extension PersistenceStore {
     }
 
     func setMemoryEnabled(_ enabled: Bool) throws {
-        try database.write { try $0.execute(sql: "UPDATE memorySettings SET enabled = ?, generation = generation + 1 WHERE id = 'global'", arguments: [enabled]) }
+        try database.write { try $0.execute(sql: "UPDATE memorySettings SET enabled = ?, generation = generation + 1, extractionCutoff = MAX(extractionCutoff, ?, COALESCE((SELECT MAX(createdAt) FROM message), 0)) WHERE id = 'global'", arguments: [enabled, Date()]) }
     }
 
     func setMemoryAutomatic(_ enabled: Bool) throws {
-        try database.write { try $0.execute(sql: "UPDATE memorySettings SET automaticEnabled = ?, generation = generation + 1 WHERE id = 'global'", arguments: [enabled]) }
+        try database.write { try $0.execute(sql: "UPDATE memorySettings SET automaticEnabled = ?, generation = generation + 1, extractionCutoff = MAX(extractionCutoff, ?, COALESCE((SELECT MAX(createdAt) FROM message), 0)) WHERE id = 'global'", arguments: [enabled, Date()]) }
     }
 
     func memories(activeOnly: Bool = false) throws -> [MemoryItem] {
@@ -118,7 +118,7 @@ extension PersistenceStore {
         try database.write { db in
             try Self.invalidateMemoryRuns(db, ids: [id])
             try db.execute(sql: "DELETE FROM memoryRecord WHERE id = ?", arguments: [id])
-            try db.execute(sql: "UPDATE memorySettings SET generation = generation + 1 WHERE id = 'global'")
+            try db.execute(sql: "UPDATE memorySettings SET generation = generation + 1, extractionCutoff = MAX(extractionCutoff, ?, COALESCE((SELECT MAX(createdAt) FROM message), 0)) WHERE id = 'global'", arguments: [Date()])
         }
     }
 
@@ -127,7 +127,7 @@ extension PersistenceStore {
             let ids = try String.fetchAll(db, sql: "SELECT id FROM memoryRecord")
             try Self.invalidateMemoryRuns(db, ids: ids)
             try db.execute(sql: "DELETE FROM memoryRecord")
-            try db.execute(sql: "UPDATE memorySettings SET generation = generation + 1 WHERE id = 'global'")
+            try db.execute(sql: "UPDATE memorySettings SET generation = generation + 1, extractionCutoff = MAX(extractionCutoff, ?, COALESCE((SELECT MAX(createdAt) FROM message), 0)) WHERE id = 'global'", arguments: [Date()])
         }
     }
 

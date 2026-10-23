@@ -4,9 +4,28 @@ import Foundation
 struct MemoryRuntime: Sendable {
     let store: PersistenceStore
     let credentials: (any CredentialStoring)?
-    static let automaticFormationAvailable = false
+    static let automaticFormationAvailable = true
 
-    func formAfterCompletedRun(runID: String) { }
+    func formAfterCompletedRun(runID: String) {
+        do {
+            guard let input = try store.prepareMemoryFormation(runID: runID) else { return }
+            let candidates: [MemoryCandidate]
+            do {
+                // Check the full source before canonicalization can hide a known
+                // credential or turn an unsafe fragment into an innocent fact.
+                try validate(input.text, maximumUTF8Bytes: MemoryCandidateExtractor.maximumSourceUTF8Bytes)
+                candidates = MemoryCandidateExtractor.extract(input.text)
+                for candidate in candidates { try validate(candidate.content) }
+            } catch {
+                try store.commitMemoryCandidates([], from: input)
+                return
+            }
+            try store.commitMemoryCandidates(candidates, from: input)
+        } catch {
+            // Memory is best effort. Neither raw source nor credential failures
+            // belong in diagnostics, and the completed Run keeps its outcome.
+        }
+    }
 
     func retrieve(query: String) -> [MemoryContext] {
         do {
@@ -31,8 +50,8 @@ struct MemoryRuntime: Sendable {
         return try store.saveMemory(id: id, expectedRevisionID: expectedRevisionID, content: content)
     }
 
-    func validate(_ content: String) throws {
-        guard MemoryContentPolicy.allows(content) else { throw MemoryError.unsafeContent }
+    func validate(_ content: String, maximumUTF8Bytes: Int = MemoryContentPolicy.maximumUTF8Bytes) throws {
+        guard MemoryContentPolicy.allows(content, maximumUTF8Bytes: maximumUTF8Bytes) else { throw MemoryError.unsafeContent }
         let secrets: [SecretValue]
         do { secrets = try knownSecrets() } catch { throw MemoryError.validationUnavailable }
         let result = ToolResultGuard.sanitize(ToolExecutionResult(content: content), knownSecrets: secrets)

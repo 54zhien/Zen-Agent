@@ -19,7 +19,10 @@ struct MemorySettingsView: View {
                         })).disabled(!model.settings.enabled).accessibilityIdentifier("memory-automatic")
                     }
                 } footer: {
-                    Text("关闭记忆后，新提问不再检索或形成记忆，已有记录仍保留。正在进行的回复保留已选版本。记忆不能授予工具权限。")
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("关闭记忆后，新提问不再检索或形成记忆，已有记录仍保留。正在进行的回复保留已选版本。记忆不能授予工具权限。")
+                        Text("自动形成记忆仅识别部分明确的长期偏好、开发环境、姓名和主要项目；不支持的表达会跳过。")
+                    }
                 }
                 Section("最近更新的记忆") {
                     if model.items.isEmpty { Text("暂无已保存的记忆").foregroundStyle(.secondary).accessibilityIdentifier("memory-empty") }

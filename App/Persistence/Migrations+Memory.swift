@@ -1,6 +1,16 @@
+import Foundation
 import GRDB
 
 extension Migrations {
+    static func registerV21(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v21_memory_formation") { db in
+            try db.execute(sql: "ALTER TABLE memorySettings ADD COLUMN extractionCutoff DATETIME NOT NULL DEFAULT 0")
+            // Auto was unavailable before this migration. Start with future user
+            // statements only; an upgrade must never backfill chat history.
+            try db.execute(sql: "UPDATE memorySettings SET automaticEnabled = 1, generation = generation + 1, extractionCutoff = MAX(?, COALESCE((SELECT MAX(createdAt) FROM message), 0))", arguments: [Date()])
+        }
+    }
+
     static func registerV20(_ migrator: inout DatabaseMigrator) {
         migrator.registerMigration("v20_memory_management") { db in
             try db.execute(sql: """
