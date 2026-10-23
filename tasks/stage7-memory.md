@@ -40,3 +40,12 @@ Protection boundary: [Apple's file encryption documentation](https://developer.a
 Automatic formation uses local Chinese/English rules for a subset of explicit response preferences, development OS, name and main project statements. Unsupported or ambiguous phrasing is skipped. Controlled integration samples are not long-term real-user recall/precision acceptance. There is no extraction model call, vector index, or app cloud sync. Credential exclusion covers configured values and pinned shapes; arbitrary unlabeled unknown secrets cannot be universally recognized.
 
 Original Composer/Sidebar/menu layout and animation are outside this change. The preview fixture suppresses its test-only reading-position control only during Memory UI captures. No physical-device protection, keyboard or layout acceptance is inferred from Simulator screenshots.
+
+## Independent review — corrective pass in progress
+
+One fresh reviewer inspected the entire `49e77fb…eb43734` range. It found2Important,0Critical and0Minor:
+
+1. Production `reconcileColdStartRuns()` could rebuild or wait for system consent before processing Memory invalidation, leaving the original active slot occupied. Direct `RunRecovery` tests did not cover this entry. New disk-reopened production-entry cases cover preparing/approval/system-consent/dispatched/missing-marker/retry and original managed-file proof. Native RED source`424f97b`/diagnostic`4b19d90f` is pending; no cold-start fix is claimed yet.
+2. Per-sentence extraction could promote example/client biographies into user identity and swallow ambiguous/time-qualified open values. Actual production extractor on WindowsSwift reproduced5issues. Source`a3a97c4` now requires the whole message to consist of supported self-statements and rejects qualified values; those5cases and existing controls pass locally. Native formed-fact/next-request protection is still required.
+
+The review's set-aside list was explicitly ruled on: unsupported free-form recall remains conservative; unknown unlabeled secrets have no universal detector claim; historical backups and physical protection remain system/device boundaries; old Sidebar/Search/Composer work remains separate; Stage8/vectors/extra models/app sync remain out of scope. Screenshot and full Phone/iPad evidence are required work, not deferred acceptance. No review minor was deferred. The corrective pass is test-driven and will not request a second review.
