@@ -35,6 +35,13 @@ struct EnvironmentRuntime: Sendable {
     @discardableResult
     func saveSecret(id: String? = nil, expectedRevisionID: String? = nil, scope: EnvironmentScope = .global,
                     key: String, value: SecretValue) throws -> EnvironmentItem {
+        try store.memoryAccessGate.environmentCredentialLock.withLock {
+            try saveSecretLocked(id: id, expectedRevisionID: expectedRevisionID, scope: scope, key: key, value: value)
+        }
+    }
+
+    private func saveSecretLocked(id: String?, expectedRevisionID: String?, scope: EnvironmentScope,
+                                  key: String, value: SecretValue) throws -> EnvironmentItem {
         try validateIdentity(scope: scope, key: key)
         guard !value.revealed.isEmpty, value.revealed.utf8.count <= EnvironmentValidation.maximumPlainUTF8Bytes,
               ToolResultGuard.isText(value.revealed) else { throw EnvironmentError.invalidValue }
@@ -53,7 +60,12 @@ struct EnvironmentRuntime: Sendable {
             } catch {
                 // A failed DB queue write must not turn a newly provisioned value
                 // into an attached credential or revoke the old committed version.
-                do { try credentials.logout(reference, at: Date()) }
+                do {
+                    if let metadata = try credentials.metadata(for: reference), metadata.status == .active,
+                       metadata.bindingGeneration == binding.generation {
+                        try credentials.logout(reference, at: Date())
+                    }
+                }
                 catch { throw EnvironmentError.cleanupPending }
             }
             throw original
@@ -83,6 +95,11 @@ struct EnvironmentRuntime: Sendable {
     }
 
     func retryCredentialCleanup() throws {
+        try store.memoryAccessGate.environmentCredentialLock.withLock { try cleanupCredentialsLocked() }
+    }
+
+    private func cleanupCredentialsLocked() throws {
+        try store.queueUnattachedEnvironmentCredentials()
         var pending = false
         for binding in try store.pendingEnvironmentCredentialRetirements() {
             do {

@@ -45,10 +45,11 @@ struct StreamingTimeoutTests {
         let endpoint: URL
     }
 
-    private func makeFixture(timeouts: StreamTimeoutPolicy) throws -> Fixture {
+    private func makeFixture(timeouts: StreamTimeoutPolicy, endpoint suppliedEndpoint: URL? = nil,
+                             session: URLSession = StubURLProtocol.makeSession()) throws -> Fixture {
         // A host of its own per test, so the stub's registry stays parallel-safe — and
         // the endpoint now comes from the instance, which is what makes that possible.
-        let endpoint = URL(string: "https://stub-\(UUID().uuidString).invalid")!
+        let endpoint = suppliedEndpoint ?? URL(string: "https://stub-\(UUID().uuidString).invalid")!
         let reference = CredentialReference(id: "cred-1")
         let credentials = CredentialStore(
             secrets: InMemorySecretBackend(),
@@ -67,7 +68,7 @@ struct StreamingTimeoutTests {
         // The same policy to both layers: the transport reads the liveness deadline from
         // it, the adapter reads the two model deadlines. One value, so they cannot drift.
         let transport = URLSessionHTTPTransport(
-            session: StubURLProtocol.makeSession(),
+            session: session,
             timeouts: timeouts
         )
         return Fixture(
@@ -175,16 +176,17 @@ struct StreamingTimeoutTests {
 
     @Test("a model that stops partway is reported as stopping partway")
     func stallAfterOutputIsBetweenEvents() async throws {
-        // One real chunk, then nothing but heartbeats. The first wait and the second are
-        // different situations, and the error has to say which — "the model never
-        // started" and "the model stopped mid-answer" call for different responses.
+        // URLProtocol's open small body is not a reliable AsyncBytes oracle (see
+        // its characterisation suite). A real socket proves output was delivered
+        // before either unchanged deadline can fire.
+        let firstChunk = #"data: {"id":"c1","choices":[{"index":0,"delta":{"content":"x"}}]}"#
+        let server = try LocalHTTPServer(script: .chunkThenStall(firstChunk + "\n\n"))
+        server.start()
+        defer { server.shutdown() }
         let f = try makeFixture(
-            timeouts: policy(liveness: .milliseconds(400), betweenEvents: .milliseconds(200))
+            timeouts: policy(liveness: .milliseconds(400), betweenEvents: .milliseconds(200)),
+            endpoint: server.baseURL, session: URLSession(configuration: .ephemeral)
         )
-        var script = keepAliveScript()
-        let firstChunk = Data(#"data: {"id":"c1","choices":[{"index":0,"delta":{"content":"x"}}]}"#.utf8)
-        script.chunks.insert(firstChunk + Data("\n\n".utf8), at: 0)
-        register(script, for: f)
 
         let result = await outcome(of: f)
 

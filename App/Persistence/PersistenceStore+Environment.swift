@@ -155,6 +155,19 @@ extension PersistenceStore {
         }
     }
 
+    func queueUnattachedEnvironmentCredentials() throws {
+        try database.write { db in
+            let records = try CredentialMetadataRecord.fetchAll(db, sql:
+                "SELECT * FROM credentialBinding WHERE kind = 'environmentSecret' AND status = 'active'")
+            for record in records {
+                let reference = CredentialReference(id: record.credentialID, kind: .environmentSecret)
+                if try !Self.credentialIsReferenced(reference, db: db) {
+                    try Self.queueCredentialRetirement(.init(reference: reference, generation: record.bindingGeneration), db: db)
+                }
+            }
+        }
+    }
+
     func completeEnvironmentCredentialRetirement(_ binding: CredentialBindingSnapshot) throws {
         try database.write { try $0.execute(sql: "DELETE FROM extensionCredentialRetirement WHERE referenceID = ? AND kind = ? AND generation = ?",
             arguments: [binding.reference.id, binding.reference.kind.rawValue, binding.generation]) }
