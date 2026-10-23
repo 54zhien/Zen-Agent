@@ -158,12 +158,21 @@ final class ManagedFileStore: @unchecked Sendable {
         displayName: String,
         mediaType: String? = nil,
         in store: PersistenceStore,
-        checkCancellation: @Sendable () throws -> Void = { try Task<Never, Never>.checkCancellation() }
+        checkCancellation: @Sendable () throws -> Void = { try Task<Never, Never>.checkCancellation() },
+        toolMutation: ManagedFileToolMutation? = nil
     ) throws -> ManagedFileDescriptor {
         try checkCancellation()
         Self.operationLock.value.lock()
         defer { Self.operationLock.value.unlock() }
         try checkCancellation()
+        if let mutation = toolMutation {
+            if let receipt = try store.toolFileOperation(callID: mutation.callID, attempt: mutation.attempt,
+                                                         intentBinding: mutation.intentBinding) {
+                guard receipt.matches(mutation) else { throw ToolIntentFailure.dependenciesChanged }
+                return receipt.descriptor
+            }
+            try store.requireDispatchedFileMutation(mutation)
+        }
         _ = try removeUnreferencedBlobsLocked(in: store)
         try ensureStorageDirectories()
 
@@ -253,14 +262,14 @@ final class ManagedFileStore: @unchecked Sendable {
                 checkCancellation: checkCancellation
             )
 
-            let assetID = makeIdentifier()
-            let versionID = makeIdentifier()
+            let assetID = toolMutation?.assetID ?? makeIdentifier()
+            let versionID = toolMutation?.versionID ?? makeIdentifier()
             let now = Date()
             let asset = FileAssetRecord(
                 id: assetID,
                 displayName: sourceName,
                 currentVersionID: versionID,
-                origin: .imported,
+                origin: toolMutation == nil ? .imported : .generated,
                 createdAt: now,
                 updatedAt: now
             )
@@ -274,7 +283,11 @@ final class ManagedFileStore: @unchecked Sendable {
             )
 
             try checkCancellation()
-            try store.createFileAsset(asset, initialVersion: version, checkCancellation: checkCancellation)
+            if let mutation = toolMutation {
+                try store.commitToolFileWrite(mutation, asset: asset, version: version, checkCancellation: checkCancellation)
+            } else {
+                try store.createFileAsset(asset, initialVersion: version, checkCancellation: checkCancellation)
+            }
             // Metadata commit wins; a later cancellation must not erase this durable asset.
             return ManagedFileDescriptor(
                 assetID: assetID,
@@ -295,6 +308,35 @@ final class ManagedFileStore: @unchecked Sendable {
                 }
             }
             throw error
+        }
+    }
+
+    func writeToolFile(data: Data, displayName: String, mutation: ManagedFileToolMutation,
+                       in store: PersistenceStore, checkCancellation: @Sendable () throws -> Void) throws -> ManagedFileDescriptor {
+        guard mutation.kind != .delete, data.count <= ToolResultGuard.maximumUTF8Bytes,
+              Self.fingerprint(of: data) == mutation.fingerprint else { throw ToolIntentFailure.invalidArguments }
+        return try ingest(InputStream(data: data), displayName: displayName, mediaType: "text/plain",
+            in: store, checkCancellation: checkCancellation, toolMutation: mutation)
+    }
+
+    func removeToolAsset(_ mutation: ManagedFileToolMutation, in store: PersistenceStore,
+                         checkCancellation: @Sendable () throws -> Void) throws -> Bool {
+        try withFileOperation {
+            try checkCancellation()
+            if let receipt = try store.toolFileOperation(callID: mutation.callID, attempt: mutation.attempt,
+                                                         intentBinding: mutation.intentBinding) {
+                guard receipt.matches(mutation) else { throw ToolIntentFailure.dependenciesChanged }
+                return receipt.kind == .delete
+            }
+            try store.requireDispatchedFileMutation(mutation)
+            _ = try verifiedBlobURLLocked(for: SendAttachment(assetID: mutation.assetID, versionID: mutation.versionID,
+                fingerprint: mutation.fingerprint, kind: .file, displayName: "Managed file"), in: store)
+            guard try store.commitToolFileRemoval(mutation, checkCancellation: checkCancellation) else { return false }
+            // The logical operation and its receipt already committed. Preserve
+            // that proof even if subsequent orphan-byte cleanup is unavailable.
+            do { _ = try removeUnreferencedBlobsLocked(in: store) }
+            catch { throw ManagedFileStoreError.assetRemovedCleanupPending }
+            return true
         }
     }
 
@@ -705,7 +747,7 @@ final class ManagedFileStore: @unchecked Sendable {
         bytes.map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func safeDisplayName(_ input: String) -> String {
+    static func safeDisplayName(_ input: String) -> String {
         let withoutNulls = input.filter { $0 != "\0" }
         let lastComponent = withoutNulls
             .split(whereSeparator: { $0 == "/" || $0 == "\\" })

@@ -70,7 +70,7 @@ struct FilesToolTests {
         let files = ManagedFileStore(applicationSupportRoot: root, protectionRequirement: .bestEffort)
         let file = try files.ingest(data: Data("document i05-test-secret".utf8), displayName: "read.txt", in: f.store)
         let registry = try ToolRegistry(tools: [FilesTool(files: files, store: f.store)])
-        try f.store.setToolPolicy(toolID: "files", actionID: "read", descriptorRevision: "1", mode: .alwaysAllow)
+        try f.store.setToolPolicy(toolID: "files", actionID: "read", descriptorRevision: "2", mode: .alwaysAllow)
         let ledger = I07ProviderLedger()
         let args = try ToolArgumentJSON.normalizedObject(["assetID": file.assetID])
         let provider = I07ScriptedProvider(ledger: ledger, instanceID: f.instance.id, scripts: [

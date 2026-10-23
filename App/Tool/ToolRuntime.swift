@@ -365,7 +365,7 @@ final class ToolRuntime: @unchecked Sendable {
                 try store.markToolCallIndeterminate(id: call.id, at: now)
                 throw error
             }
-            let failureResult = ToolExecutionResult.failure(.executionFailed)
+            let failureResult = ToolExecutionResult.failure((error as? ToolIntentFailure) == .dependenciesChanged ? .dependencyChanged : .executionFailed)
             try store.finishDispatchedToolCall(
                 id: call.id,
                 expectedAttempt: call.attempt,
@@ -395,6 +395,21 @@ final class ToolRuntime: @unchecked Sendable {
             at: now
         )
         return executionResult
+    }
+
+    /// Receipt confirmation is a query of an already completed effect, without
+    /// policy widening or executor re-entry. A missing proof stays indeterminate.
+    func confirmToolOutcome(toolCallID: String) throws -> Bool {
+        let call = try requiredToolCall(id: toolCallID)
+        guard call.state == .dispatched || call.state == .indeterminate,
+              let json = call.executionIntent,
+              let intent = try? ToolIntentCodec.decodeForDisplay(json),
+              let executor = registry.executor(id: intent.toolID) as? any ToolOutcomeConfirming,
+              let observed = try executor.confirmedResult(intent, idempotencyKey: call.id) else { return false }
+        let result = ToolResultGuard.sanitize(observed, knownSecrets: try knownSecrets(runID: call.agentRunID))
+        guard result.failure == nil else { return false }
+        return try store.confirmToolFileOutcome(callID: call.id, attempt: call.attempt,
+            intentBinding: ToolIntentBinding.make(json), result: result)
     }
 
     private func requiredToolCall(id: String) throws -> ToolCallRecord {

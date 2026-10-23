@@ -1,7 +1,7 @@
 import Foundation
 
 /// Only immutable managed versions can reach the Tool result boundary.
-struct FilesTool: ToolExecutable {
+struct FilesTool: ToolOutcomeConfirming {
     let files: ManagedFileStore
     let store: PersistenceStore
     let sessions: ConversationSessionStore?
@@ -9,16 +9,42 @@ struct FilesTool: ToolExecutable {
         self.files = files; self.store = store; self.sessions = sessions
     }
     var descriptor: ToolDescriptor {
-        ToolDescriptor(id: "files", displayName: "Files", description: "Read a managed UTF-8 text file by FileAsset identity.",
-            inputSchema: .object(["type": .string("object"), "properties": .object(["assetID": .object(["type": .string("string")])]), "required": .array([.string("assetID")]), "additionalProperties": .bool(false)]),
-            revision: "1", sideEffect: .none, approvalRequirement: .required,
-            actions: [.init(toolID: "files", actionID: "read", descriptorRevision: "1", risk: .low,
-                allowsAutomaticApproval: true, allowsConversationGrant: true, resourceRequirement: .file,
-                egressRequirement: .providerRequiringApproval)])
+        var names = ["read", "create", "modify"]
+        if sessions != nil { names.append("delete") }
+        let actions = names.map { name in
+            ToolPolicyActionMetadata(toolID: "files", actionID: name, descriptorRevision: "2",
+                risk: name == "read" ? .low : name == "delete" ? .destructive : .high,
+                allowsAutomaticApproval: name == "read", allowsConversationGrant: name == "read",
+                resourceRequirement: name == "create" ? .target : .file, egressRequirement: .providerRequiringApproval)
+        }
+        let branches = names.map { name -> JSONValue in
+            let fields: [String] = switch name {
+            case "read": ["assetID"]
+            case "create": ["displayName", "content"]
+            case "modify": ["assetID", "expectedVersionID", "content"]
+            default: ["assetID", "expectedVersionID"]
+            }
+            var properties = Dictionary(uniqueKeysWithValues: fields.map { ($0, JSONValue.object(["type": .string("string")])) })
+            properties["action"] = .object(["type": .string("string"), "enum": .array([.string(name)])])
+            let required = name == "read" ? fields : ["action"] + fields
+            return .object(["type": .string("object"), "properties": .object(properties),
+                "required": .array(required.map { .string($0) }), "additionalProperties": .bool(false)])
+        }
+        return ToolDescriptor(id: "files", displayName: "Files",
+            description: "Read bounded managed UTF-8 files or create, modify and delete managed FileAssets with explicit scoped approval. An omitted action means read.",
+            inputSchema: .object(["oneOf": .array(branches)]), revision: "2", sideEffect: .externalWrite,
+            approvalRequirement: .required, actions: actions)
     }
     func prepare(callID: String, argumentsJSON: String) throws -> ToolExecutionIntent { throw ToolIntentFailure.preparationFailed }
     func prepare(callID: String, argumentsJSON: String, context: ToolPreparationContext) throws -> ToolExecutionIntent {
-        let object = try ToolArgumentJSON.object(from: argumentsJSON)
+        var object = try ToolArgumentJSON.object(from: argumentsJSON)
+        if let supplied = object.removeValue(forKey: "action") {
+            guard let action = supplied as? String else { throw ToolIntentFailure.invalidArguments }
+            if action != "read" {
+                guard let kind = ManagedFileToolMutationKind(rawValue: action) else { throw ToolIntentFailure.invalidArguments }
+                return try prepareMutation(callID: callID, kind: kind, arguments: object, context: context)
+            }
+        }
         guard object.count == 1, let id = object["assetID"] as? String, id.utf8.count <= 128,
               let asset = try store.fileAsset(id: id), let version = try store.fileAssetVersion(id: asset.currentVersionID),
               ToolPolicyIdentity.equals(version.assetID, id) else { throw ToolIntentFailure.invalidArguments }
@@ -36,11 +62,13 @@ struct FilesTool: ToolExecutable {
     }
 
     func validateDependencies(_ intent: ToolExecutionIntent) throws {
+        if intent.policyAction?.actionID != "read" { try validateMutationDependencies(intent); return }
         let attachment = try attachment(for: intent)
         try files.withVerifiedBlob(for: attachment, in: store) { _ in try requireCurrent(attachment) }
     }
 
     func execute(_ intent: ToolExecutionIntent, idempotencyKey: String) async throws -> ToolExecutionResult {
+        if intent.policyAction?.actionID != "read" { return try await executeMutation(intent, idempotencyKey: idempotencyKey) }
         let attachment = try attachment(for: intent)
         return try files.withVerifiedBlob(for: attachment, in: store) { url in
             try Task.checkCancellation()

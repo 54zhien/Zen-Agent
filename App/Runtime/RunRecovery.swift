@@ -213,18 +213,24 @@ struct RunRecovery: Sendable {
     }
 
     private func recoverToolCheckpoint(run: AgentRunRecord) async throws {
-        let calls = try await reconcileSystemConsent(in: run)
+        var calls = try await reconcileSystemConsent(in: run)
         guard !calls.isEmpty else {
             try await transition(runID: run.id, to: .continuing)
             return
         }
 
+        if let toolRuntime {
+            for call in calls where call.state == .dispatched || call.state == .indeterminate {
+                _ = try toolRuntime.confirmToolOutcome(toolCallID: call.id)
+            }
+            calls = try store.toolCalls(inRun: run.id)
+        }
         let uncertainCalls = calls.filter {
             $0.state == .dispatched || $0.state == .indeterminate
         }
         if !uncertainCalls.isEmpty {
-            // This is intentionally the only mutation for a dispatched call. In
-            // particular, `toolRuntime` is never asked to execute it again.
+            // Only a durable receipt may prove completion. Without it the
+            // original dispatched call is uncertain and is never executed again.
             for call in uncertainCalls where call.state == .dispatched {
                 try store.markToolCallIndeterminate(id: call.id)
             }

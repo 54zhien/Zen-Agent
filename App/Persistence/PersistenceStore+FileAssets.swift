@@ -37,12 +37,7 @@ extension PersistenceStore {
         do {
             return try database.write { db in
                 try checkCancellation()
-                let references = try Int.fetchOne(db, sql: """
-                    SELECT COUNT(*) FROM messageAttachment
-                    WHERE assetID = ? OR versionID IN (
-                        SELECT id FROM fileAssetVersion WHERE assetID = ?)
-                    """, arguments: [id, id]) ?? 0
-                guard references == 0 else { return false }
+                guard try !Self.fileAssetIsReferenced(id, in: db) else { return false }
                 let removed = try FileAssetRecord.deleteOne(db, key: id)
                 try checkCancellation()
                 return removed
