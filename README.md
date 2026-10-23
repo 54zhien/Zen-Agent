@@ -45,17 +45,23 @@ its `Design/ADR/`; engineering/tooling trade-offs belong to this repository's
 
 ## Status
 
-As of 2026-10-22, Stage 5 and the S6-01/02 foundation are on `main`,
-followed by S6-03 Policy/grant persistence through
-[PR #38](https://github.com/54zhien/Zen-Agent/pull/38) at
-`1fd98c6572553d257120d99b1f7eabb9c859448a`. Its merge tree is identical
-to the candidate verified by full native CI `39761453960`; post-merge CI is
-tracked separately. This branch adds the scoped S6-04a Runtime Policy integration
-candidate, tracked in [its gate record](tasks/s6-04a-runtime-policy.md).
-S6-04 system consent and scope-choice interaction remain open; this is not full
-Stage 6 or physical-device acceptance. The accepted UI checkout and draft
-[PR #37](https://github.com/54zhien/Zen-Agent/pull/37) remain separately parked.
-Earlier stability evidence remains in [the repair record](tasks/known-issues-stability.md).
+As of 2026-10-23, Stage 5 and S6-01/02/03/04a are on `main` through
+[PR #39](https://github.com/54zhien/Zen-Agent/pull/39) at
+`e2e31972cd894da96ef110c8a2ebc3078cfd7d61`. Its normal post-merge
+[Phone/iPad CI](https://github.com/54zhien/Zen-Agent/actions/runs/39888595366)
+passed. The intermittent Sidebar issue remains tracked in
+[issue #40](https://github.com/54zhien/Zen-Agent/issues/40); a passing run does
+not prove it fixed.
+
+The owner authorized completing all Stage 6 and its necessary tool Settings,
+scoped approval and explicit system-consent additions. This branch implements
+S6-04b and is completing Files/result protection and callable tool Settings;
+see the [Stage 6 gate matrix](tasks/stage6-completion.md) and
+[implementation plan](Docs/superpowers/plans/2026-10-23-stage6-completion.md).
+Stage 6 aggregate and physical-device acceptance remain open. The accepted UI
+checkout and draft [PR #37](https://github.com/54zhien/Zen-Agent/pull/37) remain
+separately parked. Earlier stability evidence remains in
+[the repair record](tasks/known-issues-stability.md).
 
 The following is the historical 2026-10-05 slice snapshot. Its individual PR
 states describe that date; use the current integration receipt above for main.
