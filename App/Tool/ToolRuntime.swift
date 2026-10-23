@@ -393,13 +393,19 @@ final class ToolRuntime: @unchecked Sendable {
         var executionResult: ToolExecutionResult
         do { executionResult = ToolResultGuard.sanitize(rawResult, knownSecrets: try knownSecrets(runID: call.agentRunID)) }
         catch { executionResult = .failure(.redactionUnavailable) }
-        if rawResult.failure == nil, executionResult.failure != nil,
-           let confirming = executor as? any ToolOutcomeConfirming,
-           let observed = try? confirming.confirmedResult(intent, idempotencyKey: call.id),
-           observed.failure == nil {
-            // Publication failure cannot undo a committed effect. The original
-            // immutable receipt proves completion without disclosing its result.
-            executionResult = Self.completedResultWithheld
+        if rawResult.failure == nil, let publicationFailure = executionResult.failure {
+            if let confirming = executor as? any ToolOutcomeConfirming,
+               let observed = try? confirming.confirmedResult(intent, idempotencyKey: call.id),
+               observed.failure == nil {
+                // Publication failure cannot undo a committed effect. The original
+                // immutable receipt proves completion without disclosing its result.
+                executionResult = Self.completedResultWithheld
+            } else if executor.descriptor.sideEffect == .externalWrite {
+                // A failed publication is not proof that the external effect failed.
+                // Leave the original checkpoint uncertain and never invite a retry.
+                try store.markToolCallIndeterminate(id: call.id, at: now)
+                throw publicationFailure
+            }
         }
         try store.finishDispatchedToolCall(
             id: call.id,
