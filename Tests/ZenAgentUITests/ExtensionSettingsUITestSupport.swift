@@ -2,6 +2,30 @@ import XCTest
 
 extension XCTestCase {
     @MainActor
+    func configureExtensionComposer(_ app: XCUIApplication) -> Bool {
+        guard app.textViews["conversation-composer-input"].waitForExistence(timeout: 15) else {
+            XCTFail("New Conversation editor missing"); return false
+        }
+        app.openWorkspaceSidebar()
+        let configure = app.buttons["new-conversation-configure"]
+        guard configure.waitForExistence(timeout: 5) else { XCTFail("Formal Configure entry missing"); return false }
+        configure.tap()
+        app.buttons["settings-models"].tap()
+        let use = app.buttons["用于当前会话"]
+        guard use.waitForExistence(timeout: 5) else { XCTFail("Existing account model missing"); return false }
+        use.tap()
+        guard app.staticTexts["settings-conversation-configuration-status"].waitForExistence(timeout: 5) else {
+            captureExtension("Conversation configuration did not complete", app)
+            XCTFail("Current Conversation was not configured"); return false
+        }
+        app.buttons["settings-close"].tap()
+        guard app.buttons["conversation-composer-plus"].waitForExistence(timeout: 5) else {
+            XCTFail("Configured Composer actions missing"); return false
+        }
+        return true
+    }
+
+    @MainActor
     func waitForExtension(_ condition: @escaping () -> Bool) -> Bool {
         XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)], timeout: 5) == .completed
     }

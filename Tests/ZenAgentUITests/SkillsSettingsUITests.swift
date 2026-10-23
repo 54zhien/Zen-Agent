@@ -4,7 +4,7 @@ final class SkillsSettingsUITests: XCTestCase {
     @MainActor
     func testComposerPluginEntryProvidesAutomaticSkillSelection() {
         let app = XCUIApplication()
-        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
         app.launch()
         let plus = app.buttons["conversation-composer-plus"]
         XCTAssertTrue(plus.waitForExistence(timeout: 15)); plus.tap()
@@ -23,7 +23,10 @@ final class SkillsSettingsUITests: XCTestCase {
     func testExplicitUserSaveAndComposerSelectionKeepTheNativeMenu() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_NEW_CONFIGURE_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_EXISTING_CONFIGURE_UI_TEST"] = "1"
         app.launch()
+        guard configureExtensionComposer(app) else { return }
         guard openExtensionSettings(app, id: "settings-skills", title: "Skills") else { return }
         let enabled = app.switches["skill-enabled-zen.calculate"]
         XCTAssertTrue(enabled.waitForExistence(timeout: 5))
