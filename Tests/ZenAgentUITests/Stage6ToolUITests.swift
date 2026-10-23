@@ -14,7 +14,13 @@ final class Stage6ToolUITests: XCTestCase {
         for _ in 0..<6 where !picker.isHittable { app.swipeUp() }
         XCTAssertTrue(picker.isHittable)
         snapshot(app, "Tool Settings largest Dynamic Type dark portrait")
+        app.buttons["settings-close"].tap()
         XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in app.frame.width > app.frame.height }, object: nil)], timeout: 10) == .completed)
+        guard openTools(app) else { return }
+        for _ in 0..<6 where !picker.isHittable { app.swipeUp() }
+        XCTAssertTrue(picker.isHittable)
         XCTAssertTrue(app.buttons["settings-close"].waitForExistence(timeout: 5))
         snapshot(app, "Tool Settings largest Dynamic Type dark landscape")
         app.buttons["settings-close"].tap()
@@ -103,7 +109,7 @@ final class Stage6ToolUITests: XCTestCase {
         let send = app.buttons["conversation-composer-send"]
         guard waitEnabled(send) else { XCTFail("Production Composer bridge must be ready"); return false }
         send.tap()
-        guard app.descendants(matching: .any)["tool-approval-card"].firstMatch.waitForExistence(timeout: 15) else {
+        guard app.staticTexts["tool-approval-target"].waitForExistence(timeout: 15) else {
             XCTFail("Real Runtime must publish an approval card: \(app.staticTexts["stage6-tool-observation"].label)"); return false
         }
         return true
@@ -113,7 +119,7 @@ final class Stage6ToolUITests: XCTestCase {
     private func tapDecision(_ title: String, app: XCUIApplication) -> Bool {
         let button = app.buttons[title]
         guard button.waitForExistence(timeout: 5) else { XCTFail("Missing decision: \(title)"); return false }
-        let card = app.descendants(matching: .any)["tool-approval-card"].firstMatch
+        let card = app.scrollViews.containing(.staticText, identifier: "tool-approval-target").firstMatch
         for _ in 0..<8 where !button.isHittable { card.swipeUp() }
         guard button.isHittable else { XCTFail("Decision must be reachable: \(title)"); return false }
         button.tap()

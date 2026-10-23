@@ -34,6 +34,7 @@ final class LiveConversationStore {
     private(set) var droppedUnlocatableDeltas: Int = 0
     private(set) var needsTimelineReload = false
     private(set) var needsPendingToolApprovalReconciliation = false
+    private(set) var approvalReconciliationRevision: UInt64 = 0
 
     private let coalescerTemplate: StreamingCoalescer
     private let now: @Sendable () -> ContinuousClock.Instant
@@ -106,7 +107,7 @@ final class LiveConversationStore {
                 endReason: endReason,
                 rebuiltRuns: &rebuiltRuns
             )
-            needsPendingToolApprovalReconciliation = true
+            requestPendingApprovalReconciliation()
 
         case .runAccepted:
             break
@@ -116,7 +117,7 @@ final class LiveConversationStore {
              .approvalRequired:
             // Runtime owns the record read and disclosure validation; the live store
             // only tells its owner to refresh the separate approval projection.
-            needsPendingToolApprovalReconciliation = true
+            requestPendingApprovalReconciliation()
         }
 
         return rebuiltRuns
@@ -179,8 +180,15 @@ final class LiveConversationStore {
     }
 
     func refreshPendingToolApprovals(using runtime: ConversationRuntime) async throws {
+        let requestedRevision = approvalReconciliationRevision
         let approvals = try await runtime.pendingToolApprovals(in: state.timeline.conversationID)
+        guard !Task.isCancelled, requestedRevision == approvalReconciliationRevision else { return }
         reconcilePendingToolApprovals(approvals)
+    }
+
+    private func requestPendingApprovalReconciliation() {
+        needsPendingToolApprovalReconciliation = true
+        approvalReconciliationRevision &+= 1
     }
 
     private func consumeStarted(

@@ -10,6 +10,20 @@ private final class LiveStoreTestClock: @unchecked Sendable {
 @Suite("Live conversation store")
 @MainActor
 struct LiveConversationStoreTests {
+    @Test("approval events remain observable while a previous refresh is dirty")
+    func repeatedApprovalEventsAdvanceTheRefreshRevision() {
+        let live = makeStore(turns: []).store
+        let first = live.approvalReconciliationRevision
+        _ = live.consume(.runStateChanged(runID: "r", state: .executingTools))
+        _ = live.consume(.toolCallChanged(runID: "r", providerCallID: "pc", state: .waitingForApproval))
+        _ = live.consume(.approvalRequired(runID: "r", toolCallID: "tc"))
+        #expect(live.needsPendingToolApprovalReconciliation)
+        #expect(live.approvalReconciliationRevision == first + 3)
+        live.reconcilePendingToolApprovals([])
+        #expect(!live.needsPendingToolApprovalReconciliation)
+        _ = live.consume(.runStateChanged(runID: "r", state: .waitingForApproval))
+        #expect(live.approvalReconciliationRevision == first + 4)
+    }
 
     @Test("a delta straddling a persisted UTF-8 snapshot appends only its missing suffix")
     func replayOverlappingSnapshotSuffix() {

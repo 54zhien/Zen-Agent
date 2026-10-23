@@ -132,21 +132,11 @@ struct ConversationPaneView: View {
             if !isActive, navigation?.blocksLift != true { onUserFocus() }
         })
         .onChange(of: bottomClearance) { _, _ in scrollBridge.composerHeightWillChange() }
-        .task {
+        .task(id: pane.liveStore.approvalReconciliationRevision) {
             do {
                 try await pane.refreshPendingApprovals(using: runtime)
             } catch {
                 // A retry can use the Pane's scoped refresh entry point.
-            }
-        }
-        .onChange(of: pane.liveStore.needsPendingToolApprovalReconciliation) { _, needsRefresh in
-            guard needsRefresh else { return }
-            Task { @MainActor in
-                do {
-                    try await pane.refreshPendingApprovals(using: runtime)
-                } catch {
-                    // Keep this Pane's current approval cards for an explicit retry.
-                }
             }
         }
     }
