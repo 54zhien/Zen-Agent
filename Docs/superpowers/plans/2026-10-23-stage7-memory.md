@@ -40,7 +40,7 @@
 ## Task 2: Retrieval, immutable Prompt context and erasure
 
 **Files:** Create `App/Memory/MemoryRetriever.swift`, `MemoryAccessGate.swift`; modify existing PromptCompositionInput/PromptComposer, PromptExecutionSnapshot decoding/encoding, ConversationRuntime preparation, AgentRuntime provider handoff, RunRequestRebuilder and RunRecovery. Add store frozen-reference helpers. Tests `MemoryRetrievalTests.swift`, `MemoryPromptIntegrationTests.swift`, `MemoryErasureTests.swift`.
-**Interfaces:** `MemoryRevisionReference(memoryID:revisionID:)`; `MemoryContext(reference:content:)`; `MemoryRetriever.select(query:records:)` returns bounded active subset; `MemoryRuntime.retrieve(query:)` validates safe text. `resolveMemoryReferences` resolves exact immutable rows or throws `MemoryError.erasedDependency`. `MemoryAccessGate.shared.withRead/withWrite` linearizes asynchronous provider handoff and destructive Memory operations.
+**Interfaces:** `MemoryRevisionReference(memoryID:revisionID:)`; `MemoryContext(reference:content:)`; `MemoryRetriever.select(query:records:)` returns bounded active subset; `MemoryRuntime.retrieve(query:)` validates safe text. `resolveMemoryReferences` resolves exact immutable rows or throws `MemoryError.erasedDependency`. The per-database `MemoryAccessGate.withRead/withWrite` linearizes asynchronous provider handoff and destructive Memory operations; independent databases do not block each other.
 
 - [ ] Native RED for bilingual relevance/unrelated query, 6/1,024/4,096-byte limits, toggle, old-snapshot decode, actual fake-provider request role, new-Run retrieval and old-Run edit stability.
 - [ ] Implement deterministic retrieval, exact version freeze and low-priority user context; use no mutable Settings inside PromptComposer/rebuilder.

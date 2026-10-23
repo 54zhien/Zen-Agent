@@ -10,12 +10,12 @@ Spec: [design](../Docs/superpowers/specs/2026-10-23-stage7-memory-design.md). Pl
 
 | Slice | Source | Native | Device |
 |---|---|---|---|
-| Store and user management | pending | pending | open |
-| Retriever and frozen Prompt context | pending | pending | open |
-| Automatic extraction/dedup/conflict | pending | pending | open |
+| Store and user management | `1b39e08` | Owned suites + 2 Memory UI pass in39939362121; overall run retains intentional Task3 RED | open |
+| Retriever and frozen Prompt context | `1b39e08` | Owned retrieval/request/recovery/warm-erasure suites pass in39939362121 | open |
+| Automatic extraction/dedup/conflict | `eb43734` | 39941638246 pending | open |
 | Whole Stage7 | pending | pending | open |
 
-No completion/build/test claim is made by this entry record. Automatic extraction remains unwired until user management and retrieval have real native evidence.
+Automatic extraction was wired only after user management and retrieval had real native evidence. The current automatic candidate and aggregate full gate are still pending; this is not Stage7 closure.
 
 ## Evidence ledger
 
@@ -30,3 +30,13 @@ Protection boundary: [Apple's file encryption documentation](https://developer.a
 
 - Corrected native Prompt RED [39930783620](https://github.com/54zhien/Zen-Agent/actions/runs/39930783620), source`1022d1c`/diagnostic`dc0d1c2e`:1242Swift/193suites in124.426s, exactly5issues reproducing absent actual Memory request context, absent frozen revision reference and incorrect erased-Run recovery reason. All other units and20XCTest passed, including actual protection setter observations. Native edit/save/source disclosure passed; cancellation observation failed because its chosen navigation-title point was inside the popup. Original AX tree places the popup at(81,72,240,159.3), covering that title, and exposes a separate `PopoverDismissRegion`. The downloaded recording was visually inspected; the follow-up targets that actual dismissal region. UI remains the approved native Form/confirmation. Saved log SHA256`058F365BC20C13729B9823A2336E15254C88D13C4E2BAA0FF3AAA966C27D2619`, artifact12491912603/117759339bytes.
 - Additional actual Windows component RED→GREEN: local retrieval3issues→0; production PromptComposer/DTOs2issues→0 while retaining system/tool structure; production snapshot codec2issues→0 for exact refs and legacy-empty compatibility; per-database handoff scope2issues→0 with exclusion control retained. These do not substitute for the native integration gate.
+- Warm erasure RED [39936839074](https://github.com/54zhien/Zen-Agent/actions/runs/39936839074), source`94c79be`/diagnostic`778e1604`:1,249Swift/196suites in139.476s had3issues: a queued request still called the Provider after durable Stop and left an unsettled outcome; a displayed approval still executed a tool after Memory erasure. Other units/20XCTest passed. Both Memory UI tests passed in98.558s. Saved log SHA256`5C1C52F662E9CC5C0CE365B5DCAF61C1F5E6232117368FC6695D50F797EE63D3`.
+- Corrective source`1b39e08`/diagnostic`a558bef` in [39939362121](https://github.com/54zhien/Zen-Agent/actions/runs/39939362121) passed every Store/management/retrieval/snapshot/actual-request/cold-recovery/warm-revocation case and other existing units/20XCTest. Both Memory UI tests passed in84.121s. The run as a whole **failed**:1,257Swift/199suites in145.783s retained7intentional future Task3 issues. This is an identified slice GREEN, not full-unit or Stage7 acceptance. Saved log SHA256`2B5474C64C63C95AD91481FADA664F392880007A9CB9B96D4A0274AAF2B4735E`.
+- Formation RED [39939010836](https://github.com/54zhien/Zen-Agent/actions/runs/39939010836), source`ee5c1a2`/diagnostic`07810fde`:1,257Swift/199suites in150.321s had10issues:3unchanged warm-revocation probes (corrected on the later source above), and7missing automatic default/visible fact/dedup/transaction input/receipt assertions. Other units/20XCTest passed. Saved log SHA256`45C75B92B4A800D80C64356976C41B3508DB5570B552BC3981C3FAAED3AFB51B`.
+- Automatic candidate`eb43734` adds v21 without rewriting v20, future-source cutoff/generation/receipt fences, conservative completed-Parent extraction and protected user edits. Native [39941638246](https://github.com/54zhien/Zen-Agent/actions/runs/39941638246), diagnostic`c454fe96`, is pending. It includes actual in-flight Provider erasure and dark/largest-text/landscape Memory UI. Local actual Swift samples also reproduced3cross-language fact-retrieval and4English boundary issues before their corrections; controls passed afterward. Local YAML/actual v20+v21 SQL/future-source cutoff/immutable-trigger checks passed; these are not an iOS build.
+
+## Scope and limits
+
+Automatic formation uses local Chinese/English rules for a subset of explicit response preferences, development OS, name and main project statements. Unsupported or ambiguous phrasing is skipped. Controlled integration samples are not long-term real-user recall/precision acceptance. There is no extraction model call, vector index, or app cloud sync. Credential exclusion covers configured values and pinned shapes; arbitrary unlabeled unknown secrets cannot be universally recognized.
+
+Original Composer/Sidebar/menu layout and animation are outside this change. The preview fixture suppresses its test-only reading-position control only during Memory UI captures. No physical-device protection, keyboard or layout acceptance is inferred from Simulator screenshots.
