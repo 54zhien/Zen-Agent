@@ -24,6 +24,17 @@ struct ToolResultGuardTests {
         #expect(try f.payload() == result.content)
     }
 
+    @Test func genericTokenAndEscapedKnownCredentialAreRedacted() {
+        let result = ToolResultGuard.sanitize(ToolExecutionResult(content: "{\"token\":\"opaque-fixture-token\",\"text\":\"normal\"}"), knownSecrets: [])
+        #expect(!result.content.contains("opaque-fixture-token"))
+        #expect(result.content.contains("normal"))
+        let secret = SecretValue("fixture/quoted\"credential")
+        let escaped = "{\"data\":\"fixture\\/quoted\\\"credential\"}"
+        let guarded = ToolResultGuard.sanitize(ToolExecutionResult(content: escaped), knownSecrets: [secret])
+        #expect(!guarded.content.contains("credential"))
+        #expect(guarded.content.contains("[REDACTED]"))
+    }
+
     @Test func rawExecutorErrorDoesNotReachDurableResult() async throws {
         let f = try ResultGuardFixture(content: "", throwsSecret: true)
         do { _ = try await f.complete() } catch { }
