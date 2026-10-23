@@ -26,6 +26,12 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
     var modelCapabilities: Set<ModelCapability>
     var exposedTools: [ToolExposureSnapshot]
 
+    func permitsTool(_ descriptor: ToolDescriptor) -> Bool {
+        modelCapabilities.contains(.tools) && exposedTools.contains {
+            $0.toolID == descriptor.id && $0.descriptorRevision == descriptor.revision
+        }
+    }
+
     var maxProviderSteps: Int
 
     init(

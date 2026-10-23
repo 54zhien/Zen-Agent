@@ -73,6 +73,12 @@ final class ToolRuntime: @unchecked Sendable {
             throw ToolRuntimeError.unknownTool(toolID)
         }
 
+        if let encoded = try store.run(id: agentRunID)?.executionSnapshot {
+            guard try ExecutionSnapshotCodec.decode(encoded).permitsTool(descriptor) else {
+                throw ToolRuntimeError.unknownTool(toolID)
+            }
+        }
+
         let callID = UUID().uuidString
         let intent: ToolExecutionIntent
         do {
