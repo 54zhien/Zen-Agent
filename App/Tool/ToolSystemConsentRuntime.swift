@@ -6,7 +6,10 @@ struct ToolSystemConsentRuntime: Sendable {
     let store: PersistenceStore
     let registry: ToolRegistry
     let safetyCap: ToolPolicySafetyCap
-    let owner = UUID().uuidString
+    // A replacement Runtime in this live process does not prove that the OS
+    // request died. Only a new process may recover a notDetermined old request.
+    private static let processOwner = UUID().uuidString
+    let owner = ToolSystemConsentRuntime.processOwner
 
     func preflight(call: ToolCallRecord, intent: ToolExecutionIntent,
                    executor: any ToolExecutable) async throws -> ToolCallRecord {
@@ -18,7 +21,7 @@ struct ToolSystemConsentRuntime: Sendable {
         case .notDetermined:
             return try store.changeToolSystemConsent(id: call.id, expectedAttempt: call.attempt,
                 intentBinding: binding, descriptor: executor.descriptor, safetyCap: safetyCap,
-                command: .wait(driver.systemPermissionDescription))
+                command: .wait(driver.systemPermissionDescription, owner: owner))
         case .denied, .restricted, .unavailable:
             return try store.rejectToolSystemAccess(id: call.id, expectedAttempt: call.attempt,
                 intentBinding: binding, status: status)

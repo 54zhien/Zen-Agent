@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 
 enum ToolSystemConsentCommand: Sendable {
-    case wait(String)
+    case wait(String, owner: String)
     case begin(owner: String, requestID: String)
     case finish(owner: String, requestID: String, status: ToolSystemPermissionState)
     case recover(owner: String, status: ToolSystemPermissionState)
@@ -37,11 +37,15 @@ extension PersistenceStore {
                 }
             }
             switch command {
-            case .wait(let description):
+            case .wait(let description, let owner):
                 guard !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     return try Self.rejectAuthorizationCall(db, call: call, failure: .dependencyUnavailable, at: now)
                 }
                 if call.state == .prepared {
+                    if let value = interaction, value.phase == .requesting, value.requestOwner == owner {
+                        return try Self.updateAuthorizationCall(db, call: call,
+                            state: .waitingForSystemPermissionConsent, failure: nil, at: now)
+                    }
                     interaction = ToolSystemConsentRecord(toolCallID: id, attempt: call.attempt,
                         intentBinding: intentBinding, capabilityDescription: description, phase: .waiting)
                     try interaction?.save(db)

@@ -365,7 +365,17 @@ final class ToolRuntime: @unchecked Sendable {
                 try store.markToolCallIndeterminate(id: call.id, at: now)
                 throw error
             }
-            let failureResult = ToolExecutionResult.failure((error as? ToolIntentFailure) == .dependenciesChanged ? .dependencyChanged : .executionFailed)
+            let diagnosis: ToolResultFailure
+            if let system = error as? ToolSystemPermissionError {
+                switch system {
+                case .denied: diagnosis = .systemPermissionDenied
+                case .unavailable: diagnosis = .dependencyUnavailable
+                case .consentRequired: diagnosis = .executionFailed
+                }
+            } else {
+                diagnosis = (error as? ToolIntentFailure) == .dependenciesChanged ? .dependencyChanged : .executionFailed
+            }
+            let failureResult = ToolExecutionResult.failure(diagnosis)
             try store.finishDispatchedToolCall(
                 id: call.id,
                 expectedAttempt: call.attempt,
