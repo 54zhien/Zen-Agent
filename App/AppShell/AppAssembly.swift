@@ -88,8 +88,7 @@ struct AppAssembly {
             )
             // New SQLite sidecars inherit the same explicitly chosen protection.
             // Memory shares User Data backup; this is not app cloud sync.
-            try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
-                ofItemAtPath: supportDirectory.path)
+            try UserDataFileProtection.apply(to: supportDirectory.path)
             var backedUpDirectory = supportDirectory
             var backupValues = URLResourceValues()
             backupValues.isExcludedFromBackup = false

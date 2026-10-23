@@ -17,7 +17,8 @@ struct MemoryPromptIntegrationTests {
         if let firstMessage = request.messages.first, case .system(let system) = firstMessage { #expect(!system.contains(first.content)) }
         else { Issue.record("Expected existing system boundary") }
         #expect(request.tools.isEmpty)
-        let run = try #require(fixture.store.run(id: firstRun))
+        let persistedRun = try fixture.store.run(id: firstRun)
+        let run = try #require(persistedRun)
         let encoded = try #require(run.executionSnapshot)
         #expect(!encoded.contains(first.content))
         let object = try JSONSerialization.jsonObject(with: Data(encoded.utf8)) as? [String: Any]
@@ -45,9 +46,11 @@ struct MemoryPromptIntegrationTests {
         let memory = MemoryRuntime(store: fixture.store, credentials: fixture.credentials)
         let item = try memory.save(content: "Windows project uses MEMORY_TO_ERASE")
         let runID = try await fixture.send(text: "Help with Windows")
-        let run = try #require(fixture.store.run(id: runID))
+        let persistedRun = try fixture.store.run(id: runID)
+        let run = try #require(persistedRun)
         let snapshotText = try #require(run.executionSnapshot)
-        var object = try #require(JSONSerialization.jsonObject(with: Data(snapshotText.utf8)) as? [String: Any])
+        let decoded = try JSONSerialization.jsonObject(with: Data(snapshotText.utf8))
+        var object = try #require(decoded as? [String: Any])
         var prompt = try #require(object["prompt"] as? [String: Any])
         prompt["memoryReferences"] = [["memoryID": item.id, "revisionID": item.revisionID]]
         object["prompt"] = prompt

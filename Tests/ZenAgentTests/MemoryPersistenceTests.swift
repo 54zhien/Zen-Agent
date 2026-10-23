@@ -20,15 +20,20 @@ struct MemoryPersistenceTests {
     }
 
 #if os(iOS)
-    @Test("database and existing WAL sidecars have explicit native data protection")
+    @Test("actual database open requests the chosen native protection for SQLite and sidecars")
     func fileProtection() throws {
         let url = try Fixtures.scratchPath(name: "memory-protection.sqlite")
         defer { Fixtures.cleanUp(url) }
-        let database = try ZenDatabase.open(at: url.path)
+        let files = MemoryProtectionFileManager()
+        let database = try ZenDatabase.open(at: url.path, fileManager: files)
         _ = try database.read { try $0.tableExists("memoryRecord") }
+        #expect(!files.requests.isEmpty)
         for path in [url.path, url.path + "-wal", url.path + "-shm"] where FileManager.default.fileExists(atPath: path) {
+            #expect(files.requests[path] == .completeUntilFirstUserAuthentication)
+#if !targetEnvironment(simulator)
             let attributes = try FileManager.default.attributesOfItem(atPath: path)
             #expect(attributes[.protectionKey] as? FileProtectionType == .completeUntilFirstUserAuthentication)
+#endif
         }
     }
 #endif
@@ -67,3 +72,17 @@ struct MemoryPersistenceTests {
         #expect(content == "偏好中文回答")
     }
 }
+
+#if os(iOS)
+private final class MemoryProtectionFileManager: FileManager, @unchecked Sendable {
+    private let lock = NSLock()
+    private var requested: [String: FileProtectionType] = [:]
+    var requests: [String: FileProtectionType] { lock.withLock { requested } }
+    override func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
+        if let protection = attributes[.protectionKey] as? FileProtectionType {
+            lock.withLock { requested[path] = protection }
+        }
+        try super.setAttributes(attributes, ofItemAtPath: path)
+    }
+}
+#endif

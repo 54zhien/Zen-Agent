@@ -36,13 +36,13 @@ final class ZenDatabase: Sendable {
     /// and updating while a run is streaming into it. The Stage 0 spike measured that
     /// a reader is not blocked by a committing writer — that result is what this
     /// configuration is for.
-    static func open(at path: String) throws -> ZenDatabase {
-        try open(at: path, migrator: Migrations.makeMigrator())
+    static func open(at path: String, fileManager: FileManager = .default) throws -> ZenDatabase {
+        try open(at: path, migrator: Migrations.makeMigrator(), fileManager: fileManager)
     }
 
     /// Opens with a caller-supplied migrator. Used by the migration tests, which
     /// compose `Migrations.registerV1` with a v2 of their own.
-    static func open(at path: String, migrator: DatabaseMigrator) throws -> ZenDatabase {
+    static func open(at path: String, migrator: DatabaseMigrator, fileManager: FileManager = .default) throws -> ZenDatabase {
         var configuration = Configuration()
         configuration.journalMode = .wal
         // Contention surfaces as waiting rather than as a thrown "database is locked",
@@ -52,9 +52,7 @@ final class ZenDatabase: Sendable {
         let queue = try DatabaseQueue(path: path, configuration: configuration)
         try migrator.migrate(queue)
 #if os(iOS)
-        for file in [path, path + "-wal", path + "-shm"] where FileManager.default.fileExists(atPath: file) {
-            try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: file)
-        }
+        try UserDataFileProtection.applyToDatabase(at: path, fileManager: fileManager)
 #endif
         return ZenDatabase(dbQueue: queue, persistentPath: path)
     }

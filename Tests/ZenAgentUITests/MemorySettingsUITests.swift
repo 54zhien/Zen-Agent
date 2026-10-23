@@ -22,9 +22,13 @@ final class MemorySettingsUITests: XCTestCase {
         let deletion = app.buttons["memory-delete"]
         for _ in 0..<4 where !deletion.isHittable { app.swipeUp() }
         XCTAssertTrue(deletion.isHittable); deletion.tap()
-        XCTAssertTrue(app.buttons["取消"].waitForExistence(timeout: 5))
-        app.buttons["取消"].tap()
-        XCTAssertTrue(text.exists)
+        let confirmation = app.buttons["确认删除记忆"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        // Regular-width native confirmations omit Cancel and dismiss outside.
+        if app.buttons["取消"].exists { app.buttons["取消"].tap() }
+        else { app.navigationBars["记忆详情"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+        XCTAssertTrue(confirmation.wait(for: \.exists, toEqual: false, timeout: 5))
+        XCTAssertTrue(app.navigationBars["记忆详情"].exists)
         deletion.tap()
         app.buttons["确认删除记忆"].tap()
         XCTAssertTrue(app.staticTexts["memory-empty"].waitForExistence(timeout: 5))
