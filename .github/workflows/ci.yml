@@ -14,6 +14,11 @@ on:
     branches: ['**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      sidebar_diagnostic:
+        description: 'Temporary iPad-only native gesture observation; not a complete gate'
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -301,6 +306,7 @@ jobs:
   # macOS 26 / Xcode 26 is required by the iOS 26 deployment target.
   # -------------------------------------------------------------------------
   build-and-test:
+    if: ${{ inputs.sidebar_diagnostic != true }}
     name: Build and test
     needs: repo-hygiene
     runs-on: macos-26

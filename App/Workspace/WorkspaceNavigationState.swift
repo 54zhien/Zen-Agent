@@ -36,7 +36,7 @@ final class WorkspaceNavigationState {
     }
     func recordNative(_ event: String) {
         nativeEvents.append(event)
-        if nativeEvents.count > 12 { nativeEvents.removeFirst(nativeEvents.count - 12) }
+        if nativeEvents.count > 64 { nativeEvents.removeFirst(nativeEvents.count - 64) }
     }
 #endif
     var blocksLift: Bool { isDragging || progress > 0 || settlementID != nil || overlay != nil }

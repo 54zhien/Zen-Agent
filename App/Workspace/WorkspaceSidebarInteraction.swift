@@ -78,12 +78,21 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
     private var edgeRejected = false
 
     override convenience init(frame: CGRect) {
+        #if DEBUG
+        self.init(frame: frame, edge: SidebarObservedEdgeGesture())
+#else
         self.init(frame: frame, edge: UIScreenEdgePanGestureRecognizer())
+#endif
     }
 
     init(frame: CGRect, edge: UIScreenEdgePanGestureRecognizer) {
         self.edge = edge
         super.init(frame: frame)
+#if DEBUG
+        (edge as? SidebarObservedEdgeGesture)?.observe = { [weak self] message in
+            self?.record(message)
+        }
+#endif
         for recognizer in [edge, reverse, closeTap] {
             recognizer.delegate = self
             // The shifted Surface tap must not also become a Timeline blank tap
@@ -189,7 +198,7 @@ final class WorkspaceSidebarInteraction: UIView, UIGestureRecognizerDelegate {
             if let candidate = view as? UIScrollView { scroll = candidate; break }
             hit = view.superview
         }
-        return "edgeState=\(edge.state.rawValue),translation=\(edge.translation(in: window)),velocity=\(edge.velocity(in: window)),location=\(edge.location(in: window)),origin=\(String(describing: edgeTouchOrigin)),captured=\(String(describing: edgeTouchOwner)),currentHost=\(String(describing: current?.hostID)),currentPane=\(String(describing: current?.paneID)),window=\(ObjectIdentifier(window)),scrollPan=\(scroll.map { "state=\($0.panGestureRecognizer.state.rawValue),translation=\($0.panGestureRecognizer.translation(in: window))" } ?? "none")"
+        return "edgeDescription=\(edge),systemDeferral=\(window.rootViewController?.preferredScreenEdgesDeferringSystemGestures.rawValue ?? 0),edgeState=\(edge.state.rawValue),translation=\(edge.translation(in: window)),velocity=\(edge.velocity(in: window)),location=\(edge.location(in: window)),origin=\(String(describing: edgeTouchOrigin)),captured=\(String(describing: edgeTouchOwner)),currentHost=\(String(describing: current?.hostID)),currentPane=\(String(describing: current?.paneID)),window=\(ObjectIdentifier(window)),scrollPan=\(scroll.map { "state=\($0.panGestureRecognizer.state.rawValue),translation=\($0.panGestureRecognizer.translation(in: window))" } ?? "none")"
     }
 #endif
 
