@@ -73,7 +73,7 @@ final class MemorySettingsUITests: XCTestCase {
 
     @MainActor
     private func capture(_ name: String, _ app: XCUIApplication) {
-        let image = XCTAttachment(screenshot: app.screenshot())
+        let image = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         image.name = name; image.lifetime = .keepAlways; add(image)
     }
 
@@ -188,8 +188,28 @@ final class MemorySettingsUITests: XCTestCase {
         let agent = app.buttons["settings-agent"]
         guard reveal(agent, in: app) else { return false }
         agent.tap()
+        guard app.navigationBars["Agent"].waitForExistence(timeout: 5) else {
+            captureHierarchy("Memory route did not reach Agent", app)
+            XCTFail("Agent destination did not open"); return false
+        }
         let memory = app.buttons["settings-memory"]
         guard reveal(memory, in: app) else { return false }
-        memory.tap(); return true
+        // The full run's row-center event stayed on Agent, while isolated
+        // direct-center probes navigated. Use the visible label and verify
+        // the destination after one tap instead of assuming the push completed.
+        let label = memory.staticTexts.firstMatch
+        guard label.waitForExistence(timeout: 5),
+              label.wait(for: \.isHittable, toEqual: true, timeout: 5) else {
+            captureHierarchy("Memory route label was not ready", app)
+            XCTFail("Memory navigation label was not hittable"); return false
+        }
+        print("MEMORY_ROUTE_LABEL frame=\(label.frame)")
+        label.tap()
+        guard app.switches["memory-enabled"].waitForExistence(timeout: 5) else {
+            captureHierarchy("Memory route did not reach its destination", app)
+            capture("Memory route did not reach its destination", app)
+            XCTFail("Memory destination did not open after its label tap"); return false
+        }
+        return true
     }
 }
