@@ -29,7 +29,7 @@ struct SkillAuthorityTests {
         try fixture.store.completeExecutionSnapshot(runID: commit.run.id, encodedSnapshot: ExecutionSnapshotCodec.encode(snapshot))
         // This is a real committed preparing checkpoint with no Step/POST. The
         // next process has a larger registry but must retain its original surface.
-        let cold = ConversationRuntime(store: fixture.store, provider: fixture.provider, credentials: fixture.credentials,
+        let cold = try ConversationRuntime(store: fixture.store, provider: fixture.provider, credentials: fixture.credentials,
             toolRegistry: ToolRegistry(tools: [tool]))
         let report = try await cold.reconcileColdStartRuns()
         #expect(report.continuedRunIDs == [commit.run.id])

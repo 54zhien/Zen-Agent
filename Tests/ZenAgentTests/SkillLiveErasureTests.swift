@@ -14,7 +14,7 @@ struct SkillLiveErasureTests {
                 name: tool.descriptor.id, argumentsJSON: "{}")), .finish(.toolCalls)]),
             .events([.textDelta("unexpected continuation"), .finish(.stop)])
         ])
-        let skills = SkillRuntime(store: fixture.store, credentials: fixture.credentials,
+        let skills = try SkillRuntime(store: fixture.store, credentials: fixture.credentials,
             registry: ToolRegistry(tools: [tool]))
         let environment = EnvironmentRuntime(store: fixture.store, credentials: fixture.credentials)
         let item = try skills.saveUser(definition: .init(name: "Regional action", summary: "",
