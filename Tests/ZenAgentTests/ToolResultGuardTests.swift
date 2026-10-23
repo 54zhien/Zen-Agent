@@ -5,6 +5,15 @@ import Testing
 
 @Suite("Tool result guard")
 struct ToolResultGuardTests {
+    @Test func redactionCannotRewriteAReferenceIdentity() throws {
+        let content = try ToolArgumentJSON.normalizedObject(["kind": "managedFile", "assetID": "tool-call",
+            "versionID": "tool-version-call", "fingerprint": "sha256:" + String(repeating: "0", count: 64), "reason": "create"])
+        let result = ToolResultGuard.sanitize(ToolExecutionResult(content: content, kind: .reference),
+            knownSecrets: [SecretValue("tool")])
+        #expect(result.kind == .error)
+        #expect(result.failure == .redactionUnavailable)
+    }
+
     @Test func oversizedMultibyteResultIsNeverPersistedOrReturned() async throws {
         let f = try ResultGuardFixture(content: String(repeating: "界", count: 22_000))
         let result = try #require(try await f.complete())

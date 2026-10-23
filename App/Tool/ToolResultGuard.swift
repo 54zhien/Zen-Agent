@@ -43,6 +43,11 @@ enum ToolResultGuard {
             guard let regex = try? NSRegularExpression(pattern: pattern) else { return .failure(.redactionUnavailable) }
             text = regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: replacement)
         }
+        // A redacted identity would point at a different or nonexistent file.
+        // Refuse the reference rather than publish misleading scope metadata.
+        if result.kind == .reference, !text.utf8.elementsEqual(result.content.utf8) {
+            return .failure(.redactionUnavailable)
+        }
         guard text.utf8.count <= maximumUTF8Bytes else { return .failure(.resultTooLarge) }
         return ToolExecutionResult(content: text, kind: result.kind, failure: result.failure)
     }
