@@ -230,12 +230,19 @@ struct ToolSystemPermissionTests {
             try store.commitUserTurnAndCreateParentRun(Fixtures.send(conversationID: "c", messageID: "m", runID: "r", runState: .executingTools))
             var call = Fixtures.toolCall(id: "old", runID: "r", action: "tool", state: .rejected, intent: "immutable")
             call.failureReason = .policyDenied
-            try store.createRejectedToolCall(call, result: ToolResultRecord(toolCallID: "old", payload: "safe", createdAt: Fixtures.epoch))
+            // Seed the actual old schema; today's result type includes v17 columns.
+            try store.database.write { db in
+                try call.insert(db)
+                try db.execute(sql: "INSERT INTO toolResult(toolCallID, payload, createdAt) VALUES (?, ?, ?)",
+                    arguments: ["old", "safe", Fixtures.epoch])
+            }
         }
         let store = PersistenceStore(database: try ZenDatabase.open(at: url.path()))
         #expect(try store.toolCall(id: "old")?.failureReason == .policyDenied)
         #expect(try store.toolCall(id: "old")?.executionIntent == "immutable")
         #expect(try store.toolResult(toolCallID: "old")?.payload == "safe")
+        #expect(try store.toolResult(toolCallID: "old")?.kind == .text)
+        #expect(try store.toolResult(toolCallID: "old")?.failureCode == nil)
         #expect(try store.toolSystemConsent(id: "old") == nil)
         try store.database.write { db in
             try db.execute(sql: "UPDATE toolCall SET failureReason = 'systemPermissionDenied' WHERE id = 'old'")
