@@ -6,6 +6,32 @@ import Testing
 @Suite("Composer send coordinator")
 @MainActor
 struct ComposerSendCoordinatorTests {
+    @Test("Skill selection belongs to the captured Send and clears only after acceptance")
+    func skillSelectionAcceptance() {
+        let (controller, coordinator) = makeCoordinator(text: "request")
+        controller.draft.selectedSkillIDs = ["zen.calculate"]
+        let command = coordinator.beginSend(capabilities: [.text, .streaming], quoteCommitReady: false,
+            imageInputReady: false, fileInputReady: false, submissionID: "skills-send")
+        #expect(command?.selectedSkillIDs == ["zen.calculate"])
+        coordinator.rejectSend(submissionID: "skills-send")
+        #expect(controller.draft.selectedSkillIDs == ["zen.calculate"])
+        _ = coordinator.beginSend(capabilities: [.text, .streaming], quoteCommitReady: false,
+            imageInputReady: false, fileInputReady: false, submissionID: "skills-retry")
+        coordinator.acceptSend(submissionID: "skills-retry", projection: .init(runID: "accepted", state: .preparing))
+        #expect(controller.draft.selectedSkillIDs.isEmpty)
+    }
+
+    @Test("acceptance preserves a newer Skill selection made while the Send was pending")
+    func skillSelectionPendingEdit() {
+        let (controller, coordinator) = makeCoordinator(text: "request")
+        controller.draft.selectedSkillIDs = ["zen.calculate"]
+        _ = coordinator.beginSend(capabilities: [.text, .streaming], quoteCommitReady: false,
+            imageInputReady: false, fileInputReady: false, submissionID: "pending-skill")
+        controller.draft.selectedSkillIDs = ["zen.reading"]
+        coordinator.acceptSend(submissionID: "pending-skill", projection: .init(runID: "accepted", state: .preparing))
+        #expect(controller.draft.selectedSkillIDs == ["zen.reading"])
+    }
+
     @Test("an active Run can Stop after send configuration disappears")
     func stopWorksWithoutSendConfiguration() async {
         let stopped = StopCallLedger()

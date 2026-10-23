@@ -12,4 +12,5 @@ struct ComposerDraftState: Equatable, Sendable {
     var references: [QuoteReference]
     var attachments: [AttachmentReference]
     var presentationState: ComposerPresentationState
+    var selectedSkillIDs: [String] = []
 }

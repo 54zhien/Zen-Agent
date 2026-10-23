@@ -22,6 +22,7 @@ struct PromptCompositionInput: Sendable, Equatable {
     var currentUserQuotedSnapshots: [String] = []
     var soulInstructions: String? = nil
     var relevantMemories: [String] = []
+    var activatedSkills: [SkillContext] = []
     var tools: [ProviderToolDefinition] = []
     var systemSections: PromptSystemSections = PromptTemplateCatalog.current
 }

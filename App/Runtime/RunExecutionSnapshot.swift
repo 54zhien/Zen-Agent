@@ -98,19 +98,22 @@ struct PromptExecutionSnapshot: Codable, Sendable, Equatable {
     var providerAdapterInstructions: String
     var soulVersionID: String?
     var memoryReferences: [MemoryRevisionReference] = []
+    var skillReferences: [SkillActivationReference] = []
 
     init(
         runtimeSafetyBaseline: String,
         zenCore: String,
         providerAdapterInstructions: String,
         soulVersionID: String? = nil,
-        memoryReferences: [MemoryRevisionReference] = []
+        memoryReferences: [MemoryRevisionReference] = [],
+        skillReferences: [SkillActivationReference] = []
     ) {
         self.runtimeSafetyBaseline = runtimeSafetyBaseline
         self.zenCore = zenCore
         self.providerAdapterInstructions = providerAdapterInstructions
         self.soulVersionID = soulVersionID
         self.memoryReferences = memoryReferences
+        self.skillReferences = skillReferences
     }
 
     private enum CodingKeys: String, CodingKey {
