@@ -33,10 +33,10 @@ enum ToolResultGuard {
             }
         }
         let patterns: [(String, String)] = [
-            (#"(?i)("(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret|authorization)"\s*:\s*")[^"]*(")"#, "$1[REDACTED]$2"),
+            (#"(?i)("(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|secret|authorization)"\s*:\s*")[^"]*(")"#, "$1[REDACTED]$2"),
             (#"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+"#, "Bearer [REDACTED]"),
             (#"\bsk-[A-Za-z0-9_-]{16,}"#, "[REDACTED]"),
-            (#"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\s*[:=]\s*[^\s,;]+"#, "$1=[REDACTED]"),
+            (#"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|secret)\s*[:=]\s*[^\s,;]+"#, "$1=[REDACTED]"),
             (#"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----"#, "[REDACTED PRIVATE KEY]")
         ]
         for (pattern, replacement) in patterns {
