@@ -108,7 +108,7 @@ struct FilesToolWriteTests {
         let json = try #require(call.executionIntent)
         try f.store.markToolCallPrepared(id: call.id)
         _ = try f.store.dispatchToolCallWithPolicy(id: call.id, expectedAttempt: call.attempt,
-            descriptor: f.tool.descriptor, safetyCap: .unrestricted, checkedIntentBinding: ToolIntentBinding.make(json))
+            descriptor: f.tool.descriptor, safetyCap: .unrestricted, checkedIntentBinding: ToolIntentBinding.make(json), at: Date())
         try await RunRecovery(store: f.store, toolRuntime: f.runtime).recover(runID: "r")
         #expect(try f.store.toolCall(id: call.id)?.state == .indeterminate)
         #expect(try f.store.run(id: "r")?.endReason == .toolOutcomeUnknown)
