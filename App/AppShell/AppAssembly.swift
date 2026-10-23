@@ -100,8 +100,9 @@ struct AppAssembly {
         )
         let transport = LiveHTTPTransport.make()
         let provider = DeepSeekProvider(transport: transport)
-        let toolRegistry = ToolRegistry.empty
         let managedFiles = try ManagedFileStore.applicationDefault()
+        let toolRegistry = try ToolRegistry(tools: [CalculatorTool(), CurrentDateTool(), DeviceInfoTool(),
+            FilesTool(files: managedFiles, store: store, sessions: sessions)])
         let runtime = makeRuntime(
             store: store,
             provider: provider,
