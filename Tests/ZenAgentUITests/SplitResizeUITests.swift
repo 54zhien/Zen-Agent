@@ -147,8 +147,24 @@ final class SplitResizeUITests: XCTestCase {
                        "Closing the opposite Pane must retain the survivor's actual UITextView")
         let editor = app.textViews["conversation-composer-input"]
         editor.tap()
+        // Closure retains the editor, but keyboard presentation settles separately.
+        // Inject input only after the current native editor and anchor are ready.
+        expect {
+            let receipt = probe.value as? String ?? ""
+            let keyboardVisible = app.keyboards.firstMatch.exists
+            let focused = receipt.contains(";focused=true;")
+            let settled = self.composerSettled(in: receipt, field: "sidebarEligibility")
+            print("CLOSE_EDITOR_INPUT_READY keyboard=\(keyboardVisible);focused=\(focused);settled=\(String(describing: settled));receipt=\(receipt)")
+            return keyboardVisible && focused && settled == true
+        }
+        XCTAssertTrue(editor.isHittable, "The retained editor must remain reachable above the keyboard")
+        XCTAssertLessThanOrEqual(editor.frame.maxY, app.keyboards.firstMatch.frame.minY,
+                                 "The retained editor must follow the current window keyboard guide")
         editor.typeText("survivor after explicit close")
         XCTAssertTrue((editor.value as? String)?.contains("survivor after explicit close") == true)
+        let capture = XCTAttachment(screenshot: app.screenshot())
+        capture.lifetime = .keepAlways
+        add(capture)
     }
 
     @MainActor

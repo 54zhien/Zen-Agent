@@ -83,7 +83,9 @@ struct ComposerViewContractTests {
 
         #expect(host.contains("disabled(\"添加图片\""))
         #expect(host.contains("disabled(\"添加文件\""))
-        #expect(host.contains("disabled(\"插件\""))
+        #expect(host.contains("skillMenu, modelMenu"))
+        #expect(host.contains("ComposerSkillMenu.make(load: configuration.loadSkills"))
+        #expect(view.contains("selectedSkillIDs: controller.draft.selectedSkillIDs"))
         #expect(host.contains("configuration.models.map"))
         #expect(view.contains("configuration.modelID = modelID"))
         #expect(view.contains("controller.configuration = configuration"))

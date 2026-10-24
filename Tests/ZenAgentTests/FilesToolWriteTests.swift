@@ -61,6 +61,36 @@ struct FilesToolWriteTests {
             }
             #expect(requests.count == 2)
             #expect(returned == [result.payload])
+            if !shortCredential {
+                let tools = ToolRuntime(store: base.store, registry: registry, credentials: credentials)
+                // Even the exact text from a successful stored call is untrusted
+                // without an immutable completion receipt for that call/intent.
+                let unproven = ToolCallRecord(id: "unproven-completion", agentRunID: runID,
+                    action: call.action, state: .succeeded, executionIntent: executionIntent,
+                    attempt: call.attempt, providerCallID: "unproven-provider-call",
+                    createdAt: Date(), updatedAt: Date())
+                try base.store.database.write { db in
+                    try unproven.insert(db)
+                    try ToolResultRecord(toolCallID: unproven.id, payload: result.payload, createdAt: Date()).insert(db)
+                }
+                let baseRequest = try #require(requests.first)
+                var unprovenRequest = baseRequest
+                unprovenRequest.messages = [.toolResult(toolCallID: "unproven-provider-call", content: result.payload)]
+                #expect(throws: ToolResultFailure.redactionUnavailable) {
+                    try tools.requestRedactingToolResults(unprovenRequest, runID: runID)
+                }
+                // Appending bytes or mixing a proven notice with an unknown
+                // result still requires readable inventory for that other data.
+                for payloads in [[result.payload + " untrusted bytes"], [result.payload, "untrusted bytes"]] {
+                    var unsafe = baseRequest
+                    unsafe.messages = payloads.enumerated().map { index, content in
+                        .toolResult(toolCallID: index == 0 ? "publication-create" : "untrusted-\(index)", content: content)
+                    }
+                    #expect(throws: ToolResultFailure.redactionUnavailable) {
+                        try tools.requestRedactingToolResults(unsafe, runID: runID)
+                    }
+                }
+            }
         } catch {
             try? await runtime.stop(runID: runID)
             try? await Fixtures.awaitRuntimeCompletion(in: base.store, runtime: runtime, runID: runID)

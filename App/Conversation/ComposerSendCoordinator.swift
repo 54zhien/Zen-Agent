@@ -39,6 +39,7 @@ final class ComposerSendCoordinator {
     @ObservationIgnored private var pendingTextSnapshot: String?
     @ObservationIgnored private var pendingReferencesSnapshot: [QuoteReference]?
     @ObservationIgnored private var pendingAttachmentsSnapshot: [AttachmentReference]?
+    @ObservationIgnored private var pendingSkillsSnapshot: [String]?
     @ObservationIgnored private var latestProjection: RunProjection?
 
     var pendingFileAssetIDs: Set<String> {
@@ -93,6 +94,7 @@ final class ComposerSendCoordinator {
                     displayName: attachment.displayName
                 )
             },
+            selectedSkillIDs: controller.draft.selectedSkillIDs.sorted(),
             providerInstanceID: configuration.providerInstanceID,
             modelID: configuration.modelID,
             maxProviderSteps: maxProviderSteps,
@@ -101,6 +103,7 @@ final class ComposerSendCoordinator {
         pendingTextSnapshot = command.text
         pendingReferencesSnapshot = command.references
         pendingAttachmentsSnapshot = controller.draft.attachments
+        pendingSkillsSnapshot = controller.draft.selectedSkillIDs
         submission = .awaitingAcceptance(submissionID: submissionID)
         return command
     }
@@ -126,6 +129,10 @@ final class ComposerSendCoordinator {
             }
         }
 
+        if let pendingSkillsSnapshot, controller.draft.selectedSkillIDs == pendingSkillsSnapshot {
+            controller.draft.selectedSkillIDs = []
+        }
+        pendingSkillsSnapshot = nil
         pendingTextSnapshot = nil
         pendingReferencesSnapshot = nil
         pendingAttachmentsSnapshot = nil
@@ -138,6 +145,7 @@ final class ComposerSendCoordinator {
         pendingReferencesSnapshot = nil
         pendingAttachmentsSnapshot = nil
         submission = .idle
+        pendingSkillsSnapshot = nil
     }
 
     func updateRunProjection(_ projection: RunProjection?) {

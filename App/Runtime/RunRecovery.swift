@@ -86,7 +86,11 @@ struct RunRecovery: Sendable {
             return
         }
         if let snapshot {
-            do { _ = try store.resolveMemoryReferences(snapshot.prompt.memoryReferences) }
+            do {
+                _ = try store.resolveMemoryReferences(snapshot.prompt.memoryReferences)
+                try store.validateExtensionDependencies(runID: runID, snapshot: snapshot)
+                try toolRuntime?.validateSkillDependencies(snapshot)
+            }
             catch {
                 try store.invalidateMemoryRun(id: runID)
                 try await failAfterMemoryInvalidation(run: recoveringRun)

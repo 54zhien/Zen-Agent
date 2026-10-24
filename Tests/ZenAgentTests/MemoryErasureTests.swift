@@ -119,7 +119,7 @@ struct MemoryErasureTests {
     }
 }
 
-private struct MemoryHandoffBarrierProvider: ModelProvider {
+struct MemoryHandoffBarrierProvider: ModelProvider {
     let base: Stage2ScriptedProvider
     let entered: MemoryTestLatch
     let release: MemoryTestLatch

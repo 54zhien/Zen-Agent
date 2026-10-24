@@ -628,7 +628,7 @@ actor AgentRuntime {
                     throw ControlError.stopRequested
                 }
                 let requestForDispatch = currentRequest
-                let store = store, provider = provider, credentials = credentials
+                let store = store, provider = provider, credentials = credentials, toolRuntime = toolRuntime
                 let providerStream = try await store.memoryAccessGate.withRead {
                     try Task.checkCancellation()
                     // Waiting for erasure yields execution. Stop and recovery may
@@ -638,13 +638,17 @@ actor AgentRuntime {
                     guard runForRequest.state == .requestingModel || runForRequest.state == .streaming,
                           try store.accepts(identity) else { throw ControlError.staleAttempt }
                     do {
+                        guard runForRequest.recoveryAction != .invalidate else { throw SkillError.erasedDependency }
+                        try store.validateExtensionDependencies(runID: runID, snapshot: snapshot)
+                        try toolRuntime.validateSkillDependencies(snapshot)
                         _ = try MemoryRuntime(store: store, credentials: credentials)
                             .resolveFrozen(snapshot.prompt.memoryReferences)
                     } catch {
                         try store.invalidateMemoryRun(id: runID)
                         throw error
                     }
-                    return try await provider.stream(requestForDispatch,
+                    let outgoing = try toolRuntime.requestRedactingToolResults(requestForDispatch, runID: runID)
+                    return try await provider.stream(outgoing,
                         seed: runForRequest.requestConfigSeed, credentials: credentials)
                 }
 
@@ -1778,7 +1782,7 @@ actor AgentRuntime {
         error: Error,
         run: AgentRunRecord
     ) -> FailureDisposition {
-        if error is MemoryError { return .failed(.dependencyUnavailable) }
+        if error is MemoryError || error is SkillError || error is EnvironmentError { return .failed(.dependencyUnavailable) }
         if let failure = error as? ProviderRuntimeFailure {
             switch failure {
             case .stepLimit,

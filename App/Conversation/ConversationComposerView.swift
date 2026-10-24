@@ -149,8 +149,26 @@ struct ConversationComposerView: View {
                         stableBottomAnchor: input.composerSettled)
                     return input
                 }
+            },
+            skillSelectionOwner: skillSelectionOwner,
+            selectedSkillIDs: controller.draft.selectedSkillIDs,
+            loadSkills: { [bridge, configuration = controller.configuration] in
+                try await bridge.skills(configuration?.providerInstanceID, configuration?.modelID)
+            },
+            onSkill: { id in
+                guard let id else { controller.draft.selectedSkillIDs = []; return }
+                if controller.draft.selectedSkillIDs.contains(id) {
+                    controller.draft.selectedSkillIDs.removeAll { $0 == id }
+                } else if controller.draft.selectedSkillIDs.count < SkillRouter.maximumActivatedSkills {
+                    controller.draft.selectedSkillIDs.append(id)
+                }
             }
         )
+    }
+
+    private var skillSelectionOwner: ComposerSkillMenu.Owner {
+        // A deferred menu must not write into a different Conversation or target.
+        .init(conversationID: conversationID, target: controller.configuration)
     }
 
     private func sendDraft() {

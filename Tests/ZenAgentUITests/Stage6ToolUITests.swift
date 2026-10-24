@@ -101,6 +101,7 @@ final class Stage6ToolUITests: XCTestCase {
     private func launchTool(_ mode: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_STAGE6_TOOL_UI_TEST"] = mode
+        app.launchEnvironment["ZEN_SURFACE_LIFT_UI_TEST"] = "1"
         app.launch()
         return app
     }
@@ -109,7 +110,20 @@ final class Stage6ToolUITests: XCTestCase {
     private func sendAndWaitForCard(_ app: XCUIApplication) -> Bool {
         let editor = app.textViews["conversation-composer-input"]
         guard editor.waitForExistence(timeout: 15) else { XCTFail("Configured conversation must open"); return false }
-        editor.tap(); editor.typeText("Stage 6 tool request")
+        let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        guard waitForComposer(app, probe: probe, editing: false) else {
+            XCTFail("Configured Composer must settle before its single tap: \(String(describing: probe.value))")
+            return false
+        }
+        editor.tap()
+        guard waitForComposer(app, probe: probe, editing: true) else {
+            snapshot(app, "Tool request editor did not receive focus")
+            XCTFail("The tapped native editor must own keyboard focus: \(String(describing: probe.value))")
+            return false
+        }
+        XCTAssertTrue(editor.isHittable)
+        XCTAssertLessThanOrEqual(editor.frame.maxY, app.keyboards.firstMatch.frame.minY)
+        editor.typeText("Stage 6 tool request")
         let send = app.buttons["conversation-composer-send"]
         guard waitEnabled(send) else { XCTFail("Production Composer bridge must be ready"); return false }
         send.tap()
@@ -117,6 +131,27 @@ final class Stage6ToolUITests: XCTestCase {
             XCTFail("Real Runtime must publish an approval card: \(app.staticTexts["stage6-tool-observation"].label)"); return false
         }
         return true
+    }
+
+    @MainActor
+    private func waitForComposer(_ app: XCUIApplication, probe: XCUIElement, editing: Bool) -> Bool {
+        let pane = app.descendants(matching: .any)["conversation-pane-stage6-conversation"]
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            guard pane.exists, probe.exists else { return false }
+            // Historical lift traces can contain earlier eligibility values.
+            let receipt = probe.value as? String ?? ""
+            let current = receipt.components(separatedBy: ";liftTrace=").first ?? ""
+            func field(_ name: String) -> String? {
+                current.split(separator: ";").first { $0.hasPrefix(name + "=") }
+                    .map { String($0.dropFirst(name.count + 1)) }
+            }
+            let keyboard = app.keyboards.firstMatch.exists
+            print("STAGE6_COMPOSER_READY editing=\(editing);keyboard=\(keyboard);receipt=\(receipt)")
+            return field("sidebarCanOpen") == "true" && (editing
+                ? keyboard && field("focused") == "true"
+                : field("liftReady") == "true")
+        }, object: nil)
+        return XCTWaiter.wait(for: [ready], timeout: 10) == .completed
     }
 
     @MainActor

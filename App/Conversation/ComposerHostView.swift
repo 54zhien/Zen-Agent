@@ -27,6 +27,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let onModel: (ModelID) -> Void
         let onHeightChanged: (CGFloat) -> Void
         var liftInteraction: ComposerLiftInteraction.Configuration? = nil
+        var skillSelectionOwner: ComposerSkillMenu.Owner? = nil
+        var selectedSkillIDs: [String] = []
+        var loadSkills: @Sendable () async throws -> [ComposerSkillOption] = { [] }
+        var onSkill: (String?) -> Void = { _ in }
     }
 
     private let surface = UIView()
@@ -48,6 +52,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var bottomConstraint: NSLayoutConstraint!
     private var renderedBottomSpacing: CGFloat = 12
     private weak var keyboardAnchorView: UIView?
+    private var keyboardAnchorObserver: ComposerKeyboardAnchorObserver?
     private var configuration: Configuration?
     private var currentState: ComposerPresentationState = .resting
     private var keyboardTiming: (duration: TimeInterval, options: UIView.AnimationOptions)?
@@ -317,9 +322,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         super.didMoveToSuperview()
         bindKeyboardAnchor()
         // Equal-sized portals can have different Window origins.
-        lastActiveKeyboardFrame = .null
-        lastLocalKeyboardFrame = .null
-        setNeedsLayout()
+        invalidateKeyboardGeometry()
         updateBottomFadeLayer()
 #if DEBUG
         liftInteraction?.recordHostLifecycle("superview=\(String(describing: superview.map { type(of: $0) }))")
@@ -331,7 +334,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let nextWindow = superview?.window
         let root = nextWindow?.rootViewController?.view
         let nextAnchor = root?.window === nextWindow ? root : nil
-        guard keyboardAnchorView !== nextAnchor || !bottomConstraint.isActive else { return }
+        let observationMatches = (nextAnchor == nil) == (keyboardAnchorObserver == nil)
+        guard keyboardAnchorView !== nextAnchor || !bottomConstraint.isActive || !observationMatches else { return }
+        keyboardAnchorObserver?.invalidate()
+        keyboardAnchorObserver = nil
         keyboardAnchorView = nextAnchor
         // The focused editor can move from the shared dock through a shortened
         // Split portal without a keyboard-frame notification. Read its stable
@@ -340,7 +346,20 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let guide = nextAnchor?.keyboardLayoutGuide ?? keyboardLayoutGuide
         guide.usesBottomSafeArea = true
         guide.followsUndockedKeyboard = false
+        if let anchor = nextAnchor {
+            keyboardAnchorObserver = ComposerKeyboardAnchorObserver(guide: guide) { [weak self, weak anchor] in
+                guard let self, let anchor, let window = self.window,
+                      self.keyboardAnchorView === anchor, anchor.window === window else { return }
+                // A retained portal's local guide can stop moving after transfer.
+                // Invalidate from the root guide without reentering its layout pass.
+                self.invalidateKeyboardGeometry()
+            }
+        }
         bottomConstraint.isActive = true
+        invalidateKeyboardGeometry()
+    }
+
+    private func invalidateKeyboardGeometry() {
         lastActiveKeyboardFrame = .null
         lastLocalKeyboardFrame = .null
         setNeedsLayout()
@@ -529,6 +548,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         updateShelf(next)
         plus.isHidden = !next.showsPlus
         plus.menu = makeMenu(next)
+        plus.accessibilityValue = next.selectedSkillIDs.isEmpty
+            ? "自动选择 Skill" : "已选择 \(next.selectedSkillIDs.count) 个 Skill"
         switch next.primary {
         case .none:
             primary.isHidden = true
@@ -747,9 +768,18 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         }
         let modelMenu = UIMenu(title: "模型", image: UIImage(systemName: "cpu"),
                                children: modelActions.isEmpty ? [disabled("模型", "cpu")] : modelActions)
+        let owner = configuration.skillSelectionOwner
+        let skillMenu = ComposerSkillMenu.make(load: configuration.loadSkills,
+            currentSelection: { [weak self] in
+                guard let current = self?.configuration, current.skillSelectionOwner == owner else { return nil }
+                return current.selectedSkillIDs
+            }, select: { [weak self] id in
+                guard let current = self?.configuration, current.skillSelectionOwner == owner else { return }
+                current.onSkill(id)
+            })
         return UIMenu(children: [
             disabled("添加图片", "photo"), disabled("添加文件", "doc"),
-            disabled("插件", "puzzlepiece"), modelMenu,
+            skillMenu, modelMenu,
             disabled("推理强度", "slider.horizontal.3")
         ])
     }

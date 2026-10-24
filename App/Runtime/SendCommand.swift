@@ -18,6 +18,7 @@ struct SendCommand: Sendable, Equatable {
     var text: String
     var references: [QuoteReference] = []
     var attachments: [SendAttachment] = []
+    var selectedSkillIDs: [String] = []
 
     var providerInstanceID: ProviderInstanceID
     var modelID: ModelID

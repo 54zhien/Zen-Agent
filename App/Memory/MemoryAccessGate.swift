@@ -1,6 +1,10 @@
 import Foundation
 
 actor MemoryAccessGate {
+    // Keep known-secret validation through content/result commit atomic with
+    // Environment secret publication and owned cleanup across DB connections.
+    // Take a handoff lease before this synchronous lock; never await with it held.
+    nonisolated let environmentCredentialLock = NSRecursiveLock()
     static func forDatabase(_ path: String?) -> MemoryAccessGate { MemoryGateRegistry.shared.gate(for: path) }
     private struct Waiter {
         let exclusive: Bool
@@ -9,6 +13,12 @@ actor MemoryAccessGate {
     private var readers = 0
     private var writing = false
     private var waiting: [Waiter] = []
+
+#if DEBUG
+    // Observation only: ordering regressions must prove that the real writer
+    // reached this queue, instead of inferring readiness from scheduler yields.
+    var hasQueuedWriterForTesting: Bool { waiting.contains { $0.exclusive } }
+#endif
 
     func withRead<T: Sendable>(_ body: @Sendable () async throws -> T) async rethrows -> T {
         await acquire(exclusive: false)

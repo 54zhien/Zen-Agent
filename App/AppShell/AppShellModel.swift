@@ -65,6 +65,16 @@ final class AppShellModel {
             provider: dependencies.provider, defaults: userDefaults, appearance: appearance, menus: modelMenus,
             files: dependencies.managedFiles,
             toolRegistry: dependencies.toolRegistry, toolSafetyCap: dependencies.toolSafetyCap,
+            onStopExtensionRuns: { [runtime = dependencies.runtime, store = dependencies.store] ids in
+                for id in ids {
+                    try await runtime.stop(runID: id)
+                    do { try await runtime.waitForCompletion(runID: id) }
+                    catch {
+                        guard try store.run(id: id)?.state.isTerminal == true else { throw SkillError.resourceInUse }
+                    }
+                    guard try store.run(id: id)?.state.isTerminal == true else { throw SkillError.resourceInUse }
+                }
+            },
             onConfigure: onConfigure,
             onProviderCommitted: { [weak self] instanceID in
                 await self?.refreshSendAvailability(for: instanceID)

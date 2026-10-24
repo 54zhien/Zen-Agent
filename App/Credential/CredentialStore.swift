@@ -95,6 +95,15 @@ protocol CredentialStoring: Sendable {
     ) throws
     func logout(_ reference: CredentialReference, at now: Date) throws
 
+    /// Removes only the owned generation of an unreferenced environment secret.
+    /// If matching active metadata still exists, it is logged out through the
+    /// ordinary generation transition so a frozen reader fails closed.
+    func retireOwnedEnvironmentSecret(
+        reference: CredentialReference,
+        generation: Int,
+        at now: Date
+    ) throws
+
     func resolve(_ reference: CredentialReference) throws -> SecretValue?
 
     /// The secret, if the binding is still exactly the one the caller froze.
@@ -325,6 +334,40 @@ struct CredentialStore: CredentialStoring {
                 CredentialMetadata(
                     reference: reference,
                     bindingGeneration: existing.bindingGeneration + 1,
+                    principalFingerprint: nil,
+                    status: .authenticationRequired,
+                    updatedAt: now
+                )
+            )
+        }
+    }
+
+    /// Retirement is deliberately narrower than `logout`: the environment owns
+    /// one exact generation, while a reference may have moved since its cleanup
+    /// reservation was written. A missing metadata row still permits deleting
+    /// that orphaned generation; an unreadable row does not.
+    func retireOwnedEnvironmentSecret(
+        reference: CredentialReference,
+        generation: Int,
+        at now: Date = Date()
+    ) throws {
+        guard reference.kind == .environmentSecret, generation > 0 else { return }
+
+        try CredentialOperationCoordinator.shared.withCriticalSection(for: reference) {
+            guard let existing = try metadataRepository.loadMetadata(for: reference) else {
+                try secrets.delete(reference, generation: generation)
+                return
+            }
+
+            try secrets.delete(reference, generation: generation)
+
+            guard existing.reference == reference,
+                  existing.status == .active,
+                  existing.bindingGeneration == generation else { return }
+            try metadataRepository.saveMetadata(
+                CredentialMetadata(
+                    reference: reference,
+                    bindingGeneration: generation + 1,
                     principalFingerprint: nil,
                     status: .authenticationRequired,
                     updatedAt: now

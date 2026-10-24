@@ -72,6 +72,20 @@ actor ConversationRuntime {
 
     var activeOperationCount: Int { operations.count }
 
+    func availableSkills(providerInstanceID: ProviderInstanceID?, modelID: ModelID?) throws -> [ComposerSkillOption] {
+        let supportsTools: Bool
+        if let providerInstanceID, let modelID,
+           let instance = try store.providerInstance(id: providerInstanceID) {
+            supportsTools = provider.descriptor(for: modelID, in: instance)?.capabilities.contains(.tools) == true
+        } else { supportsTools = false }
+        let skills = SkillRuntime(store: store, credentials: credentials,
+            registry: supportsTools ? toolRegistry : .empty)
+        return try skills.list().filter { $0.enabled && !$0.pendingDeletion }.map { item in
+            ComposerSkillOption(id: item.id, name: item.definition.name,
+                isAvailable: try skills.dependencyStatus(for: item).isAvailable)
+        }
+    }
+
     init(
         store: PersistenceStore,
         provider: any ModelProvider,
@@ -120,6 +134,9 @@ actor ConversationRuntime {
         guard !command.submissionID.isEmpty else {
             throw ConversationRuntimeError.emptySubmissionID
         }
+        guard command.selectedSkillIDs.count <= SkillRouter.maximumActivatedSkills,
+              Set(command.selectedSkillIDs).count == command.selectedSkillIDs.count,
+              command.selectedSkillIDs.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 128 }) else { throw SkillError.invalidDefinition }
         if !didRecoverManagedFiles {
             if let managedFileStore {
                 _ = try managedFileStore.removeUnreferencedBlobs(in: store)
@@ -209,6 +226,10 @@ actor ConversationRuntime {
             credentialBinding: binding
         )
 
+        let skillRuntime = SkillRuntime(store: store, credentials: credentials,
+            registry: descriptor.capabilities.contains(.tools) ? toolRegistry : .empty)
+        let preparedSkills = try skillRuntime.prepare(query: command.text, selectedSkillIDs: command.selectedSkillIDs)
+
         // 8. Build the user message, text part and preparing Parent Run.
         let messageID = "user-\(UUID().uuidString)"
         let runID = "run-\(UUID().uuidString)"
@@ -284,7 +305,8 @@ actor ConversationRuntime {
                         createdAt: reference.createdAt
                     )
                 },
-                run: run
+                run: run,
+                skillReferences: preparedSkills.map(\.reference)
             )
         ) {
             return existingRunID
@@ -303,7 +325,9 @@ actor ConversationRuntime {
         let committedPromptHistory: [PromptHistoryMessage]
         let promptSections: PromptSystemSections
         let relevantMemory: [MemoryContext]
+        let activatedSkills: [SkillContext]
         do {
+            activatedSkills = try skillRuntime.resolveFrozen(store.runSkillReferences(runID: runID))
             effectiveSoulVersion = try store.effectiveSoulVersion(
                 conversationID: command.conversationID
             )
@@ -316,7 +340,8 @@ actor ConversationRuntime {
                     zenCore: PromptTemplateCatalog.currentZenCoreRevision,
                     providerAdapterInstructions: provider.adapterPromptInstructions,
                     soulVersionID: effectiveSoulVersion?.id,
-                    memoryReferences: relevantMemory.map(\.reference)
+                    memoryReferences: relevantMemory.map(\.reference),
+                    skillReferences: activatedSkills.map(\.reference)
                 ),
                 modelCapabilities: descriptor.capabilities,
                 exposedTools: descriptor.capabilities.contains(.tools) ? toolRegistry.descriptors.map {
@@ -351,7 +376,7 @@ actor ConversationRuntime {
             // phantom by surfacing it as if no business object existed.
             let failureEvents = (try? await agentRuntime.fail(
                 runID: runID,
-                endReason: .providerFailed
+                endReason: error is SkillError || error is EnvironmentError ? .dependencyUnavailable : .providerFailed
             )) ?? []
             await publishFailureEvents(failureEvents)
             return runID
@@ -366,6 +391,7 @@ actor ConversationRuntime {
             currentUserQuotedSnapshots: committedQuoteSnapshots,
             soulInstructions: effectiveSoulVersion?.instructions,
             relevantMemories: relevantMemory.map(\.content),
+            activatedSkills: activatedSkills,
             tools: snapshot.exposedTools.map {
                 ProviderToolDefinition(
                     name: $0.toolID,
@@ -676,8 +702,17 @@ actor ConversationRuntime {
         var revoked = run.recoveryAction == .invalidate
         if !revoked, let encoded = run.executionSnapshot,
            let snapshot = try? ExecutionSnapshotCodec.decode(encoded) {
-            do { _ = try store.resolveMemoryReferences(snapshot.prompt.memoryReferences) }
-            catch MemoryError.erasedDependency { revoked = true }
+            do {
+                _ = try store.resolveMemoryReferences(snapshot.prompt.memoryReferences)
+                try store.validateExtensionDependencies(runID: run.id, snapshot: snapshot)
+                _ = try SkillRuntime(store: store, credentials: credentials, registry: toolRegistry)
+                    .resolveFrozen(snapshot.prompt.skillReferences)
+            } catch { revoked = true }
+        } else if !revoked, run.executionSnapshot == nil {
+            do {
+                _ = try SkillRuntime(store: store, credentials: credentials, registry: toolRegistry)
+                    .resolveFrozen(store.runSkillReferences(runID: run.id))
+            } catch { revoked = true }
         }
         guard revoked else { return false }
         try store.invalidateMemoryRun(id: run.id)
@@ -719,7 +754,8 @@ actor ConversationRuntime {
         let request = try RunRequestRebuilder(
             store: store,
             provider: provider,
-            toolRegistry: toolRegistry
+            toolRegistry: toolRegistry,
+            credentials: credentials
         ).initialRequest(
             for: run,
             snapshot: snapshot,
@@ -769,7 +805,8 @@ actor ConversationRuntime {
         let batch = try RunRequestRebuilder(
             store: store,
             provider: provider,
-            toolRegistry: toolRegistry
+            toolRegistry: toolRegistry,
+            credentials: credentials
         ).latestToolBatch(
             for: run,
             snapshot: snapshot,
@@ -1442,6 +1479,11 @@ actor ConversationRuntime {
         }
         for component in components {
             append(component, to: &encoded)
+        }
+        if !command.selectedSkillIDs.isEmpty {
+            append("selected-skills-v1", to: &encoded)
+            append(String(command.selectedSkillIDs.count), to: &encoded)
+            for id in command.selectedSkillIDs.sorted() { append(id, to: &encoded) }
         }
         if !command.references.isEmpty {
             append("quote-references-v1", to: &encoded)

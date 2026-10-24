@@ -27,7 +27,8 @@ struct SettingsWorkspaceView: View {
                         label: { Label("外观", systemImage: "circle.lefthalf.filled") }
                 }
                 Section("Agent") {
-                    NavigationLink { SettingsAgentView(model: model.soul, memory: model.memory, tools: model.tools, focus: focus) }
+                    NavigationLink { SettingsAgentView(model: model.soul, memory: model.memory, skills: model.skills,
+                        environment: model.environment, tools: model.tools, focus: focus) }
                         label: { Label("Agent", systemImage: "sparkle") }
                         .accessibilityIdentifier("settings-agent")
                 }
@@ -86,6 +87,8 @@ struct SettingsWorkspaceView: View {
 private struct SettingsAgentView: View {
     let model: SoulSettingsModel
     let memory: MemorySettingsModel
+    let skills: SkillSettingsModel
+    let environment: EnvironmentSettingsModel
     let tools: ToolSettingsModel
     let focus: SettingsInputFocus
     var body: some View {
@@ -94,6 +97,10 @@ private struct SettingsAgentView: View {
                 label: { Text("Soul") }.accessibilityIdentifier("settings-soul")
             NavigationLink { MemorySettingsView(model: memory, focus: focus) }
                 label: { Text("记忆") }.accessibilityIdentifier("settings-memory")
+            NavigationLink { SkillSettingsView(model: skills, focus: focus) }
+                label: { Text("Skills") }.accessibilityIdentifier("settings-skills")
+            NavigationLink { EnvironmentSettingsView(model: environment, focus: focus) }
+                label: { Text("环境变量") }.accessibilityIdentifier("settings-environment")
             NavigationLink { ToolSettingsView(model: tools) }
                 label: { Text("可调用工具") }.accessibilityIdentifier("settings-tools")
         }.navigationTitle("Agent").settingsCloseToolbar()

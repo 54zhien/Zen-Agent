@@ -20,6 +20,12 @@ struct RunRequestRebuilder {
     let store: PersistenceStore
     let provider: any ModelProvider
     let toolRegistry: ToolRegistry
+    let credentials: (any CredentialStoring)?
+
+    init(store: PersistenceStore, provider: any ModelProvider, toolRegistry: ToolRegistry,
+         credentials: (any CredentialStoring)? = nil) {
+        self.store = store; self.provider = provider; self.toolRegistry = toolRegistry; self.credentials = credentials
+    }
 
     func initialRequest(
         for run: AgentRunRecord,
@@ -79,6 +85,16 @@ struct RunRequestRebuilder {
             zenCoreRevision: snapshot.prompt.zenCore
         )
         let memory = try store.resolveMemoryReferences(snapshot.prompt.memoryReferences)
+        let skills: [SkillContext]
+        do {
+            try store.validateExtensionDependencies(runID: run.id, snapshot: snapshot)
+            if snapshot.prompt.skillReferences.isEmpty { skills = [] }
+            else {
+                guard let credentials else { throw RunRequestRebuildError.missingDependency }
+                skills = try SkillRuntime(store: store, credentials: credentials, registry: toolRegistry)
+                    .resolveFrozen(snapshot.prompt.skillReferences)
+            }
+        } catch { throw RunRequestRebuildError.missingDependency }
         return PromptComposer().compose(PromptCompositionInput(
             modelID: run.requestConfigSeed.modelID,
             providerAdapterInstructions: snapshot.prompt.providerAdapterInstructions,
@@ -87,6 +103,7 @@ struct RunRequestRebuilder {
             currentUserQuotedSnapshots: quotes,
             soulInstructions: soulInstructions,
             relevantMemories: memory.map(\.content),
+            activatedSkills: skills,
             tools: snapshot.exposedTools.map {
                 ProviderToolDefinition(
                     name: $0.toolID,

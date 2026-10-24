@@ -39,6 +39,25 @@ extension PersistenceStore: CredentialMetadataRepository {
         }
     }
 
+    /// Reauthentication retains old bindings for frozen Runs. The current
+    /// provider attachment alone therefore cannot define the secret inventory.
+    func retainedCredentialReferencesForContentValidation() throws -> [CredentialReference] {
+        try database.read { db in
+            var references = try CredentialMetadataRecord
+                .filter(Column("status") == CredentialStatus.active.rawValue)
+                .fetchAll(db).map { record in
+                    guard let kind = CredentialKind(rawValue: record.kind), record.bindingGeneration > 0 else {
+                        throw EnvironmentError.validationUnavailable
+                    }
+                    return CredentialReference(id: record.credentialID, kind: kind)
+                }
+            let terminalStates = RunState.allCases.filter { $0.isTerminal }.map(\.rawValue)
+            let runs = try AgentRunRecord.filter(!terminalStates.contains(Column("state"))).fetchAll(db)
+            references.append(contentsOf: runs.map { $0.requestConfigSeed.credentialBinding.reference })
+            return Array(Set(references))
+        }
+    }
+
     // MARK: - Row mapping
 
     private static func metadata(from record: CredentialMetadataRecord) -> CredentialMetadata {
