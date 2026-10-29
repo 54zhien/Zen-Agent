@@ -4,6 +4,25 @@ import Testing
 
 @testable import ZenAgent
 
+private actor RuntimeApprovalSequence {
+    private var queuedIDs: [String] = []
+    private var waiters: [CheckedContinuation<String, Never>] = []
+
+    func append(_ event: AgentEvent) {
+        guard case .approvalRequired(_, let toolCallID) = event else { return }
+        guard !waiters.isEmpty else {
+            queuedIDs.append(toolCallID)
+            return
+        }
+        waiters.removeFirst().resume(returning: toolCallID)
+    }
+
+    func next() async -> String {
+        if !queuedIDs.isEmpty { return queuedIDs.removeFirst() }
+        return await withCheckedContinuation { waiters.append($0) }
+    }
+}
+
 @Suite("App cold-start recovery")
 @MainActor
 struct AppColdStartRecoveryTests {
@@ -325,6 +344,133 @@ struct AppColdStartRecoveryTests {
             toolCallID: providerCallID,
             content: "succeeded"
         )) == true)
+    }
+
+    @Test("cold recovery preserves prior tool-round protocol history")
+    func laterToolBatchKeepsProtocolHistory() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zen-later-tool-round-\(UUID().uuidString).sqlite")
+        let checkpointURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zen-later-tool-round-checkpoint-\(UUID().uuidString).sqlite")
+        let priorProviderCallID = "provider-prior-\(UUID().uuidString)"
+        let currentProviderCallID = "provider-current-\(UUID().uuidString)"
+        let sideEffects = SideEffectLedger()
+        let approvals = RuntimeApprovalSequence()
+        let tool = Stage2SideEffectTool(ledger: sideEffects)
+        let descriptor = tool.descriptor
+        let providerLedger = Stage2ProviderLedger()
+
+        func toolCall(_ id: String) -> ProviderToolCall {
+            ProviderToolCall(id: id, index: 0, name: descriptor.id, argumentsJSON: "{}")
+        }
+        let liveProvider = Stage2ScriptedProvider(
+            ledger: providerLedger,
+            scripts: [
+                .events([
+                    .textDelta("prior assistant text"),
+                    .toolCall(toolCall(priorProviderCallID)),
+                    .finish(.toolCalls),
+                ]),
+                .events([
+                    .textDelta("current assistant text"),
+                    .toolCall(toolCall(currentProviderCallID)),
+                    .finish(.toolCalls),
+                ]),
+            ]
+        )
+        let first = try Stage2GateFixture.makeDiskComponents(at: url)
+        let liveRuntime = ConversationRuntime(
+            store: first.store,
+            provider: liveProvider,
+            credentials: first.credentials,
+            onEvent: { event in await approvals.append(event) },
+            toolRegistry: try ToolRegistry(tools: [tool])
+        )
+
+        let runID = try await liveRuntime.start(Stage2GateFixture.command(text: "Continue through two tool rounds."))
+        let firstApprovalID = await approvals.next()
+        #expect(try first.store.toolCall(id: firstApprovalID)?.providerCallID == priorProviderCallID)
+        let firstApproval = try #require(try await liveRuntime.pendingToolApprovals(
+            in: Stage2GateFixture.conversationID
+        ).first(where: { $0.toolCallID == firstApprovalID }))
+        try await liveRuntime.resolveToolApproval(firstApproval.request(for: .approveOnce))
+
+        let currentApprovalID = await approvals.next()
+        #expect(try first.store.toolCall(id: currentApprovalID)?.providerCallID == currentProviderCallID)
+        #expect(try first.store.toolCall(id: firstApprovalID)?.state == .succeeded)
+        #expect((await sideEffects.snapshot()).count == 1)
+
+        // Preserve the real waiting-for-approval checkpoint, then stop the original
+        // runtime so the cold-start runtime is its only executor.
+        let backupSource = try DatabaseQueue(path: url.path())
+        let checkpoint = try DatabaseQueue(path: checkpointURL.path())
+        try backupSource.backup(to: checkpoint)
+        try await liveRuntime.stop(runID: runID)
+        try await liveRuntime.waitForCompletion(runID: runID)
+        #expect(try first.store.run(id: runID)?.state == .cancelled)
+
+        let reopened = try Stage2GateFixture.reopen(checkpointURL)
+        let credentials = CredentialStore(
+            secrets: InMemorySecretBackend(),
+            metadataRepository: InMemoryCredentialMetadataRepository()
+        )
+        try credentials.provision(
+            SecretValue("stage2-gate-secret"),
+            as: Stage2GateFixture.credentialReference
+        )
+        let recoveredRuntime = ConversationRuntime(
+            store: reopened,
+            provider: Stage2ScriptedProvider(
+                ledger: providerLedger,
+                scripts: [.events([.textDelta("continued"), .finish(.stop)])]
+            ),
+            credentials: credentials,
+            toolRegistry: try ToolRegistry(tools: [Stage2SideEffectTool(ledger: sideEffects)])
+        )
+
+        let report = try await recoveredRuntime.reconcileColdStartRuns()
+        #expect(report.continuedRunIDs == [runID])
+        guard report.continuedRunIDs == [runID] else { return }
+        #expect(try reopened.toolCall(id: firstApprovalID)?.state == .succeeded)
+        #expect(try reopened.toolCall(id: currentApprovalID)?.state == .waitingForApproval)
+        #expect((await sideEffects.snapshot()).count == 1)
+
+        let currentApproval = try #require(try await recoveredRuntime.pendingToolApprovals(
+            in: Stage2GateFixture.conversationID
+        ).first(where: { $0.toolCallID == currentApprovalID }))
+        try await recoveredRuntime.resolveToolApproval(currentApproval.request(for: .approveOnce))
+        try await Fixtures.awaitRuntimeCompletion(in: reopened, runtime: recoveredRuntime, runID: runID)
+
+        #expect(try reopened.run(id: runID)?.state == .completed)
+        #expect(try reopened.toolCall(id: currentApprovalID)?.state == .succeeded)
+        let observations = await sideEffects.snapshot()
+        #expect(observations.count == 2)
+        #expect(observations.filter { $0.toolCallID == firstApprovalID }.count == 1)
+        #expect(observations.filter { $0.toolCallID == currentApprovalID }.count == 1)
+
+        let requests = await providerLedger.requestsSnapshot()
+        #expect(requests.count == 3)
+        guard requests.count == 3 else { return }
+        var protocolOrder: [String] = []
+        var assistantContent: [String] = []
+        for message in requests[2].messages {
+            switch message {
+            case .assistant(let content, _, let calls) where !calls.isEmpty:
+                protocolOrder.append("assistant:\(calls[0].id)")
+                assistantContent.append(content ?? "")
+            case .toolResult(let toolCallID, let content):
+                protocolOrder.append("tool:\(toolCallID):\(content)")
+            default:
+                break
+            }
+        }
+        #expect(protocolOrder == [
+            "assistant:\(priorProviderCallID)",
+            "tool:\(priorProviderCallID):succeeded",
+            "assistant:\(currentProviderCallID)",
+            "tool:\(currentProviderCallID):succeeded",
+        ])
+        #expect(assistantContent == ["prior assistant text", "current assistant text"])
     }
 
     @Test("an unreadable run seed does not conceal another orphan")

@@ -849,6 +849,15 @@ actor AgentRuntime {
                     guard let batch = activeBatch else {
                         throw ProviderRuntimeFailure.toolsNotAvailable
                     }
+                    let transcript = ToolCallProtocolTranscript(
+                        assistantContent: assistantContent,
+                        calls: batch.calls
+                    )
+                    let encodedTranscript = String(
+                        decoding: try JSONEncoder().encode(transcript),
+                        as: UTF8.self
+                    )
+                    try store.recordProtocolResponse(encodedTranscript, for: step)
                     let disposition = try await processToolBatch(
                         runID: runID,
                         currentRequest: currentRequest,
