@@ -41,7 +41,7 @@ final class MCPSettingsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["mcp-connect"].waitForExistence(timeout: 5))
         let connectionState = app.staticTexts["mcp-connection-state"]
         XCTAssertTrue(connectionState.waitForExistence(timeout: 5))
-        XCTAssertEqual(connectionState.label, "未连接")
+        XCTAssertEqual(connectionState.label, "状态, 未连接")
         app.swipeUp()
         let toolPolicy = app.buttons["mcp-tool-policy"]
         XCTAssertTrue(toolPolicy.waitForExistence(timeout: 5))
@@ -52,9 +52,13 @@ final class MCPSettingsUITests: XCTestCase {
         let delete = app.buttons["mcp-delete"]
         XCTAssertTrue(delete.waitForExistence(timeout: 5))
         delete.tap()
-        let confirm = app.buttons["mcp-delete-confirm"]
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
-        confirm.tap()
+        let confirmationDialog = app.sheets["删除此 MCP 服务？"]
+        XCTAssertTrue(confirmationDialog.waitForExistence(timeout: 5))
+        let deleteActions = confirmationDialog.buttons.matching(
+            NSPredicate(format: "label == %@", "删除")
+        )
+        XCTAssertEqual(deleteActions.count, 1)
+        deleteActions.element.tap()
         XCTAssertTrue(app.staticTexts["mcp-empty"].waitForExistence(timeout: 5))
     }
 }

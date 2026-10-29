@@ -259,7 +259,6 @@ private struct MCPServerDetailView: View {
         }
         .confirmationDialog("删除此 MCP 服务？", isPresented: $isConfirmingDelete, titleVisibility: .visible) {
             Button("删除", role: .destructive) { Task { await delete() } }
-                .accessibilityIdentifier("mcp-delete-confirm")
             Button("取消", role: .cancel) {}
         } message: {
             Text("此操作会删除服务器配置和连接状态。")
