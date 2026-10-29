@@ -307,7 +307,7 @@ jobs:
     # Full39769209066 passed all native tests and uploaded evidence, but its
     # 65-minute deadline cancelled cleanup. Keep headroom for the measured full
     # suite. This changes no xcodebuild timeout, retry or suite selection.
-    timeout-minutes: 85
+    timeout-minutes: 95
     steps:
       - uses: actions/checkout@v4
 
