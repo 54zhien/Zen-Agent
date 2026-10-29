@@ -425,6 +425,8 @@ struct AgentStepRecord: Codable, FetchableRecord, PersistableRecord, Sendable {
     /// Increments on every real provider request, including replays.
     var attempt: Int
     var createdAt: Date
+    /// Exact assistant protocol response for a completed tool-call batch, if any.
+    var protocolResponse: String? = nil
 
     /// The primary key is `(stepID, attempt)`, so the database enforces "one row per
     /// attempt" rather than trusting callers not to insert the same one twice.

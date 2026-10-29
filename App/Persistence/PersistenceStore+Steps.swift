@@ -25,6 +25,23 @@ extension PersistenceStore {
         }
     }
 
+    func recordProtocolResponse(_ response: String, for step: AgentStepRecord) throws {
+        try database.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE agentStep
+                    SET protocolResponse = ?
+                    WHERE stepID = ? AND runID = ? AND sequence = ? AND attempt = ?
+                        AND protocolResponse IS NULL
+                    """,
+                arguments: [response, step.stepID, step.runID, step.sequence, step.attempt]
+            )
+            guard db.changesCount == 1 else {
+                throw PersistenceError.invalidTransition("provider response did not match one empty step attempt")
+            }
+        }
+    }
+
     func steps(inRun runID: String) throws -> [AgentStepRecord] {
         try database.read { db in
             try AgentStepRecord

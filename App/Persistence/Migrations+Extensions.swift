@@ -1,6 +1,14 @@
 import GRDB
 
 extension Migrations {
+    static func registerV24(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v24_agent_step_protocol_response") { db in
+            try db.alter(table: "agentStep") { t in
+                t.add(column: "protocolResponse", .text)
+            }
+        }
+    }
+
     static func registerV23(_ migrator: inout DatabaseMigrator) {
         migrator.registerMigration("v23_skills") { db in
             try db.execute(sql: """
