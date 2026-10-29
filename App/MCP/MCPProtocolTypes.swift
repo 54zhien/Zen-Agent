@@ -50,7 +50,7 @@ struct MCPAuthenticationResolver: Sendable {
 
     var identity: String? {
         guard let reference, let bindingGeneration else { return nil }
-        switch reference {
+        return switch reference {
         case .credential(let credential):
             "credential:\(credential.kind.rawValue):\(credential.id):\(bindingGeneration)"
         case .globalEnvironment(let environment):

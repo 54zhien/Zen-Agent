@@ -298,7 +298,7 @@ private struct MCPServerDetailView: View {
     @ViewBuilder
     private func capabilitySection<Item: Identifiable, Content: View>(
         _ title: String, empty: String, items: [Item],
-        @ViewBuilder content: (Item) -> Content
+        @ViewBuilder content: @escaping (Item) -> Content
     ) -> some View {
         if items.isEmpty {
             LabeledContent(title, value: empty)
