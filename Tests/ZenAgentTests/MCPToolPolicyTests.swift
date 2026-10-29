@@ -398,6 +398,10 @@ private struct MCPToolPolicyFixture {
             secrets: InMemorySecretBackend(),
             metadataRepository: InMemoryCredentialMetadataRepository()
         )
+        try credentials.provision(
+            SecretValue("mcp-policy-test-provider-secret"),
+            as: CredentialReference(id: "cred-1")
+        )
         let transport = MCPToolPolicyFixtureTransport()
         let serverRuntime = MCPServerRuntime(
             registry: serverRegistry,

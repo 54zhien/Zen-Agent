@@ -602,7 +602,7 @@ final class ToolRuntime: @unchecked Sendable {
                     reason = .dependencyChanged
                 }
             }
-            let result = reason == .dependencyChanged
+            let result = isMCPTool && reason == .dependencyChanged
                 ? ToolExecutionResult.failure(.dependencyChanged)
                 : ToolExecutionResult(content: failure.resultContent)
             try store.rejectUndispatchedToolCall(id: call.id, expectedAttempt: call.attempt,

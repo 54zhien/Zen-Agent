@@ -163,7 +163,10 @@ private struct MCPServerDetailView: View {
             }
             if let currentServer {
                 Section("连接") {
-                    LabeledContent("状态", value: stateTitle(snapshot?.state ?? currentServer.connectionState))
+                    LabeledContent("状态") {
+                        Text(stateTitle(snapshot?.state ?? currentServer.connectionState))
+                            .accessibilityIdentifier("mcp-connection-state")
+                    }
                     if let info = snapshot?.serverInfo {
                         LabeledContent("服务器", value: "\(info.name) · \(info.version)")
                     }

@@ -39,9 +39,13 @@ final class MCPSettingsUITests: XCTestCase {
         server.tap()
         XCTAssertTrue(app.navigationBars["MCP 服务"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["mcp-connect"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["mcp-tool-policy"].exists)
-        XCTAssertTrue(app.staticTexts["未连接"].exists)
-        app.buttons["mcp-tool-policy"].tap()
+        let connectionState = app.staticTexts["mcp-connection-state"]
+        XCTAssertTrue(connectionState.waitForExistence(timeout: 5))
+        XCTAssertEqual(connectionState.label, "未连接")
+        app.swipeUp()
+        let toolPolicy = app.buttons["mcp-tool-policy"]
+        XCTAssertTrue(toolPolicy.waitForExistence(timeout: 5))
+        toolPolicy.tap()
         XCTAssertTrue(app.navigationBars["可调用工具"].waitForExistence(timeout: 5))
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
