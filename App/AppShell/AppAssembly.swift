@@ -61,6 +61,7 @@ struct AppAssembly {
         let toolRegistry: ToolRegistry
         let toolSafetyCap: ToolPolicySafetyCap
         let sessions: ConversationSessionStore?
+        let mcpRegistry: MCPServerRegistry
 
         init(store: PersistenceStore, credentials: any CredentialStoring, provider: any ModelProvider,
              runtime: ConversationRuntime, router: RunEventRouter, managedFiles: ManagedFileStore? = nil,
@@ -69,6 +70,7 @@ struct AppAssembly {
             self.store = store; self.credentials = credentials; self.provider = provider
             self.runtime = runtime; self.router = router; self.managedFiles = managedFiles
             self.toolRegistry = toolRegistry; self.toolSafetyCap = toolSafetyCap; self.sessions = sessions
+            self.mcpRegistry = MCPServerRegistry(store: store)
         }
     }
 
