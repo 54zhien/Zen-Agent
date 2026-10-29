@@ -296,11 +296,13 @@ struct WorkspaceSurfaceView<Content: View>: View {
         .onChange(of: model?.pane.map(ObjectIdentifier.init)) { _, _ in navigation.reset() }
         .onDisappear { navigation.reset(); resize.invalidate(); returnPresentation.abort() }
         .onChange(of: dynamicTypeSize) { _, _ in updateMinimumSize() }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase, initial: true) { _, phase in
             if phase != .active {
                 navigation.reset()
                 if resize.isActive, !resize.isClosing, let model { resize.cancelForPresentationChange(model: model) }
                 browse.cancel(); lift.invalidate(); secondaryLift.invalidate()
+            } else if let model {
+                Task { await model.resumeMCPServers() }
             }
         }
     }

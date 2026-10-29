@@ -6,7 +6,8 @@ enum SkillValidation {
               text(definition.summary, limit: 512),
               text(definition.instructions, limit: 8_192, required: true),
               EnvironmentValidation.allowsPlain(definition.instructions),
-              identifiers(definition.requiredTools), identifiers(definition.optionalTools),
+              identifiers(definition.requiredTools, allowingMCPToolIDs: true),
+              identifiers(definition.optionalTools, allowingMCPToolIDs: true),
               identifiers(definition.requiredMCPServers),
               Set(definition.requiredTools).isDisjoint(with: definition.optionalTools),
               definition.environmentKeys.count <= 32,
@@ -25,9 +26,10 @@ enum SkillValidation {
             && value.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) || [9, 10, 13].contains($0.value) }
     }
 
-    private static func identifiers(_ values: [String]) -> Bool {
-        values.count <= 16 && Set(values).count == values.count && values.allSatisfy {
-            $0.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", options: .regularExpression) != nil
+    private static func identifiers(_ values: [String], allowingMCPToolIDs: Bool = false) -> Bool {
+        values.count <= 16 && Set(values).count == values.count && values.allSatisfy { value in
+            value.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", options: .regularExpression) != nil
+                || (allowingMCPToolIDs && MCPToolExecutable.serverID(forToolID: value) != nil)
         }
     }
 }

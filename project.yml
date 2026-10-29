@@ -65,6 +65,9 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: Zen
+        NSLocalNetworkUsageDescription: Zen Agent connects to MCP servers that you configure on your local network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         UILaunchScreen: {}
         # Permit Core Animation to use the device's higher refresh rates.
         CADisableMinimumFrameDurationOnPhone: true

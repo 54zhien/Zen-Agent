@@ -77,6 +77,7 @@ protocol ToolExecutable: Sendable {
 
     /// Trusted dependency check; may reject, never replace the frozen intent.
     func validateDependencies(_ intent: ToolExecutionIntent) throws
+    func validateLiveDependencies(_ intent: ToolExecutionIntent) async throws
 }
 
 extension ToolExecutable {
@@ -92,6 +93,9 @@ extension ToolExecutable {
         guard intent.resourceScope == .notRequired, intent.destinationScope == .notRequired else {
             throw ToolIntentFailure.dependenciesChanged
         }
+    }
+    func validateLiveDependencies(_ intent: ToolExecutionIntent) async throws {
+        try validateDependencies(intent)
     }
 }
 
@@ -141,6 +145,46 @@ struct ToolRegistry: Sendable {
 
     func executor(id: String) -> (any ToolExecutable)? {
         executorsByID[id]
+    }
+
+    func merging(_ additionalExecutables: [any ToolExecutable]) throws -> ToolRegistry {
+        let existing = descriptors.compactMap { executorsByID[$0.id] }
+        return try ToolRegistry(tools: existing + additionalExecutables)
+    }
+
+    var mcpServerIDs: Set<String> {
+        Set(descriptors.compactMap { MCPToolExecutable.serverID(forToolID: $0.id) })
+    }
+
+    var mcpServerDependencyIdentities: [String: MCPServerDependencyIdentity] {
+        var identities: [String: MCPServerDependencyIdentity] = [:]
+        for descriptor in descriptors {
+            guard let executable = executorsByID[descriptor.id] as? MCPToolExecutable else { continue }
+            identities[executable.server.id] = MCPServerDependencyIdentity(
+                serverID: executable.server.id,
+                endpointIdentity: executable.connection.endpointIdentity,
+                authenticationIdentity: executable.connection.authenticationIdentity
+            )
+        }
+        return identities
+    }
+}
+
+struct ToolRuntimeRegistryContext: Sendable {
+    let registry: ToolRegistry
+    let availableMCPServerIDs: Set<String>
+    let availableMCPServerIdentities: [String: MCPServerDependencyIdentity]
+
+    init(
+        registry: ToolRegistry,
+        availableMCPServerIDs: Set<String>? = nil,
+        availableMCPServerIdentities: [String: MCPServerDependencyIdentity]? = nil
+    ) {
+        self.registry = registry
+        let identities = availableMCPServerIdentities ?? registry.mcpServerDependencyIdentities
+        let serverIDs = availableMCPServerIDs ?? Set(identities.keys)
+        self.availableMCPServerIDs = serverIDs
+        self.availableMCPServerIdentities = identities.filter { serverIDs.contains($0.key) }
     }
 }
 

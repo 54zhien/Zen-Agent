@@ -11,6 +11,12 @@ extension PersistenceStore {
         }
     }
 
+    func mcpServer(id: String) throws -> MCPServer? {
+        try database.read { db in
+            try MCPServerRecord.fetchOne(db, key: id)?.server
+        }
+    }
+
     func createMCPServer(
         id: String,
         displayName: String,
@@ -23,7 +29,10 @@ extension PersistenceStore {
             endpoint: endpoint,
             enabled: false,
             createdAt: now,
-            updatedAt: now
+            updatedAt: now,
+            authenticationReferenceType: nil,
+            authenticationReferenceID: nil,
+            authenticationReferenceDetail: nil
         )
         return try database.write { db in
             try record.insert(db)
@@ -55,6 +64,22 @@ extension PersistenceStore {
                 throw MCPServerRegistryError.notFound
             }
             record.enabled = enabled
+            record.updatedAt = now
+            try record.update(db)
+            return record.server
+        }
+    }
+
+    func setMCPServerAuthenticationReference(
+        id: String,
+        reference: MCPAuthenticationReference?,
+        at now: Date = Date()
+    ) throws -> MCPServer {
+        try database.write { db in
+            guard var record = try MCPServerRecord.fetchOne(db, key: id) else {
+                throw MCPServerRegistryError.notFound
+            }
+            record.setAuthenticationReference(reference)
             record.updatedAt = now
             try record.update(db)
             return record.server

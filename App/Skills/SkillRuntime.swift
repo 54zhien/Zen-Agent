@@ -6,10 +6,18 @@ struct SkillRuntime: Sendable {
     let credentials: any CredentialStoring
     let registry: ToolRegistry
     let stopRuns: EnvironmentRuntime.StopRuns?
+    let availableMCPServerIDs: Set<String>?
+    let availableMCPServerIdentities: [String: MCPServerDependencyIdentity]?
+    let frozenMCPServerDependencies: [MCPServerDependencyIdentity]?
 
     init(store: PersistenceStore, credentials: any CredentialStoring, registry: ToolRegistry,
-         stopRuns: EnvironmentRuntime.StopRuns? = nil) {
+         stopRuns: EnvironmentRuntime.StopRuns? = nil, availableMCPServerIDs: Set<String>? = nil,
+         availableMCPServerIdentities: [String: MCPServerDependencyIdentity]? = nil,
+         frozenMCPServerDependencies: [MCPServerDependencyIdentity]? = nil) {
         self.store = store; self.credentials = credentials; self.registry = registry; self.stopRuns = stopRuns
+        self.availableMCPServerIDs = availableMCPServerIDs
+        self.availableMCPServerIdentities = availableMCPServerIdentities
+        self.frozenMCPServerDependencies = frozenMCPServerDependencies
     }
     func list() throws -> [SkillItem] {
         try store.seedSkillCatalog()
@@ -20,7 +28,9 @@ struct SkillRuntime: Sendable {
         for tool in item.definition.requiredTools where registry.descriptor(id: tool) == nil {
             status.missing.append("缺少工具：\(tool)")
         }
-        for server in item.definition.requiredMCPServers { status.missing.append("MCP 尚未接入：\(server)") }
+        for server in item.definition.requiredMCPServers where currentMCPServerIdentities[server] == nil {
+            status.missing.append("MCP 服务未连接或身份已变化：\(server)")
+        }
         for tool in item.definition.optionalTools where registry.descriptor(id: tool) == nil {
             status.notices.append("可选工具未安装：\(tool)")
         }
@@ -94,11 +104,36 @@ struct SkillRuntime: Sendable {
     }
     func resolveFrozen(_ references: [SkillActivationReference]) throws -> [SkillContext] {
         let items = try store.resolveSkillItems(references)
+        let current = currentMCPServerIdentities
+        let frozen = Dictionary(uniqueKeysWithValues: (frozenMCPServerDependencies ?? Array(current.values)).map {
+            ($0.serverID, $0)
+        })
         return try zip(items, references).map { item, reference in
             guard item.definition.requiredTools.allSatisfy({ registry.descriptor(id: $0) != nil }),
-                  item.definition.requiredMCPServers.isEmpty else { throw SkillError.erasedDependency }
+                  item.definition.requiredMCPServers.allSatisfy({
+                      current[$0] != nil && current[$0] == frozen[$0]
+                  }) else { throw SkillError.erasedDependency }
             return try context(item, reference: reference)
         }
+    }
+
+    func requiredMCPServerDependencies(
+        for references: [SkillActivationReference]
+    ) throws -> [MCPServerDependencyIdentity] {
+        let requiredIDs = Set(try store.resolveSkillItems(references).flatMap {
+            $0.definition.requiredMCPServers
+        })
+        let current = currentMCPServerIdentities
+        guard requiredIDs.allSatisfy({ current[$0] != nil }) else {
+            throw SkillError.missingDependency
+        }
+        return requiredIDs.compactMap { current[$0] }.sorted { $0.serverID < $1.serverID }
+    }
+
+    private var currentMCPServerIdentities: [String: MCPServerDependencyIdentity] {
+        let identities = availableMCPServerIdentities ?? registry.mcpServerDependencyIdentities
+        let serverIDs = availableMCPServerIDs ?? Set(identities.keys)
+        return identities.filter { serverIDs.contains($0.key) }
     }
 
     private var environment: EnvironmentRuntime { .init(store: store, credentials: credentials, stopRuns: stopRuns) }

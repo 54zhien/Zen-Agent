@@ -62,6 +62,7 @@ enum ToolDestinationScope: Codable, Sendable, Equatable {
     case notRequired
     case missing
     case provider(instanceID: String, endpointIdentity: String)
+    case mcpServer(serverID: String, endpointIdentity: String)
 
     var isValid: Bool {
         switch self {
@@ -69,6 +70,8 @@ enum ToolDestinationScope: Codable, Sendable, Equatable {
         case .missing: false
         case .provider(let instance, let endpoint):
             ToolPolicyIdentity.isValid(instance) && ToolPolicyIdentity.isValid(endpoint)
+        case .mcpServer(let serverID, let endpoint):
+            ToolPolicyIdentity.isValid(serverID) && ToolPolicyIdentity.isValid(endpoint)
         }
     }
 
@@ -76,6 +79,8 @@ enum ToolDestinationScope: Codable, Sendable, Equatable {
         switch (lhs, rhs) {
         case (.notRequired, .notRequired), (.missing, .missing): true
         case (.provider(let a, let e), .provider(let b, let f)):
+            ToolPolicyIdentity.equals(a, b) && ToolPolicyIdentity.equals(e, f)
+        case (.mcpServer(let a, let e), .mcpServer(let b, let f)):
             ToolPolicyIdentity.equals(a, b) && ToolPolicyIdentity.equals(e, f)
         default: false
         }
@@ -200,13 +205,14 @@ enum ToolPolicyResourceRequirement: Codable, Sendable, Equatable {
 }
 
 enum ToolPolicyEgressRequirement: Codable, Sendable, Equatable {
-    case notRequired, provider, providerRequiringApproval, unknown
+    case notRequired, provider, providerRequiringApproval, mcpServerRequiringApproval, unknown
 
     func accepts(_ scope: ToolDestinationScope) -> Bool {
         guard scope.isValid else { return false }
         return switch (self, scope) {
         case (.notRequired, .notRequired), (.provider, .provider),
-             (.providerRequiringApproval, .provider): true
+             (.providerRequiringApproval, .provider),
+             (.mcpServerRequiringApproval, .mcpServer): true
         default: false
         }
     }
@@ -239,6 +245,7 @@ struct ToolPolicyActionMetadata: Codable, Sendable, Equatable {
 
     var requiresExplicitApproval: Bool {
         risk != .low || egressRequirement == .providerRequiringApproval
+            || egressRequirement == .mcpServerRequiringApproval
     }
 }
 

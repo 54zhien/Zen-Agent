@@ -7,6 +7,7 @@ struct ToolSettingsActionRow: Identifiable, Sendable {
     let action: ToolPolicyActionMetadata
     let policy: ToolPolicySnapshot
     let systemState: ToolSystemPermissionState?
+    let isAvailable: Bool
     var id: String { Data(toolID.utf8).base64EncodedString() + ":" + Data(action.actionID.utf8).base64EncodedString() }
 }
 
@@ -25,24 +26,36 @@ final class ToolSettingsModel {
     private(set) var errorMessage: String?
     private(set) var isWorking = false
     @ObservationIgnored let store: PersistenceStore
-    @ObservationIgnored let registry: ToolRegistry
+    @ObservationIgnored private(set) var registry: ToolRegistry
+    @ObservationIgnored private var disconnectedDescriptors: [ToolDescriptor] = []
     @ObservationIgnored let safetyCap: ToolPolicySafetyCap
     @ObservationIgnored private var generation: UInt64 = 0
     @ObservationIgnored private var active = true
     init(store: PersistenceStore, registry: ToolRegistry, safetyCap: ToolPolicySafetyCap = .unrestricted) {
         self.store = store; self.registry = registry; self.safetyCap = safetyCap
     }
+    func replaceRegistry(_ registry: ToolRegistry, disconnectedDescriptors: [ToolDescriptor] = []) async {
+        guard active else { return }
+        self.registry = registry
+        let liveIDs = Set(registry.descriptors.map(\.id))
+        self.disconnectedDescriptors = disconnectedDescriptors.filter { !liveIDs.contains($0.id) }
+        await load()
+    }
     func load() async {
         guard active else { return }
         generation &+= 1
         let captured = generation
         let store = store, registry = registry
+        let descriptors = registry.descriptors.map { ($0, true) }
+            + disconnectedDescriptors.map { ($0, false) }
         do {
             let facts = try await Task.detached {
-                try registry.descriptors.flatMap { descriptor -> [ToolSettingsActionRow] in
-                    guard let current = registry.executor(id: descriptor.id)?.descriptor,
-                          ToolPolicyIdentity.equals(current.revision, descriptor.revision),
-                          current.actions == descriptor.actions else { return [] }
+                try descriptors.flatMap { descriptor, isAvailable -> [ToolSettingsActionRow] in
+                    if isAvailable {
+                        guard let current = registry.executor(id: descriptor.id)?.descriptor,
+                              ToolPolicyIdentity.equals(current.revision, descriptor.revision),
+                              current.actions == descriptor.actions else { return [] }
+                    }
                     return try descriptor.actions.filter { action in
                         action.isKnown && descriptor.actions.filter {
                             ToolPolicyIdentity.equals($0.actionID, action.actionID)
@@ -50,19 +63,22 @@ final class ToolSettingsModel {
                     }.map { action in
                         ToolSettingsActionRow(toolID: descriptor.id, displayName: descriptor.displayName,
                             action: action, policy: try store.toolPolicy(toolID: descriptor.id,
-                                actionID: action.actionID, descriptorRevision: descriptor.revision), systemState: nil)
+                                actionID: action.actionID, descriptorRevision: descriptor.revision),
+                            systemState: nil, isAvailable: isAvailable)
                     }
                 }
             }.value
             var rows: [ToolSettingsActionRow] = []
             for fact in facts {
                 let state: ToolSystemPermissionState?
-                if let owner = registry.executor(id: fact.toolID) as? any ToolSystemPermissionProviding {
+                if !fact.isAvailable {
+                    state = nil
+                } else if let owner = registry.executor(id: fact.toolID) as? any ToolSystemPermissionProviding {
                     do { state = try await owner.systemPermissionStateForSettings() }
                     catch { state = .unavailable }
                 } else { state = .notRequired }
                 rows.append(ToolSettingsActionRow(toolID: fact.toolID, displayName: fact.displayName,
-                    action: fact.action, policy: fact.policy, systemState: state))
+                    action: fact.action, policy: fact.policy, systemState: state, isAvailable: fact.isAvailable))
             }
             let grants = try await Task.detached { try store.toolGrantsForSettings() }.value
             guard active, generation == captured, !Task.isCancelled else { return }

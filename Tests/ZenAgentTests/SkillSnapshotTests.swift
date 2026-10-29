@@ -7,12 +7,12 @@ struct SkillSnapshotTests {
     private let reference = SkillActivationReference(skillID: "s", revisionID: "v", environmentReferences: [],
         environmentFingerprint: "env-v1:" + String(repeating: "0", count: 64))
 
-    @Test("new snapshots require v2 and round trip content-free Skill identities")
+    @Test("new snapshots require v3 and round trip content-free Skill identities")
     func roundTrip() throws {
         let snapshot = RunExecutionSnapshot(providerID: .deepSeek, providerAdapterRevision: "adapter",
             prompt: .init(runtimeSafetyBaseline: "r", zenCore: "c", providerAdapterInstructions: "a", skillReferences: [reference]),
             modelCapabilities: [.text], exposedTools: [], maxProviderSteps: 4)
-        #expect(snapshot.formatVersion == 2)
+        #expect(snapshot.formatVersion == 3)
         let encoded = try ExecutionSnapshotCodec.encode(snapshot)
         #expect(try ExecutionSnapshotCodec.decode(encoded).prompt.skillReferences == [reference])
     }

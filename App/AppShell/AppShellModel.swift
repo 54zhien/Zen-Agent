@@ -64,6 +64,7 @@ final class AppShellModel {
         return SettingsWorkspaceModel(store: dependencies.store, credentials: dependencies.credentials,
             provider: dependencies.provider, defaults: userDefaults, appearance: appearance, menus: modelMenus,
             files: dependencies.managedFiles,
+            mcpRegistry: dependencies.mcpRegistry, mcpRuntime: dependencies.mcpRuntime,
             toolRegistry: dependencies.toolRegistry, toolSafetyCap: dependencies.toolSafetyCap,
             onStopExtensionRuns: { [runtime = dependencies.runtime, store = dependencies.store] ids in
                 for id in ids {
@@ -81,6 +82,11 @@ final class AppShellModel {
             }, onDefault: { [weak self] target, _ in
                 self?.target = target
             })
+    }
+
+    func resumeMCPServers() async {
+        guard let runtime = dependencies?.mcpRuntime else { return }
+        await runtime.reconnectEnabledServers()
     }
 
     private func initializeConversationConfiguration(_ target: AppExecutionTarget, id: String) throws -> Bool {
@@ -1020,6 +1026,7 @@ final class AppShellModel {
         launchRestorationTask = Task { [weak self] in
             guard let self else { return }
             do {
+                await dependencies.mcpRuntime.reconnectEnabledServers()
                 let report = try await dependencies.runtime.reconcileColdStartRuns()
                 coldStartRecoveryMessage = report.needsRetry
                     ? "部分运行尚未恢复，可阅读历史并重试恢复。"

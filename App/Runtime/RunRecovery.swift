@@ -89,7 +89,7 @@ struct RunRecovery: Sendable {
             do {
                 _ = try store.resolveMemoryReferences(snapshot.prompt.memoryReferences)
                 try store.validateExtensionDependencies(runID: runID, snapshot: snapshot)
-                try toolRuntime?.validateSkillDependencies(snapshot)
+                try toolRuntime?.validateSkillDependencies(snapshot, runID: runID)
             }
             catch {
                 try store.invalidateMemoryRun(id: runID)
