@@ -54,6 +54,14 @@ struct ExecutionSnapshotTests {
         #expect(decoded.formatVersion == RunExecutionSnapshot.currentFormatVersion)
     }
 
+    @Test("v2 snapshots remain readable without MCP server dependencies")
+    func previousSnapshotVersionDefaultsMCPDependencies() throws {
+        let encoded = #"{"formatVersion":2,"providerID":"deepseek","providerAdapterRevision":"adapter-v2","prompt":{"runtimeSafetyBaseline":"runtime-v1","zenCore":"zen-v1","providerAdapterInstructions":""},"modelCapabilities":["text","streaming"],"exposedTools":[],"maxProviderSteps":4}"#
+        let decoded = try ExecutionSnapshotCodec.decode(encoded)
+        #expect(decoded.formatVersion == 2)
+        #expect(decoded.mcpServerDependencies.isEmpty)
+    }
+
     @Test("snapshot format failures distinguish version states")
     func formatFailuresAreDistinct() throws {
         var failure: Error?

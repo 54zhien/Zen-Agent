@@ -57,6 +57,7 @@ actor ConversationRuntime {
     private let managedFileStore: ManagedFileStore?
     private let agentRuntime: AgentRuntime
     private let toolRegistry: ToolRegistry
+    private let mcpRuntime: MCPServerRuntime?
     private let onEvent: @Sendable (AgentEvent) async -> Void
     private let registerRecoveredRun: @Sendable (String, String) async -> Void
     private let approvalRuntimeInstanceID = UUID().uuidString
@@ -72,14 +73,17 @@ actor ConversationRuntime {
 
     var activeOperationCount: Int { operations.count }
 
-    func availableSkills(providerInstanceID: ProviderInstanceID?, modelID: ModelID?) throws -> [ComposerSkillOption] {
+    func availableSkills(providerInstanceID: ProviderInstanceID?, modelID: ModelID?) async throws -> [ComposerSkillOption] {
         let supportsTools: Bool
         if let providerInstanceID, let modelID,
            let instance = try store.providerInstance(id: providerInstanceID) {
             supportsTools = provider.descriptor(for: modelID, in: instance)?.capabilities.contains(.tools) == true
         } else { supportsTools = false }
+        let context = try await currentToolContext(exposeTools: supportsTools)
         let skills = SkillRuntime(store: store, credentials: credentials,
-            registry: supportsTools ? toolRegistry : .empty)
+            registry: context.registry,
+            availableMCPServerIDs: context.availableMCPServerIDs,
+            availableMCPServerIdentities: context.availableMCPServerIdentities)
         return try skills.list().filter { $0.enabled && !$0.pendingDeletion }.map { item in
             ComposerSkillOption(id: item.id, name: item.definition.name,
                 isAvailable: try skills.dependencyStatus(for: item).isAvailable)
@@ -94,6 +98,7 @@ actor ConversationRuntime {
         registerRecoveredRun: @escaping @Sendable (String, String) async -> Void = { _, _ in },
         toolRegistry: ToolRegistry? = nil,
         toolRuntime: ToolRuntime? = nil,
+        mcpRuntime: MCPServerRuntime? = nil,
         managedFileStore: ManagedFileStore? = nil
     ) {
         self.store = store
@@ -102,6 +107,7 @@ actor ConversationRuntime {
         self.managedFileStore = managedFileStore ?? (try? ManagedFileStore.applicationDefault())
         let resolvedRegistry = toolRegistry ?? ToolRegistry.empty
         self.toolRegistry = resolvedRegistry
+        self.mcpRuntime = mcpRuntime
         self.agentRuntime = AgentRuntime(
             store: store,
             provider: provider,
@@ -114,6 +120,22 @@ actor ConversationRuntime {
         )
         self.onEvent = onEvent
         self.registerRecoveredRun = registerRecoveredRun
+    }
+
+    private func currentToolContext(exposeTools: Bool = true) async throws -> ToolRuntimeRegistryContext {
+        guard let mcpRuntime else {
+            return ToolRuntimeRegistryContext(registry: exposeTools ? toolRegistry : .empty)
+        }
+        let context = try await mcpRuntime.unifiedToolContext(base: toolRegistry)
+        return ToolRuntimeRegistryContext(
+            registry: exposeTools ? context.registry : .empty,
+            availableMCPServerIDs: context.availableServerIDs,
+            availableMCPServerIdentities: context.availableServerIdentities
+        )
+    }
+
+    private func toolContext(for snapshot: RunExecutionSnapshot) async throws -> ToolRuntimeRegistryContext {
+        try await currentToolContext(exposeTools: snapshot.modelCapabilities.contains(.tools))
     }
 
     /// Runs a Send to completion and returns the durable Parent Run id.
@@ -203,6 +225,10 @@ actor ConversationRuntime {
         else {
             throw ConversationRuntimeError.unsupportedTextModel(command.modelID)
         }
+        let runToolContext = try await currentToolContext(
+            exposeTools: descriptor.capabilities.contains(.tools)
+        )
+        let runToolRegistry = runToolContext.registry
 
         // 5-6. Read metadata and freeze the exact credential binding.
         guard let reference = instance.credentialReference else {
@@ -226,8 +252,13 @@ actor ConversationRuntime {
             credentialBinding: binding
         )
 
-        let skillRuntime = SkillRuntime(store: store, credentials: credentials,
-            registry: descriptor.capabilities.contains(.tools) ? toolRegistry : .empty)
+        let skillRuntime = SkillRuntime(
+            store: store,
+            credentials: credentials,
+            registry: runToolRegistry,
+            availableMCPServerIDs: runToolContext.availableMCPServerIDs,
+            availableMCPServerIdentities: runToolContext.availableMCPServerIdentities
+        )
         let preparedSkills = try skillRuntime.prepare(query: command.text, selectedSkillIDs: command.selectedSkillIDs)
 
         // 8. Build the user message, text part and preparing Parent Run.
@@ -328,6 +359,9 @@ actor ConversationRuntime {
         let activatedSkills: [SkillContext]
         do {
             activatedSkills = try skillRuntime.resolveFrozen(store.runSkillReferences(runID: runID))
+            let mcpServerDependencies = try skillRuntime.requiredMCPServerDependencies(
+                for: activatedSkills.map(\.reference)
+            )
             effectiveSoulVersion = try store.effectiveSoulVersion(
                 conversationID: command.conversationID
             )
@@ -344,7 +378,7 @@ actor ConversationRuntime {
                     skillReferences: activatedSkills.map(\.reference)
                 ),
                 modelCapabilities: descriptor.capabilities,
-                exposedTools: descriptor.capabilities.contains(.tools) ? toolRegistry.descriptors.map {
+                exposedTools: runToolRegistry.descriptors.map {
                     ToolExposureSnapshot(
                         toolID: $0.id,
                         descriptorRevision: $0.revision,
@@ -352,7 +386,8 @@ actor ConversationRuntime {
                         description: $0.description,
                         inputSchema: $0.inputSchema
                     )
-                } : [],
+                },
+                mcpServerDependencies: mcpServerDependencies,
                 maxProviderSteps: command.maxProviderSteps
             )
             try store.completeExecutionSnapshot(
@@ -379,8 +414,11 @@ actor ConversationRuntime {
                 endReason: error is SkillError || error is EnvironmentError ? .dependencyUnavailable : .providerFailed
             )) ?? []
             await publishFailureEvents(failureEvents)
+            await agentRuntime.releaseToolRegistry(forRunID: runID)
             return runID
         }
+
+        await agentRuntime.bindToolRegistry(runToolContext, forRunID: runID)
 
         // 12. Only now may AgentRuntime advance the Run into provider execution.
         let request = PromptComposer().compose(PromptCompositionInput(
@@ -703,14 +741,29 @@ actor ConversationRuntime {
         if !revoked, let encoded = run.executionSnapshot,
            let snapshot = try? ExecutionSnapshotCodec.decode(encoded) {
             do {
+                let context = try await toolContext(for: snapshot)
                 _ = try store.resolveMemoryReferences(snapshot.prompt.memoryReferences)
                 try store.validateExtensionDependencies(runID: run.id, snapshot: snapshot)
-                _ = try SkillRuntime(store: store, credentials: credentials, registry: toolRegistry)
+                _ = try SkillRuntime(
+                    store: store,
+                    credentials: credentials,
+                    registry: context.registry,
+                    availableMCPServerIDs: context.availableMCPServerIDs,
+                    availableMCPServerIdentities: context.availableMCPServerIdentities,
+                    frozenMCPServerDependencies: snapshot.mcpServerDependencies
+                )
                     .resolveFrozen(snapshot.prompt.skillReferences)
             } catch { revoked = true }
         } else if !revoked, run.executionSnapshot == nil {
             do {
-                _ = try SkillRuntime(store: store, credentials: credentials, registry: toolRegistry)
+                let context = try await currentToolContext()
+                _ = try SkillRuntime(
+                    store: store,
+                    credentials: credentials,
+                    registry: context.registry,
+                    availableMCPServerIDs: context.availableMCPServerIDs,
+                    availableMCPServerIdentities: context.availableMCPServerIdentities
+                )
                     .resolveFrozen(store.runSkillReferences(runID: run.id))
             } catch { revoked = true }
         }
@@ -718,6 +771,7 @@ actor ConversationRuntime {
         try store.invalidateMemoryRun(id: run.id)
         try await agentRuntime.recoverInvalidatedMemoryRun(runID: run.id,
             project: { event in try await self.applyAndPublish(event) })
+        await releaseToolRegistryIfTerminal(runID: run.id)
         return true
     }
 
@@ -735,6 +789,7 @@ actor ConversationRuntime {
         )
         await publish(.runStateChanged(runID: id, state: terminalState))
         await publish(.runEnded(runID: id, state: terminalState, endReason: endReason))
+        await agentRuntime.releaseToolRegistry(forRunID: id)
     }
 
     private func continueFrozenPreparingRun(_ run: AgentRunRecord) async throws {
@@ -751,11 +806,14 @@ actor ConversationRuntime {
               let triggerID = run.triggerMessageID
         else { throw RunRequestRebuildError.incompleteCommittedInput }
 
+        let runToolContext = try await toolContext(for: snapshot)
         let request = try RunRequestRebuilder(
             store: store,
             provider: provider,
-            toolRegistry: toolRegistry,
-            credentials: credentials
+            toolRegistry: runToolContext.registry,
+            credentials: credentials,
+            availableMCPServerIDs: runToolContext.availableMCPServerIDs,
+            availableMCPServerIdentities: runToolContext.availableMCPServerIdentities
         ).initialRequest(
             for: run,
             snapshot: snapshot,
@@ -775,6 +833,7 @@ actor ConversationRuntime {
         guard try store.run(id: run.id)?.state == .requestingModel else {
             throw RunRequestRebuildError.incompatibleSnapshot
         }
+        await agentRuntime.rebindRecoveredRunToolRegistry(runToolContext, forRunID: run.id)
         let stream = await agentRuntime.advance(
             runID: run.id,
             request: request,
@@ -799,14 +858,18 @@ actor ConversationRuntime {
         } catch {
             throw RunRequestRebuildError.incompatibleSnapshot
         }
+        let runToolContext = try await toolContext(for: snapshot)
+        await agentRuntime.rebindRecoveredRunToolRegistry(runToolContext, forRunID: run.id)
         // Settle incompatible pending intents on their original IDs before any
         // legacy approval wait or transcript reconstruction can conceal them.
         try await agentRuntime.settleIncompatiblePendingTools(inRun: run.id)
         let batch = try RunRequestRebuilder(
             store: store,
             provider: provider,
-            toolRegistry: toolRegistry,
-            credentials: credentials
+            toolRegistry: runToolContext.registry,
+            credentials: credentials,
+            availableMCPServerIDs: runToolContext.availableMCPServerIDs,
+            availableMCPServerIdentities: runToolContext.availableMCPServerIdentities
         ).latestToolBatch(
             for: run,
             snapshot: snapshot,
@@ -1010,6 +1073,7 @@ actor ConversationRuntime {
                 for event in events {
                     try await applyAndPublish(event)
                 }
+                await releaseToolRegistryIfTerminal(runID: runID)
                 return
             }
         }
@@ -1385,6 +1449,7 @@ actor ConversationRuntime {
                 endReason: .providerFailed
             )
             await publishFailureEvents(failureEvents)
+            await releaseToolRegistryIfTerminal(runID: runID)
         } catch let error {
             if let existing = completionErrors[runID] {
                 if case .terminalizationFailed = existing {
@@ -1458,8 +1523,14 @@ actor ConversationRuntime {
         }
     }
 
-    private func removeCompletedOperation(runID: String) {
+    private func removeCompletedOperation(runID: String) async {
         operations.removeValue(forKey: runID)
+        await releaseToolRegistryIfTerminal(runID: runID)
+    }
+
+    private func releaseToolRegistryIfTerminal(runID: String) async {
+        guard (try? store.run(id: runID))?.state.isTerminal == true else { return }
+        await agentRuntime.releaseToolRegistry(forRunID: runID)
     }
 
     private static func submissionDigest(for command: SendCommand) -> String {

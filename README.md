@@ -127,7 +127,7 @@ recordings and subsequent bounded corrections remain in the
 The final receipt changes only that record, the implementation plan and this
 README; App, Tests and build inputs remain identical to the tested source.
 PR #43 and Blueprint PR #8 remain draft/unmerged. Physical-device UI and
-Keychain/data-protection acceptance remain open. Stage 9 has not started.
+Keychain/data-protection acceptance remain open. Stage 9 MCP completion is in progress on `codex/stage9-mcp-completion`; independent review and local static checks passed, and full CI on the source commit is pending. See the [Stage 9 completion receipt](tasks/stage9-mcp-completion.md).
 
 The following is the historical 2026-10-05 slice snapshot. Its individual PR
 states describe that date; use the current integration receipt above for main.

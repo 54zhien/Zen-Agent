@@ -25,7 +25,8 @@ enum ToolRuntimeError: Error, Equatable, Sendable {
 /// at the transactional dispatch boundary. OS consent is a separate explicit interaction before dispatch.
 final class ToolRuntime: @unchecked Sendable {
     private let store: PersistenceStore
-    private let registry: ToolRegistry
+    private let baseRegistry: ToolRegistry
+    private let registryBindings = ToolRuntimeRegistryBindings()
     private let safetyCap: ToolPolicySafetyCap
     private let systemConsent: ToolSystemConsentRuntime
     private let credentials: (any CredentialStoring)?
@@ -33,15 +34,57 @@ final class ToolRuntime: @unchecked Sendable {
     init(store: PersistenceStore, registry: ToolRegistry, safetyCap: ToolPolicySafetyCap = .unrestricted, credentials: (any CredentialStoring)? = nil) {
         self.store = store
         self.credentials = credentials
-        self.registry = registry
+        self.baseRegistry = registry
         self.safetyCap = safetyCap
         self.systemConsent = ToolSystemConsentRuntime(store: store, registry: registry, safetyCap: safetyCap)
     }
 
-    func validateSkillDependencies(_ snapshot: RunExecutionSnapshot) throws {
+    func bind(
+        registry: ToolRegistry,
+        availableMCPServerIDs: Set<String>? = nil,
+        availableMCPServerIdentities: [String: MCPServerDependencyIdentity]? = nil,
+        forRunID runID: String
+    ) {
+        registryBindings.bind(
+            ToolRuntimeRegistryContext(
+                registry: registry,
+                availableMCPServerIDs: availableMCPServerIDs,
+                availableMCPServerIdentities: availableMCPServerIdentities
+            ),
+            forRunID: runID
+        )
+    }
+
+    func rebindRecoveredRun(registry: ToolRegistry, availableMCPServerIDs: Set<String>? = nil,
+                            availableMCPServerIdentities: [String: MCPServerDependencyIdentity]? = nil,
+                            forRunID runID: String) {
+        registryBindings.replace(
+            ToolRuntimeRegistryContext(
+                registry: registry,
+                availableMCPServerIDs: availableMCPServerIDs,
+                availableMCPServerIdentities: availableMCPServerIdentities
+            ),
+            forRunID: runID
+        )
+    }
+
+    func releaseRegistry(forRunID runID: String) {
+        registryBindings.release(forRunID: runID)
+    }
+
+    func validateSkillDependencies(_ snapshot: RunExecutionSnapshot, runID: String? = nil) throws {
         guard !snapshot.prompt.skillReferences.isEmpty else { return }
         guard let credentials else { throw SkillError.erasedDependency }
-        _ = try SkillRuntime(store: store, credentials: credentials, registry: registry).resolveFrozen(snapshot.prompt.skillReferences)
+        let context = runID.flatMap { registryBindings.context(forRunID: $0) }
+            ?? ToolRuntimeRegistryContext(registry: baseRegistry)
+        _ = try SkillRuntime(
+            store: store,
+            credentials: credentials,
+            registry: context.registry,
+            availableMCPServerIDs: context.availableMCPServerIDs,
+            availableMCPServerIdentities: context.availableMCPServerIdentities,
+            frozenMCPServerDependencies: snapshot.mcpServerDependencies
+        ).resolveFrozen(snapshot.prompt.skillReferences)
     }
 
     /// Completes one provider tool call through validation, frozen intent persistence,
@@ -58,6 +101,7 @@ final class ToolRuntime: @unchecked Sendable {
         batchSequence: Int,
         at now: Date = Date()
     ) async throws -> ToolExecutionResult? {
+        let registry = registry(forRunID: agentRunID)
         guard
             !providerCallID.isEmpty,
             !batchID.isEmpty
@@ -257,6 +301,7 @@ final class ToolRuntime: @unchecked Sendable {
     func approve(toolCallID: String, displayedIntentBinding: String? = nil, scope: ToolApprovalScope = .once) throws {
         if try validatePendingIntent(toolCallID: toolCallID, requireAdmission: false) != nil { return }
         let call = try requiredToolCall(id: toolCallID)
+        let registry = registry(forRunID: call.agentRunID)
         guard let json = call.executionIntent,
               let intent = try? ToolIntentCodec.decodeForDisplay(json),
               let descriptor = registry.executor(id: intent.toolID)?.descriptor else {
@@ -324,6 +369,7 @@ final class ToolRuntime: @unchecked Sendable {
             throw ToolRuntimeError.missingExecutionIntent(toolCallID)
         }
         let intent = try decodeIntent(executionIntent, callID: toolCallID)
+        let registry = registry(forRunID: call.agentRunID)
         guard let executor = registry.executor(id: intent.toolID) else {
             throw ToolRuntimeError.unknownTool(intent.toolID)
         }
@@ -336,6 +382,19 @@ final class ToolRuntime: @unchecked Sendable {
             throw ToolExecutionError.invalidIntent
         }
 
+        try Task.checkCancellation()
+        do {
+            try await executor.validateLiveDependencies(intent)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            let failureResult = ToolExecutionResult.failure(.dependencyChanged)
+            try store.rejectUndispatchedToolCall(id: call.id, expectedAttempt: call.attempt,
+                result: ToolResultRecord(toolCallID: call.id, payload: failureResult.content,
+                    createdAt: now, kind: failureResult.kind, failureCode: failureResult.failure),
+                at: now, failureReason: .dependencyChanged)
+            return failureResult
+        }
         try Task.checkCancellation()
         if executor is any ToolSystemPermissionProviding {
             let systemChecked = try await systemConsent.preflight(call: call, intent: intent, executor: executor)
@@ -439,6 +498,7 @@ final class ToolRuntime: @unchecked Sendable {
     /// policy widening or executor re-entry. A missing proof stays indeterminate.
     func confirmToolOutcome(toolCallID: String) throws -> Bool {
         let call = try requiredToolCall(id: toolCallID)
+        let registry = registry(forRunID: call.agentRunID)
         guard call.state == .dispatched || call.state == .indeterminate,
               let json = call.executionIntent,
               let intent = try? ToolIntentCodec.decodeForDisplay(json),
@@ -505,6 +565,10 @@ final class ToolRuntime: @unchecked Sendable {
         return call
     }
 
+    private func registry(forRunID runID: String) -> ToolRegistry {
+        registryBindings.context(forRunID: runID)?.registry ?? baseRegistry
+    }
+
     /// Cold recovery and dispatch share this check. Terminal calls are historical
     /// results, while dispatched calls remain owned by uncertain-outcome recovery.
     func validatePendingIntent(toolCallID: String, at now: Date = Date(),
@@ -515,7 +579,7 @@ final class ToolRuntime: @unchecked Sendable {
         do {
             guard let json = call.executionIntent else { throw ToolIntentFailure.malformedIntent }
             let intent = try ToolIntentCodec.decodeForDisplay(json)
-            guard let executor = registry.executor(id: intent.toolID),
+            guard let executor = registry(forRunID: call.agentRunID).executor(id: intent.toolID),
                   ToolPolicyIdentity.equals(call.action, intent.toolID)
             else { throw ToolIntentFailure.descriptorChanged }
             descriptor = executor.descriptor
@@ -525,14 +589,25 @@ final class ToolRuntime: @unchecked Sendable {
             throw CancellationError()
         } catch {
             let failure = (error as? ToolIntentFailure) ?? .dependenciesChanged
-            let reason: ToolCallFailureReason = switch failure {
-            case .descriptorChanged, .actionChanged, .legacyIntentRequiresReapproval, .unsupportedVersion:
-                .reapprovalNeeded
-            default: .dependencyChanged
+            let failedIntent = call.executionIntent.flatMap { try? ToolIntentCodec.decodeForDisplay($0) }
+            let isMCPTool = failedIntent?.toolID.hasPrefix("mcp:") == true
+            let reason: ToolCallFailureReason
+            if isMCPTool && (failure == .descriptorChanged || failure == .actionChanged) {
+                reason = .dependencyChanged
+            } else {
+                switch failure {
+                case .descriptorChanged, .actionChanged, .legacyIntentRequiresReapproval, .unsupportedVersion:
+                    reason = .reapprovalNeeded
+                default:
+                    reason = .dependencyChanged
+                }
             }
-            let result = ToolExecutionResult(content: failure.resultContent)
+            let result = reason == .dependencyChanged
+                ? ToolExecutionResult.failure(.dependencyChanged)
+                : ToolExecutionResult(content: failure.resultContent)
             try store.rejectUndispatchedToolCall(id: call.id, expectedAttempt: call.attempt,
-                result: ToolResultRecord(toolCallID: call.id, payload: result.content, createdAt: now),
+                result: ToolResultRecord(toolCallID: call.id, payload: result.content, createdAt: now,
+                    kind: result.kind, failureCode: result.failure),
                 at: now, failureReason: reason)
             return result
         }
@@ -605,5 +680,34 @@ final class ToolRuntime: @unchecked Sendable {
         } catch {
             throw ToolRuntimeError.invalidStoredExecutionIntent(callID)
         }
+    }
+}
+
+private final class ToolRuntimeRegistryBindings: @unchecked Sendable {
+    private let lock = NSLock()
+    private var registries: [String: ToolRuntimeRegistryContext] = [:]
+
+    func bind(_ context: ToolRuntimeRegistryContext, forRunID runID: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        if registries[runID] == nil { registries[runID] = context }
+    }
+
+    func context(forRunID runID: String) -> ToolRuntimeRegistryContext? {
+        lock.lock()
+        defer { lock.unlock() }
+        return registries[runID]
+    }
+
+    func release(forRunID runID: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        registries.removeValue(forKey: runID)
+    }
+
+    func replace(_ context: ToolRuntimeRegistryContext, forRunID runID: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        registries[runID] = context
     }
 }

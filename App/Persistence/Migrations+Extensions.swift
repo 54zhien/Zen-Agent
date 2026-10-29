@@ -9,6 +9,15 @@ extension Migrations {
         }
     }
 
+    static func registerV26(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v26_mcp_authentication_reference") { db in
+            try db.alter(table: "mcpServer") { t in
+                t.add(column: "authenticationReferenceType", .text)
+                t.add(column: "authenticationReferenceID", .text)
+                t.add(column: "authenticationReferenceDetail", .text)
+            }
+        }
+    }
     static func registerV25(_ migrator: inout DatabaseMigrator) {
         migrator.registerMigration("v25_mcp_server_registry") { db in
             try db.create(table: "mcpServer") { t in

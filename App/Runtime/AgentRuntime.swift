@@ -160,6 +160,30 @@ actor AgentRuntime {
         )
     }
 
+    func bindToolRegistry(_ context: ToolRuntimeRegistryContext, forRunID runID: String) {
+        toolRuntime.bind(
+            registry: context.registry,
+            availableMCPServerIDs: context.availableMCPServerIDs,
+            availableMCPServerIdentities: context.availableMCPServerIdentities,
+            forRunID: runID
+        )
+    }
+
+    /// Recovery reconstructs executors from the currently live catalog, then the
+    /// frozen snapshot must match before any request or pending call can resume.
+    func rebindRecoveredRunToolRegistry(_ context: ToolRuntimeRegistryContext, forRunID runID: String) {
+        toolRuntime.rebindRecoveredRun(
+            registry: context.registry,
+            availableMCPServerIDs: context.availableMCPServerIDs,
+            availableMCPServerIdentities: context.availableMCPServerIdentities,
+            forRunID: runID
+        )
+    }
+
+    func releaseToolRegistry(forRunID runID: String) {
+        toolRuntime.releaseRegistry(forRunID: runID)
+    }
+
     /// Starts one provider attempt and returns its ordered business-event stream.
     ///
     /// The step identity is created from durable rows inside `execute`, not from an
@@ -640,7 +664,7 @@ actor AgentRuntime {
                     do {
                         guard runForRequest.recoveryAction != .invalidate else { throw SkillError.erasedDependency }
                         try store.validateExtensionDependencies(runID: runID, snapshot: snapshot)
-                        try toolRuntime.validateSkillDependencies(snapshot)
+                        try toolRuntime.validateSkillDependencies(snapshot, runID: runID)
                         _ = try MemoryRuntime(store: store, credentials: credentials)
                             .resolveFrozen(snapshot.prompt.memoryReferences)
                     } catch {

@@ -53,10 +53,15 @@ struct RunRequestRebuilder {
     let provider: any ModelProvider
     let toolRegistry: ToolRegistry
     let credentials: (any CredentialStoring)?
+    let availableMCPServerIDs: Set<String>?
+    let availableMCPServerIdentities: [String: MCPServerDependencyIdentity]?
 
     init(store: PersistenceStore, provider: any ModelProvider, toolRegistry: ToolRegistry,
-         credentials: (any CredentialStoring)? = nil) {
+         credentials: (any CredentialStoring)? = nil, availableMCPServerIDs: Set<String>? = nil,
+         availableMCPServerIdentities: [String: MCPServerDependencyIdentity]? = nil) {
         self.store = store; self.provider = provider; self.toolRegistry = toolRegistry; self.credentials = credentials
+        self.availableMCPServerIDs = availableMCPServerIDs
+        self.availableMCPServerIdentities = availableMCPServerIdentities
     }
 
     func initialRequest(
@@ -123,7 +128,14 @@ struct RunRequestRebuilder {
             if snapshot.prompt.skillReferences.isEmpty { skills = [] }
             else {
                 guard let credentials else { throw RunRequestRebuildError.missingDependency }
-                skills = try SkillRuntime(store: store, credentials: credentials, registry: toolRegistry)
+                skills = try SkillRuntime(
+                    store: store,
+                    credentials: credentials,
+                    registry: toolRegistry,
+                    availableMCPServerIDs: availableMCPServerIDs,
+                    availableMCPServerIdentities: availableMCPServerIdentities,
+                    frozenMCPServerDependencies: snapshot.mcpServerDependencies
+                )
                     .resolveFrozen(snapshot.prompt.skillReferences)
             }
         } catch { throw RunRequestRebuildError.missingDependency }

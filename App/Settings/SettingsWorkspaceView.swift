@@ -28,7 +28,7 @@ struct SettingsWorkspaceView: View {
                 }
                 Section("Agent") {
                     NavigationLink { SettingsAgentView(model: model.soul, memory: model.memory, skills: model.skills,
-                        environment: model.environment, tools: model.tools, focus: focus) }
+                        environment: model.environment, tools: model.tools, mcp: model.mcp, focus: focus) }
                         label: { Label("Agent", systemImage: "sparkle") }
                         .accessibilityIdentifier("settings-agent")
                 }
@@ -90,6 +90,7 @@ private struct SettingsAgentView: View {
     let skills: SkillSettingsModel
     let environment: EnvironmentSettingsModel
     let tools: ToolSettingsModel
+    let mcp: MCPSettingsModel
     let focus: SettingsInputFocus
     var body: some View {
         Form {
@@ -103,6 +104,8 @@ private struct SettingsAgentView: View {
                 label: { Text("环境变量") }.accessibilityIdentifier("settings-environment")
             NavigationLink { ToolSettingsView(model: tools) }
                 label: { Text("可调用工具") }.accessibilityIdentifier("settings-tools")
+            NavigationLink { MCPSettingsView(model: mcp, toolSettings: tools, focus: focus) }
+                label: { Text("MCP 服务") }.accessibilityIdentifier("settings-mcp")
         }.navigationTitle("Agent").settingsCloseToolbar()
     }
 }

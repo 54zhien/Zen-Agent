@@ -7,7 +7,7 @@ struct ToolSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Text("工具来源：App 内置")
+                Text("工具来源包括 App 内置工具和 MCP 服务工具。")
                 Text("长期策略在每次调用时重新检查。授权不会替代 iOS 权限，也不会自动恢复正在等待的调用。")
                     .foregroundStyle(.secondary)
                 Text(capDescription)
@@ -29,15 +29,23 @@ struct ToolSettingsView: View {
                         Text("禁止").tag(ToolPersistentPolicy.deny)
                     }
                     .accessibilityIdentifier("tool-policy-\(row.toolID)-\(row.action.actionID)")
-                    .disabled(model.isWorking)
+                    .disabled(model.isWorking || !row.isAvailable)
+                    if !row.isAvailable {
+                        Text("MCP 服务当前未连接；此策略仅供查看，重连并匹配当前版本后才能修改。")
+                            .foregroundStyle(.secondary)
+                    }
                     if !ToolPolicyIdentity.equals(row.policy.descriptorRevision, row.action.descriptorRevision) {
                         Text("已保存策略属于旧动作版本，需要重新确认。").foregroundStyle(.secondary)
                         Button("使用当前版本并每次询问") {
                             Task { _ = await model.setPolicy(toolID: row.toolID, actionID: row.action.actionID,
                                 descriptorRevision: row.action.descriptorRevision, mode: .askEveryTime) }
-                        }.disabled(model.isWorking)
+                        }.disabled(model.isWorking || !row.isAvailable)
                     }
-                    LabeledContent("系统权限", value: systemDescription(row.systemState))
+                    if row.isAvailable {
+                        LabeledContent("系统权限", value: systemDescription(row.systemState))
+                    } else {
+                        LabeledContent("动作可用性", value: "MCP 服务未连接")
+                    }
                     Text(actionDescription(row.action)).foregroundStyle(.secondary)
                 } header: {
                     Text("\(row.displayName) · \(actionTitle(row.action.actionID))")
@@ -148,6 +156,8 @@ struct ToolSettingsView: View {
         case .notRequired: "无需外发目标"
         case .missing: "外发目标不可用"
         case .provider(let id, let endpoint): "Provider：\(id)\n目标：\(endpoint)"
+        case .mcpServer(let serverID, let endpointIdentity):
+            "MCP 服务：\(serverID)\n目标指纹：\(endpointIdentity)"
         }
     }
 

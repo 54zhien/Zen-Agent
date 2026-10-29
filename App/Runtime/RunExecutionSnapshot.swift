@@ -7,9 +7,8 @@ import Foundation
 /// this value identifies the prompt, capabilities and tools that the run is allowed to
 /// execute with.
 struct RunExecutionSnapshot: Codable, Sendable, Equatable {
-    // A v1 build must refuse new workflow semantics instead of silently dropping
-    // unknown prompt fields on recovery. This build can still read legacy v1.
-    static let currentFormatVersion = 2
+    // Reject workflow semantics this build cannot interpret; keep v1/v2 readable.
+    static let currentFormatVersion = 3
 
     enum FormatError: Error, Equatable, Sendable {
         case unversioned
@@ -25,6 +24,7 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
     var prompt: PromptExecutionSnapshot
     var modelCapabilities: Set<ModelCapability>
     var exposedTools: [ToolExposureSnapshot]
+    var mcpServerDependencies: [MCPServerDependencyIdentity]
 
     func permitsTool(_ descriptor: ToolDescriptor) -> Bool {
         modelCapabilities.contains(.tools) && exposedTools.contains {
@@ -41,6 +41,7 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
         prompt: PromptExecutionSnapshot,
         modelCapabilities: Set<ModelCapability>,
         exposedTools: [ToolExposureSnapshot],
+        mcpServerDependencies: [MCPServerDependencyIdentity] = [],
         maxProviderSteps: Int
     ) {
         self.formatVersion = formatVersion
@@ -49,6 +50,7 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
         self.prompt = prompt
         self.modelCapabilities = modelCapabilities
         self.exposedTools = exposedTools
+        self.mcpServerDependencies = mcpServerDependencies
         self.maxProviderSteps = maxProviderSteps
     }
 
@@ -59,6 +61,7 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
         case prompt
         case modelCapabilities
         case exposedTools
+        case mcpServerDependencies
         case maxProviderSteps
     }
 
@@ -70,7 +73,7 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
         guard let version = try? container.decode(Int.self, forKey: .formatVersion) else {
             throw FormatError.unversioned
         }
-        guard version == 1 || version == Self.currentFormatVersion else {
+        guard version == 1 || version == 2 || version == Self.currentFormatVersion else {
             throw FormatError.unsupportedVersion(version)
         }
 
@@ -81,6 +84,16 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
             guard version != 1 || prompt.skillReferences.isEmpty else { throw FormatError.malformedCurrentVersion(version) }
             modelCapabilities = try container.decode(Set<ModelCapability>.self, forKey: .modelCapabilities)
             exposedTools = try container.decode([ToolExposureSnapshot].self, forKey: .exposedTools)
+            if version >= 3 {
+                mcpServerDependencies = try container.decode([MCPServerDependencyIdentity].self, forKey: .mcpServerDependencies)
+                let serverIDs = mcpServerDependencies.map(\.serverID)
+                guard Set(serverIDs).count == serverIDs.count,
+                      mcpServerDependencies == mcpServerDependencies.sorted(by: { $0.serverID < $1.serverID }) else {
+                    throw FormatError.malformedCurrentVersion(version)
+                }
+            } else {
+                mcpServerDependencies = []
+            }
             maxProviderSteps = try container.decode(Int.self, forKey: .maxProviderSteps)
         } catch {
             throw FormatError.malformedCurrentVersion(version)
@@ -96,6 +109,9 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
         try container.encode(prompt, forKey: .prompt)
         try container.encode(modelCapabilities, forKey: .modelCapabilities)
         try container.encode(exposedTools, forKey: .exposedTools)
+        if formatVersion >= 3 {
+            try container.encode(mcpServerDependencies, forKey: .mcpServerDependencies)
+        }
         try container.encode(maxProviderSteps, forKey: .maxProviderSteps)
     }
 }

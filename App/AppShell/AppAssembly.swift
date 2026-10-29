@@ -62,15 +62,24 @@ struct AppAssembly {
         let toolSafetyCap: ToolPolicySafetyCap
         let sessions: ConversationSessionStore?
         let mcpRegistry: MCPServerRegistry
+        let mcpRuntime: MCPServerRuntime
 
         init(store: PersistenceStore, credentials: any CredentialStoring, provider: any ModelProvider,
              runtime: ConversationRuntime, router: RunEventRouter, managedFiles: ManagedFileStore? = nil,
              toolRegistry: ToolRegistry = .empty, toolSafetyCap: ToolPolicySafetyCap = .unrestricted,
-             sessions: ConversationSessionStore? = nil) {
+             sessions: ConversationSessionStore? = nil, mcpRegistry: MCPServerRegistry? = nil,
+             mcpRuntime: MCPServerRuntime? = nil, mcpTransport: (any HTTPTransport)? = nil) {
             self.store = store; self.credentials = credentials; self.provider = provider
             self.runtime = runtime; self.router = router; self.managedFiles = managedFiles
             self.toolRegistry = toolRegistry; self.toolSafetyCap = toolSafetyCap; self.sessions = sessions
-            self.mcpRegistry = MCPServerRegistry(store: store)
+            let resolvedRegistry = mcpRegistry ?? MCPServerRegistry(store: store)
+            self.mcpRegistry = resolvedRegistry
+            self.mcpRuntime = mcpRuntime ?? MCPServerRuntime(
+                registry: resolvedRegistry,
+                store: store,
+                credentials: credentials,
+                transport: mcpTransport ?? LiveHTTPTransport.make()
+            )
         }
     }
 
@@ -112,13 +121,21 @@ struct AppAssembly {
         let managedFiles = try ManagedFileStore.applicationDefault()
         let toolRegistry = try ToolRegistry(tools: [CalculatorTool(), CurrentDateTool(), DeviceInfoTool(),
             FilesTool(files: managedFiles, store: store, sessions: sessions)])
+        let mcpRegistry = MCPServerRegistry(store: store)
+        let mcpRuntime = MCPServerRuntime(
+            registry: mcpRegistry,
+            store: store,
+            credentials: credentials,
+            transport: transport
+        )
         let runtime = makeRuntime(
             store: store,
             provider: provider,
             credentials: credentials,
             router: router,
             toolRegistry: toolRegistry,
-            managedFiles: managedFiles
+            managedFiles: managedFiles,
+            mcpRuntime: mcpRuntime
         )
         return Dependencies(
             store: store,
@@ -128,7 +145,9 @@ struct AppAssembly {
             router: router,
             managedFiles: managedFiles,
             toolRegistry: toolRegistry,
-            sessions: sessions
+            sessions: sessions,
+            mcpRegistry: mcpRegistry,
+            mcpRuntime: mcpRuntime
         )
     }
 
@@ -139,7 +158,8 @@ struct AppAssembly {
         router: RunEventRouter,
         toolRegistry: ToolRegistry,
         managedFiles: ManagedFileStore? = nil,
-        toolSafetyCap: ToolPolicySafetyCap = .unrestricted
+        toolSafetyCap: ToolPolicySafetyCap = .unrestricted,
+        mcpRuntime: MCPServerRuntime? = nil
     ) -> ConversationRuntime {
         // The shell owns presentation routing. A cached Send bridge retains
         // Runtime; retaining Router here would cycle through its registered Pane
@@ -159,7 +179,8 @@ struct AppAssembly {
             },
             toolRegistry: toolRegistry,
             toolRuntime: ToolRuntime(store: store, registry: toolRegistry, safetyCap: toolSafetyCap, credentials: credentials),
-            managedFileStore: managedFiles
+            managedFileStore: managedFiles,
+            mcpRuntime: mcpRuntime
         )
     }
 

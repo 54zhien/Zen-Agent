@@ -69,6 +69,7 @@ enum ToolIntentCodec {
         switch destination {
         case .notRequired, .missing: destinationIdentity = nil
         case .provider(_, let endpoint): destinationIdentity = endpoint
+        case .mcpServer(_, let endpoint): destinationIdentity = endpoint
         }
         let intent = ToolExecutionIntent(
             formatVersion: ToolExecutionIntent.currentFormatVersion, toolID: descriptor.id,
@@ -97,6 +98,7 @@ enum ToolIntentCodec {
         case .notRequired: return alias == nil
         case .missing: return false
         case .provider(_, let endpoint): return alias.map { ToolPolicyIdentity.equals(endpoint, $0) } ?? false
+        case .mcpServer(_, let endpoint): return alias.map { ToolPolicyIdentity.equals(endpoint, $0) } ?? false
         }
     }
 }
