@@ -179,8 +179,8 @@ struct AppAssembly {
             },
             toolRegistry: toolRegistry,
             toolRuntime: ToolRuntime(store: store, registry: toolRegistry, safetyCap: toolSafetyCap, credentials: credentials),
-            managedFileStore: managedFiles,
-            mcpRuntime: mcpRuntime
+            mcpRuntime: mcpRuntime,
+            managedFileStore: managedFiles
         )
     }
 
