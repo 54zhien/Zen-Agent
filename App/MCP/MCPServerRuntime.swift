@@ -223,7 +223,7 @@ actor MCPServerRuntime {
         generation: UInt64
     ) async throws -> MCPServerConnectionSnapshot {
         do {
-            let authentication = MCPAuthenticationResolver(
+            let authentication = try MCPAuthenticationResolver(
                 reference: server.authenticationReference,
                 store: store,
                 credentials: credentials
@@ -309,7 +309,7 @@ actor MCPServerRuntime {
 
     private static func safeSummary(for error: Error) -> String {
         guard let error = error as? MCPClientError else { return "MCP 服务连接失败。" }
-        switch error {
+        return switch error {
         case .invalidEndpoint:
             "服务地址无效。"
         case .unsupportedProtocol:
