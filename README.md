@@ -124,10 +124,24 @@ have native RED-to-GREEN coverage. Three earlier failed complete runs, their
 recordings and subsequent bounded corrections remain in the
 [Stage 8 evidence record](tasks/stage8-skills-environment.md).
 
-The final receipt changes only that record, the implementation plan and this
-README; App, Tests and build inputs remain identical to the tested source.
+The final Stage 8 receipt changes only that record, the implementation plan and
+this README; App, Tests and build inputs remain identical to the tested source.
 PR #43 and Blueprint PR #8 remain draft/unmerged. Physical-device UI and
-Keychain/data-protection acceptance remain open. Stage 9 MCP completion is in progress on `codex/stage9-mcp-completion`; independent review and local static checks passed, and full CI on the source commit is pending. See the [Stage 9 completion receipt](tasks/stage9-mcp-completion.md).
+Keychain/data-protection acceptance remain open.
+
+Stage 9 MCP implementation and its full native CI gate are complete on draft
+[PR #46](https://github.com/54zhien/Zen-Agent/pull/46), stacked on [PR #45](https://github.com/54zhien/Zen-Agent/pull/45)
+and branch `codex/stage9-mcp-registry`. The exact source
+`94ca4306f1b2de0f13caa289538ad37d6913af0a` passed [the complete Phone/iPad gate](https://github.com/54zhien/Zen-Agent/actions/runs/40938534164):
+1,336 Swift Testing cases in 226 suites, 20 XCTest unit tests, 98 Phone UI tests
+with one expected Pad-only skip and no failures, the MCP Settings UI case, the
+independent Pad axis test, and repository hygiene all passed. Earlier compile
+diagnostics, test failures, and the first all-green run cancelled by its 85-minute
+job budget are preserved in the [Stage 9 completion receipt](tasks/stage9-mcp-completion.md).
+The final receipt changes only this README and that task record; application,
+tests, project configuration and CI workflow remain identical to the tested
+source. PR #46 remains draft and unmerged. Real-device Local Network permission,
+configured LAN HTTP, and foreground/background recovery acceptance remain open.
 
 The following is the historical 2026-10-05 slice snapshot. Its individual PR
 states describe that date; use the current integration receipt above for main.
