@@ -9,6 +9,19 @@ extension Migrations {
         }
     }
 
+    static func registerV25(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v25_mcp_server_registry") { db in
+            try db.create(table: "mcpServer") { t in
+                t.primaryKey("id", .text)
+                t.column("displayName", .text).notNull()
+                t.column("endpoint", .text).notNull()
+                t.column("enabled", .boolean).notNull().defaults(to: false)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+        }
+    }
+
     static func registerV23(_ migrator: inout DatabaseMigrator) {
         migrator.registerMigration("v23_skills") { db in
             try db.execute(sql: """
