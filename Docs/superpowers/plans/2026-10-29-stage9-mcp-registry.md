@@ -33,7 +33,7 @@
 **Files:** Create `Tests/ZenAgentTests/MCPServerRegistryTests.swift`.
 - [x] Test create/list/edit/enable-disable/delete and reopening through the real GRDB migration/store path.
 - [x] Start at v24 and exercise the v25 registry through the production store; existing migration coverage retains the Conversation preservation assertion.
-- [x] Windows Swift 6.4 syntax parsing passed; XcodeGen, iOS build, and native tests remain for macOS CI.
+- [x] Windows Swift 6.4 syntax parsing passed; native build and acceptance ran in macOS CI.
 
 ### Task 2: Registry and persistence
 **Files:** Create `App/MCP/MCPServer.swift`, `App/MCP/MCPServerRegistry.swift`, `App/Persistence/MCPServerRecord.swift`, `App/Persistence/PersistenceStore+MCPServers.swift`; modify `App/Persistence/Migrations+Extensions.swift`, `App/Persistence/Migrations.swift`.
@@ -44,5 +44,13 @@
 ### Task 3: AppAssembly and evidence
 **Files:** Modify `App/AppShell/AppAssembly.swift`; create `tasks/stage9-mcp-registry.md`; update this plan with validation.
 - [x] Expose the registry from AppAssembly dependencies using the same store; add no UI consumer.
-- [x] Run static checks and review the allowlisted diff; commit and push only this branch, then wait for full CI.
-- [ ] Record exact tested SHA, workflow URL/result, and failures without replacing prior evidence.
+- [x] Run static checks and review the allowlisted diff; commit and push only this branch.
+- [x] Record exact tested SHA, workflow URL/result, and failures without replacing prior evidence.
+
+## Validation receipt
+
+- Tested source SHA: `ec6f2ff58da717040e4ffd5c392de906d7d792c6`.
+- [CI run 40860442852](https://github.com/54zhien/Zen-Agent/actions/runs/40860442852): all jobs passed; XcodeGen, app build, repo hygiene, and iPad axis passed.
+- Swift Testing: 1,319 tests in 222 suites passed; `server configuration CRUD survives a v24 database reopening` passed in 0.118 seconds.
+- XCTest: 20 unit tests passed; Phone UI suite executed 97 tests with 1 skip and 0 failures; the separate Pad axis test passed.
+- Physical-device acceptance was not performed. The follow-up task/plan receipt is a documentation-only commit; it does not change build inputs.
