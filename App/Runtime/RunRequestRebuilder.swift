@@ -210,7 +210,9 @@ struct RunRequestRebuilder {
                       providerCallID == protocolCall.id,
                       call.action == protocolCall.name
                 else { throw RunRequestRebuildError.incompleteCommittedInput }
-                _ = try validatedIntent(for: call, snapshot: snapshot)
+                if stepIndex == steps.count - 1 {
+                    _ = try validatedIntent(for: call, snapshot: snapshot)
+                }
                 providerCalls.append(protocolCall.providerCall)
             }
 
