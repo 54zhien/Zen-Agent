@@ -92,7 +92,8 @@ struct MCPServerRegistryTests {
 
         let store = PersistenceStore(database: try ZenDatabase.open(at: url.path))
         let registry = MCPServerRegistry(store: store)
-        let existing = try #require(registry.server(id: "mcp-server-existing"))
+        let storedExisting = try registry.server(id: "mcp-server-existing")
+        let existing = try #require(storedExisting)
         #expect(existing.displayName == "Existing tools")
         #expect(existing.endpoint == "https://mcp.example.test/rpc")
         #expect(existing.enabled)
