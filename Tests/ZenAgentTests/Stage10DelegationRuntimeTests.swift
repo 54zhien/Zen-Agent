@@ -259,6 +259,9 @@ struct Stage10DelegationRuntimeTests {
     @Test("a disabled explicit Child target is not read and does not interrupt the Parent")
     func disabledExplicitTargetLeavesParentCredentialPathAlone() async throws {
         let fixture = try I05RuntimeTestFixtures.makeFixture()
+        // Keep this focused on delegation binding; automatic Memory validates its
+        // source against every stored credential after the Parent completes.
+        try fixture.store.setMemoryAutomatic(false)
         let childReference = CredentialReference(id: "stage10-disabled-child-credential")
         let metadataProbe = Stage10CredentialMetadataProbe(
             base: fixture.credentials.metadataRepository,
@@ -438,6 +441,11 @@ struct Stage10DelegationRuntimeTests {
         )
         let parentToolCallID = await events.waitForApproval()
         try await runtime.approve(toolCallID: parentToolCallID)
+        do {
+            try await runtime.waitForCompletion(runID: parentRunID)
+        } catch AgentRuntimeError.runNotFound(let runID) where runID == parentRunID {
+            // The Parent has already reached auth suspension and left the operation map.
+        }
 
         let childRunID = try #require(try fixture.store.delegatedChildRunID(parentToolCallID: parentToolCallID))
         await events.waitForState(runID: childRunID, state: .suspended)
@@ -937,14 +945,39 @@ struct Stage10DelegationRuntimeTests {
         let parentRunID = "stage10-stop-parent"
         let parentToolCallID = "stage10-stop-delegation-call"
         let uncertainCallID = "stage10-stop-unknown-call"
-        try fixture.store.commitUserTurnAndCreateParentRun(Fixtures.send(
+        let provider = Stage2ScriptedProvider(ledger: Stage2ProviderLedger(), scripts: [])
+        let configuration = try fixture.store.setDelegationEnabled(true)
+        let parentPrompt = PromptExecutionSnapshot(
+            runtimeSafetyBaseline: PromptTemplateCatalog.currentRuntimeSafetyRevision,
+            zenCore: PromptTemplateCatalog.currentZenCoreRevision,
+            providerAdapterInstructions: provider.adapterPromptInstructions
+        )
+        let parentSnapshot = RunExecutionSnapshot(
+            providerID: provider.id,
+            providerAdapterRevision: provider.adapterRevision,
+            prompt: parentPrompt,
+            modelCapabilities: [.text, .streaming, .tools],
+            exposedTools: [Self.exposure(SubagentDelegationTool.toolDescriptor)],
+            maxProviderSteps: 4,
+            delegation: DelegationExecutionSnapshot(configuration: configuration)
+        )
+        var commit = Fixtures.send(
             conversationID: I05RuntimeTestFixtures.conversationID,
             messageID: "stage10-stop-trigger",
             runID: parentRunID,
             runState: .stopping
-        ))
+        )
+        commit.run.requestConfigSeed = try provider.makeRequestConfigSeed(
+            instance: fixture.instance,
+            modelID: Stage2GateFixture.modelID,
+            credentialBinding: CredentialBindingSnapshot(
+                reference: I05RuntimeTestFixtures.credentialReference,
+                generation: 1
+            )
+        )
+        commit.run.executionSnapshot = try ExecutionSnapshotCodec.encode(parentSnapshot)
+        try fixture.store.commitUserTurnAndCreateParentRun(commit)
         let parent = try #require(try fixture.store.run(id: parentRunID))
-        let provider = Stage2ScriptedProvider(ledger: Stage2ProviderLedger(), scripts: [])
         let delegationRuntime = DelegationRuntime(
             store: fixture.store,
             provider: provider,

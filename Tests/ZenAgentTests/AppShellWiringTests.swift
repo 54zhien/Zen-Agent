@@ -49,17 +49,36 @@ struct AppShellWiringTests {
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
 
-        func native<T: UIView>(_ type: T.Type, id: String, in view: UIView) -> T? {
-            if let found = view as? T, found.accessibilityIdentifier == id { return found }
-            return view.subviews.lazy.compactMap { native(type, id: id, in: $0) }.first
+        func accessibilityElement(id: String, in root: UIView) -> NSObject? {
+            var visited = Set<ObjectIdentifier>()
+
+            func find(in container: UIAccessibilityContainer) -> NSObject? {
+                let identity = ObjectIdentifier(container as AnyObject)
+                guard visited.insert(identity).inserted else { return nil }
+                let elements = container.accessibilityElements
+                    ?? (0..<container.accessibilityElementCount()).compactMap {
+                        container.accessibilityElement(at: $0)
+                    }
+                for element in elements {
+                    guard let object = element as? NSObject else { continue }
+                    if (object as? UIAccessibilityIdentification)?.accessibilityIdentifier == id {
+                        return object
+                    }
+                    if let nested = object as? UIAccessibilityContainer,
+                       let found = find(in: nested) { return found }
+                }
+                return nil
+            }
+
+            return find(in: root)
         }
-        for _ in 0..<80 where native(UIButton.self, id: "conversation-auth-refresh", in: host.view) == nil {
+        for _ in 0..<80 where accessibilityElement(id: "conversation-auth-refresh", in: host.view) == nil {
             try await Task.sleep(for: .milliseconds(10))
         }
-        let refresh = try #require(native(UIButton.self, id: "conversation-auth-refresh", in: host.view))
+        let refresh = try #require(accessibilityElement(id: "conversation-auth-refresh", in: host.view))
         #expect(refresh.accessibilityLabel == "更新原账号凭据")
 
-        refresh.sendActions(for: .touchUpInside)
+        #expect(refresh.accessibilityActivate())
         for _ in 0..<80 where host.presentedViewController == nil {
             try await Task.sleep(for: .milliseconds(10))
         }
