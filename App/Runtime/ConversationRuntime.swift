@@ -134,8 +134,49 @@ actor ConversationRuntime {
         )
     }
 
-    private func toolContext(for snapshot: RunExecutionSnapshot) async throws -> ToolRuntimeRegistryContext {
-        try await currentToolContext(exposeTools: snapshot.modelCapabilities.contains(.tools))
+    private func toolContext(
+        for run: AgentRunRecord,
+        snapshot: RunExecutionSnapshot
+    ) async throws -> ToolRuntimeRegistryContext {
+        let base = try await currentToolContext(exposeTools: snapshot.modelCapabilities.contains(.tools))
+        return try addingDelegationTool(
+            to: base,
+            runID: run.id,
+            kind: run.kind,
+            modelCapabilities: snapshot.modelCapabilities,
+            delegation: snapshot.delegation
+        )
+    }
+
+    private func addingDelegationTool(
+        to context: ToolRuntimeRegistryContext,
+        runID: String,
+        kind: RunKind,
+        modelCapabilities: Set<ModelCapability>,
+        delegation: DelegationExecutionSnapshot?
+    ) throws -> ToolRuntimeRegistryContext {
+        guard kind == .parent,
+              modelCapabilities.contains(.tools),
+              let delegation,
+              delegation.enabled
+        else { return context }
+
+        let runtime = DelegationRuntime(
+            store: store,
+            provider: provider,
+            agentRuntime: agentRuntime,
+            project: { event in try await self.applyAndPublish(event) }
+        )
+        let executable = SubagentDelegationTool(
+            parentRunID: runID,
+            store: store,
+            delegationRuntime: runtime
+        )
+        return ToolRuntimeRegistryContext(
+            registry: try context.registry.merging([executable]),
+            availableMCPServerIDs: context.availableMCPServerIDs,
+            availableMCPServerIdentities: context.availableMCPServerIdentities
+        )
     }
 
     /// Runs a Send to completion and returns the durable Parent Run id.
@@ -357,7 +398,18 @@ actor ConversationRuntime {
         let promptSections: PromptSystemSections
         let relevantMemory: [MemoryContext]
         let activatedSkills: [SkillContext]
+        let snapshotToolContext: ToolRuntimeRegistryContext
         do {
+            let delegation = DelegationExecutionSnapshot(
+                configuration: try store.delegationConfiguration()
+            )
+            snapshotToolContext = try addingDelegationTool(
+                to: runToolContext,
+                runID: runID,
+                kind: .parent,
+                modelCapabilities: descriptor.capabilities,
+                delegation: delegation
+            )
             activatedSkills = try skillRuntime.resolveFrozen(store.runSkillReferences(runID: runID))
             let mcpServerDependencies = try skillRuntime.requiredMCPServerDependencies(
                 for: activatedSkills.map(\.reference)
@@ -378,7 +430,7 @@ actor ConversationRuntime {
                     skillReferences: activatedSkills.map(\.reference)
                 ),
                 modelCapabilities: descriptor.capabilities,
-                exposedTools: runToolRegistry.descriptors.map {
+                exposedTools: snapshotToolContext.registry.descriptors.map {
                     ToolExposureSnapshot(
                         toolID: $0.id,
                         descriptorRevision: $0.revision,
@@ -388,7 +440,8 @@ actor ConversationRuntime {
                     )
                 },
                 mcpServerDependencies: mcpServerDependencies,
-                maxProviderSteps: command.maxProviderSteps
+                maxProviderSteps: command.maxProviderSteps,
+                delegation: delegation
             )
             try store.completeExecutionSnapshot(
                 runID: runID,
@@ -418,7 +471,7 @@ actor ConversationRuntime {
             return runID
         }
 
-        await agentRuntime.bindToolRegistry(runToolContext, forRunID: runID)
+        await agentRuntime.bindToolRegistry(snapshotToolContext, forRunID: runID)
 
         // 12. Only now may AgentRuntime advance the Run into provider execution.
         let request = PromptComposer().compose(PromptCompositionInput(
@@ -564,9 +617,11 @@ actor ConversationRuntime {
                 case .waitingForApproval, .toolRequested, .executingTools, .continuing:
                     do {
                         let calls = try store.toolCalls(inRun: runID)
-                        if calls.contains(where: {
+                        let hasUncertainCall = calls.contains(where: {
                             $0.state == .dispatched || $0.state == .indeterminate
-                        }) {
+                        })
+                        let hasDelegation = calls.contains { $0.action == SubagentDelegationTool.toolID }
+                        if hasUncertainCall && !hasDelegation {
                             try await settleRecoveredRun(
                                 id: runID,
                                 expectedState: run.state,
@@ -583,8 +638,11 @@ actor ConversationRuntime {
                             report.pendingRunIDs.append(runID)
                             continue
                         }
-                        try await continueRecoveredToolBatch(run)
-                        report.continuedRunIDs.append(runID)
+                        if try await continueRecoveredToolBatch(run) {
+                            report.continuedRunIDs.append(runID)
+                        } else {
+                            report.settledRunIDs.append(runID)
+                        }
                     } catch CredentialError.unavailable(_, _) {
                         issueCategory = .credentialTemporarilyUnavailable
                         report.pendingRunIDs.append(runID)
@@ -640,9 +698,11 @@ actor ConversationRuntime {
                     } else {
                         hasOpenPart = false
                     }
-                    if calls.contains(where: {
+                    let hasUncertainCall = calls.contains(where: {
                         $0.state == .dispatched || $0.state == .indeterminate
-                    }) {
+                    })
+                    let hasDelegation = calls.contains { $0.action == SubagentDelegationTool.toolID }
+                    if hasUncertainCall && !hasDelegation {
                         outcome = (.failed, .toolOutcomeUnknown)
                     } else if hasOpenPart || (latestStep != nil && latestCalls.isEmpty) {
                         // A Step is the durable request identity. An older tool batch
@@ -662,9 +722,12 @@ actor ConversationRuntime {
                             if latestCalls.isEmpty {
                                 try await continueFrozenPreparingRun(run)
                             } else {
-                                try await continueRecoveredToolBatch(run)
+                                if try await continueRecoveredToolBatch(run) {
+                                    report.continuedRunIDs.append(runID)
+                                } else {
+                                    report.settledRunIDs.append(runID)
+                                }
                             }
-                            report.continuedRunIDs.append(runID)
                         } catch CredentialError.unavailable(_, _) {
                             issueCategory = .credentialTemporarilyUnavailable
                             report.pendingRunIDs.append(runID)
@@ -704,6 +767,9 @@ actor ConversationRuntime {
                     report.pendingRunIDs.append(runID)
                     continue
                 }
+                if run.state == .stopping, run.kind == .parent {
+                    try await reconcileTasklessDelegatedChildrenForStop(run)
+                }
                 try await settleRecoveredRun(
                     id: runID,
                     expectedState: run.state,
@@ -741,7 +807,7 @@ actor ConversationRuntime {
         if !revoked, let encoded = run.executionSnapshot,
            let snapshot = try? ExecutionSnapshotCodec.decode(encoded) {
             do {
-                let context = try await toolContext(for: snapshot)
+                let context = try await toolContext(for: run, snapshot: snapshot)
                 _ = try store.resolveMemoryReferences(snapshot.prompt.memoryReferences)
                 try store.validateExtensionDependencies(runID: run.id, snapshot: snapshot)
                 _ = try SkillRuntime(
@@ -769,7 +835,7 @@ actor ConversationRuntime {
         }
         guard revoked else { return false }
         try store.invalidateMemoryRun(id: run.id)
-        try await agentRuntime.recoverInvalidatedMemoryRun(runID: run.id,
+        try await agentRuntime.recoverRun(runID: run.id,
             project: { event in try await self.applyAndPublish(event) })
         await releaseToolRegistryIfTerminal(runID: run.id)
         return true
@@ -806,7 +872,7 @@ actor ConversationRuntime {
               let triggerID = run.triggerMessageID
         else { throw RunRequestRebuildError.incompleteCommittedInput }
 
-        let runToolContext = try await toolContext(for: snapshot)
+        let runToolContext = try await toolContext(for: run, snapshot: snapshot)
         let request = try RunRequestRebuilder(
             store: store,
             provider: provider,
@@ -829,11 +895,12 @@ actor ConversationRuntime {
             throw RunRequestRebuildError.missingDependency
         }
 
-        try await RunRecovery(store: store).recover(runID: run.id)
+        await agentRuntime.rebindRecoveredRunToolRegistry(runToolContext, forRunID: run.id)
+        try await agentRuntime.recoverRun(runID: run.id,
+            project: { event in try await self.applyAndPublish(event) })
         guard try store.run(id: run.id)?.state == .requestingModel else {
             throw RunRequestRebuildError.incompatibleSnapshot
         }
-        await agentRuntime.rebindRecoveredRunToolRegistry(runToolContext, forRunID: run.id)
         let stream = await agentRuntime.advance(
             runID: run.id,
             request: request,
@@ -848,7 +915,7 @@ actor ConversationRuntime {
         operations[run.id] = task
     }
 
-    private func continueRecoveredToolBatch(_ run: AgentRunRecord) async throws {
+    private func continueRecoveredToolBatch(_ run: AgentRunRecord) async throws -> Bool {
         guard let encoded = run.executionSnapshot,
               let triggerID = run.triggerMessageID
         else { throw RunRequestRebuildError.incompleteCommittedInput }
@@ -858,7 +925,7 @@ actor ConversationRuntime {
         } catch {
             throw RunRequestRebuildError.incompatibleSnapshot
         }
-        let runToolContext = try await toolContext(for: snapshot)
+        let runToolContext = try await toolContext(for: run, snapshot: snapshot)
         await agentRuntime.rebindRecoveredRunToolRegistry(runToolContext, forRunID: run.id)
         // Settle incompatible pending intents on their original IDs before any
         // legacy approval wait or transcript reconstruction can conceal them.
@@ -883,8 +950,14 @@ actor ConversationRuntime {
             generation: run.requestConfigSeed.credentialBinding.generation
         ) != nil else { throw RunRequestRebuildError.missingDependency }
 
-        try await RunRecovery(store: store).recover(runID: run.id)
-        guard let recoveredState = try store.run(id: run.id)?.state,
+        try await agentRuntime.recoverRun(runID: run.id,
+            project: { event in try await self.applyAndPublish(event) })
+        guard let recoveredRun = try store.run(id: run.id) else {
+            throw RunRequestRebuildError.incompatibleSnapshot
+        }
+        if recoveredRun.state.isTerminal { return false }
+        let recoveredState = recoveredRun.state
+        guard
               recoveredState == .waitingForApproval ||
                 recoveredState == .executingTools ||
                 recoveredState == .continuing ||
@@ -904,6 +977,7 @@ actor ConversationRuntime {
             await self.removeCompletedOperation(runID: run.id)
         }
         operations[run.id] = task
+        return true
     }
 
     func loadAttachmentContent(
@@ -1027,57 +1101,64 @@ actor ConversationRuntime {
     /// terminal transition and active-slot release happen only after cancellation has
     /// flushed the open part.
     func stop(runID: String) async throws {
-        if operations[runID] == nil {
-            if let run = try store.run(id: runID), run.state == .suspended {
-                // An explicit Stop wins over a deferred cold-start retry. This row
-                // has no current task owner, and all open children settle before its
-                // active slot is released.
-                await registerRecoveredRun(run.id, run.conversationID)
-                try store.transitionRun(
-                    id: runID,
-                    expectedState: .suspended,
-                    to: .stopping
-                )
-                await publish(.runStateChanged(runID: runID, state: .stopping))
-                try await settleRecoveredRun(
-                    id: runID,
-                    expectedState: .stopping,
-                    terminalState: .cancelled,
-                    endReason: .cancelledByUser
-                )
-                return
-            }
-            let report = try await reconcileColdStartRuns()
-            if operations[runID] == nil,
-               report.pendingRunIDs.contains(runID) || report.failedRunIDs.contains(runID) {
-                guard let run = try store.run(id: runID), run.state.isActive else {
-                    throw AgentRuntimeError.runIsNotActive(runID)
-                }
-                if run.state != .stopping {
-                    try store.transitionRun(
-                        id: runID,
-                        expectedState: run.state,
-                        to: .stopping
-                    )
-                    await publish(.runStateChanged(runID: runID, state: .stopping))
-                }
-                try await settleRecoveredRun(
-                    id: runID,
-                    expectedState: .stopping,
-                    terminalState: .cancelled,
-                    endReason: .cancelledByUser
-                )
-                return
-            }
+        if operations[runID] != nil {
+            try await agentRuntime.stop(runID: runID)
+            return
+        }
+
+        guard let run = try store.run(id: runID), run.kind == .parent, run.state.isActive else {
             if let events = try await agentRuntime.cancelTasklessSuspendedRun(runID: runID) {
-                for event in events {
-                    try await applyAndPublish(event)
-                }
+                for event in events { try await applyAndPublish(event) }
                 await releaseToolRegistryIfTerminal(runID: runID)
                 return
             }
+            throw AgentRuntimeError.runIsNotActive(runID)
         }
-        try await agentRuntime.stop(runID: runID)
+
+        // An explicit taskless Stop wins over cold recovery. The Parent first enters
+        // stopping so no Child can cross its next provider-dispatch gate.
+        await registerRecoveredRun(run.id, run.conversationID)
+        if run.state != .stopping {
+            try store.transitionRun(id: runID, expectedState: run.state, to: .stopping)
+            await publish(.runStateChanged(runID: runID, state: .stopping))
+        }
+        try await reconcileTasklessDelegatedChildrenForStop(run)
+        try await settleRecoveredRun(
+            id: runID,
+            expectedState: .stopping,
+            terminalState: .cancelled,
+            endReason: .cancelledByUser
+        )
+    }
+
+    private func reconcileTasklessDelegatedChildrenForStop(_ parent: AgentRunRecord) async throws {
+        let coordinator = DelegationRuntime(
+            store: store,
+            provider: provider,
+            agentRuntime: agentRuntime,
+            project: { event in try await self.applyAndPublish(event) }
+        )
+        let executor = SubagentDelegationTool(
+            parentRunID: parent.id,
+            store: store,
+            delegationRuntime: coordinator
+        )
+        let context = ToolRuntimeRegistryContext(
+            registry: try ToolRegistry.empty.merging([executor])
+        )
+        await agentRuntime.rebindRecoveredRunToolRegistry(context, forRunID: parent.id)
+        try await confirmDelegatedOutcomes(in: parent.id)
+
+        _ = try store.cancelTasklessDelegatedChildren(parentRunID: parent.id)
+        try await confirmDelegatedOutcomes(in: parent.id)
+    }
+
+    private func confirmDelegatedOutcomes(in parentRunID: String) async throws {
+        for call in try store.toolCalls(inRun: parentRunID)
+        where call.action == SubagentDelegationTool.toolID
+            && (call.state == .dispatched || call.state == .indeterminate) {
+            _ = try await agentRuntime.confirmToolOutcome(toolCallID: call.id)
+        }
     }
 
     func knownModels(for providerInstanceID: ProviderInstanceID) throws -> [ModelDescriptor] {

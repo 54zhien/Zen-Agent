@@ -42,6 +42,10 @@ struct RunRecovery: Sendable {
         }
 
         let checkpointState = initialRun.state
+        if checkpointState == .stopping {
+            try await settleStoppedParent(initialRun)
+            return
+        }
         if checkpointState != .recovering {
             try store.transitionRun(
                 id: runID,
@@ -118,21 +122,7 @@ struct RunRecovery: Sendable {
         case .suspended, .recovering:
             try await recoverInferredCheckpoint(run: recoveringRun, snapshot: snapshot)
         case .stopping:
-            try await transition(runID: runID, to: .stopping)
-            try store.settleTasklessRun(
-                id: runID,
-                expectedState: .stopping,
-                terminalState: .cancelled,
-                endReason: .cancelledByUser
-            )
-            try await emit(.runStateChanged(runID: runID, state: .cancelled))
-            try await emit(
-                .runEnded(
-                    runID: runID,
-                    state: .cancelled,
-                    endReason: .cancelledByUser
-                )
-            )
+            try await settleStoppedParent(recoveringRun)
         case .completed, .failed, .cancelled:
             // The active guard above makes this unreachable unless a concurrent writer
             // changed the row between the read and the recovery CAS.
@@ -147,6 +137,33 @@ struct RunRecovery: Sendable {
         if run.recoveryAction == .reprepare { return .reprepare }
         if run.recoveryAction == .invalidate { return .invalidate }
         return .resume
+    }
+
+    private func settleStoppedParent(_ run: AgentRunRecord) async throws {
+        guard run.kind == .parent, run.parentRunID == nil else {
+            throw RunRecoveryError.runIsNotActive(run.id, run.state)
+        }
+        try await emit(.runStateChanged(runID: run.id, state: .stopping))
+        try await confirmDelegatedOutcomes(in: run.id)
+        _ = try store.cancelTasklessDelegatedChildren(parentRunID: run.id)
+        try await confirmDelegatedOutcomes(in: run.id)
+        try store.settleTasklessRun(
+            id: run.id,
+            expectedState: .stopping,
+            terminalState: .cancelled,
+            endReason: .cancelledByUser
+        )
+        try await emit(.runStateChanged(runID: run.id, state: .cancelled))
+        try await emit(.runEnded(runID: run.id, state: .cancelled, endReason: .cancelledByUser))
+    }
+
+    private func confirmDelegatedOutcomes(in parentRunID: String) async throws {
+        guard let toolRuntime else { return }
+        for call in try store.toolCalls(inRun: parentRunID)
+        where call.action == SubagentDelegationTool.toolID
+            && (call.state == .dispatched || call.state == .indeterminate) {
+            _ = try toolRuntime.confirmToolOutcome(toolCallID: call.id)
+        }
     }
 
     private func failAfterMemoryInvalidation(run: AgentRunRecord) async throws {
@@ -248,6 +265,10 @@ struct RunRecovery: Sendable {
 
         if let toolRuntime {
             for call in calls where call.state == .dispatched || call.state == .indeterminate {
+                try await toolRuntime.resumeDelegatedChildIfUnstarted(toolCallID: call.id)
+            }
+            calls = try store.toolCalls(inRun: run.id)
+            for call in calls where call.state == .dispatched || call.state == .indeterminate {
                 _ = try toolRuntime.confirmToolOutcome(toolCallID: call.id)
             }
             calls = try store.toolCalls(inRun: run.id)
@@ -261,6 +282,7 @@ struct RunRecovery: Sendable {
             for call in uncertainCalls where call.state == .dispatched {
                 try store.markToolCallIndeterminate(id: call.id)
             }
+            try toolRuntime?.failUnknownDelegatedChildren(parentRunID: run.id)
             try await fail(runID: run.id, reason: .toolOutcomeUnknown)
             return
         }

@@ -7,12 +7,12 @@ struct SkillSnapshotTests {
     private let reference = SkillActivationReference(skillID: "s", revisionID: "v", environmentReferences: [],
         environmentFingerprint: "env-v1:" + String(repeating: "0", count: 64))
 
-    @Test("new snapshots require v3 and round trip content-free Skill identities")
+    @Test("new snapshots require v4 and round trip content-free Skill identities")
     func roundTrip() throws {
         let snapshot = RunExecutionSnapshot(providerID: .deepSeek, providerAdapterRevision: "adapter",
             prompt: .init(runtimeSafetyBaseline: "r", zenCore: "c", providerAdapterInstructions: "a", skillReferences: [reference]),
             modelCapabilities: [.text], exposedTools: [], maxProviderSteps: 4)
-        #expect(snapshot.formatVersion == 3)
+        #expect(snapshot.formatVersion == RunExecutionSnapshot.currentFormatVersion)
         let encoded = try ExecutionSnapshotCodec.encode(snapshot)
         #expect(try ExecutionSnapshotCodec.decode(encoded).prompt.skillReferences == [reference])
     }
@@ -25,6 +25,10 @@ struct SkillSnapshotTests {
         let encoded = try ExecutionSnapshotCodec.encode(snapshot)
         let decodedObject = try JSONSerialization.jsonObject(with: Data(encoded.utf8))
         var object = try #require(decodedObject as? [String: Any])
+        object["formatVersion"] = 3
+        object.removeValue(forKey: "delegation")
+        let version3 = String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+        #expect(try ExecutionSnapshotCodec.decode(version3).delegation == nil)
         object["formatVersion"] = 1
         let legacy = String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
         #expect(try ExecutionSnapshotCodec.decode(legacy).prompt.skillReferences.isEmpty)

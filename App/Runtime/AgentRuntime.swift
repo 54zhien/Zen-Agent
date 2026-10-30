@@ -356,6 +356,10 @@ actor AgentRuntime {
         return result
     }
 
+    func confirmToolOutcome(toolCallID: String) throws -> Bool {
+        try toolRuntime.confirmToolOutcome(toolCallID: toolCallID)
+    }
+
     /// Records a post-commit failure for a path that has not reached provider
     /// streaming yet (or whose event projection failed). Run-state ownership remains
     /// here even when there is no active provider stream to carry the event.
@@ -661,6 +665,14 @@ actor AgentRuntime {
                     if runForRequest.state == .stopping { throw ControlError.stopRequested }
                     guard runForRequest.state == .requestingModel || runForRequest.state == .streaming,
                           try store.accepts(identity) else { throw ControlError.staleAttempt }
+                    if runForRequest.kind == .child {
+                        guard let parentRunID = runForRequest.parentRunID,
+                              let parent = try store.run(id: parentRunID),
+                              parent.kind == .parent,
+                              parent.state == .executingTools ||
+                                (parent.state == .recovering && parent.recoveryAction == .resume)
+                        else { throw ControlError.stopRequested }
+                    }
                     do {
                         guard runForRequest.recoveryAction != .invalidate else { throw SkillError.erasedDependency }
                         try store.validateExtensionDependencies(runID: runID, snapshot: snapshot)
@@ -1427,7 +1439,7 @@ actor AgentRuntime {
 
     // MARK: - Event and lifecycle helpers
 
-    func recoverInvalidatedMemoryRun(runID: String, project: @escaping AgentEventProjection) async throws {
+    func recoverRun(runID: String, project: @escaping AgentEventProjection) async throws {
         guard active[runID] == nil else { throw AgentRuntimeError.alreadyRunning(runID) }
         // Keep the original ToolRuntime's receipt-confirmation capability. The
         // cold-start coordinator must not rebuild a request or replay an effect.

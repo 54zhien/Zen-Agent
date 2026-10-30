@@ -504,6 +504,22 @@ final class ToolRuntime: @unchecked Sendable {
               let intent = try? ToolIntentCodec.decodeForDisplay(json),
               let executor = registry.executor(id: intent.toolID) as? any ToolOutcomeConfirming,
               let observed = try executor.confirmedResult(intent, idempotencyKey: call.id) else { return false }
+        if let delegated = executor as? any DelegatedToolOutcomeConfirming {
+            return try store.memoryAccessGate.environmentCredentialLock.withLock {
+                var result: ToolExecutionResult
+                do { result = ToolResultGuard.sanitize(observed, knownSecrets: try knownSecrets(runID: call.agentRunID)) }
+                catch { result = .failure(.redactionUnavailable) }
+                if result.failure == .redactionUnavailable, observed.failure == nil {
+                    result = Self.completedResultWithheld
+                }
+                return try delegated.persistConfirmedResult(
+                    result,
+                    observedResult: observed,
+                    intent: intent,
+                    idempotencyKey: call.id
+                )
+            }
+        }
         guard observed.failure == nil else { return false }
         return try store.memoryAccessGate.environmentCredentialLock.withLock {
             var result: ToolExecutionResult
@@ -512,6 +528,28 @@ final class ToolRuntime: @unchecked Sendable {
             if result.failure != nil { result = Self.completedResultWithheld }
             return try store.confirmToolFileOutcome(callID: call.id, attempt: call.attempt,
                 intentBinding: ToolIntentBinding.make(json), result: result)
+        }
+    }
+
+    func resumeDelegatedChildIfUnstarted(toolCallID: String) async throws {
+        guard let call = try store.toolCall(id: toolCallID),
+              call.state == .dispatched || call.state == .indeterminate,
+              let json = call.executionIntent,
+              let intent = try? ToolIntentCodec.decodeForDisplay(json),
+              let executor = registry(forRunID: call.agentRunID).executor(id: intent.toolID)
+                as? any DelegatedToolRecoveryResuming
+        else { return }
+        try await executor.resumeUnstartedChild(intent, idempotencyKey: call.id)
+    }
+
+    func failUnknownDelegatedChildren(parentRunID: String) throws {
+        for call in try store.toolCalls(inRun: parentRunID) where call.state == .dispatched || call.state == .indeterminate {
+            guard let json = call.executionIntent,
+                  let intent = try? ToolIntentCodec.decodeForDisplay(json),
+                  let executor = registry(forRunID: parentRunID).executor(id: intent.toolID)
+                    as? any DelegatedToolRecoveryResuming
+            else { continue }
+            try executor.failUnknownChildren(parentRunID: parentRunID)
         }
     }
 

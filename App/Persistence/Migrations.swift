@@ -42,6 +42,7 @@ enum Migrations {
         registerV24(&migrator)
         registerV25(&migrator)
         registerV26(&migrator)
+        registerV27(&migrator)
         return migrator
     }
 
