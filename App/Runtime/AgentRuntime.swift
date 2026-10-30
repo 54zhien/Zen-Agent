@@ -700,6 +700,7 @@ actor AgentRuntime {
                         throw error
                     }
                     let outgoing = try toolRuntime.requestRedactingToolResults(requestForDispatch, runID: runID)
+                    try store.markProviderStepStarted(identity)
                     return try await provider.stream(outgoing,
                         seed: runForRequest.requestConfigSeed, credentials: credentials)
                 }
@@ -804,6 +805,7 @@ actor AgentRuntime {
                             )
 
                         case .finish(let reason):
+                            try store.markProviderStepFinished(identity)
                             try await ensureStreaming(
                                 runID: runID,
                                 continuation: continuation,
@@ -834,8 +836,8 @@ actor AgentRuntime {
                                 terminal = true
                             }
 
-                        case .usage:
-                            continue
+                        case .usage(let usage):
+                            try store.recordProviderUsage(usage, for: identity)
                         }
 
                         if terminal || providerFinished {

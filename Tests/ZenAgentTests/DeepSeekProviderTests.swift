@@ -344,6 +344,16 @@ struct DeepSeekProviderTests {
         #expect(response.usage == ProviderTokenUsage(promptTokens: 12, completionTokens: 4, totalTokens: 16))
     }
 
+    @Test("non-streaming usage keeps absent counters unknown and preserves reported zero")
+    func normalisesPartialUsage() async throws {
+        let f = try makeFixture()
+        f.transport.enqueue(status: 200, json: #"{"id":"c1","choices":[{"index":0,"message":{"role":"assistant","content":"A"},"finish_reason":"stop"}],"usage":{"prompt_tokens":0}}"#)
+
+        let response = try await f.provider.complete(request(), seed: f.seed, credentials: f.credentials)
+
+        #expect(response.usage == ProviderTokenUsage(promptTokens: 0, completionTokens: nil, totalTokens: nil))
+    }
+
     @Test("reasoning is passed through when present and left absent when not")
     func reasoningPresence() async throws {
         let withReasoning = """

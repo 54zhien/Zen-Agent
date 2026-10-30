@@ -100,15 +100,17 @@ enum FinishReason: Sendable, Equatable {
 }
 
 struct ProviderTokenUsage: Sendable, Equatable {
-    var promptTokens: Int
-    var completionTokens: Int
-    var totalTokens: Int
+    var promptTokens: Int?
+    var completionTokens: Int?
+    var totalTokens: Int?
 }
 
 enum ProviderStreamEvent: Sendable, Equatable {
     case textDelta(String)
     case reasoningDelta(String)
     case toolCall(ProviderToolCall)
+    /// The final Provider chunk may carry both `usage` and `finish`. Adapters emit
+    /// usage first so the Runtime can persist it before it handles the terminal event.
     case finish(FinishReason)
     case usage(ProviderTokenUsage)
 }

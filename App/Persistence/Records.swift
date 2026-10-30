@@ -350,6 +350,8 @@ struct AgentRunRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Id
 
     var createdAt: Date
     var updatedAt: Date
+    /// First observed transition into stopping. Nil means no Stop time was recorded.
+    var stopRequestedAt: Date? = nil
 
     /// The conditional-uniqueness slot: the conversation id while this run is active,
     /// `nil` once terminal. Only parent runs occupy it — see the schema.
@@ -374,6 +376,7 @@ struct AgentRunRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Id
         case executionSnapshot
         case createdAt
         case updatedAt
+        case stopRequestedAt
         case activeSlot
         case submissionID
         case submissionDigest
@@ -396,6 +399,7 @@ struct AgentRunRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Id
         try container.encodeIfPresent(executionSnapshot, forKey: .executionSnapshot)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encodeIfPresent(stopRequestedAt, forKey: .stopRequestedAt)
         try container.encodeIfPresent(activeSlot, forKey: .activeSlot)
 
         if let submissionID { try container.encode(submissionID, forKey: .submissionID) }
@@ -425,6 +429,11 @@ struct AgentStepRecord: Codable, FetchableRecord, PersistableRecord, Sendable {
     /// Increments on every real provider request, including replays.
     var attempt: Int
     var createdAt: Date
+    var providerStartedAt: Date? = nil
+    var providerFinishedAt: Date? = nil
+    var reportedPromptTokens: Int? = nil
+    var reportedCompletionTokens: Int? = nil
+    var reportedTotalTokens: Int? = nil
     /// Exact assistant protocol response for a completed tool-call batch, if any.
     var protocolResponse: String? = nil
 

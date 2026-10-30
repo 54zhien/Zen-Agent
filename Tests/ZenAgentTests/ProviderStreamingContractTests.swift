@@ -56,8 +56,8 @@ struct ProviderStreamingContractTests {
         let expected: [ProviderStreamEvent] = [
             .reasoningDelta("think first"),
             .textDelta("answer"),
-            .finish(.stop),
             .usage(ProviderTokenUsage(promptTokens: 2, completionTokens: 3, totalTokens: 5)),
+            .finish(.stop),
         ]
         let provider: any ModelProvider = FakeProvider(
             instanceID: instance.id,

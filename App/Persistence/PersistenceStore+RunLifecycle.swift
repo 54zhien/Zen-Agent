@@ -42,6 +42,9 @@ extension PersistenceStore {
             next.recoveryAction = recoveryAction
             next.suspendReason = suspendReason
             next.updatedAt = now
+            if state == .stopping, next.stopRequestedAt == nil {
+                next.stopRequestedAt = now
+            }
             next.activeSlot = Self.activeSlot(for: next)
 
             let arguments: [(any DatabaseValueConvertible)?] = [
@@ -49,6 +52,7 @@ extension PersistenceStore {
                 next.endReason?.rawValue,
                 next.recoveryAction?.rawValue,
                 next.suspendReason?.rawValue,
+                next.stopRequestedAt,
                 next.activeSlot,
                 next.updatedAt,
                 id,
@@ -59,7 +63,7 @@ extension PersistenceStore {
                 sql: """
                     UPDATE agentRun
                     SET state = ?, endReason = ?, recoveryAction = ?, suspendReason = ?,
-                        activeSlot = ?, updatedAt = ?
+                        stopRequestedAt = ?, activeSlot = ?, updatedAt = ?
                     WHERE id = ? AND state = ?
                     """,
                 arguments: StatementArguments(arguments)

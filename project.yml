@@ -106,6 +106,21 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
 
+  # Manually run against an iPhone's existing app container after a real
+  # Parent -> Child run. Kept out of the default ZenAgent scheme and CI.
+  ZenAgentManualMeasurementTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/ZenAgentManualMeasurementTests
+    dependencies:
+      - target: ZenAgent
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/ZenAgent.app/ZenAgent
+        BUNDLE_LOADER: $(TEST_HOST)
+
   ZenAgentUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -133,4 +148,16 @@ schemes:
       targets:
         - ZenAgentTests
         - ZenAgentUITests
+
+  ZenAgentManualMeasurement:
+    build:
+      targets:
+        ZenAgent: all
+        ZenAgentManualMeasurementTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - ZenAgentManualMeasurementTests
 
