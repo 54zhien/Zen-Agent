@@ -16,7 +16,7 @@ protocol DelegatedToolOutcomeConfirming: ToolOutcomeConfirming {
 }
 
 protocol DelegatedToolRecoveryResuming: ToolExecutable {
-    func resumeUnstartedChild(
+    func resumeDispatchedChild(
         _ intent: ToolExecutionIntent,
         idempotencyKey: String
     ) async throws

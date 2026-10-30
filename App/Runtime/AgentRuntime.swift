@@ -169,6 +169,10 @@ actor AgentRuntime {
         )
     }
 
+    func toolRegistryContext(forRunID runID: String) -> ToolRuntimeRegistryContext? {
+        toolRuntime.registryContext(forRunID: runID)
+    }
+
     /// Recovery reconstructs executors from the currently live catalog, then the
     /// frozen snapshot must match before any request or pending call can resume.
     func rebindRecoveredRunToolRegistry(_ context: ToolRuntimeRegistryContext, forRunID runID: String) {
@@ -413,6 +417,11 @@ actor AgentRuntime {
 
                 _ = try toolRuntime.validatePendingIntent(toolCallID: call.id)
                 call = try store.toolCall(id: call.id) ?? call
+                if call.state == .notExecuted,
+                   try parentStopIsInProgress(forChildRunID: runID) {
+                    stopRequested.insert(runID)
+                    throw ControlError.stopRequested
+                }
                 var needsApprovalEvent = try store.run(id: runID)?.state != .waitingForApproval
                 while call.state == .waitingForApproval || call.state == .waitingForSystemPermissionConsent || call.state == .approved || call.state == .prepared {
                     if call.state == .waitingForApproval || call.state == .waitingForSystemPermissionConsent {
@@ -455,8 +464,19 @@ actor AgentRuntime {
                     }
                 }
 
-                if call.state == .dispatched {
-                    try store.markToolCallIndeterminate(id: call.id)
+                if call.action == SubagentDelegationTool.toolID,
+                   call.state == .dispatched || call.state == .indeterminate {
+                    _ = try await toolRuntime.resumeDispatchedDelegatedChild(toolCallID: call.id)
+                    guard let updated = try store.toolCall(id: call.id) else {
+                        throw RunRequestRebuildError.incompleteCommittedInput
+                    }
+                    call = updated
+                }
+
+                if call.state == .dispatched || call.state == .indeterminate {
+                    if call.state == .dispatched {
+                        try store.markToolCallIndeterminate(id: call.id)
+                    }
                     throw ProviderRuntimeFailure.toolOutcomeUnknown
                 }
                 guard call.state == .succeeded || call.state == .failed ||
@@ -534,6 +554,7 @@ actor AgentRuntime {
                                 to: .stopping
                             )
                         }
+                        try confirmStoppedDelegationOutcomes(runID: runID)
                         try store.settleTasklessRun(
                             id: runID,
                             expectedState: .stopping,
@@ -1009,6 +1030,7 @@ actor AgentRuntime {
             runID: runID,
             activeBatch: activeBatch
         )
+        try confirmStoppedDelegationOutcomes(runID: runID)
 
         for failure in report.failures {
             Self.logger.error(
@@ -1112,6 +1134,23 @@ actor AgentRuntime {
                 return false
             }
         }
+    }
+
+    private func confirmStoppedDelegationOutcomes(runID: String) throws {
+        for call in try store.toolCalls(inRun: runID)
+        where call.action == SubagentDelegationTool.toolID
+            && (call.state == .dispatched || call.state == .indeterminate) {
+            _ = try toolRuntime.confirmToolOutcome(toolCallID: call.id)
+        }
+    }
+
+    private func parentStopIsInProgress(forChildRunID runID: String) throws -> Bool {
+        guard let child = try store.run(id: runID),
+              child.kind == .child,
+              let parentRunID = child.parentRunID,
+              let parent = try store.run(id: parentRunID)
+        else { return false }
+        return parent.state == .stopping
     }
 
     private func settleActiveBatchForCancellation(

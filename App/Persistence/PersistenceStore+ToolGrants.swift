@@ -34,14 +34,27 @@ extension PersistenceStore {
               ToolPolicyIdentity.equals(call.agentRunID, approval.agentRunID),
               ToolPolicyIdentity.equals(call.action, grant.toolID),
               let run = try AgentRunRecord.fetchOne(db, key: call.agentRunID),
-              run.kind == .parent, run.parentRunID == nil, run.state.isActive,
               let conversation = try ConversationRecord.fetchOne(db, key: run.conversationID),
               conversation.lifecycle == .visible else { return false }
-        // Match the existing approval owner. Child approval/ancestor expiry
-        // remains unavailable until the later Subagent stage implements it.
-        switch call.state {
-        case .validated, .waitingForApproval, .waitingForSystemPermissionConsent, .approved, .prepared: break
-        default: return false
+        switch run.kind {
+        case .parent:
+            guard run.parentRunID == nil, run.state.isActive else { return false }
+            switch call.state {
+            case .validated, .waitingForApproval, .waitingForSystemPermissionConsent, .approved, .prepared: break
+            default: return false
+            }
+        case .child:
+            guard call.state == .waitingForApproval,
+                  run.state.isActive,
+                  run.state != .stopping,
+                  run.recoveryAction != .invalidate,
+                  grant.subject == .run(run.id),
+                  case .once = grant.kind,
+                  let owner = try Self.linkedDelegationParent(for: run, db: db),
+                  owner.parent.conversationID == run.conversationID,
+                  conversation.id == owner.parent.conversationID,
+                  Self.parentCanAuthorizeLinkedChild(owner.parent, delegationCall: owner.delegationCall)
+            else { return false }
         }
         switch grant.subject {
         case .parentConversation(let value):
@@ -103,6 +116,41 @@ extension PersistenceStore {
             try db.execute(sql: "UPDATE toolScopedGrant SET validity = 'revoked' WHERE id = ? AND validity = 'active'",
                 arguments: [id])
             return db.changesCount == 1
+        }
+    }
+
+    static func linkedDelegationParent(
+        for child: AgentRunRecord,
+        db: Database
+    ) throws -> (parent: AgentRunRecord, delegationCall: ToolCallRecord)? {
+        guard child.kind == .child,
+              let parentRunID = child.parentRunID,
+              let parentToolCallID = try String.fetchOne(db, sql: """
+                SELECT parentToolCallID FROM delegatedChildRun WHERE childRunID = ?
+                """, arguments: [child.id]),
+              let delegationCall = try ToolCallRecord.fetchOne(db, key: parentToolCallID),
+              delegationCall.action == SubagentDelegationTool.toolID,
+              ToolPolicyIdentity.equals(delegationCall.agentRunID, parentRunID),
+              let parent = try AgentRunRecord.fetchOne(db, key: parentRunID),
+              parent.kind == .parent,
+              parent.parentRunID == nil,
+              ToolPolicyIdentity.equals(parent.conversationID, child.conversationID)
+        else { return nil }
+        return (parent, delegationCall)
+    }
+
+    static func parentCanAuthorizeLinkedChild(
+        _ parent: AgentRunRecord,
+        delegationCall: ToolCallRecord
+    ) -> Bool {
+        switch parent.state {
+        case .executingTools:
+            return parent.recoveryAction == nil && delegationCall.state == .dispatched
+        case .recovering:
+            return parent.recoveryAction == .resume
+                && (delegationCall.state == .dispatched || delegationCall.state == .indeterminate)
+        default:
+            return false
         }
     }
 }

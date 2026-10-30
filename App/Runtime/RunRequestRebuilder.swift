@@ -165,6 +165,14 @@ struct RunRequestRebuilder {
         history: [PromptHistoryMessage]
     ) throws -> RecoveredToolBatch {
         let request = try initialRequest(for: run, snapshot: snapshot, history: history)
+        return try latestToolBatch(for: run, snapshot: snapshot, initialRequest: request)
+    }
+
+    func latestToolBatch(
+        for run: AgentRunRecord,
+        snapshot: RunExecutionSnapshot,
+        initialRequest request: ProviderChatRequest
+    ) throws -> RecoveredToolBatch {
         let steps = try store.steps(inRun: run.id)
         let calls = try store.toolCalls(inRun: run.id)
         guard !steps.isEmpty, !calls.isEmpty else {
@@ -272,6 +280,21 @@ struct RunRequestRebuilder {
         snapshot: RunExecutionSnapshot
     ) throws -> RecoveredToolBatch {
         let batchID = "batch-\(run.id)-\(step.sequence)-\(step.attempt)"
+        let transcript: ToolCallProtocolTranscript?
+        if let encodedTranscript = step.protocolResponse {
+            guard let decoded = try? JSONDecoder().decode(
+                ToolCallProtocolTranscript.self,
+                from: Data(encodedTranscript.utf8)
+            ),
+            decoded.version == ToolCallProtocolTranscript.currentVersion,
+            !decoded.calls.isEmpty,
+            decoded.calls.count == calls.count
+            else { throw RunRequestRebuildError.incompleteCommittedInput }
+            transcript = decoded
+        } else {
+            transcript = nil
+        }
+
         var providerCalls: [ProviderToolCall] = []
         for (index, call) in calls.enumerated() {
             let intent = try validatedIntent(for: call, snapshot: snapshot)
@@ -279,18 +302,27 @@ struct RunRequestRebuilder {
                   call.batchSequence == index,
                   let providerCallID = call.providerCallID
             else { throw RunRequestRebuildError.incompleteCommittedInput }
-            providerCalls.append(ProviderToolCall(
-                id: providerCallID,
-                index: index,
-                name: call.action,
-                argumentsJSON: intent.normalizedArgumentsJSON
-            ))
+            if let transcript {
+                let protocolCall = transcript.calls[index]
+                guard providerCallID == protocolCall.id,
+                      call.action == protocolCall.name
+                else { throw RunRequestRebuildError.incompleteCommittedInput }
+                providerCalls.append(protocolCall.providerCall)
+            } else {
+                providerCalls.append(ProviderToolCall(
+                    id: providerCallID,
+                    index: index,
+                    name: call.action,
+                    argumentsJSON: intent.normalizedArgumentsJSON
+                ))
+            }
         }
 
-        var assistantContent: String?
-        if let responseID = run.responseMessageID {
-            let parts = try store.parts(ofMessage: responseID)
-            let textParts = parts.filter { $0.kind == .text }
+        let assistantContent: String?
+        if let transcript {
+            assistantContent = transcript.assistantContent
+        } else if let responseID = run.responseMessageID {
+            let textParts = try store.parts(ofMessage: responseID).filter { $0.kind == .text }
             guard textParts.allSatisfy({ $0.state == .completed }) else {
                 throw RunRequestRebuildError.incompleteCommittedInput
             }
@@ -298,6 +330,8 @@ struct RunRequestRebuilder {
                 try PersistenceStore.decodeTextPayload($0.payload).text
             }.joined()
             assistantContent = text.isEmpty ? nil : text
+        } else {
+            assistantContent = nil
         }
 
         return RecoveredToolBatch(

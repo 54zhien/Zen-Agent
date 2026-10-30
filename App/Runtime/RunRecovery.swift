@@ -274,19 +274,31 @@ struct RunRecovery: Sendable {
     private func recoverToolCheckpoint(run: AgentRunRecord) async throws {
         var calls = try await reconcileSystemConsent(in: run)
         guard !calls.isEmpty else {
+            if run.kind == .child, try hasUnmaterializedChildToolCall(in: run) {
+                try await fail(runID: run.id, reason: .unrecoverable)
+                return
+            }
             try await transition(runID: run.id, to: .continuing)
             return
         }
 
         if let toolRuntime {
             for call in calls where call.state == .dispatched || call.state == .indeterminate {
-                try await toolRuntime.resumeDelegatedChildIfUnstarted(toolCallID: call.id)
-            }
-            calls = try store.toolCalls(inRun: run.id)
-            for call in calls where call.state == .dispatched || call.state == .indeterminate {
                 _ = try toolRuntime.confirmToolOutcome(toolCallID: call.id)
             }
             calls = try store.toolCalls(inRun: run.id)
+        }
+        let delegatedCalls = calls.filter {
+            $0.action == SubagentDelegationTool.toolID
+                && ($0.state == .dispatched || $0.state == .indeterminate)
+        }
+        if !delegatedCalls.isEmpty {
+            // The recovered Parent's existing tool-batch owner resumes the linked
+            // Child checkpoint. This keeps Child approval on its original ToolCall
+            // and prevents an unknown Child checkpoint from being mistaken for a
+            // reason to replay the Parent delegation request.
+            try await transition(runID: run.id, to: .executingTools)
+            return
         }
         let uncertainCalls = calls.filter {
             $0.state == .dispatched || $0.state == .indeterminate
@@ -340,6 +352,21 @@ struct RunRecovery: Sendable {
             }
         }
         try await transition(runID: run.id, to: .continuing)
+    }
+
+    private func hasUnmaterializedChildToolCall(in run: AgentRunRecord) throws -> Bool {
+        guard let step = try store.steps(inRun: run.id).max(by: {
+            if $0.sequence == $1.sequence { return $0.attempt < $1.attempt }
+            return $0.sequence < $1.sequence
+        }) else { return false }
+        guard let response = step.protocolResponse else { return false }
+        guard let transcript = try? JSONDecoder().decode(
+            ToolCallProtocolTranscript.self,
+            from: Data(response.utf8)
+        ) else { return true }
+        let batchID = "batch-\(run.id)-\(step.sequence)-\(step.attempt)"
+        let persistedCount = try store.toolCalls(inRun: run.id).filter { $0.batchID == batchID }.count
+        return persistedCount != transcript.calls.count
     }
 
     private func recoverInferredCheckpoint(
