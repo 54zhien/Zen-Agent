@@ -823,12 +823,16 @@ struct Stage10DelegationRuntimeTests {
         )
         let parentEvents = Stage10ApprovalLedger()
         let childEvents = Stage10ApprovalLedger()
+        let projector = Stage10DualChildMessageProjector(store: fixture.store)
         let delegationRuntime = DelegationRuntime(
             store: fixture.store,
             provider: provider,
             credentials: fixture.credentials,
             agentRuntime: runtime,
-            project: { event in await childEvents.append(event) }
+            project: { event in
+                try await projector.apply(event)
+                await childEvents.append(event)
+            }
         )
         let subagent = SubagentDelegationTool(
             parentRunID: parentRunID,
@@ -836,6 +840,9 @@ struct Stage10DelegationRuntimeTests {
             delegationRuntime: delegationRuntime
         )
         let registry = try ToolRegistry(tools: [subagent, knownTool, holdTool])
+        if mode == .stopWithKnownResults {
+            try Fixtures.allowAutomaticToolPolicies(in: fixture.store, registry: registry)
+        }
         await runtime.bindToolRegistry(
             ToolRuntimeRegistryContext(registry: registry),
             forRunID: parentRunID
@@ -899,6 +906,7 @@ struct Stage10DelegationRuntimeTests {
             ),
             snapshot: snapshot,
             project: { event in
+                try await projector.apply(event)
                 await parentEvents.append(event)
                 if case .approvalRequired(let runID, let toolCallID) = event,
                    runID == parentRunID {
@@ -1157,6 +1165,39 @@ private struct Stage10DualChildScenario {
     let childEvents: Stage10ApprovalLedger
     let providerLedger: Stage2ProviderLedger
     let completion: Task<Void, Error>
+}
+
+private actor Stage10DualChildMessageProjector {
+    private let store: PersistenceStore
+
+    init(store: PersistenceStore) {
+        self.store = store
+    }
+
+    func apply(_ event: AgentEvent) throws {
+        switch event {
+        case .messagePartStarted(let runID, let messageID, let partID, let kind):
+            let response = try store.ensureAssistantResponse(
+                forRunID: runID,
+                messageID: messageID
+            )
+            let sequence = (try store.parts(ofMessage: response.id).map(\.sequence).max() ?? -1) + 1
+            try store.createPart(MessagePartRecord(
+                id: partID,
+                messageID: response.id,
+                sequence: sequence,
+                kind: kind,
+                state: .streaming,
+                payload: try PersistenceStore.encodeTextPayload(.init(text: ""))
+            ))
+        case .messagePartDelta(_, let partID, let delta, _):
+            try store.appendText(toPart: partID, delta: delta)
+        case .messagePartCompleted(_, let partID, let state):
+            try store.finishPart(id: partID, state: state)
+        case .runAccepted, .runStateChanged, .toolCallChanged, .approvalRequired, .runEnded:
+            break
+        }
+    }
 }
 
 private enum Stage10DualChildProviderMode: Sendable, Equatable {
