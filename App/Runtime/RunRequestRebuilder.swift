@@ -185,7 +185,7 @@ struct RunRequestRebuilder {
                   step.attempt == 1
             else { throw RunRequestRebuildError.incompleteCommittedInput }
             return try latestSingleStepToolBatch(
-                runID: run.id,
+                run: run,
                 step: step,
                 calls: calls.sorted { ($0.batchSequence ?? Int.max) < ($1.batchSequence ?? Int.max) },
                 request: request,
@@ -273,13 +273,13 @@ struct RunRequestRebuilder {
     }
 
     private func latestSingleStepToolBatch(
-        runID: String,
+        run: AgentRunRecord,
         step: AgentStepRecord,
         calls: [ToolCallRecord],
         request: ProviderChatRequest,
         snapshot: RunExecutionSnapshot
     ) throws -> RecoveredToolBatch {
-        let batchID = "batch-\(runID)-\(step.sequence)-\(step.attempt)"
+        let batchID = "batch-\(run.id)-\(step.sequence)-\(step.attempt)"
         let transcript: ToolCallProtocolTranscript?
         if let encodedTranscript = step.protocolResponse {
             guard let decoded = try? JSONDecoder().decode(
