@@ -7,8 +7,8 @@ import Foundation
 /// this value identifies the prompt, capabilities and tools that the run is allowed to
 /// execute with.
 struct RunExecutionSnapshot: Codable, Sendable, Equatable {
-    // Reject workflow semantics this build cannot interpret; keep v1/v2 readable.
-    static let currentFormatVersion = 3
+    // Reject workflow semantics this build cannot interpret; keep v1-v3 readable.
+    static let currentFormatVersion = 4
 
     enum FormatError: Error, Equatable, Sendable {
         case unversioned
@@ -25,6 +25,7 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
     var modelCapabilities: Set<ModelCapability>
     var exposedTools: [ToolExposureSnapshot]
     var mcpServerDependencies: [MCPServerDependencyIdentity]
+    var delegation: DelegationExecutionSnapshot?
 
     func permitsTool(_ descriptor: ToolDescriptor) -> Bool {
         modelCapabilities.contains(.tools) && exposedTools.contains {
@@ -42,7 +43,8 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
         modelCapabilities: Set<ModelCapability>,
         exposedTools: [ToolExposureSnapshot],
         mcpServerDependencies: [MCPServerDependencyIdentity] = [],
-        maxProviderSteps: Int
+        maxProviderSteps: Int,
+        delegation: DelegationExecutionSnapshot? = nil
     ) {
         self.formatVersion = formatVersion
         self.providerID = providerID
@@ -51,6 +53,7 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
         self.modelCapabilities = modelCapabilities
         self.exposedTools = exposedTools
         self.mcpServerDependencies = mcpServerDependencies
+        self.delegation = delegation
         self.maxProviderSteps = maxProviderSteps
     }
 
@@ -63,6 +66,7 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
         case exposedTools
         case mcpServerDependencies
         case maxProviderSteps
+        case delegation
     }
 
     /// Reads the version before the payload and refuses formats this build cannot
@@ -73,7 +77,7 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
         guard let version = try? container.decode(Int.self, forKey: .formatVersion) else {
             throw FormatError.unversioned
         }
-        guard version == 1 || version == 2 || version == Self.currentFormatVersion else {
+        guard version == 1 || version == 2 || version == 3 || version == Self.currentFormatVersion else {
             throw FormatError.unsupportedVersion(version)
         }
 
@@ -94,6 +98,9 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
             } else {
                 mcpServerDependencies = []
             }
+            delegation = version >= 4
+                ? try container.decodeIfPresent(DelegationExecutionSnapshot.self, forKey: .delegation)
+                : nil
             maxProviderSteps = try container.decode(Int.self, forKey: .maxProviderSteps)
         } catch {
             throw FormatError.malformedCurrentVersion(version)
@@ -113,6 +120,38 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
             try container.encode(mcpServerDependencies, forKey: .mcpServerDependencies)
         }
         try container.encode(maxProviderSteps, forKey: .maxProviderSteps)
+        if formatVersion >= 4 {
+            try container.encodeIfPresent(delegation, forKey: .delegation)
+        }
+    }
+}
+
+enum DelegationModelPolicy: String, Codable, Sendable, Equatable {
+    case followParent
+}
+
+enum DelegationEnvironmentInheritance: String, Codable, Sendable, Equatable {
+    case none
+}
+
+/// The policy a Parent freezes during preparing and every Child reads from that
+/// Parent revision. This increment deliberately supports only an empty Environment
+/// inheritance set; it has no mapping source or precedence rule to reinterpret.
+struct DelegationExecutionSnapshot: Codable, Sendable, Equatable {
+    let revision: Int64
+    let enabled: Bool
+    let maxDepth: Int
+    let maxConcurrentChildren: Int
+    let modelPolicy: DelegationModelPolicy
+    let environmentInheritance: DelegationEnvironmentInheritance
+
+    init(configuration: DelegationRuntimeConfiguration) {
+        revision = configuration.revision
+        enabled = configuration.enabled
+        maxDepth = 1
+        maxConcurrentChildren = 1
+        modelPolicy = .followParent
+        environmentInheritance = .none
     }
 }
 
