@@ -379,8 +379,8 @@ struct Stage10DelegationRuntimeTests {
             encodedSnapshot: ExecutionSnapshotCodec.encode(parentSnapshot)
         )
         for (current, next) in zip(
-            [.preparing, .requestingModel, .streaming, .toolRequested],
-            [.requestingModel, .streaming, .toolRequested, .executingTools]
+            [RunState.preparing, .requestingModel, .streaming, .toolRequested],
+            [RunState.requestingModel, .streaming, .toolRequested, .executingTools]
         ) {
             try fixture.store.transitionRun(id: parentRunID, expectedState: current, to: next)
         }
@@ -454,8 +454,8 @@ struct Stage10DelegationRuntimeTests {
             childRun: childRun
         )
         for (current, next) in zip(
-            [.preparing, .requestingModel, .streaming, .toolRequested, .executingTools],
-            [.requestingModel, .streaming, .toolRequested, .executingTools, .waitingForApproval]
+            [RunState.preparing, .requestingModel, .streaming, .toolRequested, .executingTools],
+            [RunState.requestingModel, .streaming, .toolRequested, .executingTools, .waitingForApproval]
         ) {
             try fixture.store.transitionRun(id: childRunID, expectedState: current, to: next)
         }
