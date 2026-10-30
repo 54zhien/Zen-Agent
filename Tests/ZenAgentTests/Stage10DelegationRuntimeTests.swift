@@ -155,10 +155,14 @@ struct Stage10DelegationRuntimeTests {
             return
         }
 
-        let parentCalls = try scenario.store.toolCalls(inRun: scenario.parentRunID)
+        let providerBatchCalls = try scenario.store.toolCalls(inRun: scenario.parentRunID)
             .filter { $0.action == SubagentDelegationTool.toolID }
-            .sorted { $0.batchSequence < $1.batchSequence }
-        #expect(parentCalls.map(\.providerCallID) == ["provider-delegation-alpha", "provider-delegation-beta"])
+        let sequencedParentCalls: [(sequence: Int, call: ToolCallRecord)] = try providerBatchCalls.map { call in
+            (sequence: try #require(call.batchSequence), call: call)
+        }
+        let parentCalls = sequencedParentCalls.sorted { $0.sequence < $1.sequence }.map { $0.call }
+        let parentProviderCallIDs = try parentCalls.map { try #require($0.providerCallID) }
+        #expect(parentProviderCallIDs == ["provider-delegation-alpha", "provider-delegation-beta"])
         let alphaParentCall = try #require(parentCalls.first { $0.providerCallID == "provider-delegation-alpha" })
         let betaParentCall = try #require(parentCalls.first { $0.providerCallID == "provider-delegation-beta" })
         let alphaChildID = try #require(try scenario.store.delegatedChildRunID(parentToolCallID: alphaParentCall.id))
