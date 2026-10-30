@@ -10,30 +10,30 @@ enum LegacyMigrationFixture {
     static func writeSend(_ commit: SendCommit, to store: PersistenceStore) throws {
         let run = commit.run
         let seedData = try JSONEncoder().encode(run.requestConfigSeed)
-        let arguments: [(any DatabaseValueConvertible)?] = [
-            run.id,
-            run.conversationID,
-            run.kind.rawValue,
-            run.parentRunID,
-            run.state.rawValue,
-            run.endReason?.rawValue,
-            run.recoveryAction?.rawValue,
-            run.suspendReason?.rawValue,
-            run.triggerMessageID,
-            run.responseMessageID,
-            run.retryOfRunID,
-            String(decoding: seedData, as: UTF8.self),
-            run.executionSnapshot,
-            run.createdAt,
-            run.updatedAt,
-            run.kind == .parent && run.state.isActive ? run.conversationID : nil,
-        ]
         try store.database.write { db in
             try commit.conversation.insert(db)
             try commit.message.insert(db)
             for part in commit.parts {
                 try part.insert(db)
             }
+            let arguments: [(any DatabaseValueConvertible)?] = [
+                run.id,
+                run.conversationID,
+                run.kind.rawValue,
+                run.parentRunID,
+                run.state.rawValue,
+                run.endReason?.rawValue,
+                run.recoveryAction?.rawValue,
+                run.suspendReason?.rawValue,
+                run.triggerMessageID,
+                run.responseMessageID,
+                run.retryOfRunID,
+                String(decoding: seedData, as: UTF8.self),
+                run.executionSnapshot,
+                run.createdAt,
+                run.updatedAt,
+                run.kind == .parent && run.state.isActive ? run.conversationID : nil,
+            ]
             try db.execute(
                 sql: """
                     INSERT INTO agentRun (
