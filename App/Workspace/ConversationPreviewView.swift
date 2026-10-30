@@ -65,11 +65,13 @@ struct ConversationPreviewView: View {
         }) {
             NavigationStack {
                 Form {
-                    Section("原账号凭据") {
+                    Section {
                         SecureField("新的 API Key", text: $credentialRefreshKey)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .accessibilityIdentifier("conversation-auth-refresh-key")
+                    } header: {
+                        Text("原账号凭据")
                     } footer: {
                         Text("此操作只更新暂停运行冻结的原账号凭据，不会更改 Provider 当前绑定。")
                     }

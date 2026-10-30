@@ -44,9 +44,10 @@ final class SubagentSettingsModel {
 
     var modelOptions: [SubagentModelOption] {
         guard isCatalogLoaded else { return [] }
-        return providerCatalog.flatMap { entry in
-            guard entry.instance.providerID == provider.id, entry.credentialIsActive else { return [] }
-            return entry.models.compactMap { descriptor in
+        var options: [SubagentModelOption] = []
+        for entry in providerCatalog {
+            guard entry.instance.providerID == provider.id, entry.credentialIsActive else { continue }
+            options.append(contentsOf: entry.models.compactMap { descriptor in
                 guard descriptor.providerInstanceID == entry.instance.id,
                       descriptor.capabilities.contains(.text),
                       descriptor.capabilities.contains(.streaming) else { return nil }
@@ -58,8 +59,9 @@ final class SubagentSettingsModel {
                     providerName: entry.instance.displayName,
                     modelName: descriptor.displayName
                 )
-            }
+            })
         }
+        return options
     }
 
     var modelSelection: SubagentModelSelection {

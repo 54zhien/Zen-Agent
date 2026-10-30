@@ -20,7 +20,7 @@ struct SubagentSettingsView: View {
                     Text("默认关闭。启用后，Parent 最多运行一个 Child；Child 结束后 Parent 才能继续。")
                 }
 
-                Section("默认模型") {
+                Section {
                     if model.isCatalogLoaded {
                         Picker("模型策略", selection: Binding(get: {
                             model.modelSelection
@@ -68,6 +68,8 @@ struct SubagentSettingsView: View {
                     } else {
                         ProgressView("正在读取 Provider 与模型")
                     }
+                } header: {
+                    Text("默认模型")
                 } footer: {
                     Text("跟随 Parent 使用 Parent Run 已冻结的 Provider / Model。显式模型只影响之后启动的 Parent Run。")
                 }
