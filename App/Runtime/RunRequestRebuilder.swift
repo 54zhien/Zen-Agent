@@ -309,7 +309,7 @@ struct RunRequestRebuilder {
     }
 
     func authenticationRetryCredentialReady(for run: AgentRunRecord) throws -> Bool {
-        Self.authenticationRetryCredentialReady(
+        try Self.authenticationRetryCredentialReady(
             for: run,
             store: store,
             credentials: credentials
@@ -328,7 +328,7 @@ struct RunRequestRebuilder {
               request.tools.count == snapshot.exposedTools.count,
               zip(request.tools, snapshot.exposedTools).allSatisfy({ pair in
                   let (tool, exposure) = pair
-                  tool.name == exposure.toolID
+                  return tool.name == exposure.toolID
                       && tool.description == exposure.description
                       && tool.parameters == exposure.inputSchema
               })
