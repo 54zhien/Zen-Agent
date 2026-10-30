@@ -96,6 +96,36 @@ struct MigrationTests {
         return migrator
     }
 
+    @Test("v27 to v28 adds nullable run and Provider measurement columns")
+    func v27ToV28AddsMeasurementColumns() throws {
+        let database = try DatabaseQueue()
+        let migrator = currentMigrator()
+        try migrator.migrate(database, upTo: "v27_parent_delegation_runtime")
+
+        let before = try database.read { db in
+            (
+                try db.columns(in: "agentRun").map(\.name),
+                try db.columns(in: "agentStep").map(\.name)
+            )
+        }
+        #expect(!before.0.contains("stopRequestedAt"))
+        #expect(!before.1.contains("reportedPromptTokens"))
+
+        try migrator.migrate(database)
+        let after = try database.read { db in
+            (
+                try db.columns(in: "agentRun").map(\.name),
+                try db.columns(in: "agentStep").map(\.name)
+            )
+        }
+        #expect(after.0.contains("stopRequestedAt"))
+        #expect(after.1.contains("providerStartedAt"))
+        #expect(after.1.contains("providerFinishedAt"))
+        #expect(after.1.contains("reportedPromptTokens"))
+        #expect(after.1.contains("reportedCompletionTokens"))
+        #expect(after.1.contains("reportedTotalTokens"))
+    }
+
     @Test("v8 → v9 adds quote references without rewriting legacy messages")
     func v8ToV9AddsMessageQuoteReferenceWithoutRewritingLegacyMessages() throws {
         let url = try Fixtures.scratchPath(name: "quote-reference-v9-migration.sqlite")

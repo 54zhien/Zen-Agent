@@ -186,7 +186,11 @@ struct AgentRuntimeStopTests {
         let run = try fixture.store.run(id: runID)
         #expect(run?.state == .cancelled)
         #expect(run?.endReason == .cancelledByUser)
+        #expect(run?.stopRequestedAt != nil)
         #expect(run?.activeSlot == nil, "the slot is released by the cancelled terminal transition")
+        let stoppedStep = try #require(try fixture.store.steps(inRun: runID).first)
+        #expect(stoppedStep.providerStartedAt != nil)
+        #expect(stoppedStep.providerFinishedAt == nil)
 
         guard let responseID = run?.responseMessageID else {
             #expect(false, "the first provider delta must create the assistant response")

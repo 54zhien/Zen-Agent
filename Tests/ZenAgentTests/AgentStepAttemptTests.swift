@@ -63,6 +63,37 @@ struct AgentStepAttemptTests {
         #expect(try store.accepts(AttemptIdentity(stepID: "s1", attempt: 2)))
     }
 
+    @Test("reported usage and Provider timestamps stay with their request attempt")
+    func providerMeasurementsBelongToTheirAttempt() throws {
+        let store = try makeStore()
+        try makeRun(store)
+        let first = Fixtures.step(stepID: "s1", runID: "r1", attempt: 1)
+        let second = Fixtures.step(stepID: "s1", runID: "r1", attempt: 2)
+        try store.recordStep(first)
+        try store.recordStep(second)
+
+        let firstStart = Date(timeIntervalSince1970: 100)
+        let firstFinish = Date(timeIntervalSince1970: 103)
+        let secondStart = Date(timeIntervalSince1970: 104)
+        try store.markProviderStepStarted(first.attemptIdentity, at: firstStart)
+        try store.recordProviderUsage(
+            ProviderTokenUsage(promptTokens: 0, completionTokens: nil, totalTokens: nil),
+            for: first.attemptIdentity
+        )
+        try store.markProviderStepFinished(first.attemptIdentity, at: firstFinish)
+        try store.markProviderStepStarted(second.attemptIdentity, at: secondStart)
+
+        let attempts = try store.steps(inRun: "r1")
+        #expect(attempts[0].providerStartedAt == firstStart)
+        #expect(attempts[0].providerFinishedAt == firstFinish)
+        #expect(attempts[0].reportedPromptTokens == 0)
+        #expect(attempts[0].reportedCompletionTokens == nil)
+        #expect(attempts[0].reportedTotalTokens == nil)
+        #expect(attempts[1].providerStartedAt == secondStart)
+        #expect(attempts[1].providerFinishedAt == nil)
+        #expect(attempts[1].reportedPromptTokens == nil)
+    }
+
     @Test("an identity for a step that was never recorded is rejected")
     func unknownStepIsRejected() throws {
         let store = try makeStore()

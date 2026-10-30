@@ -23,7 +23,11 @@ struct Stage10DelegationRuntimeTests {
                     )),
                     .finish(.toolCalls),
                 ]),
-                .events([.textDelta("child answer"), .finish(.stop)]),
+                .events([
+                    .textDelta("child answer"),
+                    .usage(ProviderTokenUsage(promptTokens: 31, completionTokens: 4, totalTokens: 35)),
+                    .finish(.stop),
+                ]),
                 .events([.textDelta("parent answer"), .finish(.stop)]),
             ]
         )
@@ -61,6 +65,8 @@ struct Stage10DelegationRuntimeTests {
         #expect(child.parentRunID == parentRunID)
         #expect(child.requestConfigSeed == parent.requestConfigSeed)
         #expect(child.state == .completed)
+        #expect(parent.stopRequestedAt == nil)
+        #expect(child.stopRequestedAt == nil)
         let childSnapshot = try ExecutionSnapshotCodec.decode(
             try #require(child.executionSnapshot)
         )
@@ -83,6 +89,27 @@ struct Stage10DelegationRuntimeTests {
         #expect(delegationCall.state == .succeeded)
         let result = try #require(try fixture.store.toolResult(toolCallID: delegationCall.id))
         #expect(result.payload == "child answer")
+
+        let reportData = try #require(try fixture.store.latestParentChildMeasurementJSON(
+            generatedAt: Date(timeIntervalSince1970: 123)
+        ))
+        let report = try #require(JSONSerialization.jsonObject(with: reportData) as? [String: Any])
+        let parentReport = try #require(report["parent"] as? [String: Any])
+        #expect(parentReport["runID"] as? String == parentRunID)
+        let parentSteps = try #require(parentReport["providerSteps"] as? [[String: Any]])
+        #expect(parentSteps[0]["reportedPromptTokens"] is NSNull)
+        let childReports = try #require(report["children"] as? [[String: Any]])
+        let childReport = try #require(childReports.first)
+        #expect(childReport["runID"] as? String == child.id)
+        let childSteps = try #require(childReport["providerSteps"] as? [[String: Any]])
+        #expect(childSteps[0]["reportedPromptTokens"] as? Int == 31)
+        #expect(childSteps[0]["reportedCompletionTokens"] as? Int == 4)
+        #expect(childSteps[0]["reportedTotalTokens"] as? Int == 35)
+        #expect(childReport["terminalAt"] as? String != nil)
+        let reportText = String(decoding: reportData, as: UTF8.self)
+        #expect(!reportText.contains(childTask))
+        #expect(!reportText.contains("child answer"))
+        #expect(!reportText.contains("parent answer"))
 
         let requests = await ledger.requestsSnapshot()
         #expect(requests.count == 3)
@@ -306,6 +333,8 @@ struct Stage10DelegationRuntimeTests {
         let child = try #require(try scenario.store.run(id: scenario.childRunID))
         #expect(parent.state == .cancelled)
         #expect(child.state == .cancelled)
+        #expect(parent.stopRequestedAt != nil)
+        #expect(child.stopRequestedAt != nil)
         #expect(try scenario.store.toolCall(id: scenario.childToolCallID)?.state == .notExecuted)
         #expect(try scenario.store.toolCall(id: scenario.parentToolCallID)?.state == .failed)
         let result = try #require(try scenario.store.toolResult(toolCallID: scenario.parentToolCallID))

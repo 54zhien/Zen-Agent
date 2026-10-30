@@ -42,6 +42,40 @@ extension PersistenceStore {
         }
     }
 
+    func markProviderStepStarted(_ identity: AttemptIdentity, at now: Date = Date()) throws {
+        try database.write { db in
+            try db.execute(sql: """
+                UPDATE agentStep SET providerStartedAt = COALESCE(providerStartedAt, ?)
+                WHERE stepID = ? AND attempt = ?
+                """, arguments: [now, identity.stepID, identity.attempt])
+        }
+    }
+
+    func recordProviderUsage(_ usage: ProviderTokenUsage, for identity: AttemptIdentity) throws {
+        try database.write { db in
+            try db.execute(sql: """
+                UPDATE agentStep
+                SET reportedPromptTokens = ?, reportedCompletionTokens = ?, reportedTotalTokens = ?
+                WHERE stepID = ? AND attempt = ?
+                """, arguments: [
+                    usage.promptTokens,
+                    usage.completionTokens,
+                    usage.totalTokens,
+                    identity.stepID,
+                    identity.attempt,
+                ])
+        }
+    }
+
+    func markProviderStepFinished(_ identity: AttemptIdentity, at now: Date = Date()) throws {
+        try database.write { db in
+            try db.execute(sql: """
+                UPDATE agentStep SET providerFinishedAt = COALESCE(providerFinishedAt, ?)
+                WHERE stepID = ? AND attempt = ?
+                """, arguments: [now, identity.stepID, identity.attempt])
+        }
+    }
+
     func steps(inRun runID: String) throws -> [AgentStepRecord] {
         try database.read { db in
             try AgentStepRecord

@@ -460,9 +460,10 @@ extension PersistenceStore {
                     try db.execute(sql: """
                         UPDATE agentRun
                         SET state = 'stopping', endReason = NULL, recoveryAction = NULL,
-                            suspendReason = NULL, updatedAt = ?
+                            suspendReason = NULL,
+                            stopRequestedAt = COALESCE(stopRequestedAt, ?), updatedAt = ?
                         WHERE id = ? AND state = ?
-                        """, arguments: [now, child.id, child.state.rawValue])
+                        """, arguments: [now, now, child.id, child.state.rawValue])
                     guard db.changesCount == 1 else {
                         throw PersistenceError.invalidTransition("Child state changed during taskless settlement")
                     }
