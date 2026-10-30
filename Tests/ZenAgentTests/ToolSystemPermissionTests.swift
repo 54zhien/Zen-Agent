@@ -285,7 +285,10 @@ struct ToolSystemPermissionTests {
         Migrations.registerV13(&old); Migrations.registerV14(&old); Migrations.registerV15(&old)
         do {
             let store = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: old))
-            try store.commitUserTurnAndCreateParentRun(Fixtures.send(conversationID: "c", messageID: "m", runID: "r", runState: .executingTools))
+            try LegacyMigrationFixture.writeSend(
+                Fixtures.send(conversationID: "c", messageID: "m", runID: "r", runState: .executingTools),
+                to: store
+            )
             var call = Fixtures.toolCall(id: "old", runID: "r", action: "tool", state: .rejected, intent: "immutable")
             call.failureReason = .policyDenied
             let legacyCall = call

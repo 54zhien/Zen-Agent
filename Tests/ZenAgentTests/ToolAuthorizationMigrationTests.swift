@@ -19,7 +19,7 @@ struct ToolAuthorizationMigrationTests {
         do {
             let database = try ZenDatabase.open(at: url.path(), migrator: old)
             let store = PersistenceStore(database: database)
-            try store.commitUserTurnAndCreateParentRun(commit)
+            try LegacyMigrationFixture.writeSend(commit, to: store)
             try database.write { db in
                 try db.execute(sql: """
                     INSERT INTO toolCall (id, agentRunID, action, state, executionIntent, attempt, createdAt, updatedAt)

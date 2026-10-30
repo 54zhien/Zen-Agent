@@ -5,6 +5,51 @@ import GRDB
 
 @testable import ZenAgent
 
+enum LegacyMigrationFixture {
+    // Seed the original run columns so current record fields cannot leak into an old schema.
+    static func writeSend(_ commit: SendCommit, to store: PersistenceStore) throws {
+        let run = commit.run
+        let seedData = try JSONEncoder().encode(run.requestConfigSeed)
+        try store.database.write { db in
+            try commit.conversation.insert(db)
+            try commit.message.insert(db)
+            for part in commit.parts {
+                try part.insert(db)
+            }
+            let arguments: [(any DatabaseValueConvertible)?] = [
+                run.id,
+                run.conversationID,
+                run.kind.rawValue,
+                run.parentRunID,
+                run.state.rawValue,
+                run.endReason?.rawValue,
+                run.recoveryAction?.rawValue,
+                run.suspendReason?.rawValue,
+                run.triggerMessageID,
+                run.responseMessageID,
+                run.retryOfRunID,
+                String(decoding: seedData, as: UTF8.self),
+                run.executionSnapshot,
+                run.createdAt,
+                run.updatedAt,
+                run.kind == .parent && run.state.isActive ? run.conversationID : nil,
+            ]
+            try db.execute(
+                sql: """
+                    INSERT INTO agentRun (
+                        id, conversationID, kind, parentRunID, state, endReason,
+                        recoveryAction, suspendReason, triggerMessageID, responseMessageID,
+                        retryOfRunID, requestConfigSeed, executionSnapshot,
+                        createdAt, updatedAt, activeSlot
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: StatementArguments(arguments)
+            )
+        }
+    }
+}
+
 /// Product invariant: **a schema migration either completes or rolls back, and can be
 /// re-run afterwards.**
 ///
@@ -134,8 +179,9 @@ struct MigrationTests {
         let before = PersistenceStore(
             database: try ZenDatabase.open(at: url.path(), migrator: v8Migrator())
         )
-        try before.commitUserTurnAndCreateParentRun(
-            Fixtures.send(messageID: "legacy-message", runID: "legacy-run")
+        try LegacyMigrationFixture.writeSend(
+            Fixtures.send(messageID: "legacy-message", runID: "legacy-run"),
+            to: before
         )
         guard let legacyBefore = try before.messages(inConversation: "c1").first else {
             Issue.record("the V8 fixture must contain its legacy message")
@@ -182,8 +228,9 @@ struct MigrationTests {
         let before = PersistenceStore(
             database: try ZenDatabase.open(at: url.path(), migrator: v5Migrator())
         )
-        try before.commitUserTurnAndCreateParentRun(
-            Fixtures.send(messageID: "legacy-v5-message", runID: "legacy-v5-run")
+        try LegacyMigrationFixture.writeSend(
+            Fixtures.send(messageID: "legacy-v5-message", runID: "legacy-v5-run"),
+            to: before
         )
 
         let upgraded = PersistenceStore(
@@ -198,7 +245,10 @@ struct MigrationTests {
 
     private func seedV1(at url: URL) throws {
         let store = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: v1Migrator()))
-        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
+        try LegacyMigrationFixture.writeSend(
+            Fixtures.send(messageID: "m1", runID: "r1"),
+            to: store
+        )
     }
 
     private func hasAgentStepTable(_ store: PersistenceStore) throws -> Bool {
@@ -215,8 +265,9 @@ struct MigrationTests {
         let before = PersistenceStore(
             database: try ZenDatabase.open(at: url.path(), migrator: v5Migrator())
         )
-        try before.commitUserTurnAndCreateParentRun(
-            Fixtures.send(messageID: "m1", runID: "r1")
+        try LegacyMigrationFixture.writeSend(
+            Fixtures.send(messageID: "m1", runID: "r1"),
+            to: before
         )
         #expect(
             try before.database.read { db in try db.tableExists("fileAsset") } == false,
@@ -243,8 +294,9 @@ struct MigrationTests {
         let before = PersistenceStore(
             database: try ZenDatabase.open(at: url.path(), migrator: v6Migrator())
         )
-        try before.commitUserTurnAndCreateParentRun(
-            Fixtures.send(messageID: "m-v6", runID: "run-v6")
+        try LegacyMigrationFixture.writeSend(
+            Fixtures.send(messageID: "m-v6", runID: "run-v6"),
+            to: before
         )
         let oldDate = Date(timeIntervalSince1970: 1_600_000_000)
         try before.database.write { db in
