@@ -92,8 +92,9 @@ struct AppSpaceDeletionDeadlineTests {
         Migrations.registerV12(&old)
         do {
             let before = PersistenceStore(database: try ZenDatabase.open(at: url.path(), migrator: old))
-            try before.commitUserTurnAndCreateParentRun(
-                Fixtures.send(messageID: "legacy-m1", runID: "legacy-r1", runState: .completed)
+            try LegacyMigrationFixture.writeSend(
+                Fixtures.send(messageID: "legacy-m1", runID: "legacy-r1", runState: .completed),
+                to: before
             )
             try before.beginDeletion(conversationID: "c1", at: Fixtures.epoch)
         }
