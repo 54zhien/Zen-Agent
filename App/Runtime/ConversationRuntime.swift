@@ -1151,6 +1151,10 @@ actor ConversationRuntime {
 
         _ = try store.cancelTasklessDelegatedChildren(parentRunID: parent.id)
         try await confirmDelegatedOutcomes(in: parent.id)
+        _ = try store.settleUndispatchedDelegatedToolCalls(
+            parentRunID: parent.id,
+            expectedParentState: .stopping
+        )
     }
 
     private func confirmDelegatedOutcomes(in parentRunID: String) async throws {

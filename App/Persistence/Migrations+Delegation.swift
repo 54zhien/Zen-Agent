@@ -16,7 +16,7 @@ extension Migrations {
                 t.column("childRunID", .text).notNull()
                     .references("agentRun", onDelete: .cascade)
                 t.column("createdAt", .datetime).notNull()
-                t.primaryKey("parentToolCallID")
+                t.primaryKey(["parentToolCallID"])
                 t.uniqueKey(["childRunID"])
             }
 

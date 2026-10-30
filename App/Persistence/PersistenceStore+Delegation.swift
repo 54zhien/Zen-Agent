@@ -8,14 +8,14 @@ struct DelegationRuntimeConfiguration: Sendable, Equatable {
 
 extension PersistenceStore {
     func delegationConfiguration() throws -> DelegationRuntimeConfiguration {
-        try database.read { db in
+        try database.read { db -> DelegationRuntimeConfiguration in
             try Self.delegationConfiguration(db: db)
         }
     }
 
     @discardableResult
     func setDelegationEnabled(_ enabled: Bool, at now: Date = Date()) throws -> DelegationRuntimeConfiguration {
-        try database.write { db in
+        try database.write { db -> DelegationRuntimeConfiguration in
             let current = try Self.delegationConfiguration(db: db)
             guard current.enabled != enabled else { return current }
             let revision = current.revision + 1
@@ -159,7 +159,7 @@ extension PersistenceStore {
         guard expectedParentState == .recovering || expectedParentState == .stopping else {
             throw PersistenceError.invalidTransition("delegated outcome requires Parent recovery or stop")
         }
-        try database.read { db in
+        return try database.read { db -> ToolExecutionResult? in
             guard let call = try ToolCallRecord.fetchOne(db, key: parentToolCallID),
                   call.action == SubagentDelegationTool.toolID,
                   call.attempt == attempt,
@@ -170,7 +170,9 @@ extension PersistenceStore {
                   parent.kind == .parent,
                   parent.parentRunID == nil,
                   parent.state == expectedParentState,
-                  expectedParentState != .recovering || parent.recoveryAction == .resume,
+                  expectedParentState != .recovering
+                    || parent.recoveryAction == .resume
+                    || parent.recoveryAction == .invalidate,
                   let childID = try String.fetchOne(db, sql: """
                     SELECT childRunID FROM delegatedChildRun WHERE parentToolCallID = ?
                     """, arguments: [parentToolCallID]),
@@ -194,7 +196,7 @@ extension PersistenceStore {
         guard expectedParentState == .recovering || expectedParentState == .stopping else {
             throw PersistenceError.invalidTransition("delegated outcome confirmation requires Parent recovery or stop")
         }
-        try database.write { db in
+        return try database.write { db -> Bool in
             guard let call = try ToolCallRecord.fetchOne(db, key: parentToolCallID),
                   call.action == SubagentDelegationTool.toolID,
                   call.attempt == attempt,
@@ -205,7 +207,9 @@ extension PersistenceStore {
                   parent.kind == .parent,
                   parent.parentRunID == nil,
                   parent.state == expectedParentState,
-                  expectedParentState != .recovering || parent.recoveryAction == .resume,
+                  expectedParentState != .recovering
+                    || parent.recoveryAction == .resume
+                    || parent.recoveryAction == .invalidate,
                   let childID = try String.fetchOne(db, sql: """
                     SELECT childRunID FROM delegatedChildRun WHERE parentToolCallID = ?
                     """, arguments: [parentToolCallID]),
@@ -248,6 +252,7 @@ extension PersistenceStore {
         try settleTasklessDelegatedChildren(
             parentRunID: parentRunID,
             parentState: .recovering,
+            recoveryAction: .resume,
             terminalState: .failed,
             endReason: endReason,
             openPartState: .failed,
@@ -255,9 +260,91 @@ extension PersistenceStore {
         )
     }
 
+    func failDelegatedChildrenAfterParentInvalidation(
+        parentRunID: String,
+        at now: Date = Date()
+    ) throws -> [String] {
+        try settleTasklessDelegatedChildren(
+            parentRunID: parentRunID,
+            parentState: .recovering,
+            recoveryAction: .invalidate,
+            terminalState: .failed,
+            endReason: .dependencyUnavailable,
+            openPartState: .failed,
+            at: now
+        )
+    }
+
+    func settleUndispatchedDelegatedToolCalls(
+        parentRunID: String,
+        expectedParentState: RunState,
+        at now: Date = Date()
+    ) throws -> [String] {
+        let result = ToolExecutionResult(
+            content: "Delegation ended before a Child Run was created.",
+            kind: .error,
+            failure: .executionFailed
+        )
+
+        return try database.write { db in
+            guard let parent = try AgentRunRecord.fetchOne(db, key: parentRunID),
+                  parent.kind == .parent,
+                  parent.parentRunID == nil,
+                  parent.state == expectedParentState,
+                  expectedParentState == .stopping
+                    || (expectedParentState == .recovering && parent.recoveryAction == .invalidate)
+            else {
+                throw PersistenceError.invalidTransition("delegation settlement requires a stopping or invalidated Parent")
+            }
+
+            let calls = try ToolCallRecord.fetchAll(db, sql: """
+                SELECT c.* FROM toolCall c
+                WHERE c.agentRunID = ? AND c.action = ?
+                  AND c.state IN (?, ?, ?, ?, ?)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM delegatedChildRun d WHERE d.parentToolCallID = c.id
+                  )
+                ORDER BY c.createdAt, c.id
+                """, arguments: [
+                    parentRunID,
+                    SubagentDelegationTool.toolID,
+                    ToolCallState.validated.rawValue,
+                    ToolCallState.waitingForApproval.rawValue,
+                    ToolCallState.waitingForSystemPermissionConsent.rawValue,
+                    ToolCallState.approved.rawValue,
+                    ToolCallState.prepared.rawValue,
+                ])
+            var settled: [String] = []
+            for call in calls {
+                try db.execute(sql: """
+                    UPDATE toolCall SET state = ?, failureReason = NULL, updatedAt = ?
+                    WHERE id = ? AND state = ?
+                    """, arguments: [
+                        ToolCallState.notExecuted.rawValue,
+                        now,
+                        call.id,
+                        call.state.rawValue,
+                    ])
+                guard db.changesCount == 1 else {
+                    throw PersistenceError.invalidTransition("undispatched delegation changed during Parent settlement")
+                }
+                try ToolResultRecord(
+                    toolCallID: call.id,
+                    payload: result.content,
+                    createdAt: now,
+                    kind: result.kind,
+                    failureCode: result.failure
+                ).insert(db)
+                settled.append(call.id)
+            }
+            return settled
+        }
+    }
+
     private func settleTasklessDelegatedChildren(
         parentRunID: String,
         parentState: RunState,
+        recoveryAction: RecoveryAction? = nil,
         terminalState: RunState,
         endReason: EndReason,
         openPartState: MessagePartState,
@@ -268,7 +355,7 @@ extension PersistenceStore {
                   parent.kind == .parent,
                   parent.parentRunID == nil,
                   parent.state == parentState,
-                  (parentState != .recovering || parent.recoveryAction == .resume)
+                  (parentState != .recovering || parent.recoveryAction == recoveryAction)
             else {
                 throw PersistenceError.invalidTransition("taskless Child settlement requires an eligible Parent")
             }

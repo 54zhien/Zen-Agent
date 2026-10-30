@@ -147,6 +147,10 @@ struct RunRecovery: Sendable {
         try await confirmDelegatedOutcomes(in: run.id)
         _ = try store.cancelTasklessDelegatedChildren(parentRunID: run.id)
         try await confirmDelegatedOutcomes(in: run.id)
+        _ = try store.settleUndispatchedDelegatedToolCalls(
+            parentRunID: run.id,
+            expectedParentState: .stopping
+        )
         try store.settleTasklessRun(
             id: run.id,
             expectedState: .stopping,
@@ -168,7 +172,18 @@ struct RunRecovery: Sendable {
 
     private func failAfterMemoryInvalidation(run: AgentRunRecord) async throws {
         // Erasure revokes future work, never the truth of an already dispatched
-        // file operation. Query original proof without replay before settling.
+        // operation. Confirm known Child results, then terminalize active Children
+        // before releasing the Parent's recovery slot.
+        try await confirmDelegatedOutcomes(in: run.id)
+        _ = try store.failDelegatedChildrenAfterParentInvalidation(parentRunID: run.id)
+        try await confirmDelegatedOutcomes(in: run.id)
+        _ = try store.settleUndispatchedDelegatedToolCalls(
+            parentRunID: run.id,
+            expectedParentState: .recovering
+        )
+
+        // Existing non-delegation executors still query their durable proof before
+        // an uncertain dispatch is recorded as indeterminate.
         for call in try store.toolCalls(inRun: run.id) where call.state == .dispatched || call.state == .indeterminate {
             if let toolRuntime { _ = try toolRuntime.confirmToolOutcome(toolCallID: call.id) }
             if try store.toolCall(id: call.id)?.state == .dispatched {
