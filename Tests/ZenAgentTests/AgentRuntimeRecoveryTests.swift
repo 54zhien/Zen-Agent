@@ -142,6 +142,30 @@ final class AgentRuntimeRecoveryTests: XCTestCase {
         XCTAssertNotEqual(run.recoveryAction, RecoveryAction.restart)
     }
 
+    func testAuthenticationSuspensionWithoutCredentialFailureEvidenceDoesNotReprepare() async throws {
+        let store = try makeStore()
+        let runID = try makeRun(in: store, state: .preparing)
+        try store.completeExecutionSnapshot(runID: runID, encodedSnapshot: try validSnapshot())
+        try store.transitionRun(id: runID, expectedState: .preparing, to: .requestingModel)
+        let identity = AttemptIdentity(stepID: "step-\(runID)", attempt: 1)
+        try store.recordStep(Fixtures.step(stepID: identity.stepID, runID: runID, attempt: identity.attempt))
+        try store.markProviderStepStarted(identity)
+        try store.transitionRun(
+            id: runID,
+            expectedState: .requestingModel,
+            to: .suspended,
+            recoveryAction: .reprepare,
+            suspendReason: .authRequired
+        )
+
+        try await makeRecovery(store: store).recover(runID: runID)
+
+        let run = try XCTUnwrap(try store.run(id: runID))
+        XCTAssertEqual(run.state, .suspended)
+        XCTAssertEqual(run.suspendReason, .authRequired)
+        XCTAssertNil(try store.steps(inRun: runID).first?.credentialFailureSource)
+    }
+
     func testCredentialRefreshWithSameBindingGenerationCanContinue() async throws {
         let store = try makeStore()
         let runID = try makeRun(in: store, state: .preparing)

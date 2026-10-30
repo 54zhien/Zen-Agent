@@ -4,6 +4,7 @@ enum RunRequestRebuildError: Error, Sendable {
     case missingDependency
     case incompleteCommittedInput
     case incompatibleSnapshot
+    case authenticationActionRequired
 }
 
 struct RecoveredToolBatch: Sendable {
@@ -270,6 +271,168 @@ struct RunRequestRebuilder {
             throw RunRequestRebuildError.incompleteCommittedInput
         }
         return latestBatch
+    }
+
+    static func authenticationRetryCredentialReady(
+        for run: AgentRunRecord,
+        store: PersistenceStore,
+        credentials: (any CredentialStoring)?
+    ) throws -> Bool {
+        guard let credentials,
+              let failedAttempt = try store.steps(inRun: run.id).last,
+              let source = failedAttempt.credentialFailureSource,
+              let failureAt = failedAttempt.credentialFailureAt,
+              failedAttempt.providerStartedAt != nil,
+              failedAttempt.protocolResponse == nil
+        else { return false }
+
+        let binding = run.requestConfigSeed.credentialBinding
+        guard let metadata = try credentials.metadata(for: binding.reference) else {
+            return false
+        }
+        guard metadata.reference == binding.reference else { return false }
+        guard metadata.bindingGeneration == binding.generation else {
+            throw CredentialError.bindingMoved(
+                binding.reference,
+                frozenGeneration: binding.generation,
+                currentGeneration: metadata.bindingGeneration
+            )
+        }
+        guard metadata.status == .active else { return false }
+        if source == .providerHTTP401, metadata.updatedAt <= failureAt {
+            return false
+        }
+        return try credentials.resolve(
+            frozenReference: binding.reference,
+            generation: binding.generation
+        ) != nil
+    }
+
+    func authenticationRetryCredentialReady(for run: AgentRunRecord) throws -> Bool {
+        Self.authenticationRetryCredentialReady(
+            for: run,
+            store: store,
+            credentials: credentials
+        )
+    }
+
+    func authenticationRetryRequest(
+        for run: AgentRunRecord,
+        snapshot: RunExecutionSnapshot,
+        initialRequest request: ProviderChatRequest
+    ) throws -> ProviderChatRequest {
+        guard snapshot.providerID == provider.id,
+              snapshot.providerAdapterRevision == provider.adapterRevision,
+              snapshot.maxProviderSteps > 0,
+              request.modelID == run.requestConfigSeed.modelID,
+              request.tools.count == snapshot.exposedTools.count,
+              zip(request.tools, snapshot.exposedTools).allSatisfy({ pair in
+                  let (tool, exposure) = pair
+                  tool.name == exposure.toolID
+                      && tool.description == exposure.description
+                      && tool.parameters == exposure.inputSchema
+              })
+        else { throw RunRequestRebuildError.incompatibleSnapshot }
+
+        let steps = try store.steps(inRun: run.id)
+        guard let failedAttempt = steps.last,
+              failedAttempt.credentialFailureSource != nil,
+              failedAttempt.credentialFailureAt != nil,
+              failedAttempt.providerStartedAt != nil,
+              failedAttempt.protocolResponse == nil,
+              failedAttempt.sequence >= 0
+        else { throw RunRequestRebuildError.incompleteCommittedInput }
+
+        let groupedSteps = Dictionary(grouping: steps, by: \.sequence)
+        guard groupedSteps.keys.sorted() == Array(0...failedAttempt.sequence) else {
+            throw RunRequestRebuildError.incompleteCommittedInput
+        }
+
+        let calls = try store.toolCalls(inRun: run.id)
+        var reconstructedCallIDs = Set<String>()
+        var messages = request.messages
+
+        for sequence in 0...failedAttempt.sequence {
+            guard let attempts = groupedSteps[sequence], !attempts.isEmpty,
+                  attempts.enumerated().allSatisfy({ $0.element.attempt == $0.offset + 1 })
+            else { throw RunRequestRebuildError.incompleteCommittedInput }
+
+            for (index, step) in attempts.enumerated() {
+                let batchID = "batch-\(run.id)-\(step.sequence)-\(step.attempt)"
+                let batchCalls = calls.filter { $0.batchID == batchID }.sorted {
+                    ($0.batchSequence ?? Int.max) < ($1.batchSequence ?? Int.max)
+                }
+                let isLatestAttempt = sequence == failedAttempt.sequence
+                    && index == attempts.count - 1
+
+                if isLatestAttempt {
+                    guard step.attemptIdentity == failedAttempt.attemptIdentity,
+                          step.credentialFailureSource != nil,
+                          step.providerStartedAt != nil,
+                          step.protocolResponse == nil,
+                          batchCalls.isEmpty
+                    else { throw RunRequestRebuildError.incompleteCommittedInput }
+                    continue
+                }
+
+                if step.protocolResponse == nil {
+                    guard step.credentialFailureSource != nil,
+                          step.credentialFailureAt != nil,
+                          step.providerStartedAt != nil,
+                          batchCalls.isEmpty
+                    else { throw RunRequestRebuildError.incompleteCommittedInput }
+                    continue
+                }
+
+                guard index == attempts.count - 1,
+                      let encodedTranscript = step.protocolResponse,
+                      let transcript = try? JSONDecoder().decode(
+                        ToolCallProtocolTranscript.self,
+                        from: Data(encodedTranscript.utf8)
+                      ),
+                      transcript.version == ToolCallProtocolTranscript.currentVersion,
+                      !transcript.calls.isEmpty,
+                      transcript.calls.count == batchCalls.count
+                else { throw RunRequestRebuildError.incompleteCommittedInput }
+
+                var providerCalls: [ProviderToolCall] = []
+                var resultMessages: [ProviderChatMessage] = []
+                for (callIndex, pair) in zip(batchCalls, transcript.calls).enumerated() {
+                    let (call, protocolCall) = pair
+                    guard call.batchID == batchID,
+                          call.batchSequence == callIndex,
+                          protocolCall.index == callIndex,
+                          let providerCallID = call.providerCallID,
+                          providerCallID == protocolCall.id,
+                          call.action == protocolCall.name,
+                          call.state.isTerminal,
+                          reconstructedCallIDs.insert(call.id).inserted,
+                          let result = try store.toolResult(toolCallID: call.id)
+                    else { throw RunRequestRebuildError.incompleteCommittedInput }
+                    providerCalls.append(protocolCall.providerCall)
+                    resultMessages.append(.toolResult(
+                        toolCallID: protocolCall.id,
+                        content: result.payload
+                    ))
+                }
+
+                messages.append(.assistant(
+                    content: transcript.assistantContent,
+                    reasoning: nil,
+                    toolCalls: providerCalls
+                ))
+                messages.append(contentsOf: resultMessages)
+            }
+        }
+
+        guard reconstructedCallIDs.count == calls.count else {
+            throw RunRequestRebuildError.incompleteCommittedInput
+        }
+        return ProviderChatRequest(
+            modelID: request.modelID,
+            messages: messages,
+            tools: request.tools
+        )
     }
 
     private func latestSingleStepToolBatch(

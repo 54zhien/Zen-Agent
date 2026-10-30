@@ -171,6 +171,78 @@ struct MigrationTests {
         #expect(after.1.contains("reportedTotalTokens"))
     }
 
+    @Test("v30 to v31 preserves auth evidence without inventing a refresh time")
+    func v30AuthenticationEvidenceMigrationPreservesRows() throws {
+        let database = try DatabaseQueue()
+        let migrator = currentMigrator()
+        try migrator.migrate(database, upTo: "v28_run_measurements")
+        let store = PersistenceStore(database: database)
+        try database.write { db in
+            try db.execute(sql: """
+                INSERT INTO conversation(id, title, createdAt, updatedAt, userActiveAt, pinned, lifecycle)
+                VALUES ('c-v30', 'Legacy', ?, ?, ?, 0, 'visible')
+                """, arguments: [Fixtures.epoch, Fixtures.epoch, Fixtures.epoch])
+            try db.execute(sql: """
+                INSERT INTO message(id, conversationID, role, sequence, createdAt)
+                VALUES ('m-v30', 'c-v30', 'user', 0, ?)
+                """, arguments: [Fixtures.epoch])
+            try db.execute(sql: """
+                INSERT INTO agentRun(id, conversationID, kind, state, triggerMessageID,
+                                     requestConfigSeed, createdAt, updatedAt, activeSlot)
+                VALUES ('run-v30', 'c-v30', 'parent', 'preparing', 'm-v30', '{}', ?, ?, 'c-v30')
+                """, arguments: [Fixtures.epoch, Fixtures.epoch])
+            try db.execute(sql: """
+                INSERT INTO agentDelegationSettings(id, enabled, revision, updatedAt)
+                VALUES ('global', ?, ?, ?)
+                """, arguments: [true, 4, Fixtures.epoch])
+            try db.execute(sql: """
+                INSERT INTO agentStep(stepID, runID, sequence, attempt, createdAt)
+                VALUES ('legacy-step', 'run-v30', 0, 1, ?)
+                """, arguments: [Fixtures.epoch])
+            try db.execute(sql: """
+                INSERT INTO toolCall(id, agentRunID, action, state, createdAt, updatedAt)
+                VALUES ('call-v30', 'run-v30', 'legacy', 'succeeded', ?, ?)
+                """, arguments: [Fixtures.epoch, Fixtures.epoch])
+            try db.execute(sql: """
+                INSERT INTO toolResult(toolCallID, payload, createdAt, kind, failureCode)
+                VALUES ('call-v30', 'legacy result', ?, 'error', 'systemPermissionDenied')
+                """, arguments: [Fixtures.epoch])
+        }
+
+        try migrator.migrate(database, upTo: "v30_authentication_recovery_evidence")
+        try database.write { db in
+            try db.execute(sql: """
+                INSERT INTO agentStep(stepID, runID, sequence, attempt, createdAt,
+                                     providerStartedAt, credentialFailureSource)
+                VALUES ('legacy-auth-step', 'run-v30', 1, 1, ?, ?, 'providerHTTP401')
+                """, arguments: [Fixtures.epoch, Fixtures.epoch])
+        }
+        try migrator.migrate(database)
+
+        let configuration = try store.delegationConfiguration()
+        #expect(configuration.enabled)
+        #expect(configuration.explicitModelTarget == nil)
+        #expect(configuration.revision == 4)
+        #expect(try store.currentAttempt(ofStep: "legacy-step")?.credentialFailureSource == nil)
+        #expect(try store.currentAttempt(ofStep: "legacy-step")?.credentialFailureAt == nil)
+        #expect(try store.currentAttempt(ofStep: "legacy-auth-step")?.credentialFailureSource == .providerHTTP401)
+        #expect(try store.currentAttempt(ofStep: "legacy-auth-step")?.credentialFailureAt == nil)
+        #expect(try store.toolResult(toolCallID: "call-v30")?.payload == "legacy result")
+        #expect(try store.toolResult(toolCallID: "call-v30")?.failureCode == .systemPermissionDenied)
+
+        try database.write { db in
+            try db.execute(sql: """
+                INSERT INTO toolCall(id, agentRunID, action, state, createdAt, updatedAt)
+                VALUES ('call-v30-auth', 'run-v30', 'auth', 'failed', ?, ?)
+                """, arguments: [Fixtures.epoch, Fixtures.epoch])
+            try db.execute(sql: """
+                INSERT INTO toolResult(toolCallID, payload, createdAt, kind, failureCode)
+                VALUES ('call-v30-auth', 'authentication required', ?, 'error', 'authenticationRequired')
+                """, arguments: [Fixtures.epoch])
+        }
+        #expect(try store.toolResult(toolCallID: "call-v30-auth")?.failureCode == .authenticationRequired)
+    }
+
     @Test("v8 → v9 adds quote references without rewriting legacy messages")
     func v8ToV9AddsMessageQuoteReferenceWithoutRewritingLegacyMessages() throws {
         let url = try Fixtures.scratchPath(name: "quote-reference-v9-migration.sqlite")

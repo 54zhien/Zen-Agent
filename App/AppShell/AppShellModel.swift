@@ -761,6 +761,12 @@ final class AppShellModel {
         if let store = dependencies?.store { previewContent.refresh(store: store) }
     }
 
+    func refreshFrozenCredentialAndRetry(runID: String, secret: SecretValue) async throws {
+        guard let dependencies else { throw AppTargetFailure.persistenceUnavailable }
+        try await dependencies.runtime.refreshFrozenCredentialAndRetry(runID: runID, secret: secret)
+        previewContent.refresh(store: dependencies.store)
+    }
+
     private(set) var pane: ConversationPaneController?
     private(set) var actionBridge: ComposerRuntimeActionBridge?
     private(set) var providerSetup: ProviderSetupModel?

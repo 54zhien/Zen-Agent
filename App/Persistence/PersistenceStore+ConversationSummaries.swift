@@ -178,7 +178,7 @@ extension PersistenceStore {
             LIMIT \(limit)
         )
         SELECT c.*,
-            r.id AS runID, r.state AS runState, r.endReason,
+            r.id AS runID, r.state AS runState, r.endReason, r.suspendReason AS runSuspendReason,
             CASE WHEN json_valid(r.requestConfigSeed)
                  THEN json_extract(r.requestConfigSeed, '$.providerInstanceID') END AS providerInstanceID,
             CASE WHEN json_valid(r.requestConfigSeed)
@@ -223,8 +223,17 @@ extension PersistenceStore {
                 let state = RunState(rawValue: rawState)
                 let rawReason: String? = row["endReason"]
                 let reason = rawReason.flatMap(EndReason.init(rawValue:))
-                if let state, rawReason == nil || reason != nil {
-                    projection = RunProjection(runID: runID, state: state, endReason: reason)
+                let rawSuspendReason: String? = row["runSuspendReason"]
+                let suspendReason = rawSuspendReason.flatMap(SuspendReason.init(rawValue:))
+                if let state,
+                   (rawReason == nil || reason != nil),
+                   (rawSuspendReason == nil || suspendReason != nil) {
+                    projection = RunProjection(
+                        runID: runID,
+                        state: state,
+                        endReason: reason,
+                        suspendReason: suspendReason
+                    )
                 } else {
                     // Keep a readable row's identity/cursor, but do not invent
                     // a successful business state for unknown persisted metadata.

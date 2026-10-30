@@ -28,7 +28,10 @@ struct SettingsWorkspaceView: View {
                 }
                 Section("Agent") {
                     NavigationLink { SettingsAgentView(model: model.soul, memory: model.memory, skills: model.skills,
-                        environment: model.environment, tools: model.tools, mcp: model.mcp, focus: focus) }
+                        environment: model.environment, tools: model.tools, mcp: model.mcp,
+                        subagents: model.subagents, focus: focus, onRetryCatalog: {
+                            Task { await model.load() }
+                        }) }
                         label: { Label("Agent", systemImage: "sparkle") }
                         .accessibilityIdentifier("settings-agent")
                 }
@@ -91,7 +94,9 @@ private struct SettingsAgentView: View {
     let environment: EnvironmentSettingsModel
     let tools: ToolSettingsModel
     let mcp: MCPSettingsModel
+    let subagents: SubagentSettingsModel
     let focus: SettingsInputFocus
+    let onRetryCatalog: () -> Void
     var body: some View {
         Form {
             NavigationLink { SoulSettingsView(model: model, focus: focus) }
@@ -106,6 +111,8 @@ private struct SettingsAgentView: View {
                 label: { Text("可调用工具") }.accessibilityIdentifier("settings-tools")
             NavigationLink { MCPSettingsView(model: mcp, toolSettings: tools, focus: focus) }
                 label: { Text("MCP 服务") }.accessibilityIdentifier("settings-mcp")
+            NavigationLink { SubagentSettingsView(model: subagents, onRetryCatalog: onRetryCatalog) }
+                label: { Text("子代理") }.accessibilityIdentifier("settings-subagents")
         }.navigationTitle("Agent").settingsCloseToolbar()
     }
 }

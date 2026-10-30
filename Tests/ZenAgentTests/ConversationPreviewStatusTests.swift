@@ -7,12 +7,15 @@ struct ConversationPreviewStatusTests {
     struct Case: Sendable {
         let state: RunState
         let reason: EndReason?
+        let suspendReason: SuspendReason?
         let expected: ConversationCardStatus?
         let reasoningAllowed: Bool
         init(_ state: RunState, _ expected: ConversationCardStatus?,
-             reason: EndReason? = nil, reasoningAllowed: Bool = false) {
+             reason: EndReason? = nil, suspendReason: SuspendReason? = nil,
+             reasoningAllowed: Bool = false) {
             self.state = state
             self.reason = reason
+            self.suspendReason = suspendReason
             self.expected = expected
             self.reasoningAllowed = reasoningAllowed
         }
@@ -22,6 +25,7 @@ struct ConversationPreviewStatusTests {
         Case(.preparing, .generating), Case(.requestingModel, .generating),
         Case(.streaming, .generating), Case(.continuing, .generating),
         Case(.stopping, .generating), Case(.suspended, .generating), Case(.recovering, .generating),
+        Case(.suspended, .authenticationRequired, suspendReason: .authRequired),
         Case(.streaming, .reasoningVisible, reasoningAllowed: true),
         Case(.toolRequested, .tool), Case(.executingTools, .tool), Case(.waitingForApproval, .approval),
         Case(.completed, nil, reason: .completed),
@@ -32,7 +36,12 @@ struct ConversationPreviewStatusTests {
         Case(.failed, .failed, reason: .totalTimeout), Case(.failed, .failed, reason: .toolOutcomeUnknown)
     ])
     func mapping(input: Case) {
-        let projection = RunProjection(runID: "preview-run", state: input.state, endReason: input.reason)
+        let projection = RunProjection(
+            runID: "preview-run",
+            state: input.state,
+            endReason: input.reason,
+            suspendReason: input.suspendReason
+        )
         #expect(ConversationCardStatus.derive(from: projection,
             visibleReasoningAllowed: input.reasoningAllowed) == input.expected)
     }

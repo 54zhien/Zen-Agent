@@ -21,6 +21,7 @@ enum ColdStartRecoveryDisposition: Sendable, Equatable {
 
 enum ColdStartRecoveryIssueCategory: Sendable, Equatable {
     case credentialTemporarilyUnavailable
+    case authenticationRequired
     case systemPermissionConsent
     case unresolvedCheckpoint
     case persistenceOrReadFailure
@@ -189,6 +190,37 @@ actor ConversationRuntime {
             registry: try context.registry.merging([executable]),
             availableMCPServerIDs: context.availableMCPServerIDs,
             availableMCPServerIdentities: context.availableMCPServerIdentities
+        )
+    }
+
+    private func freezeExplicitDelegationModelBinding(
+        for configuration: DelegationRuntimeConfiguration
+    ) throws -> DelegationModelBindingSnapshot? {
+        guard configuration.enabled,
+              let target = configuration.explicitModelTarget,
+              let instance = try store.providerInstance(id: target.providerInstanceID),
+              instance.providerID == provider.id,
+              let descriptor = provider.descriptor(for: target.modelID, in: instance),
+              descriptor.providerInstanceID == instance.id,
+              descriptor.capabilities.contains(.text),
+              descriptor.capabilities.contains(.streaming),
+              let reference = instance.credentialReference,
+              let metadata = try credentials.metadata(for: reference)
+        else { return nil }
+
+        let seed = try provider.makeRequestConfigSeed(
+            instance: instance,
+            modelID: target.modelID,
+            credentialBinding: CredentialBindingSnapshot(
+                reference: metadata.reference,
+                generation: metadata.bindingGeneration
+            )
+        )
+        return DelegationModelBindingSnapshot(
+            providerID: provider.id,
+            providerAdapterRevision: provider.adapterRevision,
+            modelCapabilities: descriptor.capabilities,
+            requestConfigSeed: seed
         )
     }
 
@@ -417,8 +449,12 @@ actor ConversationRuntime {
         let activatedSkills: [SkillContext]
         let snapshotToolContext: ToolRuntimeRegistryContext
         do {
+            let delegationConfiguration = try store.delegationConfiguration()
             let delegation = DelegationExecutionSnapshot(
-                configuration: try store.delegationConfiguration()
+                configuration: delegationConfiguration,
+                explicitModelBinding: try freezeExplicitDelegationModelBinding(
+                    for: delegationConfiguration
+                )
             )
             snapshotToolContext = try addingDelegationTool(
                 to: runToolContext,
@@ -583,6 +619,46 @@ actor ConversationRuntime {
         } catch {
             conversationColdStartRecoveries.removeValue(forKey: conversationID)
             throw error
+        }
+    }
+
+    func refreshFrozenCredentialAndRetry(runID: String, secret: SecretValue) async throws {
+        guard let parent = try store.run(id: runID),
+              parent.kind == .parent,
+              parent.state.isActive
+        else { throw RunRequestRebuildError.authenticationActionRequired }
+
+        let target = try authenticationCredentialFailureTarget(for: parent)
+        guard try credentialFailureEvidence(in: target) != nil else {
+            throw RunRequestRebuildError.authenticationActionRequired
+        }
+        let binding = target.requestConfigSeed.credentialBinding
+        try credentials.refresh(
+            secret,
+            for: binding.reference,
+            generation: binding.generation,
+            at: Date()
+        )
+        guard try RunRequestRebuilder.authenticationRetryCredentialReady(
+            for: target,
+            store: store,
+            credentials: credentials
+        ) else {
+            throw RunRequestRebuildError.authenticationActionRequired
+        }
+
+        if coldStartRecoveryInFlight, let recovery = coldStartRecovery {
+            _ = try await recovery.value
+            coldStartRecoveryInFlight = false
+        }
+        if let recovery = conversationColdStartRecoveries.removeValue(forKey: parent.conversationID) {
+            _ = try await recovery.value
+        }
+        let report = try await reconcileColdStartRuns(inConversationID: parent.conversationID)
+        guard report.continuedRunIDs.contains(parent.id)
+                || report.settledRunIDs.contains(parent.id)
+                || operations[parent.id] != nil else {
+            throw RunRequestRebuildError.authenticationActionRequired
         }
     }
 
@@ -771,7 +847,75 @@ actor ConversationRuntime {
                         $0.state == .dispatched || $0.state == .indeterminate
                     })
                     let hasDelegation = calls.contains { $0.action == SubagentDelegationTool.toolID }
-                    if hasUncertainCall && !hasDelegation {
+                    let hasPendingDelegatedCall = calls.contains {
+                        $0.action == SubagentDelegationTool.toolID && !$0.state.isTerminal
+                    }
+                    let hasCredentialFailureEvidence = run.recoveryAction == .reprepare
+                        && latestStep?.credentialFailureSource != nil
+                        && latestStep?.credentialFailureAt != nil
+                        && latestStep?.providerStartedAt != nil
+                        && latestStep?.protocolResponse == nil
+                    if hasCredentialFailureEvidence {
+                        do {
+                            try await continueAuthenticationRetry(run)
+                            report.continuedRunIDs.append(runID)
+                        } catch RunRequestRebuildError.authenticationActionRequired {
+                            if run.state == .recovering {
+                                try store.transitionRun(
+                                    id: runID,
+                                    expectedState: .recovering,
+                                    to: .suspended,
+                                    recoveryAction: .reprepare,
+                                    suspendReason: .authRequired
+                                )
+                                await publish(.runStateChanged(runID: runID, state: .suspended))
+                            }
+                            issueCategory = .authenticationRequired
+                            report.pendingRunIDs.append(runID)
+                        } catch CredentialError.unavailable(_, _) {
+                            issueCategory = .credentialTemporarilyUnavailable
+                            report.pendingRunIDs.append(runID)
+                        } catch _ as CredentialError {
+                            try await settleRecoveredRun(
+                                id: runID,
+                                expectedState: run.state,
+                                terminalState: .failed,
+                                endReason: .credentialExpired
+                            )
+                            report.settledRunIDs.append(runID)
+                        } catch RunRequestRebuildError.missingDependency {
+                            try await settleRecoveredRun(
+                                id: runID,
+                                expectedState: run.state,
+                                terminalState: .failed,
+                                endReason: .dependencyUnavailable
+                            )
+                            report.settledRunIDs.append(runID)
+                        } catch RunRequestRebuildError.incompleteCommittedInput,
+                                RunRequestRebuildError.incompatibleSnapshot {
+                            try await settleRecoveredRun(
+                                id: runID,
+                                expectedState: run.state,
+                                terminalState: .failed,
+                                endReason: .unrecoverable
+                            )
+                            report.settledRunIDs.append(runID)
+                        }
+                        continue
+                    }
+                    if run.state == .suspended,
+                       run.suspendReason == .authRequired,
+                       !hasPendingDelegatedCall {
+                        issueCategory = .unresolvedCheckpoint
+                        report.pendingRunIDs.append(runID)
+                        continue
+                    }
+
+                    if run.state == .recovering,
+                       run.recoveryAction == .reprepare,
+                       !hasPendingDelegatedCall {
+                        outcome = (.failed, .streamInterrupted)
+                    } else if hasUncertainCall && !hasDelegation {
                         outcome = (.failed, .toolOutcomeUnknown)
                     } else if hasOpenPart || (latestStep != nil && latestCalls.isEmpty) {
                         // A Step is the durable request identity. An older tool batch
@@ -957,6 +1101,104 @@ actor ConversationRuntime {
                 inConversation: run.conversationID,
                 excludingMessageID: triggerID
             )
+        )
+        guard try credentials.resolve(
+            frozenReference: run.requestConfigSeed.credentialBinding.reference,
+            generation: run.requestConfigSeed.credentialBinding.generation
+        ) != nil else {
+            throw RunRequestRebuildError.missingDependency
+        }
+
+        await agentRuntime.rebindRecoveredRunToolRegistry(runToolContext, forRunID: run.id)
+        try await agentRuntime.recoverRun(runID: run.id,
+            project: { event in try await self.applyAndPublish(event) })
+        guard try store.run(id: run.id)?.state == .requestingModel else {
+            throw RunRequestRebuildError.incompatibleSnapshot
+        }
+        let stream = await agentRuntime.advance(
+            runID: run.id,
+            request: request,
+            snapshot: snapshot,
+            project: { event in try await self.applyAndPublish(event) }
+        )
+        let task: Task<Void, Never> = Task { [weak self] in
+            guard let self else { return }
+            await self.consume(runID: run.id, stream: stream)
+            await self.removeCompletedOperation(runID: run.id)
+        }
+        operations[run.id] = task
+    }
+
+    private func credentialFailureEvidence(in run: AgentRunRecord) throws -> AgentStepRecord? {
+        guard let failedAttempt = try store.steps(inRun: run.id).last,
+              failedAttempt.credentialFailureSource != nil,
+              failedAttempt.credentialFailureAt != nil,
+              failedAttempt.providerStartedAt != nil,
+              failedAttempt.protocolResponse == nil
+        else { return nil }
+        return failedAttempt
+    }
+
+    private func authenticationCredentialFailureTarget(
+        for parent: AgentRunRecord
+    ) throws -> AgentRunRecord {
+        guard (parent.state == .suspended && parent.suspendReason == .authRequired)
+                || (parent.state == .recovering && parent.recoveryAction == .reprepare)
+        else { throw RunRequestRebuildError.authenticationActionRequired }
+
+        if try credentialFailureEvidence(in: parent) != nil { return parent }
+
+        let delegatedCalls = try store.toolCalls(inRun: parent.id).filter {
+            $0.action == SubagentDelegationTool.toolID && !$0.state.isTerminal
+        }
+        guard delegatedCalls.count == 1,
+              delegatedCalls[0].state == .dispatched || delegatedCalls[0].state == .indeterminate,
+              let childID = try store.delegatedChildRunID(parentToolCallID: delegatedCalls[0].id),
+              let child = try store.run(id: childID),
+              child.kind == .child,
+              child.parentRunID == parent.id,
+              (child.state == .suspended && child.suspendReason == .authRequired)
+                || (child.state == .recovering && child.recoveryAction == .reprepare),
+              try credentialFailureEvidence(in: child) != nil
+        else { throw RunRequestRebuildError.authenticationActionRequired }
+        return child
+    }
+
+    private func continueAuthenticationRetry(_ run: AgentRunRecord) async throws {
+        guard run.kind == .parent,
+              let encoded = run.executionSnapshot,
+              let triggerID = run.triggerMessageID
+        else { throw RunRequestRebuildError.incompleteCommittedInput }
+        let snapshot: RunExecutionSnapshot
+        do {
+            snapshot = try ExecutionSnapshotCodec.decode(encoded)
+        } catch {
+            throw RunRequestRebuildError.incompatibleSnapshot
+        }
+        let runToolContext = try await toolContext(for: run, snapshot: snapshot)
+        let rebuilder = RunRequestRebuilder(
+            store: store,
+            provider: provider,
+            toolRegistry: runToolContext.registry,
+            credentials: credentials,
+            availableMCPServerIDs: runToolContext.availableMCPServerIDs,
+            availableMCPServerIdentities: runToolContext.availableMCPServerIdentities
+        )
+        guard try rebuilder.authenticationRetryCredentialReady(for: run) else {
+            throw RunRequestRebuildError.authenticationActionRequired
+        }
+        let initialRequest = try rebuilder.initialRequest(
+            for: run,
+            snapshot: snapshot,
+            history: try promptHistory(
+                inConversation: run.conversationID,
+                excludingMessageID: triggerID
+            )
+        )
+        let request = try rebuilder.authenticationRetryRequest(
+            for: run,
+            snapshot: snapshot,
+            initialRequest: initialRequest
         )
         guard try credentials.resolve(
             frozenReference: run.requestConfigSeed.credentialBinding.reference,
@@ -1266,7 +1508,8 @@ actor ConversationRuntime {
             let projection = RunProjection(
                 runID: run.id,
                 state: run.state,
-                endReason: run.endReason
+                endReason: run.endReason,
+                suspendReason: run.suspendReason
             )
             projections[conversationID] = projection
             return projection
@@ -1276,7 +1519,8 @@ actor ConversationRuntime {
             let projection = RunProjection(
                 runID: persisted.id,
                 state: persisted.state,
-                endReason: persisted.endReason
+                endReason: persisted.endReason,
+                suspendReason: persisted.suspendReason
             )
             projections[conversationID] = projection
             return projection
@@ -1710,10 +1954,15 @@ actor ConversationRuntime {
             projection = RunProjection(
                 runID: eventRunID,
                 state: run.state,
-                endReason: run.endReason
+                endReason: run.endReason,
+                suspendReason: run.suspendReason
             )
         } else {
             return
+        }
+
+        if let persisted = try? store.run(id: eventRunID) {
+            projection.suspendReason = persisted.suspendReason
         }
 
         guard projections[conversationID] != projection else { return }

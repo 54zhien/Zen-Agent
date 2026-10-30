@@ -1,8 +1,14 @@
 import Foundation
 import GRDB
 
+struct DelegationModelTarget: Codable, Sendable, Equatable {
+    let providerInstanceID: ProviderInstanceID
+    let modelID: ModelID
+}
+
 struct DelegationRuntimeConfiguration: Sendable, Equatable {
     let enabled: Bool
+    let explicitModelTarget: DelegationModelTarget?
     let revision: Int64
 }
 
@@ -14,20 +20,31 @@ extension PersistenceStore {
     }
 
     @discardableResult
+    func setDelegationConfiguration(
+        enabled: Bool,
+        explicitModelTarget: DelegationModelTarget?,
+        at now: Date = Date()
+    ) throws -> DelegationRuntimeConfiguration {
+        try database.write { db in
+            try Self.persistDelegationConfiguration(
+                enabled: enabled,
+                explicitModelTarget: explicitModelTarget,
+                in: db,
+                at: now
+            )
+        }
+    }
+
+    @discardableResult
     func setDelegationEnabled(_ enabled: Bool, at now: Date = Date()) throws -> DelegationRuntimeConfiguration {
         try database.write { db -> DelegationRuntimeConfiguration in
             let current = try Self.delegationConfiguration(db: db)
-            guard current.enabled != enabled else { return current }
-            let revision = current.revision + 1
-            try db.execute(sql: """
-                INSERT INTO agentDelegationSettings(id, enabled, revision, updatedAt)
-                VALUES ('global', ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    enabled = excluded.enabled,
-                    revision = excluded.revision,
-                    updatedAt = excluded.updatedAt
-                """, arguments: [enabled, revision, now])
-            return DelegationRuntimeConfiguration(enabled: enabled, revision: revision)
+            return try Self.persistDelegationConfiguration(
+                enabled: enabled,
+                explicitModelTarget: current.explicitModelTarget,
+                in: db,
+                at: now
+            )
         }
     }
 
@@ -61,7 +78,6 @@ extension PersistenceStore {
                   delegation.enabled,
                   delegation.maxDepth == 1,
                   delegation.maxConcurrentChildren == 1,
-                  delegation.modelPolicy == .followParent,
                   delegation.environmentInheritance == .none,
                   parentSnapshot.permitsTool(SubagentDelegationTool.toolDescriptor)
             else {
@@ -72,12 +88,39 @@ extension PersistenceStore {
                   childRun.conversationID == parent.conversationID,
                   childRun.state == .preparing,
                   childRun.activeSlot == nil,
-                  let encodedChildSnapshot = childRun.executionSnapshot,
-                  childRun.requestConfigSeed == parent.requestConfigSeed
+                  let encodedChildSnapshot = childRun.executionSnapshot
             else {
                 throw PersistenceError.invalidTransition("delegated Child does not match its Parent snapshot")
             }
             let childSnapshot = try ExecutionSnapshotCodec.decode(encodedChildSnapshot)
+            let expectedModelCapabilities: Set<ModelCapability>
+            switch delegation.modelPolicy {
+            case .followParent:
+                guard delegation.explicitModelTarget == nil,
+                      delegation.explicitModelBinding == nil,
+                      childRun.requestConfigSeed == parent.requestConfigSeed,
+                      childSnapshot.providerID == parentSnapshot.providerID,
+                      childSnapshot.providerAdapterRevision == parentSnapshot.providerAdapterRevision
+                else {
+                    throw PersistenceError.invalidTransition("Follow Parent Child must use the frozen Parent model")
+                }
+                expectedModelCapabilities = parentSnapshot.modelCapabilities
+            case .explicit:
+                guard let target = delegation.explicitModelTarget,
+                      let binding = delegation.explicitModelBinding,
+                      target.providerInstanceID == binding.requestConfigSeed.providerInstanceID,
+                      target.modelID == binding.requestConfigSeed.modelID,
+                      childRun.requestConfigSeed == binding.requestConfigSeed,
+                      childSnapshot.providerID == binding.providerID,
+                      childSnapshot.providerAdapterRevision == binding.providerAdapterRevision
+                else {
+                    throw PersistenceError.invalidTransition("Explicit Child must use its frozen model binding")
+                }
+                expectedModelCapabilities = binding.modelCapabilities
+            }
+            let childModelCapabilitiesMatch = childSnapshot.modelCapabilities == expectedModelCapabilities
+                || (childSnapshot.exposedTools.isEmpty
+                    && childSnapshot.modelCapabilities == expectedModelCapabilities.subtracting([.tools]))
             let requestedEnvironmentKeys = try Self.requestedDelegationEnvironmentKeys(
                 call: call,
                 parent: parent,
@@ -108,8 +151,7 @@ extension PersistenceStore {
                     }
             }
             guard childSnapshot.formatVersion == RunExecutionSnapshot.currentFormatVersion,
-                  childSnapshot.providerID == parentSnapshot.providerID,
-                  childSnapshot.providerAdapterRevision == parentSnapshot.providerAdapterRevision,
+                  childModelCapabilitiesMatch,
                   childToolsStayWithinParent,
                   childSnapshot.exposedTools.isEmpty || childSnapshot.modelCapabilities.contains(.tools),
                   childSnapshot.mcpServerDependencies.isEmpty,
@@ -562,13 +604,57 @@ extension PersistenceStore {
     private static func delegationConfiguration(db: Database) throws -> DelegationRuntimeConfiguration {
         guard let row = try Row.fetchOne(
             db,
-            sql: "SELECT enabled, revision FROM agentDelegationSettings WHERE id = 'global'"
+            sql: "SELECT enabled, explicitModelTarget, revision FROM agentDelegationSettings WHERE id = 'global'"
         ) else {
-            return DelegationRuntimeConfiguration(enabled: false, revision: 0)
+            return DelegationRuntimeConfiguration(enabled: false, explicitModelTarget: nil, revision: 0)
         }
         let enabled: Bool = row["enabled"]
+        let encodedTarget: String? = row["explicitModelTarget"]
+        let explicitModelTarget = try encodedTarget.map {
+            try JSONDecoder().decode(DelegationModelTarget.self, from: Data($0.utf8))
+        }
         let revision: Int64 = row["revision"]
-        return DelegationRuntimeConfiguration(enabled: enabled, revision: revision)
+        return DelegationRuntimeConfiguration(
+            enabled: enabled,
+            explicitModelTarget: explicitModelTarget,
+            revision: revision
+        )
+    }
+
+    private static func persistDelegationConfiguration(
+        enabled: Bool,
+        explicitModelTarget: DelegationModelTarget?,
+        in db: Database,
+        at now: Date
+    ) throws -> DelegationRuntimeConfiguration {
+        let current = try delegationConfiguration(db: db)
+        guard current.enabled != enabled || current.explicitModelTarget != explicitModelTarget else {
+            return current
+        }
+
+        let revision = current.revision + 1
+        let encodedTarget: String?
+        if let explicitModelTarget {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            encodedTarget = String(decoding: try encoder.encode(explicitModelTarget), as: UTF8.self)
+        } else {
+            encodedTarget = nil
+        }
+        try db.execute(sql: """
+            INSERT INTO agentDelegationSettings(id, enabled, explicitModelTarget, revision, updatedAt)
+            VALUES ('global', ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                enabled = excluded.enabled,
+                explicitModelTarget = excluded.explicitModelTarget,
+                revision = excluded.revision,
+                updatedAt = excluded.updatedAt
+            """, arguments: [enabled, encodedTarget, revision, now])
+        return DelegationRuntimeConfiguration(
+            enabled: enabled,
+            explicitModelTarget: explicitModelTarget,
+            revision: revision
+        )
     }
 }
 

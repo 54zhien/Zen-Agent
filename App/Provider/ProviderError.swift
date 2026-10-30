@@ -10,7 +10,7 @@ import Foundation
 /// both "you cannot use this right now", and they call for completely different things
 /// from the user; `rateLimited` and `serverError` are both "try again", and only one of
 /// them is safe to retry without thinking.
-enum ProviderError: Error, Equatable {
+enum ProviderError: Error, Equatable, Sendable {
     /// The provider refused the credential.
     ///
     /// **Evidence, not an instruction.** Nothing about this authorises deleting the
@@ -18,12 +18,22 @@ enum ProviderError: Error, Equatable {
     /// user data (`安全与权限.md:236-247`). All this changes is the availability
     /// judgement and the error the caller sees.
     case credentialRejected
+    /// A frozen credential read failed before the Provider transport was invoked.
+    /// This identifies the exact attempt that can be prepared again after the same
+    /// credential binding is usable; callers must not infer it from a missing response.
+    case credentialRejectedBeforeDispatch
+    /// DeepSeek returned HTTP 401 for this exact Provider request.
+    /// This explicit refusal is separate from a local credential-store failure and a
+    /// generic Provider rejection.
+    case credentialRejectedByHTTP401
     /// No credential has been provisioned for the instance.
     ///
     /// Distinct from `credentialRejected`: one means the user has not signed in yet, the
     /// other means what they signed in with was refused. They need the same thing from
     /// the user and are still not the same event.
     case credentialMissing
+    /// No value was available for the frozen credential binding before transport.
+    case credentialMissingBeforeDispatch
     /// The credential exists but cannot be read at this moment — a locked device, for
     /// instance.
     ///
@@ -161,7 +171,9 @@ extension ProviderError {
         case .streamInterrupted(let deliveredOutput, _):
             // The same rule, and the same reason the fact is carried rather than assumed.
             return deliveredOutput ? .doNotRetry : .retrySuggested
-        case .credentialRejected, .credentialMissing, .credentialStorageFailed,
+        case .credentialRejected, .credentialRejectedBeforeDispatch,
+             .credentialRejectedByHTTP401, .credentialMissing,
+             .credentialMissingBeforeDispatch, .credentialStorageFailed,
              .insufficientBalance, .invalidRequest, .invalidParameters, .malformedResponse,
              .cancelled, .configurationMismatch:
             return .doNotRetry

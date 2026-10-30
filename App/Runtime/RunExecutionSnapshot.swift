@@ -7,8 +7,8 @@ import Foundation
 /// this value identifies the prompt, capabilities and tools that the run is allowed to
 /// execute with.
 struct RunExecutionSnapshot: Codable, Sendable, Equatable {
-    // Reject workflow semantics this build cannot interpret; keep v1-v3 readable.
-    static let currentFormatVersion = 4
+    // Reject workflow semantics this build cannot interpret; keep v1-v4 readable.
+    static let currentFormatVersion = 5
 
     enum FormatError: Error, Equatable, Sendable {
         case unversioned
@@ -77,7 +77,8 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
         guard let version = try? container.decode(Int.self, forKey: .formatVersion) else {
             throw FormatError.unversioned
         }
-        guard version == 1 || version == 2 || version == 3 || version == Self.currentFormatVersion else {
+        guard version == 1 || version == 2 || version == 3 || version == 4
+                || version == Self.currentFormatVersion else {
             throw FormatError.unsupportedVersion(version)
         }
 
@@ -128,6 +129,7 @@ struct RunExecutionSnapshot: Codable, Sendable, Equatable {
 
 enum DelegationModelPolicy: String, Codable, Sendable, Equatable {
     case followParent
+    case explicit
 }
 
 enum DelegationEnvironmentInheritance: String, Codable, Sendable, Equatable {
@@ -144,15 +146,29 @@ struct DelegationExecutionSnapshot: Codable, Sendable, Equatable {
     let maxConcurrentChildren: Int
     let modelPolicy: DelegationModelPolicy
     let environmentInheritance: DelegationEnvironmentInheritance
+    let explicitModelTarget: DelegationModelTarget?
+    let explicitModelBinding: DelegationModelBindingSnapshot?
 
-    init(configuration: DelegationRuntimeConfiguration) {
+    init(
+        configuration: DelegationRuntimeConfiguration,
+        explicitModelBinding: DelegationModelBindingSnapshot? = nil
+    ) {
         revision = configuration.revision
         enabled = configuration.enabled
         maxDepth = 1
         maxConcurrentChildren = 1
-        modelPolicy = .followParent
+        explicitModelTarget = configuration.explicitModelTarget
+        self.explicitModelBinding = explicitModelBinding
+        modelPolicy = configuration.explicitModelTarget == nil ? .followParent : .explicit
         environmentInheritance = .none
     }
+}
+
+struct DelegationModelBindingSnapshot: Codable, Sendable, Equatable {
+    let providerID: ProviderID
+    let providerAdapterRevision: String
+    let modelCapabilities: Set<ModelCapability>
+    let requestConfigSeed: RequestConfigSeed
 }
 
 struct PromptExecutionSnapshot: Codable, Sendable, Equatable {

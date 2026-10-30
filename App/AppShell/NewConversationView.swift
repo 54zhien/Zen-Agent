@@ -86,7 +86,10 @@ struct NewConversationView: View {
                         ? model.previewContent.status(for: browse?.selectedConversationID,
                             summary: browse?.currentSummary, summaryError: browse?.errorMessage)
                         : model.previewContent.status),
-                    isNewEntry: browse?.isNewEntry == true)
+                    isNewEntry: browse?.isNewEntry == true,
+                    onRefreshFrozenCredential: { runID, secret in
+                        try await model.refreshFrozenCredentialAndRetry(runID: runID, secret: secret)
+                    })
             } else {
                 fullContent
             }

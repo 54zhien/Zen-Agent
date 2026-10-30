@@ -823,7 +823,11 @@ private struct WorkspaceHostedContent<Content: View>: View {
                                 ? model.previewContent.status(for: browse.selectedConversationID,
                                     summary: browse.currentSummary, summaryError: browse.errorMessage)
                                 : model.previewContent.status),
-                        isNewEntry: browse.isNewEntry)
+                        isNewEntry: browse.isNewEntry,
+                        onRefreshFrozenCredential: { runID, secret in
+                            try await model.refreshFrozenCredentialAndRetry(runID: runID, secret: secret)
+                            browse.refresh()
+                        })
                 } else if let contentForSlot {
                     contentForSlot(slot)
                 } else if slot == model.sourceSurfaceSlot {

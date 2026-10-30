@@ -440,6 +440,9 @@ final class ToolRuntime: @unchecked Sendable {
                 try store.markToolCallIndeterminate(id: call.id, at: now)
                 throw error
             }
+            if error is DelegatedChildAuthenticationRequired {
+                throw error
+            }
             let diagnosis: ToolResultFailure
             if let system = error as? ToolSystemPermissionError {
                 switch system {

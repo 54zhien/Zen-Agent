@@ -120,6 +120,13 @@ enum SuspendReason: String, Codable, Sendable {
     case authRequired
 }
 
+/// Evidence that an authentication suspension is safe to reprepare from this exact
+/// provider attempt. A missing value leaves older or ambiguous attempts unknown.
+enum CredentialFailureSource: String, Codable, Sendable, Equatable {
+    case localFrozenCredentialRejected
+    case providerHTTP401
+}
+
 enum ToolCallState: String, CaseIterable, Codable, Sendable, Equatable {
     case validated
     case waitingForApproval
@@ -434,6 +441,8 @@ struct AgentStepRecord: Codable, FetchableRecord, PersistableRecord, Sendable {
     var reportedPromptTokens: Int? = nil
     var reportedCompletionTokens: Int? = nil
     var reportedTotalTokens: Int? = nil
+    var credentialFailureSource: CredentialFailureSource? = nil
+    var credentialFailureAt: Date? = nil
     /// Exact assistant protocol response for a completed tool-call batch, if any.
     var protocolResponse: String? = nil
 

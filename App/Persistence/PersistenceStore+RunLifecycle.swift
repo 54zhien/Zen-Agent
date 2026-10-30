@@ -81,6 +81,89 @@ extension PersistenceStore {
         }
     }
 
+    func suspendRunForCredentialFailure(
+        runID: String,
+        expectedState: RunState,
+        attemptIdentity: AttemptIdentity,
+        source: CredentialFailureSource,
+        at now: Date = Date()
+    ) throws {
+        guard expectedState == .requestingModel || expectedState == .streaming,
+              RunStateMachine.canTransition(from: expectedState, to: .suspended)
+        else {
+            throw PersistenceError.invalidTransition("credential failure must suspend an active provider request")
+        }
+
+        try Self.validateLifecycleMetadata(
+            state: .suspended,
+            endReason: nil,
+            recoveryAction: .reprepare,
+            suspendReason: .authRequired
+        )
+
+        try database.write { db in
+            guard let current = try AgentRunRecord.fetchOne(db, key: runID) else {
+                throw PersistenceError.runNotFound(runID)
+            }
+            guard current.state == expectedState else {
+                throw PersistenceError.invalidTransition("Run changed before credential failure was recorded")
+            }
+            let currentAttempt = try Int.fetchOne(
+                db,
+                sql: "SELECT MAX(attempt) FROM agentStep WHERE stepID = ?",
+                arguments: [attemptIdentity.stepID]
+            )
+            guard currentAttempt == attemptIdentity.attempt else {
+                throw PersistenceError.invalidTransition("credential failure belongs to a superseded provider attempt")
+            }
+
+            try db.execute(sql: """
+                UPDATE agentStep
+                SET credentialFailureSource = ?, credentialFailureAt = ?
+                WHERE runID = ? AND stepID = ? AND attempt = ?
+                  AND credentialFailureSource IS NULL
+                  AND providerStartedAt IS NOT NULL
+                  AND protocolResponse IS NULL
+                """, arguments: [
+                    source.rawValue,
+                    now,
+                    runID,
+                    attemptIdentity.stepID,
+                    attemptIdentity.attempt,
+                ])
+            guard db.changesCount == 1 else {
+                throw PersistenceError.invalidTransition("credential failure did not match one unresolved provider attempt")
+            }
+
+            var suspended = current
+            suspended.state = .suspended
+            suspended.endReason = nil
+            suspended.recoveryAction = .reprepare
+            suspended.suspendReason = .authRequired
+            suspended.updatedAt = now
+            suspended.activeSlot = Self.activeSlot(for: suspended)
+
+            try db.execute(sql: """
+                UPDATE agentRun
+                SET state = ?, endReason = ?, recoveryAction = ?, suspendReason = ?,
+                    activeSlot = ?, updatedAt = ?
+                WHERE id = ? AND state = ?
+                """, arguments: [
+                    suspended.state.rawValue,
+                    suspended.endReason?.rawValue,
+                    suspended.recoveryAction?.rawValue,
+                    suspended.suspendReason?.rawValue,
+                    suspended.activeSlot,
+                    suspended.updatedAt,
+                    runID,
+                    expectedState.rawValue,
+                ])
+            guard db.changesCount == 1 else {
+                throw PersistenceError.invalidTransition("Run changed while credential failure was being recorded")
+            }
+        }
+    }
+
     /// Lazily creates and binds the one Assistant response for a Run.
     ///
     /// The existing binding is checked before the terminal guard so a completed Run

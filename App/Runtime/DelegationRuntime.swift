@@ -9,8 +9,15 @@ enum DelegationRuntimeError: Error, Sendable {
     case unsupportedChildState(String, RunState)
 }
 
+struct DelegatedChildAuthenticationRequired: Error, Sendable {
+    let providerID: ProviderID
+    let providerInstanceID: ProviderInstanceID
+    let modelID: ModelID
+}
+
 private struct PreparedDelegatedChildContext: Sendable {
     let snapshot: RunExecutionSnapshot
+    let requestConfigSeed: RequestConfigSeed
     let toolContext: ToolRuntimeRegistryContext
     let memories: [MemoryContext]
     let skills: [SkillContext]
@@ -56,8 +63,11 @@ actor DelegationRuntime {
             throw DelegationRuntimeError.invalidToolCall(parentToolCallID)
         }
         let parentSnapshot = try enabledParentSnapshot(parent)
+        if let unavailable = try unavailableExplicitTargetResult(in: parentSnapshot) {
+            return unavailable
+        }
         let childContext = try await prepareChildContext(
-            parentRunID: parentRunID,
+            parent: parent,
             parentSnapshot: parentSnapshot,
             task: task,
             environmentKeys: environmentKeys
@@ -104,8 +114,11 @@ actor DelegationRuntime {
             throw DelegationRuntimeError.invalidToolCall(parentToolCallID)
         }
         let parentSnapshot = try enabledParentSnapshot(parent)
+        if let unavailable = try unavailableExplicitTargetResult(in: parentSnapshot) {
+            return unavailable
+        }
         let childContext = try await prepareChildContext(
-            parentRunID: parentRunID,
+            parent: parent,
             parentSnapshot: parentSnapshot,
             task: task,
             environmentKeys: environmentKeys
@@ -145,6 +158,14 @@ actor DelegationRuntime {
             )
         }
 
+        let latestChildStep = try store.steps(inRun: child.id).last
+        let childHasCredentialFailureEvidence = latestChildStep?.credentialFailureSource != nil
+            && latestChildStep?.credentialFailureAt != nil
+            && latestChildStep?.providerStartedAt != nil
+            && latestChildStep?.protocolResponse == nil
+        let childWasWaitingForAuthentication = childHasCredentialFailureEvidence
+            && ((child.state == .suspended && child.suspendReason == .authRequired)
+                || (child.state == .recovering && child.recoveryAction == .reprepare))
         try await agentRuntime.recoverRun(runID: child.id, project: project)
         guard let recoveredChild = try store.run(id: child.id) else {
             await agentRuntime.releaseToolRegistry(forRunID: child.id)
@@ -156,6 +177,40 @@ actor DelegationRuntime {
                 throw DelegationRuntimeError.unavailableChildOutcome(child.id)
             }
             return outcome
+        }
+        if recoveredChild.state == .suspended,
+           recoveredChild.suspendReason == .authRequired {
+            await agentRuntime.releaseToolRegistry(forRunID: child.id)
+            throw DelegatedChildAuthenticationRequired(
+                providerID: provider.id,
+                providerInstanceID: recoveredChild.requestConfigSeed.providerInstanceID,
+                modelID: recoveredChild.requestConfigSeed.modelID
+            )
+        }
+        if childWasWaitingForAuthentication, recoveredChild.state == .requestingModel {
+            let initialRequest = try childRequest(
+                child: recoveredChild,
+                snapshot: childSnapshot,
+                childContext: childContext,
+                task: task
+            )
+            let retryRequest = try RunRequestRebuilder(
+                store: store,
+                provider: provider,
+                toolRegistry: childContext.toolContext.registry,
+                credentials: credentials
+            ).authenticationRetryRequest(
+                for: recoveredChild,
+                snapshot: childSnapshot,
+                initialRequest: initialRequest
+            )
+            return try await runChild(
+                child: recoveredChild,
+                parent: parent,
+                childContext: childContext,
+                task: task,
+                requestOverride: retryRequest
+            )
         }
         guard recoveredChild.state == .waitingForApproval || recoveredChild.state == .executingTools
                 || recoveredChild.state == .continuing || recoveredChild.state == .requestingModel else {
@@ -211,7 +266,8 @@ actor DelegationRuntime {
         child: AgentRunRecord,
         parent: AgentRunRecord,
         childContext: PreparedDelegatedChildContext,
-        task: String
+        task: String,
+        requestOverride: ProviderChatRequest? = nil
     ) async throws -> ToolExecutionResult {
         guard let currentParent = try store.run(id: parent.id),
               currentParent.state == .executingTools ||
@@ -227,12 +283,17 @@ actor DelegationRuntime {
               childSnapshot.exposedTools == Self.toolExposures(from: childContext.toolContext.registry)
         else { throw DelegationRuntimeError.unavailableParentPolicy }
 
-        let request = try childRequest(
-            child: child,
-            snapshot: childSnapshot,
-            childContext: childContext,
-            task: task
-        )
+        let request: ProviderChatRequest
+        if let requestOverride {
+            request = requestOverride
+        } else {
+            request = try childRequest(
+                child: child,
+                snapshot: childSnapshot,
+                childContext: childContext,
+                task: task
+            )
+        }
 
         await agentRuntime.bindToolRegistry(childContext.toolContext, forRunID: child.id)
         let stream = await agentRuntime.advance(
@@ -254,11 +315,21 @@ actor DelegationRuntime {
             runtimeSafetyRevision: snapshot.prompt.runtimeSafetyBaseline,
             zenCoreRevision: snapshot.prompt.zenCore
         )
+        let soulInstructions: String?
+        if let soulVersionID = snapshot.prompt.soulVersionID {
+            guard let version = try store.soulVersion(id: soulVersionID) else {
+                throw DelegationRuntimeError.unavailableParentPolicy
+            }
+            soulInstructions = version.instructions
+        } else {
+            soulInstructions = nil
+        }
         return PromptComposer().compose(PromptCompositionInput(
             modelID: child.requestConfigSeed.modelID,
             providerAdapterInstructions: snapshot.prompt.providerAdapterInstructions,
             history: [],
             currentUserMessage: task,
+            soulInstructions: soulInstructions,
             relevantMemories: childContext.memories.map(\.content),
             activatedSkills: childContext.skills,
             tools: snapshot.exposedTools.map {
@@ -301,6 +372,17 @@ actor DelegationRuntime {
             await agentRuntime.releaseToolRegistry(forRunID: child.id)
             return result
         } catch {
+            if !Task.isCancelled,
+               let currentChild = try? store.run(id: child.id),
+               currentChild.state == .suspended,
+               currentChild.suspendReason == .authRequired {
+                await agentRuntime.releaseToolRegistry(forRunID: child.id)
+                throw DelegatedChildAuthenticationRequired(
+                    providerID: provider.id,
+                    providerInstanceID: currentChild.requestConfigSeed.providerInstanceID,
+                    modelID: currentChild.requestConfigSeed.modelID
+                )
+            }
             if Task.isCancelled {
                 await cancelChild(child.id, parentRunID: parent.id)
                 _ = try? await childExecution.value
@@ -342,7 +424,7 @@ actor DelegationRuntime {
                 triggerMessageID: nil,
                 responseMessageID: nil,
                 retryOfRunID: nil,
-                requestConfigSeed: parent.requestConfigSeed,
+                requestConfigSeed: childContext.requestConfigSeed,
                 executionSnapshot: encodedSnapshot,
                 createdAt: now,
                 updatedAt: now,
@@ -362,19 +444,22 @@ actor DelegationRuntime {
 
     private static func childSnapshot(
         from parent: RunExecutionSnapshot,
+        modelBinding: DelegationModelBindingSnapshot?,
+        modelCapabilities: Set<ModelCapability>,
         tools: [ToolExposureSnapshot],
         memories: [MemoryContext],
         skillReferences: [SkillActivationReference]
     ) -> RunExecutionSnapshot {
-        var capabilities = parent.modelCapabilities
+        var capabilities = modelCapabilities
         if tools.isEmpty { capabilities.remove(.tools) }
         return RunExecutionSnapshot(
-            providerID: parent.providerID,
-            providerAdapterRevision: parent.providerAdapterRevision,
+            providerID: modelBinding?.providerID ?? parent.providerID,
+            providerAdapterRevision: modelBinding?.providerAdapterRevision ?? parent.providerAdapterRevision,
             prompt: PromptExecutionSnapshot(
                 runtimeSafetyBaseline: parent.prompt.runtimeSafetyBaseline,
                 zenCore: parent.prompt.zenCore,
                 providerAdapterInstructions: parent.prompt.providerAdapterInstructions,
+                soulVersionID: parent.prompt.soulVersionID,
                 memoryReferences: memories.map(\.reference),
                 skillReferences: skillReferences
             ),
@@ -387,17 +472,21 @@ actor DelegationRuntime {
     }
 
     private func prepareChildContext(
-        parentRunID: String,
+        parent: AgentRunRecord,
         parentSnapshot: RunExecutionSnapshot,
         task: String,
         environmentKeys: [String]
     ) async throws -> PreparedDelegatedChildContext {
-        guard let parentContext = await agentRuntime.toolRegistryContext(forRunID: parentRunID) else {
-            throw DelegationRuntimeError.unavailableParentToolRegistry(parentRunID)
+        guard let parentContext = await agentRuntime.toolRegistryContext(forRunID: parent.id) else {
+            throw DelegationRuntimeError.unavailableParentToolRegistry(parent.id)
         }
+        let modelBinding = try childModelBinding(in: parentSnapshot)
+        let modelCapabilities = modelBinding?.modelCapabilities ?? parentSnapshot.modelCapabilities
+        let requestConfigSeed = modelBinding?.requestConfigSeed ?? parent.requestConfigSeed
         let childRegistry = try parentContext.registry.filteringExecutables { executable in
             let descriptor = executable.descriptor
-            guard descriptor.id != SubagentDelegationTool.toolID,
+            guard modelCapabilities.contains(.tools),
+                  descriptor.id != SubagentDelegationTool.toolID,
                   !(executable is MCPToolExecutable),
                   parentSnapshot.permitsTool(descriptor),
                   parentSnapshot.exposedTools.contains(where: { Self.exposure($0, matches: descriptor) })
@@ -443,10 +532,13 @@ actor DelegationRuntime {
         let context = PreparedDelegatedChildContext(
             snapshot: Self.childSnapshot(
                 from: parentSnapshot,
+                modelBinding: modelBinding,
+                modelCapabilities: modelCapabilities,
                 tools: Self.toolExposures(from: childRegistry),
                 memories: memories,
                 skillReferences: skillReferences
             ),
+            requestConfigSeed: requestConfigSeed,
             toolContext: childToolContext,
             memories: memories,
             skills: skills
@@ -474,7 +566,89 @@ actor DelegationRuntime {
             && exposure.inputSchema == descriptor.inputSchema
     }
 
+    private func unavailableExplicitTargetResult(
+        in parentSnapshot: RunExecutionSnapshot
+    ) throws -> ToolExecutionResult? {
+        guard let delegation = parentSnapshot.delegation,
+              delegation.modelPolicy == .explicit else { return nil }
+        guard let target = delegation.explicitModelTarget else {
+            return ToolExecutionResult(
+                content: "dependencyUnavailable: The configured Child model target is unavailable. No Parent model fallback was used.",
+                kind: .error,
+                failure: .dependencyUnavailable
+            )
+        }
+
+        guard let instance = try store.providerInstance(id: target.providerInstanceID),
+              instance.providerID == provider.id,
+              let descriptor = provider.descriptor(for: target.modelID, in: instance),
+              descriptor.providerInstanceID == instance.id,
+              descriptor.capabilities.contains(.text),
+              descriptor.capabilities.contains(.streaming)
+        else {
+            return ToolExecutionResult(
+                content: "dependencyUnavailable: Configured Child target instance \(target.providerInstanceID.rawValue), model \(target.modelID.rawValue) is not supported by this Runtime. No Parent model fallback was used.",
+                kind: .error,
+                failure: .dependencyUnavailable
+            )
+        }
+
+        let binding = delegation.explicitModelBinding
+        let bindingMatchesTarget = binding.map {
+            $0.providerID == provider.id
+                && $0.providerAdapterRevision == provider.adapterRevision
+                && $0.requestConfigSeed.providerInstanceID == target.providerInstanceID
+                && $0.requestConfigSeed.modelID == target.modelID
+                && $0.modelCapabilities.contains(.text)
+                && $0.modelCapabilities.contains(.streaming)
+        } ?? false
+        guard let binding else {
+            return ToolExecutionResult(
+                content: "authenticationRequired: Provider \(instance.providerID.rawValue), model \(target.modelID.rawValue), instance \(target.providerInstanceID.rawValue) has no frozen credential binding. Restore credentials for this target and start a new delegation. No Parent model fallback was used.",
+                kind: .error,
+                failure: .authenticationRequired
+            )
+        }
+        guard bindingMatchesTarget else {
+            return ToolExecutionResult(
+                content: "dependencyUnavailable: Configured Child target Provider \(binding.providerID.rawValue), model \(target.modelID.rawValue) no longer matches its frozen Runtime binding. No Parent model fallback was used.",
+                kind: .error,
+                failure: .dependencyUnavailable
+            )
+        }
+        return nil
+    }
+
+    private func childModelBinding(
+        in parentSnapshot: RunExecutionSnapshot
+    ) throws -> DelegationModelBindingSnapshot? {
+        guard let delegation = parentSnapshot.delegation else {
+            throw DelegationRuntimeError.unavailableParentPolicy
+        }
+        switch delegation.modelPolicy {
+        case .followParent:
+            guard delegation.explicitModelTarget == nil,
+                  delegation.explicitModelBinding == nil else {
+                throw DelegationRuntimeError.unavailableParentPolicy
+            }
+            return nil
+        case .explicit:
+            guard let binding = delegation.explicitModelBinding else {
+                throw DelegationRuntimeError.unavailableParentPolicy
+            }
+            return binding
+        }
+    }
+
     private func enabledParentSnapshot(_ parent: AgentRunRecord) throws -> RunExecutionSnapshot {
+        let policyMatchesTarget: (DelegationExecutionSnapshot) -> Bool = { delegation in
+            switch delegation.modelPolicy {
+            case .followParent:
+                return delegation.explicitModelTarget == nil && delegation.explicitModelBinding == nil
+            case .explicit:
+                return delegation.explicitModelTarget != nil
+            }
+        }
         guard parent.kind == .parent,
               let encoded = parent.executionSnapshot,
               let snapshot = try? ExecutionSnapshotCodec.decode(encoded),
@@ -487,7 +661,7 @@ actor DelegationRuntime {
               delegation.enabled,
               delegation.maxDepth == 1,
               delegation.maxConcurrentChildren == 1,
-              delegation.modelPolicy == .followParent,
+              policyMatchesTarget(delegation),
               delegation.environmentInheritance == .none,
               snapshot.permitsTool(SubagentDelegationTool.toolDescriptor)
         else { throw DelegationRuntimeError.unavailableParentPolicy }

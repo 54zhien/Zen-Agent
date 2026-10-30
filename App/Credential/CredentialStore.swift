@@ -87,6 +87,12 @@ protocol CredentialStoring: Sendable {
         at now: Date
     ) throws
     func refresh(_ secret: SecretValue, for reference: CredentialReference, at now: Date) throws
+    func refresh(
+        _ secret: SecretValue,
+        for frozenReference: CredentialReference,
+        generation: Int,
+        at now: Date
+    ) throws
     func rebind(
         _ secret: SecretValue,
         as reference: CredentialReference,
@@ -251,6 +257,46 @@ struct CredentialStore: CredentialStoring {
                 CredentialMetadata(
                     reference: reference,
                     bindingGeneration: existing.bindingGeneration,
+                    principalFingerprint: existing.principalFingerprint,
+                    status: .active,
+                    updatedAt: now
+                )
+            )
+        }
+    }
+
+    /// Refreshes the exact binding a suspended Run froze. The generation check and
+    /// versioned secret write share the same reference lock, so a concurrent rebind
+    /// cannot redirect this key into a different account.
+    func refresh(
+        _ secret: SecretValue,
+        for frozenReference: CredentialReference,
+        generation: Int,
+        at now: Date = Date()
+    ) throws {
+        try CredentialOperationCoordinator.shared.withCriticalSection(for: frozenReference) {
+            guard let existing = try metadataRepository.loadMetadata(for: frozenReference) else {
+                throw CredentialError.notFound(frozenReference)
+            }
+
+            guard existing.status == .active else {
+                throw CredentialError.authenticationRequired(frozenReference)
+            }
+
+            guard existing.reference == frozenReference,
+                  existing.bindingGeneration == generation else {
+                throw CredentialError.bindingMoved(
+                    frozenReference,
+                    frozenGeneration: generation,
+                    currentGeneration: existing.bindingGeneration
+                )
+            }
+
+            try secrets.store(secret, for: frozenReference, generation: generation)
+            try metadataRepository.saveMetadata(
+                CredentialMetadata(
+                    reference: frozenReference,
+                    bindingGeneration: generation,
                     principalFingerprint: existing.principalFingerprint,
                     status: .active,
                     updatedAt: now

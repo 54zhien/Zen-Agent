@@ -178,6 +178,24 @@ struct ConversationSummaryTests {
         #expect(summary.runProjection?.endReason == .completed)
     }
 
+    @Test("an auth-required Run suspension reaches the conversation card projection")
+    func authenticationSuspensionIsProjectedFromPersistedRun() throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.commitUserTurnAndCreateParentRun(Fixtures.send(messageID: "m1", runID: "r1"))
+        try store.transitionRun(id: "r1", expectedState: .preparing, to: .requestingModel)
+        try store.transitionRun(
+            id: "r1",
+            expectedState: .requestingModel,
+            to: .suspended,
+            recoveryAction: .reprepare,
+            suspendReason: .authRequired
+        )
+
+        let summary = try #require(try store.conversationSummaryPage().items.first)
+        #expect(summary.runProjection?.suspendReason == .authRequired)
+        #expect(ConversationCardStatus.derive(from: summary.runProjection) == .authenticationRequired)
+    }
+
     @Test("page size is an engineering bound even for extreme caller inputs")
     func pageSizeIsClamped() throws {
         let fixture = try seed(historyCount: 100)

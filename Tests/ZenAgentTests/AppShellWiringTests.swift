@@ -20,6 +20,52 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
+    @Test("an authentication-required preview opens the original credential refresh form")
+    func authenticationPreviewOffersFrozenCredentialRefresh() async throws {
+        let summary = ConversationSummary(
+            id: "auth-preview",
+            title: "Authentication",
+            excerpt: "Paused conversation",
+            pinned: false,
+            userActiveAt: Date(timeIntervalSince1970: 100),
+            contentUnavailable: false,
+            runProjection: RunProjection(
+                runID: "auth-run",
+                state: .suspended,
+                suspendReason: .authRequired
+            ),
+            providerInstanceID: nil,
+            modelID: nil,
+            providerName: nil
+        )
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: ConversationPreviewView(
+            summary: summary,
+            onRefreshFrozenCredential: { _, _ in }
+        ))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+
+        func native<T: UIView>(_ type: T.Type, id: String, in view: UIView) -> T? {
+            if let found = view as? T, found.accessibilityIdentifier == id { return found }
+            return view.subviews.lazy.compactMap { native(type, id: id, in: $0) }.first
+        }
+        for _ in 0..<80 where native(UIButton.self, id: "conversation-auth-refresh", in: host.view) == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let refresh = try #require(native(UIButton.self, id: "conversation-auth-refresh", in: host.view))
+        #expect(refresh.accessibilityLabel == "更新原账号凭据")
+
+        refresh.sendActions(for: .touchUpInside)
+        for _ in 0..<80 where host.presentedViewController == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(host.presentedViewController != nil)
+    }
+
     @Test("an unchanged final Split ratio retains the layout revision already measured by both Panes")
     func unchangedSplitRatioKeepsMeasuredRevision() throws {
         let fixture = try makeFixture(seed: .active)

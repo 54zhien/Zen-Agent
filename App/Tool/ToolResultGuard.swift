@@ -2,7 +2,8 @@ import Foundation
 
 enum ToolResultKind: String, Codable, Sendable { case text, reference, error }
 enum ToolResultFailure: String, Codable, Error, Sendable {
-    case executionFailed, resultTooLarge, invalidResult, redactionUnavailable, dependencyUnavailable, systemPermissionDenied, dependencyChanged, resourceInUse
+    case executionFailed, resultTooLarge, invalidResult, redactionUnavailable, dependencyUnavailable
+    case authenticationRequired, systemPermissionDenied, dependencyChanged, resourceInUse
 }
 
 /// Results remain untrusted Tool-role data. This boundary changes no policy or
