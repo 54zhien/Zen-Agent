@@ -31,6 +31,7 @@ Device glass and motion owner ruling @ 51b4dc33beec515c7d684d352060fbdeded1825e
 Stage 6 intent snapshot @ fffca086f4451a7bd0988959058ddcfe5eb6c13d
 Stage 7 Memory owner decisions @ b0662058d3e87bb200b677bc86cfad050b4315cb
 Stage 8 Skills/Environment owner decisions @ e17d65eb1a1e037cb9e4d80ec4208dcbea582fb1
+Stage 10 delegation owner decisions @ f8861dd9c98a416cdf80ab1ccb8d576a183a6ee2
 ```
 
 The glass/motion ruling is on Blueprint branch `codex/device-glass-motion-20261015`,
@@ -142,6 +143,38 @@ The final receipt changes only this README and that task record; application,
 tests, project configuration and CI workflow remain identical to the tested
 source. PR #46 remains draft and unmerged. Real-device Local Network permission,
 configured LAN HTTP, and foreground/background recovery acceptance remain open.
+
+Stage 10's first serial Subagent delegation slice is implemented on draft
+[PR #47](https://github.com/54zhien/Zen-Agent/pull/47), stacked on PR #46 at
+`bb7022859be5ea6dd8debd12f4033becfbab13fb`. The current source candidate is
+`cee3bdf2c74655b565ee71393feb6d0f0272d7f5` on
+`codex/stage10-delegation-snapshot`. It freezes the real persisted delegation
+policy during Parent preparation and wires one serial Child Run through durable
+Parent/Child identity and result recovery. The approved defaults and boundaries
+are recorded in [Blueprint PR #9](https://github.com/54zhien/Zen-Agent-Blueprint/pull/9).
+
+The exact-head [PR native gate](https://github.com/54zhien/Zen-Agent/actions/runs/40990023248)
+passed on `cee3bdf2c74655b565ee71393feb6d0f0272d7f5`: repository hygiene,
+XcodeGen generation, app build, XCTest (20 tests), Swift Testing (1,340 tests in
+227 suites), Phone UI (98 tests, one expected Pad-only skip), and the independent
+iPad axis (one test) all passed. The four approval cases implicated by the prior
+recovery regression passed in the Swift Testing UI-probe suite. The independent
+[guard self-test](https://github.com/54zhien/Zen-Agent/actions/runs/40990023259)
+also passed. The same-SHA push run `40990018485` was cancelled as a duplicate
+without a failure recorded before cancellation; it is not counted as a passing
+gate. The predecessor `8fcb92d264c3a2563f3b5b18d5c7f273949d2e31` passed
+repository hygiene, XcodeGen generation, app build, XCTest (20 tests), Phone UI
+(98 tests, one expected Pad-only skip), and the independent iPad axis job, but
+failed Swift Testing with 1,340 tests in 227 suites and 18 issues. Fifteen issues
+came from four existing ToolApproval UI tests receiving recovery events owned by
+another Conversation; the new source scopes Send-triggered recovery by Conversation
+and single-flights scoped/global recovery. Two Stage 10 test setup corrections are
+also included in the current candidate. The complete failure split, preserved
+first compile failure, and cancellation provenance are in the
+[Stage 10 slice record](tasks/stage10-serial-delegation.md).
+This is not a Stage 10 closure: Child tools/approval, configurable Environment
+mappings, Settings UI, physical-device acceptance, and merge remain outside this
+slice or unverified. PR #47 remains draft and unmerged.
 
 The following is the historical 2026-10-05 slice snapshot. Its individual PR
 states describe that date; use the current integration receipt above for main.
