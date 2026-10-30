@@ -248,7 +248,7 @@ struct SubagentDelegationTool: DelegatedToolOutcomeConfirming, DelegatedToolReco
         else { return false }
         return policy.enabled
             && policy.maxDepth == 1
-            && policy.maxConcurrentChildren == 1
+            && policy.supportsFrozenConcurrencyLimit
             && policy.modelPolicy == .followParent
             && policy.environmentInheritance == .none
             && snapshot.permitsTool(descriptor)
