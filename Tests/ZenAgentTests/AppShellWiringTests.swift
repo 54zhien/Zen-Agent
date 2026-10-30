@@ -52,7 +52,7 @@ struct AppShellWiringTests {
         func accessibilityElement(id: String, in root: UIView) -> NSObject? {
             var visited = Set<ObjectIdentifier>()
 
-            func find(in container: UIAccessibilityContainer) -> NSObject? {
+            func find(in container: NSObject) -> NSObject? {
                 let identity = ObjectIdentifier(container as AnyObject)
                 guard visited.insert(identity).inserted else { return nil }
                 let elements = container.accessibilityElements
@@ -64,8 +64,7 @@ struct AppShellWiringTests {
                     if (object as? UIAccessibilityIdentification)?.accessibilityIdentifier == id {
                         return object
                     }
-                    if let nested = object as? UIAccessibilityContainer,
-                       let found = find(in: nested) { return found }
+                    if let found = find(in: object) { return found }
                 }
                 return nil
             }
