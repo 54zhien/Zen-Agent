@@ -456,7 +456,6 @@ private struct Stage10ChildGrantFixture {
                 id: childRunID,
                 expectedState: .executingTools,
                 to: .waitingForApproval,
-                suspendReason: .approvalPending,
                 at: Fixtures.epoch
             )
         }

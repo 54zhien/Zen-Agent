@@ -283,8 +283,7 @@ struct RunRecovery: Sendable {
         }
 
         if let toolRuntime {
-            for call in calls where call.action == SubagentDelegationTool.toolID
-                && (call.state == .dispatched || call.state == .indeterminate) {
+            for call in calls where call.state == .dispatched || call.state == .indeterminate {
                 _ = try toolRuntime.confirmToolOutcome(toolCallID: call.id)
             }
             calls = try store.toolCalls(inRun: run.id)

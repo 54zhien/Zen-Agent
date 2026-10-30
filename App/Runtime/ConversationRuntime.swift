@@ -1317,6 +1317,7 @@ actor ConversationRuntime {
                       run.state.isActive,
                       run.state != .stopping,
                       run.recoveryAction != .invalidate,
+                      try store.activeDelegatedChildRunIDs(parentRunID: parentRunID).contains(run.id),
                       let parent = try store.run(id: parentRunID),
                       parent.kind == .parent,
                       parent.parentRunID == nil,

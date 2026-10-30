@@ -172,6 +172,7 @@ struct Stage10DelegationRuntimeTests {
         try fixture.store.setDelegationEnabled(true)
 
         var command = I05RuntimeTestFixtures.command(
+            modelID: Stage2GateFixture.modelID,
             text: "Use parentonly and childalpha context before delegating."
         )
         command.selectedSkillIDs = [childSkill.id, parentOnlySkill.id]
@@ -367,7 +368,7 @@ struct Stage10DelegationRuntimeTests {
         )
         commit.run.requestConfigSeed = try provider.makeRequestConfigSeed(
             instance: fixture.instance,
-            modelID: I05RuntimeTestFixtures.modelID,
+            modelID: Stage2GateFixture.modelID,
             credentialBinding: CredentialBindingSnapshot(
                 reference: I05RuntimeTestFixtures.credentialReference,
                 generation: 1
