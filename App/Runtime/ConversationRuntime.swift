@@ -176,6 +176,7 @@ actor ConversationRuntime {
         let runtime = DelegationRuntime(
             store: store,
             provider: provider,
+            credentials: credentials,
             agentRuntime: agentRuntime,
             project: { event in try await self.applyAndPublish(event) }
         )
@@ -902,6 +903,7 @@ actor ConversationRuntime {
             } catch { revoked = true }
         }
         guard revoked else { return false }
+        try await bindDelegationOutcomeConfirmationRegistry(for: run)
         try store.invalidateMemoryRun(id: run.id)
         try await agentRuntime.recoverRun(runID: run.id,
             project: { event in try await self.applyAndPublish(event) })
@@ -1200,9 +1202,27 @@ actor ConversationRuntime {
     }
 
     private func reconcileTasklessDelegatedChildrenForStop(_ parent: AgentRunRecord) async throws {
+        try await bindDelegationOutcomeConfirmationRegistry(for: parent)
+        try await confirmDelegatedOutcomes(in: parent.id)
+
+        _ = try store.cancelTasklessDelegatedChildren(parentRunID: parent.id)
+        try await confirmDelegatedOutcomes(in: parent.id)
+        _ = try store.settleUndispatchedDelegatedToolCalls(
+            parentRunID: parent.id,
+            expectedParentState: .stopping
+        )
+    }
+
+    private func bindDelegationOutcomeConfirmationRegistry(for parent: AgentRunRecord) async throws {
+        guard parent.kind == .parent,
+              let encoded = parent.executionSnapshot else { return }
+        let snapshot = try ExecutionSnapshotCodec.decode(encoded)
+        guard snapshot.modelCapabilities.contains(.tools),
+              snapshot.delegation?.enabled == true else { return }
         let coordinator = DelegationRuntime(
             store: store,
             provider: provider,
+            credentials: credentials,
             agentRuntime: agentRuntime,
             project: { event in try await self.applyAndPublish(event) }
         )
@@ -1215,14 +1235,6 @@ actor ConversationRuntime {
             registry: try ToolRegistry.empty.merging([executor])
         )
         await agentRuntime.rebindRecoveredRunToolRegistry(context, forRunID: parent.id)
-        try await confirmDelegatedOutcomes(in: parent.id)
-
-        _ = try store.cancelTasklessDelegatedChildren(parentRunID: parent.id)
-        try await confirmDelegatedOutcomes(in: parent.id)
-        _ = try store.settleUndispatchedDelegatedToolCalls(
-            parentRunID: parent.id,
-            expectedParentState: .stopping
-        )
     }
 
     private func confirmDelegatedOutcomes(in parentRunID: String) async throws {
@@ -1294,7 +1306,28 @@ actor ConversationRuntime {
         var approvals: [ToolApprovalProjection] = []
         let runs = try store.runs(inConversation: conversationID)
 
-        for run in runs where run.kind == .parent && run.parentRunID == nil {
+        for run in runs {
+            let source: ToolApprovalSource
+            switch run.kind {
+            case .parent:
+                guard run.parentRunID == nil else { continue }
+                source = .parent
+            case .child:
+                guard let parentRunID = run.parentRunID,
+                      run.state.isActive,
+                      run.state != .stopping,
+                      run.recoveryAction != .invalidate,
+                      let parent = try store.run(id: parentRunID),
+                      parent.kind == .parent,
+                      parent.parentRunID == nil,
+                      parent.conversationID == conversationID,
+                      parent.state.isActive,
+                      parent.state != .stopping,
+                      parent.recoveryAction != .invalidate
+                else { continue }
+                source = .subagent
+            }
+
             for call in try store.toolCalls(inRun: run.id)
                 where call.state == .waitingForApproval || call.state == .waitingForSystemPermissionConsent {
                 guard let encodedIntent = call.executionIntent,
@@ -1317,7 +1350,9 @@ actor ConversationRuntime {
                     disclosure: disclosure,
                     intentBinding: ToolIntentBinding.make(encodedIntent),
                     kind: call.state == .waitingForSystemPermissionConsent ? .systemPermission : .tool,
-                    allowsConversationGrant: intent.policyAction?.allowsConversationGrant == true,
+                    source: source,
+                    allowsConversationGrant: source == .parent
+                        && intent.policyAction?.allowsConversationGrant == true,
                     systemPermissionDescription: systemConsent?.capabilityDescription,
                     systemPermissionPhase: systemConsent?.phase
                 ))
@@ -1342,8 +1377,22 @@ actor ConversationRuntime {
         guard ToolPolicyIdentity.equals(run.conversationID, request.conversationID) else {
             throw ToolApprovalResolutionError.conversationMismatch
         }
-        guard run.kind == .parent, run.parentRunID == nil else {
-            throw ToolApprovalResolutionError.notParentCall
+        switch run.kind {
+        case .parent:
+            guard run.parentRunID == nil else { throw ToolApprovalResolutionError.notParentCall }
+        case .child:
+            guard let parentRunID = run.parentRunID,
+                  run.state.isActive,
+                  run.state != .stopping,
+                  run.recoveryAction != .invalidate,
+                  let parent = try store.run(id: parentRunID),
+                  parent.kind == .parent,
+                  parent.parentRunID == nil,
+                  parent.conversationID == request.conversationID,
+                  parent.state.isActive,
+                  parent.state != .stopping,
+                  parent.recoveryAction != .invalidate
+            else { throw ToolApprovalResolutionError.notChildCall }
         }
         switch request.decision {
         case .requestSystemPermission, .declineSystemPermission:
@@ -1359,6 +1408,9 @@ actor ConversationRuntime {
             }
             if request.decision == .rejectOnce { _ = try await reject(toolCallID: call.id) }
             else {
+                if run.kind == .child && request.decision == .approveConversation {
+                    throw ToolApprovalResolutionError.childGrantMustBeOnce
+                }
                 try await approve(toolCallID: call.id, displayedIntentBinding: request.intentBinding,
                     scope: request.decision == .approveConversation ? .conversation : .once)
             }
@@ -1367,6 +1419,12 @@ actor ConversationRuntime {
 
     /// Resolves an approval gate without creating a replacement ToolCall.
     func approve(toolCallID: String, displayedIntentBinding: String? = nil, scope: ToolApprovalScope = .once) async throws {
+        if scope == .conversation,
+           let call = try store.toolCall(id: toolCallID),
+           let run = try store.run(id: call.agentRunID),
+           run.kind == .child {
+            throw ToolApprovalResolutionError.childGrantMustBeOnce
+        }
         try await agentRuntime.approveToolCall(toolCallID: toolCallID, displayedIntentBinding: displayedIntentBinding, scope: scope)
     }
 

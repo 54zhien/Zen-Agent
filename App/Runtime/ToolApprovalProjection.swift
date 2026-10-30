@@ -22,6 +22,11 @@ enum ToolApprovalDecision: CaseIterable, Hashable, Sendable, Identifiable {
 
 enum ToolApprovalKind: Sendable, Equatable { case tool, systemPermission }
 
+enum ToolApprovalSource: Sendable, Equatable {
+    case parent
+    case subagent
+}
+
 struct ToolApprovalRequest: Sendable, Equatable {
     let toolCallID: String
     let conversationID: String
@@ -57,6 +62,7 @@ struct ToolApprovalProjection: Identifiable, Sendable, Equatable {
 
     var id: String { toolCallID }
     let kind: ToolApprovalKind
+    let source: ToolApprovalSource
     let allowsConversationGrant: Bool
     let systemPermissionDescription: String?
     let systemPermissionPhase: ToolSystemConsentPhase?
@@ -64,7 +70,9 @@ struct ToolApprovalProjection: Identifiable, Sendable, Equatable {
     var availableDecisions: [ToolApprovalDecision] {
         switch kind {
         case .tool:
-            allowsConversationGrant ? [.approveOnce, .approveConversation, .rejectOnce] : [.approveOnce, .rejectOnce]
+            source == .parent && allowsConversationGrant
+                ? [.approveOnce, .approveConversation, .rejectOnce]
+                : [.approveOnce, .rejectOnce]
         case .systemPermission:
             systemPermissionPhase == .waiting ? [.requestSystemPermission, .declineSystemPermission] : []
         }
@@ -72,7 +80,16 @@ struct ToolApprovalProjection: Identifiable, Sendable, Equatable {
 
     var scopeDescription: String {
         if kind == .systemPermission { return "仅请求 iOS 系统权限，不产生工具授权。" }
-        return allowsConversationGrant ? "本次调用，或本会话内相同动作、资源版本和目标。" : "仅本次调用"
+        return source == .parent && allowsConversationGrant
+            ? "本次调用，或本会话内相同动作、资源版本和目标。"
+            : "仅本次调用"
+    }
+
+    var authorizationOwnerDescription: String {
+        switch source {
+        case .parent: "本 Conversation 的 Parent Run"
+        case .subagent: "Subagent · 本次 Child Run"
+        }
     }
 
     init(
@@ -82,6 +99,7 @@ struct ToolApprovalProjection: Identifiable, Sendable, Equatable {
         disclosure: ToolApprovalDisclosure,
         intentBinding: String? = nil,
         kind: ToolApprovalKind = .tool,
+        source: ToolApprovalSource = .parent,
         allowsConversationGrant: Bool = false,
         systemPermissionDescription: String? = nil,
         systemPermissionPhase: ToolSystemConsentPhase? = nil
@@ -94,7 +112,7 @@ struct ToolApprovalProjection: Identifiable, Sendable, Equatable {
         self.targetDescription = disclosure.targetDescription
         self.keyImpact = disclosure.keyImpact
         self.intentBinding = intentBinding
-        self.kind = kind; self.allowsConversationGrant = allowsConversationGrant
+        self.kind = kind; self.source = source; self.allowsConversationGrant = allowsConversationGrant
         self.systemPermissionDescription = systemPermissionDescription
         self.systemPermissionPhase = systemPermissionPhase
     }
@@ -117,5 +135,7 @@ enum ToolApprovalResolutionError: Error, Equatable, Sendable {
     case runNotFound(String)
     case conversationMismatch
     case notParentCall
+    case notChildCall
+    case childGrantMustBeOnce
     case callNotWaitingForApproval(String)
 }

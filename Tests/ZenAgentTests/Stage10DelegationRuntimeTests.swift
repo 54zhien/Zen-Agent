@@ -105,6 +105,426 @@ struct Stage10DelegationRuntimeTests {
         #expect(timeline.turns.map(\.runID) == [parentRunID])
     }
 
+    @Test("Child tool approval is projected to its owning Conversation and resumes the same Child call")
+    func childToolApprovalResumesSameCall() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let toolID = "stage10-child-recording-tool"
+        let toolLedger = I07ToolLedger()
+        let tool = I07RecordingTool(id: toolID, approvalRequirement: .required, ledger: toolLedger)
+        let registry = try ToolRegistry(tools: [tool])
+        try fixture.store.setMemoryEnabled(true)
+        let parentMemory = try fixture.store.saveMemory(content: "Parentonly memory marker.")
+        let childMemory = try fixture.store.saveMemory(content: "Childalpha memory marker.")
+        let environment = EnvironmentRuntime(store: fixture.store, credentials: fixture.credentials)
+        let appMode = try environment.savePlain(key: "APP_MODE", value: "sandbox")
+        let skillRuntime = SkillRuntime(store: fixture.store, credentials: fixture.credentials, registry: registry)
+        let childSkill = try skillRuntime.saveUser(definition: SkillDefinition(
+            name: "Child Alpha",
+            summary: "Child task guidance.",
+            instructions: "Apply ${APP_MODE} mode.",
+            requiredTools: [toolID],
+            environmentKeys: ["APP_MODE"],
+            triggerTerms: ["childalpha"]
+        ))
+        let parentOnlySkill = try skillRuntime.saveUser(definition: SkillDefinition(
+            name: "Parent Only",
+            summary: "Only relevant to the Parent request.",
+            instructions: "Parent-only workflow.",
+            environmentKeys: ["APP_MODE"],
+            triggerTerms: ["parentonly"]
+        ))
+        try await skillRuntime.setEnabled(id: childSkill.id, enabled: true)
+        try await skillRuntime.setEnabled(id: parentOnlySkill.id, enabled: true)
+        let events = Stage10ApprovalLedger()
+        let providerLedger = Stage2ProviderLedger()
+        let provider = Stage2ScriptedProvider(
+            ledger: providerLedger,
+            scripts: [
+                .events([
+                    .toolCall(ProviderToolCall(
+                        id: "parent-delegation-call",
+                        index: 0,
+                        name: SubagentDelegationTool.toolID,
+                        argumentsJSON: #"{"task":"Use childalpha to perform the task.","environmentKeys":["APP_MODE"]}"#
+                    )),
+                    .finish(.toolCalls),
+                ]),
+                .events([
+                    .toolCall(ProviderToolCall(
+                        id: "child-recording-call",
+                        index: 0,
+                        name: toolID,
+                        argumentsJSON: "{}"
+                    )),
+                    .finish(.toolCalls),
+                ]),
+                .events([.textDelta("child answer"), .finish(.stop)]),
+                .events([.textDelta("parent answer"), .finish(.stop)]),
+            ]
+        )
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials,
+            toolRegistry: registry,
+            onEvent: { await events.append($0) }
+        )
+        try fixture.store.setDelegationEnabled(true)
+
+        var command = I05RuntimeTestFixtures.command(
+            text: "Use parentonly and childalpha context before delegating."
+        )
+        command.selectedSkillIDs = [childSkill.id, parentOnlySkill.id]
+        let parentRunID = try await runtime.start(command)
+        let parentCallID = await events.waitForApproval(at: 0).toolCallID
+        let parentIntent = try ToolIntentCodec.decodeForDisplay(
+            try #require(try fixture.store.toolCall(id: parentCallID)?.executionIntent)
+        )
+        #expect(parentIntent.approvalDisclosure?.keyImpact.contains("APP_MODE") == true)
+        try await runtime.approve(toolCallID: parentCallID, scope: .once)
+
+        let childApproval = await events.waitForApproval(at: 1)
+        let child = try #require(try fixture.store.run(id: childApproval.runID))
+        let childSnapshot = try ExecutionSnapshotCodec.decode(try #require(child.executionSnapshot))
+        #expect(child.kind == .child)
+        #expect(child.parentRunID == parentRunID)
+        #expect(childSnapshot.exposedTools.map(\.toolID) == [toolID])
+        #expect(childSnapshot.prompt.memoryReferences == [childMemory.reference])
+        #expect(childSnapshot.prompt.skillReferences.map(\.skillID) == [childSkill.id])
+        #expect(childSnapshot.prompt.skillReferences.first?.environmentReferences == [appMode.reference])
+        #expect(try ExecutionSnapshotCodec.decode(try #require(
+            try fixture.store.run(id: parentRunID)?.executionSnapshot
+        )).prompt.memoryReferences.contains(parentMemory.reference))
+        #expect(try ExecutionSnapshotCodec.decode(try #require(
+            try fixture.store.run(id: parentRunID)?.executionSnapshot
+        )).prompt.skillReferences.map(\.skillID).contains(parentOnlySkill.id))
+
+        let requests = await providerLedger.requestsSnapshot()
+        guard requests.count >= 2 else {
+            Issue.record("the Child Provider request was not recorded")
+            return
+        }
+        let childUserContent = requests[1].messages.compactMap { message -> String? in
+            guard case .user(let content) = message else { return nil }
+            return content
+        }.joined(separator: "\n")
+        #expect(childUserContent.contains("Childalpha memory marker."))
+        #expect(!childUserContent.contains("Parentonly memory marker."))
+        #expect(childUserContent.contains("Workflow: Child Alpha"))
+        #expect(!childUserContent.contains("Workflow: Parent Only"))
+        #expect(childUserContent.contains("Apply sandbox mode."))
+
+        let cards = try await runtime.pendingToolApprovals(in: child.conversationID)
+        let card = try #require(cards.first { $0.toolCallID == childApproval.toolCallID })
+        #expect(card.source == .subagent)
+        #expect(card.authorizationOwnerDescription == "Subagent · 本次 Child Run")
+        #expect(card.availableDecisions == [.approveOnce, .rejectOnce])
+
+        try await runtime.resolveToolApproval(card.request(for: .approveOnce))
+        try await runtime.waitForCompletion(runID: parentRunID)
+
+        #expect(try fixture.store.toolCall(id: childApproval.toolCallID)?.state == .succeeded)
+        #expect(try fixture.store.toolCall(id: parentCallID)?.state == .succeeded)
+        #expect(await toolLedger.snapshot().map(\.idempotencyKey) == [childApproval.toolCallID])
+        #expect(try fixture.store.toolResult(toolCallID: parentCallID)?.payload.contains("child answer") == true)
+    }
+
+    @Test("cold Parent recovery resumes the original Child approval and delegated call")
+    func coldApprovalResumesOriginalChildCall() async throws {
+        let scenario = try makeColdApprovalScenario(scripts: [
+            .events([.textDelta("child continuation"), .finish(.stop)]),
+            .events([.textDelta("parent continuation"), .finish(.stop)]),
+        ])
+
+        let report = try await scenario.runtime.reconcileColdStartRuns()
+        #expect(report.continuedRunIDs == [scenario.parentRunID])
+        let approval = await scenario.events.waitForApproval(at: 0)
+        #expect(approval.runID == scenario.childRunID)
+        #expect(approval.toolCallID == scenario.childToolCallID)
+
+        let cards = try await scenario.runtime.pendingToolApprovals(in: I05RuntimeTestFixtures.conversationID)
+        let card = try #require(cards.first { $0.toolCallID == scenario.childToolCallID })
+        #expect(card.source == .subagent)
+        #expect(card.authorizationOwnerDescription == "Subagent · 本次 Child Run")
+        #expect(card.availableDecisions == [.approveOnce, .rejectOnce])
+        try await scenario.runtime.resolveToolApproval(card.request(for: .approveOnce))
+        try await scenario.runtime.waitForCompletion(runID: scenario.parentRunID)
+
+        #expect(try scenario.store.run(id: scenario.childRunID)?.state == .completed)
+        #expect(try scenario.store.toolCall(id: scenario.childToolCallID)?.state == .succeeded)
+        #expect(try scenario.store.toolCall(id: scenario.parentToolCallID)?.state == .succeeded)
+        #expect(await scenario.toolLedger.snapshot().map(\.idempotencyKey) == [scenario.childToolCallID])
+        #expect(try scenario.store.toolResult(toolCallID: scenario.parentToolCallID)?.payload.contains("child continuation") == true)
+
+        let requests = await scenario.providerLedger.requestsSnapshot()
+        #expect(requests.count == 2)
+        guard requests.count == 2 else { return }
+        #expect(requests[0].messages.contains { message in
+            guard case .toolResult(let callID, _) = message else { return false }
+            return callID == "child-provider-call"
+        })
+        #expect(requests[1].messages.contains { message in
+            guard case .toolResult(let callID, let content) = message else { return false }
+            return callID == "parent-provider-call" && content.contains("child continuation")
+        })
+    }
+
+    @Test("cold Child approval rejection continues the same Child and Parent calls")
+    func coldApprovalRejectionContinuesOriginalCalls() async throws {
+        let scenario = try makeColdApprovalScenario(scripts: [
+            .events([.textDelta("child handled rejection"), .finish(.stop)]),
+            .events([.textDelta("parent continuation"), .finish(.stop)]),
+        ])
+
+        _ = try await scenario.runtime.reconcileColdStartRuns()
+        let approval = await scenario.events.waitForApproval(at: 0)
+        let cards = try await scenario.runtime.pendingToolApprovals(in: I05RuntimeTestFixtures.conversationID)
+        let card = try #require(cards.first { $0.toolCallID == scenario.childToolCallID })
+        #expect(approval.toolCallID == card.toolCallID)
+        try await scenario.runtime.resolveToolApproval(card.request(for: .rejectOnce))
+        try await scenario.runtime.waitForCompletion(runID: scenario.parentRunID)
+
+        #expect(try scenario.store.run(id: scenario.childRunID)?.state == .completed)
+        #expect(try scenario.store.toolCall(id: scenario.childToolCallID)?.state == .rejected)
+        #expect(try scenario.store.toolCall(id: scenario.parentToolCallID)?.state == .succeeded)
+        #expect(await scenario.toolLedger.snapshot().isEmpty)
+        #expect(try scenario.store.toolResult(toolCallID: scenario.parentToolCallID)?.payload.contains("child handled rejection") == true)
+    }
+
+    @Test("stopping a recovered Child approval cancels Child and preserves its result on the Parent call")
+    func stopDuringColdChildApprovalSettlesBothRuns() async throws {
+        let scenario = try makeColdApprovalScenario(scripts: [])
+
+        _ = try await scenario.runtime.reconcileColdStartRuns()
+        let approval = await scenario.events.waitForApproval(at: 0)
+        #expect(approval.runID == scenario.childRunID)
+        try await scenario.runtime.stop(runID: scenario.parentRunID)
+        try await scenario.runtime.waitForCompletion(runID: scenario.parentRunID)
+
+        let parent = try #require(try scenario.store.run(id: scenario.parentRunID))
+        let child = try #require(try scenario.store.run(id: scenario.childRunID))
+        #expect(parent.state == .cancelled)
+        #expect(child.state == .cancelled)
+        #expect(try scenario.store.toolCall(id: scenario.childToolCallID)?.state == .notExecuted)
+        #expect(try scenario.store.toolCall(id: scenario.parentToolCallID)?.state == .failed)
+        let result = try #require(try scenario.store.toolResult(toolCallID: scenario.parentToolCallID))
+        #expect(result.kind == .error)
+        #expect(result.failureCode == .executionFailed)
+        #expect(result.payload.contains("cancelledByUser"))
+        #expect(await scenario.providerLedger.requestsSnapshot().isEmpty)
+    }
+
+    private func makeColdApprovalScenario(
+        scripts: [Stage2ProviderScript]
+    ) throws -> Stage10ColdApprovalScenario {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let parentRunID = "stage10-cold-parent"
+        let childRunID = "stage10-cold-child"
+        let parentToolCallID = "stage10-cold-parent-delegation"
+        let childToolCallID = "stage10-cold-child-tool-call"
+        let childToolID = "stage10-cold-child-tool"
+        let providerLedger = Stage2ProviderLedger()
+        let provider = Stage2ScriptedProvider(ledger: providerLedger, scripts: scripts)
+        let toolLedger = I07ToolLedger()
+        let childTool = I07RecordingTool(
+            id: childToolID,
+            approvalRequirement: .required,
+            ledger: toolLedger
+        )
+        let registry = try ToolRegistry(tools: [childTool])
+        let configuration = try fixture.store.setDelegationEnabled(true)
+        let parentPrompt = PromptExecutionSnapshot(
+            runtimeSafetyBaseline: PromptTemplateCatalog.currentRuntimeSafetyRevision,
+            zenCore: PromptTemplateCatalog.currentZenCoreRevision,
+            providerAdapterInstructions: provider.adapterPromptInstructions
+        )
+        let parentSnapshot = RunExecutionSnapshot(
+            providerID: provider.id,
+            providerAdapterRevision: provider.adapterRevision,
+            prompt: parentPrompt,
+            modelCapabilities: [.text, .streaming, .tools],
+            exposedTools: [
+                Self.exposure(childTool.descriptor),
+                Self.exposure(SubagentDelegationTool.toolDescriptor),
+            ],
+            maxProviderSteps: 4,
+            delegation: DelegationExecutionSnapshot(configuration: configuration)
+        )
+        let childSnapshot = RunExecutionSnapshot(
+            providerID: provider.id,
+            providerAdapterRevision: provider.adapterRevision,
+            prompt: parentPrompt,
+            modelCapabilities: [.text, .streaming, .tools],
+            exposedTools: [Self.exposure(childTool.descriptor)],
+            maxProviderSteps: 4,
+            delegation: nil
+        )
+
+        var commit = Fixtures.send(
+            conversationID: I05RuntimeTestFixtures.conversationID,
+            messageID: "stage10-cold-trigger",
+            runID: parentRunID
+        )
+        commit.run.requestConfigSeed = try provider.makeRequestConfigSeed(
+            instance: fixture.instance,
+            modelID: I05RuntimeTestFixtures.modelID,
+            credentialBinding: CredentialBindingSnapshot(
+                reference: I05RuntimeTestFixtures.credentialReference,
+                generation: 1
+            )
+        )
+        try fixture.store.commitUserTurnAndCreateParentRun(commit)
+        try fixture.store.completeExecutionSnapshot(
+            runID: parentRunID,
+            encodedSnapshot: ExecutionSnapshotCodec.encode(parentSnapshot)
+        )
+        for (current, next) in zip(
+            [.preparing, .requestingModel, .streaming, .toolRequested],
+            [.requestingModel, .streaming, .toolRequested, .executingTools]
+        ) {
+            try fixture.store.transitionRun(id: parentRunID, expectedState: current, to: next)
+        }
+
+        let setupAgent = AgentRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials
+        )
+        let setupDelegation = DelegationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials,
+            agentRuntime: setupAgent,
+            project: { _ in }
+        )
+        let parentExecutor = SubagentDelegationTool(
+            parentRunID: parentRunID,
+            store: fixture.store,
+            delegationRuntime: setupDelegation
+        )
+        let parentIntent = try parentExecutor.prepare(
+            callID: parentToolCallID,
+            argumentsJSON: #"{"task":"Summarize the requested change."}"#,
+            context: ToolPreparationContext(
+                requestConfigSeed: try #require(try fixture.store.run(id: parentRunID)?.requestConfigSeed)
+            )
+        )
+        let encodedParentIntent = String(
+            decoding: try JSONEncoder().encode(parentIntent),
+            as: UTF8.self
+        )
+        var parentCall = Fixtures.toolCall(
+            id: parentToolCallID,
+            runID: parentRunID,
+            action: SubagentDelegationTool.toolID,
+            state: .dispatched,
+            intent: encodedParentIntent
+        )
+        parentCall.providerCallID = "parent-provider-call"
+        parentCall.batchID = "batch-\(parentRunID)-0-1"
+        parentCall.batchSequence = 0
+        try fixture.store.createToolCall(parentCall)
+        let parentProviderCall = ProviderToolCall(
+            id: "parent-provider-call",
+            index: 0,
+            name: SubagentDelegationTool.toolID,
+            argumentsJSON: #"{"task":"Summarize the requested change."}"#
+        )
+        let parentStep = Fixtures.step(stepID: "step-\(parentRunID)-0", runID: parentRunID)
+        try fixture.store.recordStep(parentStep)
+        try fixture.store.recordProtocolResponse(
+            String(decoding: try JSONEncoder().encode(ToolCallProtocolTranscript(
+                assistantContent: nil,
+                calls: [parentProviderCall]
+            )), as: UTF8.self),
+            for: parentStep
+        )
+
+        var childRun = Fixtures.run(
+            id: childRunID,
+            conversationID: I05RuntimeTestFixtures.conversationID,
+            kind: .child,
+            state: .preparing,
+            parentRunID: parentRunID
+        )
+        childRun.requestConfigSeed = try #require(try fixture.store.run(id: parentRunID)?.requestConfigSeed)
+        childRun.executionSnapshot = try ExecutionSnapshotCodec.encode(childSnapshot)
+        try fixture.store.createDelegatedChildRun(
+            parentToolCallID: parentToolCallID,
+            childRun: childRun
+        )
+        for (current, next) in zip(
+            [.preparing, .requestingModel, .streaming, .toolRequested, .executingTools],
+            [.requestingModel, .streaming, .toolRequested, .executingTools, .waitingForApproval]
+        ) {
+            try fixture.store.transitionRun(id: childRunID, expectedState: current, to: next)
+        }
+
+        let childIntent = try childTool.prepare(callID: childToolCallID, argumentsJSON: "{}")
+        var childCall = Fixtures.toolCall(
+            id: childToolCallID,
+            runID: childRunID,
+            action: childToolID,
+            state: .waitingForApproval,
+            intent: String(decoding: try JSONEncoder().encode(childIntent), as: UTF8.self)
+        )
+        childCall.providerCallID = "child-provider-call"
+        childCall.batchID = "batch-\(childRunID)-0-1"
+        childCall.batchSequence = 0
+        try fixture.store.createToolCall(childCall)
+        let childProviderCall = ProviderToolCall(
+            id: "child-provider-call",
+            index: 0,
+            name: childToolID,
+            argumentsJSON: "{}"
+        )
+        let childStep = Fixtures.step(stepID: "step-\(childRunID)-0", runID: childRunID)
+        try fixture.store.recordStep(childStep)
+        try fixture.store.recordProtocolResponse(
+            String(decoding: try JSONEncoder().encode(ToolCallProtocolTranscript(
+                assistantContent: nil,
+                calls: [childProviderCall]
+            )), as: UTF8.self),
+            for: childStep
+        )
+        try fixture.store.transitionRun(
+            id: parentRunID,
+            expectedState: .executingTools,
+            to: .recovering,
+            recoveryAction: .resume
+        )
+
+        let events = Stage10ApprovalLedger()
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials,
+            toolRegistry: registry,
+            onEvent: { await events.append($0) }
+        )
+        return Stage10ColdApprovalScenario(
+            store: fixture.store,
+            runtime: runtime,
+            events: events,
+            providerLedger: providerLedger,
+            toolLedger: toolLedger,
+            parentRunID: parentRunID,
+            childRunID: childRunID,
+            parentToolCallID: parentToolCallID,
+            childToolCallID: childToolCallID
+        )
+    }
+
+    private static func exposure(_ descriptor: ToolDescriptor) -> ToolExposureSnapshot {
+        ToolExposureSnapshot(
+            toolID: descriptor.id,
+            descriptorRevision: descriptor.revision,
+            displayName: descriptor.displayName,
+            description: descriptor.description,
+            inputSchema: descriptor.inputSchema
+        )
+    }
+
     @Test("delegation is disabled until its runtime configuration is enabled")
     func delegationDefaultsDisabled() throws {
         let fixture = try I05RuntimeTestFixtures.makeFixture()
@@ -131,6 +551,7 @@ struct Stage10DelegationRuntimeTests {
         let delegationRuntime = DelegationRuntime(
             store: fixture.store,
             provider: provider,
+            credentials: fixture.credentials,
             agentRuntime: AgentRuntime(
                 store: fixture.store,
                 provider: provider,
@@ -233,6 +654,7 @@ struct Stage10DelegationRuntimeTests {
         let delegationRuntime = DelegationRuntime(
             store: fixture.store,
             provider: provider,
+            credentials: fixture.credentials,
             agentRuntime: AgentRuntime(
                 store: fixture.store,
                 provider: provider,
@@ -322,6 +744,18 @@ struct Stage10DelegationRuntimeTests {
     }
 }
 
+private struct Stage10ColdApprovalScenario {
+    let store: PersistenceStore
+    let runtime: ConversationRuntime
+    let events: Stage10ApprovalLedger
+    let providerLedger: Stage2ProviderLedger
+    let toolLedger: I07ToolLedger
+    let parentRunID: String
+    let childRunID: String
+    let parentToolCallID: String
+    let childToolCallID: String
+}
+
 private actor Stage10DelegationEventLedger {
     private var approvalIDs: [String] = []
     private var approvalWaiters: [CheckedContinuation<String, Never>] = []
@@ -340,6 +774,28 @@ private actor Stage10DelegationEventLedger {
         if let toolCallID = approvalIDs.first { return toolCallID }
         return await withCheckedContinuation { continuation in
             approvalWaiters.append(continuation)
+        }
+    }
+}
+
+private actor Stage10ApprovalLedger {
+    private var approvals: [(runID: String, toolCallID: String)] = []
+    private var waiters: [(index: Int, continuation: CheckedContinuation<(runID: String, toolCallID: String), Never>)] = []
+
+    func append(_ event: AgentEvent) {
+        guard case .approvalRequired(let runID, let toolCallID) = event else { return }
+        approvals.append((runID, toolCallID))
+        let ready = waiters.filter { $0.index < approvals.count }
+        waiters.removeAll { $0.index < approvals.count }
+        for waiter in ready {
+            waiter.continuation.resume(returning: approvals[waiter.index])
+        }
+    }
+
+    func waitForApproval(at index: Int) async -> (runID: String, toolCallID: String) {
+        if approvals.indices.contains(index) { return approvals[index] }
+        return await withCheckedContinuation { continuation in
+            waiters.append((index, continuation))
         }
     }
 }

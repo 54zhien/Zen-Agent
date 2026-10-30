@@ -152,6 +152,10 @@ struct ToolRegistry: Sendable {
         return try ToolRegistry(tools: existing + additionalExecutables)
     }
 
+    func filteringExecutables(_ include: (any ToolExecutable) -> Bool) throws -> ToolRegistry {
+        try ToolRegistry(tools: descriptors.compactMap { executorsByID[$0.id] }.filter(include))
+    }
+
     var mcpServerIDs: Set<String> {
         Set(descriptors.compactMap { MCPToolExecutable.serverID(forToolID: $0.id) })
     }

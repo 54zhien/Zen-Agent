@@ -26,6 +26,25 @@ enum MemoryRetriever {
         return selected
     }
 
+    static func select(query: String, contexts: [MemoryContext]) -> [MemoryContext] {
+        // Child retrieval may rank only frozen revision content, not mutable MemoryRecord metadata.
+        let candidates = contexts.map {
+            MemoryItem(
+                id: $0.reference.memoryID,
+                revisionID: $0.reference.revisionID,
+                content: $0.content,
+                origin: .manual,
+                factKey: nil,
+                archived: false,
+                createdAt: .distantPast,
+                updatedAt: .distantPast,
+                sources: []
+            )
+        }
+        let byReference = Dictionary(uniqueKeysWithValues: contexts.map { ($0.reference, $0) })
+        return select(query: query, records: candidates).compactMap { byReference[$0.reference] }
+    }
+
     static func normalized(_ text: String) -> String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX")).lowercased()
     }

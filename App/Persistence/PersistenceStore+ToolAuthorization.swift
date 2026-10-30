@@ -60,6 +60,23 @@ extension PersistenceStore {
         if run?.state == .stopping {
             return try updateAuthorizationCall(db, call: call, state: .notExecuted, failure: nil, at: now)
         }
+        if let run, run.kind == .child {
+            guard let owner = try linkedDelegationParent(for: run, db: db) else {
+                return try rejectAuthorizationCall(db, call: call, failure: .dependencyChanged, at: now)
+            }
+            if owner.parent.state == .stopping {
+                return try updateAuthorizationCall(db, call: call, state: .notExecuted, failure: nil, at: now)
+            }
+            let conversation = try ConversationRecord.fetchOne(db, key: run.conversationID)
+            guard run.state.isActive,
+                  run.state != .stopping,
+                  run.recoveryAction != .invalidate,
+                  conversation?.lifecycle == .visible,
+                  parentCanAuthorizeLinkedChild(owner.parent, delegationCall: owner.delegationCall)
+            else {
+                return try rejectAuthorizationCall(db, call: call, failure: .dependencyChanged, at: now)
+            }
+        }
         do {
             guard let run else { throw MemoryError.erasedDependency }
             if run.recoveryAction == .invalidate { throw MemoryError.erasedDependency }
@@ -90,6 +107,10 @@ extension PersistenceStore {
             return try rejectAuthorizationCall(db, call: call, failure: .dependencyChanged, at: now)
         }
         var decision = ToolPolicyEvaluator.evaluate(facts.input)
+        if case .approval(_, .conversation) = operation,
+           case .run = facts.input.call.subject {
+            return try rejectAuthorizationCall(db, call: call, failure: .reapprovalNeeded, at: now)
+        }
         if facts.isNew {
             let disposition: ToolPolicyAdmissionDisposition
             if operation.isCreation {
@@ -186,18 +207,54 @@ extension PersistenceStore {
         let run = try AgentRunRecord.fetchOne(db, key: call.agentRunID)
         let conversation = try run.flatMap { try ConversationRecord.fetchOne(db, key: $0.conversationID) }
         let parent = run?.kind == .parent && run?.parentRunID == nil
-        let subject = ToolGrantSubject.parentConversation(run?.conversationID ?? "")
-        let available = run?.state.isActive == true && run?.state != .stopping
+        let subject: ToolGrantSubject
+        if let run, run.kind == .child {
+            subject = .run(run.id)
+        } else {
+            subject = .parentConversation(run?.conversationID ?? "")
+        }
+        let childOwner: (parent: AgentRunRecord, delegationCall: ToolCallRecord)?
+        if let run, run.kind == .child {
+            childOwner = try Self.linkedDelegationParent(for: run, db: db)
+        } else {
+            childOwner = nil
+        }
+        let childAuthorityAvailable: Bool
+        if let run, run.kind == .child, let childOwner {
+            childAuthorityAvailable = run.state.isActive
+                && run.state != .stopping
+                && run.recoveryAction != .invalidate
+                && childOwner.parent.conversationID == run.conversationID
+                && Self.parentCanAuthorizeLinkedChild(childOwner.parent, delegationCall: childOwner.delegationCall)
+        } else {
+            childAuthorityAvailable = false
+        }
+        let runAvailable = run?.state.isActive == true && run?.state != .stopping
+        let available = parent ? runAvailable : (runAvailable && childAuthorityAvailable)
+        let subjectAvailable: Bool
+        if parent {
+            subjectAvailable = conversation?.lifecycle == .visible
+        } else if run?.kind == .child {
+            subjectAvailable = childAuthorityAvailable && conversation?.lifecycle == .visible
+        } else {
+            subjectAvailable = false
+        }
         let context = ToolPolicyCallContext(toolCallID: call.id, agentRunID: call.agentRunID, subject: subject,
             toolID: action.toolID, actionID: action.actionID, descriptorRevision: action.descriptorRevision,
             intentBinding: original.admission.intentBinding, resource: resource, destination: destination,
-            authorizationIsAvailable: available, subjectIsAvailable: parent && conversation?.lifecycle == .visible)
+            authorizationIsAvailable: available, subjectIsAvailable: subjectAvailable)
         // An old row cannot inherit a different call's grant while its first
         // admission is being recovered. Its explicit approval creates a witness.
         let grants: [ToolScopedGrant]
-        if stored != nil || isCreation, let conversationID = run?.conversationID {
-            grants = try ToolGrantRecord.filter(Column("subjectKind") == "parentConversation")
-                .filter(Column("subjectID") == conversationID).fetchAll(db).map { try $0.snapshot() }
+        if stored != nil || isCreation {
+            switch subject {
+            case .parentConversation(let conversationID):
+                grants = try ToolGrantRecord.filter(Column("subjectKind") == "parentConversation")
+                    .filter(Column("subjectID") == conversationID).fetchAll(db).map { try $0.snapshot() }
+            case .run(let runID):
+                grants = try ToolGrantRecord.filter(Column("subjectKind") == "run")
+                    .filter(Column("subjectID") == runID).fetchAll(db).map { try $0.snapshot() }
+            }
         } else { grants = [] }
         let cap: ToolPolicySafetyCap = safetyCap == .unrestricted && descriptor.approvalRequirement == .required
             ? .requiresExplicitApproval : safetyCap

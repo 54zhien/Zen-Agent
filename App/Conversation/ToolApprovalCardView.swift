@@ -33,7 +33,7 @@ struct ToolApprovalCardView: View {
                 }
 
                 disclosureRow(title: "授权对象") {
-                    Text("本 Conversation 的 Parent Run")
+                    Text(approval.authorizationOwnerDescription)
                 }
 
                 if approval.kind == .systemPermission {

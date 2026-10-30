@@ -62,7 +62,8 @@ extension PersistenceStore {
                   delegation.maxDepth == 1,
                   delegation.maxConcurrentChildren == 1,
                   delegation.modelPolicy == .followParent,
-                  delegation.environmentInheritance == .none
+                  delegation.environmentInheritance == .none,
+                  parentSnapshot.permitsTool(SubagentDelegationTool.toolDescriptor)
             else {
                 throw PersistenceError.invalidTransition("Parent snapshot does not permit this Child")
             }
@@ -77,17 +78,44 @@ extension PersistenceStore {
                 throw PersistenceError.invalidTransition("delegated Child does not match its Parent snapshot")
             }
             let childSnapshot = try ExecutionSnapshotCodec.decode(encodedChildSnapshot)
+            let requestedEnvironmentKeys = try Self.requestedDelegationEnvironmentKeys(
+                call: call,
+                parent: parent,
+                parentSnapshot: parentSnapshot,
+                db: db
+            )
+            let childMemoryReferences = childSnapshot.prompt.memoryReferences
+            let childSkillReferences = childSnapshot.prompt.skillReferences
+            guard childMemoryReferences.allSatisfy({ parentSnapshot.prompt.memoryReferences.contains($0) }),
+                  childSkillReferences.allSatisfy({ parentSnapshot.prompt.skillReferences.contains($0) })
+            else {
+                throw PersistenceError.invalidTransition("Child context must use exact frozen Parent references")
+            }
+            _ = try Self.resolveMemoryReferences(childMemoryReferences, db: db)
+            let childSkillItems = try Self.resolveSkillItems(childSkillReferences, db: db)
+            guard childSkillItems.allSatisfy({ item in
+                item.definition.requiredMCPServers.isEmpty
+                    && Set(item.definition.environmentKeys).isSubset(of: requestedEnvironmentKeys)
+            }) else {
+                throw PersistenceError.invalidTransition("Child Skills exceed its explicit Parent Environment selection")
+            }
+            let childToolsStayWithinParent = childSnapshot.exposedTools.allSatisfy { childTool in
+                !ToolPolicyIdentity.equals(childTool.toolID, SubagentDelegationTool.toolID)
+                    && MCPToolExecutable.serverID(forToolID: childTool.toolID) == nil
+                    && parentSnapshot.exposedTools.contains { parentTool in
+                        ToolPolicyIdentity.equals(parentTool.toolID, childTool.toolID)
+                            && ToolPolicyIdentity.equals(parentTool.descriptorRevision, childTool.descriptorRevision)
+                    }
+            }
             guard childSnapshot.formatVersion == RunExecutionSnapshot.currentFormatVersion,
                   childSnapshot.providerID == parentSnapshot.providerID,
                   childSnapshot.providerAdapterRevision == parentSnapshot.providerAdapterRevision,
-                  childSnapshot.exposedTools.isEmpty,
-                  !childSnapshot.modelCapabilities.contains(.tools),
-                  childSnapshot.prompt.memoryReferences.isEmpty,
-                  childSnapshot.prompt.skillReferences.isEmpty,
+                  childToolsStayWithinParent,
+                  childSnapshot.exposedTools.isEmpty || childSnapshot.modelCapabilities.contains(.tools),
                   childSnapshot.mcpServerDependencies.isEmpty,
                   childSnapshot.delegation == nil
             else {
-                throw PersistenceError.invalidTransition("Child snapshot exceeds the first-slice delegation policy")
+                throw PersistenceError.invalidTransition("Child snapshot exceeds its Parent's frozen delegation policy")
             }
             guard try AgentRunRecord.fetchOne(db, sql: """
                 SELECT * FROM agentRun
@@ -106,11 +134,62 @@ extension PersistenceStore {
             }
 
             try childRun.insert(db)
+            let skillSelection = String(decoding: try JSONEncoder().encode(childSkillReferences), as: UTF8.self)
+            try db.execute(sql: "INSERT INTO runSkillSelection(runID, selectionJSON) VALUES (?, ?)",
+                arguments: [childRun.id, skillSelection])
+            try Self.validateExtensionDependencies(runID: childRun.id, snapshot: childSnapshot, db: db)
             try db.execute(sql: """
                 INSERT INTO delegatedChildRun(parentToolCallID, childRunID, createdAt)
                 VALUES (?, ?, ?)
                 """, arguments: [parentToolCallID, childRun.id, now])
         }
+    }
+
+    private static func requestedDelegationEnvironmentKeys(
+        call: ToolCallRecord,
+        parent: AgentRunRecord,
+        parentSnapshot: RunExecutionSnapshot,
+        db: Database
+    ) throws -> Set<String> {
+        guard let encodedIntent = call.executionIntent else {
+            throw PersistenceError.invalidTransition("delegation has no frozen ToolCall intent")
+        }
+        let intent = try ToolIntentCodec.decodeForDisplay(encodedIntent)
+        try ToolIntentCodec.validate(intent, descriptor: SubagentDelegationTool.toolDescriptor)
+        guard intent.resourceScope == .target(parent.id),
+              intent.destinationScope == ToolPreparationContext(requestConfigSeed: parent.requestConfigSeed).destination,
+              let action = intent.policyAction,
+              action.actionID == SubagentDelegationTool.actionID
+        else {
+            throw PersistenceError.invalidTransition("delegation intent does not belong to its Parent Run")
+        }
+
+        let arguments = try ToolArgumentJSON.object(from: intent.normalizedArgumentsJSON)
+        let requested: [String]
+        if let rawKeys = arguments["environmentKeys"] {
+            guard let keys = rawKeys as? [String] else {
+                throw PersistenceError.invalidTransition("delegation Environment selection is not a key list")
+            }
+            requested = keys
+        } else {
+            requested = []
+        }
+        guard Set(requested).count == requested.count,
+              requested.allSatisfy(EnvironmentValidation.allowsKey)
+        else {
+            throw PersistenceError.invalidTransition("delegation Environment selection has duplicate or invalid keys")
+        }
+
+        let frozenReferences = Array(Set(parentSnapshot.prompt.skillReferences.flatMap(\.environmentReferences))).sorted {
+            if $0.variableID != $1.variableID { return $0.variableID < $1.variableID }
+            return $0.revisionID < $1.revisionID
+        }
+        let frozenKeys = Set(try Self.resolveEnvironmentReferences(frozenReferences, db: db).map(\.key))
+        let requestedKeys = Set(requested)
+        guard requestedKeys.isSubset(of: frozenKeys) else {
+            throw PersistenceError.invalidTransition("delegation requested an Environment key outside the Parent snapshot")
+        }
+        return requestedKeys
     }
 
     func delegatedChildRunID(parentToolCallID: String) throws -> String? {
@@ -156,8 +235,10 @@ extension PersistenceStore {
         intentBinding: String,
         expectedParentState: RunState
     ) throws -> ToolExecutionResult? {
-        guard expectedParentState == .recovering || expectedParentState == .stopping else {
-            throw PersistenceError.invalidTransition("delegated outcome requires Parent recovery or stop")
+        guard expectedParentState == .executingTools
+                || expectedParentState == .recovering
+                || expectedParentState == .stopping else {
+            throw PersistenceError.invalidTransition("delegated outcome requires Parent tool execution, recovery, or stop")
         }
         return try database.read { db -> ToolExecutionResult? in
             guard let call = try ToolCallRecord.fetchOne(db, key: parentToolCallID),
@@ -193,8 +274,10 @@ extension PersistenceStore {
         result: ToolExecutionResult,
         at now: Date = Date()
     ) throws -> Bool {
-        guard expectedParentState == .recovering || expectedParentState == .stopping else {
-            throw PersistenceError.invalidTransition("delegated outcome confirmation requires Parent recovery or stop")
+        guard expectedParentState == .executingTools
+                || expectedParentState == .recovering
+                || expectedParentState == .stopping else {
+            throw PersistenceError.invalidTransition("delegated outcome confirmation requires Parent tool execution, recovery, or stop")
         }
         return try database.write { db -> Bool in
             guard let call = try ToolCallRecord.fetchOne(db, key: parentToolCallID),

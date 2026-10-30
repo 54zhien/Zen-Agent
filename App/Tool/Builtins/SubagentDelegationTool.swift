@@ -3,16 +3,22 @@ import Foundation
 struct SubagentDelegationTool: DelegatedToolOutcomeConfirming, DelegatedToolRecoveryResuming {
     static let toolID = "subagent"
     static let actionID = "delegate"
-    static let descriptorRevision = "1"
+    static let descriptorRevision = "2"
 
     static let toolDescriptor = ToolDescriptor(
         id: toolID,
         displayName: "Subagent",
-        description: "Ask one isolated child run to complete a task, then return its result.",
+        description: "Ask one isolated child run to complete a task, using only tools and context allowed by the Parent. Explicitly name Environment keys to share.",
         inputSchema: .object([
             "type": .string("object"),
             "properties": .object([
                 "task": .object(["type": .string("string")]),
+                "environmentKeys": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")]),
+                    "uniqueItems": .bool(true),
+                    "maxItems": .number(64),
+                ]),
             ]),
             "required": .array([.string("task")]),
             "additionalProperties": .bool(false),
@@ -49,29 +55,35 @@ struct SubagentDelegationTool: DelegatedToolOutcomeConfirming, DelegatedToolReco
         context: ToolPreparationContext
     ) throws -> ToolExecutionIntent {
         _ = callID
-        let object = try ToolArgumentJSON.object(from: argumentsJSON)
-        guard object.count == 1,
-              let task = object["task"] as? String,
-              !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else { throw ToolExecutionError.invalidArguments }
+        let arguments = try Self.arguments(from: argumentsJSON)
+        if !arguments.environmentKeys.isEmpty {
+            guard Set(arguments.environmentKeys).isSubset(of: try parentFrozenEnvironmentKeys()) else {
+                throw ToolExecutionError.invalidArguments
+            }
+        }
 
         return try ToolIntentCodec.freeze(
             descriptor: descriptor,
             actionID: Self.actionID,
-            normalizedArgumentsJSON: ToolArgumentJSON.normalizedObject(["task": task]),
+            normalizedArgumentsJSON: ToolArgumentJSON.normalizedObject([
+                "task": arguments.task,
+                "environmentKeys": arguments.environmentKeys,
+            ]),
             resource: .target(parentRunID),
             destination: context.destination,
             approvalDisclosure: ToolApprovalDisclosure(
                 toolDisplayName: descriptor.displayName,
                 action: "Start one child model run",
                 targetDescription: "Parent Run \(parentRunID)",
-                keyImpact: "The child receives only this task and no tools or inherited Environment values. Its result returns to the current model."
+                keyImpact: arguments.environmentKeys.isEmpty
+                    ? "Child tools are limited to the Parent's frozen tools. Environment keys: none. Its result returns to the current model."
+                    : "Child tools are limited to the Parent's frozen tools. Requested Environment keys: \(arguments.environmentKeys.joined(separator: ", ")). Its result returns to the current model."
             )
         )
     }
 
     func validateDependencies(_ intent: ToolExecutionIntent, context: ToolPreparationContext) throws {
-        try ToolIntentCodec.validate(intent, descriptor: descriptor)
+        try validate(intent)
         guard intent.resourceScope == .target(parentRunID),
               intent.destinationScope == context.destination,
               try parentAllowsDelegation()
@@ -79,7 +91,7 @@ struct SubagentDelegationTool: DelegatedToolOutcomeConfirming, DelegatedToolReco
     }
 
     func validateDependencies(_ intent: ToolExecutionIntent) throws {
-        try ToolIntentCodec.validate(intent, descriptor: descriptor)
+        try validate(intent)
         guard intent.resourceScope == .target(parentRunID),
               intent.destinationScope == ToolPreparationContext(
                 requestConfigSeed: try parentRun().requestConfigSeed
@@ -99,15 +111,13 @@ struct SubagentDelegationTool: DelegatedToolOutcomeConfirming, DelegatedToolReco
         _ intent: ToolExecutionIntent,
         idempotencyKey: String
     ) async throws -> ToolExecutionResult {
-        try ToolIntentCodec.validate(intent, descriptor: descriptor)
-        guard intent.resourceScope == .target(parentRunID),
-              let object = try? ToolArgumentJSON.object(from: intent.normalizedArgumentsJSON),
-              let task = object["task"] as? String
-        else { throw ToolExecutionError.invalidIntent }
+        try validate(intent)
+        let arguments = try Self.arguments(from: intent.normalizedArgumentsJSON)
         return try await delegationRuntime.execute(
             parentRunID: parentRunID,
             parentToolCallID: idempotencyKey,
-            task: task
+            task: arguments.task,
+            environmentKeys: arguments.environmentKeys
         )
     }
 
@@ -119,7 +129,7 @@ struct SubagentDelegationTool: DelegatedToolOutcomeConfirming, DelegatedToolReco
               call.action == Self.toolID,
               let encodedIntent = call.executionIntent,
               let parent = try store.run(id: parentRunID),
-              parent.state == .recovering || parent.state == .stopping
+              parent.state == .executingTools || parent.state == .recovering || parent.state == .stopping
         else { return nil }
         return try store.delegatedToolOutcome(
             parentToolCallID: idempotencyKey,
@@ -141,7 +151,7 @@ struct SubagentDelegationTool: DelegatedToolOutcomeConfirming, DelegatedToolReco
               call.action == Self.toolID,
               let encodedIntent = call.executionIntent,
               let parent = try store.run(id: parentRunID),
-              parent.state == .recovering || parent.state == .stopping
+              parent.state == .executingTools || parent.state == .recovering || parent.state == .stopping
         else { return false }
         return try store.confirmDelegatedToolOutcome(
             parentToolCallID: idempotencyKey,
@@ -153,18 +163,17 @@ struct SubagentDelegationTool: DelegatedToolOutcomeConfirming, DelegatedToolReco
         )
     }
 
-    func resumeUnstartedChild(
+    func resumeDispatchedChild(
         _ intent: ToolExecutionIntent,
         idempotencyKey: String
     ) async throws {
-        try ToolIntentCodec.validate(intent, descriptor: descriptor)
-        guard let object = try? ToolArgumentJSON.object(from: intent.normalizedArgumentsJSON),
-              let task = object["task"] as? String
-        else { throw ToolExecutionError.invalidIntent }
-        try await delegationRuntime.resumeUnstartedChild(
+        try validate(intent)
+        let arguments = try Self.arguments(from: intent.normalizedArgumentsJSON)
+        _ = try await delegationRuntime.resumeDispatchedChild(
             parentRunID: parentRunID,
             parentToolCallID: idempotencyKey,
-            task: task
+            task: arguments.task,
+            environmentKeys: arguments.environmentKeys
         )
     }
 
@@ -184,6 +193,52 @@ struct SubagentDelegationTool: DelegatedToolOutcomeConfirming, DelegatedToolReco
               run.parentRunID == nil
         else { throw ToolIntentFailure.dependenciesChanged }
         return run
+    }
+
+    private func validate(_ intent: ToolExecutionIntent) throws {
+        try ToolIntentCodec.validate(intent, descriptor: descriptor)
+        guard intent.resourceScope == .target(parentRunID) else {
+            throw ToolExecutionError.invalidIntent
+        }
+        let arguments = try Self.arguments(from: intent.normalizedArgumentsJSON)
+        if !arguments.environmentKeys.isEmpty {
+            guard Set(arguments.environmentKeys).isSubset(of: try parentFrozenEnvironmentKeys()) else {
+                throw ToolIntentFailure.dependenciesChanged
+            }
+        }
+    }
+
+    private func parentFrozenEnvironmentKeys() throws -> Set<String> {
+        guard let snapshotJSON = try parentRun().executionSnapshot,
+              let snapshot = try? ExecutionSnapshotCodec.decode(snapshotJSON)
+        else { throw ToolIntentFailure.dependenciesChanged }
+        let references = Array(Set(snapshot.prompt.skillReferences.flatMap(\.environmentReferences)))
+            .sorted {
+                if $0.variableID != $1.variableID { return $0.variableID < $1.variableID }
+                return $0.revisionID < $1.revisionID
+            }
+        return Set(try store.resolveEnvironmentReferences(references).map(\.key))
+    }
+
+    private static func arguments(from json: String) throws -> (task: String, environmentKeys: [String]) {
+        let object = try ToolArgumentJSON.object(from: json)
+        guard object.keys.allSatisfy({ $0 == "task" || $0 == "environmentKeys" }),
+              let task = object["task"] as? String,
+              !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { throw ToolExecutionError.invalidArguments }
+
+        let environmentKeys: [String]
+        if let rawKeys = object["environmentKeys"] {
+            guard let parsedKeys = rawKeys as? [String] else { throw ToolExecutionError.invalidArguments }
+            environmentKeys = parsedKeys
+        } else {
+            environmentKeys = []
+        }
+        guard environmentKeys.count <= 64,
+              Set(environmentKeys).count == environmentKeys.count,
+              environmentKeys.allSatisfy(EnvironmentValidation.allowsKey)
+        else { throw ToolExecutionError.invalidArguments }
+        return (task, environmentKeys.sorted())
     }
 
     private func parentAllowsDelegation() throws -> Bool {

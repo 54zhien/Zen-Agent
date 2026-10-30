@@ -72,6 +72,10 @@ final class ToolRuntime: @unchecked Sendable {
         registryBindings.release(forRunID: runID)
     }
 
+    func registryContext(forRunID runID: String) -> ToolRuntimeRegistryContext? {
+        registryBindings.context(forRunID: runID)
+    }
+
     func validateSkillDependencies(_ snapshot: RunExecutionSnapshot, runID: String? = nil) throws {
         guard !snapshot.prompt.skillReferences.isEmpty else { return }
         guard let credentials else { throw SkillError.erasedDependency }
@@ -531,15 +535,17 @@ final class ToolRuntime: @unchecked Sendable {
         }
     }
 
-    func resumeDelegatedChildIfUnstarted(toolCallID: String) async throws {
+    func resumeDispatchedDelegatedChild(toolCallID: String) async throws -> Bool {
         guard let call = try store.toolCall(id: toolCallID),
               call.state == .dispatched || call.state == .indeterminate,
+              call.action == SubagentDelegationTool.toolID,
               let json = call.executionIntent,
               let intent = try? ToolIntentCodec.decodeForDisplay(json),
               let executor = registry(forRunID: call.agentRunID).executor(id: intent.toolID)
                 as? any DelegatedToolRecoveryResuming
-        else { return }
-        try await executor.resumeUnstartedChild(intent, idempotencyKey: call.id)
+        else { return false }
+        try await executor.resumeDispatchedChild(intent, idempotencyKey: call.id)
+        return try confirmToolOutcome(toolCallID: call.id)
     }
 
     func failUnknownDelegatedChildren(parentRunID: String) throws {
