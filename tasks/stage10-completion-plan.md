@@ -28,7 +28,7 @@
 
 ## Preserved Native CI Evidence (2026-10-30)
 
-PR #48 remains open and draft at `aabcc6ec6d9351f6148de8bcf6e3f80e9bc2a970`. The two Actions events on that exact head both completed with failures, and their evidence remains attached to the runs:
+PR #48 remains open and draft at `aabcc6ec6d9351f614b055ecd239ea429a91da71`. The two Actions events on that exact head both completed with failures, and their evidence remains attached to the runs:
 
 - PR event [41028853360](https://github.com/54zhien/Zen-Agent/actions/runs/41028853360): repository hygiene passed; Build and test passed with 98 tests, one skipped, and zero failures. `Stage10DelegationRuntimeTests.stopDuringColdChildApprovalSettlesBothRuns()` passed in 0.059 seconds, and `AppSpaceDeletionUITests.testUpwardCurrentDeleteAndUndoKeepTheOriginalConversation()` passed in 22.082 seconds. The independent iPad workspace axis failed its one UI test after Xcode timed out launching `com.zhien.zen` (78.109 seconds). The log records `DebuggerLLDB.DebuggerVersionStore.StoreError error 0`, `no debugger version`, then `Timed out while launching application via Xcode`; this is a launch-time RED, with no app crash evidence. Its `pad-workspace-failure` artifact is [12965467088](https://github.com/54zhien/Zen-Agent/actions/runs/41028853360/artifacts/12965467088).
 - Push event [41028848363](https://github.com/54zhien/Zen-Agent/actions/runs/41028848363): repository hygiene and iPad workspace axis passed; Build and test failed in `AppSpaceDeletionUITests.testUpwardCurrentDeleteAndUndoKeepTheOriginalConversation()` with three UI assertion/interaction failures. After the upward swipe, the accessibility dump still showed `workspace-card-menu` and “Workspace conversation 11，轻点返回会话”; it had no `workspace-current-card` identifier or `workspace-card-undo-preview-ui-11` button. The same test passed in the PR event above. The source and tree are the same SHA; the cause of this different UI outcome is not established. The `xcresult` artifact is [12968750705](https://github.com/54zhien/Zen-Agent/actions/runs/41028848363/artifacts/12968750705).
@@ -125,6 +125,6 @@ None of the same-head failures above is classified as environmental or resolved 
 
 - Worktree: `C:\Users\Azusa\.codex\worktrees\stage10-measurement-stack\Zen-Agent`
 - Branch: `codex/stage10-measurement-stack`
-- Parent source: PR #48 head `aabcc6ec6d9351f6148de8bcf6e3f80e9bc2a970`.
+- Parent source: PR #48 head `aabcc6ec6d9351f614b055ecd239ea429a91da71`.
 - Measurement source `792aefbc1bc503c5b4d2fbd6db60f960ccdc10fc` was cherry-picked as `676448c`; both original worktrees and branches remain unchanged.
 - PR base: `codex/stage10-completion` (stacked on PR #48); do not merge.
