@@ -53,7 +53,7 @@ struct Stage10DelegationRuntimeTests {
         #expect(parentSnapshot.delegation?.maxDepth == 1)
         #expect(parentSnapshot.delegation?.maxConcurrentChildren == 1)
         #expect(parentSnapshot.delegation?.modelPolicy == .followParent)
-        #expect(parentSnapshot.delegation?.environmentInheritance == .none)
+        #expect(parentSnapshot.delegation?.environmentInheritance == DelegationEnvironmentInheritance.none)
         #expect(parentSnapshot.exposedTools.contains { $0.toolID == "subagent" })
 
         let runs = try fixture.store.runs(inConversation: command.conversationID)
@@ -204,6 +204,10 @@ struct Stage10DelegationRuntimeTests {
             messageID: "stage10-invalidation-trigger",
             runID: parentRunID,
             runState: .executingTools
+        )
+        commit.run.requestConfigSeed.credentialBinding = CredentialBindingSnapshot(
+            reference: I05RuntimeTestFixtures.credentialReference,
+            generation: 1
         )
         commit.run.executionSnapshot = try ExecutionSnapshotCodec.encode(RunExecutionSnapshot(
             providerID: provider.id,

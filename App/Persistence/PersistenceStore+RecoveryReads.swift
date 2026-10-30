@@ -13,6 +13,18 @@ extension PersistenceStore {
         }
     }
 
+    /// Reads the recovery identities owned by one Conversation without decoding
+    /// request seeds, so a damaged Run remains attributable to that Conversation.
+    func activeParentRunIDs(inConversation conversationID: String) throws -> [String] {
+        try database.read { db in
+            try String.fetchAll(
+                db,
+                sql: "SELECT id FROM agentRun WHERE activeSlot = ? ORDER BY id",
+                arguments: [conversationID]
+            )
+        }
+    }
+
     /// A damaged encoded seed must not erase the owning conversation from a
     /// controlled recovery diagnostic.
     func parentRunConversationID(id: String) throws -> String? {

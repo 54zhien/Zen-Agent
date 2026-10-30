@@ -41,6 +41,14 @@ struct ColdStartRecoveryReport: Sendable, Equatable {
     var entries: [ColdStartRecoveryEntry] = []
 
     var needsRetry: Bool { !pendingRunIDs.isEmpty || !failedRunIDs.isEmpty }
+
+    mutating func append(_ other: Self) {
+        settledRunIDs.append(contentsOf: other.settledRunIDs)
+        continuedRunIDs.append(contentsOf: other.continuedRunIDs)
+        pendingRunIDs.append(contentsOf: other.pendingRunIDs)
+        failedRunIDs.append(contentsOf: other.failedRunIDs)
+        entries.append(contentsOf: other.entries)
+    }
 }
 
 /// The Parent Send boundary.
@@ -67,6 +75,10 @@ actor ConversationRuntime {
     private var projections: [String: RunProjection] = [:]
     private var didRecoverManagedFiles = false
     private var coldStartRecovery: Task<ColdStartRecoveryReport, Error>?
+    private var coldStartRecoveryInFlight = false
+    private var conversationColdStartRecoveries: [
+        String: Task<ColdStartRecoveryReport, Error>
+    ] = [:]
     private var projectionSubscribers: [
         String: [UUID: AsyncStream<RunProjection?>.Continuation]
     ] = [:]
@@ -217,10 +229,14 @@ actor ConversationRuntime {
             return existing.id
         }
 
-        // The first new Send in a process shares the same single-flight recovery
-        // barrier as app launch. A pending run keeps its database active slot until
-        // it is continued, stopped, or explicitly settled.
-        _ = try await reconcileColdStartRuns()
+        // App launch performs a process-wide scan. A Send made before that scan
+        // exists owns only the recovery work for its Conversation, so another
+        // Conversation's recovery events cannot enter this Send's event context.
+        if coldStartRecoveryInFlight, let coldStartRecovery {
+            _ = try await coldStartRecovery.value
+        } else {
+            _ = try await reconcileColdStartRuns(inConversationID: command.conversationID)
+        }
 
         guard command.maxProviderSteps > 0 else {
             throw ConversationRuntimeError.invalidMaxProviderSteps(command.maxProviderSteps)
@@ -521,12 +537,50 @@ actor ConversationRuntime {
         if let coldStartRecovery {
             return try await coldStartRecovery.value
         }
-        let task = Task { try await self.performColdStartRecovery() }
+        let conversationRecoveries = conversationColdStartRecoveries
+        let task = Task {
+            var report = ColdStartRecoveryReport()
+            for (_, recovery) in conversationRecoveries.sorted(by: { $0.key < $1.key }) {
+                report.append(try await recovery.value)
+            }
+            report.append(try await self.performColdStartRecovery(
+                excludingConversationIDs: Set(conversationRecoveries.keys)
+            ))
+            return report
+        }
         coldStartRecovery = task
+        coldStartRecoveryInFlight = true
         do {
-            return try await task.value
+            let report = try await task.value
+            coldStartRecoveryInFlight = false
+            return report
         } catch {
             coldStartRecovery = nil
+            coldStartRecoveryInFlight = false
+            throw error
+        }
+    }
+
+    private func reconcileColdStartRuns(
+        inConversationID conversationID: String
+    ) async throws -> ColdStartRecoveryReport {
+        if coldStartRecoveryInFlight, let coldStartRecovery {
+            return try await coldStartRecovery.value
+        }
+        if let recovery = conversationColdStartRecoveries[conversationID] {
+            return try await recovery.value
+        }
+
+        let recovery = Task {
+            try await self.performColdStartRecovery(inConversationID: conversationID)
+        }
+        conversationColdStartRecoveries[conversationID] = recovery
+        do {
+            let report = try await recovery.value
+            conversationColdStartRecoveries.removeValue(forKey: conversationID)
+            return report
+        } catch {
+            conversationColdStartRecoveries.removeValue(forKey: conversationID)
             throw error
         }
     }
@@ -538,11 +592,20 @@ actor ConversationRuntime {
             _ = try? await coldStartRecovery.value
         }
         coldStartRecovery = nil
+        coldStartRecoveryInFlight = false
         return try await reconcileColdStartRuns()
     }
 
-    private func performColdStartRecovery() async throws -> ColdStartRecoveryReport {
-        let runIDs = try store.activeParentRunIDs()
+    private func performColdStartRecovery(
+        inConversationID conversationID: String? = nil,
+        excludingConversationIDs: Set<String> = []
+    ) async throws -> ColdStartRecoveryReport {
+        let runIDs: [String]
+        if let conversationID {
+            runIDs = try store.activeParentRunIDs(inConversation: conversationID)
+        } else {
+            runIDs = try store.activeParentRunIDs()
+        }
         var report = ColdStartRecoveryReport()
         for runID in runIDs {
             if operations[runID] != nil { continue }
@@ -571,6 +634,11 @@ actor ConversationRuntime {
                 }
             }
             do {
+                if !excludingConversationIDs.isEmpty,
+                   let ownerConversationID = try store.parentRunConversationID(id: runID),
+                   excludingConversationIDs.contains(ownerConversationID) {
+                    continue
+                }
                 guard let run = try store.run(id: runID), run.state.isActive else { continue }
                 conversationID = run.conversationID
                 await registerRecoveredRun(run.id, run.conversationID)
