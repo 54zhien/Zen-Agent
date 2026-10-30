@@ -54,6 +54,57 @@ struct ExecutionSnapshotTests {
         #expect(decoded.formatVersion == RunExecutionSnapshot.currentFormatVersion)
     }
 
+    @Test("explicit Child model target and request binding round trip in v5")
+    func explicitDelegationTargetRoundTrips() throws {
+        let target = DelegationModelTarget(
+            providerInstanceID: ProviderInstanceID(rawValue: "child-provider-instance"),
+            modelID: ModelID(rawValue: "child-model")
+        )
+        let binding = DelegationModelBindingSnapshot(
+            providerID: .deepSeek,
+            providerAdapterRevision: "deepseek-adapter-v1",
+            modelCapabilities: [.text, .streaming],
+            requestConfigSeed: RequestConfigSeed(
+                providerInstanceID: target.providerInstanceID,
+                modelID: target.modelID,
+                providerConfigRevision: .initial,
+                credentialBinding: CredentialBindingSnapshot(
+                    reference: CredentialReference(id: "child-credential"),
+                    generation: 3
+                ),
+                resolvedEndpoint: URL(string: "https://child.example/v1/chat/completions")!
+            )
+        )
+        var snapshot = Self.snapshot
+        snapshot.delegation = DelegationExecutionSnapshot(
+            configuration: DelegationRuntimeConfiguration(
+                enabled: true,
+                explicitModelTarget: target,
+                revision: 7
+            ),
+            explicitModelBinding: binding
+        )
+
+        let decoded = try ExecutionSnapshotCodec.decode(ExecutionSnapshotCodec.encode(snapshot))
+
+        #expect(decoded.formatVersion == 5)
+        #expect(decoded.delegation?.modelPolicy == .explicit)
+        #expect(decoded.delegation?.explicitModelTarget == target)
+        #expect(decoded.delegation?.explicitModelBinding == binding)
+    }
+
+    @Test("v4 delegation snapshots retain Follow Parent semantics")
+    func v4DelegationSnapshotRemainsFollowParent() throws {
+        let encoded = #"{"formatVersion":4,"providerID":"deepseek","providerAdapterRevision":"adapter-v1","prompt":{"runtimeSafetyBaseline":"runtime-v1","zenCore":"zen-v1","providerAdapterInstructions":""},"modelCapabilities":["text","streaming"],"exposedTools":[],"mcpServerDependencies":[],"maxProviderSteps":4,"delegation":{"revision":2,"enabled":true,"maxDepth":1,"maxConcurrentChildren":1,"modelPolicy":"followParent","environmentInheritance":"none"}}"#
+
+        let decoded = try ExecutionSnapshotCodec.decode(encoded)
+
+        #expect(decoded.formatVersion == 4)
+        #expect(decoded.delegation?.modelPolicy == .followParent)
+        #expect(decoded.delegation?.explicitModelTarget == nil)
+        #expect(decoded.delegation?.explicitModelBinding == nil)
+    }
+
     @Test("v2 snapshots remain readable without MCP server dependencies")
     func previousSnapshotVersionDefaultsMCPDependencies() throws {
         let encoded = #"{"formatVersion":2,"providerID":"deepseek","providerAdapterRevision":"adapter-v2","prompt":{"runtimeSafetyBaseline":"runtime-v1","zenCore":"zen-v1","providerAdapterInstructions":""},"modelCapabilities":["text","streaming"],"exposedTools":[],"maxProviderSteps":4}"#

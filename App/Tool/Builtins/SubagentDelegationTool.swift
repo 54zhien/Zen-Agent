@@ -62,6 +62,11 @@ struct SubagentDelegationTool: DelegatedToolOutcomeConfirming, DelegatedToolReco
             }
         }
 
+        let targetDescription = try childTargetDescription()
+        let environmentImpact = arguments.environmentKeys.isEmpty
+            ? "Environment keys: none."
+            : "Requested Environment keys: \(arguments.environmentKeys.joined(separator: ", "))."
+
         return try ToolIntentCodec.freeze(
             descriptor: descriptor,
             actionID: Self.actionID,
@@ -75,9 +80,7 @@ struct SubagentDelegationTool: DelegatedToolOutcomeConfirming, DelegatedToolReco
                 toolDisplayName: descriptor.displayName,
                 action: "Start one child model run",
                 targetDescription: "Parent Run \(parentRunID)",
-                keyImpact: arguments.environmentKeys.isEmpty
-                    ? "Child tools are limited to the Parent's frozen tools. Environment keys: none. Its result returns to the current model."
-                    : "Child tools are limited to the Parent's frozen tools. Requested Environment keys: \(arguments.environmentKeys.joined(separator: ", ")). Its result returns to the current model."
+                keyImpact: "\(targetDescription) Child tools are limited to the Parent's frozen tools. \(environmentImpact) Its result returns to the current model."
             )
         )
     }
@@ -220,6 +223,33 @@ struct SubagentDelegationTool: DelegatedToolOutcomeConfirming, DelegatedToolReco
         return Set(try store.resolveEnvironmentReferences(references).map(\.key))
     }
 
+    private func childTargetDescription() throws -> String {
+        let parent = try parentRun()
+        guard let encoded = parent.executionSnapshot else {
+            throw ToolIntentFailure.dependenciesChanged
+        }
+        let snapshot = try ExecutionSnapshotCodec.decode(encoded)
+        guard let delegation = snapshot.delegation else {
+            throw ToolIntentFailure.dependenciesChanged
+        }
+        switch delegation.modelPolicy {
+        case .followParent:
+            return "Child Provider: \(snapshot.providerID.rawValue); model: \(parent.requestConfigSeed.modelID.rawValue); instance: \(parent.requestConfigSeed.providerInstanceID.rawValue) (Follow Parent)."
+        case .explicit:
+            guard let target = delegation.explicitModelTarget else {
+                return "The configured Child model target is unavailable; no Parent fallback will be used."
+            }
+            let providerID = try delegation.explicitModelBinding?.providerID
+                ?? store.providerInstance(id: target.providerInstanceID)?.providerID
+            let providerDescription = providerID.map { $0.rawValue }
+                ?? "unavailable provider"
+            let availability = delegation.explicitModelBinding == nil
+                ? " This target is unavailable or requires authentication; no Parent fallback will be used."
+                : ""
+            return "Child Provider: \(providerDescription); model: \(target.modelID.rawValue); instance: \(target.providerInstanceID.rawValue).\(availability)"
+        }
+    }
+
     private static func arguments(from json: String) throws -> (task: String, environmentKeys: [String]) {
         let object = try ToolArgumentJSON.object(from: json)
         guard object.keys.allSatisfy({ $0 == "task" || $0 == "environmentKeys" }),
@@ -246,10 +276,17 @@ struct SubagentDelegationTool: DelegatedToolOutcomeConfirming, DelegatedToolReco
               let snapshot = try? ExecutionSnapshotCodec.decode(encoded),
               let policy = snapshot.delegation
         else { return false }
+        let targetPolicyMatches: Bool
+        switch policy.modelPolicy {
+        case .followParent:
+            targetPolicyMatches = policy.explicitModelTarget == nil && policy.explicitModelBinding == nil
+        case .explicit:
+            targetPolicyMatches = policy.explicitModelTarget != nil
+        }
         return policy.enabled
             && policy.maxDepth == 1
             && policy.maxConcurrentChildren == 1
-            && policy.modelPolicy == .followParent
+            && targetPolicyMatches
             && policy.environmentInheritance == .none
             && snapshot.permitsTool(descriptor)
     }

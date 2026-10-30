@@ -4,6 +4,7 @@ struct RunProjection: Sendable, Equatable {
     var runID: String
     var state: RunState
     var endReason: EndReason?
+    var suspendReason: SuspendReason?
     var isActive: Bool
     var canStop: Bool
     var isWaitingForApproval: Bool
@@ -11,10 +12,16 @@ struct RunProjection: Sendable, Equatable {
 }
 
 extension RunProjection {
-    init(runID: String, state: RunState, endReason: EndReason? = nil) {
+    init(
+        runID: String,
+        state: RunState,
+        endReason: EndReason? = nil,
+        suspendReason: SuspendReason? = nil
+    ) {
         self.runID = runID
         self.state = state
         self.endReason = endReason
+        self.suspendReason = suspendReason
         self.isActive = state.isActive
         self.canStop = state.isActive && state != .stopping
         self.isWaitingForApproval = state == .waitingForApproval
@@ -90,6 +97,7 @@ extension RunProjection {
         canStop = nextState.isActive && nextState != .stopping
         isWaitingForApproval = nextState == .waitingForApproval
         isSuspended = nextState == .suspended
+        if nextState != .suspended { suspendReason = nil }
     }
 
     static func from(_ events: [AgentEvent]) -> RunProjection? {

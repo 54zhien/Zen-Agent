@@ -586,17 +586,17 @@ struct DeepSeekProvider: ModelProvider {
                 frozenReference: binding.reference,
                 generation: binding.generation
             ) else {
-                throw ProviderError.credentialMissing
+                throw ProviderError.credentialMissingBeforeDispatch
             }
             return secret
         } catch let error as CredentialError {
             switch error {
             case .notFound:
-                throw ProviderError.credentialMissing
+                throw ProviderError.credentialMissingBeforeDispatch
             case .unavailable(_, let reason):
                 throw ProviderError.credentialTemporarilyUnavailable(reason: reason)
             case .authenticationRequired:
-                throw ProviderError.credentialRejected
+                throw ProviderError.credentialRejectedBeforeDispatch
             case .alreadyExists:
                 throw ProviderError.configurationMismatch("the credential store refused a read")
             case .bindingMoved(_, let frozenGeneration, let currentGeneration):
@@ -706,7 +706,7 @@ struct DeepSeekProvider: ModelProvider {
             // Only the error changes. Nothing here — and nothing above — may delete the
             // credential, log the user out, or re-provision: a 401 is evidence about the
             // credential, not an instruction to destroy it.
-            return .credentialRejected
+            return .credentialRejectedByHTTP401
         case 402:
             return .insufficientBalance
         case 422:

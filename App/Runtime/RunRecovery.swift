@@ -42,6 +42,40 @@ struct RunRecovery: Sendable {
         }
 
         let checkpointState = initialRun.state
+        let authFailureEvidence = try credentialFailureEvidence(in: initialRun)
+        if checkpointState == .suspended,
+           initialRun.suspendReason == .authRequired,
+           authFailureEvidence == nil,
+           !(try hasPendingDelegatedChildCall(in: initialRun)) {
+            return
+        }
+        if checkpointState == .suspended,
+           initialRun.suspendReason == .authRequired,
+           authFailureEvidence != nil,
+           !(try authenticationRetryCredentialReady(for: initialRun)) {
+            return
+        }
+        if checkpointState == .recovering,
+           initialRun.recoveryAction == .reprepare,
+           authFailureEvidence == nil,
+           !(try hasPendingDelegatedChildCall(in: initialRun)) {
+            try await fail(runID: runID, reason: .streamInterrupted)
+            return
+        }
+        if checkpointState == .recovering,
+           initialRun.recoveryAction == .reprepare,
+           authFailureEvidence != nil,
+           !(try authenticationRetryCredentialReady(for: initialRun)) {
+            try store.transitionRun(
+                id: runID,
+                expectedState: .recovering,
+                to: .suspended,
+                recoveryAction: .reprepare,
+                suspendReason: .authRequired
+            )
+            try await emit(.runStateChanged(runID: runID, state: .suspended))
+            return
+        }
         if checkpointState == .stopping {
             try await settleStoppedParent(initialRun)
             return
@@ -373,6 +407,16 @@ struct RunRecovery: Sendable {
         run: AgentRunRecord,
         snapshot: RunExecutionSnapshot?
     ) async throws {
+        if run.recoveryAction == .reprepare,
+           try credentialFailureEvidence(in: run) != nil {
+            guard snapshot != nil else {
+                try await fail(runID: run.id, reason: .unrecoverable)
+                return
+            }
+            try await transition(runID: run.id, to: .requestingModel)
+            return
+        }
+
         let calls = try store.toolCalls(inRun: run.id)
         if !calls.isEmpty {
             try await recoverToolCheckpoint(run: run)
@@ -394,6 +438,39 @@ struct RunRecovery: Sendable {
             return
         }
         try await transition(runID: run.id, to: .requestingModel)
+    }
+
+    private func credentialFailureEvidence(in run: AgentRunRecord) throws -> AgentStepRecord? {
+        guard let latest = try store.steps(inRun: run.id).max(by: {
+            if $0.sequence == $1.sequence { return $0.attempt < $1.attempt }
+            return $0.sequence < $1.sequence
+        }),
+        latest.credentialFailureSource != nil,
+        latest.credentialFailureAt != nil,
+        latest.providerStartedAt != nil,
+        latest.protocolResponse == nil
+        else { return nil }
+        return latest
+    }
+
+    private func authenticationRetryCredentialReady(for run: AgentRunRecord) throws -> Bool {
+        do {
+            return try RunRequestRebuilder.authenticationRetryCredentialReady(
+                for: run,
+                store: store,
+                credentials: credentials
+            )
+        } catch let error as CredentialError {
+            if case .unavailable = error { return false }
+            return true
+        }
+    }
+
+    private func hasPendingDelegatedChildCall(in run: AgentRunRecord) throws -> Bool {
+        guard run.kind == .parent else { return false }
+        return try store.toolCalls(inRun: run.id).contains {
+            $0.action == SubagentDelegationTool.toolID && !$0.state.isTerminal
+        }
     }
 
     private func finishInterruptedStream(run: AgentRunRecord) async throws {

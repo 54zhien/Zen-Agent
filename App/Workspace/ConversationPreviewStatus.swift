@@ -12,7 +12,9 @@ enum ConversationCardStatus: String, Equatable, Sendable {
         case .waitingForApproval: return .approval
         case .toolRequested, .executingTools: return .tool
         case .streaming: return visibleReasoningAllowed ? .reasoningVisible : .generating
-        case .preparing, .requestingModel, .continuing, .stopping, .suspended, .recovering:
+        case .suspended:
+            return projection.suspendReason == .authRequired ? .authenticationRequired : .generating
+        case .preparing, .requestingModel, .continuing, .stopping, .recovering:
             return .generating
         }
     }

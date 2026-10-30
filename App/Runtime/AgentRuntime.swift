@@ -75,6 +75,11 @@ actor AgentRuntime {
         let batchID: String
     }
 
+    private struct ProviderInvocationFailure: Error {
+        let error: ProviderError
+        let attemptIdentity: AttemptIdentity
+    }
+
     private struct ToolBatchCall {
         let providerCall: ProviderToolCall
         let record: ToolCallRecord
@@ -567,6 +572,15 @@ actor AgentRuntime {
                             project: project
                         )
                     }
+                } else if error is DelegatedChildAuthenticationRequired {
+                    try await transition(
+                        runID: runID,
+                        to: .suspended,
+                        recoveryAction: .reprepare,
+                        suspendReason: .authRequired,
+                        continuation: continuation,
+                        project: project
+                    )
                 } else {
                     let reason: EndReason = error is ProviderRuntimeFailure
                         ? .toolOutcomeUnknown : .unrecoverable
@@ -706,8 +720,15 @@ actor AgentRuntime {
                     }
                     let outgoing = try toolRuntime.requestRedactingToolResults(requestForDispatch, runID: runID)
                     try store.markProviderStepStarted(identity)
-                    return try await provider.stream(outgoing,
-                        seed: runForRequest.requestConfigSeed, credentials: credentials)
+                    do {
+                        return try await provider.stream(
+                            outgoing,
+                            seed: runForRequest.requestConfigSeed,
+                            credentials: credentials
+                        )
+                    } catch let error as ProviderError {
+                        throw ProviderInvocationFailure(error: error, attemptIdentity: identity)
+                    }
                 }
 
                 var pendingToolCalls: [ProviderToolCall] = []
@@ -862,7 +883,8 @@ actor AgentRuntime {
                         output: &outputState,
                         error: error,
                         continuation: continuation,
-                        project: project
+                        project: project,
+                        providerAttemptIdentity: identity
                     )
                     terminal = true
                 }
@@ -993,12 +1015,22 @@ actor AgentRuntime {
                 }
             } else {
                 do {
+                    let failureError: Error
+                    let failedAttemptIdentity: AttemptIdentity?
+                    if let providerFailure = error as? ProviderInvocationFailure {
+                        failureError = providerFailure.error
+                        failedAttemptIdentity = providerFailure.attemptIdentity
+                    } else {
+                        failureError = error
+                        failedAttemptIdentity = nil
+                    }
                     try await finishFailure(
                         runID: runID,
                         output: &outputState,
-                        error: error,
+                        error: failureError,
                         continuation: continuation,
-                        project: project
+                        project: project,
+                        providerAttemptIdentity: failedAttemptIdentity
                     )
                 } catch ControlError.projectionFailed(let diagnostic) {
                     completionError = projectionCompletionError(
@@ -1687,7 +1719,8 @@ actor AgentRuntime {
         output: inout OutputState,
         error: Error,
         continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
-        project: @escaping AgentEventProjection
+        project: @escaping AgentEventProjection,
+        providerAttemptIdentity: AttemptIdentity? = nil
     ) async throws -> FailureFinalization {
         guard let current = try store.run(id: runID) else {
             return .runMissing
@@ -1698,6 +1731,11 @@ actor AgentRuntime {
             // nonterminal, so this guard never turns a correct terminal result into
             // a second failed result.
             return .alreadyTerminal(current.state)
+        }
+        if credentialFailureSource(for: error) != nil,
+           let providerAttemptIdentity,
+           !(try store.accepts(providerAttemptIdentity)) {
+            return .notTransitioned
         }
 
         try await flush(
@@ -1716,6 +1754,22 @@ actor AgentRuntime {
                 continuation: continuation,
                 project: project
             )
+        }
+
+        if let source = credentialFailureSource(for: error),
+           let providerAttemptIdentity {
+            try store.suspendRunForCredentialFailure(
+                runID: runID,
+                expectedState: current.state,
+                attemptIdentity: providerAttemptIdentity,
+                source: source
+            )
+            try await emit(
+                .runStateChanged(runID: runID, state: .suspended),
+                continuation: continuation,
+                project: project
+            )
+            return .transitioned
         }
 
         switch failureDisposition(error: error, run: current) {
@@ -1751,6 +1805,18 @@ actor AgentRuntime {
         }
 
         return .transitioned
+    }
+
+    private func credentialFailureSource(for error: Error) -> CredentialFailureSource? {
+        guard let providerError = error as? ProviderError else { return nil }
+        switch providerError {
+        case .credentialMissingBeforeDispatch, .credentialRejectedBeforeDispatch:
+            return .localFrozenCredentialRejected
+        case .credentialRejectedByHTTP401:
+            return .providerHTTP401
+        default:
+            return nil
+        }
     }
 
     private func emit(
@@ -1868,6 +1934,9 @@ actor AgentRuntime {
         error: Error,
         run: AgentRunRecord
     ) -> FailureDisposition {
+        if error is DelegatedChildAuthenticationRequired {
+            return .suspended(.authRequired)
+        }
         if error is MemoryError || error is SkillError || error is EnvironmentError { return .failed(.dependencyUnavailable) }
         if let failure = error as? ProviderRuntimeFailure {
             switch failure {
@@ -1890,6 +1959,10 @@ actor AgentRuntime {
                 return .failed(.stepTimeout)
             case .credentialMissing, .credentialRejected:
                 return credentialDisposition(for: run)
+            case .credentialMissingBeforeDispatch,
+                 .credentialRejectedBeforeDispatch,
+                 .credentialRejectedByHTTP401:
+                return .suspended(.authRequired)
             case .configurationMismatch(_):
                 return credentialDisposition(for: run)
             case .credentialTemporarilyUnavailable(_):

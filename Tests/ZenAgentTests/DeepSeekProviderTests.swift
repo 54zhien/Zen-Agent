@@ -64,6 +64,20 @@ struct DeepSeekProviderTests {
             )
         }
 
+        func refresh(
+            _ secret: SecretValue,
+            for frozenReference: CredentialReference,
+            generation: Int,
+            at now: Date
+        ) throws {
+            try base.refresh(
+                secret,
+                for: frozenReference,
+                generation: generation,
+                at: now
+            )
+        }
+
         func rebind(
             _ secret: SecretValue,
             as reference: CredentialReference,
@@ -250,7 +264,7 @@ struct DeepSeekProviderTests {
     private static func expectedError(for status: Int) -> ProviderError? {
         switch status {
         case 400: return .invalidRequest("something")
-        case 401: return .credentialRejected
+        case 401: return .credentialRejectedByHTTP401
         case 402: return .insufficientBalance
         case 422: return .invalidParameters("something")
         case 429: return .rateLimited(retryAfter: nil)
@@ -693,8 +707,8 @@ struct DeepSeekProviderTests {
             failure = error
         }
 
-        guard case .credentialMissing = failure else {
-            Issue.record("expected .credentialMissing, got \(String(describing: failure))")
+        guard case .credentialMissingBeforeDispatch = failure else {
+            Issue.record("expected .credentialMissingBeforeDispatch, got \(String(describing: failure))")
             return
         }
         #expect(f.transport.requestCount == 0)

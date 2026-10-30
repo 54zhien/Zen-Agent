@@ -97,6 +97,68 @@ struct CredentialStoreTests {
         #expect(try store.matchesBinding(Self.reference, generation: 1))
     }
 
+    @Test("refreshing a frozen generation updates its credential timestamp without moving the binding",
+          arguments: Backend.allCases)
+    func frozenRefreshKeepsGenerationAndAdvancesTimestamp(backend: Backend) throws {
+        let store = try backend.makeStore()
+        let initialTime = Date(timeIntervalSince1970: 100)
+        let refreshedAt = Date(timeIntervalSince1970: 200)
+        try store.provision(
+            secret("sk-first"),
+            as: Self.reference,
+            principalFingerprint: "acct-a",
+            at: initialTime
+        )
+
+        try store.refresh(
+            secret("sk-rotated"),
+            for: Self.reference,
+            generation: 1,
+            at: refreshedAt
+        )
+
+        let metadata = try #require(try store.metadata(for: Self.reference))
+        #expect(try store.resolve(Self.reference)?.revealed == "sk-rotated")
+        #expect(metadata.bindingGeneration == 1)
+        #expect(metadata.principalFingerprint == "acct-a")
+        #expect(metadata.status == .active)
+        #expect(metadata.updatedAt == refreshedAt)
+        #expect(metadata.updatedAt > initialTime)
+    }
+
+    @Test("refreshing a frozen generation cannot write into an account after rebind",
+          arguments: Backend.allCases)
+    func frozenRefreshRejectsReboundGeneration(backend: Backend) throws {
+        let store = try backend.makeStore()
+        try store.provision(secret("sk-first"), as: Self.reference, principalFingerprint: "acct-a")
+        try store.rebind(
+            secret("sk-other-account"),
+            as: Self.reference,
+            principalFingerprint: "acct-b"
+        )
+
+        var failure: Error?
+        do {
+            try store.refresh(
+                secret("sk-old-run"),
+                for: Self.reference,
+                generation: 1,
+                at: Date(timeIntervalSince1970: 300)
+            )
+        } catch {
+            failure = error
+        }
+
+        #expect(failure as? CredentialError == .bindingMoved(
+            Self.reference,
+            frozenGeneration: 1,
+            currentGeneration: 2
+        ))
+        #expect(try store.metadata(for: Self.reference)?.bindingGeneration == 2)
+        #expect(try store.metadata(for: Self.reference)?.principalFingerprint == "acct-b")
+        #expect(try store.resolve(Self.reference)?.revealed == "sk-other-account")
+    }
+
     @Test("rebind changes the binding and keeps the reference id", arguments: Backend.allCases)
     func rebindBumpsTheBinding(backend: Backend) throws {
         let store = try backend.makeStore()

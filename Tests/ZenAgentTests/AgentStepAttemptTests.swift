@@ -94,6 +94,34 @@ struct AgentStepAttemptTests {
         #expect(attempts[1].reportedPromptTokens == nil)
     }
 
+    @Test("credential rejection persists its source with the auth-required suspension")
+    func credentialFailureEvidenceAndSuspensionArePersistedTogether() throws {
+        let store = try makeStore()
+        try makeRun(store)
+        try store.transitionRun(id: "r1", expectedState: .preparing, to: .requestingModel)
+        let attempt = Fixtures.step(stepID: "s1", runID: "r1", attempt: 1)
+        let startedAt = Date(timeIntervalSince1970: 100)
+        try store.recordStep(attempt)
+        try store.markProviderStepStarted(attempt.attemptIdentity, at: startedAt)
+
+        let failedAt = startedAt.addingTimeInterval(1)
+        try store.suspendRunForCredentialFailure(
+            runID: "r1",
+            expectedState: .requestingModel,
+            attemptIdentity: attempt.attemptIdentity,
+            source: .providerHTTP401,
+            at: failedAt
+        )
+
+        let suspended = try #require(try store.run(id: "r1"))
+        let persistedAttempt = try #require(try store.currentAttempt(ofStep: "s1"))
+        #expect(suspended.state == .suspended)
+        #expect(suspended.recoveryAction == .reprepare)
+        #expect(suspended.suspendReason == .authRequired)
+        #expect(persistedAttempt.credentialFailureSource == .providerHTTP401)
+        #expect(persistedAttempt.credentialFailureAt == failedAt)
+    }
+
     @Test("an identity for a step that was never recorded is rejected")
     func unknownStepIsRejected() throws {
         let store = try makeStore()

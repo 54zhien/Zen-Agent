@@ -5,6 +5,7 @@ struct SettingsProviderCatalog: Sendable, Identifiable {
     let instance: ProviderInstance
     let models: [ModelDescriptor]
     let credentialStatus: String
+    let credentialIsActive: Bool
     var id: ProviderInstanceID { instance.id }
 }
 
@@ -19,6 +20,7 @@ final class SettingsWorkspaceModel {
     let environment: EnvironmentSettingsModel
     let tools: ToolSettingsModel
     let mcp: MCPSettingsModel
+    let subagents: SubagentSettingsModel
     let storage: SettingsStorageModel?
     private(set) var catalog: [SettingsProviderCatalog] = []
     private(set) var defaultTarget: AppExecutionTarget?
@@ -66,6 +68,7 @@ final class SettingsWorkspaceModel {
         tools = toolSettings
         mcp = MCPSettingsModel(registry: mcpRegistry, runtime: mcpRuntime, store: store,
             credentials: credentials, baseToolRegistry: toolRegistry, toolSettings: toolSettings)
+        subagents = SubagentSettingsModel(store: store, provider: provider, credentials: credentials)
         storage = files.map { SettingsStorageModel(store: store, files: $0) }
         if let instance = defaults.string(forKey: AppShellModel.defaultInstanceIDKey),
            let model = defaults.string(forKey: AppShellModel.defaultModelIDKey) {
@@ -82,19 +85,33 @@ final class SettingsWorkspaceModel {
             let result = try await Task.detached {
                 try store.providerInstances().map { instance in
                     let status: String
+                    var credentialIsActive = false
                     if let reference = instance.credentialReference {
                         do {
-                            let metadata = try credentials.metadata(for: reference)
-                            status = metadata?.status == .active ? "凭据记录已保存，未联网验证" : "需要重新配置凭据"
+                            if let metadata = try credentials.metadata(for: reference), metadata.status == .active {
+                                credentialIsActive = true
+                                status = "凭据记录已保存，未联网验证"
+                            } else {
+                                status = "需要重新配置凭据"
+                            }
                         } catch { status = "凭据状态暂不可读" }
                     } else { status = "尚未配置凭据" }
                     return SettingsProviderCatalog(instance: instance,
-                        models: provider.knownModels(for: instance), credentialStatus: status)
+                        models: provider.knownModels(for: instance), credentialStatus: status,
+                        credentialIsActive: credentialIsActive)
                 }
             }.value
             guard active, !Task.isCancelled else { return }
             catalog = result; catalogErrorMessage = nil
-        } catch { if active { catalogErrorMessage = "账户和模型读取失败，请重试。" } }
+            subagents.updateProviderCatalog(result)
+        } catch {
+            if active {
+                let message = "账户和模型读取失败，请重试。"
+                catalogErrorMessage = message
+                subagents.providerCatalogFailed(message)
+            }
+        }
+        await subagents.load()
     }
 
     func setDefault(providerInstanceID: ProviderInstanceID, modelID: ModelID) async -> Bool {
@@ -184,6 +201,6 @@ final class SettingsWorkspaceModel {
         active = false; selection &+= 1; isSelectingDefault = false
         configurationSelection &+= 1; isConfiguringConversation = false
         soul.invalidate(); memory.invalidate(); skills.invalidate(); environment.invalidate()
-        tools.invalidate(); mcp.invalidate(); storage?.invalidate()
+        tools.invalidate(); mcp.invalidate(); subagents.invalidate(); storage?.invalidate()
     }
 }

@@ -9,6 +9,17 @@ struct Stage10DelegationRuntimeTests {
     @Test("an enabled Parent delegates once and resumes with the persisted Child result")
     func parentDelegatesAndContinuesFromChildResult() async throws {
         let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let soulVersionID = "stage10-parent-soul"
+        let conversationID = "stage10-soul-conversation"
+        try fixture.store.createSoul(
+            initialVersion: SoulVersionRecord(
+                id: soulVersionID,
+                instructions: "FROZEN CHILD SOUL INSTRUCTIONS",
+                createdAt: Fixtures.epoch
+            ),
+            at: Fixtures.epoch
+        )
+        try fixture.store.createEmptyConversation(id: conversationID, at: Fixtures.epoch)
         let childTask = "Summarize the requested change."
         let ledger = Stage2ProviderLedger()
         let provider = Stage2ScriptedProvider(
@@ -42,7 +53,7 @@ struct Stage10DelegationRuntimeTests {
 
         var command = I05RuntimeTestFixtures.command(modelID: Stage2GateFixture.modelID)
         command.text = "Review this change."
-        command.conversationID = I05RuntimeTestFixtures.conversationID
+        command.conversationID = conversationID
         let parentRunID = try await runtime.start(command)
         let parentToolCallID = await events.waitForApproval()
         try await runtime.approve(toolCallID: parentToolCallID)
@@ -59,6 +70,7 @@ struct Stage10DelegationRuntimeTests {
         #expect(parentSnapshot.delegation?.modelPolicy == .followParent)
         #expect(parentSnapshot.delegation?.environmentInheritance == DelegationEnvironmentInheritance.none)
         #expect(parentSnapshot.exposedTools.contains { $0.toolID == "subagent" })
+        #expect(parentSnapshot.prompt.soulVersionID == soulVersionID)
 
         let runs = try fixture.store.runs(inConversation: command.conversationID)
         let child = try #require(runs.first { $0.kind == .child })
@@ -74,6 +86,7 @@ struct Stage10DelegationRuntimeTests {
         #expect(childSnapshot.exposedTools.isEmpty)
         #expect(childSnapshot.prompt.memoryReferences.isEmpty)
         #expect(childSnapshot.prompt.skillReferences.isEmpty)
+        #expect(childSnapshot.prompt.soulVersionID == soulVersionID)
         #expect(childSnapshot.delegation == nil)
 
         #expect(child.triggerMessageID == nil)
@@ -124,6 +137,10 @@ struct Stage10DelegationRuntimeTests {
             guard case .user(let text) = message else { return nil }
             return text
         } == [childTask])
+        #expect(requests[1].messages.contains { message in
+            guard case .system(let text) = message else { return false }
+            return text.contains("FROZEN CHILD SOUL INSTRUCTIONS")
+        })
         #expect(requests[2].messages.contains { message in
             guard case .toolResult(_, let content) = message else { return false }
             return content == "child answer"
@@ -134,6 +151,360 @@ struct Stage10DelegationRuntimeTests {
             from: fixture.store
         )
         #expect(timeline.turns.map(\.runID) == [parentRunID])
+    }
+
+    @Test("an explicit Child target is frozen with the Parent and survives a later setting change")
+    func explicitChildTargetUsesTheFrozenProviderBinding() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let targetAReference = CredentialReference(id: "stage10-child-credential-a")
+        let targetBReference = CredentialReference(id: "stage10-child-credential-b")
+        try fixture.credentials.provision(SecretValue("stage10-child-a"), as: targetAReference)
+        try fixture.credentials.provision(SecretValue("stage10-child-b"), as: targetBReference)
+
+        let targetA = DelegationModelTarget(
+            providerInstanceID: ProviderInstanceID(rawValue: "stage10-child-instance-a"),
+            modelID: Stage2GateFixture.modelID
+        )
+        let targetB = DelegationModelTarget(
+            providerInstanceID: ProviderInstanceID(rawValue: "stage10-child-instance-b"),
+            modelID: Stage2GateFixture.modelID
+        )
+        try fixture.store.createProviderInstance(ProviderInstance(
+            id: targetA.providerInstanceID,
+            providerID: .deepSeek,
+            displayName: "Stage 10 Child A",
+            baseURL: URL(string: "https://child-a.invalid"),
+            configRevision: .initial,
+            credentialReference: targetAReference
+        ))
+        try fixture.store.createProviderInstance(ProviderInstance(
+            id: targetB.providerInstanceID,
+            providerID: .deepSeek,
+            displayName: "Stage 10 Child B",
+            baseURL: URL(string: "https://child-b.invalid"),
+            configRevision: .initial,
+            credentialReference: targetBReference
+        ))
+        try fixture.store.setDelegationConfiguration(enabled: true, explicitModelTarget: targetA)
+
+        let providerLedger = Stage2ProviderLedger()
+        let provider = Stage2ScriptedProvider(
+            ledger: providerLedger,
+            scripts: [
+                .events([
+                    .toolCall(ProviderToolCall(
+                        id: "explicit-child-delegation-call",
+                        index: 0,
+                        name: "subagent",
+                        argumentsJSON: #"{"task":"Run with the selected Child model."}"#
+                    )),
+                    .finish(.toolCalls),
+                ]),
+                .events([.textDelta("child on target A"), .finish(.stop)]),
+                .events([.textDelta("Parent resumed"), .finish(.stop)]),
+            ]
+        )
+        let events = Stage10DelegationEventLedger()
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials,
+            onEvent: { await events.append($0) }
+        )
+        var command = I05RuntimeTestFixtures.command(modelID: Stage2GateFixture.modelID)
+        command.text = "Use the configured Child model."
+        let parentRunID = try await runtime.start(command)
+        let parentToolCallID = await events.waitForApproval()
+
+        let parent = try #require(try fixture.store.run(id: parentRunID))
+        let parentSnapshot = try ExecutionSnapshotCodec.decode(try #require(parent.executionSnapshot))
+        let delegation = try #require(parentSnapshot.delegation)
+        let binding = try #require(delegation.explicitModelBinding)
+        #expect(delegation.explicitModelTarget == targetA)
+        #expect(binding.requestConfigSeed.providerInstanceID == targetA.providerInstanceID)
+        #expect(binding.requestConfigSeed.credentialBinding.reference == targetAReference)
+
+        try fixture.store.setDelegationConfiguration(enabled: true, explicitModelTarget: targetB)
+        let parentCall = try #require(try fixture.store.toolCall(id: parentToolCallID))
+        let encodedIntent = try #require(parentCall.executionIntent)
+        let intent = try JSONDecoder().decode(ToolExecutionIntent.self, from: Data(encodedIntent.utf8))
+        let disclosure = try #require(intent.approvalDisclosure)
+        #expect(disclosure.keyImpact.contains(targetA.providerInstanceID.rawValue))
+        #expect(disclosure.keyImpact.contains(Stage2GateFixture.modelID.rawValue))
+
+        try await runtime.approve(toolCallID: parentToolCallID)
+        try await runtime.waitForCompletion(runID: parentRunID)
+
+        let child = try #require(try fixture.store.runs(inConversation: command.conversationID)
+            .first { $0.kind == .child })
+        #expect(child.requestConfigSeed.providerInstanceID == targetA.providerInstanceID)
+        #expect(child.requestConfigSeed.credentialBinding.reference == targetAReference)
+        #expect(child.state == .completed)
+        let childSnapshot = try ExecutionSnapshotCodec.decode(try #require(child.executionSnapshot))
+        #expect(childSnapshot.providerID == .deepSeek)
+        #expect(childSnapshot.providerAdapterRevision == provider.adapterRevision)
+        #expect(childSnapshot.modelCapabilities == binding.modelCapabilities.subtracting([.tools]))
+
+        let requests = await providerLedger.requestsSnapshot()
+        #expect(requests.count == 3)
+        guard requests.count == 3 else { return }
+        #expect(requests[0].tools.contains { $0.name == "subagent" })
+        #expect(requests[1].tools.isEmpty)
+        #expect(requests[2].messages.contains { message in
+            guard case .toolResult(_, let content) = message else { return false }
+            return content == "child on target A"
+        })
+    }
+
+    @Test("a disabled explicit Child target is not read and does not interrupt the Parent")
+    func disabledExplicitTargetLeavesParentCredentialPathAlone() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        // Keep this focused on delegation binding; automatic Memory validates its
+        // source against every stored credential after the Parent completes.
+        try fixture.store.setMemoryAutomatic(false)
+        let childReference = CredentialReference(id: "stage10-disabled-child-credential")
+        let metadataProbe = Stage10CredentialMetadataProbe(
+            base: fixture.credentials.metadataRepository,
+            failingReference: childReference
+        )
+        let credentials = CredentialStore(
+            secrets: fixture.credentials.secrets,
+            metadataRepository: metadataProbe
+        )
+        let target = DelegationModelTarget(
+            providerInstanceID: ProviderInstanceID(rawValue: "stage10-disabled-child-instance"),
+            modelID: Stage2GateFixture.modelID
+        )
+        try fixture.store.createProviderInstance(ProviderInstance(
+            id: target.providerInstanceID,
+            providerID: .deepSeek,
+            displayName: "Disabled Child target",
+            baseURL: URL(string: "https://disabled-child.invalid"),
+            configRevision: .initial,
+            credentialReference: childReference
+        ))
+        try fixture.store.setDelegationConfiguration(enabled: false, explicitModelTarget: target)
+
+        let providerLedger = Stage2ProviderLedger()
+        let provider = Stage2ScriptedProvider(
+            ledger: providerLedger,
+            scripts: [.events([.textDelta("Parent answer"), .finish(.stop)])]
+        )
+        let runtime = ConversationRuntime(store: fixture.store, provider: provider, credentials: credentials)
+        let command = I05RuntimeTestFixtures.command(modelID: Stage2GateFixture.modelID)
+        let parentRunID = try await runtime.start(command)
+        try await runtime.waitForCompletion(runID: parentRunID)
+
+        let parent = try #require(try fixture.store.run(id: parentRunID))
+        let snapshot = try ExecutionSnapshotCodec.decode(try #require(parent.executionSnapshot))
+        #expect(parent.state == .completed)
+        #expect(snapshot.delegation?.enabled == false)
+        #expect(snapshot.delegation?.explicitModelTarget == target)
+        #expect(snapshot.delegation?.explicitModelBinding == nil)
+        #expect(!snapshot.exposedTools.contains { $0.toolID == SubagentDelegationTool.toolID })
+        #expect(metadataProbe.targetReadCount == 0)
+
+        let requests = await providerLedger.requestsSnapshot()
+        #expect(requests.count == 1)
+        #expect(!requests[0].tools.contains { $0.name == SubagentDelegationTool.toolID })
+    }
+
+    @Test("an explicit Child target without a frozen credential returns authenticationRequired")
+    func explicitChildTargetWithoutCredentialReportsAuthenticationRequired() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let target = DelegationModelTarget(
+            providerInstanceID: ProviderInstanceID(rawValue: "stage10-missing-child-credential"),
+            modelID: Stage2GateFixture.modelID
+        )
+        try fixture.store.createProviderInstance(ProviderInstance(
+            id: target.providerInstanceID,
+            providerID: .deepSeek,
+            displayName: "Child target without credentials",
+            baseURL: URL(string: "https://child-without-credential.invalid"),
+            configRevision: .initial,
+            credentialReference: nil
+        ))
+        try fixture.store.setDelegationConfiguration(enabled: true, explicitModelTarget: target)
+
+        let providerLedger = Stage2ProviderLedger()
+        let provider = Stage2ScriptedProvider(
+            ledger: providerLedger,
+            scripts: [
+                .events([
+                    .toolCall(ProviderToolCall(
+                        id: "missing-child-credential-call",
+                        index: 0,
+                        name: SubagentDelegationTool.toolID,
+                        argumentsJSON: #"{"task":"Use the configured Child target."}"#
+                    )),
+                    .finish(.toolCalls),
+                ]),
+                .events([.textDelta("Parent completed without a Child fallback"), .finish(.stop)]),
+            ]
+        )
+        let events = Stage10DelegationEventLedger()
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials,
+            onEvent: { await events.append($0) }
+        )
+        let parentRunID = try await runtime.start(
+            I05RuntimeTestFixtures.command(text: "Use the explicit Child account.", modelID: Stage2GateFixture.modelID)
+        )
+        let parentToolCallID = await events.waitForApproval()
+        try await runtime.approve(toolCallID: parentToolCallID)
+        try await runtime.waitForCompletion(runID: parentRunID)
+
+        let result = try #require(try fixture.store.toolResult(toolCallID: parentToolCallID))
+        #expect(result.failureCode == .authenticationRequired)
+        #expect(result.payload.contains("Restore credentials for this target"))
+        #expect(result.payload.contains("No Parent model fallback was used"))
+        #expect(try fixture.store.delegatedChildRunID(parentToolCallID: parentToolCallID) == nil)
+        #expect(await providerLedger.requestsSnapshot().count == 2)
+    }
+
+    @Test("an HTTP 401 retry resumes the same Child with completed tool history")
+    func childAuthenticationRetryPreservesToolHistoryAndIdentity() async throws {
+        let fixture = try I05RuntimeTestFixtures.makeFixture()
+        let credentialA = CredentialReference(id: "stage10-auth-child-a")
+        let credentialB = CredentialReference(id: "stage10-auth-child-b")
+        try fixture.credentials.provision(SecretValue("stage10-child-a-old"), as: credentialA)
+        try fixture.credentials.provision(SecretValue("stage10-child-b"), as: credentialB)
+        let targetA = DelegationModelTarget(
+            providerInstanceID: ProviderInstanceID(rawValue: "stage10-auth-child-instance-a"),
+            modelID: Stage2GateFixture.modelID
+        )
+        let targetB = DelegationModelTarget(
+            providerInstanceID: ProviderInstanceID(rawValue: "stage10-auth-child-instance-b"),
+            modelID: ModelID(rawValue: "other-child-model")
+        )
+        try fixture.store.createProviderInstance(ProviderInstance(
+            id: targetA.providerInstanceID,
+            providerID: .deepSeek,
+            displayName: "Auth Child A",
+            baseURL: URL(string: "https://child-a.invalid"),
+            configRevision: .initial,
+            credentialReference: credentialA
+        ))
+        try fixture.store.createProviderInstance(ProviderInstance(
+            id: targetB.providerInstanceID,
+            providerID: .deepSeek,
+            displayName: "Auth Child B",
+            baseURL: URL(string: "https://child-b.invalid"),
+            configRevision: .initial,
+            credentialReference: credentialB
+        ))
+        try fixture.store.setDelegationConfiguration(enabled: true, explicitModelTarget: targetA)
+
+        let toolID = "stage10-auth-child-tool"
+        let toolLedger = I07ToolLedger()
+        let tool = I07RecordingTool(id: toolID, approvalRequirement: .notRequired, ledger: toolLedger)
+        let registry = try ToolRegistry(tools: [tool])
+        let providerLedger = Stage2ProviderLedger()
+        let provider = Stage10AuthenticationProvider(
+            ledger: providerLedger,
+            scripts: [
+                .events([
+                    .toolCall(ProviderToolCall(
+                        id: "auth-parent-delegation",
+                        index: 0,
+                        name: SubagentDelegationTool.toolID,
+                        argumentsJSON: #"{"task":"Use the Child tool, then finish."}"#
+                    )),
+                    .finish(.toolCalls),
+                ]),
+                .events([
+                    .toolCall(ProviderToolCall(
+                        id: "auth-child-tool-call",
+                        index: 0,
+                        name: toolID,
+                        argumentsJSON: "{}"
+                    )),
+                    .finish(.toolCalls),
+                ]),
+                .credentialRejectedByHTTP401,
+                .events([.textDelta("Child completed after credential refresh"), .finish(.stop)]),
+                .events([.textDelta("Parent completed"), .finish(.stop)]),
+            ]
+        )
+        let events = Stage10DelegationEventLedger()
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            provider: provider,
+            credentials: fixture.credentials,
+            onEvent: { await events.append($0) },
+            toolRegistry: registry
+        )
+        let parentRunID = try await runtime.start(
+            I05RuntimeTestFixtures.command(text: "Review this Child task.", modelID: Stage2GateFixture.modelID)
+        )
+        let parentToolCallID = await events.waitForApproval()
+        try await runtime.approve(toolCallID: parentToolCallID)
+        do {
+            try await runtime.waitForCompletion(runID: parentRunID)
+        } catch AgentRuntimeError.runNotFound(let runID) where runID == parentRunID {
+            // The Parent has already reached auth suspension and left the operation map.
+        }
+
+        let childRunID = try #require(try fixture.store.delegatedChildRunID(parentToolCallID: parentToolCallID))
+        await events.waitForState(runID: childRunID, state: .suspended)
+        await events.waitForState(runID: parentRunID, state: .suspended)
+
+        let failedAttempt = try #require(try fixture.store.steps(inRun: childRunID).last)
+        #expect(failedAttempt.credentialFailureSource == .providerHTTP401)
+        #expect(failedAttempt.protocolResponse == nil)
+        #expect(failedAttempt.credentialFailureAt != nil)
+        let childBeforeRecovery = try #require(try fixture.store.run(id: childRunID))
+        #expect(childBeforeRecovery.requestConfigSeed.providerInstanceID == targetA.providerInstanceID)
+        #expect(childBeforeRecovery.requestConfigSeed.credentialBinding.reference == credentialA)
+
+        do {
+            try await runtime.waitForCompletion(runID: parentRunID)
+        } catch AgentRuntimeError.runNotFound(let runID) where runID == parentRunID {
+            // The suspended execution has already left the in-memory operation map.
+        }
+        _ = try await runtime.reconcileColdStartRuns()
+        do {
+            try await runtime.waitForCompletion(runID: parentRunID)
+        } catch AgentRuntimeError.runNotFound(let runID) where runID == parentRunID {
+            // Authentication remains pending without an explicit credential refresh.
+        }
+
+        #expect(try fixture.store.run(id: childRunID)?.state == .suspended)
+        #expect(try fixture.store.run(id: parentRunID)?.state == .suspended)
+        #expect(await providerLedger.requestsSnapshot().count == 3)
+
+        try fixture.store.setDelegationConfiguration(enabled: true, explicitModelTarget: targetB)
+        try await runtime.refreshFrozenCredentialAndRetry(
+            runID: parentRunID,
+            secret: SecretValue("stage10-child-a-refreshed")
+        )
+        try await runtime.waitForCompletion(runID: parentRunID)
+
+        let parentAfterRecovery = try #require(try fixture.store.run(id: parentRunID))
+        let childAfterRecovery = try #require(try fixture.store.run(id: childRunID))
+        #expect(parentAfterRecovery.state == .completed)
+        #expect(childAfterRecovery.id == childBeforeRecovery.id)
+        #expect(childAfterRecovery.state == .completed)
+        #expect(childAfterRecovery.requestConfigSeed.providerInstanceID == targetA.providerInstanceID)
+        #expect(childAfterRecovery.requestConfigSeed.credentialBinding.reference == credentialA)
+        #expect(try fixture.store.toolCall(id: parentToolCallID)?.state == .succeeded)
+        let childToolCall = try #require(try fixture.store.toolCalls(inRun: childRunID).first)
+        #expect(childToolCall.action == toolID)
+        #expect(await toolLedger.snapshot().map(\.idempotencyKey) == [childToolCall.id])
+
+        let requests = await providerLedger.requestsSnapshot()
+        #expect(requests.count == 5)
+        guard requests.count == 5 else { return }
+        #expect(requests[3].messages.contains { message in
+            guard case .assistant(_, _, let calls) = message else { return false }
+            return calls.contains { $0.id == "auth-child-tool-call" }
+        })
+        #expect(requests[3].messages.contains { message in
+            guard case .toolResult(let callID, let content) = message else { return false }
+            return callID == "auth-child-tool-call" && content == "side effect complete"
+        })
     }
 
     @Test("Child tool approval is projected to its owning Conversation and resumes the same Child call")
@@ -574,14 +945,39 @@ struct Stage10DelegationRuntimeTests {
         let parentRunID = "stage10-stop-parent"
         let parentToolCallID = "stage10-stop-delegation-call"
         let uncertainCallID = "stage10-stop-unknown-call"
-        try fixture.store.commitUserTurnAndCreateParentRun(Fixtures.send(
+        let provider = Stage2ScriptedProvider(ledger: Stage2ProviderLedger(), scripts: [])
+        let configuration = try fixture.store.setDelegationEnabled(true)
+        let parentPrompt = PromptExecutionSnapshot(
+            runtimeSafetyBaseline: PromptTemplateCatalog.currentRuntimeSafetyRevision,
+            zenCore: PromptTemplateCatalog.currentZenCoreRevision,
+            providerAdapterInstructions: provider.adapterPromptInstructions
+        )
+        let parentSnapshot = RunExecutionSnapshot(
+            providerID: provider.id,
+            providerAdapterRevision: provider.adapterRevision,
+            prompt: parentPrompt,
+            modelCapabilities: [.text, .streaming, .tools],
+            exposedTools: [Self.exposure(SubagentDelegationTool.toolDescriptor)],
+            maxProviderSteps: 4,
+            delegation: DelegationExecutionSnapshot(configuration: configuration)
+        )
+        var commit = Fixtures.send(
             conversationID: I05RuntimeTestFixtures.conversationID,
             messageID: "stage10-stop-trigger",
             runID: parentRunID,
             runState: .stopping
-        ))
+        )
+        commit.run.requestConfigSeed = try provider.makeRequestConfigSeed(
+            instance: fixture.instance,
+            modelID: Stage2GateFixture.modelID,
+            credentialBinding: CredentialBindingSnapshot(
+                reference: I05RuntimeTestFixtures.credentialReference,
+                generation: 1
+            )
+        )
+        commit.run.executionSnapshot = try ExecutionSnapshotCodec.encode(parentSnapshot)
+        try fixture.store.commitUserTurnAndCreateParentRun(commit)
         let parent = try #require(try fixture.store.run(id: parentRunID))
-        let provider = Stage2ScriptedProvider(ledger: Stage2ProviderLedger(), scripts: [])
         let delegationRuntime = DelegationRuntime(
             store: fixture.store,
             provider: provider,
@@ -679,6 +1075,7 @@ struct Stage10DelegationRuntimeTests {
             maxProviderSteps: 4,
             delegation: DelegationExecutionSnapshot(configuration: DelegationRuntimeConfiguration(
                 enabled: true,
+                explicitModelTarget: nil,
                 revision: 1
             ))
         ))
@@ -793,14 +1190,25 @@ private struct Stage10ColdApprovalScenario {
 private actor Stage10DelegationEventLedger {
     private var approvalIDs: [String] = []
     private var approvalWaiters: [CheckedContinuation<String, Never>] = []
+    private var stateEvents: [(runID: String, state: RunState)] = []
+    private var stateWaiters: [(runID: String, state: RunState, continuation: CheckedContinuation<Void, Never>)] = []
 
     func append(_ event: AgentEvent) {
-        guard case .approvalRequired(_, let toolCallID) = event else { return }
-        approvalIDs.append(toolCallID)
-        let waiters = approvalWaiters
-        approvalWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume(returning: toolCallID)
+        if case .approvalRequired(_, let toolCallID) = event {
+            approvalIDs.append(toolCallID)
+            let waiters = approvalWaiters
+            approvalWaiters.removeAll()
+            for waiter in waiters {
+                waiter.resume(returning: toolCallID)
+            }
+        }
+        if case .runStateChanged(let runID, let state) = event {
+            stateEvents.append((runID, state))
+            let ready = stateWaiters.filter { $0.runID == runID && $0.state == state }
+            stateWaiters.removeAll { $0.runID == runID && $0.state == state }
+            for waiter in ready {
+                waiter.continuation.resume()
+            }
         }
     }
 
@@ -809,6 +1217,104 @@ private actor Stage10DelegationEventLedger {
         return await withCheckedContinuation { continuation in
             approvalWaiters.append(continuation)
         }
+    }
+
+    func waitForState(runID: String, state: RunState) async {
+        if stateEvents.contains(where: { $0.runID == runID && $0.state == state }) { return }
+        await withCheckedContinuation { continuation in
+            stateWaiters.append((runID, state, continuation))
+        }
+    }
+}
+
+private enum Stage10AuthenticationScript: Sendable {
+    case events([ProviderStreamEvent])
+    case credentialRejectedByHTTP401
+}
+
+private struct Stage10AuthenticationProvider: ModelProvider {
+    let ledger: Stage2ProviderLedger
+    let scripts: [Stage10AuthenticationScript]
+
+    private var base: Stage2ScriptedProvider {
+        Stage2ScriptedProvider(ledger: ledger, scripts: [.events([])])
+    }
+
+    var id: ProviderID { base.id }
+    var adapterRevision: String { base.adapterRevision }
+    var adapterPromptInstructions: String { base.adapterPromptInstructions }
+
+    func knownModels(for instance: ProviderInstance) -> [ModelDescriptor] {
+        base.knownModels(for: instance)
+    }
+
+    func descriptor(for modelID: ModelID, in instance: ProviderInstance) -> ModelDescriptor? {
+        base.descriptor(for: modelID, in: instance)
+    }
+
+    func makeRequestConfigSeed(
+        instance: ProviderInstance,
+        modelID: ModelID,
+        credentialBinding: CredentialBindingSnapshot
+    ) throws -> RequestConfigSeed {
+        try base.makeRequestConfigSeed(
+            instance: instance,
+            modelID: modelID,
+            credentialBinding: credentialBinding
+        )
+    }
+
+    func stream(
+        _ request: ProviderChatRequest,
+        seed: RequestConfigSeed,
+        credentials: any CredentialStoring
+    ) async throws -> AsyncThrowingStream<ProviderStreamEvent, Error> {
+        _ = seed
+        _ = credentials
+        let index = await ledger.record(request)
+        switch scripts[min(index, scripts.count - 1)] {
+        case .events(let events):
+            return AsyncThrowingStream { continuation in
+                for event in events { continuation.yield(event) }
+                continuation.finish()
+            }
+        case .credentialRejectedByHTTP401:
+            throw ProviderError.credentialRejectedByHTTP401
+        }
+    }
+}
+
+private final class Stage10CredentialMetadataProbe: CredentialMetadataRepository, @unchecked Sendable {
+    private let base: any CredentialMetadataRepository
+    private let failingReference: CredentialReference
+    private let lock = NSLock()
+    private var targetReadCountStorage = 0
+
+    init(base: any CredentialMetadataRepository, failingReference: CredentialReference) {
+        self.base = base
+        self.failingReference = failingReference
+    }
+
+    var targetReadCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return targetReadCountStorage
+    }
+
+    func loadMetadata(for reference: CredentialReference) throws -> CredentialMetadata? {
+        guard reference == failingReference else { return try base.loadMetadata(for: reference) }
+        lock.lock()
+        targetReadCountStorage += 1
+        lock.unlock()
+        throw CredentialError.unavailable(reference, underlying: "Child target metadata access observed")
+    }
+
+    func saveMetadata(_ metadata: CredentialMetadata) throws {
+        try base.saveMetadata(metadata)
+    }
+
+    func deleteMetadata(for reference: CredentialReference) throws {
+        try base.deleteMetadata(for: reference)
     }
 }
 

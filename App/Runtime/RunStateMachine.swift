@@ -36,6 +36,7 @@ struct RunStateMachine: Sendable {
                 .executingTools,
                 .continuing,
                 .stopping,
+                .suspended,
                 .failed,
             ]
         case .completed, .failed, .cancelled:

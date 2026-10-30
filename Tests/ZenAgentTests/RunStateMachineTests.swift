@@ -50,6 +50,7 @@ struct RunStateMachineTests {
             (.recovering, .executingTools),
             (.recovering, .continuing),
             (.recovering, .stopping),
+            (.recovering, .suspended),
             (.recovering, .failed),
         ]
 
