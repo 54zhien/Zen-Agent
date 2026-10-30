@@ -417,6 +417,11 @@ actor AgentRuntime {
 
                 _ = try toolRuntime.validatePendingIntent(toolCallID: call.id)
                 call = try store.toolCall(id: call.id) ?? call
+                if call.state == .notExecuted,
+                   try parentStopIsInProgress(forChildRunID: runID) {
+                    stopRequested.insert(runID)
+                    throw ControlError.stopRequested
+                }
                 var needsApprovalEvent = try store.run(id: runID)?.state != .waitingForApproval
                 while call.state == .waitingForApproval || call.state == .waitingForSystemPermissionConsent || call.state == .approved || call.state == .prepared {
                     if call.state == .waitingForApproval || call.state == .waitingForSystemPermissionConsent {
@@ -1137,6 +1142,15 @@ actor AgentRuntime {
             && (call.state == .dispatched || call.state == .indeterminate) {
             _ = try toolRuntime.confirmToolOutcome(toolCallID: call.id)
         }
+    }
+
+    private func parentStopIsInProgress(forChildRunID runID: String) throws -> Bool {
+        guard let child = try store.run(id: runID),
+              child.kind == .child,
+              let parentRunID = child.parentRunID,
+              let parent = try store.run(id: parentRunID)
+        else { return false }
+        return parent.state == .stopping
     }
 
     private func settleActiveBatchForCancellation(
