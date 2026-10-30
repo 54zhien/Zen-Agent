@@ -166,8 +166,8 @@ struct Stage10DelegationRuntimeTests {
             store: fixture.store,
             provider: provider,
             credentials: fixture.credentials,
-            toolRegistry: registry,
-            onEvent: { await events.append($0) }
+            onEvent: { await events.append($0) },
+            toolRegistry: registry
         )
         try fixture.store.setDelegationEnabled(true)
 
@@ -499,8 +499,8 @@ struct Stage10DelegationRuntimeTests {
             store: fixture.store,
             provider: provider,
             credentials: fixture.credentials,
-            toolRegistry: registry,
-            onEvent: { await events.append($0) }
+            onEvent: { await events.append($0) },
+            toolRegistry: registry
         )
         return Stage10ColdApprovalScenario(
             store: fixture.store,
