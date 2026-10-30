@@ -113,8 +113,8 @@ struct AgentStepAttemptTests {
             at: failedAt
         )
 
-        let suspended = try #require(store.run(id: "r1"))
-        let persistedAttempt = try #require(store.currentAttempt(ofStep: "s1"))
+        let suspended = try #require(try store.run(id: "r1"))
+        let persistedAttempt = try #require(try store.currentAttempt(ofStep: "s1"))
         #expect(suspended.state == .suspended)
         #expect(suspended.recoveryAction == .reprepare)
         #expect(suspended.suspendReason == .authRequired)
