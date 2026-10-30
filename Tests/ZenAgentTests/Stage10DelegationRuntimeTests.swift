@@ -172,8 +172,8 @@ struct Stage10DelegationRuntimeTests {
         try fixture.store.setDelegationEnabled(true)
 
         var command = I05RuntimeTestFixtures.command(
-            modelID: Stage2GateFixture.modelID,
-            text: "Use parentonly and childalpha context before delegating."
+            text: "Use parentonly and childalpha context before delegating.",
+            modelID: Stage2GateFixture.modelID
         )
         command.selectedSkillIDs = [childSkill.id, parentOnlySkill.id]
         let parentRunID = try await runtime.start(command)
