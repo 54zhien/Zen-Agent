@@ -60,7 +60,7 @@ extension PersistenceStore {
             guard let delegation = parentSnapshot.delegation,
                   delegation.enabled,
                   delegation.maxDepth == 1,
-                  delegation.maxConcurrentChildren == 1,
+                  delegation.supportsFrozenConcurrencyLimit,
                   delegation.modelPolicy == .followParent,
                   delegation.environmentInheritance == .none,
                   parentSnapshot.permitsTool(SubagentDelegationTool.toolDescriptor)
@@ -117,13 +117,13 @@ extension PersistenceStore {
             else {
                 throw PersistenceError.invalidTransition("Child snapshot exceeds its Parent's frozen delegation policy")
             }
-            guard try AgentRunRecord.fetchOne(db, sql: """
-                SELECT * FROM agentRun
+            let activeChildCount = try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM agentRun
                 WHERE kind = 'child' AND parentRunID = ?
                   AND state NOT IN ('completed', 'failed', 'cancelled')
-                LIMIT 1
-                """, arguments: [parent.id]) == nil else {
-                throw PersistenceError.invalidTransition("Parent already has an active Child")
+                """, arguments: [parent.id]) ?? 0
+            guard activeChildCount < delegation.maxConcurrentChildren else {
+                throw PersistenceError.invalidTransition("Parent reached its frozen active Child limit")
             }
             guard try Row.fetchOne(
                 db,
@@ -327,6 +327,22 @@ extension PersistenceStore {
         )
     }
 
+    func cancelTasklessDelegatedChild(
+        parentRunID: String,
+        childRunID: String,
+        at now: Date = Date()
+    ) throws -> [String] {
+        try settleTasklessDelegatedChildren(
+            parentRunID: parentRunID,
+            parentState: .stopping,
+            terminalState: .cancelled,
+            endReason: .cancelledByUser,
+            openPartState: .cancelled,
+            childRunID: childRunID,
+            at: now
+        )
+    }
+
     func failUnknownDelegatedChildren(
         parentRunID: String,
         endReason: EndReason,
@@ -431,6 +447,7 @@ extension PersistenceStore {
         terminalState: RunState,
         endReason: EndReason,
         openPartState: MessagePartState,
+        childRunID: String? = nil,
         at now: Date
     ) throws -> [String] {
         try database.write { db in
@@ -449,8 +466,9 @@ extension PersistenceStore {
                 WHERE delegationCall.agentRunID = ? AND child.parentRunID = ?
                   AND child.kind = 'child'
                   AND child.state NOT IN ('completed', 'failed', 'cancelled')
+                  AND (? IS NULL OR child.id = ?)
                 ORDER BY child.createdAt, child.id
-                """, arguments: [parentRunID, parentRunID])
+                """, arguments: [parentRunID, parentRunID, childRunID, childRunID])
             var settled: [String] = []
             for child in children {
                 if terminalState == .cancelled, child.state != .stopping {

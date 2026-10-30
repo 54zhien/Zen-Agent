@@ -28,4 +28,10 @@ extension Migrations {
                 """)
         }
     }
+
+    static func registerV29(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v29_parent_dual_child_probe") { db in
+            try db.execute(sql: "DROP INDEX agentRun_one_active_child_per_parent")
+        }
+    }
 }
