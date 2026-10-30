@@ -163,7 +163,7 @@ struct DeepSeekStreamingTests {
         #expect(events.map { text(of: $0) } == [nil, nil, "answer"])
     }
 
-    @Test("normalization preserves reasoning, text, finish, and usage order")
+    @Test("normalization preserves reasoning, text, usage, and terminal order")
     func normalizationPreservesEventOrder() throws {
         let chunk = try DeepSeekProvider.decodeStreamChunk(
             #"{"id":"c1","choices":[{"index":0,"delta":{"reasoning_content":"think","content":"answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}"#
@@ -173,8 +173,8 @@ struct DeepSeekStreamingTests {
             DeepSeekProvider.normalizedEvents(from: chunk) == [
                 .reasoningDelta("think"),
                 .textDelta("answer"),
-                .finish(.stop),
                 .usage(ProviderTokenUsage(promptTokens: 2, completionTokens: 3, totalTokens: 5)),
+                .finish(.stop),
             ]
         )
     }
@@ -213,8 +213,8 @@ struct DeepSeekStreamingTests {
 
         #expect(events == [
             .textDelta("done"),
-            .finish(.stop),
             .usage(ProviderTokenUsage(promptTokens: 9, completionTokens: 3, totalTokens: 12)),
+            .finish(.stop),
         ])
     }
 
@@ -233,8 +233,20 @@ struct DeepSeekStreamingTests {
 
         #expect(events == [
             .textDelta("x"),
-            .finish(.stop),
             .usage(ProviderTokenUsage(promptTokens: 1, completionTokens: 1, totalTokens: 2)),
+            .finish(.stop),
+        ])
+    }
+
+    @Test("usage preserves provider-reported zero and missing counters independently")
+    func usagePreservesZeroAndUnknownCounters() throws {
+        let chunk = try DeepSeekProvider.decodeStreamChunk(
+            #"{"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":0}}"#
+        )
+
+        #expect(DeepSeekProvider.normalizedEvents(from: chunk) == [
+            .usage(ProviderTokenUsage(promptTokens: 0, completionTokens: nil, totalTokens: nil)),
+            .finish(.stop),
         ])
     }
 

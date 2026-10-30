@@ -358,18 +358,25 @@ struct DeepSeekProvider: ModelProvider {
         if let text = chunk.choices?.first?.delta?.content, !text.isEmpty {
             events.append(.textDelta(text))
         }
-        if let finishReason = chunk.choices?.first?.finish_reason {
+        let finishReason = chunk.choices?.first?.finish_reason
+        if finishReason != nil {
             for toolCall in try assembler.finish() {
                 events.append(.toolCall(toolCall))
             }
-            events.append(.finish(FinishReason(wire: finishReason)))
         }
+        // DeepSeek's Chat Completions docs specify that the final chunk carries usage
+        // with a non-null finish_reason and that there is no usage-only chunk:
+        // https://api-docs.deepseek.com/api/create-chat-completion/
+        // Normalize usage first because Runtime stops consuming after `.finish`.
         if let usage = chunk.usage {
             events.append(.usage(ProviderTokenUsage(
-                promptTokens: usage.prompt_tokens ?? 0,
-                completionTokens: usage.completion_tokens ?? 0,
-                totalTokens: usage.total_tokens ?? 0
+                promptTokens: usage.prompt_tokens,
+                completionTokens: usage.completion_tokens,
+                totalTokens: usage.total_tokens
             )))
+        }
+        if let finishReason {
+            events.append(.finish(FinishReason(wire: finishReason)))
         }
 
         return events
@@ -843,9 +850,9 @@ struct DeepSeekProvider: ModelProvider {
             finishReason: FinishReason(wire: choice.finish_reason),
             usage: decoded.usage.map {
                 ProviderTokenUsage(
-                    promptTokens: $0.prompt_tokens ?? 0,
-                    completionTokens: $0.completion_tokens ?? 0,
-                    totalTokens: $0.total_tokens ?? 0
+                    promptTokens: $0.prompt_tokens,
+                    completionTokens: $0.completion_tokens,
+                    totalTokens: $0.total_tokens
                 )
             }
         )

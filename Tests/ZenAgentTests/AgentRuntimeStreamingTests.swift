@@ -149,6 +149,7 @@ struct AgentRuntimeStreamingTests {
                 .textDelta("one"),
                 .textDelta(" two"),
                 .textDelta(" three"),
+                .usage(ProviderTokenUsage(promptTokens: 11, completionTokens: 6, totalTokens: 17)),
                 .finish(.stop),
             ]
         )
@@ -205,7 +206,13 @@ struct AgentRuntimeStreamingTests {
             if case .messagePartCompleted(_, _, .completed) = event { return true }
             return false
         })
-        #expect(try fixture.store.steps(inRun: "run-agent-stream").count == 1)
+        let steps = try fixture.store.steps(inRun: "run-agent-stream")
+        #expect(steps.count == 1)
+        #expect(steps[0].reportedPromptTokens == 11)
+        #expect(steps[0].reportedCompletionTokens == 6)
+        #expect(steps[0].reportedTotalTokens == 17)
+        #expect(steps[0].providerStartedAt != nil)
+        #expect(steps[0].providerFinishedAt != nil)
         #expect(try fixture.store.run(id: "run-agent-stream")?.state == .completed)
     }
 
