@@ -117,7 +117,7 @@ struct CredentialStoreTests {
             at: refreshedAt
         )
 
-        let metadata = try #require(store.metadata(for: Self.reference))
+        let metadata = try #require(try store.metadata(for: Self.reference))
         #expect(try store.resolve(Self.reference)?.revealed == "sk-rotated")
         #expect(metadata.bindingGeneration == 1)
         #expect(metadata.principalFingerprint == "acct-a")

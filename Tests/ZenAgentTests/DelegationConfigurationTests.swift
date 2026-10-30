@@ -8,19 +8,22 @@ import Testing
 struct DelegationConfigurationTests {
     @Test("v28 delegation settings retain their state and follow Parent after v29")
     func v28RowMigratesWithoutAnExplicitTarget() throws {
-        let database = try DatabaseQueue()
+        let url = try Fixtures.scratchPath(name: "delegation-settings-v28.sqlite")
+        defer { Fixtures.cleanUp(url) }
         let migrator = Migrations.makeMigrator()
-        try migrator.migrate(database, upTo: "v28_run_measurements")
-        try database.write { db in
-            try db.execute(sql: """
-                INSERT INTO agentDelegationSettings(id, enabled, revision, updatedAt)
-                VALUES ('global', ?, ?, ?)
-                """, arguments: [true, 4, Fixtures.epoch])
+        do {
+            let database = try DatabaseQueue(path: url.path())
+            try migrator.migrate(database, upTo: "v28_run_measurements")
+            try database.write { db in
+                try db.execute(sql: """
+                    INSERT INTO agentDelegationSettings(id, enabled, revision, updatedAt)
+                    VALUES ('global', ?, ?, ?)
+                    """, arguments: [true, 4, Fixtures.epoch])
+            }
         }
 
-        try migrator.migrate(database)
-
-        let configuration = try PersistenceStore(database: database).delegationConfiguration()
+        let store = PersistenceStore(database: try ZenDatabase.open(at: url.path()))
+        let configuration = try store.delegationConfiguration()
         #expect(configuration.enabled)
         #expect(configuration.explicitModelTarget == nil)
         #expect(configuration.revision == 4)
