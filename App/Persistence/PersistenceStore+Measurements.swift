@@ -51,6 +51,10 @@ extension PersistenceStore {
         for run: AgentRunRecord,
         formatter: ISO8601DateFormatter
     ) throws -> [String: Any] {
+        guard let encodedSnapshot = run.executionSnapshot else {
+            throw MeasurementReportError.missingExecutionSnapshot(runID: run.id)
+        }
+        let snapshot = try ExecutionSnapshotCodec.decode(encodedSnapshot)
         let terminalAt = nullableJSONValue(
             run.state.isTerminal ? formatter.string(from: run.updatedAt) : nil
         )
@@ -73,6 +77,8 @@ extension PersistenceStore {
             "runID": run.id,
             "parentRunID": nullableJSONValue(run.parentRunID),
             "kind": run.kind.rawValue,
+            "providerID": snapshot.providerID.rawValue,
+            "modelID": run.requestConfigSeed.modelID.rawValue,
             "state": run.state.rawValue,
             "endReason": nullableJSONValue(run.endReason?.rawValue),
             "createdAt": formatter.string(from: run.createdAt),
@@ -87,4 +93,8 @@ extension PersistenceStore {
         guard let value else { return NSNull() }
         return value
     }
+}
+
+private enum MeasurementReportError: Error {
+    case missingExecutionSnapshot(runID: String)
 }

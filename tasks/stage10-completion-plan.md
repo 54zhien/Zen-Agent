@@ -19,12 +19,23 @@
 
 ## Current Implementation Status
 
-- This branch is implementing Blueprint items 5–6 as one single-Child vertical gate because Child approval, frozen subset creation, Parent Stop, and Child recovery share the same persisted call lifecycle. The work is not yet compiled or natively tested; only Windows `swiftc -parse` and `git diff --check` have run.
+- The cumulative candidate combines Blueprint items 5–6 with provider usage/timing measurement on a separate stacked branch. Its exact combined tree has not yet run the native gate. Previous checks below belong to distinct source trees and are not substitutes for this candidate's run.
 - Child tool approval uses the existing `ToolPolicy` path with Child Run subject and `.once`; cold recovery rebinds the Child's frozen filtered registry, reuses its original ToolCall batch and continuation, and confirms the original Parent delegation call only after a terminal Child result is durable.
 - The Subagent call may explicitly name `environmentKeys`; the arguments are normalized by key (model array order has no authority), the approval disclosure names only requested keys, and the Child Skill subset includes a Skill only when its complete frozen Environment references are requested. No Secret values are copied.
 - A Child checkpoint with an incomplete committed tool-call transcript is terminalized through the existing taskless settlement transaction as `.unrecoverable`; the original Parent call receives the actual terminal Child report. No ToolCall or Provider request is fabricated or replayed.
 - The cold approval approve/reject/Parent Stop behavior tests are present but have not run on the native CI gate. Do not treat static parsing, review, skipped tests, or a cancelled run as a pass.
 - Slice 3 (fixed hidden two-Child validation) is not started and is blocked on a successful exact-head single-Child gate. Stage 10 concurrency measurement and settings remain open after that validation; this branch does not claim the external evidence gate.
+
+## Preserved Native CI Evidence (2026-10-30)
+
+PR #48 remains open and draft at `aabcc6ec6d9351f6148de8bcf6e3f80e9bc2a970`. The two Actions events on that exact head both completed with failures, and their evidence remains attached to the runs:
+
+- PR event [41028853360](https://github.com/54zhien/Zen-Agent/actions/runs/41028853360): repository hygiene passed; Build and test passed with 98 tests, one skipped, and zero failures. `Stage10DelegationRuntimeTests.stopDuringColdChildApprovalSettlesBothRuns()` passed in 0.059 seconds, and `AppSpaceDeletionUITests.testUpwardCurrentDeleteAndUndoKeepTheOriginalConversation()` passed in 22.082 seconds. The independent iPad workspace axis failed its one UI test after Xcode timed out launching `com.zhien.zen` (78.109 seconds). The log records `DebuggerLLDB.DebuggerVersionStore.StoreError error 0`, `no debugger version`, then `Timed out while launching application via Xcode`; this is a launch-time RED, with no app crash evidence. Its `pad-workspace-failure` artifact is [12965467088](https://github.com/54zhien/Zen-Agent/actions/runs/41028853360/artifacts/12965467088).
+- Push event [41028848363](https://github.com/54zhien/Zen-Agent/actions/runs/41028848363): repository hygiene and iPad workspace axis passed; Build and test failed in `AppSpaceDeletionUITests.testUpwardCurrentDeleteAndUndoKeepTheOriginalConversation()` with three UI assertion/interaction failures. After the upward swipe, the accessibility dump still showed `workspace-card-menu` and “Workspace conversation 11，轻点返回会话”; it had no `workspace-current-card` identifier or `workspace-card-undo-preview-ui-11` button. The same test passed in the PR event above. The source and tree are the same SHA; the cause of this different UI outcome is not established. The `xcresult` artifact is [12968750705](https://github.com/54zhien/Zen-Agent/actions/runs/41028848363/artifacts/12968750705).
+- Earlier PR event [41017513296](https://github.com/54zhien/Zen-Agent/actions/runs/41017513296) on `41e98771430cd8c1548de8bcf6e3f80e9bc2a970` passed the iPad axis but failed Build and test on the Child approval Stop case. The `aabcc6e` Stop fix then passed that case in both events above; the older failure is retained as RED evidence.
+- Measurement commit `792aefbc1bc503c5b4d2fbd6db60f960ccdc10fc` was tested before the `aabcc6e` fix in push run [41021322963](https://github.com/54zhien/Zen-Agent/actions/runs/41021322963). Its Child approval Stop test recorded three issues: Child `.failed` instead of `.cancelled`, `stopRequestedAt` missing, and a Parent result with `endReason=unrecoverable`/`state=failed`. This is the measurement branch's original RED; its `xcresult` artifact is [12965397656](https://github.com/54zhien/Zen-Agent/actions/runs/41021322963/artifacts/12965397656).
+
+None of the same-head failures above is classified as environmental or resolved from a single passing event. The cumulative branch must pass its own full native gate before the single-Child gate is treated as complete. No device measurement or concurrency default/upper bound is claimed.
 
 ## Global Constraints
 
@@ -112,7 +123,8 @@
 
 ## Worktree and Branch
 
-- Worktree: `C:\Users\Azusa\.codex\worktrees\stage10-completion\Zen-Agent`
-- Branch: `codex/stage10-completion`
-- Base: PR #47 receipt head `e600e96fb14b5a033901aac7f1b443646eb9073e` (tested source parent `cee3bdf2c74655b565ee71393feb6d0f0272d7f5`).
-- PR base when the work is ready: `codex/stage10-delegation-snapshot`; do not merge.
+- Worktree: `C:\Users\Azusa\.codex\worktrees\stage10-measurement-stack\Zen-Agent`
+- Branch: `codex/stage10-measurement-stack`
+- Parent source: PR #48 head `aabcc6ec6d9351f6148de8bcf6e3f80e9bc2a970`.
+- Measurement source `792aefbc1bc503c5b4d2fbd6db60f960ccdc10fc` was cherry-picked as `676448c`; both original worktrees and branches remain unchanged.
+- PR base: `codex/stage10-completion` (stacked on PR #48); do not merge.
