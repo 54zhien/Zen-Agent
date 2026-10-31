@@ -97,13 +97,13 @@ enum AuthenticationRetryTargetSelector {
               parent.kind == .parent,
               parent.state.isActive else { return false }
 
-        let targets: [AgentRunRecord]
+        let targetRuns: [AgentRunRecord]
         do {
-            targets = try targets(for: parent, in: store)
+            targetRuns = try targets(for: parent, in: store)
         } catch RunRequestRebuildError.authenticationActionRequired {
             return false
         }
-        guard let binding = targets.first?.requestConfigSeed.credentialBinding,
+        guard let binding = targetRuns.first?.requestConfigSeed.credentialBinding,
               let metadata = try credentials.metadata(for: binding.reference) else { return false }
         return metadata.reference == binding.reference
             && metadata.bindingGeneration == binding.generation

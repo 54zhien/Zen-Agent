@@ -574,7 +574,11 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
             self.browseInteraction?.cancel()
             return self.liftController?.returnToFull() ?? returnAction()
         }
-        surfaceView.onActivate = frozen && !interactiveAuthenticationCard ? returnHandler : nil
+        if frozen && !interactiveAuthenticationCard {
+            surfaceView.onActivate = returnHandler
+        } else {
+            surfaceView.onActivate = nil
+        }
         let returnName = isNew ? "创建新对话" : "返回会话"
         var nativeActions = frozen
             ? [UIAccessibilityCustomAction(name: returnName, target: surfaceView,
