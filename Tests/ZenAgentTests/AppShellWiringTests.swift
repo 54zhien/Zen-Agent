@@ -20,68 +20,105 @@ private enum RouterLoadFailure: Error {
 @Suite("App shell wiring")
 @MainActor
 struct AppShellWiringTests {
-    @Test("an authentication-required preview opens the original credential refresh form")
-    func authenticationPreviewOffersFrozenCredentialRefresh() async throws {
-        let summary = ConversationSummary(
-            id: "auth-preview",
-            title: "Authentication",
-            excerpt: "Paused conversation",
-            pinned: false,
-            userActiveAt: Date(timeIntervalSince1970: 100),
-            contentUnavailable: false,
-            runProjection: RunProjection(
-                runID: "auth-run",
-                state: .suspended,
-                suspendReason: .authRequired
-            ),
-            providerInstanceID: nil,
-            modelID: nil,
-            providerName: nil
-        )
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let previous = scene.windows.first { $0.isKeyWindow }
-        let window = UIWindow(windowScene: scene)
-        let host = UIHostingController(rootView: ConversationPreviewView(
-            summary: summary,
-            onRefreshFrozenCredential: { _, _ in }
+    @Test("an authentication-required Workspace card routes interaction into its child content")
+    func authenticationPreviewRoutesInteractionIntoChildContent() async throws {
+        let fixture = try makeFixture(seed: .active)
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
+        let conversationID = fixture.model.conversationID
+        let runID = "auth-preview-run"
+        try fixture.store.createEmptyConversation(id: conversationID, at: Fixtures.epoch)
+        let failureAt = Date()
+        try fixture.metadata.saveMetadata(CredentialMetadata(
+            reference: fixture.reference,
+            bindingGeneration: 1,
+            principalFingerprint: nil,
+            status: .active,
+            updatedAt: Fixtures.epoch
         ))
+        var run = Fixtures.run(id: runID, conversationID: conversationID,
+            createdAt: Fixtures.epoch.addingTimeInterval(1), updatedAt: Fixtures.epoch.addingTimeInterval(1))
+        run.requestConfigSeed.credentialBinding = CredentialBindingSnapshot(
+            reference: fixture.reference,
+            generation: 1
+        )
+        let runToInsert = run
+        try fixture.store.database.write { db in
+            try runToInsert.insert(db)
+            try AgentStepRecord(
+                stepID: "auth-preview-step",
+                runID: runID,
+                sequence: 0,
+                attempt: 0,
+                createdAt: failureAt.addingTimeInterval(-10),
+                providerStartedAt: failureAt.addingTimeInterval(-5),
+                credentialFailureSource: .providerHTTP401,
+                credentialFailureAt: failureAt
+            ).insert(db)
+        }
+        try fixture.store.transitionRun(id: runID, expectedState: .preparing, to: .suspended,
+            recoveryAction: .reprepare, suspendReason: .authRequired, at: failureAt)
+        let sourceLessConversationID = "auth-preview-without-evidence"
+        try fixture.store.createEmptyConversation(id: sourceLessConversationID, at: Fixtures.epoch)
+        let sourceLessRun = Fixtures.run(id: "auth-preview-without-evidence-run",
+            conversationID: sourceLessConversationID)
+        try fixture.store.database.write { db in try sourceLessRun.insert(db) }
+        try fixture.store.transitionRun(id: sourceLessRun.id, expectedState: .preparing, to: .suspended,
+            recoveryAction: .reprepare, suspendReason: .authRequired, at: failureAt)
+        let sourceLessProjection = try #require(try fixture.model.browseWindow(id: sourceLessConversationID)
+            .current?.runProjection)
+        #expect(!sourceLessProjection.canRefreshFrozenCredential)
+        let eligibleProjection = try #require(try fixture.model.browseWindow(id: conversationID)
+            .current?.runProjection)
+        #expect(eligibleProjection.canRefreshFrozenCredential)
+        #expect(await fixture.model.openConversation(id: conversationID))
+
+        let lift = SurfaceLiftController()
+        let host = UIHostingController(rootView: WorkspaceSurfaceView(model: fixture.model, liftController: lift) {
+            NewConversationView(model: fixture.model)
+        })
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
         window.rootViewController = host
         window.makeKeyAndVisible()
-        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        defer { window.isHidden = true; window.rootViewController = nil }
 
-        func accessibilityElement(id: String, in root: UIView) -> NSObject? {
-            var visited = Set<ObjectIdentifier>()
+        for _ in 0..<100 where !lift.canArm(SurfaceLiftEligibility()) {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(lift.arm(SurfaceLiftEligibility()))
+        #expect(lift.drag(upwardDistance: 180, eligibility: SurfaceLiftEligibility()))
+        #expect(lift.end(animated: false)?.destination == .card)
+        #expect(lift.state.phase == .card)
 
-            func find(in container: NSObject) -> NSObject? {
-                let identity = ObjectIdentifier(container as AnyObject)
-                guard visited.insert(identity).inserted else { return nil }
-                let elements = container.accessibilityElements
-                    ?? (0..<container.accessibilityElementCount()).compactMap {
-                        container.accessibilityElement(at: $0)
-                    }
-                for element in elements {
-                    guard let object = element as? NSObject else { continue }
-                    if (object as? UIAccessibilityIdentification)?.accessibilityIdentifier == id {
-                        return object
-                    }
-                    if let found = find(in: object) { return found }
-                }
-                return nil
+        func surfaceCard(in view: UIView) -> SurfaceClipView? {
+            if let card = view as? SurfaceClipView, card.accessibilityIdentifier == "workspace-current-card" {
+                return card
             }
-
-            return find(in: root)
+            return view.subviews.lazy.compactMap { surfaceCard(in: $0) }.first
         }
-        for _ in 0..<80 where accessibilityElement(id: "conversation-auth-refresh", in: host.view) == nil {
+
+        func isDescendant(_ view: UIView, of ancestor: UIView) -> Bool {
+            var current: UIView? = view
+            while let candidate = current {
+                if candidate === ancestor { return true }
+                current = candidate.superview
+            }
+            return false
+        }
+        for _ in 0..<80 where surfaceCard(in: host.view) == nil {
             try await Task.sleep(for: .milliseconds(10))
         }
-        let refresh = try #require(accessibilityElement(id: "conversation-auth-refresh", in: host.view))
-        #expect(refresh.accessibilityLabel == "更新原账号凭据")
-
-        #expect(refresh.accessibilityActivate())
-        for _ in 0..<80 where host.presentedViewController == nil {
+        let card = try #require(surfaceCard(in: host.view))
+        for _ in 0..<80 where card.isAccessibilityElement {
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(host.presentedViewController != nil)
+        #expect(!card.isAccessibilityElement)
+        #expect(card.onActivate == nil)
+
+        let blankPoint = card.convert(CGPoint(x: card.bounds.maxX - 32, y: card.bounds.maxY - 32), to: window)
+        let blankHitTarget = try #require(window.hitTest(blankPoint, with: nil))
+        #expect(blankHitTarget !== card)
+        #expect(isDescendant(blankHitTarget, of: card))
     }
 
     @Test("an unchanged final Split ratio retains the layout revision already measured by both Panes")
@@ -1402,6 +1439,11 @@ struct AppShellWiringTests {
         let current = try #require(card(in: host.view))
         #expect(current.accessibilityLabel?.contains("Failed conversation") == true)
         #expect(current.accessibilityLabel?.contains("运行失败") == true)
+        #expect(current.isAccessibilityElement)
+        #expect(current.onActivate != nil)
+        let returnPoint = current.convert(CGPoint(x: current.bounds.midX, y: current.bounds.midY), to: window)
+        #expect(window.hitTest(returnPoint, with: nil) === current,
+            "Ordinary status cards keep their existing card-wide Return hit target")
     }
 
     @Test("an invalidated in-flight read cannot replace navigation or a newer Return", arguments: [false, true])

@@ -485,8 +485,12 @@ final class AppShellModel {
 
     func newConversationBrowseWindow() throws -> ConversationBrowseWindow {
         guard previewContent.isPresented, let originID = previewContent.originID,
-              let store = dependencies?.store else { throw AppTargetFailure.persistenceUnavailable }
-        return try store.conversationNewBrowseWindow(originID: originID, uncommittedIDs: sessions.uncommittedIDs)
+              let dependencies else { throw AppTargetFailure.persistenceUnavailable }
+        let window = try dependencies.store.conversationNewBrowseWindow(
+            originID: originID,
+            uncommittedIDs: sessions.uncommittedIDs
+        )
+        return try projectAuthenticationAvailability(in: window, dependencies: dependencies)
     }
     func createConversationFromAppSpace(at now: Date = Date()) throws -> String {
         guard previewContent.isPresented, !previewContent.isPreparing,
@@ -564,8 +568,48 @@ final class AppShellModel {
     }
 
     func browseWindow(id: String) throws -> ConversationBrowseWindow {
-        guard let store = dependencies?.store else { throw AppTargetFailure.persistenceUnavailable }
-        return try store.conversationBrowseWindow(id: id, uncommittedIDs: sessions.uncommittedIDs)
+        guard let dependencies else { throw AppTargetFailure.persistenceUnavailable }
+        let window = try dependencies.store.conversationBrowseWindow(
+            id: id,
+            uncommittedIDs: sessions.uncommittedIDs
+        )
+        return try projectAuthenticationAvailability(in: window, dependencies: dependencies)
+    }
+
+    private func projectAuthenticationAvailability(
+        in window: ConversationBrowseWindow,
+        dependencies: AppAssembly.Dependencies
+    ) throws -> ConversationBrowseWindow {
+        func project(_ summary: ConversationSummary) throws -> ConversationSummary {
+            guard var projection = summary.runProjection,
+                  projection.state == .suspended,
+                  projection.suspendReason == .authRequired else { return summary }
+            projection.canRefreshFrozenCredential = try AuthenticationRetryTargetSelector.canRefreshFrozenCredential(
+                runID: projection.runID,
+                store: dependencies.store,
+                credentials: dependencies.credentials
+            )
+            return ConversationSummary(
+                id: summary.id,
+                title: summary.title,
+                excerpt: summary.excerpt,
+                pinned: summary.pinned,
+                userActiveAt: summary.userActiveAt,
+                contentUnavailable: summary.contentUnavailable,
+                runProjection: projection,
+                providerInstanceID: summary.providerInstanceID,
+                modelID: summary.modelID,
+                providerName: summary.providerName
+            )
+        }
+
+        return ConversationBrowseWindow(
+            current: try window.current.map(project),
+            older: try window.older.map(project),
+            newer: try window.newer.map(project),
+            uncommittedOriginID: window.uncommittedOriginID,
+            uncommittedIDs: window.uncommittedIDs
+        )
     }
 
     func preparePreviewReturn(to requestedID: String? = nil) async -> Bool {

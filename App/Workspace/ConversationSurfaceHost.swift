@@ -6,6 +6,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
     var request: SurfaceGeometry.Request = .full
     var liftController: SurfaceLiftController?
     var browseController: AppSpaceBrowseController?
+    var authenticationCardInteractionEnabled: Bool
+    var cardAccessibilityActions: SurfaceCardAccessibilityActionStore?
     var deleteAction: AppSpaceCardDeletionInteraction.Commit?
     var isDeletionPending: (@MainActor (String) -> Bool)?
     var isWorkspaceVisible: Bool
@@ -24,6 +26,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
 
     init(request: SurfaceGeometry.Request = .full, liftController: SurfaceLiftController? = nil,
          browseController: AppSpaceBrowseController? = nil,
+         authenticationCardInteractionEnabled: Bool = false,
+         cardAccessibilityActions: SurfaceCardAccessibilityActionStore? = nil,
          deleteAction: AppSpaceCardDeletionInteraction.Commit? = nil,
          isDeletionPending: (@MainActor (String) -> Bool)? = nil,
          isWorkspaceVisible: Bool = true,
@@ -38,6 +42,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         self.request = request
         self.liftController = liftController
         self.browseController = browseController
+        self.authenticationCardInteractionEnabled = authenticationCardInteractionEnabled
+        self.cardAccessibilityActions = cardAccessibilityActions
         self.deleteAction = deleteAction
         self.isDeletionPending = isDeletionPending
         self.isWorkspaceVisible = isWorkspaceVisible
@@ -63,6 +69,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.bindDeletion(deleteAction, isPending: isDeletionPending)
         controller.onNativeLayout = onNativeLayout
         controller.setRestingCornerRadius(restingCornerRadius)
+        controller.setAuthenticationCardInteractionEnabled(authenticationCardInteractionEnabled)
+        controller.setCardAccessibilityActions(cardAccessibilityActions)
         controller.setInputSuppressed(isInputSuppressed)
         controller.setReturnProxyHidden(isReturnProxyHidden)
         controller.setWorkspaceVisible(isWorkspaceVisible)
@@ -86,6 +94,8 @@ struct ConversationSurfaceHost<Content: View>: UIViewControllerRepresentable {
         controller.bindDeletion(deleteAction, isPending: isDeletionPending)
         controller.onNativeLayout = onNativeLayout
         controller.setRestingCornerRadius(restingCornerRadius)
+        controller.setAuthenticationCardInteractionEnabled(authenticationCardInteractionEnabled)
+        controller.setCardAccessibilityActions(cardAccessibilityActions)
         controller.setInputSuppressed(isInputSuppressed)
         controller.setReturnProxyHidden(isReturnProxyHidden)
         controller.setWorkspaceVisible(isWorkspaceVisible)
@@ -230,6 +240,8 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     private var animationIdentity: UUID?
     private var retainsAnimationMask = false
     private var workspaceVisible = true
+    private var authenticationCardInteractionEnabled = false
+    private var cardAccessibilityActions: SurfaceCardAccessibilityActionStore?
     private var contentConstraints: [NSLayoutConstraint] = []
 
     init(content: Content, request: SurfaceGeometry.Request = .full) {
@@ -332,6 +344,18 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 
     func setInputSuppressed(_ suppressed: Bool) {
         inputSuppressed = suppressed
+        liftController?.refreshCardAccessibility()
+    }
+
+    func setAuthenticationCardInteractionEnabled(_ enabled: Bool) {
+        guard authenticationCardInteractionEnabled != enabled else { return }
+        authenticationCardInteractionEnabled = enabled
+        liftController?.refreshCardAccessibility()
+    }
+
+    func setCardAccessibilityActions(_ actions: SurfaceCardAccessibilityActionStore?) {
+        guard cardAccessibilityActions !== actions else { return }
+        cardAccessibilityActions = actions
         liftController?.refreshCardAccessibility()
     }
 
@@ -535,46 +559,66 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     func setLiftInteraction(_ phase: SurfaceLiftState.Phase, returnAction: @escaping () -> Bool) {
         surfaceView.setCurrentEdgeVisible(phase == .card)
         let frozen = phase == .settling || phase == .card || phase == .split
-        contentController.view.isUserInteractionEnabled = workspaceVisible && !frozen && !inputSuppressed && !returnProxyHidden
-        contentController.view.accessibilityElementsHidden = !workspaceVisible || frozen || inputSuppressed || returnProxyHidden
-        surfaceView.isAccessibilityElement = workspaceVisible && frozen && !inputSuppressed && !returnProxyHidden
+        let interactiveAuthenticationCard = phase == .card && authenticationCardInteractionEnabled
+        let contentFrozen = frozen && !interactiveAuthenticationCard
+        contentController.view.isUserInteractionEnabled = workspaceVisible && !contentFrozen && !inputSuppressed && !returnProxyHidden
+        contentController.view.accessibilityElementsHidden = !workspaceVisible || contentFrozen || inputSuppressed || returnProxyHidden
+        surfaceView.isAccessibilityElement = workspaceVisible && frozen && !interactiveAuthenticationCard && !inputSuppressed && !returnProxyHidden
         surfaceView.accessibilityIdentifier = phase == .card || liftController?.heldReturnCardLabel != nil ? "workspace-current-card" : nil
         surfaceView.accessibilityLabel = "当前会话"
         let isNew = browseInteraction?.controller.isNewEntry == true
         surfaceView.accessibilityHint = isNew ? "轻点创建新对话" : "轻点返回会话"
         surfaceView.accessibilityTraits = .button
-        surfaceView.onActivate = frozen ? { [weak self] in
-            self?.browseInteraction?.cancel()
-            return returnAction()
-        } : nil
-        surfaceView.accessibilityCustomActions = frozen
-            ? [UIAccessibilityCustomAction(name: isNew ? "创建新对话" : "返回会话", target: surfaceView,
-                                           selector: #selector(SurfaceClipView.activateReturn))] : nil
+        let returnHandler: @MainActor () -> Bool = { [weak self] in
+            guard let self else { return false }
+            self.browseInteraction?.cancel()
+            return self.liftController?.returnToFull() ?? returnAction()
+        }
+        if frozen && !interactiveAuthenticationCard {
+            surfaceView.onActivate = returnHandler
+        } else {
+            surfaceView.onActivate = nil
+        }
+        let returnName = isNew ? "创建新对话" : "返回会话"
+        var nativeActions = frozen
+            ? [UIAccessibilityCustomAction(name: returnName, target: surfaceView,
+                                           selector: #selector(SurfaceClipView.activateReturn))] : []
+        var spokenActions = frozen
+            ? [SurfaceCardAccessibilityAction(name: returnName, perform: returnHandler)] : []
         if phase == .card, let browse = browseInteraction, browse.hasNavigationActions {
-            var actions = surfaceView.accessibilityCustomActions ?? []
             if browse.controller.state.older != nil {
-                actions.append(UIAccessibilityCustomAction(name: "上一会话") { [weak browse] _ in
-                    browse?.navigate(.older) ?? false
-                })
+                let handler: @MainActor () -> Bool = { [weak self] in
+                    self?.browseInteraction?.navigate(.older) ?? false
+                }
+                nativeActions.append(UIAccessibilityCustomAction(name: "上一会话") { _ in handler() })
+                spokenActions.append(SurfaceCardAccessibilityAction(name: "上一会话", perform: handler))
             }
             if browse.controller.state.newer != nil {
-                actions.append(UIAccessibilityCustomAction(name: "下一会话") { [weak browse] _ in
-                    browse?.navigate(.newer) ?? false
-                })
+                let handler: @MainActor () -> Bool = { [weak self] in
+                    self?.browseInteraction?.navigate(.newer) ?? false
+                }
+                nativeActions.append(UIAccessibilityCustomAction(name: "下一会话") { _ in handler() })
+                spokenActions.append(SurfaceCardAccessibilityAction(name: "下一会话", perform: handler))
             }
             if !isNew, browse.controller.canEditCurrentMetadata {
-                if let deletion = deletionInteraction, deletion.canTrigger {
-                    actions.append(UIAccessibilityCustomAction(name: "删除会话") { [weak deletion] _ in
-                        deletion?.triggerAccessibilityDelete() ?? false
-                    })
+                if let deletionInteraction, deletionInteraction.canTrigger {
+                    let handler: @MainActor () -> Bool = { [weak self] in
+                        self?.deletionInteraction?.triggerAccessibilityDelete() ?? false
+                    }
+                    nativeActions.append(UIAccessibilityCustomAction(name: "删除会话") { _ in handler() })
+                    spokenActions.append(SurfaceCardAccessibilityAction(name: "删除会话", perform: handler))
                 }
-                actions.append(UIAccessibilityCustomAction(name: "会话菜单") { [weak browse] _ in
-                    guard let browse, browse.canNavigate else { return false }
+                let handler: @MainActor () -> Bool = { [weak self] in
+                    guard let browse = self?.browseInteraction, browse.canNavigate else { return false }
                     return browse.controller.onOpenActions?() ?? false
-                })
+                }
+                nativeActions.append(UIAccessibilityCustomAction(name: "会话菜单") { _ in handler() })
+                spokenActions.append(SurfaceCardAccessibilityAction(name: "会话菜单", perform: handler))
             }
-            surfaceView.accessibilityCustomActions = actions
         }
+        surfaceView.accessibilityCustomActions = frozen && !interactiveAuthenticationCard ? nativeActions : nil
+        cardAccessibilityActions?.setActions(interactiveAuthenticationCard
+            && workspaceVisible && !inputSuppressed && !returnProxyHidden ? spokenActions : [])
         browseInteraction?.updateAvailability()
         deletionInteraction?.updateAvailability()
     }

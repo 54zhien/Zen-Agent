@@ -944,6 +944,7 @@ actor AgentRuntime {
                         currentRequest: currentRequest,
                         assistantContent: assistantContent,
                         batch: batch,
+                        snapshot: snapshot,
                         continuation: continuation,
                         project: project
                     )
@@ -1275,6 +1276,7 @@ actor AgentRuntime {
         currentRequest: ProviderChatRequest,
         assistantContent: String?,
         batch: ActiveToolBatch,
+        snapshot: RunExecutionSnapshot,
         continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
         project: @escaping AgentEventProjection
     ) async throws -> ToolBatchDisposition {
@@ -1290,6 +1292,19 @@ actor AgentRuntime {
             continuation: continuation,
             project: project
         )
+
+        if snapshot.delegation?.isHiddenDualChildProbe == true,
+           batch.calls.count == DelegationExecutionSnapshot.hiddenDualChildProbeLimit,
+           batch.calls.allSatisfy({ $0.name == SubagentDelegationTool.toolID }) {
+            return try await processDualChildProbeBatch(
+                runID: runID,
+                currentRequest: currentRequest,
+                assistantContent: assistantContent,
+                batch: batch,
+                continuation: continuation,
+                project: project
+            )
+        }
 
         var completedCalls: [ToolBatchCall] = []
         var emittedCallCount = 0
@@ -1452,6 +1467,190 @@ actor AgentRuntime {
                 tools: currentRequest.tools
             )
         )
+    }
+
+    private func processDualChildProbeBatch(
+        runID: String,
+        currentRequest: ProviderChatRequest,
+        assistantContent: String?,
+        batch: ActiveToolBatch,
+        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
+        project: @escaping AgentEventProjection
+    ) async throws -> ToolBatchDisposition {
+        var completedCalls: [ToolBatchCall] = []
+        for (sequence, providerCall) in batch.calls.enumerated() {
+            if stopRequested.contains(runID) || Task.isCancelled {
+                throw ControlError.stopRequested
+            }
+
+            do {
+                _ = try await toolRuntime.complete(
+                    agentRunID: runID,
+                    providerCallID: providerCall.id,
+                    toolID: providerCall.name,
+                    argumentsJSON: providerCall.argumentsJSON,
+                    batchID: batch.batchID,
+                    batchSequence: sequence
+                )
+            } catch ToolRuntimeError.unknownTool(_) {
+                _ = try toolRuntime.rejectUnknown(
+                    agentRunID: runID,
+                    providerCallID: providerCall.id,
+                    toolID: providerCall.name,
+                    batchID: batch.batchID,
+                    batchSequence: sequence
+                )
+            } catch {
+                if stopRequested.contains(runID) || Task.isCancelled {
+                    throw ControlError.stopRequested
+                }
+                let existing = try store.toolCalls(inRun: runID).first {
+                    $0.providerCallID == providerCall.id &&
+                        $0.batchID == batch.batchID &&
+                        $0.batchSequence == sequence
+                }
+                if existing == nil {
+                    _ = try toolRuntime.rejectUnknown(
+                        agentRunID: runID,
+                        providerCallID: providerCall.id,
+                        toolID: providerCall.name,
+                        batchID: batch.batchID,
+                        batchSequence: sequence
+                    )
+                }
+            }
+
+            guard let record = try store.toolCalls(inRun: runID).first(where: {
+                $0.providerCallID == providerCall.id &&
+                    $0.batchID == batch.batchID &&
+                    $0.batchSequence == sequence
+            }) else {
+                throw PersistenceError.toolCallNotFound(providerCall.id)
+            }
+            completedCalls.append(ToolBatchCall(
+                providerCall: providerCall,
+                record: record,
+                result: try store.toolResult(toolCallID: record.id)
+            ))
+        }
+
+        for completed in completedCalls {
+            try await emit(
+                .toolCallChanged(
+                    runID: runID,
+                    providerCallID: completed.providerCall.id,
+                    state: completed.record.state
+                ),
+                continuation: continuation,
+                project: project
+            )
+        }
+
+        let waitingCalls = completedCalls.filter {
+            $0.record.state == .waitingForApproval ||
+                $0.record.state == .waitingForSystemPermissionConsent
+        }
+        for waiting in waitingCalls {
+            try await emit(.approvalRequired(runID: runID, toolCallID: waiting.record.id),
+                continuation: continuation, project: project)
+            if try store.run(id: runID)?.state != .waitingForApproval {
+                try await transition(runID: runID, to: .waitingForApproval,
+                    continuation: continuation, project: project)
+            }
+        }
+        for waiting in waitingCalls {
+            await waitForToolDecision(toolCallID: waiting.record.id)
+            if stopRequested.contains(runID) || Task.isCancelled {
+                throw ControlError.stopRequested
+            }
+        }
+        if !waitingCalls.isEmpty,
+           try store.run(id: runID)?.state == .waitingForApproval {
+            try await transition(runID: runID, to: .executingTools,
+                continuation: continuation, project: project)
+        }
+
+        let approvedCalls = try completedCalls.compactMap { completed -> (String, Bool)? in
+            guard let current = try store.toolCall(id: completed.record.id) else {
+                throw PersistenceError.toolCallNotFound(completed.record.id)
+            }
+            guard current.state == .approved || current.state == .prepared else { return nil }
+            return (current.id, current.state == .approved)
+        }
+        let runtime = toolRuntime
+        var childAuthenticationFailure: DelegatedChildAuthenticationRequired?
+        await withTaskGroup(of: DelegatedChildAuthenticationRequired?.self) { group in
+            for (toolCallID, isApproved) in approvedCalls {
+                group.addTask {
+                    do {
+                        if isApproved { _ = try await runtime.executeApproved(toolCallID: toolCallID) }
+                        else { _ = try await runtime.executePrepared(toolCallID: toolCallID) }
+                    } catch {
+                        return error as? DelegatedChildAuthenticationRequired
+                    }
+                    return nil
+                }
+            }
+            for await failure in group {
+                if case nil = childAuthenticationFailure {
+                    childAuthenticationFailure = failure
+                }
+            }
+        }
+        if stopRequested.contains(runID) || Task.isCancelled {
+            throw ControlError.stopRequested
+        }
+
+        completedCalls = try completedCalls.map { completed in
+            guard let record = try store.toolCall(id: completed.record.id) else {
+                throw PersistenceError.toolCallNotFound(completed.record.id)
+            }
+            return ToolBatchCall(
+                providerCall: completed.providerCall,
+                record: record,
+                result: try store.toolResult(toolCallID: record.id)
+            )
+        }
+        for completed in completedCalls {
+            try await emit(
+                .toolCallChanged(
+                    runID: runID,
+                    providerCallID: completed.providerCall.id,
+                    state: completed.record.state
+                ),
+                continuation: continuation,
+                project: project
+            )
+        }
+
+        if let childAuthenticationFailure {
+            throw childAuthenticationFailure
+        }
+
+        guard completedCalls.count == batch.calls.count,
+              completedCalls.allSatisfy({ $0.result != nil })
+        else {
+            throw ProviderRuntimeFailure.toolsNotAvailable
+        }
+
+        var messages = currentRequest.messages
+        messages.append(.assistant(content: assistantContent, reasoning: nil, toolCalls: batch.calls))
+        for completed in completedCalls {
+            guard let result = completed.result else {
+                throw ProviderRuntimeFailure.toolsNotAvailable
+            }
+            messages.append(.toolResult(toolCallID: completed.providerCall.id, content: result.payload))
+        }
+
+        try await transition(runID: runID, to: .continuing,
+            continuation: continuation, project: project)
+        try await transition(runID: runID, to: .requestingModel,
+            continuation: continuation, project: project)
+        return .continueWith(ProviderChatRequest(
+            modelID: currentRequest.modelID,
+            messages: messages,
+            tools: currentRequest.tools
+        ))
     }
 
     /// Suspends the serial batch until a decision for `toolCallID` is recorded.

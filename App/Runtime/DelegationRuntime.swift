@@ -88,7 +88,7 @@ actor DelegationRuntime {
         else {
             throw CancellationError()
         }
-        return try await runChild(
+        return try await runChildWithParentStopSettlement(
             child: child,
             parent: parent,
             childContext: childContext,
@@ -150,7 +150,7 @@ actor DelegationRuntime {
                 await agentRuntime.releaseToolRegistry(forRunID: child.id)
                 throw DelegationRuntimeError.unsupportedChildState(child.id, child.state)
             }
-            return try await runChild(
+            return try await runChildWithParentStopSettlement(
                 child: child,
                 parent: parent,
                 childContext: childContext,
@@ -204,7 +204,7 @@ actor DelegationRuntime {
                 snapshot: childSnapshot,
                 initialRequest: initialRequest
             )
-            return try await runChild(
+            return try await runChildWithParentStopSettlement(
                 child: recoveredChild,
                 parent: parent,
                 childContext: childContext,
@@ -260,6 +260,30 @@ actor DelegationRuntime {
             project: project
         )
         return try await waitForChild(stream, child: recoveredChild, parent: parent)
+    }
+
+    private func runChildWithParentStopSettlement(
+        child: AgentRunRecord,
+        parent: AgentRunRecord,
+        childContext: PreparedDelegatedChildContext,
+        task: String,
+        requestOverride: ProviderChatRequest? = nil
+    ) async throws -> ToolExecutionResult {
+        do {
+            return try await runChild(
+                child: child,
+                parent: parent,
+                childContext: childContext,
+                task: task,
+                requestOverride: requestOverride
+            )
+        } catch {
+            let parentIsStopping = (try? store.run(id: parent.id))?.state == .stopping
+            if Task.isCancelled || parentIsStopping {
+                await cancelChild(child.id, parentRunID: parent.id)
+            }
+            throw error
+        }
     }
 
     private func runChild(
@@ -660,7 +684,7 @@ actor DelegationRuntime {
               let delegation = snapshot.delegation,
               delegation.enabled,
               delegation.maxDepth == 1,
-              delegation.maxConcurrentChildren == 1,
+              delegation.supportsFrozenConcurrencyLimit,
               policyMatchesTarget(delegation),
               delegation.environmentInheritance == .none,
               snapshot.permitsTool(SubagentDelegationTool.toolDescriptor)
@@ -699,7 +723,10 @@ actor DelegationRuntime {
         do {
             try await agentRuntime.stop(runID: childRunID)
         } catch AgentRuntimeError.runIsNotActive {
-            _ = try? store.cancelTasklessDelegatedChildren(parentRunID: parentRunID)
+            _ = try? store.cancelTasklessDelegatedChild(
+                parentRunID: parentRunID,
+                childRunID: childRunID
+            )
         } catch {
             return
         }

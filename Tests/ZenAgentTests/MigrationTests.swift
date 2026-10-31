@@ -246,6 +246,43 @@ struct MigrationTests {
         #expect(try store.toolResult(toolCallID: "call-v30-auth")?.failureCode == .authenticationRequired)
     }
 
+    @Test("v31 to v32 removes the one active Child limit without rewriting rows")
+    func v31ToV32DualChildProbeMigrationPreservesRows() throws {
+        let database = try DatabaseQueue()
+        let migrator = Migrations.makeMigrator()
+        try migrator.migrate(database, upTo: "v31_authentication_refresh_gate")
+        try database.write { db in
+            try db.execute(sql: """
+                INSERT INTO conversation(id, title, createdAt, updatedAt, userActiveAt, pinned, lifecycle)
+                VALUES ('v32-conversation', 'Preserved conversation', ?, ?, ?, 0, 'visible')
+                """, arguments: [Fixtures.epoch, Fixtures.epoch, Fixtures.epoch])
+        }
+        #expect(try database.read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
+                arguments: ["agentRun_one_active_child_per_parent"]
+            )
+        } == "agentRun_one_active_child_per_parent")
+
+        try migrator.migrate(database)
+
+        #expect(try database.read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
+                arguments: ["agentRun_one_active_child_per_parent"]
+            )
+        } == nil)
+        #expect(try database.read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT title FROM conversation WHERE id = ?",
+                arguments: ["v32-conversation"]
+            )
+        } == "Preserved conversation")
+    }
+
     @Test("v8 → v9 adds quote references without rewriting legacy messages")
     func v8ToV9AddsMessageQuoteReferenceWithoutRewritingLegacyMessages() throws {
         let url = try Fixtures.scratchPath(name: "quote-reference-v9-migration.sqlite")
