@@ -41,8 +41,9 @@ struct AppShellWiringTests {
             reference: fixture.reference,
             generation: 1
         )
+        let runToInsert = run
         try fixture.store.database.write { db in
-            try run.insert(db)
+            try runToInsert.insert(db)
             try AgentStepRecord(
                 stepID: "auth-preview-step",
                 runID: runID,
