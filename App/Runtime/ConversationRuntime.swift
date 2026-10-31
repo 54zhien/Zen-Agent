@@ -628,22 +628,28 @@ actor ConversationRuntime {
               parent.state.isActive
         else { throw RunRequestRebuildError.authenticationActionRequired }
 
-        let target = try authenticationCredentialFailureTarget(for: parent)
-        guard try credentialFailureEvidence(in: target) != nil else {
+        let targets = try authenticationCredentialFailureTargets(for: parent)
+        guard let target = targets.first,
+              try targets.allSatisfy({ try credentialFailureEvidence(in: $0) != nil }) else {
             throw RunRequestRebuildError.authenticationActionRequired
         }
         let binding = target.requestConfigSeed.credentialBinding
+        guard targets.allSatisfy({ $0.requestConfigSeed.credentialBinding == binding }) else {
+            throw RunRequestRebuildError.authenticationActionRequired
+        }
         try credentials.refresh(
             secret,
             for: binding.reference,
             generation: binding.generation,
             at: Date()
         )
-        guard try RunRequestRebuilder.authenticationRetryCredentialReady(
-            for: target,
-            store: store,
-            credentials: credentials
-        ) else {
+        guard try targets.allSatisfy({
+            try RunRequestRebuilder.authenticationRetryCredentialReady(
+                for: $0,
+                store: store,
+                credentials: credentials
+            )
+        }) else {
             throw RunRequestRebuildError.authenticationActionRequired
         }
 
@@ -1139,29 +1145,41 @@ actor ConversationRuntime {
         return failedAttempt
     }
 
-    private func authenticationCredentialFailureTarget(
+    private func authenticationCredentialFailureTargets(
         for parent: AgentRunRecord
-    ) throws -> AgentRunRecord {
+    ) throws -> [AgentRunRecord] {
         guard (parent.state == .suspended && parent.suspendReason == .authRequired)
                 || (parent.state == .recovering && parent.recoveryAction == .reprepare)
         else { throw RunRequestRebuildError.authenticationActionRequired }
 
-        if try credentialFailureEvidence(in: parent) != nil { return parent }
+        if try credentialFailureEvidence(in: parent) != nil { return [parent] }
 
         let delegatedCalls = try store.toolCalls(inRun: parent.id).filter {
-            $0.action == SubagentDelegationTool.toolID && !$0.state.isTerminal
+            $0.action == SubagentDelegationTool.toolID
+                && ($0.state == .dispatched || $0.state == .indeterminate)
         }
-        guard delegatedCalls.count == 1,
-              delegatedCalls[0].state == .dispatched || delegatedCalls[0].state == .indeterminate,
-              let childID = try store.delegatedChildRunID(parentToolCallID: delegatedCalls[0].id),
-              let child = try store.run(id: childID),
-              child.kind == .child,
-              child.parentRunID == parent.id,
-              (child.state == .suspended && child.suspendReason == .authRequired)
-                || (child.state == .recovering && child.recoveryAction == .reprepare),
-              try credentialFailureEvidence(in: child) != nil
-        else { throw RunRequestRebuildError.authenticationActionRequired }
-        return child
+        var authenticationFailedChildren: [AgentRunRecord] = []
+        for call in delegatedCalls {
+            guard let childID = try store.delegatedChildRunID(parentToolCallID: call.id),
+                  let child = try store.run(id: childID),
+                  child.kind == .child,
+                  child.parentRunID == parent.id,
+                  (child.state == .suspended && child.suspendReason == .authRequired)
+                    || (child.state == .recovering && child.recoveryAction == .reprepare),
+                  try credentialFailureEvidence(in: child) != nil
+            else { continue }
+            authenticationFailedChildren.append(child)
+        }
+        guard !authenticationFailedChildren.isEmpty else {
+            throw RunRequestRebuildError.authenticationActionRequired
+        }
+        let binding = authenticationFailedChildren[0].requestConfigSeed.credentialBinding
+        guard authenticationFailedChildren.allSatisfy({
+            $0.requestConfigSeed.credentialBinding == binding
+        }) else {
+            throw RunRequestRebuildError.authenticationActionRequired
+        }
+        return authenticationFailedChildren
     }
 
     private func continueAuthenticationRetry(_ run: AgentRunRecord) async throws {
