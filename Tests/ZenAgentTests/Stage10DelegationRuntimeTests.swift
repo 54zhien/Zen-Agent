@@ -439,17 +439,28 @@ struct Stage10DelegationRuntimeTests {
         let parentRunID = try await runtime.start(
             I05RuntimeTestFixtures.command(text: "Review this Child task.", modelID: Stage2GateFixture.modelID)
         )
+        print("STAGE10_AUTH401 A0 before parent approval wait")
         let parentToolCallID = await events.waitForApproval()
+        print("STAGE10_AUTH401 A1 parent approval received")
+        print("STAGE10_AUTH401 A2 before parent approval action")
         try await runtime.approve(toolCallID: parentToolCallID)
+        print("STAGE10_AUTH401 A3 parent approval action returned")
+        print("STAGE10_AUTH401 A4 before initial parent completion wait")
         do {
             try await runtime.waitForCompletion(runID: parentRunID)
         } catch AgentRuntimeError.runNotFound(let runID) where runID == parentRunID {
             // The Parent has already reached auth suspension and left the operation map.
         }
+        print("STAGE10_AUTH401 A5 initial parent completion wait returned")
 
         let childRunID = try #require(try fixture.store.delegatedChildRunID(parentToolCallID: parentToolCallID))
+        print("STAGE10_AUTH401 A6 Child ID lookup returned")
+        print("STAGE10_AUTH401 A7 before Child suspended wait")
         await events.waitForState(runID: childRunID, state: .suspended)
+        print("STAGE10_AUTH401 A8 Child suspended observed")
+        print("STAGE10_AUTH401 A9 before Parent suspended wait")
         await events.waitForState(runID: parentRunID, state: .suspended)
+        print("STAGE10_AUTH401 A10 Parent suspended observed")
 
         let failedAttempt = try #require(try fixture.store.steps(inRun: childRunID).last)
         #expect(failedAttempt.credentialFailureSource == .providerHTTP401)
@@ -459,28 +470,38 @@ struct Stage10DelegationRuntimeTests {
         #expect(childBeforeRecovery.requestConfigSeed.providerInstanceID == targetA.providerInstanceID)
         #expect(childBeforeRecovery.requestConfigSeed.credentialBinding.reference == credentialA)
 
+        print("STAGE10_AUTH401 A11 before suspended Parent completion wait")
         do {
             try await runtime.waitForCompletion(runID: parentRunID)
         } catch AgentRuntimeError.runNotFound(let runID) where runID == parentRunID {
             // The suspended execution has already left the in-memory operation map.
         }
+        print("STAGE10_AUTH401 A12 suspended Parent completion wait returned")
+        print("STAGE10_AUTH401 A13 before cold-start reconciliation")
         _ = try await runtime.reconcileColdStartRuns()
+        print("STAGE10_AUTH401 A14 cold-start reconciliation returned")
+        print("STAGE10_AUTH401 A15 before post-reconciliation completion wait")
         do {
             try await runtime.waitForCompletion(runID: parentRunID)
         } catch AgentRuntimeError.runNotFound(let runID) where runID == parentRunID {
             // Authentication remains pending without an explicit credential refresh.
         }
+        print("STAGE10_AUTH401 A16 post-reconciliation completion wait returned")
 
         #expect(try fixture.store.run(id: childRunID)?.state == .suspended)
         #expect(try fixture.store.run(id: parentRunID)?.state == .suspended)
         #expect(await providerLedger.requestsSnapshot().count == 3)
 
         try fixture.store.setDelegationConfiguration(enabled: true, explicitModelTarget: targetB)
+        print("STAGE10_AUTH401 A17 before frozen credential refresh and retry")
         try await runtime.refreshFrozenCredentialAndRetry(
             runID: parentRunID,
             secret: SecretValue("stage10-child-a-refreshed")
         )
+        print("STAGE10_AUTH401 A18 frozen credential refresh and retry returned")
+        print("STAGE10_AUTH401 A19 before final Parent completion wait")
         try await runtime.waitForCompletion(runID: parentRunID)
+        print("STAGE10_AUTH401 A20 final Parent completion wait returned")
 
         let parentAfterRecovery = try #require(try fixture.store.run(id: parentRunID))
         let childAfterRecovery = try #require(try fixture.store.run(id: childRunID))
