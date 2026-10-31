@@ -3,6 +3,83 @@ import Foundation
 import GRDB
 
 enum ConversationPreviewUITestSeed {
+    static func seedAuthenticationCard(
+        in store: PersistenceStore,
+        credentialReference: CredentialReference,
+        credentialFailureAt: Date
+    ) throws {
+        let conversationID = "auth-card-ui-conversation"
+        let runID = "auth-card-ui-run"
+        let providerID = ProviderInstanceID(rawValue: "reauth-ui-account")
+        let modelID = ModelID(rawValue: "fake-model")
+        let createdAt = credentialFailureAt.addingTimeInterval(-60)
+        let triggerMessageID = "auth-card-ui-trigger"
+        let provider = FakeProvider()
+        guard let instance = try store.providerInstance(id: providerID) else {
+            throw PersistenceError.providerInstanceNotFound(providerID)
+        }
+        let credentialBinding = CredentialBindingSnapshot(reference: credentialReference, generation: 1)
+        let requestConfigSeed = try provider.makeRequestConfigSeed(
+            instance: instance,
+            modelID: modelID,
+            credentialBinding: credentialBinding
+        )
+        let executionSnapshot = try ExecutionSnapshotCodec.encode(RunExecutionSnapshot(
+            providerID: provider.id,
+            providerAdapterRevision: provider.adapterRevision,
+            prompt: PromptExecutionSnapshot(
+                runtimeSafetyBaseline: PromptTemplateCatalog.currentRuntimeSafetyRevision,
+                zenCore: PromptTemplateCatalog.currentZenCoreRevision,
+                providerAdapterInstructions: provider.adapterPromptInstructions
+            ),
+            modelCapabilities: [.text, .streaming, .reasoning],
+            exposedTools: [],
+            maxProviderSteps: 4
+        ))
+        try store.saveMetadata(CredentialMetadata(
+            reference: credentialReference,
+            bindingGeneration: 1,
+            principalFingerprint: nil,
+            status: .active,
+            updatedAt: credentialFailureAt.addingTimeInterval(-30)
+        ))
+        let run = AgentRunRecord(id: runID, conversationID: conversationID, kind: .parent,
+            parentRunID: nil, state: .preparing, endReason: nil, recoveryAction: nil,
+            suspendReason: nil, triggerMessageID: triggerMessageID, responseMessageID: nil, retryOfRunID: nil,
+            requestConfigSeed: requestConfigSeed, executionSnapshot: nil,
+            createdAt: createdAt, updatedAt: createdAt, activeSlot: nil)
+        try store.commitUserTurnAndCreateParentRun(SendCommit(
+            conversation: ConversationRecord(id: conversationID, title: "", createdAt: createdAt,
+                updatedAt: createdAt, userActiveAt: createdAt, pinned: false, lifecycle: .visible),
+            message: MessageRecord(id: triggerMessageID, conversationID: conversationID,
+                role: .user, sequence: 0, createdAt: createdAt),
+            parts: [MessagePartRecord(id: "auth-card-ui-trigger-part", messageID: triggerMessageID,
+                sequence: 0, kind: .text, state: .completed,
+                payload: PersistenceStore.encodeTextPayload(.init(text: "Authentication refresh UI fixture")))],
+            run: run
+        ))
+        try store.completeExecutionSnapshot(runID: runID, encodedSnapshot: executionSnapshot, at: createdAt)
+        let attempt = AgentStepRecord(
+            stepID: "auth-card-ui-step",
+            runID: runID,
+            sequence: 0,
+            attempt: 1,
+            createdAt: credentialFailureAt.addingTimeInterval(-10)
+        )
+        try store.recordStep(attempt)
+        try store.markProviderStepStarted(attempt.attemptIdentity,
+            at: credentialFailureAt.addingTimeInterval(-5))
+        try store.transitionRun(id: runID, expectedState: .preparing, to: .requestingModel,
+            at: credentialFailureAt.addingTimeInterval(-5))
+        try store.suspendRunForCredentialFailure(
+            runID: runID,
+            expectedState: .requestingModel,
+            attemptIdentity: attempt.attemptIdentity,
+            source: .providerHTTP401,
+            at: credentialFailureAt
+        )
+    }
+
     static func makeStore() throws -> PersistenceStore {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
         try store.database.write { db in

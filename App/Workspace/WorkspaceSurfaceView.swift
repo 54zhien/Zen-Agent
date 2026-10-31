@@ -1,5 +1,25 @@
 import SwiftUI
 import UIKit
+import Observation
+
+struct SurfaceCardAccessibilityAction: Identifiable {
+    let name: String
+    let perform: @MainActor () -> Bool
+    var id: String { name }
+}
+
+@MainActor
+@Observable
+final class SurfaceCardAccessibilityActionStore {
+    var actions: [SurfaceCardAccessibilityAction] = []
+
+    func setActions(_ actions: [SurfaceCardAccessibilityAction]) {
+        // The handlers resolve the current interaction owners when invoked; native
+        // layout updates only need to publish when the VoiceOver action set changes.
+        guard self.actions.map(\.name) != actions.map(\.name) else { return }
+        self.actions = actions
+    }
+}
 
 private struct SurfaceLiftControllerKey: EnvironmentKey {
     static let defaultValue: SurfaceLiftController? = nil
@@ -17,6 +37,10 @@ private struct WorkspaceInputSuppressedKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct SurfaceCardAccessibilityActionsKey: EnvironmentKey {
+    static let defaultValue: SurfaceCardAccessibilityActionStore? = nil
+}
+
 private struct WorkspaceNavigationKey: EnvironmentKey {
     static let defaultValue: WorkspaceNavigationState? = nil
 }
@@ -29,6 +53,10 @@ extension EnvironmentValues {
     var workspaceInputSuppressed: Bool {
         get { self[WorkspaceInputSuppressedKey.self] }
         set { self[WorkspaceInputSuppressedKey.self] = newValue }
+    }
+    var surfaceCardAccessibilityActions: SurfaceCardAccessibilityActionStore? {
+        get { self[SurfaceCardAccessibilityActionsKey.self] }
+        set { self[SurfaceCardAccessibilityActionsKey.self] = newValue }
     }
     var workspaceLayoutRevision: UInt64 {
         get { self[WorkspaceLayoutRevisionKey.self] }
@@ -66,6 +94,8 @@ struct WorkspaceSurfaceView<Content: View>: View {
     private let model: AppShellModel?
     @State private var lift: SurfaceLiftController
     @State private var secondaryLift = SurfaceLiftController()
+    @State private var primaryCardAccessibilityActions = SurfaceCardAccessibilityActionStore()
+    @State private var secondaryCardAccessibilityActions = SurfaceCardAccessibilityActionStore()
     @State private var browse = AppSpaceBrowseController()
     @State private var requestedMenuID: String?
     @State private var resize = SplitResizeController()
@@ -425,11 +455,19 @@ struct WorkspaceSurfaceView<Content: View>: View {
                                   sidebarOffset: CGFloat) -> some View {
         let fullFrame = CGRect(origin: .zero, size: geometry.size)
         let driver = controller(for: slot)
+        let cardAccessibilityActions = slot == .primary
+            ? primaryCardAccessibilityActions : secondaryCardAccessibilityActions
         let frame = driver.retainsAppSpaceViewport ? fullFrame
             : splitFrame(in: geometry, slot: logicalSlot(for: slot)) ?? fullFrame
         let visible = surfaceIsVisible(slot)
         let suppressed = returnPresentation.suppressesTarget(slot)
         let surfaceBrowse: AppSpaceBrowseController? = model != nil && slot == (model?.previewSurfaceSlot ?? model?.sourceSurfaceSlot) ? browse : nil
+        let authenticationCardInteractionEnabled = model?.previewContent.isPresented == true
+            && model?.previewSurfaceSlot == slot
+            && browse.isPresented
+            && browse.currentSummary?.runProjection?.state == .suspended
+            && browse.currentSummary?.runProjection?.suspendReason == .authRequired
+            && browse.currentSummary?.runProjection?.canRefreshFrozenCredential == true
         let corner: CGFloat = model?.splitWorkspace != nil && !driver.retainsAppSpaceViewport ? 24 : 0
         // The proposed Workspace already avoids the keyboard. Only square an
         // exterior edge that actually reaches that shortened viewport; inner
@@ -447,8 +485,11 @@ struct WorkspaceSurfaceView<Content: View>: View {
             content: content, contentForSlot: contentForSlot)
             .environment(\.surfaceLiftController, driver)
             .environment(\.surfaceBrowseController, model == nil ? nil : browse)
+            .environment(\.surfaceCardAccessibilityActions, cardAccessibilityActions)
         let surface = ConversationSurfaceHost(liftController: driver,
             browseController: surfaceBrowse,
+            authenticationCardInteractionEnabled: authenticationCardInteractionEnabled,
+            cardAccessibilityActions: cardAccessibilityActions,
             deleteAction: deleteAction, isDeletionPending: isDeletionPending,
             isWorkspaceVisible: visible, isInputSuppressed: suppressed,
             isReturnProxyHidden: returnPresentation.hidesOrigin(slot),
