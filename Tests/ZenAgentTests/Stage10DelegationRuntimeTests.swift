@@ -459,6 +459,12 @@ struct Stage10DelegationRuntimeTests {
         print("STAGE10_AUTH401 A7 before Child suspended wait")
         await events.waitForState(runID: childRunID, state: .suspended)
         print("STAGE10_AUTH401 A8 Child suspended observed")
+        let parentStateAtA9 = try fixture.store.run(id: parentRunID)
+        let parentStateEventsAtA9 = await events.stateSequence(runID: parentRunID)
+        let durableState = parentStateAtA9?.state.rawValue ?? "missing"
+        let suspendReason = parentStateAtA9?.suspendReason?.rawValue ?? "none"
+        let eventStates = parentStateEventsAtA9.map(\.rawValue).joined(separator: ",")
+        print("STAGE10_AUTH401 A9_STATE durable=\(durableState) suspend=\(suspendReason) ledger=\(eventStates)")
         print("STAGE10_AUTH401 A9 before Parent suspended wait")
         await events.waitForState(runID: parentRunID, state: .suspended)
         print("STAGE10_AUTH401 A10 Parent suspended observed")
@@ -1874,6 +1880,10 @@ private actor Stage10DelegationEventLedger {
         await withCheckedContinuation { continuation in
             stateWaiters.append((runID, state, continuation))
         }
+    }
+
+    func stateSequence(runID: String) -> [RunState] {
+        stateEvents.filter { $0.runID == runID }.map(\.state)
     }
 }
 

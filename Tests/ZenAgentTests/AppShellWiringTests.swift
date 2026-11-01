@@ -115,7 +115,8 @@ struct AppShellWiringTests {
         #expect(!card.isAccessibilityElement)
         #expect(card.onActivate == nil)
 
-        let blankPoint = card.convert(CGPoint(x: card.bounds.maxX - 32, y: card.bounds.maxY - 32), to: window)
+        let visibleRect = try #require(card.visibleRect)
+        let blankPoint = card.convert(CGPoint(x: visibleRect.midX, y: visibleRect.maxY - 32), to: window)
         let blankHitTarget = try #require(window.hitTest(blankPoint, with: nil))
         #expect(blankHitTarget !== card)
         #expect(isDescendant(blankHitTarget, of: card))
