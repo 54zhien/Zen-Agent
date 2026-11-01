@@ -143,6 +143,10 @@ actor ConversationRuntime {
     private let registerRecoveredRun: @Sendable (String, String) async -> Void
     private let approvalRuntimeInstanceID = UUID().uuidString
 
+    #if DEBUG
+    private var manualDualChildProbePending = false
+    #endif
+
     private var operations: [String: Task<Void, Never>] = [:]
     private var completionErrors: [String: ConversationProjectionError] = [:]
     private var projections: [String: RunProjection] = [:]
@@ -184,7 +188,8 @@ actor ConversationRuntime {
         toolRegistry: ToolRegistry? = nil,
         toolRuntime: ToolRuntime? = nil,
         mcpRuntime: MCPServerRuntime? = nil,
-        managedFileStore: ManagedFileStore? = nil
+        managedFileStore: ManagedFileStore? = nil,
+        manualDualChildProbeEnabled: Bool = false
     ) {
         self.store = store
         self.provider = provider
@@ -205,6 +210,9 @@ actor ConversationRuntime {
         )
         self.onEvent = onEvent
         self.registerRecoveredRun = registerRecoveredRun
+        #if DEBUG
+        self.manualDualChildProbePending = manualDualChildProbeEnabled
+        #endif
     }
 
     private func currentToolContext(exposeTools: Bool = true) async throws -> ToolRuntimeRegistryContext {
@@ -522,11 +530,19 @@ actor ConversationRuntime {
         let snapshotToolContext: ToolRuntimeRegistryContext
         do {
             let delegationConfiguration = try store.delegationConfiguration()
+            var hiddenDualChildProbe = false
+            #if DEBUG
+            hiddenDualChildProbe = manualDualChildProbePending && delegationConfiguration.enabled
+            if hiddenDualChildProbe {
+                manualDualChildProbePending = false
+            }
+            #endif
             let delegation = DelegationExecutionSnapshot(
                 configuration: delegationConfiguration,
                 explicitModelBinding: try freezeExplicitDelegationModelBinding(
                     for: delegationConfiguration
-                )
+                ),
+                hiddenDualChildProbe: hiddenDualChildProbe
             )
             snapshotToolContext = try addingDelegationTool(
                 to: runToolContext,
