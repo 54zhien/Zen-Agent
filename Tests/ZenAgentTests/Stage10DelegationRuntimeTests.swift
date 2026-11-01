@@ -401,6 +401,7 @@ struct Stage10DelegationRuntimeTests {
         let toolLedger = I07ToolLedger()
         let tool = I07RecordingTool(id: toolID, approvalRequirement: .notRequired, ledger: toolLedger)
         let registry = try ToolRegistry(tools: [tool])
+        try Fixtures.allowAutomaticToolPolicies(in: fixture.store, registry: registry)
         let providerLedger = Stage2ProviderLedger()
         let provider = Stage10AuthenticationProvider(
             ledger: providerLedger,
