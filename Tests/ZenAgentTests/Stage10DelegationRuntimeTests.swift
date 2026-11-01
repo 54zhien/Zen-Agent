@@ -104,6 +104,19 @@ struct Stage10DelegationRuntimeTests {
         #expect(result.payload == "child answer")
 
         let reportData = try #require(try fixture.store.latestParentChildMeasurementJSON(
+            context: Stage10ManualMeasurementContext(
+                startedAt: Fixtures.epoch,
+                scenario: "stage10-test-fixture",
+                deviceHardwareModel: nil,
+                deviceModelClass: nil,
+                deviceEnvironment: "test",
+                operatingSystemName: nil,
+                operatingSystemVersion: nil,
+                appVersion: nil,
+                appBuild: nil,
+                sourceCommit: nil,
+                providerHTTP429Responses: []
+            ),
             generatedAt: Date(timeIntervalSince1970: 123)
         ))
         let report = try #require(JSONSerialization.jsonObject(with: reportData) as? [String: Any])
