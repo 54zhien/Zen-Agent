@@ -531,7 +531,7 @@ struct Stage10DelegationRuntimeTests {
         })
         #expect(requests[3].messages.contains { message in
             guard case .toolResult(let callID, let content) = message else { return false }
-            return callID == "auth-child-tool-call" && content == "side effect complete"
+            return callID == "auth-child-tool-call" && content == "stage10-auth-child-tool executed: {}"
         })
     }
 
