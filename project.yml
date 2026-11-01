@@ -107,7 +107,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
 
   # Manually run against an iPhone's existing app container after a real
-  # Parent -> Child run. Kept out of the default ZenAgent scheme and CI.
+  # Parent -> two Child run. Kept out of the default ZenAgent scheme and CI.
   ZenAgentManualMeasurementTests:
     type: bundle.unit-test
     platform: iOS
@@ -156,6 +156,12 @@ schemes:
         ZenAgentManualMeasurementTests: [test]
     run:
       config: Debug
+      commandLineArguments:
+        --stage10-manual-dual-child-probe: true
+      # Set this value in the generated scheme's Run action only when the
+      # operator provides the source commit for a measured launch.
+      environmentVariables:
+        ZEN_AGENT_SOURCE_COMMIT: ""
     test:
       config: Debug
       targets:

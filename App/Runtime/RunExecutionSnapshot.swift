@@ -161,12 +161,17 @@ struct DelegationExecutionSnapshot: Codable, Sendable, Equatable {
 
     init(
         configuration: DelegationRuntimeConfiguration,
-        explicitModelBinding: DelegationModelBindingSnapshot? = nil
+        explicitModelBinding: DelegationModelBindingSnapshot? = nil,
+        hiddenDualChildProbe: Bool = false
     ) {
         revision = configuration.revision
         enabled = configuration.enabled
         maxDepth = 1
+        #if DEBUG
+        maxConcurrentChildren = hiddenDualChildProbe ? Self.hiddenDualChildProbeLimit : 1
+        #else
         maxConcurrentChildren = 1
+        #endif
         explicitModelTarget = configuration.explicitModelTarget
         self.explicitModelBinding = explicitModelBinding
         modelPolicy = configuration.explicitModelTarget == nil ? .followParent : .explicit

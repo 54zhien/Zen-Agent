@@ -117,7 +117,23 @@ struct AppAssembly {
             metadataRepository: store
         )
         let transport = LiveHTTPTransport.make()
-        let provider = DeepSeekProvider(transport: transport)
+        #if DEBUG
+        let manualDualChildProbeEnabled = ProcessInfo.processInfo.arguments.contains(
+            "--stage10-manual-dual-child-probe"
+        )
+        if manualDualChildProbeEnabled {
+            Stage10ManualMeasurementStorage.beginManualMeasurementLaunch(
+                sourceCommit: ProcessInfo.processInfo.environment["ZEN_AGENT_SOURCE_COMMIT"]
+            )
+        }
+        let providerTransport: any HTTPTransport = manualDualChildProbeEnabled
+            ? Stage10ManualMeasurementTransport(underlying: transport)
+            : transport
+        #else
+        let manualDualChildProbeEnabled = false
+        let providerTransport: any HTTPTransport = transport
+        #endif
+        let provider = DeepSeekProvider(transport: providerTransport)
         let managedFiles = try ManagedFileStore.applicationDefault()
         let toolRegistry = try ToolRegistry(tools: [CalculatorTool(), CurrentDateTool(), DeviceInfoTool(),
             FilesTool(files: managedFiles, store: store, sessions: sessions)])
@@ -135,7 +151,8 @@ struct AppAssembly {
             router: router,
             toolRegistry: toolRegistry,
             managedFiles: managedFiles,
-            mcpRuntime: mcpRuntime
+            mcpRuntime: mcpRuntime,
+            manualDualChildProbeEnabled: manualDualChildProbeEnabled
         )
         return Dependencies(
             store: store,
@@ -159,7 +176,8 @@ struct AppAssembly {
         toolRegistry: ToolRegistry,
         managedFiles: ManagedFileStore? = nil,
         toolSafetyCap: ToolPolicySafetyCap = .unrestricted,
-        mcpRuntime: MCPServerRuntime? = nil
+        mcpRuntime: MCPServerRuntime? = nil,
+        manualDualChildProbeEnabled: Bool = false
     ) -> ConversationRuntime {
         // The shell owns presentation routing. A cached Send bridge retains
         // Runtime; retaining Router here would cycle through its registered Pane
@@ -180,7 +198,8 @@ struct AppAssembly {
             toolRegistry: toolRegistry,
             toolRuntime: ToolRuntime(store: store, registry: toolRegistry, safetyCap: toolSafetyCap, credentials: credentials),
             mcpRuntime: mcpRuntime,
-            managedFileStore: managedFiles
+            managedFileStore: managedFiles,
+            manualDualChildProbeEnabled: manualDualChildProbeEnabled
         )
     }
 

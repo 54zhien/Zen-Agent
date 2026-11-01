@@ -103,31 +103,6 @@ struct Stage10DelegationRuntimeTests {
         let result = try #require(try fixture.store.toolResult(toolCallID: delegationCall.id))
         #expect(result.payload == "child answer")
 
-        let reportData = try #require(try fixture.store.latestParentChildMeasurementJSON(
-            generatedAt: Date(timeIntervalSince1970: 123)
-        ))
-        let report = try #require(JSONSerialization.jsonObject(with: reportData) as? [String: Any])
-        let parentReport = try #require(report["parent"] as? [String: Any])
-        #expect(parentReport["runID"] as? String == parentRunID)
-        #expect(parentReport["providerID"] as? String == ProviderID.deepSeek.rawValue)
-        #expect(parentReport["modelID"] as? String == Stage2GateFixture.modelID.rawValue)
-        let parentSteps = try #require(parentReport["providerSteps"] as? [[String: Any]])
-        #expect(parentSteps[0]["reportedPromptTokens"] is NSNull)
-        let childReports = try #require(report["children"] as? [[String: Any]])
-        let childReport = try #require(childReports.first)
-        #expect(childReport["runID"] as? String == child.id)
-        #expect(childReport["providerID"] as? String == ProviderID.deepSeek.rawValue)
-        #expect(childReport["modelID"] as? String == Stage2GateFixture.modelID.rawValue)
-        let childSteps = try #require(childReport["providerSteps"] as? [[String: Any]])
-        #expect(childSteps[0]["reportedPromptTokens"] as? Int == 31)
-        #expect(childSteps[0]["reportedCompletionTokens"] as? Int == 4)
-        #expect(childSteps[0]["reportedTotalTokens"] as? Int == 35)
-        #expect(childReport["terminalAt"] as? String != nil)
-        let reportText = String(decoding: reportData, as: UTF8.self)
-        #expect(!reportText.contains(childTask))
-        #expect(!reportText.contains("child answer"))
-        #expect(!reportText.contains("parent answer"))
-
         let requests = await ledger.requestsSnapshot()
         #expect(requests.count == 3)
         guard requests.count == 3 else { return }
@@ -583,6 +558,50 @@ struct Stage10DelegationRuntimeTests {
         #expect(try scenario.store.toolCall(id: betaParentCall.id)?.state == .succeeded)
         #expect(try scenario.store.toolResult(toolCallID: alphaParentCall.id)?.payload == "alpha child answer")
         #expect(try scenario.store.toolResult(toolCallID: betaParentCall.id)?.payload == "beta child answer")
+
+        let reportData = try #require(try scenario.store.latestParentChildMeasurementJSON(
+            context: Stage10ManualMeasurementContext(
+                startedAt: Fixtures.epoch,
+                scenario: "stage10-test-fixture",
+                deviceHardwareModel: nil,
+                deviceModelClass: nil,
+                deviceEnvironment: "test",
+                operatingSystemName: nil,
+                operatingSystemVersion: nil,
+                appVersion: nil,
+                appBuild: nil,
+                sourceCommit: nil,
+                providerHTTP429Responses: []
+            ),
+            generatedAt: Date()
+        ))
+        let report = try #require(JSONSerialization.jsonObject(with: reportData) as? [String: Any])
+        let parentReport = try #require(report["parent"] as? [String: Any])
+        #expect(parentReport["runID"] as? String == scenario.parentRunID)
+        #expect(parentReport["providerID"] as? String == ProviderID.deepSeek.rawValue)
+        #expect(parentReport["modelID"] as? String == Stage2GateFixture.modelID.rawValue)
+        let parentSteps = try #require(parentReport["providerSteps"] as? [[String: Any]])
+        #expect(parentSteps[0]["reportedPromptTokens"] is NSNull)
+        #expect(report["actualChildRunCount"] as? Int == 2)
+        let childReports = try #require(report["children"] as? [[String: Any]])
+        let reportedChildRunIDs = Set(childReports.compactMap { $0["runID"] as? String })
+        #expect(reportedChildRunIDs == Set([alphaChildID, betaChildID]))
+        let childReport = try #require(childReports.first { $0["runID"] as? String == alphaChildID })
+        #expect(childReport["runID"] as? String == alphaChildID)
+        #expect(childReport["providerID"] as? String == ProviderID.deepSeek.rawValue)
+        #expect(childReport["modelID"] as? String == Stage2GateFixture.modelID.rawValue)
+        let childSteps = try #require(childReport["providerSteps"] as? [[String: Any]])
+        let childUsageStep = try #require(childSteps.first { $0["sequence"] as? Int == 1 })
+        #expect(childUsageStep["reportedPromptTokens"] as? Int == 31)
+        #expect(childUsageStep["reportedCompletionTokens"] as? Int == 4)
+        #expect(childUsageStep["reportedTotalTokens"] as? Int == 35)
+        #expect(childReport["terminalAt"] as? String != nil)
+        let reportText = String(decoding: reportData, as: UTF8.self)
+        #expect(!reportText.contains("alpha child task"))
+        #expect(!reportText.contains("beta child task"))
+        #expect(!reportText.contains("alpha child answer"))
+        #expect(!reportText.contains("beta child answer"))
+        #expect(!reportText.contains("parent dual-child answer"))
 
         let requests = await scenario.providerLedger.requestsSnapshot()
         let parentContinuation = try #require(requests.last)
@@ -1808,7 +1827,11 @@ private struct Stage10DualChildProvider: ModelProvider {
         }
         let childName = task.hasPrefix("alpha") ? "alpha" : "beta"
         if toolResults.contains(where: { $0.0.hasPrefix("provider-child-hold-") }) {
-            return [.textDelta("\(childName) child answer"), .finish(.stop)]
+            return [
+                .textDelta("\(childName) child answer"),
+                .usage(ProviderTokenUsage(promptTokens: 31, completionTokens: 4, totalTokens: 35)),
+                .finish(.stop),
+            ]
         }
 
         var events: [ProviderStreamEvent] = []
