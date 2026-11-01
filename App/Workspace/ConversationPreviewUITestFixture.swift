@@ -15,7 +15,8 @@ struct ConversationPreviewUITestFixture: View {
     init() {
         do {
             let reauthentication = ProcessInfo.processInfo.environment["ZEN_REAUTH_UI_TEST"] == "1"
-            let store = ProcessInfo.processInfo.environment["ZEN_NEW_CONFIGURE_UI_TEST"] == "1" || reauthentication
+            let authenticationCard = ProcessInfo.processInfo.environment["ZEN_AUTH_CARD_UI_TEST"] == "1"
+            let store = ProcessInfo.processInfo.environment["ZEN_NEW_CONFIGURE_UI_TEST"] == "1" || reauthentication || authenticationCard
                 ? PersistenceStore(database: try ZenDatabase.inMemory())
                 : try ConversationPreviewUITestSeed.makeStore()
             _store = State(initialValue: store)
@@ -43,12 +44,21 @@ struct ConversationPreviewUITestFixture: View {
                     providerID: .deepSeek, displayName: "Existing Configure fixture", baseURL: nil,
                     configRevision: .initial, credentialReference: reference))
             }
-            if reauthentication {
+            if reauthentication || authenticationCard {
                 let id = ProviderInstanceID(rawValue: "reauth-ui-account")
+                let frozenReference = CredentialReference(id: "auth-card-ui-frozen-credential")
                 try store.createProviderInstance(ProviderInstance(id: id, providerID: .deepSeek,
-                    displayName: "Reauth fixture", baseURL: nil, configRevision: .initial, credentialReference: nil))
+                    displayName: "Reauth fixture", baseURL: nil, configRevision: .initial,
+                    credentialReference: authenticationCard ? frozenReference : nil))
                 defaults.set(id.rawValue, forKey: AppShellModel.defaultInstanceIDKey)
                 defaults.set("fake-model", forKey: AppShellModel.defaultModelIDKey)
+                if authenticationCard {
+                    try ConversationPreviewUITestSeed.seedAuthenticationCard(
+                        in: store,
+                        credentialReference: frozenReference,
+                        credentialFailureAt: Date().addingTimeInterval(-1)
+                    )
+                }
             }
             let model = AppShellModel(dependencies: AppAssembly.Dependencies(store: store,
                 credentials: credentials, provider: provider, runtime: runtime, router: router,
@@ -73,6 +83,13 @@ struct ConversationPreviewUITestFixture: View {
             .task {
                 guard !didOpenHistory else { return }
                 didOpenHistory = true
+                if ProcessInfo.processInfo.environment["ZEN_AUTH_CARD_UI_TEST"] == "1" {
+                    guard await model.openConversation(id: "auth-card-ui-conversation") else {
+                        if !Task.isCancelled { fatalError("Authentication card fixture could not open") }
+                        return
+                    }
+                    return
+                }
                 if ProcessInfo.processInfo.environment["ZEN_NEW_CONFIGURE_UI_TEST"] == "1"
                     || ProcessInfo.processInfo.environment["ZEN_REAUTH_UI_TEST"] == "1" { return }
                 if ProcessInfo.processInfo.environment["ZEN_FILES_PREVIEW_UI_TEST"] == "1" {

@@ -9,6 +9,7 @@ struct RunProjection: Sendable, Equatable {
     var canStop: Bool
     var isWaitingForApproval: Bool
     var isSuspended: Bool
+    var canRefreshFrozenCredential: Bool
 }
 
 extension RunProjection {
@@ -16,7 +17,8 @@ extension RunProjection {
         runID: String,
         state: RunState,
         endReason: EndReason? = nil,
-        suspendReason: SuspendReason? = nil
+        suspendReason: SuspendReason? = nil,
+        canRefreshFrozenCredential: Bool = false
     ) {
         self.runID = runID
         self.state = state
@@ -26,6 +28,7 @@ extension RunProjection {
         self.canStop = state.isActive && state != .stopping
         self.isWaitingForApproval = state == .waitingForApproval
         self.isSuspended = state == .suspended
+        self.canRefreshFrozenCredential = canRefreshFrozenCredential
     }
 
     /// Builds a projection when an event contains enough state to establish one.
@@ -92,6 +95,7 @@ extension RunProjection {
 
         guard eventRunID == runID, let nextState else { return }
         state = nextState
+        canRefreshFrozenCredential = false
         if let eventEndReason { endReason = eventEndReason }
         isActive = nextState.isActive
         canStop = nextState.isActive && nextState != .stopping

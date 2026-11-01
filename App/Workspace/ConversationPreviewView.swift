@@ -6,6 +6,8 @@ struct ConversationPreviewView: View {
     var status: ConversationPreviewStatus = .ready
     var isNewEntry = false
     var onRefreshFrozenCredential: (@MainActor (String, SecretValue) async throws -> Void)? = nil
+    @Environment(\.surfaceLiftController) private var surfaceLiftController
+    @Environment(\.surfaceCardAccessibilityActions) private var surfaceCardAccessibilityActions
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var isCredentialRefreshPresented = false
     @State private var credentialRefreshKey = ""
@@ -15,50 +17,36 @@ struct ConversationPreviewView: View {
     private var authenticationRunID: String? {
         guard let projection = summary?.runProjection,
               projection.state == .suspended,
-              projection.suspendReason == .authRequired else { return nil }
+              projection.suspendReason == .authRequired,
+              projection.canRefreshFrozenCredential else { return nil }
         return projection.runID
     }
 
+    private var hasAuthenticationAction: Bool {
+        authenticationRunID != nil && onRefreshFrozenCredential != nil
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            if isNewEntry {
-                Image(systemName: "plus").font(.largeTitle).accessibilityHidden(true)
-            }
-            Text(isNewEntry ? "新对话" : (summary?.title ?? "未发送的会话"))
-                .font(Typography.font(for: .interfaceTitle, dynamicTypeSize: dynamicTypeSize))
-                .lineLimit(2)
-            if !isNewEntry, let summary {
-                Text(summary.excerpt)
-                    .font(Typography.font(for: .conversationBody, dynamicTypeSize: dynamicTypeSize))
-                    .lineLimit(8)
-                if let runStatus = ConversationCardStatus.derive(from: summary.runProjection) {
-                    if authenticationRunID != nil, onRefreshFrozenCredential != nil {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(runStatus.label)
-                                .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
-                                .foregroundStyle(.secondary)
-                            Button("更新原账号凭据") { isCredentialRefreshPresented = true }
-                                .accessibilityIdentifier("conversation-auth-refresh")
-                        }
-                    } else {
-                        Text(runStatus.label)
-                            .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
-                            .foregroundStyle(.secondary)
+        Group {
+            if hasAuthenticationAction {
+                previewContent
+                    .background {
+                        Color(uiColor: .systemBackground)
+                            .contentShape(Rectangle())
+                            .onTapGesture { _ = surfaceLiftController?.returnToFull() }
                     }
-                }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("conversation-authentication-card")
+                    .accessibilityActions {
+                        ForEach(surfaceCardAccessibilityActions?.actions ?? []) { action in
+                            Button(action.name) { _ = action.perform() }
+                        }
+                    }
+            } else {
+                previewContent
+                    .background(Color(uiColor: .systemBackground))
             }
-            switch status {
-            case .restoring: ProgressView("正在打开会话")
-            case .contentUnavailable: Text("部分内容暂不可用")
-            case .failed(let message): Text(message)
-            case .ready, .migrationRequired: EmptyView()
-            }
-            Spacer(minLength: 0)
         }
-        .padding(28)
-        .padding(.top, 32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(uiColor: .systemBackground))
         .sheet(isPresented: $isCredentialRefreshPresented, onDismiss: {
             credentialRefreshKey = ""
             credentialRefreshError = nil
@@ -96,6 +84,47 @@ struct ConversationPreviewView: View {
                 }
             }
         }
+    }
+
+    private var previewContent: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            if isNewEntry {
+                Image(systemName: "plus").font(.largeTitle).accessibilityHidden(true)
+            }
+            Text(isNewEntry ? "新对话" : (summary?.title ?? "未发送的会话"))
+                .font(Typography.font(for: .interfaceTitle, dynamicTypeSize: dynamicTypeSize))
+                .lineLimit(2)
+            if !isNewEntry, let summary {
+                Text(summary.excerpt)
+                    .font(Typography.font(for: .conversationBody, dynamicTypeSize: dynamicTypeSize))
+                    .lineLimit(8)
+                if let runStatus = ConversationCardStatus.derive(from: summary.runProjection) {
+                    if hasAuthenticationAction {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(runStatus.label)
+                                .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
+                                .foregroundStyle(.secondary)
+                            Button("更新原账号凭据") { isCredentialRefreshPresented = true }
+                                .accessibilityIdentifier("conversation-auth-refresh")
+                        }
+                    } else {
+                        Text(runStatus.label)
+                            .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            switch status {
+            case .restoring: ProgressView("正在打开会话")
+            case .contentUnavailable: Text("部分内容暂不可用")
+            case .failed(let message): Text(message)
+            case .ready, .migrationRequired: EmptyView()
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(28)
+        .padding(.top, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func refreshFrozenCredential() {

@@ -140,6 +140,8 @@ enum DelegationEnvironmentInheritance: String, Codable, Sendable, Equatable {
 /// Parent revision. This increment deliberately supports only an empty Environment
 /// inheritance set; it has no mapping source or precedence rule to reinterpret.
 struct DelegationExecutionSnapshot: Codable, Sendable, Equatable {
+    static let hiddenDualChildProbeLimit = 2
+
     let revision: Int64
     let enabled: Bool
     let maxDepth: Int
@@ -148,6 +150,14 @@ struct DelegationExecutionSnapshot: Codable, Sendable, Equatable {
     let environmentInheritance: DelegationEnvironmentInheritance
     let explicitModelTarget: DelegationModelTarget?
     let explicitModelBinding: DelegationModelBindingSnapshot?
+
+    var isHiddenDualChildProbe: Bool {
+        maxConcurrentChildren == Self.hiddenDualChildProbeLimit
+    }
+
+    var supportsFrozenConcurrencyLimit: Bool {
+        maxConcurrentChildren == 1 || isHiddenDualChildProbe
+    }
 
     init(
         configuration: DelegationRuntimeConfiguration,

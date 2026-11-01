@@ -2,6 +2,44 @@ import XCTest
 
 final class AppSpaceBrowseUITests: XCTestCase {
     @MainActor
+    func testAuthenticationCardOpensRefreshFormAndBlankTapReturnsToConversation() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
+        app.launchEnvironment["ZEN_AUTH_CARD_UI_TEST"] = "1"
+        app.launch()
+
+        let editor = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        let readiness = app.descendants(matching: .any)["surface-native-interaction-probe"]
+        guard wait({ (readiness.value as? String)?.contains("liftReady=true") == true }) else {
+            XCTFail("Native Lift never became ready: \(readiness.value ?? "missing")")
+            return
+        }
+
+        let start = editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.7, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
+        let liftState = app.otherElements["surface-lift-state-probe"]
+        XCTAssertTrue(wait { (liftState.value as? String) == "card" })
+        XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 0)
+
+        let authenticationCard = app.descendants(matching: .any)["conversation-authentication-card"]
+        let refresh = app.buttons["conversation-auth-refresh"]
+        XCTAssertTrue(wait { authenticationCard.exists && refresh.exists && refresh.isHittable })
+        refresh.tap()
+
+        let credential = app.secureTextFields["conversation-auth-refresh-key"]
+        XCTAssertTrue(credential.waitForExistence(timeout: 5))
+        let cancel = app.buttons["取消"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5))
+        cancel.tap()
+        XCTAssertTrue(wait { !credential.exists && authenticationCard.exists && authenticationCard.isHittable })
+
+        authenticationCard.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.92)).tap()
+        XCTAssertTrue(wait { (liftState.value as? String) == "full" })
+        XCTAssertTrue(wait { editor.exists && editor.isHittable })
+    }
+
+    @MainActor
     func testDistantBrowseAndVerticalDragKeepPreviewUntilExplicitActivation() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
