@@ -1398,6 +1398,7 @@ actor AgentRuntime {
                             else { _ = try await toolRuntime.executePrepared(toolCallID: settled.id) }
                         } catch {
                             if stopRequested.contains(runID) || Task.isCancelled { throw ControlError.stopRequested }
+                            if error is DelegatedChildAuthenticationRequired { throw error }
                         }
                         settled = try store.toolCall(id: settled.id) ?? settled
                     }
