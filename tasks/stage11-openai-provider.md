@@ -1,9 +1,9 @@
 # Stage 11 OpenAI Provider — implementation record
 
-Status: in progress  
-Base: `4277ec0ba6ef27c67397b0532125ba3e836cf9be`  
-Branch: `codex/stage11-openai-provider`  
-Worktree: `C:\Users\Azusa\.codex\worktrees\stage11-openai\Zen-Agent`  
+Status: in progress
+Base: `4277ec0ba6ef27c67397b0532125ba3e836cf9be`
+Branch: `codex/stage11-openai-provider`
+Worktree: `C:\Users\Azusa\.codex\worktrees\stage11-openai\Zen-Agent`
 Plan: [2026-11-02-stage11-openai-provider.md](../Docs/superpowers/plans/2026-11-02-stage11-openai-provider.md)
 
 ## Authority and scope
