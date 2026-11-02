@@ -58,7 +58,15 @@ struct ConversationPaneViewContractTests {
 
         let paneSource = try #require(sourceFile("App/Conversation/ConversationPaneView.swift"))
         let timelineSource = try #require(sourceFile("App/Conversation/ConversationTimelineView.swift"))
-        let paneBody = try #require(blockBody(in: paneSource, after: "var body: some View"))
+        // The pane's body now delegates to `paneContent`, so the identifiers and
+        // the composer live one level in. Read the block that actually builds the
+        // pane UI; falling back to `body` keeps the contract meaningful if the
+        // delegation is ever collapsed again.
+        let paneBody = try #require(
+            blockBody(in: paneSource, after: "private var paneContent: some View")
+                ?? blockBody(in: paneSource, after: "var body: some View"),
+            "neither paneContent nor body could be read from ConversationPaneView"
+        )
         let rootIdentifier = #".accessibilityIdentifier("conversation-pane-\(pane.conversationID)")"#
         let approvalIdentifier = #".accessibilityIdentifier("conversation-pane-approval-\(pane.conversationID)")"#
 

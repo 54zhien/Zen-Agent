@@ -52,7 +52,12 @@ struct WorkspaceDevicePresentationTests {
         #expect(layout.divider.maxX == layout.bottom.minX)
         #expect(layout.divider.minX == layout.top.maxX)
         #expect(layout.top.width + layout.divider.width + layout.bottom.width == layout.viewport.width)
-        #expect(layout.divider.width == 12 && layout.divider.height == layout.viewport.height)
+        // 4277ec0 thinned the visible gap from 12 to SplitWorkspaceGeometry's own
+        // constant and moved the grab area onto the divider handle. Assert the
+        // constant rather than a calibration number, so the test tracks the
+        // product instead of freezing the value it happened to have.
+        #expect(layout.divider.width == SplitWorkspaceGeometry.dividerThickness
+                && layout.divider.height == layout.viewport.height)
         #expect(layout.top.height == layout.bottom.height)
     }
 }
