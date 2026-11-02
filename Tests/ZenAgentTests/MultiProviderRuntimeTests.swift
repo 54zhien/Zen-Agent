@@ -95,6 +95,35 @@ struct MultiProviderRuntimeTests {
         #expect(try fixture.store.text(ofPart: #require(parts.first).id) == "OpenAI response")
     }
 
+    @Test("fresh dispatch rejects an instance Provider that disagrees with the frozen snapshot")
+    func freshDispatchRejectsStoredProviderMismatch() async throws {
+        let fixture = try makeFixture()
+        let registry = try ModelProviderRegistry(providers: [fixture.deepSeek, fixture.openAI])
+        let runtime = ConversationRuntime(
+            store: fixture.store,
+            providerRegistry: registry,
+            credentials: fixture.credentials
+        )
+
+        let runID = try await fixture.store.memoryAccessGate.withWrite {
+            let runID = try await runtime.start(command(for: fixture))
+            try fixture.store.database.write { db in
+                try db.execute(
+                    sql: "UPDATE providerInstance SET providerID = ? WHERE id = ?",
+                    arguments: [ProviderID.deepSeek.rawValue, fixture.openAIInstance.id.rawValue]
+                )
+            }
+            return runID
+        }
+        try await runtime.waitForCompletion(runID: runID)
+
+        let run = try #require(try fixture.store.run(id: runID))
+        let step = try #require(try fixture.store.steps(inRun: runID).first)
+        #expect(run.state == .failed)
+        #expect(run.endReason == .providerFailed)
+        #expect(step.providerStartedAt == nil)
+    }
+
     @Test("reconstruction refuses a missing or changed frozen Provider adapter")
     func frozenReconstructionDoesNotFallback() async throws {
         let fixture = try makeFixture()

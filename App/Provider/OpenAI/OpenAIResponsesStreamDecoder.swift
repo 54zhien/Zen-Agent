@@ -103,7 +103,8 @@ struct OpenAIResponsesStreamDecoder: Sendable {
 
         case "response.created", "response.queued", "response.in_progress",
              "response.content_part.added", "response.content_part.done",
-             "response.output_text.done", "response.output_item.done":
+             "response.output_text.done", "response.output_item.done",
+             "response.refusal.done":
             return .ignored
 
         default:

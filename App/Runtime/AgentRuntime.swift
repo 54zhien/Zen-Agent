@@ -745,6 +745,13 @@ actor AgentRuntime {
                                 "the frozen Provider adapter is unavailable: \(String(describing: error))"
                             )
                         }
+                        guard let storedInstance = try store.providerInstance(
+                            id: runForRequest.requestConfigSeed.providerInstanceID
+                        ), storedInstance.providerID == snapshot.providerID else {
+                            throw ProviderError.configurationMismatch(
+                                "the frozen Provider ID no longer matches its stored instance"
+                            )
+                        }
                         try store.markProviderStepStarted(identity)
                         return try await provider.stream(
                             outgoing,

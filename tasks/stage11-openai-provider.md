@@ -1,6 +1,6 @@
 # Stage 11 OpenAI Provider — implementation record
 
-Status: implementation complete; CI-required baseline test compile repair pending CI
+Status: implementation complete; CI-required baseline repair and protocol review fixes pending CI
 Base: `4277ec0ba6ef27c67397b0532125ba3e836cf9be`
 Branch: `codex/stage11-openai-provider`
 Worktree: `C:\Users\Azusa\.codex\worktrees\stage11-openai\Zen-Agent`
@@ -37,8 +37,10 @@ Choice: `gpt-6.1-terra` using Responses, `reasoning.effort=none`, and `store=fal
 - [x] Added OpenAI semantic streaming tests for terminal completion, parallel function calls, interruption and cancellation; stream decoder and transport cancellation are implemented.
 - [x] Runtime and Settings route new Sends by instance Provider, recovery by the frozen Run snapshot, and explicit Child targets by their frozen Provider binding.
 - [x] Added the parent-authorized `editor` query binding to the existing bottom-drop UI test to repair the CI baseline compile error; no test behavior or assertion was added.
+- [x] Runtime validates the persisted instance Provider against the frozen Run Provider before marking a fresh provider dispatch started; refusal completion events are ignored through `response.completed`. Focused contracts cover both behaviors.
 - [x] Local static checks are recorded below; implementation is ready for branch delivery and CI.
-- [ ] Commit/push the baseline repair, verify the remote SHA, and record the latest CI result.
+- [x] Committed and pushed the CI baseline repair on `codex/stage11-openai-provider`; draft PR [#58](https://github.com/54zhien/Zen-Agent/pull/58) remains open.
+- [ ] Commit/push the protocol review fixes, verify the remote SHA, and record the latest CI result.
 
 ## Verification
 

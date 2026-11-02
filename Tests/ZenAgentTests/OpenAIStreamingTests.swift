@@ -86,6 +86,27 @@ struct OpenAIStreamingTests {
         ])
     }
 
+    @Test("refusal completion is ignored before the normal response terminal")
+    func refusalCompletionThenResponseCompleted() async throws {
+        let fixture = try makeFixture()
+        fixture.transport.enqueueStream([
+            "event: response.refusal.delta\ndata: {\"type\":\"response.refusal.delta\",\"item_id\":\"msg_refusal\",\"output_index\":0,\"content_index\":0,\"delta\":\"I can't help with that request.\",\"sequence_number\":1}\n\n",
+            "event: response.refusal.done\ndata: {\"type\":\"response.refusal.done\",\"item_id\":\"msg_refusal\",\"output_index\":0,\"content_index\":0,\"refusal\":\"I can't help with that request.\",\"sequence_number\":2}\n\n",
+            "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_refusal\",\"status\":\"completed\",\"output\":[]},\"sequence_number\":3}\n\n",
+        ])
+
+        let events = try await drain(try await fixture.provider.stream(
+            request(),
+            seed: fixture.seed,
+            credentials: fixture.credentials
+        ))
+
+        #expect(events == [
+            .textDelta("I can't help with that request."),
+            .finish(.stop),
+        ])
+    }
+
     @Test("parallel function calls keep their call IDs and output indexes until arguments are complete")
     func multipleFunctionCallsCompleteAtTheirIndexes() async throws {
         let fixture = try makeFixture()
