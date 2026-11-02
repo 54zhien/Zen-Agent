@@ -273,7 +273,10 @@ struct MultiProviderRuntimeTests {
             store: fixture.store,
             providerRegistry: registry,
             credentials: fixture.credentials,
-            toolRegistry: try ToolRegistry(tools: [CalculatorTool()])
+            toolRegistry: try Fixtures.automaticallyAllowedRegistry(
+                in: fixture.store,
+                tools: [CalculatorTool()]
+            )
         )
 
         let runID = try await runtime.send(command(for: fixture))
