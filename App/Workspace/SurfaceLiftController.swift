@@ -38,7 +38,6 @@ final class SurfaceLiftController {
 #endif
     @ObservationIgnored private var hostID: ObjectIdentifier?
     @ObservationIgnored private var interactiveDisplacement = CGSize.zero
-    @ObservationIgnored private var interactiveTravel = 0.0
     @ObservationIgnored private var hasInteractivePose = false
     @ObservationIgnored private var presentInteractive: ((CGSize, Double) -> Bool)?
     @ObservationIgnored private var target: SurfaceGeometry.Pose?
@@ -89,9 +88,12 @@ final class SurfaceLiftController {
     @ObservationIgnored private var acceptedSplitIntent: SplitDropIntent?
     @ObservationIgnored private var splitWorkspacePresented = false
     @ObservationIgnored var onSplitTargetEntry: () -> Void = {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        WorkspaceHaptics.shared.play(.splitTarget)
     }
-
+    @ObservationIgnored var playHaptic: (WorkspaceHaptics.Moment) -> Void = {
+        WorkspaceHaptics.shared.play($0)
+    }
+    @ObservationIgnored private var resolveInteractivePose: ((CGSize, Double) -> SurfaceGeometry.Pose?)?
     // onDrop is admission only. A consumer that changes Workspace geometry
     // must wait for onConverged, after the retained native Surface has settled.
     func configureSplit(onDrop: ((SplitDropIntent) -> Bool)?,
@@ -190,25 +192,29 @@ final class SurfaceLiftController {
                 card: host.view.convert(destination, from: window), cornerRadius: 0, constrainedToSafeArea: false)
         }
         resolveTarget = { [weak self, weak host] minimum in
-            guard let host else { return nil }
-            let workspace = self?.splitWorkspacePresented == true ? host.view.window : nil
+            guard let self, let host else { return nil }
+            let workspace = self.splitWorkspacePresented ? host.view.window : nil
             let size = workspace?.bounds.size ?? host.view.bounds.size
             let safeArea = workspace?.safeAreaInsets ?? host.view.safeAreaInsets
+            let displayRadius = host.view.window.map { self.windowCornerGeometry.radius(in: $0) } ?? 0
             guard let placement = AppSpaceGeometry.resolve(size: size,
                     safeArea: safeArea, historyIDs: [], current: .newConversation,
-                    minimumCardSize: minimum)?.cards.last else { return nil }
+                    minimumCardSize: minimum, displayCornerRadius: displayRadius)?.cards.last else { return nil }
             let frame = workspace.map { host.view.convert(placement.frame, from: $0) } ?? placement.frame
             return SurfaceLiftGeometry.targetPose(size: host.view.bounds.size, safeArea: host.view.safeAreaInsets,
                 card: frame, cornerRadius: placement.cornerRadius, constrainedToSafeArea: workspace == nil)
         }
         let windowCornerGeometry = self.windowCornerGeometry
-        presentInteractive = { [weak host] displacement, progress in
-            guard let host else { return false }
+        resolveInteractivePose = { [weak host] displacement, progress in
+            guard let host else { return nil }
             let windowRadius = host.view.window.map { windowCornerGeometry.radius(in: $0) } ?? 0
-            guard let pose = SurfaceLiftGeometry.interactivePose(size: host.view.bounds.size,
-                    safeArea: host.view.safeAreaInsets, displacement: displacement, progress: progress,
-                    windowCornerRadius: windowRadius) else { return false }
-            return host.apply(.init(to: pose, progress: 1))
+            return SurfaceLiftGeometry.interactivePose(size: host.view.bounds.size,
+                safeArea: host.view.safeAreaInsets, displacement: displacement, progress: progress,
+                windowCornerRadius: windowRadius)
+        }
+        presentInteractive = { [weak self] displacement, progress in
+            guard let pose = self?.resolveInteractivePose?(displacement, progress) else { return false }
+            return self?.presentSplit?(pose) ?? false
         }
         present = { [weak self, weak host] progress in
             guard let host else { return false }
@@ -262,6 +268,7 @@ final class SurfaceLiftController {
                           self.state.complete(settlement, finished: finished) else { return }
                     self.hasInteractivePose = false
                     self.splitReturnPose = nil
+                    if finished, self.state.phase == .card { self.playHaptic(.landed) }
                     if self.state.phase == .card, self.enterPreview?() == false {
                         _ = self.returnToFull(animated: animated)
                         return
@@ -367,6 +374,7 @@ final class SurfaceLiftController {
                 } else {
                     guard self.state.complete(settlement, finished: finished) else { return }
                     self.splitReturnPose = nil
+                    if finished, self.state.phase == .card { self.playHaptic(.landed) }
                     if self.state.phase == .card, self.enterPreview?() == false {
                         _ = self.returnToFull(animated: animated)
                         return
@@ -398,6 +406,7 @@ final class SurfaceLiftController {
         hideReturnProxy = nil
         present = nil
         presentInteractive = nil
+        resolveInteractivePose = nil
         presentSplit = nil
         splitSample = nil
         animate = nil
@@ -430,7 +439,6 @@ final class SurfaceLiftController {
         acceptedSplitIntent = nil
         sourceConversationID = conversationID
         interactiveDisplacement = .zero
-        interactiveTravel = 0
         hasInteractivePose = false
         originalPaneFrame = captureHostFrame?()
         target = pose
@@ -452,11 +460,11 @@ final class SurfaceLiftController {
         let travel = hypot(Double(displacement.width), Double(displacement.height))
         guard upwardDistance.isFinite, travel.isFinite else { return false }
         guard state.phase == .armed || state.phase == .lifting else { return false }
+        let wasCommitted = state.phase == .lifting && state.progress >= 0.5
         let dragged = state.drag(upwardDistance: upwardDistance, travel: travel,
                                  eligibility: guarded(eligibility))
         if dragged, state.phase == .lifting {
             interactiveDisplacement = displacement
-            interactiveTravel = travel
             hasInteractivePose = true
         }
         if dragged, state.phase == .lifting, !splitWorkspacePresented, sourceConversationID != nil,
@@ -464,6 +472,10 @@ final class SurfaceLiftController {
             updateSplitTargeting(upwardDistance: upwardDistance, displacement: displacement, sample: sample)
         } else {
             clearSplitTargeting()
+        }
+        let isCommitted = state.phase == .lifting && state.progress >= 0.5
+        if dragged, isCommitted != wasCommitted, splitPreviewPose == nil {
+            playHaptic(isCommitted ? .cardDetent : .cardDetentReleased)
         }
         updatePresentation()
         return dragged
@@ -483,6 +495,7 @@ final class SurfaceLiftController {
         if accepted, let finalPose {
             splitReturnPose = finalPose
             acceptedSplitIntent = intent
+            playHaptic(.splitCommit)
         }
         let settlement = accepted && finalPose != nil
             ? state.endForSplit() : state.end(cancelled: cancelled || hadSplitPreview)
@@ -537,8 +550,15 @@ final class SurfaceLiftController {
     }
 
     private func startReturn(animated: Bool) {
-        guard let settlement = state.requestReturn(visibleProgress: hasInteractivePose
-            ? interactivePresentationProgress : capture?()) else { return }
+        // A full-width Split destination changes crop and translation independently
+        // of scale. Reverse that transport from its visible pose, not a projection
+        // onto the unrelated Full-to-card progress axis.
+        let returningFromSplit = state.phase == .split
+            || (state.phase == .settling && state.pendingSettlement?.destination == .split)
+        let visibleProgress = returningFromSplit ? state.progress
+            : (hasInteractivePose ? interactivePresentationProgress : capture?())
+        guard let settlement = state.requestReturn(visibleProgress: visibleProgress) else { return }
+        if returningFromSplit { hasInteractivePose = true }
         acceptedSplitIntent = nil
         interaction?(state.phase)
         animate?(settlement, animated)
@@ -606,7 +626,20 @@ final class SurfaceLiftController {
     }
 
     private var interactivePresentationProgress: Double {
-        max(state.progress, SurfaceLiftState.presentationProgress(travel: interactiveTravel))
+        guard let sample = splitSample?(.zero) else { return state.progress }
+        // Admission keeps its existing detents. Visible shrinking instead spans
+        // the available drag range, reaching the small card only at its limit.
+        let range = max(SurfaceLiftState.dragOnsetDistance + 1,
+            Double(sample.size.height - sample.safeArea.top - sample.safeArea.bottom) * 0.8)
+        let verticalTravel = abs(Double(interactiveDisplacement.height))
+        let verticalFraction = min(1, max(0, (verticalTravel - SurfaceLiftState.dragOnsetDistance)
+            / (range - SurfaceLiftState.dragOnsetDistance)))
+        // Sideways lifting still exposes room to move, but cannot consume the
+        // vertical range or shrink a diagonal drag to the minimum early.
+        let lateralFraction = min(0.5, SurfaceLiftState.presentationProgress(
+            travel: abs(Double(interactiveDisplacement.width))))
+        let fraction = max(verticalFraction, lateralFraction)
+        return fraction * fraction * (3 - 2 * fraction)
     }
 
     private func updateSplitTargeting(upwardDistance: Double, displacement: CGSize,
@@ -620,13 +653,13 @@ final class SurfaceLiftController {
             clearSplitTargeting()
             return
         }
-        // The original 220 pt Card gesture remains intact. Continuing beyond it
-        // reveals Split targets; values are first-pass calibration for device review.
+        // Preserve ordinary Card travel before offering Split. Once admitted,
+        // keep both targets available while the finger returns to the lower half.
         let progress = min(1, max(0, (upwardDistance - 220) / 80))
         splitActivationProgress = max(splitActivationProgress, progress)
-        let viewport = CGRect(x: sample.safeArea.left, y: sample.safeArea.top,
-                              width: sample.size.width - sample.safeArea.left - sample.safeArea.right,
-                              height: sample.size.height - sample.safeArea.top - sample.safeArea.bottom)
+        // Target centers follow the actual full-bleed Pane frames, rather
+        // than the safe-area midpoint, so the visible center and hit region agree.
+        let viewport = CGRect(origin: .zero, size: sample.size)
         let update = splitTargeting.update(point: sample.point, viewport: viewport,
                                            liftProgress: splitActivationProgress)
         splitTargetingVisible = splitActivationProgress > 0
@@ -636,10 +669,8 @@ final class SurfaceLiftController {
         splitGuideFrame = top.guideFrame
         if update.enteredTarget { onSplitTargetEntry() }
         guard let slot = update.slot,
-              let preview = SplitTargetingGeometry.preview(slot: slot, progress: 0.85,
-                  size: sample.size, safeArea: sample.safeArea),
               let target = SurfaceLiftGeometry.interactivePose(size: sample.size, safeArea: sample.safeArea,
-                  displacement: displacement, progress: state.progress,
+                  displacement: displacement, progress: interactivePresentationProgress,
                   windowCornerRadius: sample.windowCornerRadius) else {
             splitPreviewPose = nil
             splitFinalPose = nil
@@ -647,15 +678,9 @@ final class SurfaceLiftController {
         }
         splitFinalPose = SplitTargetingGeometry.preview(slot: slot, progress: 1,
             size: sample.size, safeArea: sample.safeArea)?.pose
-        let blend = CGFloat(splitActivationProgress)
-        func between(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * blend }
-        var pose = SurfaceGeometry.Pose(scale: between(target.scale, preview.pose.scale),
-            translation: CGSize(width: between(target.translation.width, preview.pose.translation.width),
-                                height: between(target.translation.height, preview.pose.translation.height)),
-            cornerRadius: between(target.cornerRadius, preview.pose.cornerRadius))
-        pose.clipFraction = CGSize(width: between(target.clipFraction.width, preview.pose.clipFraction.width),
-                                   height: between(target.clipFraction.height, preview.pose.clipFraction.height))
-        splitPreviewPose = pose.isValid ? pose : nil
+        // Target highlighting must not pin the live page to a pane center.
+        // Converge to splitFinalPose only after the user releases the page.
+        splitPreviewPose = target
     }
 
     private func clearSplitTargeting() {

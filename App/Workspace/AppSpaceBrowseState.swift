@@ -34,13 +34,13 @@ struct AppSpaceBrowseState: Equatable, Sendable {
 
     mutating func end(velocity: Double, travel: Double, cancelled: Bool = false) -> Settlement? {
         guard phase == .dragging, velocity.isFinite, travel.isFinite, travel > 0 else { return nil }
-        // Device calibration remains open. Velocity affects direction, never the
-        // number of conversations crossed; neighbors are frozen for this gesture.
+        // This reducer settles one local interval. Continuous transport advances
+        // through bounded neighborhoods before choosing its final detent.
         let projected = offset + min(1, max(-1, velocity / travel * 0.18))
         let destination: AppSpaceGeometry.Item
         let endpoint: Double
-        if !cancelled, projected >= 0.22, let older { destination = older; endpoint = 1 }
-        else if !cancelled, projected <= -0.22, let newer { destination = newer; endpoint = -1 }
+        if !cancelled, projected >= 0.5, let older { destination = older; endpoint = 1 }
+        else if !cancelled, projected <= -0.5, let newer { destination = newer; endpoint = -1 }
         else { destination = selected; endpoint = 0 }
         let settlement = Settlement(identity: UUID(), destination: destination,
             startOffset: offset, endOffset: endpoint)
