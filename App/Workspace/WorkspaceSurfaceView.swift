@@ -159,46 +159,27 @@ struct WorkspaceSurfaceView<Content: View>: View {
                                 roundsSidebarPageBottom: keepsFullConversationViewport || !keyboardShortensViewport,
                                 context: sidebarContext) {
         ZStack(alignment: .topLeading) {
-            AppSpaceInkView(appearance: model?.appearance,
-                isAppSpace: [.lifting, .settling, .card].contains(activeLift.state.phase),
-                displacement: browse.state.offset * Double(browse.layout()?.travel ?? 0))
-            if model?.previewContent.isPresented == true, let layout = browse.layout() {
-                ForEach(layout.cards.filter { $0.item != browse.state.selected }
-                    .map { browse.deletionProjection($0, in: layout) }, id: \.item) { card in
-                    projectedCard(card)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                        .opacity(card.opacity)
-                        .position(x: card.frame.midX, y: card.frame.midY)
-                        .zIndex(4 - card.depth)
-                }
-            }
-            GeometryReader { proposed in
-                GeometryReader { geometry in
-                    WorkspaceSidebarProgressReader(state: navigation,
-                        travel: sidebarTravel(in: geometry), direction: layoutDirection) { progress, isDragging, translation in
-                        workspaceSurfaces(in: geometry, sidebarProgress: progress,
-                            sidebarDragging: isDragging, sidebarTranslation: translation)
+            AppSpaceStackView(model: model, browse: browse, lift: activeLift,
+                requestedMenuID: $requestedMenuID, interstitial: {
+                    if activeLift.splitTargetingVisible, let top = activeLift.splitTopFrame,
+                       let bottom = activeLift.splitBottomFrame, let guide = activeLift.splitGuideFrame {
+                        splitTargetOverlay(top: top, bottom: bottom, guide: guide)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                            .zIndex(50)
                     }
+                }) {
+                GeometryReader { proposed in
+                    GeometryReader { geometry in
+                        WorkspaceSidebarProgressReader(state: navigation,
+                            travel: sidebarTravel(in: geometry), direction: layoutDirection) { progress, isDragging, translation in
+                            workspaceSurfaces(in: geometry, sidebarProgress: progress,
+                                sidebarDragging: isDragging, sidebarTranslation: translation)
+                        }
+                    }
+                    .frame(height: proposed.size.height - (keepsFullConversationViewport ? 0
+                        : composerDock.menuOverlap(in: proposed.frame(in: .global))), alignment: .top)
                 }
-                .frame(height: proposed.size.height - (keepsFullConversationViewport ? 0
-                    : composerDock.menuOverlap(in: proposed.frame(in: .global))), alignment: .top)
-            }
-            .zIndex(4 - (browse.layout()?.cards.first { $0.item == browse.state.selected }?.depth ?? 0))
-            if activeLift.splitTargetingVisible, let top = activeLift.splitTopFrame,
-               let bottom = activeLift.splitBottomFrame, let guide = activeLift.splitGuideFrame {
-                splitTargetOverlay(top: top, bottom: bottom, guide: guide)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-                    .zIndex(50)
-            }
-            if let model, model.previewContent.isPresented, !browse.isNewEntry, browse.canEditCurrentMetadata,
-               let summary = browse.currentSummary,
-               let frame = browse.layout()?.cards.first(where: { $0.item == browse.state.selected })?.frame {
-                AppSpaceCardActionsView(model: model, browse: browse, lift: activeLift,
-                    summary: summary, requestedID: $requestedMenuID)
-                    .position(x: frame.maxX - 24, y: frame.minY + 24)
-                    .zIndex(100)
             }
             if let model, let deletion = model.cardDeletion,
                activeSurfaceSlot != nil || model.pane == nil,
@@ -910,27 +891,6 @@ struct WorkspaceSurfaceView<Content: View>: View {
         let status = model.previewContent.status(for: browse.selectedConversationID,
             summary: browse.currentSummary, summaryError: model.appSpaceActionError(for: browse.selectedConversationID) ?? browse.errorMessage)
         return ConversationPreviewController.accessibilityLabel(summary: browse.currentSummary, status: status)
-    }
-
-    private func projectedCard(_ card: AppSpaceBrowseGeometry.Card) -> some View {
-        let summary: ConversationSummary? = {
-            if case .conversation(let id) = card.item { return browse.summaries.first { $0.id == id } }
-            return nil
-        }()
-        let size = browse.viewportSize
-        let insets = browse.safeArea
-        let pose = AppSpaceBrowseGeometry.pose(for: card, size: size, safeArea: insets)
-        // Match the native Current's logical viewport, scaling and crop. Reflowing
-        // a predecessor at its thumbnail width would jump its text at commitment.
-        return ConversationPreviewView(summary: summary,
-            status: summary?.contentUnavailable == true ? .contentUnavailable : .ready,
-            isNewEntry: browse.supportsNewEntry && card.item == .newConversation)
-            .frame(width: max(1, size.width - insets.left - insets.right),
-                height: max(1, size.height - insets.top - insets.bottom))
-            .padding(EdgeInsets(top: insets.top, leading: insets.left, bottom: insets.bottom, trailing: insets.right))
-            .scaleEffect(pose?.scale ?? 1)
-            .frame(width: card.frame.width, height: card.frame.height)
-            .clipShape(RoundedRectangle(cornerRadius: card.cornerRadius, style: .continuous))
     }
 
     private func updateMinimumSize() {

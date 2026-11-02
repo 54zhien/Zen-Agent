@@ -1,10 +1,14 @@
 import SwiftUI
 
 @MainActor
-struct ConversationPreviewView: View {
+struct ConversationPreviewView: View, Equatable {
     let summary: ConversationSummary?
     var status: ConversationPreviewStatus = .ready
     var isNewEntry = false
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.summary == rhs.summary && lhs.status == rhs.status && lhs.isNewEntry == rhs.isNewEntry
+    }
     var onRefreshFrozenCredential: (@MainActor (String, SecretValue) async throws -> Void)? = nil
     @Environment(\.surfaceLiftController) private var surfaceLiftController
     @Environment(\.surfaceCardAccessibilityActions) private var surfaceCardAccessibilityActions

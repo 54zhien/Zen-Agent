@@ -824,7 +824,7 @@ struct AppShellWiringTests {
         else { #expect(false, "Selected Return lost the outgoing reading anchor") }
     }
 
-    @Test("real native snap interruption cannot commit its late neighbor", arguments: [false, true])
+    @Test("native coast interruption leaves the current selection unchanged", arguments: [false, true])
     func nativeSnapInterruption(returnToFull: Bool) async throws {
         let fixture = try makeFixture(seed: .active)
         defer { fixture.defaults.removePersistentDomain(forName: fixture.defaultsSuite) }
@@ -852,31 +852,36 @@ struct AppShellWiringTests {
             if let card = view as? SurfaceClipView, card.accessibilityIdentifier == "workspace-current-card" { return card }
             return view.subviews.lazy.compactMap(findCard).first
         }
+        func findBrowseInteraction(_ view: UIView) -> AppSpaceBrowseInteraction? {
+            if let interaction = view.gestureRecognizers?.compactMap({ $0.delegate as? AppSpaceBrowseInteraction }).first {
+                return interaction
+            }
+            return view.subviews.lazy.compactMap(findBrowseInteraction).first
+        }
         for _ in 0..<40 where findCard(host.view)?.accessibilityIdentifier != "workspace-current-card" {
             try await Task.sleep(for: .milliseconds(25))
         }
         let card = try #require(findCard(host.view))
-        let native = try #require(card.gestureRecognizers?.compactMap { $0.delegate as? AppSpaceBrowseInteraction }.first)
+        let native = try #require(findBrowseInteraction(host.view))
         #expect(fixture.model.previewContent.summaries.isEmpty, "Workspace must retain only one summary window")
         #expect(native.controller.summaries.count <= 5)
         let action = try #require(card.accessibilityCustomActions?.first { $0.name == "上一会话" })
         let handler = try #require(action.actionHandler)
         #expect(handler(action))
-        let animator = try #require(native.animatorForTesting)
-        animator.pauseAnimation()
-        animator.fractionComplete = 0.4
-        CATransaction.flush()
-        let pending = try #require(native.controller.state.pendingSettlement)
+        native.advance(deltaTime: 0.08)
+        #expect(native.isAnimating)
+        #expect(native.controller.state.selected == .conversation("snap-interrupt-1"))
         if returnToFull {
             #expect(card.accessibilityActivate())
         } else {
-            let container = try #require(card.superview)
-            container.frame.size.width += 80
-            container.setNeedsLayout()
-            container.layoutIfNeeded()
+            let size = native.controller.viewportSize
+            native.controller.updateViewport(
+                size: CGSize(width: size.width + 80, height: size.height),
+                safeArea: native.controller.safeArea,
+                displayCornerRadius: native.controller.displayCornerRadius)
         }
-        #expect(native.animatorForTesting == nil)
-        #expect(!native.controller.complete(pending, finished: true))
+        #expect(!native.isAnimating)
+        #expect(native.controller.state.pendingSettlement == nil)
         #expect(native.controller.state.selected == .conversation("snap-interrupt-1"))
         if returnToFull {
             for _ in 0..<80 where lift.state.phase != .full || fixture.model.previewContent.isPresented {

@@ -19,11 +19,32 @@ enum AppSpaceGeometry {
         let cards: [Placement]
     }
 
+    /// Leftward offset of each predecessor's center, as a fraction of the current card's
+    /// width. A narrow exposed strip and small vertical steps keep the stack compact.
+    static let depthOffsets: [CGFloat] = [0, 0.18, 0.30, 0.38]
+    static let depthScaleStep: CGFloat = 0.06
+
+    static func depthOffset(_ depth: Int) -> CGFloat {
+        guard depth > 0 else { return 0 }
+        if depth < depthOffsets.count { return depthOffsets[depth] }
+        return depthOffsets[depthOffsets.count - 1] + 0.06 * CGFloat(depth - depthOffsets.count + 1)
+    }
+
+    /// The frame a predecessor occupies behind a current card at `base`.
+    static func predecessorFrame(base: CGRect, depth: Int) -> CGRect {
+        let scale = 1 - CGFloat(depth) * depthScaleStep
+        let midX = base.midX - base.width * depthOffset(depth)
+        return CGRect(x: midX - base.width * scale / 2, y: base.midY - base.height * scale / 2,
+                      width: base.width * scale, height: base.height * scale)
+    }
+
     static func resolve(size: CGSize, safeArea: UIEdgeInsets, historyIDs: [String],
-                        current: Item, minimumCardSize: CGSize) -> Layout? {
+                        current: Item, minimumCardSize: CGSize,
+                        displayCornerRadius: CGFloat = 0) -> Layout? {
         guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0,
               minimumCardSize.width.isFinite, minimumCardSize.height.isFinite,
               minimumCardSize.width > 0, minimumCardSize.height > 0,
+              displayCornerRadius.isFinite, displayCornerRadius >= 0,
               [safeArea.top, safeArea.left, safeArea.bottom, safeArea.right].allSatisfy({ $0.isFinite && $0 >= 0 }),
               historyIDs.allSatisfy({ !$0.isEmpty }), Set(historyIDs).count == historyIDs.count
         else { return nil }
@@ -36,31 +57,39 @@ enum AppSpaceGeometry {
         let items = historyIDs.map(Item.conversation) + [.newConversation]
         guard let selected = items.firstIndex(of: current) else { return nil }
 
-        // Blueprint calibration values, not immutable product dimensions. Asymmetric
-        // breathing room retains a right bias even when typography needs a wider card.
+        // Calibration values, not immutable product dimensions. Cards keep the display's
+        // own proportions, as app-switcher cards do, unless typography needs more room.
         let edgeX = min(16, available.width * 0.02)
         let edgeY = min(16, available.height * 0.04)
-        let width = min(max(available.width * 0.82, minimumCardSize.width), available.width - 3 * edgeX)
-        let height = min(max(available.height * 0.74, minimumCardSize.height), available.height - 2 * edgeY)
-        let centerX = min(safe.maxX - edgeX - width / 2,
-                          max(safe.minX + 2 * edgeX + width / 2, safe.minX + available.width * 0.56))
-        let frame = CGRect(x: centerX - width / 2, y: safe.midY - height / 2, width: width, height: height)
+        let aspect = size.height / size.width
+        let maxWidth = available.width - 2 * edgeX
+        let maxHeight = min(available.height * 0.82, available.height - 2 * edgeY)
+        var width = min(max(available.width * 0.685, minimumCardSize.width), maxWidth)
+        var height = min(max(width * aspect, minimumCardSize.height), maxHeight)
+        if height < width * aspect {
+            width = min(max(height / aspect, minimumCardSize.width), maxWidth)
+        }
+        height = min(height, maxHeight)
+        guard width > 0, height > 0 else { return nil }
+        let centerY = min(safe.maxY - edgeY - height / 2,
+                          max(safe.minY + edgeY + height / 2, size.height * 0.49))
+        let frame = CGRect(x: safe.midX - width / 2, y: centerY - height / 2, width: width, height: height)
         let count = min(selected, 3)
-        // Keep a positive rounding margin instead of relying on exact edge equality.
-        let marginX = min(1, available.width * 0.001)
-        let stepX = count == 0 ? 0 : max(0, min(28, (frame.minX - safe.minX - marginX) / CGFloat(count)))
-        let corner = min(24, min(width, height) * 0.1)
+        // A real display corner makes every card concentric with the screen at its scale.
+        let corner = displayCornerRadius > 0
+            ? min(displayCornerRadius * width / size.width, min(width, height) / 2)
+            : min(24, min(width, height) * 0.1)
         let cards = (0...count).reversed().map { depth in
-            let scale = 1 - CGFloat(depth) * 0.04
+            let scale = 1 - CGFloat(depth) * depthScaleStep
             return Placement(item: items[selected - depth],
-                frame: CGRect(x: frame.minX - stepX * CGFloat(depth), y: frame.midY - height * scale / 2,
-                              width: width * scale, height: height * scale),
+                frame: depth == 0 ? frame : predecessorFrame(base: frame, depth: depth),
                 depth: depth, cornerRadius: corner * scale)
         }
-        guard cards.allSatisfy({
+        guard safe.contains(frame), cards.allSatisfy({
             $0.frame.width > 0 && $0.frame.height > 0 && $0.cornerRadius.isFinite
                 && [$0.frame.minX, $0.frame.minY, $0.frame.maxX, $0.frame.maxY].allSatisfy({ $0.isFinite })
-                && safe.contains($0.frame)
+                // Predecessors may slide past the leading edge, but each keeps a visible strip.
+                && $0.frame.maxX > safe.minX && $0.frame.minY >= safe.minY && $0.frame.maxY <= safe.maxY
         }) else { return nil }
         return Layout(safeViewport: safe, logicalOrder: items, cards: cards)
     }
