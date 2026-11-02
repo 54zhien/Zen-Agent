@@ -297,11 +297,114 @@ jobs:
           exit $failed
 
   # -------------------------------------------------------------------------
-  # Regenerate the project from project.yml, then build and test.
+  # Fast lane: build once, then run the unit suite only.
+  #
+  # Measured on run 41398836422: the Swift Testing suite finishes in 161 s while
+  # the UI layer needs ~61 min. Holding both in one job made every feedback loop
+  # an hour long, which is exactly what made `[skip ci]` tempting and left 125
+  # commits on main unverified. The unit job now answers a unit regression in
+  # minutes; the UI job keeps the slow path.
+  #
+  # This job makes exactly one xcodebuild test invocation, so the same
+  # one-test-run-start assertion still proves the host was not relaunched.
+  # -------------------------------------------------------------------------
+  unit-tests:
+    name: Unit tests
+    needs: repo-hygiene
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project from project.yml
+        run: xcodegen generate
+
+      - name: Cache Swift Package Manager
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project ZenAgent.xcodeproj \
+            -scheme ZenAgent
+
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available \
+            | grep -E '^\s+iPhone' \
+            | head -n 1 \
+            | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          if [ -z "${UDID:-}" ]; then
+            echo "::error::No available iPhone simulator found."
+            exit 1
+          fi
+          echo "Using simulator $UDID"
+          xcrun simctl bootstatus "$UDID" -b
+
+          set +e
+          set -o pipefail
+          xcodebuild test \
+            -project ZenAgent.xcodeproj \
+            -scheme ZenAgent \
+            -configuration Debug \
+            -destination "id=$UDID" \
+            -only-testing:ZenAgentTests \
+            -resultBundlePath "$RUNNER_TEMP/ZenAgentUnitTests.xcresult" \
+            2>&1 | tee "$RUNNER_TEMP/ZenAgentUnitTests.log"
+          XCODE_STATUS=${PIPESTATUS[0]}
+          set -e
+
+          # One invocation, one destination, no retry: more than one Swift Testing
+          # run start proves the host was relaunched and the result is partial.
+          TEST_RUN_START_COUNT=0
+          if [ -f "$RUNNER_TEMP/ZenAgentUnitTests.log" ]; then
+            TEST_RUN_START_COUNT=$(
+              grep -cF '◇ Test run started.' \
+                "$RUNNER_TEMP/ZenAgentUnitTests.log" || true
+            )
+          fi
+          if [ "$TEST_RUN_START_COUNT" -gt 1 ] || \
+             grep -Fq 'Restarting after unexpected exit, crash, or test timeout' \
+               "$RUNNER_TEMP/ZenAgentUnitTests.log"; then
+            echo "::error::Test-host restart evidence detected in the unit suite ($TEST_RUN_START_COUNT test-run starts); refusing a partial or relaunched run."
+            exit 1
+          fi
+
+          exit "$XCODE_STATUS"
+
+      - name: Upload unit evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-tests-failure
+          path: |
+            ${{ runner.temp }}/ZenAgentUnitTests.xcresult
+            ${{ runner.temp }}/ZenAgentUnitTests.log
+          retention-days: 7
+
+  # -------------------------------------------------------------------------
+  # Regenerate the project from project.yml, then build and test the UI layer.
+  # Unit tests live in `unit-tests`; this job owns the 61-minute UI pass and the
+  # diagnostics machinery that belongs to it.
   # macOS 26 / Xcode 26 is required by the iOS 26 deployment target.
   # -------------------------------------------------------------------------
   build-and-test:
-    name: Build and test
+    name: UI tests
     needs: repo-hygiene
     runs-on: macos-26
     # Full39769209066 passed all native tests and uploaded evidence, but its
@@ -358,7 +461,7 @@ jobs:
         # what the runner actually has.
         run: xcrun simctl list devices available
 
-      - name: Run app unit and UI tests
+      - name: Run UI tests
         run: |
           set -euo pipefail
           UDID=$(xcrun simctl list devices available \
@@ -399,6 +502,12 @@ jobs:
           elif [ "$TEST_SCOPE" = "resize-diagnostic" ]; then
             echo "::notice::Stage 5 resize diagnostics: all unit tests and SplitResize UI; full slice gate remains required."
             TEST_ARGS+=(-only-testing:ZenAgentTests -only-testing:ZenAgentUITests/SplitResizeUITests)
+          else
+            # Full gate: units are already covered by the `unit-tests` job, so this
+            # invocation owns the UI layer only. Keeping them out is what turns a
+            # 90-minute loop into a ~5-minute one for the fast lane.
+            echo "::notice::Full gate: UI layer only; the unit suite runs in the Unit tests job."
+            TEST_ARGS+=(-only-testing:ZenAgentUITests)
           fi
           touch "$RUNNER_TEMP/test-start.marker"
 
