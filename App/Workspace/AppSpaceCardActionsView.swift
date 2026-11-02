@@ -25,7 +25,7 @@ struct AppSpaceCardActionsView: View {
         }
         .accessibilityLabel("会话菜单")
         .accessibilityIdentifier("workspace-card-menu")
-        .disabled(lift.state.phase != .card || model.previewContent.isPreparing || browse.state.phase != .idle)
+        .disabled(lift.state.phase != .card || model.previewContent.isPreparing || browse.phase != .idle)
         .confirmationDialog("会话", isPresented: $menuPresented, titleVisibility: .hidden) {
             if model.splitWorkspace == nil {
                 Button("分屏打开") {
@@ -92,12 +92,12 @@ struct AppSpaceCardActionsView: View {
     private var isCurrentTarget: Bool {
         model.previewContent.isPresented && !model.previewContent.isPreparing
             && browse.selectedConversationID == capturedID && capturedID == summary.id
-            && browse.state.phase == .idle && lift.state.phase == .card
+            && browse.phase == .idle && lift.state.phase == .card
     }
 
     private func openMenu() {
         guard model.previewContent.isPresented, !model.previewContent.isPreparing,
-              browse.selectedConversationID == summary.id, browse.state.phase == .idle,
+              browse.selectedConversationID == summary.id, browse.phase == .idle,
               lift.state.phase == .card, !menuPresented, !renamePresented else { return }
         capturedID = summary.id
         browse.cancel()
