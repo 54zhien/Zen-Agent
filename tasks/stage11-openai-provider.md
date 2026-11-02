@@ -1,0 +1,41 @@
+# Stage 11 OpenAI Provider — implementation record
+
+Status: in progress  
+Base: `4277ec0ba6ef27c67397b0532125ba3e836cf9be`  
+Branch: `codex/stage11-openai-provider`  
+Worktree: `C:\Users\Azusa\.codex\worktrees\stage11-openai\Zen-Agent`  
+Plan: [2026-11-02-stage11-openai-provider.md](../Docs/superpowers/plans/2026-11-02-stage11-openai-provider.md)
+
+## Authority and scope
+
+The Stage 11 plan and provider/model notes in `54zhien/Zen-Agent-Blueprint` authorize a second public model API to validate the existing provider boundary. Stage 10 code is present in the assigned base SHA; the lagging README stage text does not alter this slice.
+
+Use only the paths authorized by the parent assignment. Do not edit Blueprint, schema/migration, project configuration, generated project files, or any other source/test path. The complete-source XcodeGen rules include additions below `App` and `Tests/ZenAgentTests` without a project change.
+
+## Audited ownership and recovery
+
+- `ConversationRuntime` owns Send preparation and freezes Provider ID, adapter revision, provider prompt instructions, and the existing full `RequestConfigSeed` before commit.
+- `AgentRuntime` owns Run transitions, ToolPolicy/approval, tool dispatch, streaming projection boundaries, cancellation and recovery. The Provider only maps wire requests and outputs.
+- `RunRequestRebuilder` reconstructs requests from the frozen snapshot. It must select the same Provider and reject unknown or changed adapters.
+- `DelegationRuntime` owns Child identity and follows the parent's frozen model unless the persisted explicit target freezes its own provider/revision/seed.
+- The registry is an immutable ID-to-adapter lookup. It has no runtime, factory, retry, or fallback policy.
+- An unknown Provider, mismatch between the frozen Provider ID and the stored instance, or unsupported adapter revision fails explicitly and never falls back.
+- OpenAI cancellation calls the existing HTTP stream cancellation path. OpenAI requests are not replayed by the adapter; partial-output error semantics stay in `ProviderError`.
+
+## Official OpenAI protocol evidence
+
+First-party docs checked on 2026-11-02: [GPT-6.1 Terra](https://developers.openai.com/api/docs/models/gpt-6.1-terra), [Responses streaming](https://developers.openai.com/api/docs/guides/streaming-responses), [function calling](https://developers.openai.com/api/docs/guides/function-calling), [create response](https://developers.openai.com/api/reference/resources/responses/methods/create), [streaming events](https://developers.openai.com/api/reference/resources/responses/streaming-events), and [reasoning](https://developers.openai.com/api/docs/guides/reasoning).
+
+Choice: `gpt-6.1-terra` using Responses, `reasoning.effort=none`, and `store=false`; advertise text, streaming, and function tools only. This avoids losing opaque reasoning protocol state in the current stateless chat/tool transcript. Calls use Responses semantic events and each result preserves the original `call_id`.
+
+## Implementation ledger
+
+- [ ] Registry lookup and frozen adapter identity tests, then implementation.
+- [ ] OpenAI request/descriptor tests, then implementation.
+- [ ] OpenAI semantic streaming, multiple function calls, failure and cancellation tests, then implementation.
+- [ ] Runtime, Settings and explicit Child routing tests, then implementation.
+- [ ] Local static checks, branch commit/push, remote SHA verification, draft PR if GitHub flow is available; record exact outcomes here.
+
+## Verification
+
+Windows has no Swift/Xcode toolchain per repository instructions. Local native build and XCTest cannot be claimed; full build/test evidence must come from CI. Local static validation and exact CI status will be appended before delivery.
