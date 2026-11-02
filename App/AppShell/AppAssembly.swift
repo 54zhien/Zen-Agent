@@ -154,26 +154,26 @@ struct AppAssembly {
         let runtime = makeRuntime(
             store: store,
             provider: provider,
-            providerRegistry: providerRegistry,
             credentials: credentials,
             router: router,
             toolRegistry: toolRegistry,
             managedFiles: managedFiles,
             mcpRuntime: mcpRuntime,
-            manualDualChildProbeEnabled: manualDualChildProbeEnabled
+            manualDualChildProbeEnabled: manualDualChildProbeEnabled,
+            providerRegistry: providerRegistry
         )
         return Dependencies(
             store: store,
             credentials: credentials,
             provider: provider,
-            providerRegistry: providerRegistry,
             runtime: runtime,
             router: router,
             managedFiles: managedFiles,
             toolRegistry: toolRegistry,
             sessions: sessions,
             mcpRegistry: mcpRegistry,
-            mcpRuntime: mcpRuntime
+            mcpRuntime: mcpRuntime,
+            providerRegistry: providerRegistry
         )
     }
 
