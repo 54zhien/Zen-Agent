@@ -599,7 +599,8 @@ final class AppShellModel {
                 runProjection: projection,
                 providerInstanceID: summary.providerInstanceID,
                 modelID: summary.modelID,
-                providerName: summary.providerName
+                providerName: summary.providerName,
+                thinkingEffort: summary.thinkingEffort
             )
         }
 
