@@ -517,7 +517,11 @@ final class SplitContainerUITests: XCTestCase {
         app.openWorkspaceSplit(sourceInTopPane: false)
         let picker = app.otherElements["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
-        XCTAssertLessThan(picker.frame.midY, editor.frame.midY)
+        // The seeded Conversation owns the bottom Pane, so its Composer is the
+        // vertical anchor that proves the empty picker sits above the source Pane.
+        let sourceComposer = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(sourceComposer.waitForExistence(timeout: 10))
+        XCTAssertLessThan(picker.frame.midY, sourceComposer.frame.midY)
     }
 
     @MainActor
