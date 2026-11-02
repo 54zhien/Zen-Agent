@@ -1,6 +1,6 @@
 # Stage 11 OpenAI Provider — implementation record
 
-Status: implementation complete; waiting for CI
+Status: implementation complete; CI-required baseline test compile repair pending CI
 Base: `4277ec0ba6ef27c67397b0532125ba3e836cf9be`
 Branch: `codex/stage11-openai-provider`
 Worktree: `C:\Users\Azusa\.codex\worktrees\stage11-openai\Zen-Agent`
@@ -11,6 +11,8 @@ Plan: [2026-11-02-stage11-openai-provider.md](../Docs/superpowers/plans/2026-11-
 The Stage 11 plan and provider/model notes in `54zhien/Zen-Agent-Blueprint` authorize a second public model API to validate the existing provider boundary. Stage 10 code is present in the assigned base SHA; the lagging README stage text does not alter this slice.
 
 Use only the paths authorized by the parent assignment. Do not edit Blueprint, schema/migration, project configuration, generated project files, or any other source/test path. The complete-source XcodeGen rules include additions below `App` and `Tests/ZenAgentTests` without a project change.
+
+After CI on `84e61cb3ac782aeaf09ee64f050fa2cda58a9f52` showed that existing `SplitContainerUITests.swift:520` referenced an undeclared `editor`, the parent explicitly authorized a single binding in that test. The file was unchanged from `origin/main`; this is a CI-required baseline compile repair only, with no added test or assertion.
 
 ## Audited ownership and recovery
 
@@ -34,8 +36,9 @@ Choice: `gpt-6.1-terra` using Responses, `reasoning.effort=none`, and `store=fal
 - [x] Added OpenAI request/descriptor contract tests; Responses request and provider adapter are implemented.
 - [x] Added OpenAI semantic streaming tests for terminal completion, parallel function calls, interruption and cancellation; stream decoder and transport cancellation are implemented.
 - [x] Runtime and Settings route new Sends by instance Provider, recovery by the frozen Run snapshot, and explicit Child targets by their frozen Provider binding.
+- [x] Added the parent-authorized `editor` query binding to the existing bottom-drop UI test to repair the CI baseline compile error; no test behavior or assertion was added.
 - [x] Local static checks are recorded below; implementation is ready for branch delivery and CI.
-- [ ] Commit/push, verify remote SHA, open a draft PR, and record the exact CI run/result.
+- [ ] Commit/push the baseline repair, verify the remote SHA, and record the latest CI result.
 
 ## Verification
 
@@ -51,3 +54,4 @@ Local static results before commit:
 - `git check-ignore -v ZenAgent.xcodeproj/project.pbxproj`: PASS (`*.xcodeproj/`).
 - `xcodegen generate`: unavailable; PowerShell reported that `xcodegen` is not recognized.
 - Native build and XCTest: not run locally; await CI.
+- CI run `41481266193` on `84e61cb...` passed `Build app` but failed the UI test target compile at `Tests/ZenAgentUITests/SplitContainerUITests.swift:520` with `cannot find 'editor' in scope`. The parent-authorized binding above addresses that baseline issue; the resulting SHA's CI is pending.

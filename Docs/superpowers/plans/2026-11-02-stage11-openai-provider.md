@@ -1,7 +1,7 @@
 # Stage 11 OpenAI Provider Implementation Plan
 
 - Date: 2026-11-02
-- Status: implementation complete; awaiting CI
+- Status: implementation complete; CI-required baseline test compile repair pending CI
 - Base: `4277ec0ba6ef27c67397b0532125ba3e836cf9be`
 - Branch: `codex/stage11-openai-provider`
 - Worktree: `C:\Users\Azusa\.codex\worktrees\stage11-openai\Zen-Agent`
@@ -16,6 +16,7 @@ The second public provider is an abstraction check, not a second runtime. Use on
 - Update `App/Runtime/AgentRuntime.swift`, `ConversationRuntime.swift`, `RunRequestRebuilder.swift`, and `DelegationRuntime.swift`.
 - Update `App/AppShell/AppAssembly.swift`, `AppShellConfiguration.swift`, `AppShellModel.swift`, `ConversationPaneFactory.swift`, `ProviderSetupView.swift`, `App/Settings/SettingsWorkspaceModel.swift`, `SubagentSettingsModel.swift`, and `SettingsProviderViews.swift`.
 - Add `Tests/ZenAgentTests/OpenAIProviderTests.swift`, `OpenAIStreamingTests.swift`, `ModelProviderRegistryTests.swift`, and `MultiProviderRuntimeTests.swift`. Update only the specifically authorized existing tests if wiring requires it.
+- Parent authorized a CI-required baseline repair in `Tests/ZenAgentUITests/SplitContainerUITests.swift`: bind the existing test's `editor` query because `main` referenced `editor.frame` without declaring `editor`. This adds no test or assertion and does not change Stage 11 product behavior.
 - Add this plan and `tasks/stage11-openai-provider.md`.
 
 XcodeGen already includes the complete App and test directories, so this slice needs no project-file edit.
@@ -84,6 +85,7 @@ Expected: a Run never changes adapter due to a current default or mutable select
 
 - Run the relevant contract tests via CI because the Windows workstation has no Swift/Xcode toolchain. Do not claim local native build or XCTest success.
 - Run local static checks available on Windows: XcodeGen/workflow cross-reference and YAML, path existence, ignored generated-project artifacts, LF line endings, and `git diff --check`.
+- If CI exposes an existing baseline compile defect, make only the parent-authorized CI repair and record the exact CI evidence; do not expand test behavior.
 - Review the final diff against the explicit path ownership list; commit and push only this branch; verify the pushed remote SHA; open a draft PR to `main` if the configured GitHub flow permits it.
 - Record exact commit, CI run/result, static command results, and remaining limits in the task record.
 
