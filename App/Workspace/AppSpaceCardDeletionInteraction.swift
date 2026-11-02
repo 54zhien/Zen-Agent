@@ -90,7 +90,7 @@ final class AppSpaceCardDeletionInteraction: NSObject, UIGestureRecognizerDelega
                 rebound()
                 return
             }
-            if !hapticSent { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+            if !hapticSent { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
             performDelete(id: id)
         case .cancelled, .failed: rebound()
         default: break
@@ -119,7 +119,7 @@ final class AppSpaceCardDeletionInteraction: NSObject, UIGestureRecognizerDelega
         if !hapticSent, AppSpaceCardDeletionGesture.shouldDelete(
             translation: translation, velocity: velocity, height: cardHeight) {
             hapticSent = true
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         }
     }
 

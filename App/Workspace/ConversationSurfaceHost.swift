@@ -307,6 +307,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
     override func loadView() {
         let container = SurfaceHitView()
         container.surfaceView = surfaceView
+        container.acceptsCanvasTouches = { [weak self] in self?.browseInteraction?.acceptsCanvasTouches == true }
         view = container
     }
 
@@ -784,7 +785,9 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
                 guard let self, let lift = self.liftController else { return false }
                 return self.browseInteraction?.isCurrentOwner == true
                     && controller?.isPresented == true && lift.state.phase == .card
-                    && !lift.isPreparingReturn && !lift.overlayPresented && !self.hasPresentedOverlay
+                    // Sidebar motion shares the horizontal axis with card browsing.
+                    && !lift.isPreparingReturn && !lift.overlayPresented && !lift.workspaceNavigationActive
+                    && !self.hasPresentedOverlay
             }, render: { [weak self, weak controller] card in
                 guard let self, let controller, self.liftController?.state.phase == .card,
                       let pose = AppSpaceBrowseGeometry.pose(for: card,
@@ -1013,6 +1016,7 @@ final class ConversationSurfaceViewController<Content: View>: UIViewController {
 @MainActor
 private final class SurfaceHitView: UIView {
     weak var surfaceView: SurfaceClipView?
+    var acceptsCanvasTouches: (() -> Bool)?
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let surfaceView, isUserInteractionEnabled, !isHidden, alpha > 0.01,
@@ -1022,7 +1026,10 @@ private final class SurfaceHitView: UIView {
         // Resolve the touch through the visible layer hierarchy, not a committed offset.
         let displayed = surfaceView.layer.presentation() ?? surfaceView.layer
         let local = displayed.convert(point, from: layer.presentation() ?? layer)
-        guard surfaceView.point(inside: local, with: event) else { return nil }
+        guard surfaceView.point(inside: local, with: event) else {
+            // Browse spans the exposed canvas as well as the moving native card.
+            return acceptsCanvasTouches?() == true ? self : nil
+        }
         if surfaceView.onActivate == nil {
             // The retained controller still fills the viewport after Sidebar
             // translation. Its empty strip must pass through to the Rail below.
