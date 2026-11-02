@@ -870,10 +870,13 @@ struct AppShellWiringTests {
         if returnToFull {
             #expect(card.accessibilityActivate())
         } else {
-            let container = try #require(card.superview)
-            container.frame.size.width += 80
-            container.setNeedsLayout()
-            container.layoutIfNeeded()
+            // The viewport the browse controller observes is the host's own
+            // bounds (AppSpaceBrowseInteraction is built with `coordinates:
+            // view`), so a resize anywhere deeper cannot reach it. Interrupt the
+            // settle the way a rotation would: change the authority itself.
+            host.view.frame.size.width += 80
+            host.view.setNeedsLayout()
+            host.view.layoutIfNeeded()
         }
         #expect(native.animatorForTesting == nil)
         #expect(!native.controller.complete(pending, finished: true))

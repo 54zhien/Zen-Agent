@@ -57,11 +57,19 @@ final class AppSpaceBrowseInteraction: NSObject, UIGestureRecognizerDelegate {
 
     func updateViewport() {
         guard isCurrentOwner, let coordinates else { return }
+        let viewportChanged = controller.viewportSize != coordinates.bounds.size
+            || controller.safeArea != coordinates.safeAreaInsets
 #if DEBUG
-        if controller.viewportSize != coordinates.bounds.size || controller.safeArea != coordinates.safeAreaInsets {
+        if viewportChanged {
             record("viewport=\(coordinates.bounds.size) insets=\(coordinates.safeAreaInsets) phase=\(controller.state.phase)")
         }
 #endif
+        // A settle already in flight cannot survive a viewport change: the frames it
+        // interpolates belong to the old geometry, and letting it run to completion
+        // would commit a settlement chosen for a size that no longer exists. Stopping
+        // it here also clears `animator`, so the late completion loses its animation
+        // identity and cannot commit through `complete(_:finished:)`.
+        if viewportChanged { stopAnimator() }
         controller.updateViewport(size: coordinates.bounds.size, safeArea: coordinates.safeAreaInsets)
     }
 
