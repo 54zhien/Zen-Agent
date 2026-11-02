@@ -153,13 +153,13 @@ struct AgentRuntimeStreamingTests {
                 .finish(.stop),
             ]
         )
-        try fixture.store.commitUserTurnAndCreateParentRun(
-            Fixtures.send(
-                conversationID: I05RuntimeTestFixtures.conversationID,
-                messageID: "user-agent-stream",
-                runID: "run-agent-stream"
-            )
+        var commit = Fixtures.send(
+            conversationID: I05RuntimeTestFixtures.conversationID,
+            messageID: "user-agent-stream",
+            runID: "run-agent-stream"
         )
+        commit.run.requestConfigSeed.providerInstanceID = fixture.instance.id
+        try fixture.store.commitUserTurnAndCreateParentRun(commit)
         try fixture.store.completeExecutionSnapshot(
             runID: "run-agent-stream",
             encodedSnapshot: try ExecutionSnapshotCodec.encode(
@@ -243,13 +243,13 @@ struct AgentRuntimeStreamingTests {
             ]
         )
         let snapshot = snapshot(for: provider, instance: fixture.instance)
-        try fixture.store.commitUserTurnAndCreateParentRun(
-            Fixtures.send(
-                conversationID: I05RuntimeTestFixtures.conversationID,
-                messageID: "user-agent-projection-failure",
-                runID: "run-agent-projection-failure"
-            )
+        var commit = Fixtures.send(
+            conversationID: I05RuntimeTestFixtures.conversationID,
+            messageID: "user-agent-projection-failure",
+            runID: "run-agent-projection-failure"
         )
+        commit.run.requestConfigSeed.providerInstanceID = fixture.instance.id
+        try fixture.store.commitUserTurnAndCreateParentRun(commit)
         try fixture.store.completeExecutionSnapshot(
             runID: "run-agent-projection-failure",
             encodedSnapshot: try ExecutionSnapshotCodec.encode(snapshot)
@@ -343,13 +343,13 @@ struct AgentRuntimeStreamingTests {
         let box = I05AttemptStreamBox()
         let provider = I05AttemptProvider(box: box, instanceID: fixture.instance.id)
         let snapshot = snapshot(for: provider, instance: fixture.instance)
-        try fixture.store.commitUserTurnAndCreateParentRun(
-            Fixtures.send(
-                conversationID: I05RuntimeTestFixtures.conversationID,
-                messageID: "user-agent-attempt",
-                runID: "run-agent-attempt"
-            )
+        var commit = Fixtures.send(
+            conversationID: I05RuntimeTestFixtures.conversationID,
+            messageID: "user-agent-attempt",
+            runID: "run-agent-attempt"
         )
+        commit.run.requestConfigSeed.providerInstanceID = fixture.instance.id
+        try fixture.store.commitUserTurnAndCreateParentRun(commit)
         try fixture.store.completeExecutionSnapshot(
             runID: "run-agent-attempt",
             encodedSnapshot: try ExecutionSnapshotCodec.encode(snapshot)
@@ -435,13 +435,13 @@ struct AgentRuntimeStreamingTests {
             instance: fixture.instance,
             maxProviderSteps: 1
         )
-        try fixture.store.commitUserTurnAndCreateParentRun(
-            Fixtures.send(
-                conversationID: I05RuntimeTestFixtures.conversationID,
-                messageID: "user-agent-limit",
-                runID: "run-agent-limit"
-            )
+        var commit = Fixtures.send(
+            conversationID: I05RuntimeTestFixtures.conversationID,
+            messageID: "user-agent-limit",
+            runID: "run-agent-limit"
         )
+        commit.run.requestConfigSeed.providerInstanceID = fixture.instance.id
+        try fixture.store.commitUserTurnAndCreateParentRun(commit)
         try fixture.store.completeExecutionSnapshot(
             runID: "run-agent-limit",
             encodedSnapshot: try ExecutionSnapshotCodec.encode(snapshot)
