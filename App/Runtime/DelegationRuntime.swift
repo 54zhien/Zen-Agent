@@ -273,7 +273,12 @@ actor DelegationRuntime {
             snapshot: childSnapshot,
             project: project
         )
-        return try await waitForChild(stream, child: recoveredChild, parent: parent)
+        return try await waitForChild(
+            stream,
+            child: recoveredChild,
+            parent: parent,
+            snapshot: childSnapshot
+        )
     }
 
     private func runChildWithParentStopSettlement(
@@ -340,7 +345,7 @@ actor DelegationRuntime {
             snapshot: childSnapshot,
             project: project
         )
-        return try await waitForChild(stream, child: child, parent: parent)
+        return try await waitForChild(stream, child: child, parent: parent, snapshot: childSnapshot)
     }
 
     private func childRequest(
@@ -384,7 +389,8 @@ actor DelegationRuntime {
     private func waitForChild(
         _ stream: AsyncThrowingStream<AgentEvent, Error>,
         child: AgentRunRecord,
-        parent: AgentRunRecord
+        parent: AgentRunRecord,
+        snapshot: RunExecutionSnapshot
     ) async throws -> ToolExecutionResult {
         let childExecution = Task<ToolExecutionResult, Error> {
             do {
@@ -416,7 +422,7 @@ actor DelegationRuntime {
                currentChild.suspendReason == .authRequired {
                 await agentRuntime.releaseToolRegistry(forRunID: child.id)
                 throw DelegatedChildAuthenticationRequired(
-                    providerID: childSnapshot.providerID,
+                    providerID: snapshot.providerID,
                     providerInstanceID: currentChild.requestConfigSeed.providerInstanceID,
                     modelID: currentChild.requestConfigSeed.modelID
                 )
