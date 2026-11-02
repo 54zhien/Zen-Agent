@@ -3,21 +3,26 @@ import SwiftUI
 /// Only committed effort drives the title; drag preview still belongs to the gauge.
 struct ComposerThinkingLevelLabel: View {
     let level: ThinkingEffort?
-    let font: Font
+    /// The Blueprint's typography contract allows no bespoke sizes in the
+    /// Conversation surface, so the label names a role instead of receiving a
+    /// `Font`. Layout-driven size ladders were what this replaced.
+    let role: TypographyRole
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var displayed: ThinkingEffort?
     @State private var direction: CGFloat = 1
 
-    init(level: ThinkingEffort?, font: Font) {
+    init(level: ThinkingEffort?, role: TypographyRole) {
         self.level = level
-        self.font = font
+        self.role = role
         _displayed = State(initialValue: level)
     }
 
     var body: some View {
         ZStack {
             Text(displayed?.title ?? "模型默认")
-                .font(font).lineLimit(1).minimumScaleFactor(0.65)
+                .font(Typography.font(for: role, dynamicTypeSize: dynamicTypeSize))
+                .lineLimit(1).minimumScaleFactor(0.65)
                 .id(displayed)
                 .transition(reduceMotion ? .opacity : .asymmetric(
                     insertion: .offset(x: direction * 14).combined(with: .opacity),

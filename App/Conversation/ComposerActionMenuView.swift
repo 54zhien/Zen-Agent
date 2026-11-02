@@ -108,6 +108,7 @@ struct ComposerActionMenuView: View {
     var cornerRadius: CGFloat = 0
     @ScaledMetric(relativeTo: .body) private var iconDiameter: CGFloat = 44
     @ScaledMetric(relativeTo: .body) private var floatingRowHeight: CGFloat = 64
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var iconCenter: CGFloat { max(cornerRadius, iconDiameter / 2 + 12) }
     private var rowHeight: CGFloat {
@@ -119,7 +120,7 @@ struct ComposerActionMenuView: View {
             rows
             ScrollView { rows }.scrollBounceBehavior(.basedOnSize)
         }
-        .font(.body)
+        .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
         .foregroundStyle(.primary)
         .buttonStyle(.plain)
         .frame(width: maximumSize.width)
@@ -155,7 +156,8 @@ struct ComposerActionMenuView: View {
                 Text(level.title)
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold)).accessibilityHidden(true)
+                    .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
+                    .accessibilityHidden(true)
             }
             .padding(.leading, iconCenter - iconDiameter / 2)
             .padding(.trailing, 24)
