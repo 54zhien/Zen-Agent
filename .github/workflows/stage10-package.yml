@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_sha:
-        description: Full commit SHA at origin/main to package
+        description: Full commit SHA at origin/codex/appspace-751-build-only to package
         required: true
         type: string
 
@@ -22,8 +22,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_REF" != 'refs/heads/main' ]]; then
-            echo 'Dispatch this workflow from the default main branch.' >&2
+          if [[ "$GITHUB_REF" != 'refs/heads/codex/appspace-751-build-only' ]]; then
+            echo 'Dispatch this workflow from codex/appspace-751-build-only.' >&2
             exit 1
           fi
           if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
@@ -36,7 +36,7 @@ jobs:
           ref: ${{ inputs.source_sha }}
           fetch-depth: 0
 
-      - name: Verify selected source is the exact current main head
+      - name: Verify selected source is the exact current PR 57 build branch head
         shell: bash
         run: |
           set -euo pipefail
@@ -52,17 +52,17 @@ jobs:
             exit 1
           }
 
-          git fetch --no-tags origin main
-          main_head=$(git rev-parse FETCH_HEAD^{commit})
-          test "$main_head" = "$SOURCE_SHA" || {
-            echo "Selected source is not the current origin/main head: $SOURCE_SHA != $main_head" >&2
+          git fetch --no-tags origin codex/appspace-751-build-only
+          branch_head=$(git rev-parse FETCH_HEAD^{commit})
+          test "$branch_head" = "$SOURCE_SHA" || {
+            echo "Selected source is not the current origin/codex/appspace-751-build-only head: $SOURCE_SHA != $branch_head" >&2
             exit 1
           }
 
           source_tree=$(git rev-parse HEAD^{tree})
           echo "SOURCE_TREE=$source_tree" >> "$GITHUB_ENV"
-          echo "VALIDATED_MAIN_SHA=$main_head" >> "$GITHUB_ENV"
-          echo "Packaging exact origin/main source $SOURCE_SHA ($source_tree)"
+          echo "VALIDATED_BRANCH_SHA=$branch_head" >> "$GITHUB_ENV"
+          echo "Packaging exact origin/codex/appspace-751-build-only source $SOURCE_SHA ($source_tree)"
 
       - name: Toolchain versions
         run: xcodebuild -version
@@ -168,7 +168,7 @@ jobs:
           {
             echo "Source commit SHA: $SOURCE_SHA"
             echo "Source tree SHA: $SOURCE_TREE"
-            echo "Verified origin/main SHA: $VALIDATED_MAIN_SHA"
+            echo "Verified origin/codex/appspace-751-build-only SHA: $VALIDATED_BRANCH_SHA"
             echo "Workflow commit SHA: $GITHUB_SHA"
             echo "Workflow ref: $GITHUB_REF"
             echo "Workflow run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
