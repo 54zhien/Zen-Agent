@@ -152,6 +152,57 @@ struct OpenAIStreamingTests {
         #expect(fixture.transport.requestCount == 1)
     }
 
+    @Test("a failed response after delivered text is never replayable")
+    func failedResponseAfterTextCannotBeReplayed() async throws {
+        let fixture = try makeFixture()
+        fixture.transport.enqueueStream([
+            "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n",
+            "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"server_error\",\"message\":\"request failed\"}}}\n\n",
+        ])
+
+        var failure: Error?
+        do {
+            _ = try await drain(try await fixture.provider.stream(
+                request(),
+                seed: fixture.seed,
+                credentials: fixture.credentials
+            ))
+        } catch {
+            failure = error
+        }
+
+        guard let providerError = failure as? ProviderError,
+              case .streamInterrupted(let deliveredOutput, _) = providerError else {
+            Issue.record("Expected a failed response after delivered text to interrupt the stream.")
+            return
+        }
+        #expect(deliveredOutput)
+        #expect(providerError.retryDisposition == .doNotRetry)
+        #expect(fixture.transport.requestCount == 1)
+    }
+
+    @Test("a top-level Responses error event keeps its rate limit classification")
+    func topLevelErrorKeepsRateLimitClassification() async throws {
+        let fixture = try makeFixture()
+        fixture.transport.enqueueStream([
+            "event: error\ndata: {\"type\":\"error\",\"code\":\"rate_limit_exceeded\",\"message\":\"try later\"}\n\n",
+        ])
+
+        var failure: Error?
+        do {
+            _ = try await drain(try await fixture.provider.stream(
+                request(),
+                seed: fixture.seed,
+                credentials: fixture.credentials
+            ))
+        } catch {
+            failure = error
+        }
+
+        #expect(failure as? ProviderError == .rateLimited(retryAfter: nil))
+        #expect(fixture.transport.requestCount == 1)
+    }
+
     @Test("consumer cancellation reaches the HTTP stream")
     func consumerCancellationCancelsTransport() async throws {
         let fixture = try makeFixture()

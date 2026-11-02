@@ -1,6 +1,6 @@
 # Stage 11 OpenAI Provider — implementation record
 
-Status: in progress
+Status: implementation complete; waiting for CI
 Base: `4277ec0ba6ef27c67397b0532125ba3e836cf9be`
 Branch: `codex/stage11-openai-provider`
 Worktree: `C:\Users\Azusa\.codex\worktrees\stage11-openai\Zen-Agent`
@@ -30,12 +30,24 @@ Choice: `gpt-6.1-terra` using Responses, `reasoning.effort=none`, and `store=fal
 
 ## Implementation ledger
 
-- [ ] Registry lookup and frozen adapter identity tests, then implementation.
-- [ ] OpenAI request/descriptor tests, then implementation.
-- [ ] OpenAI semantic streaming, multiple function calls, failure and cancellation tests, then implementation.
-- [ ] Runtime, Settings and explicit Child routing tests, then implementation.
-- [ ] Local static checks, branch commit/push, remote SHA verification, draft PR if GitHub flow is available; record exact outcomes here.
+- [x] Added registry lookup and frozen adapter identity contract tests; immutable exact-ID/revision routing is implemented.
+- [x] Added OpenAI request/descriptor contract tests; Responses request and provider adapter are implemented.
+- [x] Added OpenAI semantic streaming tests for terminal completion, parallel function calls, interruption and cancellation; stream decoder and transport cancellation are implemented.
+- [x] Runtime and Settings route new Sends by instance Provider, recovery by the frozen Run snapshot, and explicit Child targets by their frozen Provider binding.
+- [x] Local static checks are recorded below; implementation is ready for branch delivery and CI.
+- [ ] Commit/push, verify remote SHA, open a draft PR, and record the exact CI run/result.
 
 ## Verification
 
-Windows has no Swift/Xcode toolchain per repository instructions. Local native build and XCTest cannot be claimed; full build/test evidence must come from CI. Local static validation and exact CI status will be appended before delivery.
+Windows has no Swift/Xcode toolchain per repository instructions. Local native build and XCTest cannot be claimed; full build/test evidence must come from CI.
+
+Local static results before commit:
+
+- `swiftc -frontend -parse` on all 22 branch-changed Swift files: PASS (syntax parsing only).
+- `python -c "import yaml; yaml.safe_load(open('project.yml', encoding='utf-8'))"`: PASS.
+- `git diff --check`: PASS.
+- All 24 branch-changed/uncommitted paths checked for CRLF: PASS (LF only).
+- XcodeGen source configuration includes `App` and `Tests/ZenAgentTests`; no project edit is needed.
+- `git check-ignore -v ZenAgent.xcodeproj/project.pbxproj`: PASS (`*.xcodeproj/`).
+- `xcodegen generate`: unavailable; PowerShell reported that `xcodegen` is not recognized.
+- Native build and XCTest: not run locally; await CI.

@@ -1,7 +1,7 @@
 # Stage 11 OpenAI Provider Implementation Plan
 
 - Date: 2026-11-02
-- Status: implementation in progress
+- Status: implementation complete; awaiting CI
 - Base: `4277ec0ba6ef27c67397b0532125ba3e836cf9be`
 - Branch: `codex/stage11-openai-provider`
 - Worktree: `C:\Users\Azusa\.codex\worktrees\stage11-openai\Zen-Agent`
@@ -14,7 +14,7 @@ The second public provider is an abstraction check, not a second runtime. Use on
 
 - Add `App/Provider/ModelProviderRegistry.swift` and `App/Provider/OpenAI/**`; update `App/Provider/ProviderTypes.swift`.
 - Update `App/Runtime/AgentRuntime.swift`, `ConversationRuntime.swift`, `RunRequestRebuilder.swift`, and `DelegationRuntime.swift`.
-- Update `App/AppShell/AppAssembly.swift`, `AppShellConfiguration.swift`, `AppShellModel.swift`, `ProviderSetupView.swift`, `App/Settings/SettingsWorkspaceModel.swift`, `SubagentSettingsModel.swift`, and `SettingsProviderViews.swift`.
+- Update `App/AppShell/AppAssembly.swift`, `AppShellConfiguration.swift`, `AppShellModel.swift`, `ConversationPaneFactory.swift`, `ProviderSetupView.swift`, `App/Settings/SettingsWorkspaceModel.swift`, `SubagentSettingsModel.swift`, and `SettingsProviderViews.swift`.
 - Add `Tests/ZenAgentTests/OpenAIProviderTests.swift`, `OpenAIStreamingTests.swift`, `ModelProviderRegistryTests.swift`, and `MultiProviderRuntimeTests.swift`. Update only the specifically authorized existing tests if wiring requires it.
 - Add this plan and `tasks/stage11-openai-provider.md`.
 
@@ -26,8 +26,9 @@ XcodeGen already includes the complete App and test directories, so this slice n
 - At Run creation, `RunExecutionSnapshot.providerID` and `providerAdapterRevision` freeze the exact adapter identity and `PromptExecutionSnapshot.providerAdapterInstructions` freezes its prompt contribution. `RequestConfigSeed` already freezes instance ID, model, configuration revision, credential binding, and full endpoint. Reuse these fields; do not add a Provider ID to the seed or change persisted schema.
 - Every active, recovered, and delegated Child request resolves by the Run snapshot's exact Provider ID and adapter revision. The stored instance Provider ID must agree with the frozen identity. An unknown Provider, missing adapter, ID mismatch, or revision mismatch fails explicitly; it must never choose DeepSeek (or another default).
 - AgentRuntime continues to own Run and tool-call transitions, policy, approval, and dispatch. OpenAI function calls become the same ordered `ProviderToolCall` values used by DeepSeek; all complete calls pass through the existing ToolPolicy path. Function results are encoded with the original OpenAI `call_id`.
+- Responses `output_index` identifies an output item in the whole response, and argument completion can arrive out of order. AgentRuntime sorts complete calls by that index and normalizes them to the contiguous batch sequence the durable tool transcript records.
 - Cancellation remains owned by AgentRuntime and propagates through the provider AsyncThrowingStream to `HTTPStream.cancel()`. The OpenAI adapter does not retry POST requests. An interrupted stream carries whether text output was delivered; a partial answer is never blindly replayed. Existing Run recovery remains authoritative.
-- Follow-parent Child Runs keep the frozen parent Provider and seed. An explicit child target is resolved and frozen from its own instance and adapter; recovery checks that same provider/revision binding. A missing or revised adapter leaves the Child explicitly unavailable rather than switching models.
+- Follow-parent Child Runs keep the frozen parent Provider and seed. An explicit child target is resolved and frozen from its own instance and adapter, including its adapter prompt instructions; recovery checks that same provider/revision binding. A missing or revised adapter leaves the Child explicitly unavailable rather than switching models.
 - The settings flow chooses a Provider when adding an account, saves the corresponding Provider ID in the instance, and uses the registry for model listings, default validation, conversation configuration, and explicit Child model selection.
 
 ## OpenAI protocol and model choice

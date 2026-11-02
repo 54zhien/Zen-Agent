@@ -51,7 +51,7 @@ struct ToolCallProtocolTranscript: Codable, Sendable {
 /// Soul selection never enter this boundary.
 struct RunRequestRebuilder {
     let store: PersistenceStore
-    let provider: any ModelProvider
+    let providerRegistry: ModelProviderRegistry
     let toolRegistry: ToolRegistry
     let credentials: (any CredentialStoring)?
     let availableMCPServerIDs: Set<String>?
@@ -60,7 +60,20 @@ struct RunRequestRebuilder {
     init(store: PersistenceStore, provider: any ModelProvider, toolRegistry: ToolRegistry,
          credentials: (any CredentialStoring)? = nil, availableMCPServerIDs: Set<String>? = nil,
          availableMCPServerIdentities: [String: MCPServerDependencyIdentity]? = nil) {
-        self.store = store; self.provider = provider; self.toolRegistry = toolRegistry; self.credentials = credentials
+        self.init(
+            store: store,
+            providerRegistry: ModelProviderRegistry(provider: provider),
+            toolRegistry: toolRegistry,
+            credentials: credentials,
+            availableMCPServerIDs: availableMCPServerIDs,
+            availableMCPServerIdentities: availableMCPServerIdentities
+        )
+    }
+
+    init(store: PersistenceStore, providerRegistry: ModelProviderRegistry, toolRegistry: ToolRegistry,
+         credentials: (any CredentialStoring)? = nil, availableMCPServerIDs: Set<String>? = nil,
+         availableMCPServerIdentities: [String: MCPServerDependencyIdentity]? = nil) {
+        self.store = store; self.providerRegistry = providerRegistry; self.toolRegistry = toolRegistry; self.credentials = credentials
         self.availableMCPServerIDs = availableMCPServerIDs
         self.availableMCPServerIdentities = availableMCPServerIdentities
     }
@@ -70,10 +83,8 @@ struct RunRequestRebuilder {
         snapshot: RunExecutionSnapshot,
         history: [PromptHistoryMessage]
     ) throws -> ProviderChatRequest {
-        guard snapshot.providerID == provider.id,
-              snapshot.providerAdapterRevision == provider.adapterRevision,
-              snapshot.maxProviderSteps > 0
-        else { throw RunRequestRebuildError.incompatibleSnapshot }
+        let provider = try resolveProvider(for: snapshot)
+        guard snapshot.maxProviderSteps > 0 else { throw RunRequestRebuildError.incompatibleSnapshot }
 
         guard let instance = try store.providerInstance(
             id: run.requestConfigSeed.providerInstanceID
@@ -321,9 +332,8 @@ struct RunRequestRebuilder {
         snapshot: RunExecutionSnapshot,
         initialRequest request: ProviderChatRequest
     ) throws -> ProviderChatRequest {
-        guard snapshot.providerID == provider.id,
-              snapshot.providerAdapterRevision == provider.adapterRevision,
-              snapshot.maxProviderSteps > 0,
+        let provider = try resolveProvider(for: snapshot)
+        guard snapshot.maxProviderSteps > 0,
               request.modelID == run.requestConfigSeed.modelID,
               request.tools.count == snapshot.exposedTools.count,
               zip(request.tools, snapshot.exposedTools).allSatisfy({ pair in
@@ -433,6 +443,17 @@ struct RunRequestRebuilder {
             messages: messages,
             tools: request.tools
         )
+    }
+
+    private func resolveProvider(for snapshot: RunExecutionSnapshot) throws -> any ModelProvider {
+        do {
+            return try providerRegistry.resolve(
+                providerID: snapshot.providerID,
+                adapterRevision: snapshot.providerAdapterRevision
+            )
+        } catch {
+            throw RunRequestRebuildError.incompatibleSnapshot
+        }
     }
 
     private func latestSingleStepToolBatch(
