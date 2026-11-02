@@ -310,7 +310,7 @@ struct MultiProviderRuntimeTests {
             return (callID, content)
         }
         #expect(toolResults.map { $0.0 } == ["call_output_first", "call_output_second"])
-        #expect(toolResults.map { $0.1 } == ["7", "3"])
+        #expect(toolResults.map { $0.1 } == ["7.0", "3.0"])
     }
 }
 
