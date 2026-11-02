@@ -1,0 +1,192 @@
+name: Stage 10 unsigned device IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full commit SHA at origin/main to package
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - name: Validate source SHA input
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != 'refs/heads/main' ]]; then
+            echo 'Dispatch this workflow from the default main branch.' >&2
+            exit 1
+          fi
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'source_sha must be a full 40-character lowercase commit SHA.' >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+
+      - name: Verify selected source is the exact current main head
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_head=$(git rev-parse HEAD^{commit})
+          test "$source_head" = "$SOURCE_SHA" || {
+            echo "Checkout mismatch: requested $SOURCE_SHA, checked out $source_head" >&2
+            exit 1
+          }
+
+          event_head=$(git rev-parse "$GITHUB_SHA^{commit}")
+          test "$event_head" = "$SOURCE_SHA" || {
+            echo "Workflow dispatch commit differs from requested source: $event_head != $SOURCE_SHA" >&2
+            exit 1
+          }
+
+          git fetch --no-tags origin main
+          main_head=$(git rev-parse FETCH_HEAD^{commit})
+          test "$main_head" = "$SOURCE_SHA" || {
+            echo "Selected source is not the current origin/main head: $SOURCE_SHA != $main_head" >&2
+            exit 1
+          }
+
+          source_tree=$(git rev-parse HEAD^{tree})
+          echo "SOURCE_TREE=$source_tree" >> "$GITHUB_ENV"
+          echo "VALIDATED_MAIN_SHA=$main_head" >> "$GITHUB_ENV"
+          echo "Packaging exact origin/main source $SOURCE_SHA ($source_tree)"
+
+      - name: Toolchain versions
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build unsigned device app
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project ZenAgent.xcodeproj \
+            -scheme ZenAgent \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            -sdk iphoneos \
+            -derivedDataPath "$RUNNER_TEMP/ZenAgentDeviceDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='DEBUG ZEN_DEVICE_TEST'
+
+      - name: Package unsigned IPA and provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/ZenAgentDeviceDerivedData/Build/Products/Debug-iphoneos/ZenAgent.app"
+          test -d "$app"
+          test -f "$app/Anthropic Sans.ttf"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")" = 'com.zhien.zen'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist")" = '26.0'
+          test "$(/usr/bin/lipo -archs "$app/ZenAgent")" = 'arm64'
+          if /usr/bin/codesign -dv "$app" >/dev/null 2>&1; then
+            echo 'App unexpectedly contains a code signature' >&2
+            exit 1
+          fi
+
+          stage="$RUNNER_TEMP/ZenAgentDeviceStage"
+          output="$RUNNER_TEMP/ZenAgentDeviceOutput"
+          verify="$RUNNER_TEMP/ZenAgentDeviceVerify"
+          mkdir -p "$stage/Payload" "$output/LICENSES" "$verify"
+          /usr/bin/ditto "$app" "$stage/Payload/ZenAgent.app"
+          rm -- "$stage/Payload/ZenAgent.app/Anthropic Sans.ttf"
+          python3 - "$stage/Payload/ZenAgent.app/Info.plist" <<'PY'
+          import plistlib
+          import sys
+
+          path = sys.argv[1]
+          with open(path, 'rb') as file:
+              info = plistlib.load(file)
+          fonts = info.get('UIAppFonts')
+          assert isinstance(fonts, list)
+          assert fonts.count('Anthropic Sans.ttf') == 1, fonts
+          info['UIAppFonts'] = [font for font in fonts if font != 'Anthropic Sans.ttf']
+          with open(path, 'wb') as file:
+              plistlib.dump(info, file)
+          PY
+
+          source_short="${SOURCE_SHA:0:12}"
+          ipa_name="ZenAgent-Stage10-${source_short}-unsigned-device.ipa"
+          ipa="$output/$ipa_name"
+          (cd "$stage" && /usr/bin/zip -qry "$ipa" Payload)
+          /usr/bin/unzip -tq "$ipa"
+          /usr/bin/unzip -q "$ipa" -d "$verify"
+
+          packaged_app="$verify/Payload/ZenAgent.app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$packaged_app/Info.plist")" = 'com.zhien.zen'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$packaged_app/Info.plist")" = '26.0'
+          test "$(/usr/bin/lipo -archs "$packaged_app/ZenAgent")" = 'arm64'
+          if /usr/bin/codesign -dv "$packaged_app" >/dev/null 2>&1; then
+            echo 'Packaged app unexpectedly contains a code signature' >&2
+            exit 1
+          fi
+          if /usr/bin/unzip -Z1 "$ipa" | /usr/bin/grep -qi 'anthropic'; then
+            echo 'Anthropic Sans remains in the packaged IPA' >&2
+            exit 1
+          fi
+          python3 - "$ipa" <<'PY'
+          import plistlib
+          import sys
+          import zipfile
+
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              names = archive.namelist()
+              assert 'Payload/ZenAgent.app/Info.plist' in names
+              assert not any('anthropic' in name.lower() for name in names)
+              info = plistlib.loads(archive.read('Payload/ZenAgent.app/Info.plist'))
+          assert info['CFBundleIdentifier'] == 'com.zhien.zen'
+          assert info['MinimumOSVersion'] == '26.0'
+          assert 'Anthropic Sans.ttf' not in info['UIAppFonts']
+          assert 'SourceHanSerifSC-VF.ttf' in info['UIAppFonts']
+          assert 'JetBrainsMono-Regular.ttf' in info['UIAppFonts']
+          PY
+
+          cp Resources/Fonts/LICENSE-SourceHanSerif.txt "$output/LICENSES/"
+          cp Resources/Fonts/LICENSE-JetBrainsMono.txt "$output/LICENSES/"
+          ipa_sha256=$(/usr/bin/shasum -a 256 "$ipa" | /usr/bin/awk '{print $1}')
+          (cd "$output" && /usr/bin/shasum -a 256 "$ipa_name" > SHA256SUMS.txt)
+          {
+            echo "Source commit SHA: $SOURCE_SHA"
+            echo "Source tree SHA: $SOURCE_TREE"
+            echo "Verified origin/main SHA: $VALIDATED_MAIN_SHA"
+            echo "Workflow commit SHA: $GITHUB_SHA"
+            echo "Workflow ref: $GITHUB_REF"
+            echo "Workflow run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "IPA SHA-256: $ipa_sha256"
+            echo 'Variant: unsigned Debug iOS device build, ZenAgent scheme, DEBUG ZEN_DEVICE_TEST, System Sans interface font'
+            echo 'Stage 10 manual dual-Child probe: disabled; the manual-measurement scheme and launch argument are not used'
+            echo 'Bundle ID: com.zhien.zen'
+            echo 'Minimum iOS: 26.0'
+            echo 'Architecture: arm64'
+            echo 'Signing: disabled; signing is required before device installation'
+            xcodebuild -version
+          } > "$output/BUILD-INFO.txt"
+
+      - name: Upload unsigned IPA and provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZenAgent-Stage10-device-ipa-${{ github.run_number }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ZenAgentDeviceOutput/
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
