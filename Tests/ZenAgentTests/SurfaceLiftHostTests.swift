@@ -16,9 +16,9 @@ struct SurfaceLiftHostTests {
     /// tests now derive the sample the same way the product does: from the host's
     /// bounds minus its safe area, at the quarter anchors of that viewport. The
     /// band constants stay in the product; this only names the anchor.
-    private func splitTargetPoint(
+    private func splitTargetPoint<Content: View>(
         _ slot: SplitDropSlot,
-        in host: ConversationSurfaceViewController,
+        in host: ConversationSurfaceViewController<Content>,
         window: UIWindow,
         dy: CGFloat = 0
     ) -> CGPoint {
