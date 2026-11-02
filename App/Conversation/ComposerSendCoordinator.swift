@@ -97,6 +97,7 @@ final class ComposerSendCoordinator {
             selectedSkillIDs: controller.draft.selectedSkillIDs.sorted(),
             providerInstanceID: configuration.providerInstanceID,
             modelID: configuration.modelID,
+            thinkingEffort: configuration.thinkingEffort,
             maxProviderSteps: maxProviderSteps,
             submissionID: submissionID
         )

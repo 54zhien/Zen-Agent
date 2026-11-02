@@ -419,7 +419,8 @@ actor ConversationRuntime {
         let seed = try provider.makeRequestConfigSeed(
             instance: instance,
             modelID: command.modelID,
-            credentialBinding: binding
+            credentialBinding: binding,
+            thinkingEffort: command.thinkingEffort
         )
 
         let skillRuntime = SkillRuntime(
@@ -2075,6 +2076,10 @@ actor ConversationRuntime {
             append("selected-skills-v1", to: &encoded)
             append(String(command.selectedSkillIDs.count), to: &encoded)
             for id in command.selectedSkillIDs.sorted() { append(id, to: &encoded) }
+        }
+        if let effort = command.thinkingEffort {
+            append("thinking-effort-v1", to: &encoded)
+            append(effort.rawValue, to: &encoded)
         }
         if !command.references.isEmpty {
             append("quote-references-v1", to: &encoded)

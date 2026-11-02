@@ -53,6 +53,7 @@ struct ConversationTimelineView: View {
     var onBlankBackgroundTap: () -> Void = {}
     var scrollBridge: ConversationPaneScrollBridge? = nil
     var bottomComposerClearance: CGFloat = 62
+    var onViewportFrameChanged: (CGRect) -> Void = { _ in }
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.surfaceLiftController) private var surfaceLift
@@ -184,6 +185,14 @@ struct ConversationTimelineView: View {
                 Color.clear.frame(height: bottomComposerClearance)
             }
             .coordinateSpace(name: scrollCoordinateSpace)
+            .background {
+                GeometryReader { geometry in
+                    let frame = geometry.frame(in: .global)
+                    Color.clear
+                        .onAppear { onViewportFrameChanged(frame) }
+                        .onChange(of: frame) { _, next in onViewportFrameChanged(next) }
+                }
+            }
             .contentShape(Rectangle())
             .simultaneousGesture(SpatialTapGesture().onEnded { tap in
 #if DEBUG

@@ -7,6 +7,7 @@ struct ConversationComposerView: View {
     @Bindable var controller: ComposerController
     private let bridge: ComposerRuntimeActionBridge
     private let onHeightChanged: (CGFloat) -> Void
+    private let onMenuTopChanged: (CGFloat?) -> Void
     private let onKeyboardWillChange: () -> Void
     private let onUserFocus: () -> Void
     @State private var coordinator: ComposerSendCoordinator
@@ -21,12 +22,14 @@ struct ConversationComposerView: View {
          bridge: ComposerRuntimeActionBridge, maxProviderSteps: Int,
          coordinator: ComposerSendCoordinator? = nil,
          onHeightChanged: @escaping (CGFloat) -> Void = { _ in },
+         onMenuTopChanged: @escaping (CGFloat?) -> Void = { _ in },
          onKeyboardWillChange: @escaping () -> Void = {},
          onUserFocus: @escaping () -> Void = {}) {
         self.conversationID = conversationID
         self.controller = controller
         self.bridge = bridge
         self.onHeightChanged = onHeightChanged
+        self.onMenuTopChanged = onMenuTopChanged
         self.onKeyboardWillChange = onKeyboardWillChange
         self.onUserFocus = onUserFocus
         _coordinator = State(initialValue: coordinator ?? ComposerSendCoordinator(
@@ -53,13 +56,15 @@ struct ConversationComposerView: View {
 #endif
     }
 
-    private var selectedCapabilities: Set<ModelCapability> {
-        guard let configuration = controller.configuration else { return [] }
+    private var selectedModel: ModelDescriptor? {
+        guard let configuration = controller.configuration else { return nil }
         return knownModels.first {
             $0.providerInstanceID == configuration.providerInstanceID
                 && $0.id == configuration.modelID
-        }?.capabilities ?? []
+        }
     }
+
+    private var selectedCapabilities: Set<ModelCapability> { selectedModel?.capabilities ?? [] }
 
     private var modelsForSelectedInstance: [ModelDescriptor] {
         guard let instanceID = controller.configuration?.providerInstanceID else { return [] }
@@ -84,7 +89,7 @@ struct ConversationComposerView: View {
             sendable: isSendable,
             hasDraft: !controller.draft.text.isEmpty || !controller.draft.references.isEmpty
                 || !controller.draft.attachments.isEmpty,
-            plusAvailable: !modelsForSelectedInstance.isEmpty,
+            plusAvailable: !modelsForSelectedInstance.isEmpty || selectedModel != nil,
             submission: coordinator.submission
         )
         let traits = UITraitCollection(
@@ -129,26 +134,27 @@ struct ConversationComposerView: View {
             onSend: { sendDraft() },
             onStop: { Task { [coordinator] in _ = await coordinator.handlePrimaryAction() } },
             onModel: { modelID in
-                guard var configuration = controller.configuration else { return }
-                configuration.modelID = modelID
+                guard var configuration = controller.configuration,
+                      let model = modelsForSelectedInstance.first(where: { $0.id == modelID }) else { return }
+                configuration.selectModel(model)
                 controller.configuration = configuration
             },
             onHeightChanged: { height in
                 onHeightChanged(height)
                 dock?.measured(height, ownerID: conversationID)
             },
-            liftInteraction: lift.map { driver in
-                ComposerLiftInteraction.Configuration(driver: driver, conversationID: conversationID) { native in
-                    var input = native
-                    input.isEditing = input.isEditing || controller.draft.presentationState == .editing
-                    input.hasMarkedText = input.hasMarkedText || controller.isComposing
-                    input.selectionActive = input.selectionActive || controller.isSelectionHandleDragging
-                    input.quoteDragActive = input.quoteDragActive || controller.quoteDragPhase != .idle
-                    input.composerSettled = input.composerSettled && controller.canBeginSurfaceLift(
-                        keyboardVisible: input.keyboardVisible || input.keyboardTransitioning,
-                        stableBottomAnchor: input.composerSettled)
-                    return input
-                }
+            thinkingEfforts: selectedModel?.supportedThinkingEfforts ?? [],
+            thinkingEffort: controller.configuration?.thinkingEffort,
+            defaultThinkingEffort: selectedModel?.defaultThinkingEffort,
+            onThinking: { effort in
+                guard var configuration = controller.configuration else { return }
+                if let effort, selectedModel?.supportedThinkingEfforts.contains(effort) != true { return }
+                configuration.thinkingEffort = effort
+                controller.configuration = configuration
+            },
+            onMenuTopChanged: { top in
+                onMenuTopChanged(top)
+                dock?.menuTopChanged(top, ownerID: conversationID)
             },
             skillSelectionOwner: skillSelectionOwner,
             selectedSkillIDs: controller.draft.selectedSkillIDs,
@@ -162,12 +168,24 @@ struct ConversationComposerView: View {
                 } else if controller.draft.selectedSkillIDs.count < SkillRouter.maximumActivatedSkills {
                     controller.draft.selectedSkillIDs.append(id)
                 }
+            },
+            liftInteraction: lift.map { driver in
+                ComposerLiftInteraction.Configuration(driver: driver, conversationID: conversationID) { native in
+                    var input = native
+                    input.isEditing = input.isEditing || controller.draft.presentationState == .editing
+                    input.hasMarkedText = input.hasMarkedText || controller.isComposing
+                    input.selectionActive = input.selectionActive || controller.isSelectionHandleDragging
+                    input.quoteDragActive = input.quoteDragActive || controller.quoteDragPhase != .idle
+                    input.composerSettled = input.composerSettled && controller.canBeginSurfaceLift(
+                        keyboardVisible: input.keyboardVisible || input.keyboardTransitioning,
+                        stableBottomAnchor: input.composerSettled)
+                    return input
+                }
             }
         )
     }
 
     private var skillSelectionOwner: ComposerSkillMenu.Owner {
-        // A deferred menu must not write into a different Conversation or target.
         .init(conversationID: conversationID, target: controller.configuration)
     }
 
@@ -202,6 +220,11 @@ struct ConversationComposerView: View {
             let models = try await bridge.models(instanceID)
             guard controller.configuration?.providerInstanceID == instanceID else { return }
             knownModels = models.filter { $0.providerInstanceID == instanceID }
+            if var configuration = controller.configuration,
+               let model = knownModels.first(where: { $0.id == configuration.modelID }) {
+                configuration.selectModel(model)
+                controller.configuration = configuration
+            }
         } catch {
             if controller.configuration?.providerInstanceID == instanceID {
                 knownModels = []

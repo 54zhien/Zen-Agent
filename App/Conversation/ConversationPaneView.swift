@@ -25,6 +25,8 @@ struct ConversationPaneView: View {
     private let usesSharedComposer: Bool
     private let reservesSharedComposer: Bool
     @State private var composerClearance: CGFloat = 62
+    @State private var composerMenuTop: CGFloat?
+    @State private var timelineViewport = CGRect.zero
     private let scrollBridge: ConversationPaneScrollBridge
     private let onUserFocus: () -> Void
     private let isActive: Bool
@@ -50,10 +52,25 @@ struct ConversationPaneView: View {
     }
 
     private var bottomClearance: CGFloat {
-        usesSharedComposer ? (reservesSharedComposer ? dock?.clearance ?? 62 : 0) : composerClearance
+        if usesSharedComposer && !reservesSharedComposer { return 0 }
+        let base = usesSharedComposer ? (dock?.clearance ?? 62) : composerClearance
+        let top = usesSharedComposer ? dock?.menuTop : composerMenuTop
+        return base + (top.map { max(0, timelineViewport.maxY - $0) } ?? 0)
     }
 
     var body: some View {
+        GeometryReader { proposed in
+            paneContent
+                .frame(height: reservedViewportHeight(in: proposed), alignment: .top)
+        }
+    }
+
+    private func reservedViewportHeight(in proposed: GeometryProxy) -> CGFloat {
+        guard !usesSharedComposer, let top = composerMenuTop else { return proposed.size.height }
+        return min(proposed.size.height, max(0, top - proposed.frame(in: .global).minY))
+    }
+
+    private var paneContent: some View {
         ZStack(alignment: .bottom) {
             ConversationTimelineView(
                 projection: pane.liveStore.state.timeline,
@@ -81,7 +98,12 @@ struct ConversationPaneView: View {
                     _ = pane.composer.handle(.conversationBackgroundTapped)
                 },
                 scrollBridge: scrollBridge,
-                bottomComposerClearance: bottomClearance
+                bottomComposerClearance: bottomClearance,
+                onViewportFrameChanged: { frame in
+                    guard abs(frame.maxY - timelineViewport.maxY) > 0.5
+                        || abs(frame.minY - timelineViewport.minY) > 0.5 else { return }
+                    timelineViewport = frame
+                }
             )
             .accessibilityIdentifier("conversation-pane-approval-\(pane.conversationID)")
 
@@ -96,6 +118,7 @@ struct ConversationPaneView: View {
                     scrollBridge.composerHeightWillChange()
                     composerClearance = clearance
                 },
+                onMenuTopChanged: { composerMenuTop = $0 },
                 onKeyboardWillChange: {
                     scrollBridge.composerKeyboardWillChange()
                 },

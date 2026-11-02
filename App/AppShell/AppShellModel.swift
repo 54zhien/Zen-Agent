@@ -1131,7 +1131,8 @@ final class AppShellModel {
             // become stale after another Send, even if the user switches back to it.
             let configuration: ConversationComposerConfiguration?
             if let instanceID = summary.providerInstanceID, let modelID = summary.modelID {
-                configuration = ConversationComposerConfiguration(providerInstanceID: instanceID, modelID: modelID)
+                configuration = ConversationComposerConfiguration(providerInstanceID: instanceID, modelID: modelID,
+                    thinkingEffort: summary.thinkingEffort)
             } else if summary.runProjection == nil,
                       let binding = try store.conversationInitialBinding(id: id),
                       let instanceID = binding.providerInstanceID, let modelID = binding.modelID {

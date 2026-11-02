@@ -27,3 +27,19 @@ enum ComposerTextMeasurement {
         return max(font.lineHeight, manager.usedRect(for: container).height)
     }
 }
+
+
+@MainActor
+final class ComposerEditorTextView: UITextView {
+    var onAccessibilityActivation: (() -> Void)?
+    var permitsNativeFocus: () -> Bool = { true }
+
+    override var canBecomeFirstResponder: Bool {
+        (isFirstResponder || permitsNativeFocus()) && super.canBecomeFirstResponder
+    }
+
+    override func accessibilityActivate() -> Bool {
+        onAccessibilityActivation?()
+        return super.accessibilityActivate()
+    }
+}

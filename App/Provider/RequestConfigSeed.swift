@@ -29,18 +29,16 @@ struct CredentialBindingSnapshot: Codable, Sendable, Equatable {
 /// Persistence may reference these value types, and Provider must not reach into
 /// Persistence.
 ///
-/// **Deliberately carries no request options yet** (reasoning effort and the like).
-/// Those are capability-validated, and capability arrives in its own increment.
-/// Inventing an option vocabulary now would be guessing at what a Provider supports,
-/// which is the thing this stage exists to find out.
+/// Capability-validated request options are frozen here, independently of mutable
+/// Composer state. V2 records an effort override; v1 remains readable without one.
 struct RequestConfigSeed: Codable, Sendable, Equatable {
 
-    /// The format this build writes, and the only one it reads.
+    /// The format this build writes; version 1 remains readable without an effort override.
     ///
     /// Exists so that "written by a build that predates versioning" and "written by this
     /// build and damaged since" are different diagnoses. Without it both look like a
     /// handful of missing keys, and the only honest report is a vague one.
-    static let currentFormatVersion = 1
+    static let currentFormatVersion = 2
 
     /// A payload this build cannot read as its own format.
     ///
@@ -80,6 +78,12 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
     /// The provider-specific part of the resolution — which path, which default host —
     /// stays in the adapter. This stores the answer, it does not compute it.
     var endpoint: URL
+    /// Nil keeps the provider's default effort for this frozen request.
+    var thinkingEffort: ThinkingEffort? = nil {
+        didSet {
+            if thinkingEffort != nil, formatVersion == 1 { formatVersion = Self.currentFormatVersion }
+        }
+    }
 
     init(
         formatVersion: Int = RequestConfigSeed.currentFormatVersion,
@@ -106,6 +110,7 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         case providerConfigRevision
         case credentialBinding
         case endpoint
+        case thinkingEffort
     }
 
     /// Reads the version before the payload, and refuses rather than guesses.
@@ -120,7 +125,7 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         guard let version = try? container.decode(Int.self, forKey: .formatVersion) else {
             throw FormatError.unversioned
         }
-        guard version == Self.currentFormatVersion else {
+        guard version == 1 || version == Self.currentFormatVersion else {
             throw FormatError.unsupportedVersion(version)
         }
 
@@ -130,6 +135,11 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
             providerConfigRevision = try container.decode(ConfigRevision.self, forKey: .providerConfigRevision)
             credentialBinding = try container.decode(CredentialBindingSnapshot.self, forKey: .credentialBinding)
             endpoint = try container.decode(URL.self, forKey: .endpoint)
+            if version == 1 {
+                thinkingEffort = nil
+            } else {
+                thinkingEffort = try container.decodeIfPresent(ThinkingEffort.self, forKey: .thinkingEffort)
+            }
         } catch {
             throw FormatError.malformedCurrentVersion(version)
         }
@@ -144,6 +154,7 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         try container.encode(providerConfigRevision, forKey: .providerConfigRevision)
         try container.encode(credentialBinding, forKey: .credentialBinding)
         try container.encode(endpoint, forKey: .endpoint)
+        if formatVersion >= 2 { try container.encode(thinkingEffort, forKey: .thinkingEffort) }
     }
 }
 

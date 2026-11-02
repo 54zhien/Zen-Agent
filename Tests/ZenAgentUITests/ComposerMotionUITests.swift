@@ -2,6 +2,44 @@ import XCTest
 
 final class ComposerMotionUITests: XCTestCase {
     @MainActor
+    func testKeyboardMenuReplacesInputAndRestoresDraft() {
+        let app = XCUIApplication()
+        app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"
+        app.launch()
+
+        let input = app.textViews["conversation-composer-input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 15))
+        let plus = app.buttons["conversation-composer-plus"]
+        XCTAssertTrue(plus.waitForExistence(timeout: 5))
+
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        input.typeText("d")
+        let keyboardIntroduction = app.buttons["Continue"]
+        if keyboardIntroduction.waitForExistence(timeout: 2) { keyboardIntroduction.tap() }
+        input.typeText("raft")
+        XCTAssertEqual(input.value as? String, "draft")
+
+        plus.tap()
+        let sheet = app.otherElements["composer-keyboard-sheet"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["模型"].exists)
+        XCTAssertTrue(app.buttons["插件"].exists)
+        let image = app.buttons["图片"]
+        let file = app.buttons["文件"]
+        XCTAssertTrue(image.exists)
+        XCTAssertFalse(image.isEnabled)
+        XCTAssertTrue(file.exists)
+        XCTAssertFalse(file.isEnabled)
+        XCTAssertEqual(input.value as? String, "draft")
+
+        plus.tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        XCTAssertEqual(input.value as? String, "draft")
+    }
+
+    @MainActor
     func testKeyboardAndComposerStayInteractiveAcrossQuickFocusChanges() {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_COMPOSER_GEOMETRY_TEST"] = "1"

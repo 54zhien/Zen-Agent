@@ -18,6 +18,7 @@ struct ConversationSummary: Identifiable, Equatable, Sendable {
     let providerInstanceID: ProviderInstanceID?
     let modelID: ModelID?
     let providerName: String?
+    var thinkingEffort: ThinkingEffort? = nil
 
     var cursor: ConversationSummaryCursor {
         ConversationSummaryCursor(pinned: pinned, userActiveAt: userActiveAt, id: id)
@@ -183,6 +184,8 @@ extension PersistenceStore {
                  THEN json_extract(r.requestConfigSeed, '$.providerInstanceID') END AS providerInstanceID,
             CASE WHEN json_valid(r.requestConfigSeed)
                  THEN json_extract(r.requestConfigSeed, '$.modelID') END AS modelID,
+            CASE WHEN json_valid(r.requestConfigSeed)
+                 THEN json_extract(r.requestConfigSeed, '$.thinkingEffort') END AS thinkingEffort,
             substr(pi.displayName, 1, 128) AS providerName,
             CASE WHEN json_valid(u.payload)
                  THEN CASE WHEN json_type(u.payload, '$.text') = 'text'
@@ -244,13 +247,15 @@ extension PersistenceStore {
             let prompt: String? = row["firstPrompt"]
             let providerID: String? = row["providerInstanceID"]
             let modelID: String? = row["modelID"]
+            let thinkingEffort = (row["thinkingEffort"] as String?).flatMap(ThinkingEffort.init(rawValue:))
             return ConversationSummary(id: row["id"], title: Self.summaryTitle(stored: stored, prompt: prompt),
                 excerpt: Self.summaryClip(Self.summaryText(row["excerpt"] as String? ?? ""), limit: 320),
                 pinned: row["pinned"], userActiveAt: row["userActiveAt"],
                 contentUnavailable: runMetadataUnavailable || (row["firstUnavailable"] as Int) != 0
                     || (row["latestUnavailable"] as Int) != 0,
                 runProjection: projection, providerInstanceID: providerID.map(ProviderInstanceID.init(rawValue:)),
-                modelID: modelID.map(ModelID.init(rawValue:)), providerName: row["providerName"])
+                modelID: modelID.map(ModelID.init(rawValue:)), providerName: row["providerName"],
+                thinkingEffort: thinkingEffort)
         }
     }
 

@@ -6,6 +6,26 @@ import SwiftUI
 @Suite("Shared Composer native lifecycle", .serialized)
 @MainActor
 struct WorkspaceComposerDockTests {
+    @Test("a keyboard sheet reserves only its visible overlap for the active Composer")
+    func keyboardSheetReservationTracksTheActiveComposer() {
+        let dock = WorkspaceComposerDockState()
+        let container = ComposerDockContainer()
+        let frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        dock.configure(container: container, activeID: "composer-a", visible: true)
+        dock.menuTopChanged(560, ownerID: "composer-a")
+        #expect(dock.menuOverlap(in: frame) == 284)
+
+        dock.menuTopChanged(500, ownerID: "composer-b")
+        #expect(dock.menuOverlap(in: frame) == 284)
+        dock.configure(container: container, activeID: "composer-b", visible: true)
+        #expect(dock.menuOverlap(in: frame) == 0)
+
+        dock.menuTopChanged(500, ownerID: "composer-b")
+        #expect(dock.menuOverlap(in: frame) == 344)
+        dock.configure(container: container, activeID: "composer-b", visible: false)
+        #expect(dock.menuOverlap(in: frame) == 0)
+    }
+
     @Test("a lifted native Surface keeps its Composer layout in source coordinates")
     func visualSurfacePoseDoesNotMoveTheHiddenKeyboardAnchor() async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)

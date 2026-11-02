@@ -170,12 +170,16 @@ struct WorkspaceSurfaceView<Content: View>: View {
                         .zIndex(4 - card.depth)
                 }
             }
-            GeometryReader { geometry in
-                WorkspaceSidebarProgressReader(state: navigation,
-                    travel: sidebarTravel(in: geometry), direction: layoutDirection) { progress, isDragging, translation in
-                    workspaceSurfaces(in: geometry, sidebarProgress: progress,
-                        sidebarDragging: isDragging, sidebarTranslation: translation)
+            GeometryReader { proposed in
+                GeometryReader { geometry in
+                    WorkspaceSidebarProgressReader(state: navigation,
+                        travel: sidebarTravel(in: geometry), direction: layoutDirection) { progress, isDragging, translation in
+                        workspaceSurfaces(in: geometry, sidebarProgress: progress,
+                            sidebarDragging: isDragging, sidebarTranslation: translation)
+                    }
                 }
+                .frame(height: proposed.size.height - (keepsFullConversationViewport ? 0
+                    : composerDock.menuOverlap(in: proposed.frame(in: .global))), alignment: .top)
             }
             .zIndex(4 - (browse.layout()?.cards.first { $0.item == browse.state.selected }?.depth ?? 0))
             if activeLift.splitTargetingVisible, let top = activeLift.splitTopFrame,

@@ -22,6 +22,7 @@ struct SendCommand: Sendable, Equatable {
 
     var providerInstanceID: ProviderInstanceID
     var modelID: ModelID
+    var thinkingEffort: ThinkingEffort? = nil
 
     var maxProviderSteps: Int
     var submissionID: String
