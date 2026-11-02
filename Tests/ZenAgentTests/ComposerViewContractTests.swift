@@ -15,6 +15,11 @@ struct ComposerViewContractTests {
         "App/Conversation/ComposerHostBridge.swift",
         "App/Conversation/ComposerHostView.swift",
         "App/Conversation/ComposerMorphGeometry.swift",
+        // The action menu moved out of the host in 67aa964; the entry contract has
+        // to follow it, or the rule is asserted against a file that no longer
+        // owns it.
+        "App/Conversation/ComposerActionMenuView.swift",
+        "App/Conversation/ComposerMenuDetailView.swift",
     ]
 
     @Test("composerViewHasNoIndependentDraftTextStorage")
@@ -40,7 +45,11 @@ struct ComposerViewContractTests {
         #expect(bridge.contains("markedTextPresent: Bool"))
         #expect(sources["App/Conversation/ComposerTextProjection.swift"] != nil)
         #expect(view.contains("ComposerHostBridge(configuration: hostConfiguration"))
-        #expect(host.contains("let editor = UITextView()"))
+        // 67aa964 replaced the raw UITextView with a ComposerEditorTextView
+        // subclass (ComposerTextView.swift:33) so the IME update policy has a
+        // single owner. The rule this line protects is unchanged: the host owns
+        // exactly one editor and keeps no draft storage of its own.
+        #expect(host.contains("let editor = ComposerEditorTextView()"))
         #expect(!host.contains("var draft:"))
         #expect(view.contains("quoteCommitReady: true"))
     }
@@ -79,16 +88,33 @@ struct ComposerViewContractTests {
     func menuDisablesUnavailableEntriesAndUsesModelCatalog() {
         guard let sources = sourceFiles() else { return }
         let view = sources["App/Conversation/ConversationComposerView.swift"] ?? ""
-        let host = sources["App/Conversation/ComposerHostView.swift"] ?? ""
+        let menu = sources["App/Conversation/ComposerActionMenuView.swift"] ?? ""
+        let detail = sources["App/Conversation/ComposerMenuDetailView.swift"] ?? ""
 
-        #expect(host.contains("disabled(\"添加图片\""))
-        #expect(host.contains("disabled(\"添加文件\""))
-        #expect(host.contains("skillMenu, modelMenu"))
-        #expect(host.contains("ComposerSkillMenu.make(load: configuration.loadSkills"))
-        #expect(view.contains("selectedSkillIDs: controller.draft.selectedSkillIDs"))
-        #expect(host.contains("configuration.models.map"))
-        #expect(view.contains("configuration.modelID = modelID"))
-        #expect(view.contains("controller.configuration = configuration"))
+        // ADR 0005: an entry whose capability is not implemented stays visible and
+        // disabled rather than disappearing, so the menu cannot claim a feature the
+        // app does not have. Probed behaviourally first, because the enum is the
+        // authority — a string probe would pass on a menu that stopped honouring it.
+        #expect(!ComposerActionMenuLevel.images.isImplemented)
+        #expect(!ComposerActionMenuLevel.files.isImplemented)
+        #expect(ComposerActionMenuLevel.models.isImplemented)
+        #expect(ComposerActionMenuLevel.thinking.isImplemented)
+        #expect(ComposerActionMenuLevel.plugins.isImplemented)
+
+        // …and the row must actually consult it.
+        #expect(menu.contains("disabled(!level.isImplemented)"))
+
+        // Every level is reachable from the first page of the menu.
+        for level in ["models", "thinking", "plugins", "images", "files"] {
+            #expect(menu.contains("row(.\(level))"), "first menu page lost .\(level)")
+        }
+
+        // The model list and the plugin list come from the presentation the
+        // Conversation built from the provider catalog, not from a local table.
+        #expect(view.contains("selectedModelID: controller.configuration?.modelID"))
+        #expect(view.contains("configuration.selectModel("))
+        #expect(detail.contains("ForEach(presentation.models"))
+        #expect(detail.contains("await presentation.loadSkillOptions()"))
     }
 
     @Test("viewRequiresBridgeAndDoesNotRenderVoice")
