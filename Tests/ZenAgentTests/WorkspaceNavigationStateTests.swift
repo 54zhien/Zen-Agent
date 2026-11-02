@@ -4,6 +4,44 @@ import Testing
 @Suite("Sidebar navigation ownership")
 @MainActor
 struct WorkspaceNavigationStateTests {
+    @Test(arguments: [false, true])
+    func sceneSuspensionPreservesTheStableSidebarEndpoint(open: Bool) {
+        let state = WorkspaceNavigationState()
+        if open { #expect(state.openSidebar(eligible: true)); settle(state) }
+        #expect(state.begin(eligible: true))
+        state.drag(displacement: open ? -30 : 30, travel: 60)
+        var resets = 0
+        state.onReset = { resets += 1 }
+        state.suspendInteractions()
+        #expect(state.isOpen == open && state.progress == (open ? 1 : 0))
+        #expect(!state.isDragging && state.gestureID == nil && state.settlementID == nil)
+        #expect(resets == 0)
+    }
+
+    @Test(arguments: [WorkspaceOverlayRoute.search, .files, .settings])
+    func sceneSuspensionKeepsTheOverlayAndItsOwner(route: WorkspaceOverlayRoute) throws {
+        let state = WorkspaceNavigationState()
+        #expect(state.openSidebar(eligible: true)); settle(state)
+        #expect(state.present(route, available: true, eligible: true))
+        let identity = try #require(state.overlayID)
+        state.suspendInteractions()
+        #expect(state.overlay == route && state.overlayID == identity)
+        #expect(!state.isOpen && state.progress == 0 && state.settlementID == nil)
+    }
+
+    @Test func sceneSuspensionRevokesAnUncommittedSidebarAction() throws {
+        let state = WorkspaceNavigationState()
+        var performed = 0
+        state.conversationActions = [.new]
+        state.onConversationAction = { _ in performed += 1 }
+        #expect(state.openSidebar(eligible: true)); settle(state)
+        state.perform(.new)
+        let completion = try #require(state.settlementID)
+        state.suspendInteractions()
+        state.completeSettlement(completion)
+        #expect(performed == 0 && state.settlementID == nil)
+    }
+
     @Test func cancellationRestoresEachStableEndpointAndReleaseSamplesFinalDisplacement() {
         let state = WorkspaceNavigationState()
         #expect(!state.begin(eligible: false))

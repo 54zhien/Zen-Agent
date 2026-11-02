@@ -64,7 +64,9 @@ struct SidebarSystemGestureTests {
         await expectNativeEdges([])
         nativePresent = true; host.rootView = root()
         await expectNativeEdges(leading)
-        try #require(state.presentNewSettings(eligible: true))
+        try #require(state.openSidebar(eligible: true))
+        state.completeSettlement(try #require(state.settlementID))
+        try #require(state.present(.settings, available: true, eligible: true))
         await expectNativeEdges([])
     }
 }

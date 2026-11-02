@@ -5,13 +5,116 @@ import Testing
 @Suite("Sidebar native decoration ownership")
 @MainActor
 struct SidebarDecorationTests {
+    @Test func sharedShadowDoesNotFillTheConversationCornerAboveThePicker() throws {
+        let surface = UIView(frame: CGRect(x: 0, y: 0, width: 402, height: 420))
+        let decoration = SidebarSurfaceDecoration()
+        let corners: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner,
+                                    .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        decoration.updateGeometry(surface: surface, radius: 62, corners: corners, direction: -1,
+            shadowFrame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        let mask = try #require(decoration.shadowView.layer.mask as? CAShapeLayer)
+        let path = try #require(mask.path)
+        #expect(mask.fillRule == .evenOdd)
+        // These cutouts lie inside the overall workspace silhouette; a filled
+        // shadow would remain visible where the individual Pane is rounded away.
+        for point in [CGPoint(x: 2, y: 418), CGPoint(x: 12, y: 416),
+                      CGPoint(x: 201, y: 424), CGPoint(x: 2, y: 440)] {
+            #expect(!path.contains(point, using: .evenOdd))
+        }
+        #expect(path.contains(CGPoint(x: -4, y: 210), using: .evenOdd))
+        surface.center.x += 96
+        decoration.updateGeometry(surface: surface, radius: 62, corners: corners, direction: -1,
+            shadowFrame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        #expect(mask.path === path, "Sidebar translation must reuse the exterior mask")
+    }
+
+    @Test(arguments: [SplitWorkspaceAxis.topBottom, .leftRight])
+    func splitCardsShareSingleShadowStrengthWithoutFillingTheirGap(axis: SplitWorkspaceAxis) throws {
+        let workspace = CGRect(x: 0, y: 0, width: 402, height: 874)
+        let layout = try #require(SplitWorkspaceGeometry(viewport: workspace, ratio: 0.5, axis: axis))
+        let corners: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner,
+                                    .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        let topRadii = axis == .topBottom
+            ? SurfaceCornerRadii(topLeft: 62, topRight: 62, bottomLeft: 24, bottomRight: 24)
+            : SurfaceCornerRadii(topLeft: 62, topRight: 24, bottomLeft: 62, bottomRight: 24)
+        let bottomRadii = axis == .topBottom
+            ? SurfaceCornerRadii(topLeft: 24, topRight: 24, bottomLeft: 62, bottomRight: 62)
+            : SurfaceCornerRadii(topLeft: 24, topRight: 62, bottomLeft: 24, bottomRight: 62)
+        let contours = [SidebarShadowContour(frame: layout.top, radii: topRadii),
+                        SidebarShadowContour(frame: layout.bottom, radii: bottomRadii)]
+        for pane in [layout.top, layout.bottom] {
+            let single = UIView(frame: workspace)
+            let split = UIView(frame: CGRect(origin: .zero, size: pane.size))
+            let singleDecoration = SidebarSurfaceDecoration()
+            let splitDecoration = SidebarSurfaceDecoration()
+            let sharedFrame = workspace.offsetBy(dx: -pane.minX, dy: -pane.minY)
+            for offset in [CGFloat(0), 24, 96] {
+                single.center.x = workspace.midX + offset
+                split.center.x = pane.width / 2 + offset
+                singleDecoration.updateGeometry(surface: single, radius: 62, corners: corners, direction: -1)
+                splitDecoration.updateGeometry(surface: split, radii: topRadii, direction: -1,
+                    shadowFrame: sharedFrame, shadowContours: contours)
+                let shadow = splitDecoration.shadowView.layer
+                let path = try #require(shadow.shadowPath)
+                let mask = try #require(shadow.mask as? CAShapeLayer)
+                let exterior = try #require(mask.path)
+                for rect in [layout.top, layout.bottom] {
+                    let center = CGPoint(x: rect.midX, y: rect.midY)
+                    #expect(path.contains(center))
+                    #expect(!exterior.contains(center, using: .evenOdd),
+                        "Neither translucent card may receive the other card's shadow")
+                }
+                let gap = CGPoint(x: layout.divider.midX, y: layout.divider.midY)
+                #expect(!path.contains(gap), "A shared shadow must retain two separate card silhouettes")
+                #expect(exterior.contains(gap, using: .evenOdd))
+                #expect(shadow.shadowOpacity == singleDecoration.shadowView.layer.shadowOpacity)
+                #expect(shadow.shadowRadius == singleDecoration.shadowView.layer.shadowRadius)
+                #expect(shadow.shadowOffset == singleDecoration.shadowView.layer.shadowOffset)
+                let localCenter = splitDecoration.shadowView.center
+                #expect(CGPoint(x: localCenter.x + pane.minX, y: localCenter.y + pane.minY)
+                    == singleDecoration.shadowView.center)
+            }
+            #expect(splitDecoration.silhouetteBuildCount == 1)
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func pageAppearanceIsSharedByNativeAndPickerPages(dark: Bool) {
+        let closed = SidebarPageAppearance(progress: 0, dark: dark, reduceTransparency: false)
+        let open = SidebarPageAppearance(progress: 1, dark: dark, reduceTransparency: false)
+        #expect(closed.surfaceOpacity == 1 && closed.tintOpacity == 0 && closed.outlineOpacity == 0)
+        #expect(abs(open.surfaceOpacity - (dark ? 0.90 : 0.94)) < 0.001)
+        #expect(open.tintOpacity == (dark ? 0.08 : 0))
+        #expect(open.outlineOpacity == 1)
+        let accessible = SidebarPageAppearance(progress: 1, dark: dark, reduceTransparency: true)
+        #expect(accessible.surfaceOpacity == 1)
+    }
+
+    @Test
+    func dockCanOwnTheOutlineWithoutChangingThePageAppearance() throws {
+        let surface = UIView(frame: CGRect(x: 0, y: 0, width: 402, height: 400))
+        let decoration = SidebarSurfaceDecoration()
+        decoration.install(on: surface)
+        let outline = try #require(surface.subviews.first { $0.layer.name == "zen-sidebar-page-outline" })
+        let traits = UITraitCollection(userInterfaceStyle: .dark)
+        decoration.setOutlineExternallyDrawn(true)
+        decoration.applyAppearance(surface: surface, progress: 1, traits: traits)
+        #expect(outline.isHidden)
+        #expect(decoration.outlineAlpha == 1)
+        let pageAlpha = surface.alpha
+        decoration.setOutlineExternallyDrawn(false)
+        #expect(!outline.isHidden)
+        #expect(surface.alpha == pageAlpha)
+    }
+
     @Test("transport reuses a transparent shadow silhouette until its geometry changes")
     func translationDoesNotRebuildOrFillTheShadow() throws {
         let surface = UIView(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         let decoration = SidebarSurfaceDecoration()
         decoration.install(on: surface)
-        let corners: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-        decoration.updateGeometry(surface: surface, radius: 62, corners: corners, direction: -1)
+        let radii = SurfaceCornerRadii(uniform: 62, corners: [.layerMinXMinYCorner, .layerMaxXMinYCorner,
+                                                               .layerMinXMaxYCorner, .layerMaxXMaxYCorner])
+        decoration.updateGeometry(surface: surface, radii: radii, direction: -1)
         let first = decoration.silhouetteBuildCount
         let path = try #require(decoration.shadowView.layer.shadowPath)
         #expect(!decoration.shadowView.isOpaque)
@@ -19,15 +122,31 @@ struct SidebarDecorationTests {
                 "A shadow must not add an opaque page-colored backing at the rounded corners")
         for step in 1...40 {
             surface.center.x += CGFloat(step) / 4
-            decoration.updateGeometry(surface: surface, radius: 62, corners: corners, direction: -1)
+            decoration.updateGeometry(surface: surface, radii: radii, direction: -1)
         }
         #expect(decoration.silhouetteBuildCount == first)
         #expect(decoration.shadowView.layer.shadowPath === path)
         #expect(decoration.shadowView.center == surface.center)
         surface.bounds.size.height -= 40
-        decoration.updateGeometry(surface: surface, radius: 62, corners: corners, direction: -1)
+        decoration.updateGeometry(surface: surface, radii: radii, direction: -1)
         #expect(decoration.silhouetteBuildCount == first + 1)
         #expect(decoration.shadowView.layer.shadowPath?.boundingBoxOfPath == surface.bounds)
+    }
+
+    @Test("a resting Split Pane rounds display corners and divider corners independently")
+    func unevenRadiiFollowDisplayAndDividerCorners() {
+        let viewport = CGRect(x: 0, y: 0, width: 402, height: 874)
+        let layout = SplitWorkspaceGeometry(viewport: viewport, ratio: 0.5)!
+        #expect(SplitWorkspaceGeometry.viewportCorners(of: layout.top, in: viewport)
+                == [.layerMinXMinYCorner, .layerMaxXMinYCorner])
+        #expect(SplitWorkspaceGeometry.viewportCorners(of: layout.bottom, in: viewport)
+                == [.layerMinXMaxYCorner, .layerMaxXMaxYCorner])
+        #expect(SplitWorkspaceGeometry.viewportCorners(of: viewport, in: viewport).rawValue == 15)
+        let uniform = SurfaceCornerRadii(uniform: 24, corners: [.layerMinXMinYCorner, .layerMaxXMaxYCorner])
+        #expect(uniform.isUniform)
+        let pane = SurfaceCornerRadii(topLeft: 62, topRight: 62, bottomLeft: 24, bottomRight: 24)
+        #expect(!pane.isUniform)
+        #expect(pane.path(in: layout.top).boundingBoxOfPath == layout.top)
     }
 
     @Test(arguments: [UIUserInterfaceStyle.light, .dark])
@@ -46,11 +165,11 @@ struct SidebarDecorationTests {
         if !UIAccessibility.isReduceTransparencyEnabled {
             #expect(surface.alpha < early && surface.alpha > 0.8, "The page fades gradually while remaining readable")
         }
-        let tint = try #require(surface.subviews.last)
+        let tint = try #require(surface.subviews.first)
         #expect(style == .dark ? tint.alpha > 0 : tint.alpha == 0)
-        #expect(style == .dark ? surface.layer.borderWidth > 0 : surface.layer.borderWidth == 0)
+        #expect(decoration.outlineAlpha == 0.75, "Both appearances outline the page as the Sidebar opens")
         decoration.applyAppearance(surface: surface, progress: 0, traits: traits)
-        #expect(surface.alpha == 1 && tint.alpha == 0 && surface.layer.borderWidth == 0)
+        #expect(surface.alpha == 1 && tint.alpha == 0 && decoration.outlineAlpha == 0)
         surface.alpha = 0.55
         let restoredBrowseAlpha = surface.alpha
         decoration.applyAppearance(surface: surface, progress: 0, traits: traits)

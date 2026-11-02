@@ -16,6 +16,7 @@ final class WorkspaceOverlayCoordinator {
     @ObservationIgnored private weak var shell: AppShellModel?
     @ObservationIgnored private weak var navigation: WorkspaceNavigationState?
     @ObservationIgnored private var focus: ComposerOverlayFocus?
+    @ObservationIgnored private var dismissingSettingsID: UUID?
 
     init(store: PersistenceStore, shell: AppShellModel, navigation: WorkspaceNavigationState) {
         search = ConversationSearchModel(store: store)
@@ -23,9 +24,9 @@ final class WorkspaceOverlayCoordinator {
     }
 
     func enter(_ route: WorkspaceOverlayRoute, eligible: Bool, captureFocus: () -> ComposerOverlayFocus?) {
-        guard let navigation, availableRoutes.contains(route) else { return }
+        guard dismissingSettingsID == nil, let navigation, availableRoutes.contains(route) else { return }
         let catalog = route == .files ? shell?.makeFilesWorkspaceModel() : nil
-        let settingsModel = route == .settings ? shell?.makeSettingsModel() : nil
+        let settingsModel = route == .settings ? shell?.makeSettingsModel(configureNewID: shell?.currentSettingsNewID) : nil
         if route == .files, catalog == nil { return }
         if route == .settings, settingsModel == nil { return }
         let captured = captureFocus()
@@ -36,28 +37,38 @@ final class WorkspaceOverlayCoordinator {
         settings = settingsModel
     }
 
-    func enterNewSettings(id: String, eligible: Bool, captureFocus: () -> ComposerOverlayFocus?) {
-        guard eligible, shell?.currentSettingsNewID == id, let navigation,
-              let model = shell?.makeSettingsModel(configureNewID: id) else { return }
-        let captured = captureFocus()
-        guard navigation.presentNewSettings(eligible: eligible) else { captured?.cancel(); return }
-        focus?.cancel(); focus = captured; settings = model
-    }
-
     func openFilesFromSettings(expectedID: UUID) {
         guard let navigation, let catalog = shell?.makeFilesWorkspaceModel(),
               navigation.replaceSettingsWithFiles(expectedID: expectedID) else { return }
-        settings?.invalidate(); settings = nil; files = catalog
+        dismissingSettingsID = expectedID
+        files = catalog
         // The original Conversation capability stays owned until Files closes.
     }
 
     func close(expectedID: UUID? = nil) {
         guard navigation?.overlay != nil,
               expectedID == nil || navigation?.overlayID == expectedID else { return }
+        if navigation?.overlay == .settings {
+            dismissingSettingsID = navigation?.overlayID
+            navigation?.dismissOverlay()
+            return
+        }
         search.invalidate()
         files?.invalidate(); files = nil
-        settings?.invalidate(); settings = nil
         navigation?.dismissOverlay()
+        // A Files route can close while the originating Settings sheet is
+        // still retiring. Its original focus waits for that same dismissal.
+        guard dismissingSettingsID == nil else { return }
+        settings?.invalidate(); settings = nil
+        let captured = focus; focus = nil
+        captured?.restore()
+    }
+
+    func settingsDidDismiss(expectedID: UUID) {
+        guard dismissingSettingsID == expectedID else { return }
+        dismissingSettingsID = nil
+        settings?.invalidate(); settings = nil
+        guard navigation?.overlay == nil else { return }
         let captured = focus; focus = nil
         captured?.restore()
     }
@@ -73,6 +84,7 @@ final class WorkspaceOverlayCoordinator {
     }
 
     func reset() {
+        dismissingSettingsID = nil
         search.invalidate(); files?.invalidate(); files = nil
         settings?.invalidate(); settings = nil
         focus?.cancel(); focus = nil

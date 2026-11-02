@@ -83,21 +83,15 @@ final class WorkspaceRotationUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
-        app.openWorkspaceSidebar()
-        let entry = app.buttons["split-entry"]
-        XCTAssertTrue(entry.waitForExistence(timeout: 15))
-        entry.tap()
-        let action = app.buttons["split-open-top"]
-        XCTAssertTrue(action.waitForExistence(timeout: 5))
-        XCTAssertTrue(action.wait(for: \.isHittable, toEqual: true, timeout: 5))
-        print("ROTATION_SPLIT_ACTION frame=\(action.frame),enabled=\(action.isEnabled),hittable=\(action.isHittable)")
-        action.tap()
+        app.openWorkspaceSplit()
         let history = app.buttons["split-history-preview-ui-10"]
         guard history.waitForExistence(timeout: 10) else {
             let probe = app.descendants(matching: .any)["surface-native-interaction-probe"]
-            XCTFail("Split picker did not appear after the hittable menu action. Native receipt: \(String(describing: probe.value)); hierarchy: \(app.debugDescription)")
+            XCTFail("Split picker did not appear after Composer Lift. Native receipt: \(String(describing: probe.value)); hierarchy: \(app.debugDescription)")
             return app
         }
+        XCTAssertTrue(history.wait(for: \.isHittable, toEqual: true, timeout: 5))
+        print("ROTATION_SPLIT_PICKER frame=\(history.frame),enabled=\(history.isEnabled),hittable=\(history.isHittable)")
         history.tap()
         XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch.waitForExistence(timeout: 10))
         expect { app.textViews.matching(identifier: "conversation-composer-input").count == 1 }

@@ -6,6 +6,25 @@ import Testing
 @Suite("Retained Sidebar native Surface")
 @MainActor
 struct SidebarSurfaceTests {
+    @Test func sharedSidebarShadowUsesWorkspaceTravelAndSuppressesTheOtherPaneShadow() throws {
+        let host = ConversationSurfaceViewController(content: Color.clear)
+        host.loadViewIfNeeded()
+        host.view.frame = CGRect(x: 0, y: 0, width: 196, height: 874)
+        host.view.layoutIfNeeded()
+        host.setSidebarShadow(frame: CGRect(x: -206, y: 0, width: 402, height: 874), enabled: true)
+        host.setSidebar(offset: 30, progress: 0.5, settlement: nil, completion: nil)
+        let shadow = try #require(host.surfaceView.superview?.subviews.first { $0.layer.name == "zen-sidebar-shadow" })
+        #expect(shadow.bounds.size == CGSize(width: 402, height: 874))
+        #expect(abs(shadow.alpha - 30 / (402 * 0.15)) < 0.000001)
+        #expect(!shadow.isHidden)
+        let surfaceCenter = host.surfaceView.center
+        host.setSidebarShadow(frame: nil, enabled: false)
+        #expect(shadow.isHidden)
+        #expect(host.surfaceView.center == surfaceCenter)
+        host.cancelSidebar()
+        #expect(shadow.alpha == 0)
+    }
+
     @Test("a floating window-concentric pose is not enlarged by the resting Split corner minimum")
     func floatingCornersUseTheResolvedPose() {
         let host = ConversationSurfaceViewController(content: Color.clear)
@@ -58,7 +77,7 @@ struct SidebarSurfaceTests {
         host.setSidebar(offset: 90, settlement: nil, completion: nil)
         host.view.setNeedsLayout()
         host.view.layoutIfNeeded()
-        #expect(host.surfaceView.center.x == host.view.bounds.midX + 90)
+        #expect(host.surfaceView.convert(CGPoint(x: bounds.midX, y: bounds.midY), to: host.view).x == host.view.bounds.midX + 90)
         #expect(host.surfaceView.bounds == bounds && host.surfaceView.transform == transform)
         #expect(host.contentController === child)
         host.cancelSidebar()

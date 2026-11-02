@@ -14,11 +14,7 @@ final class WorkspaceReturnReceiptUITests: XCTestCase {
         XCTAssertTrue(app.textViews["conversation-composer-input"].waitForExistence(timeout: 15))
         let targetProbe = app.descendants(matching: .any)["surface-native-interaction-probe"]
         let targetIdentity = try XCTUnwrap(editorIdentity(targetProbe.value as? String))
-        app.openWorkspaceSidebar()
-        let entry = app.buttons["split-entry"]
-        XCTAssertTrue(entry.waitForExistence(timeout: 15))
-        entry.tap()
-        app.buttons["split-open-top"].tap()
+        app.openWorkspaceSplit()
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()
