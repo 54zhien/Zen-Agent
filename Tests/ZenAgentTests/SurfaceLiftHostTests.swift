@@ -6,8 +6,8 @@ import Testing
 @Suite("Lift host transport", .serialized)
 @MainActor
 struct SurfaceLiftHostTests {
-    private func splitTargetPoint(_ slot: SplitDropSlot,
-                                  in host: ConversationSurfaceViewController,
+    private func splitTargetPoint<Content: View>(_ slot: SplitDropSlot,
+                                  in host: ConversationSurfaceViewController<Content>,
                                   window: UIWindow) -> CGPoint {
         let insets = host.view.safeAreaInsets
         let viewport = CGRect(x: insets.left, y: insets.top,
