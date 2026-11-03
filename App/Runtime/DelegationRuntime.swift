@@ -543,6 +543,7 @@ actor DelegationRuntime {
                   descriptor.id != SubagentDelegationTool.toolID,
                   !Self.isParentOnlyTool(descriptor),
                   !(executable is MCPToolExecutable),
+                  !(executable is WebReadTool),
                   parentSnapshot.permitsTool(descriptor),
                   parentSnapshot.exposedTools.contains(where: { Self.exposure($0, matches: descriptor) })
             else { return false }

@@ -63,6 +63,7 @@ enum ToolDestinationScope: Codable, Sendable, Equatable {
     case missing
     case provider(instanceID: String, endpointIdentity: String)
     case mcpServer(serverID: String, endpointIdentity: String)
+    case webOrigin(pageOrigin: String, providerInstanceID: String, providerEndpointIdentity: String)
 
     var isValid: Bool {
         switch self {
@@ -72,6 +73,9 @@ enum ToolDestinationScope: Codable, Sendable, Equatable {
             ToolPolicyIdentity.isValid(instance) && ToolPolicyIdentity.isValid(endpoint)
         case .mcpServer(let serverID, let endpoint):
             ToolPolicyIdentity.isValid(serverID) && ToolPolicyIdentity.isValid(endpoint)
+        case .webOrigin(let pageOrigin, let provider, let endpoint):
+            ToolPolicyIdentity.isValid(pageOrigin) && ToolPolicyIdentity.isValid(provider)
+                && ToolPolicyIdentity.isValid(endpoint)
         }
     }
 
@@ -82,6 +86,9 @@ enum ToolDestinationScope: Codable, Sendable, Equatable {
             ToolPolicyIdentity.equals(a, b) && ToolPolicyIdentity.equals(e, f)
         case (.mcpServer(let a, let e), .mcpServer(let b, let f)):
             ToolPolicyIdentity.equals(a, b) && ToolPolicyIdentity.equals(e, f)
+        case (.webOrigin(let a, let p, let e), .webOrigin(let b, let q, let f)):
+            ToolPolicyIdentity.equals(a, b) && ToolPolicyIdentity.equals(p, q)
+                && ToolPolicyIdentity.equals(e, f)
         default: false
         }
     }
@@ -205,14 +212,16 @@ enum ToolPolicyResourceRequirement: Codable, Sendable, Equatable {
 }
 
 enum ToolPolicyEgressRequirement: Codable, Sendable, Equatable {
-    case notRequired, provider, providerRequiringApproval, mcpServerRequiringApproval, unknown
+    case notRequired, provider, providerRequiringApproval, mcpServerRequiringApproval
+    case webOriginRequiringApproval, unknown
 
     func accepts(_ scope: ToolDestinationScope) -> Bool {
         guard scope.isValid else { return false }
         return switch (self, scope) {
         case (.notRequired, .notRequired), (.provider, .provider),
              (.providerRequiringApproval, .provider),
-             (.mcpServerRequiringApproval, .mcpServer): true
+             (.mcpServerRequiringApproval, .mcpServer),
+             (.webOriginRequiringApproval, .webOrigin): true
         default: false
         }
     }
@@ -246,6 +255,7 @@ struct ToolPolicyActionMetadata: Codable, Sendable, Equatable {
     var requiresExplicitApproval: Bool {
         risk != .low || egressRequirement == .providerRequiringApproval
             || egressRequirement == .mcpServerRequiringApproval
+            || egressRequirement == .webOriginRequiringApproval
     }
 }
 

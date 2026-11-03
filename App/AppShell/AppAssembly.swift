@@ -163,6 +163,7 @@ struct AppAssembly {
             CalculatorTool(), CurrentDateTool(timeZone: localTimeZone), DeviceInfoTool(),
             CalendarEventsTool(), RemindersTool(timeZone: localTimeZone),
             FilesTool(files: managedFiles, store: store, sessions: sessions),
+            WebReadTool(transport: LiveHTTPTransport.makeAnonymousWeb()),
         ])
         let mcpRegistry = MCPServerRegistry(store: store)
         let mcpRuntime = MCPServerRuntime(

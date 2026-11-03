@@ -158,6 +158,8 @@ struct ToolSettingsView: View {
         case .provider(let id, let endpoint): "Provider：\(id)\n目标：\(endpoint)"
         case .mcpServer(let serverID, let endpointIdentity):
             "MCP 服务：\(serverID)\n目标指纹：\(endpointIdentity)"
+        case .webOrigin(let pageOrigin, let providerID, let endpoint):
+            "网页来源：\(pageOrigin)\nProvider：\(providerID)\n后续目标：\(endpoint)"
         }
     }
 

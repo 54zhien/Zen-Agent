@@ -5,6 +5,50 @@ enum HTTPMethod: String, Sendable {
     case post = "POST"
 }
 
+enum HTTPRedirectPolicy: Sendable {
+    case follow
+    case sameOrigin
+}
+
+enum HTTPRedirectRefusalReason: Sendable, Equatable {
+    case crossOrigin
+    case credentials
+    case invalidOrigin
+}
+
+struct HTTPRedirectRefusal: Sendable, Equatable {
+    let sourceOrigin: String
+    let destinationOrigin: String
+    let reason: HTTPRedirectRefusalReason
+}
+
+enum HTTPOriginIdentity {
+    static func from(_ url: URL) -> String? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme?.lowercased(),
+              let host = components.host?.lowercased(), !host.isEmpty else { return nil }
+        let formattedHost = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        let port = components.port
+        let defaultPort: Int? = switch scheme {
+        case "https": 443
+        case "http": 80
+        default: nil
+        }
+        let portPart = port.map { $0 == defaultPort ? "" : ":\($0)" } ?? ""
+        return "\(scheme)://\(formattedHost)\(portPart)"
+    }
+}
+
+struct HTTPResponseHead: Sendable, Equatable {
+    let status: Int
+    let headers: [String: String]
+    let finalURL: URL
+}
+
+extension HTTPResponseHead: CustomReflectable {
+    var customMirror: Mirror { Mirror(self, children: [:]) }
+}
+
 /// A request as the transport layer sees it.
 ///
 /// **Self-redacting.** This type carries the `Authorization` header — it has to, that is
@@ -20,12 +64,23 @@ struct HTTPRequest: Sendable {
     var url: URL
     var headers: [String: String]
     var body: Data?
+    var redirectPolicy: HTTPRedirectPolicy
+    var maximumResponseBytes: Int?
 
-    init(method: HTTPMethod, url: URL, headers: [String: String] = [:], body: Data? = nil) {
+    init(
+        method: HTTPMethod,
+        url: URL,
+        headers: [String: String] = [:],
+        body: Data? = nil,
+        redirectPolicy: HTTPRedirectPolicy = .follow,
+        maximumResponseBytes: Int? = nil
+    ) {
         self.method = method
         self.url = url
         self.headers = headers
         self.body = body
+        self.redirectPolicy = redirectPolicy
+        self.maximumResponseBytes = maximumResponseBytes
     }
 
     /// Header names whose values never appear in diagnostics.
@@ -62,7 +117,18 @@ struct HTTPRequest: Sendable {
 
 extension HTTPRequest: CustomStringConvertible {
     var description: String {
-        "\(method.rawValue) \(url.absoluteString) headers=\(redactedHeaders)"
+        "\(method.rawValue) \(Self.redactedURL(url)) headers=\(redactedHeaders)"
+    }
+
+    private static func redactedURL(_ url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return "<redacted URL>"
+        }
+        components.query = nil
+        components.fragment = nil
+        components.user = nil
+        components.password = nil
+        return components.string ?? "<redacted URL>"
     }
 }
 
@@ -81,11 +147,18 @@ struct HTTPResponse: Sendable, Equatable {
     var status: Int
     var headers: [String: String]
     var body: Data
+    var redirectRefusal: HTTPRedirectRefusal?
 
-    init(status: Int, headers: [String: String] = [:], body: Data = Data()) {
+    init(
+        status: Int,
+        headers: [String: String] = [:],
+        body: Data = Data(),
+        redirectRefusal: HTTPRedirectRefusal? = nil
+    ) {
         self.status = status
         self.headers = headers
         self.body = body
+        self.redirectRefusal = redirectRefusal
     }
 
     /// Convenience for the fakes, which describe responses as text.
@@ -95,6 +168,8 @@ struct HTTPResponse: Sendable, Equatable {
 }
 
 enum HTTPTransportError: Error, Equatable {
+    static let responseBodyLimitExceededReason = "response exceeded configured byte limit"
+
     /// The request never completed. The message is the underlying description, which
     /// must not contain request headers — see `URLSessionHTTPTransport`.
     ///
@@ -179,12 +254,23 @@ enum HTTPTransportError: Error, Equatable {
 /// holding `URLSessionDataTask` has no such loop.
 struct HTTPStream: Sendable {
     var body: AsyncThrowingStream<Data, Error>
+    var responseHead: HTTPResponseHead?
     /// Ends the transfer — the network task, not merely this end of it.
     ///
     /// Idempotent, and safe to call from any of the ways a stream ends: the consumer
     /// cancelling, a deadline expiring, a parse failing, or the protocol saying it is
     /// done. Every one of those leaves a live request behind if nobody calls it.
     let cancel: @Sendable () -> Void
+
+    init(
+        body: AsyncThrowingStream<Data, Error>,
+        responseHead: HTTPResponseHead? = nil,
+        cancel: @escaping @Sendable () -> Void
+    ) {
+        self.body = body
+        self.responseHead = responseHead
+        self.cancel = cancel
+    }
 }
 
 protocol HTTPTransport: Sendable {
