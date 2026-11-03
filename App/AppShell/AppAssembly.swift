@@ -56,6 +56,7 @@ struct AppAssembly {
         let credentials: any CredentialStoring
         let provider: any ModelProvider
         let providerRegistry: ModelProviderRegistry
+        let embeddingProvider: (any EmbeddingProvider)?
         let runtime: ConversationRuntime
         let router: RunEventRouter
         let managedFiles: ManagedFileStore?
@@ -70,9 +71,10 @@ struct AppAssembly {
              toolRegistry: ToolRegistry = .empty, toolSafetyCap: ToolPolicySafetyCap = .unrestricted,
              sessions: ConversationSessionStore? = nil, mcpRegistry: MCPServerRegistry? = nil,
              mcpRuntime: MCPServerRuntime? = nil, mcpTransport: (any HTTPTransport)? = nil,
-             providerRegistry: ModelProviderRegistry? = nil) {
+             providerRegistry: ModelProviderRegistry? = nil, embeddingProvider: (any EmbeddingProvider)? = nil) {
             self.store = store; self.credentials = credentials; self.provider = provider
             self.providerRegistry = providerRegistry ?? ModelProviderRegistry(provider: provider)
+            self.embeddingProvider = embeddingProvider
             self.runtime = runtime; self.router = router; self.managedFiles = managedFiles
             self.toolRegistry = toolRegistry; self.toolSafetyCap = toolSafetyCap; self.sessions = sessions
             let resolvedRegistry = mcpRegistry ?? MCPServerRegistry(store: store)
@@ -107,8 +109,19 @@ struct AppAssembly {
             var backupValues = URLResourceValues()
             backupValues.isExcludedFromBackup = false
             try backedUpDirectory.setResourceValues(backupValues)
+            let searchIndexDirectory = supportDirectory.appending(path: "DerivedSearchIndex", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(
+                at: searchIndexDirectory,
+                withIntermediateDirectories: true
+            )
+            try UserDataFileProtection.apply(to: searchIndexDirectory.path)
+            var excludedSearchIndexDirectory = searchIndexDirectory
+            var searchIndexBackupValues = URLResourceValues()
+            searchIndexBackupValues.isExcludedFromBackup = true
+            try excludedSearchIndexDirectory.setResourceValues(searchIndexBackupValues)
             database = try ZenDatabase.open(
-                at: supportDirectory.appending(path: "ZenAgent.sqlite").path
+                at: supportDirectory.appending(path: "ZenAgent.sqlite").path,
+                searchIndexAt: searchIndexDirectory.appending(path: "ConversationIndex.sqlite").path
             )
         } catch {
             throw AppAssemblyFailure.database(summary: safeSummary(for: error))
@@ -137,9 +150,10 @@ struct AppAssembly {
         let providerTransport: any HTTPTransport = transport
         #endif
         let provider = DeepSeekProvider(transport: providerTransport)
+        let openAIProvider = OpenAIProvider(transport: providerTransport)
         let providerRegistry = try ModelProviderRegistry(providers: [
             provider,
-            OpenAIProvider(transport: providerTransport),
+            openAIProvider,
         ])
         let managedFiles = try ManagedFileStore.applicationDefault()
         let toolRegistry = try ToolRegistry(tools: [CalculatorTool(), CurrentDateTool(), DeviceInfoTool(),
@@ -173,7 +187,8 @@ struct AppAssembly {
             sessions: sessions,
             mcpRegistry: mcpRegistry,
             mcpRuntime: mcpRuntime,
-            providerRegistry: providerRegistry
+            providerRegistry: providerRegistry,
+            embeddingProvider: OpenAIEmbeddingProvider(transport: providerTransport)
         )
     }
 

@@ -5,6 +5,91 @@ import Testing
 @Suite("Search query publication")
 @MainActor
 struct ConversationSearchModelTests {
+    @Test("semantic query edits publish no request until the user submits")
+    func semanticSearchWaitsForExplicitSubmission() async {
+        let submissions = SemanticSearchSubmissionRecorder()
+        let account = ProviderInstanceID(rawValue: "selected-openai")
+        let resultPage = page("semantic-result")
+        let model = ConversationSemanticSearchModel(selectedAccount: { account },
+            selectedEndpointAddress: { _ in "api.openai.com:443" }, reader: { query, provider in
+                await submissions.record(query: query, provider: provider)
+                return resultPage
+            })
+
+        model.query = "find the mountain trip"
+        await Task.yield()
+        let beforeSubmit = await submissions.values()
+        #expect(beforeSubmit.isEmpty)
+
+        await model.submit()
+        let afterSubmit = await submissions.values()
+        #expect(afterSubmit.map(\.query) == ["find the mountain trip"])
+        #expect(afterSubmit.map(\.provider) == [account])
+        #expect(model.items.map(\.id) == ["semantic-result"])
+    }
+
+    @Test("semantic search endpoint follows the selected account and its current address")
+    func semanticSearchEndpointRefreshesBeforePublication() async {
+        let firstAccount = ProviderInstanceID(rawValue: "first-openai")
+        let secondAccount = ProviderInstanceID(rawValue: "second-openai")
+        var selectedAccount = firstAccount
+        var endpoints = [firstAccount: "api.openai.com:443", secondAccount: "proxy.example.test:8443"]
+        let resultPage = page("result")
+        let model = ConversationSemanticSearchModel(
+            selectedAccount: { selectedAccount },
+            selectedEndpointAddress: { endpoints[$0] },
+            reader: { _, _ in resultPage }
+        )
+
+        model.refreshEndpointAddress()
+        #expect(model.endpointAddress == "api.openai.com:443")
+        selectedAccount = secondAccount
+        model.refreshEndpointAddress()
+        #expect(model.endpointAddress == "proxy.example.test:8443")
+        endpoints[secondAccount] = "updated.example.test:9443"
+        model.query = "find the note"
+        await model.submit()
+        #expect(model.endpointAddress == "updated.example.test:9443")
+    }
+
+    @Test("semantic search account options show the effective endpoint after an account edit")
+    @MainActor
+    func accountOptionsRefreshTheEndpointPort() async throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        let credentials = CredentialStore(
+            secrets: InMemorySecretBackend(),
+            metadataRepository: InMemoryCredentialMetadataRepository()
+        )
+        let suiteName = "semantic-search-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let instance = ProviderInstance(
+            id: ProviderInstanceID(rawValue: "endpoint-account"),
+            providerID: .openAI,
+            displayName: "Endpoint account",
+            baseURL: nil,
+            configRevision: .initial,
+            credentialReference: nil
+        )
+        try store.createProviderInstance(instance)
+        let model = VectorSearchSettingsModel(store: store, credentials: credentials, defaults: defaults)
+
+        await model.load()
+        #expect(model.accounts.first?.title == "Endpoint account · api.openai.com:443 · 未配置凭据")
+        model.selectAccount(instance.id)
+        #expect(defaults.string(forKey: VectorSearchSettingsModel.selectedAccountKey) == instance.id.rawValue)
+
+        try store.reconfigureProviderInstance(
+            id: instance.id,
+            displayName: instance.displayName,
+            baseURL: URL(string: "https://proxy.example.test:9443/v1"),
+            expectedEditRevision: instance.editRevision
+        )
+        await model.load()
+        #expect(model.accounts.first?.title == "Endpoint account · proxy.example.test:9443 · 未配置凭据")
+        #expect(model.selectedProviderInstanceID == instance.id)
+    }
+
     @Test func lateReadCannotReplaceANewerQuery() async {
         let gate = SearchReadGate()
         let model = ConversationSearchModel(debounce: .zero) { query, _, _ in
@@ -64,10 +149,12 @@ struct ConversationSearchModelTests {
         #expect(model.items.map(\.id) == ["new"])
     }
 
-    private func page(_ id: String) -> ConversationSummaryPage {
-        ConversationSummaryPage(items: [ConversationSummary(id: id, title: id, excerpt: "",
+    private func page(_ id: String) -> ConversationSearchPage {
+        let summary = ConversationSummary(id: id, title: id, excerpt: "",
             pinned: false, userActiveAt: .distantPast, contentUnavailable: false,
-            runProjection: nil, providerInstanceID: nil, modelID: nil, providerName: nil)], nextCursor: nil)
+            runProjection: nil, providerInstanceID: nil, modelID: nil, providerName: nil)
+        return ConversationSearchPage(items: [ConversationSearchResult(summary: summary, matchSnippet: nil)],
+            nextCursor: nil)
     }
 
     @Test func queryReplacementCancelsAPendingSelection() async {
@@ -86,6 +173,17 @@ struct ConversationSearchModelTests {
     }
 }
 
+private actor SemanticSearchSubmissionRecorder {
+    struct Value: Equatable, Sendable {
+        let query: String
+        let provider: ProviderInstanceID
+    }
+
+    private var recorded: [Value] = []
+    func record(query: String, provider: ProviderInstanceID) { recorded.append(Value(query: query, provider: provider)) }
+    func values() -> [Value] { recorded }
+}
+
 private actor SearchSelectionGate {
     private var read: CheckedContinuation<Bool, Never>?
     private var waiter: CheckedContinuation<Void, Never>?
@@ -100,10 +198,10 @@ private actor SearchSelectionGate {
 }
 
 private actor SearchReadGate {
-    private var reads: [String: CheckedContinuation<ConversationSummaryPage, Never>] = [:]
+    private var reads: [String: CheckedContinuation<ConversationSearchPage, Never>] = [:]
     private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
 
-    func read(_ query: String) async -> ConversationSummaryPage {
+    func read(_ query: String) async -> ConversationSearchPage {
         await withCheckedContinuation { continuation in
             reads[query] = continuation
             waiters.removeValue(forKey: query)?.resume()
@@ -115,7 +213,7 @@ private actor SearchReadGate {
         await withCheckedContinuation { waiters[query] = $0 }
     }
 
-    func finish(_ query: String, page: ConversationSummaryPage) {
+    func finish(_ query: String, page: ConversationSearchPage) {
         reads.removeValue(forKey: query)?.resume(returning: page)
     }
 }

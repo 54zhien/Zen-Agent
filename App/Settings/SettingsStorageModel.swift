@@ -3,6 +3,7 @@ import Observation
 
 struct SettingsStorageFootprint: Sendable {
     let databaseBytes: Int64?
+    let searchIndexBytes: Int64?
     let managedBytes: Int64
     let cacheBytes: Int64
     let conversations: Int
@@ -35,16 +36,20 @@ final class SettingsStorageModel {
         do {
             let result = try await Task.detached {
                 let removed = clearing ? try files.clearPresentationCache() : 0
+                let removedVectors = clearing ? try store.clearConversationVectorRecords() : 0
                 let database = try store.settingsDatabaseFootprint()
                 let footprint = SettingsStorageFootprint(databaseBytes: database.bytes,
+                    searchIndexBytes: database.searchIndexBytes,
                     managedBytes: try files.managedByteCount(), cacheBytes: try files.presentationCacheByteCount(),
                     conversations: database.conversations, messages: database.messages,
                     fileAssets: database.fileAssets, snapshots: database.snapshots)
-                return (footprint, removed)
+                return (footprint, removed, removedVectors)
             }.value
             guard active, !Task.isCancelled else { return }
             footprint = result.0
-            if clearing { statusMessage = "已清理 \(result.1) 份临时副本。正在预览或导出的副本继续保留。" }
+            if clearing {
+                statusMessage = "已清理 \(result.2) 个语义向量和 \(result.1) 份临时副本。全文索引、会话正文及正在使用的副本继续保留。"
+            }
         } catch {
             if active { errorMessage = clearing ? "缓存清理或用量读取未完成，请刷新后检查。" : "存储用量读取失败，请重试。" }
         }
