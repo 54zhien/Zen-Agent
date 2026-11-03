@@ -1,4 +1,5 @@
 import Foundation
+import EventKit
 import Testing
 @testable import ZenAgent
 
