@@ -542,6 +542,7 @@ actor DelegationRuntime {
             guard modelCapabilities.contains(.tools),
                   descriptor.id != SubagentDelegationTool.toolID,
                   !(executable is MCPToolExecutable),
+                  !(executable is WebReadTool),
                   parentSnapshot.permitsTool(descriptor),
                   parentSnapshot.exposedTools.contains(where: { Self.exposure($0, matches: descriptor) })
             else { return false }

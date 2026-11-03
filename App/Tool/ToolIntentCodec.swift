@@ -70,6 +70,7 @@ enum ToolIntentCodec {
         case .notRequired, .missing: destinationIdentity = nil
         case .provider(_, let endpoint): destinationIdentity = endpoint
         case .mcpServer(_, let endpoint): destinationIdentity = endpoint
+        case .webOrigin(let pageOrigin, _, _): destinationIdentity = pageOrigin
         }
         let intent = ToolExecutionIntent(
             formatVersion: ToolExecutionIntent.currentFormatVersion, toolID: descriptor.id,
@@ -99,6 +100,7 @@ enum ToolIntentCodec {
         case .missing: return false
         case .provider(_, let endpoint): return alias.map { ToolPolicyIdentity.equals(endpoint, $0) } ?? false
         case .mcpServer(_, let endpoint): return alias.map { ToolPolicyIdentity.equals(endpoint, $0) } ?? false
+        case .webOrigin(let pageOrigin, _, _): return alias.map { ToolPolicyIdentity.equals(pageOrigin, $0) } ?? false
         }
     }
 }

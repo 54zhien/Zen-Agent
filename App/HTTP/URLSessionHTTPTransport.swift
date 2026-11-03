@@ -47,13 +47,27 @@ struct URLSessionHTTPTransport: HTTPTransport {
         self.errorBodyFirstByteHook = errorBodyFirstByteHook
     }
 
+    static func anonymousWeb() -> URLSessionHTTPTransport {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieStorage = nil
+        configuration.urlCredentialStorage = nil
+        configuration.httpAdditionalHeaders = nil
+        configuration.urlCache = nil
+        return URLSessionHTTPTransport(session: URLSession(configuration: configuration))
+    }
+
     // MARK: - One response
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let data: Data
         let response: URLResponse
+        let redirectDelegate = Self.redirectDelegate(for: request)
         do {
-            (data, response) = try await session.data(for: Self.urlRequest(from: request))
+            (data, response) = try await session.data(
+                for: Self.urlRequest(from: request),
+                delegate: redirectDelegate
+            )
         } catch {
             // Scoped to the call itself. Wrapping the guards below in this `do` would
             // route their own `HTTPTransportError` back through the mapper, which would
@@ -64,7 +78,12 @@ struct URLSessionHTTPTransport: HTTPTransport {
         guard let http = response as? HTTPURLResponse else {
             throw HTTPTransportError.networkFailure("the response was not HTTP")
         }
-        return HTTPResponse(status: http.statusCode, headers: Self.headers(from: http), body: data)
+        return HTTPResponse(
+            status: http.statusCode,
+            headers: Self.headers(from: http, hidingRedirectLocation: redirectDelegate?.refusal != nil),
+            body: data,
+            redirectRefusal: redirectDelegate?.refusal
+        )
     }
 
     // MARK: - Incremental response
@@ -72,6 +91,7 @@ struct URLSessionHTTPTransport: HTTPTransport {
     func stream(_ request: HTTPRequest) async throws -> HTTPStream {
         let bytes: URLSession.AsyncBytes
         let response: URLResponse
+        let redirectDelegate = Self.redirectDelegate(for: request)
         do {
             (bytes, response) = try await session.bytes(for: Self.urlRequest(
                 from: request,
@@ -81,7 +101,7 @@ struct URLSessionHTTPTransport: HTTPTransport {
                 // as a dropped connection. Passing the policy down is what makes the
                 // configured window the one that actually applies.
                 timeout: timeouts.transportInactivity.timeInterval
-            ))
+            ), delegate: redirectDelegate)
         } catch {
             // The head never arrived, so this is not an interrupted stream — there was
             // no stream yet.
@@ -97,6 +117,15 @@ struct URLSessionHTTPTransport: HTTPTransport {
             // function is about to hand back.
             bytes.task.cancel()
             throw HTTPTransportError.networkFailure("the response was not HTTP")
+        }
+
+        if let refusal = redirectDelegate?.refusal {
+            bytes.task.cancel()
+            throw HTTPTransportError.httpStatus(HTTPResponse(
+                status: http.statusCode,
+                headers: Self.headers(from: http, hidingRedirectLocation: true),
+                redirectRefusal: refusal
+            ))
         }
 
         guard (200..<300).contains(http.statusCode) else {
@@ -265,8 +294,9 @@ struct URLSessionHTTPTransport: HTTPTransport {
             // there was.
             let response = HTTPResponse(
                 status: http.statusCode,
-                headers: Self.headers(from: http),
-                body: snapshot.body
+                headers: Self.headers(from: http, hidingRedirectLocation: redirectDelegate?.refusal != nil),
+                body: snapshot.body,
+                redirectRefusal: redirectDelegate?.refusal
             )
 
             switch snapshot.state {
@@ -340,6 +370,7 @@ struct URLSessionHTTPTransport: HTTPTransport {
                         )
                     },
                     reading: {
+                        var deliveredByteCount = 0
                         do {
                             for try await byte in bytes {
                                 // Records both that this byte arrived and that the
@@ -355,7 +386,17 @@ struct URLSessionHTTPTransport: HTTPTransport {
                                 // kilobytes spread over seconds, where arriving
                                 // immediately is the whole point and the allocation cost
                                 // is nothing beside it.
+                                if let maximum = request.maximumResponseBytes,
+                                   deliveredByteCount >= maximum {
+                                    networkTask.cancel()
+                                    continuation.finish(throwing: HTTPTransportError.streamInterrupted(
+                                        deliveredData: deliveredByteCount > 0,
+                                        reason: HTTPTransportError.responseBodyLimitExceededReason
+                                    ))
+                                    return
+                                }
                                 continuation.yield(Data([byte]))
+                                deliveredByteCount += 1
                             }
                             continuation.finish()
                         } catch {
@@ -379,6 +420,11 @@ struct URLSessionHTTPTransport: HTTPTransport {
             // Leaving this uncalled is how a connection outlives the interest in it:
             // `Agent Runtime.md:261` — a late result still arriving after the run it
             // belonged to was stopped.
+            responseHead: HTTPResponseHead(
+                status: http.statusCode,
+                headers: Self.headers(from: http),
+                finalURL: http.url ?? request.url
+            ),
             cancel: { networkTask.cancel() }
         )
     }
@@ -550,11 +596,24 @@ struct URLSessionHTTPTransport: HTTPTransport {
         return urlRequest
     }
 
-    private static func headers(from response: HTTPURLResponse) -> [String: String] {
+    private static func redirectDelegate(for request: HTTPRequest) -> URLSessionRedirectDelegate? {
+        switch request.redirectPolicy {
+        case .follow: nil
+        case .sameOrigin: URLSessionRedirectDelegate(initialURL: request.url)
+        }
+    }
+
+    private static func headers(
+        from response: HTTPURLResponse,
+        hidingRedirectLocation: Bool = false
+    ) -> [String: String] {
         var result: [String: String] = [:]
         for (key, value) in response.allHeaderFields {
             guard let key = key as? String else { continue }
             result[key] = String(describing: value)
+        }
+        if hidingRedirectLocation {
+            result = result.filter { $0.key.caseInsensitiveCompare("Location") != .orderedSame }
         }
         return result
     }
@@ -618,5 +677,63 @@ struct URLSessionHTTPTransport: HTTPTransport {
         // Deliberately not `urlError.localizedDescription` verbatim either: it is stable
         // enough, but the code is the part worth keeping, and the code is safe.
         return "URLError code \(urlError.errorCode)"
+    }
+}
+
+private final class URLSessionRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private let initialOrigin: String?
+    private var storedRefusal: HTTPRedirectRefusal?
+
+    init(initialURL: URL) {
+        self.initialOrigin = HTTPOriginIdentity.from(initialURL)
+    }
+
+    var refusal: HTTPRedirectRefusal? {
+        lock.withLock { storedRefusal }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        let sourceOrigin = response.url.flatMap(HTTPOriginIdentity.from)
+            ?? task.currentRequest?.url.flatMap(HTTPOriginIdentity.from)
+        let destinationOrigin = request.url.flatMap(HTTPOriginIdentity.from)
+        let destinationComponents = request.url.flatMap {
+            URLComponents(url: $0, resolvingAgainstBaseURL: false)
+        }
+        let hasCredentials = destinationComponents?.user != nil || destinationComponents?.password != nil
+        let refusalReason: HTTPRedirectRefusalReason?
+        if hasCredentials {
+            refusalReason = .credentials
+        } else if initialOrigin == nil || sourceOrigin == nil || destinationOrigin == nil {
+            refusalReason = .invalidOrigin
+        } else if sourceOrigin != initialOrigin || destinationOrigin != initialOrigin {
+            refusalReason = .crossOrigin
+        } else {
+            refusalReason = nil
+        }
+        if let refusalReason {
+            lock.withLock {
+                storedRefusal = HTTPRedirectRefusal(
+                    sourceOrigin: sourceOrigin ?? "unknown origin",
+                    destinationOrigin: destinationOrigin ?? "unknown origin",
+                    reason: refusalReason
+                )
+            }
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
+    }
+}
+
+extension LiveHTTPTransport {
+    static func makeAnonymousWeb() -> any HTTPTransport {
+        URLSessionHTTPTransport.anonymousWeb()
     }
 }

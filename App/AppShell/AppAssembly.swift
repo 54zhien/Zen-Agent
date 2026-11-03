@@ -143,7 +143,8 @@ struct AppAssembly {
         ])
         let managedFiles = try ManagedFileStore.applicationDefault()
         let toolRegistry = try ToolRegistry(tools: [CalculatorTool(), CurrentDateTool(), DeviceInfoTool(),
-            FilesTool(files: managedFiles, store: store, sessions: sessions)])
+            FilesTool(files: managedFiles, store: store, sessions: sessions),
+            WebReadTool(transport: LiveHTTPTransport.makeAnonymousWeb())])
         let mcpRegistry = MCPServerRegistry(store: store)
         let mcpRuntime = MCPServerRuntime(
             registry: mcpRegistry,
