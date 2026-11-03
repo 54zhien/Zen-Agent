@@ -187,7 +187,9 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        guard gestureRecognizer === pan, pan.numberOfTouches == 0, let window else { return false }
+        // SwiftUI can forward touches from the full divider frame outside this native Handle.
+        guard gestureRecognizer === pan, pan.numberOfTouches == 0, let window,
+              bounds.contains(touch.location(in: self)) else { return false }
         touchOrigin = touch.location(in: window)
         touchWindow = window
         return true

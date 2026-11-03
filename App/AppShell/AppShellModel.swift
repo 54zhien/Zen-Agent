@@ -79,7 +79,7 @@ final class AppShellModel {
             onConfigure: onConfigure,
             onProviderCommitted: { [weak self] instanceID in
                 await self?.refreshSendAvailability(for: instanceID)
-            }, onDefault: { [weak self] target, _ in
+            }, providerRegistry: dependencies.providerRegistry, onDefault: { [weak self] target, _ in
                 self?.target = target
             })
     }
@@ -102,7 +102,8 @@ final class AppShellModel {
         }
         pane.composer.configuration = .init(providerInstanceID: target.providerInstanceID, modelID: target.modelID)
         pane.composer.sendAvailability = AppShellConfiguration.availability(for: pane.composer.configuration,
-            store: dependencies.store, provider: dependencies.provider, credentials: dependencies.credentials)
+            store: dependencies.store, providerRegistry: dependencies.providerRegistry,
+            credentials: dependencies.credentials)
         sendAvailability = pane.composer.sendAvailability
         targetMessage = sendAvailability.message
         return true
@@ -127,7 +128,8 @@ final class AppShellModel {
                 return (session, configuration)
             }
         let results = await AppShellConfiguration.availabilities(for: targets.map(\.configuration),
-            store: dependencies.store, provider: dependencies.provider, credentials: dependencies.credentials)
+            store: dependencies.store, providerRegistry: dependencies.providerRegistry,
+            credentials: dependencies.credentials)
         guard configurationRefreshIDs[instanceID] == token, router === dependencies.router else { return }
         for (target, result) in zip(targets, results) {
             guard sessions.session(for: target.session.conversationID) === target.session,
@@ -1329,7 +1331,7 @@ final class AppShellModel {
         providerSetup = ProviderSetupModel(
             store: dependencies.store,
             credentials: dependencies.credentials,
-            provider: dependencies.provider,
+            providerRegistry: dependencies.providerRegistry,
             userDefaults: userDefaults,
             onTargetSaved: { [weak self] savedTarget in
                 self?.targetWasSaved(savedTarget)
@@ -1361,7 +1363,7 @@ final class AppShellModel {
                 providerInstanceID: candidate.providerInstanceID,
                 modelID: candidate.modelID,
                 store: dependencies.store,
-                provider: dependencies.provider,
+                providerRegistry: dependencies.providerRegistry,
                 credentials: dependencies.credentials
             )
             sendAvailability = .ready

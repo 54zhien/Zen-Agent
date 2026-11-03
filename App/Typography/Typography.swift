@@ -16,6 +16,18 @@ enum TypographyRole: CaseIterable {
     case codeBlock
 }
 
+/// Fixed visual baselines that still need the token layer's Dynamic Type scaling.
+enum TypographySize: CGFloat {
+    case caption = 12
+    case compact = 14
+    case small = 16
+    case medium = 18
+    case title = 20
+    case large = 22
+    case display = 28
+    case hero = 34
+}
+
 /// Which bundled face a role resolves to.
 enum TypographyFace: CaseIterable, Equatable {
     case interface
@@ -95,16 +107,24 @@ enum Typography {
         compatibleWith traits: UITraitCollection? = nil
     ) -> UIFont {
         let token = token(for: role)
+        return uiFont(for: token, pointSize: token.pointSize, compatibleWith: traits)
+    }
+
+    private static func uiFont(
+        for token: TypographyToken,
+        pointSize: CGFloat,
+        compatibleWith traits: UITraitCollection?
+    ) -> UIFont {
         #if ZEN_DEVICE_TEST
         // Public CI artifacts cannot include the development-only interface font.
         // Keep content/code typography intact while the device build uses System Sans.
         if token.face == .interface {
-            let base = UIFont.systemFont(ofSize: token.pointSize)
+            let base = UIFont.systemFont(ofSize: pointSize)
             return UIFontMetrics(forTextStyle: token.textStyle)
                 .scaledFont(for: base, compatibleWith: traits)
         }
         #endif
-        let base = UIFont(descriptor: descriptor(for: token), size: token.pointSize)
+        let base = UIFont(descriptor: descriptor(for: token), size: pointSize)
         let scaled = UIFontMetrics(forTextStyle: token.textStyle)
             .scaledFont(for: base, compatibleWith: traits)
 
@@ -142,6 +162,19 @@ enum Typography {
         font(for: role, compatibleWith: UITraitCollection(
             preferredContentSizeCategory: contentSizeCategory(for: dynamicTypeSize)
         ))
+    }
+
+    /// Resolves a layout-selected interface baseline through the same face and scaling path.
+    static func font(
+        for role: TypographyRole,
+        size: TypographySize,
+        dynamicTypeSize: DynamicTypeSize
+    ) -> Font {
+        let token = token(for: role)
+        let traits = UITraitCollection(
+            preferredContentSizeCategory: contentSizeCategory(for: dynamicTypeSize)
+        )
+        return Font(uiFont(for: token, pointSize: size.rawValue, compatibleWith: traits) as CTFont)
     }
 
     /// Total mapping, no `fatalError` path. `default` (rather than an exhaustive list) keeps

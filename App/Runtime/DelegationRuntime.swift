@@ -28,7 +28,7 @@ private struct PreparedDelegatedChildContext: Sendable {
 /// owns the stable Parent ToolCall-to-Child identity.
 actor DelegationRuntime {
     private let store: PersistenceStore
-    private let provider: any ModelProvider
+    private let providerRegistry: ModelProviderRegistry
     private let credentials: any CredentialStoring
     private let agentRuntime: AgentRuntime
     private let project: AgentEventProjection
@@ -41,7 +41,21 @@ actor DelegationRuntime {
         project: @escaping AgentEventProjection
     ) {
         self.store = store
-        self.provider = provider
+        providerRegistry = ModelProviderRegistry(provider: provider)
+        self.credentials = credentials
+        self.agentRuntime = agentRuntime
+        self.project = project
+    }
+
+    init(
+        store: PersistenceStore,
+        providerRegistry: ModelProviderRegistry,
+        credentials: any CredentialStoring,
+        agentRuntime: AgentRuntime,
+        project: @escaping AgentEventProjection
+    ) {
+        self.store = store
+        self.providerRegistry = providerRegistry
         self.credentials = credentials
         self.agentRuntime = agentRuntime
         self.project = project
@@ -182,7 +196,7 @@ actor DelegationRuntime {
            recoveredChild.suspendReason == .authRequired {
             await agentRuntime.releaseToolRegistry(forRunID: child.id)
             throw DelegatedChildAuthenticationRequired(
-                providerID: provider.id,
+                providerID: childSnapshot.providerID,
                 providerInstanceID: recoveredChild.requestConfigSeed.providerInstanceID,
                 modelID: recoveredChild.requestConfigSeed.modelID
             )
@@ -196,7 +210,7 @@ actor DelegationRuntime {
             )
             let retryRequest = try RunRequestRebuilder(
                 store: store,
-                provider: provider,
+                providerRegistry: providerRegistry,
                 toolRegistry: childContext.toolContext.registry,
                 credentials: credentials
             ).authenticationRetryRequest(
@@ -228,7 +242,7 @@ actor DelegationRuntime {
         do {
             batch = try RunRequestRebuilder(
                 store: store,
-                provider: provider,
+                providerRegistry: providerRegistry,
                 toolRegistry: childContext.toolContext.registry,
                 credentials: credentials
             ).latestToolBatch(
@@ -259,7 +273,12 @@ actor DelegationRuntime {
             snapshot: childSnapshot,
             project: project
         )
-        return try await waitForChild(stream, child: recoveredChild, parent: parent)
+        return try await waitForChild(
+            stream,
+            child: recoveredChild,
+            parent: parent,
+            snapshot: childSnapshot
+        )
     }
 
     private func runChildWithParentStopSettlement(
@@ -326,7 +345,7 @@ actor DelegationRuntime {
             snapshot: childSnapshot,
             project: project
         )
-        return try await waitForChild(stream, child: child, parent: parent)
+        return try await waitForChild(stream, child: child, parent: parent, snapshot: childSnapshot)
     }
 
     private func childRequest(
@@ -370,7 +389,8 @@ actor DelegationRuntime {
     private func waitForChild(
         _ stream: AsyncThrowingStream<AgentEvent, Error>,
         child: AgentRunRecord,
-        parent: AgentRunRecord
+        parent: AgentRunRecord,
+        snapshot: RunExecutionSnapshot
     ) async throws -> ToolExecutionResult {
         let childExecution = Task<ToolExecutionResult, Error> {
             do {
@@ -402,7 +422,7 @@ actor DelegationRuntime {
                currentChild.suspendReason == .authRequired {
                 await agentRuntime.releaseToolRegistry(forRunID: child.id)
                 throw DelegatedChildAuthenticationRequired(
-                    providerID: provider.id,
+                    providerID: snapshot.providerID,
                     providerInstanceID: currentChild.requestConfigSeed.providerInstanceID,
                     modelID: currentChild.requestConfigSeed.modelID
                 )
@@ -469,6 +489,7 @@ actor DelegationRuntime {
     private static func childSnapshot(
         from parent: RunExecutionSnapshot,
         modelBinding: DelegationModelBindingSnapshot?,
+        providerAdapterInstructions: String,
         modelCapabilities: Set<ModelCapability>,
         tools: [ToolExposureSnapshot],
         memories: [MemoryContext],
@@ -482,7 +503,7 @@ actor DelegationRuntime {
             prompt: PromptExecutionSnapshot(
                 runtimeSafetyBaseline: parent.prompt.runtimeSafetyBaseline,
                 zenCore: parent.prompt.zenCore,
-                providerAdapterInstructions: parent.prompt.providerAdapterInstructions,
+                providerAdapterInstructions: providerAdapterInstructions,
                 soulVersionID: parent.prompt.soulVersionID,
                 memoryReferences: memories.map(\.reference),
                 skillReferences: skillReferences
@@ -507,6 +528,15 @@ actor DelegationRuntime {
         let modelBinding = try childModelBinding(in: parentSnapshot)
         let modelCapabilities = modelBinding?.modelCapabilities ?? parentSnapshot.modelCapabilities
         let requestConfigSeed = modelBinding?.requestConfigSeed ?? parent.requestConfigSeed
+        let providerAdapterInstructions: String
+        if let modelBinding {
+            providerAdapterInstructions = try providerRegistry.resolve(
+                providerID: modelBinding.providerID,
+                adapterRevision: modelBinding.providerAdapterRevision
+            ).adapterPromptInstructions
+        } else {
+            providerAdapterInstructions = parentSnapshot.prompt.providerAdapterInstructions
+        }
         let childRegistry = try parentContext.registry.filteringExecutables { executable in
             let descriptor = executable.descriptor
             guard modelCapabilities.contains(.tools),
@@ -557,6 +587,7 @@ actor DelegationRuntime {
             snapshot: Self.childSnapshot(
                 from: parentSnapshot,
                 modelBinding: modelBinding,
+                providerAdapterInstructions: providerAdapterInstructions,
                 modelCapabilities: modelCapabilities,
                 tools: Self.toolExposures(from: childRegistry),
                 memories: memories,
@@ -604,7 +635,7 @@ actor DelegationRuntime {
         }
 
         guard let instance = try store.providerInstance(id: target.providerInstanceID),
-              instance.providerID == provider.id,
+              let provider = providerRegistry.provider(for: instance.providerID),
               let descriptor = provider.descriptor(for: target.modelID, in: instance),
               descriptor.providerInstanceID == instance.id,
               descriptor.capabilities.contains(.text),
@@ -618,14 +649,21 @@ actor DelegationRuntime {
         }
 
         let binding = delegation.explicitModelBinding
-        let bindingMatchesTarget = binding.map {
-            $0.providerID == provider.id
-                && $0.providerAdapterRevision == provider.adapterRevision
-                && $0.requestConfigSeed.providerInstanceID == target.providerInstanceID
-                && $0.requestConfigSeed.modelID == target.modelID
-                && $0.modelCapabilities.contains(.text)
-                && $0.modelCapabilities.contains(.streaming)
-        } ?? false
+        let bindingMatchesTarget: Bool
+        if let binding,
+           binding.providerID == instance.providerID,
+           let frozenProvider = try? providerRegistry.resolve(
+            providerID: binding.providerID,
+            adapterRevision: binding.providerAdapterRevision
+           ) {
+            bindingMatchesTarget = frozenProvider.id == provider.id
+                && binding.requestConfigSeed.providerInstanceID == target.providerInstanceID
+                && binding.requestConfigSeed.modelID == target.modelID
+                && binding.modelCapabilities.contains(.text)
+                && binding.modelCapabilities.contains(.streaming)
+        } else {
+            bindingMatchesTarget = false
+        }
         guard let binding else {
             return ToolExecutionResult(
                 content: "authenticationRequired: Provider \(instance.providerID.rawValue), model \(target.modelID.rawValue), instance \(target.providerInstanceID.rawValue) has no frozen credential binding. Restore credentials for this target and start a new delegation. No Parent model fallback was used.",
@@ -675,10 +713,22 @@ actor DelegationRuntime {
         }
         guard parent.kind == .parent,
               let encoded = parent.executionSnapshot,
-              let snapshot = try? ExecutionSnapshotCodec.decode(encoded),
-              snapshot.providerID == provider.id,
-              snapshot.providerAdapterRevision == provider.adapterRevision,
-              snapshot.maxProviderSteps > 0,
+              let snapshot = try? ExecutionSnapshotCodec.decode(encoded)
+        else { throw DelegationRuntimeError.unavailableParentPolicy }
+        do {
+            _ = try providerRegistry.resolve(
+                providerID: snapshot.providerID,
+                adapterRevision: snapshot.providerAdapterRevision
+            )
+            guard let instance = try store.providerInstance(
+                id: parent.requestConfigSeed.providerInstanceID
+            ), instance.providerID == snapshot.providerID else {
+                throw DelegationRuntimeError.unavailableParentPolicy
+            }
+        } catch {
+            throw DelegationRuntimeError.unavailableParentPolicy
+        }
+        guard snapshot.maxProviderSteps > 0,
               snapshot.modelCapabilities.contains(.text),
               snapshot.modelCapabilities.contains(.streaming),
               let delegation = snapshot.delegation,

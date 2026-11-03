@@ -7,6 +7,34 @@ import Testing
 @Suite("Provider setup continuation")
 @MainActor
 struct ProviderSetupTests {
+    @Test("OpenAI accounts can be created through the shared credential setup flow")
+    func createsOpenAIAccount() throws {
+        let environment = try makeEnvironment()
+        let openAI = FakeProvider(
+            id: .openAI,
+            modelNames: ["gpt-6.1-terra"],
+            capabilities: [.text, .streaming, .tools]
+        )
+        let registry = try ModelProviderRegistry(providers: [environment.provider, openAI])
+        let setup = ProviderSetupModel(
+            store: environment.store,
+            credentials: environment.credentials,
+            providerRegistry: registry,
+            userDefaults: environment.defaults
+        )
+        setup.selectedProviderID = .openAI
+        setup.apiKey = "openai-setup-test-key"
+
+        #expect(setup.selectedModelID == ModelID(rawValue: "gpt-6.1-terra"))
+        #expect(setup.save())
+        let instance = try #require(try environment.store.providerInstance(id: setup.instanceID))
+
+        #expect(instance.providerID == .openAI)
+        #expect(instance.displayName == "OpenAI")
+        #expect(instance.credentialReference == setup.credentialReference)
+        #expect(environment.defaults.string(forKey: AppShellModel.defaultModelIDKey) == "gpt-6.1-terra")
+    }
+
     @Test("completedConfigurationKeepsKeyOutOfDatabaseAndDefaults")
     func completedConfigurationKeepsKeyOutOfDatabaseAndDefaults() throws {
         try withFileEnvironment { environment, databaseURL -> Void in

@@ -59,6 +59,9 @@ final class ProviderSetupModel {
     private(set) var didCreateInstance = false
     private(set) var didAttachCredential = false
     var selectedModelID: ModelID?
+    var selectedProviderID: ProviderID {
+        didSet { selectedModelID = models.first?.id }
+    }
     var apiKey = ""
     private(set) var state: ProviderSetupState = .idle
     private(set) var errorMessage: String?
@@ -66,7 +69,7 @@ final class ProviderSetupModel {
 
     @ObservationIgnored private let store: PersistenceStore
     @ObservationIgnored private let credentials: any CredentialStoring
-    @ObservationIgnored private let provider: any ModelProvider
+    @ObservationIgnored private let providerRegistry: ModelProviderRegistry
     @ObservationIgnored private let userDefaults: UserDefaults
     @ObservationIgnored private let onTargetSaved: @MainActor (AppExecutionTarget) -> Void
     @ObservationIgnored private let afterAttachSnapshot: (@MainActor (ProviderInstance) -> Void)?
@@ -91,8 +94,13 @@ final class ProviderSetupModel {
     }
 
     var models: [ModelDescriptor] {
-        provider.knownModels(for: draftInstance(credentialReference: nil))
+        providerRegistry.provider(for: selectedProviderID)?.knownModels(
+            for: draftInstance(credentialReference: nil)
+        ) ?? []
     }
+
+    var providers: [ProviderID] { providerRegistry.providers.map(\.id) }
+    var selectedProviderName: String { selectedProviderID.displayName }
 
     init(
         store: PersistenceStore,
@@ -109,16 +117,52 @@ final class ProviderSetupModel {
     ) {
         self.store = store
         self.credentials = credentials
-        self.provider = provider
+        providerRegistry = ModelProviderRegistry(provider: provider)
         self.userDefaults = userDefaults
         self.instanceID = instanceID
         self.credentialReference = credentialReference
         self.afterAttachSnapshot = afterAttachSnapshot
         self.onTargetSaved = onTargetSaved
-        self.selectedModelID = provider.knownModels(for: ProviderInstance(
+        selectedProviderID = provider.id
+        selectedModelID = provider.knownModels(for: ProviderInstance(
             id: instanceID,
-            providerID: .deepSeek,
-            displayName: "DeepSeek",
+            providerID: provider.id,
+            displayName: provider.id.displayName,
+            baseURL: nil,
+            configRevision: .initial,
+            credentialReference: nil
+        )).first?.id
+    }
+
+    init(
+        store: PersistenceStore,
+        credentials: any CredentialStoring,
+        providerRegistry: ModelProviderRegistry,
+        userDefaults: UserDefaults,
+        instanceID: ProviderInstanceID = ProviderInstanceID(rawValue: UUID().uuidString),
+        credentialReference: CredentialReference = CredentialReference(
+            id: UUID().uuidString,
+            kind: .apiKey
+        ),
+        afterAttachSnapshot: (@MainActor (ProviderInstance) -> Void)? = nil,
+        onTargetSaved: @escaping @MainActor (AppExecutionTarget) -> Void = { _ in }
+    ) {
+        self.store = store
+        self.credentials = credentials
+        self.providerRegistry = providerRegistry
+        self.userDefaults = userDefaults
+        self.instanceID = instanceID
+        self.credentialReference = credentialReference
+        self.afterAttachSnapshot = afterAttachSnapshot
+        self.onTargetSaved = onTargetSaved
+        let initialProviderID = providerRegistry.provider(for: .deepSeek)?.id
+            ?? providerRegistry.providers.first?.id
+            ?? .deepSeek
+        selectedProviderID = initialProviderID
+        self.selectedModelID = providerRegistry.provider(for: initialProviderID)?.knownModels(for: ProviderInstance(
+            id: instanceID,
+            providerID: initialProviderID,
+            displayName: initialProviderID.displayName,
             baseURL: nil,
             configRevision: .initial,
             credentialReference: nil
@@ -135,6 +179,9 @@ final class ProviderSetupModel {
         state = .saving
 
         do {
+            guard let provider = providerRegistry.provider(for: selectedProviderID) else {
+                throw ProviderSetupFailure.modelUnavailable
+            }
             var instance = try ensureInstance()
             try ensureCredential(using: submittedKey)
 
@@ -164,7 +211,7 @@ final class ProviderSetupModel {
                 providerInstanceID: instanceID,
                 modelID: modelID,
                 store: store,
-                provider: provider,
+                providerRegistry: providerRegistry,
                 credentials: credentials
             )
 
@@ -198,7 +245,7 @@ final class ProviderSetupModel {
     private func ensureInstance() throws -> ProviderInstance {
         if let existing = try store.providerInstance(id: instanceID) {
             guard didCreateInstance else { throw ProviderSetupFailure.instanceConflict }
-            guard existing.providerID == .deepSeek,
+            guard existing.providerID == selectedProviderID,
                   existing.credentialReference == nil
                     || existing.credentialReference == credentialReference else {
                 throw ProviderSetupFailure.instanceChanged
@@ -260,8 +307,8 @@ final class ProviderSetupModel {
     private func draftInstance(credentialReference: CredentialReference?) -> ProviderInstance {
         ProviderInstance(
             id: instanceID,
-            providerID: .deepSeek,
-            displayName: "DeepSeek",
+            providerID: selectedProviderID,
+            displayName: selectedProviderName,
             baseURL: nil,
             configRevision: .initial,
             editRevision: .initial,
@@ -326,11 +373,15 @@ struct ProviderSetupView: View {
         NavigationStack {
             Form {
                 Section("Provider") {
-                    LabeledContent("Provider", value: "DeepSeek")
+                    Picker("Provider", selection: $model.selectedProviderID) {
+                        ForEach(model.providers, id: \.rawValue) { providerID in
+                            Text(providerID.displayName).tag(providerID)
+                        }
+                    }
                 }
 
                 Section("实例与模型") {
-                    LabeledContent("新建实例", value: "DeepSeek")
+                    LabeledContent("新建实例", value: model.selectedProviderName)
                     Picker("模型", selection: $model.selectedModelID) {
                         Text("选择模型").tag(nil as ModelID?)
                         ForEach(model.models) { descriptor in
@@ -341,10 +392,10 @@ struct ProviderSetupView: View {
 
                 Section("API Key") {
                     if let settingsFocus {
-                        SettingsTextField(text: $model.apiKey, title: "DeepSeek API Key", focus: settingsFocus,
-                            secure: true, identifier: "DeepSeek API Key")
+                        SettingsTextField(text: $model.apiKey, title: "\(model.selectedProviderName) API Key", focus: settingsFocus,
+                            secure: true, identifier: "\(model.selectedProviderName) API Key")
                     } else {
-                        SecureField("DeepSeek API Key", text: $model.apiKey)
+                        SecureField("\(model.selectedProviderName) API Key", text: $model.apiKey)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                     }
