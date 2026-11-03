@@ -12,6 +12,7 @@ struct ProviderID: RawRepresentable, Codable, Sendable, Hashable {
     init(rawValue: String) { self.rawValue = rawValue }
 
     static let deepSeek = ProviderID(rawValue: "deepseek")
+    static let glm = ProviderID(rawValue: "glm")
 }
 
 /// One connection a user has added. Same Provider, several instances, each with its own
