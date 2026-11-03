@@ -186,6 +186,186 @@ final class ToolRuntimeTests: XCTestCase {
         let dispatchCount = await observation.dispatchCount()
         XCTAssertEqual(dispatchCount, 0)
     }
+
+    func testUserStopCancelsDispatchedReadAndIgnoresLateResult() async throws {
+        try await assertUserStop(
+            toolID: "delayed_read",
+            sideEffect: .none,
+            expectedState: .cancelled
+        )
+    }
+
+    func testUserStopKeepsDispatchedWriteIndeterminateAndIgnoresLateResult() async throws {
+        try await assertUserStop(
+            toolID: "delayed_write",
+            sideEffect: .externalWrite,
+            expectedState: .indeterminate
+        )
+    }
+
+    private func assertUserStop(
+        toolID: String,
+        sideEffect: ToolSideEffect,
+        expectedState: ToolCallState
+    ) async throws {
+        let runID = "run-stop-\(toolID)"
+        let providerCallID = "provider-\(toolID)"
+        let batchID = "batch-\(toolID)"
+        let database = try makeMigratedDatabase()
+        try insertRun(into: database, runID: runID)
+        let store = try PersistenceStore(database: database)
+        let gate = I06LateToolExecutionGate()
+        let registry = try ToolRegistry(tools: [
+            I06LateResultTool(toolID: toolID, sideEffect: sideEffect, gate: gate)
+        ])
+        try Fixtures.allowAutomaticToolPolicies(in: store, registry: registry)
+        let runtime = ToolRuntime(store: store, registry: registry)
+
+        let execution = Task {
+            try await runtime.complete(
+                agentRunID: runID,
+                providerCallID: providerCallID,
+                toolID: toolID,
+                argumentsJSON: "{}",
+                batchID: batchID,
+                batchSequence: 0
+            )
+        }
+        await gate.waitUntilExecuting()
+        execution.cancel()
+        try runtime.settleForCancellation(
+            agentRunID: runID,
+            providerCallID: providerCallID,
+            toolID: toolID,
+            batchID: batchID,
+            batchSequence: 0
+        )
+        await gate.returnLateResult()
+
+        do {
+            _ = try await execution.value
+            XCTFail("a result arriving after Stop must not be returned")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("expected cancellation after Stop, got \(error)")
+        }
+
+        let call = try XCTUnwrap(try store.toolCalls(inRun: runID).first)
+        XCTAssertEqual(call.state, expectedState)
+        XCTAssertNil(try store.toolResult(toolCallID: call.id))
+        let dispatchCount = await gate.dispatchCount()
+        XCTAssertEqual(dispatchCount, 1)
+    }
+}
+
+private final class I06LateToolExecutionGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var executionContinuation: CheckedContinuation<ToolExecutionResult, Never>?
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var hasStarted = false
+    private var executions = 0
+
+    func execute() async -> ToolExecutionResult {
+        await withCheckedContinuation { continuation in
+            let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+                executions += 1
+                executionContinuation = continuation
+                hasStarted = true
+                let waiters = startWaiters
+                startWaiters.removeAll()
+                return waiters
+            }
+            waiters.forEach { $0.resume() }
+        }
+    }
+
+    func waitUntilExecuting() async {
+        await withCheckedContinuation { continuation in
+            let alreadyStarted = lock.withLock {
+                if hasStarted { return true }
+                startWaiters.append(continuation)
+                return false
+            }
+            if alreadyStarted { continuation.resume() }
+        }
+    }
+
+    func returnLateResult() {
+        let continuation = lock.withLock { () -> CheckedContinuation<ToolExecutionResult, Never>? in
+            defer { executionContinuation = nil }
+            return executionContinuation
+        }
+        continuation?.resume(returning: ToolExecutionResult(content: "late tool result"))
+    }
+
+    func dispatchCount() -> Int {
+        lock.withLock { executions }
+    }
+}
+
+private struct I06LateResultTool: ToolExecutable {
+    let descriptor: ToolDescriptor
+    private let gate: I06LateToolExecutionGate
+
+    init(toolID: String, sideEffect: ToolSideEffect, gate: I06LateToolExecutionGate) {
+        self.gate = gate
+        self.descriptor = ToolDescriptor(
+            id: toolID,
+            displayName: "Delayed Tool",
+            description: "A delayed test tool.",
+            inputSchema: .object([
+                "type": .string("object"),
+                "additionalProperties": .bool(false),
+            ]),
+            revision: "1",
+            sideEffect: sideEffect,
+            approvalRequirement: .notRequired,
+            actions: [ToolPolicyActionMetadata(
+                toolID: toolID,
+                actionID: toolID,
+                descriptorRevision: "1",
+                risk: .low,
+                allowsAutomaticApproval: true,
+                allowsConversationGrant: false,
+                resourceRequirement: .target,
+                egressRequirement: .provider
+            )]
+        )
+    }
+
+    func prepare(callID: String, argumentsJSON: String) throws -> ToolExecutionIntent {
+        _ = callID
+        guard argumentsJSON == "{}" else { throw ToolExecutionError.invalidArguments }
+        return try ToolIntentCodec.freeze(
+            descriptor: descriptor,
+            actionID: descriptor.id,
+            normalizedArgumentsJSON: "{}",
+            resource: .target("test-target"),
+            destination: .provider(instanceID: "test-provider", endpointIdentity: "test-destination"),
+            approvalDisclosure: ToolApprovalDisclosure(
+                toolDisplayName: descriptor.displayName,
+                action: "Run a delayed test operation",
+                targetDescription: "Virtual test target",
+                keyImpact: "Records in a test ledger"
+            )
+        )
+    }
+
+    func validateDependencies(_ intent: ToolExecutionIntent) throws {
+        guard intent.resourceScope == .target("test-target"),
+              intent.destinationScope == .provider(instanceID: "test-provider", endpointIdentity: "test-destination")
+        else { throw ToolIntentFailure.dependenciesChanged }
+    }
+
+    func execute(
+        _ intent: ToolExecutionIntent,
+        idempotencyKey: String
+    ) async throws -> ToolExecutionResult {
+        guard intent.toolID == descriptor.id, !idempotencyKey.isEmpty else {
+            throw ToolExecutionError.invalidIntent
+        }
+        return await gate.execute()
+    }
 }
 
 private actor I06SideEffectObservation {
