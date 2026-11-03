@@ -71,7 +71,7 @@ enum SearchIndexDatabase {
                 WHERE message.id = NEW.messageID
                   AND conversation.lifecycle = 'visible'
                   AND message.role IN ('user', 'assistant')
-                  AND NEW.kind = 'text'
+                  AND NEW.kind IN ('text', 'reasoning')
                   AND NEW.state = 'completed'
                   AND CASE WHEN json_valid(NEW.payload)
                       THEN json_type(NEW.payload, '$.text') = 'text'
@@ -105,7 +105,7 @@ enum SearchIndexDatabase {
                 WHERE message.id = NEW.messageID
                   AND conversation.lifecycle = 'visible'
                   AND message.role IN ('user', 'assistant')
-                  AND NEW.kind = 'text'
+                  AND NEW.kind IN ('text', 'reasoning')
                   AND NEW.state = 'completed'
                   AND CASE WHEN json_valid(NEW.payload)
                       THEN json_type(NEW.payload, '$.text') = 'text'
@@ -163,7 +163,7 @@ enum SearchIndexDatabase {
                 WHERE conversation.id = NEW.id
                   AND conversation.lifecycle = 'visible'
                   AND message.role IN ('user', 'assistant')
-                  AND part.kind = 'text'
+                  AND part.kind IN ('text', 'reasoning')
                   AND part.state = 'completed'
                   AND CASE WHEN json_valid(part.payload)
                       THEN json_type(part.payload, '$.text') = 'text'
@@ -203,7 +203,7 @@ enum SearchIndexDatabase {
                 WHERE conversation.id IN (OLD.conversationID, NEW.conversationID)
                   AND conversation.lifecycle = 'visible'
                   AND message.role IN ('user', 'assistant')
-                  AND part.kind = 'text'
+                  AND part.kind IN ('text', 'reasoning')
                   AND part.state = 'completed'
                   AND CASE WHEN json_valid(part.payload)
                       THEN json_type(part.payload, '$.text') = 'text'
@@ -257,7 +257,7 @@ enum SearchIndexDatabase {
             JOIN main.messagePart AS part ON part.messageID = message.id
             WHERE conversation.lifecycle = 'visible'
               AND message.role IN ('user', 'assistant')
-              AND part.kind = 'text'
+              AND part.kind IN ('text', 'reasoning')
               AND part.state = 'completed'
               AND CASE WHEN json_valid(part.payload)
                   THEN json_type(part.payload, '$.text') = 'text'
