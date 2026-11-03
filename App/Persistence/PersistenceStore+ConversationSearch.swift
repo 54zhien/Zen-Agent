@@ -4,6 +4,13 @@ import GRDB
 struct ConversationSearchResult: Equatable, Identifiable, Sendable {
     let summary: ConversationSummary
     let matchSnippet: String?
+    let matchSnippetRanges: [Range<Int>]
+
+    init(summary: ConversationSummary, matchSnippet: String?, matchSnippetRanges: [Range<Int>] = []) {
+        self.summary = summary
+        self.matchSnippet = matchSnippet
+        self.matchSnippetRanges = matchSnippetRanges
+    }
 
     var id: String { summary.id }
     var cursor: ConversationSummaryCursor { summary.cursor }
@@ -32,7 +39,7 @@ extension PersistenceStore {
         let needle = Self.summaryText(query)
         guard !needle.isEmpty else { return ConversationSearchPage(items: [], nextCursor: nil) }
         let count = min(50, max(1, limit))
-        let pattern = FTS3Pattern(matchingPhrase: needle)
+        let pattern = FTS3Pattern(matchingPhrase: ConversationSearchText.normalized(needle))
 
         // Keep title matching identical to the existing UI contract. Body text uses
         // a phrase pattern so typed operators and punctuation are never FTS syntax.
@@ -55,7 +62,7 @@ extension PersistenceStore {
         var predicate = "lifecycle = 'visible' AND (\(titlePredicate)"
         var arguments: StatementArguments = [needle]
         if let pattern {
-            predicate += " OR EXISTS (SELECT 1 FROM conversationSearchIndex WHERE conversationSearchIndex MATCH ? AND conversationSearchIndex.conversationID = conversation.id)"
+            predicate += " OR EXISTS (SELECT 1 FROM conversationSearchIndex WHERE conversationSearchIndex MATCH ('conversationKey:c' || lower(hex(conversation.id)) || ' text: ' || ?))"
             arguments += [pattern]
         }
         predicate += ")"
@@ -67,36 +74,44 @@ extension PersistenceStore {
 
         let rows = try summaryRows(in: db, predicate: predicate, limit: count + 1, arguments: arguments)
         let summaries = Array(rows.prefix(count))
-        let snippets: [String: String]
+        let snippets: [String: ConversationSearchText.MatchSnippet]
         if let pattern {
             snippets = try searchMatchSnippets(in: db, pattern: pattern, conversationIDs: summaries.map(\.id))
         } else {
             snippets = [:]
         }
-        let items = summaries.map { ConversationSearchResult(summary: $0, matchSnippet: snippets[$0.id]) }
+        let items = summaries.map { summary in
+            let snippet = snippets[summary.id]
+            return ConversationSearchResult(
+                summary: summary,
+                matchSnippet: snippet?.text,
+                matchSnippetRanges: snippet?.ranges ?? []
+            )
+        }
         return ConversationSearchPage(items: items,
             nextCursor: rows.count > count ? items.last?.cursor : nil)
     }
 
     private func searchMatchSnippets(in db: Database, pattern: FTS3Pattern,
-                                     conversationIDs: [String]) throws -> [String: String] {
-        guard !conversationIDs.isEmpty else { return [:] }
-        let placeholders = Array(repeating: "?", count: conversationIDs.count).joined(separator: ",")
-        var arguments: StatementArguments = [pattern]
-        arguments += StatementArguments(conversationIDs)
-        let rows = try Row.fetchAll(db, sql: """
-            SELECT conversationID,
-                snippet(conversationSearchIndex, '', '', '…', 2, 20) AS matchSnippet
-            FROM conversationSearchIndex
-            WHERE conversationSearchIndex MATCH ?
-              AND conversationID IN (\(placeholders))
-            ORDER BY conversationID, docid
-            """, arguments: arguments)
-        var snippets: [String: String] = [:]
-        for row in rows {
-            let conversationID: String = row["conversationID"]
-            if snippets[conversationID] == nil {
-                snippets[conversationID] = row["matchSnippet"]
+                                     conversationIDs: [String]) throws -> [String: ConversationSearchText.MatchSnippet] {
+        var snippets: [String: ConversationSearchText.MatchSnippet] = [:]
+        for conversationID in conversationIDs {
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT json_extract(messagePart.payload, '$.text') AS rawText,
+                       offsets(conversationSearchIndex) AS matchOffsets
+                FROM conversationSearchIndex
+                JOIN messagePart ON messagePart.id = conversationSearchIndex.partID
+                WHERE conversationSearchIndex MATCH (
+                    'conversationKey:c' || lower(hex(?)) || ' text: ' || ?
+                )
+                ORDER BY docid
+                LIMIT 1
+                """, arguments: [conversationID, pattern]) else { continue }
+
+            let rawText: String = row["rawText"]
+            let offsets: String = row["matchOffsets"]
+            if let snippet = ConversationSearchText(rawText).snippet(offsets: offsets, textColumnIndex: 4) {
+                snippets[conversationID] = snippet
             }
         }
         return snippets

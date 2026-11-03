@@ -45,13 +45,7 @@ final class ZenDatabase: Sendable {
     /// Opens with a caller-supplied migrator. Used by the migration tests, which
     /// compose `Migrations.registerV1` with a v2 of their own.
     static func open(at path: String, migrator: DatabaseMigrator, fileManager: FileManager = .default) throws -> ZenDatabase {
-        var configuration = Configuration()
-        configuration.journalMode = .wal
-        // Contention surfaces as waiting rather than as a thrown "database is locked",
-        // which is what a reader should experience while a writer is committing.
-        configuration.busyMode = .timeout(5)
-
-        let queue = try DatabaseQueue(path: path, configuration: configuration)
+        let queue = try DatabaseQueue(path: path, configuration: configuration())
         try migrator.migrate(queue)
 #if os(iOS)
         try UserDataFileProtection.applyToDatabase(at: path, fileManager: fileManager)
@@ -61,9 +55,21 @@ final class ZenDatabase: Sendable {
 
     /// A throwaway store that never touches disk. For tests.
     static func inMemory() throws -> ZenDatabase {
-        let queue = try DatabaseQueue()
+        let queue = try DatabaseQueue(configuration: configuration())
         try Migrations.makeMigrator().migrate(queue)
         return ZenDatabase(dbQueue: queue)
+    }
+
+    private static func configuration() -> Configuration {
+        var configuration = Configuration()
+        configuration.journalMode = .wal
+        // Contention surfaces as waiting rather than as a thrown "database is locked",
+        // which is what a reader should experience while a writer is committing.
+        configuration.busyMode = .timeout(5)
+        configuration.prepareDatabase { db in
+            ConversationSearchText.registerSQLiteFunction(in: db)
+        }
+        return configuration
     }
 
     /// Read-only access. Concurrent reads are the normal case.

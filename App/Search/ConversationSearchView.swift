@@ -31,7 +31,7 @@ struct ConversationSearchView: View {
                             VStack(alignment: .leading, spacing: 5) {
                                 highlightedTitle(summary.title)
                                 if let matchSnippet = result.matchSnippet {
-                                    highlightedMatch(matchSnippet)
+                                    highlightedMatch(matchSnippet, ranges: result.matchSnippetRanges)
                                         .font(.caption)
                                         .lineLimit(2)
                                 }
@@ -96,13 +96,28 @@ struct ConversationSearchView: View {
             + Text(String(title[range.upperBound...]))
     }
 
-    private func highlightedMatch(_ snippet: String) -> Text {
-        let query = PersistenceStore.summaryText(model.query)
-        guard !query.isEmpty, let range = snippet.range(of: query, options: .caseInsensitive) else {
+    private func highlightedMatch(_ snippet: String, ranges: [Range<Int>]) -> Text {
+        guard !ranges.isEmpty else {
             return Text(snippet).foregroundColor(.secondary)
         }
-        return Text(String(snippet[..<range.lowerBound])).foregroundColor(.secondary)
-            + Text(String(snippet[range])).bold().foregroundColor(.accentColor)
-            + Text(String(snippet[range.upperBound...])).foregroundColor(.secondary)
+
+        var highlighted = Text("")
+        var cursor = 0
+        for range in ranges {
+            if cursor < range.lowerBound {
+                let start = snippet.index(snippet.startIndex, offsetBy: cursor)
+                let end = snippet.index(snippet.startIndex, offsetBy: range.lowerBound)
+                highlighted = highlighted + Text(String(snippet[start..<end])).foregroundColor(.secondary)
+            }
+            let start = snippet.index(snippet.startIndex, offsetBy: range.lowerBound)
+            let end = snippet.index(snippet.startIndex, offsetBy: range.upperBound)
+            highlighted = highlighted + Text(String(snippet[start..<end])).bold().foregroundColor(.accentColor)
+            cursor = range.upperBound
+        }
+        if cursor < snippet.count {
+            let start = snippet.index(snippet.startIndex, offsetBy: cursor)
+            highlighted = highlighted + Text(String(snippet[start...])).foregroundColor(.secondary)
+        }
+        return highlighted
     }
 }
