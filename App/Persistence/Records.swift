@@ -140,6 +140,7 @@ enum ToolCallState: String, CaseIterable, Codable, Sendable, Equatable {
     case succeeded
     case failed
     case rejected
+    /// A dispatched cancellation; safe only when the tool declares no external side effect.
     case cancelled
     /// Cancelled before dispatch — no external side effect, safe to re-decide.
     case notExecuted
