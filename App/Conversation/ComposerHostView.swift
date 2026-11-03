@@ -90,6 +90,8 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private var liftInteraction: ComposerLiftInteraction!
     private var workspaceInputSuppressed = false
     private var overlayFocus: ComposerOverlayFocus?
+    private weak var sidebarOverlayFocusIntent: ComposerOverlayFocus?
+    private var sidebarInputDismissalPending = false
     private var overlayFocusReason = "none"
 #if DEBUG
     private var overlayFocusEvents: [String] = []
@@ -117,12 +119,16 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     func captureOverlayFocus(ownerIsCurrent: @escaping () -> Bool) -> ComposerOverlayFocus? {
         guard !workspaceInputSuppressed, editor.isFirstResponder, editor.markedTextRange == nil,
               let window else { return nil }
-        return ComposerOverlayFocus(host: self, window: window, ownerIsCurrent: ownerIsCurrent)
+        let captured = ComposerOverlayFocus(host: self, window: window, ownerIsCurrent: ownerIsCurrent)
+        sidebarOverlayFocusIntent = captured
+        return captured
     }
 
     func queueOverlayFocus(_ token: ComposerOverlayFocus) {
         overlayFocus?.cancel()
         overlayFocus = token
+        if sidebarOverlayFocusIntent === token { sidebarOverlayFocusIntent = nil }
+        sidebarInputDismissalPending = false
 #if DEBUG
         overlayFocusEvents.removeAll()
 #endif
@@ -133,6 +139,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     func cancelOverlayFocus(_ token: ComposerOverlayFocus) {
         if overlayFocus === token { overlayFocus = nil }
+        if sidebarOverlayFocusIntent === token { sidebarOverlayFocusIntent = nil }
     }
 
     func consumeOverlayFocusIfReady() {
@@ -840,6 +847,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     }
 
     private func dismissInputForSidebar() {
+        sidebarInputDismissalPending = sidebarOverlayFocusIntent?.isValid == true
         overlayFocus?.cancel()
         overlayFocus = nil
         keyboardMenu?.close(restoringKeyboard: false, animated: true)
@@ -1028,6 +1036,9 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     func textViewDidBeginEditing(_ textView: UITextView) {
         recordDockEvent("didBeginEditing")
         recordOverlayFocusEvent("didBeginEditing")
+        sidebarInputDismissalPending = false
+        sidebarOverlayFocusIntent?.cancel()
+        sidebarOverlayFocusIntent = nil
         liftInteraction.checkReadiness()
         keyboardTransitionOwned = true
         configuration?.onFocus(true)
@@ -1035,6 +1046,14 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     func textViewDidEndEditing(_ textView: UITextView) {
         recordDockEvent("didEndEditing-beforeFeedback")
         recordOverlayFocusEvent("didEndEditing")
+        let preservesSidebarIntent = sidebarInputDismissalPending
+        sidebarInputDismissalPending = false
+        if workspaceInputSuppressed {
+            sidebarOverlayFocusIntent = nil
+        } else if !preservesSidebarIntent {
+            sidebarOverlayFocusIntent?.cancel()
+            sidebarOverlayFocusIntent = nil
+        }
         reportEditor()
         // A keyboard-to-menu handoff ends native focus but retains the expanded
         // Composer. The session reports final focus on completion/cancellation.

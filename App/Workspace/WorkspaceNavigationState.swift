@@ -20,6 +20,7 @@ final class WorkspaceNavigationState {
     @ObservationIgnored var onConversationAction: ((WorkspaceConversationAction) -> Void)?
     @ObservationIgnored private var pendingConversationAction: (() -> Void)?
     @ObservationIgnored var onReset: (() -> Void)?
+    @ObservationIgnored var onSidebarClosed: (() -> Void)?
     private(set) var progress = 0.0
     private(set) var isOpen = false
     private(set) var isDragging = false
@@ -49,9 +50,11 @@ final class WorkspaceNavigationState {
     }
 
     func closeSidebar() {
+        let wasOpen = isOpen
         if progress > 0 || isOpen { settlementID = UUID() }
         isDragging = false; isOpen = false; progress = 0
         gestureID = nil
+        if wasOpen { onSidebarClosed?() }
     }
 
     @discardableResult
@@ -73,6 +76,7 @@ final class WorkspaceNavigationState {
 
     func end(velocity: Double, travel: Double, cancelled: Bool) {
         guard isDragging else { return }
+        let wasOpen = isOpen
         if !cancelled, velocity.isFinite, travel.isFinite, travel > 0 {
             isOpen = progress + velocity / travel * 0.12 >= 0.5
         }
@@ -80,6 +84,7 @@ final class WorkspaceNavigationState {
         gestureID = nil
         progress = isOpen ? 1 : 0
         settlementID = UUID()
+        if wasOpen && !isOpen { onSidebarClosed?() }
     }
 
     @discardableResult
