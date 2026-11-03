@@ -73,7 +73,7 @@ enum AnthropicMessagesRequest {
                 guard let schema = try foundationObject(from: tool.parameters) as? [String: Any] else {
                     throw ProviderError.invalidRequest("a tool input schema must be a JSON object")
                 }
-                [
+                return [
                     "name": tool.name,
                     "description": tool.description,
                     "input_schema": schema,
