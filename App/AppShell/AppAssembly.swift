@@ -55,6 +55,7 @@ struct AppAssembly {
         let store: PersistenceStore
         let credentials: any CredentialStoring
         let provider: any ModelProvider
+        let providerRegistry: ModelProviderRegistry
         let runtime: ConversationRuntime
         let router: RunEventRouter
         let managedFiles: ManagedFileStore?
@@ -68,8 +69,10 @@ struct AppAssembly {
              runtime: ConversationRuntime, router: RunEventRouter, managedFiles: ManagedFileStore? = nil,
              toolRegistry: ToolRegistry = .empty, toolSafetyCap: ToolPolicySafetyCap = .unrestricted,
              sessions: ConversationSessionStore? = nil, mcpRegistry: MCPServerRegistry? = nil,
-             mcpRuntime: MCPServerRuntime? = nil, mcpTransport: (any HTTPTransport)? = nil) {
+             mcpRuntime: MCPServerRuntime? = nil, mcpTransport: (any HTTPTransport)? = nil,
+             providerRegistry: ModelProviderRegistry? = nil) {
             self.store = store; self.credentials = credentials; self.provider = provider
+            self.providerRegistry = providerRegistry ?? ModelProviderRegistry(provider: provider)
             self.runtime = runtime; self.router = router; self.managedFiles = managedFiles
             self.toolRegistry = toolRegistry; self.toolSafetyCap = toolSafetyCap; self.sessions = sessions
             let resolvedRegistry = mcpRegistry ?? MCPServerRegistry(store: store)
@@ -134,6 +137,10 @@ struct AppAssembly {
         let providerTransport: any HTTPTransport = transport
         #endif
         let provider = DeepSeekProvider(transport: providerTransport)
+        let providerRegistry = try ModelProviderRegistry(providers: [
+            provider,
+            OpenAIProvider(transport: providerTransport),
+        ])
         let managedFiles = try ManagedFileStore.applicationDefault()
         let toolRegistry = try ToolRegistry(tools: [CalculatorTool(), CurrentDateTool(), DeviceInfoTool(),
             FilesTool(files: managedFiles, store: store, sessions: sessions)])
@@ -152,7 +159,8 @@ struct AppAssembly {
             toolRegistry: toolRegistry,
             managedFiles: managedFiles,
             mcpRuntime: mcpRuntime,
-            manualDualChildProbeEnabled: manualDualChildProbeEnabled
+            manualDualChildProbeEnabled: manualDualChildProbeEnabled,
+            providerRegistry: providerRegistry
         )
         return Dependencies(
             store: store,
@@ -164,7 +172,8 @@ struct AppAssembly {
             toolRegistry: toolRegistry,
             sessions: sessions,
             mcpRegistry: mcpRegistry,
-            mcpRuntime: mcpRuntime
+            mcpRuntime: mcpRuntime,
+            providerRegistry: providerRegistry
         )
     }
 
@@ -177,14 +186,15 @@ struct AppAssembly {
         managedFiles: ManagedFileStore? = nil,
         toolSafetyCap: ToolPolicySafetyCap = .unrestricted,
         mcpRuntime: MCPServerRuntime? = nil,
-        manualDualChildProbeEnabled: Bool = false
+        manualDualChildProbeEnabled: Bool = false,
+        providerRegistry: ModelProviderRegistry? = nil
     ) -> ConversationRuntime {
         // The shell owns presentation routing. A cached Send bridge retains
         // Runtime; retaining Router here would cycle through its registered Pane
         // and Session, keeping the database alive after the shell is discarded.
         ConversationRuntime(
             store: store,
-            provider: provider,
+            providerRegistry: providerRegistry ?? ModelProviderRegistry(provider: provider),
             credentials: credentials,
             onEvent: { [weak router] event in
                 await router?.handle(event)
@@ -278,6 +288,36 @@ struct AppAssembly {
         return instance
     }
 
+    static func validateTarget(
+        providerInstanceID: ProviderInstanceID,
+        modelID: ModelID,
+        store: PersistenceStore,
+        providerRegistry: ModelProviderRegistry,
+        credentials: any CredentialStoring
+    ) throws -> ProviderInstance {
+        let instance: ProviderInstance
+        do {
+            guard let stored = try store.providerInstance(id: providerInstanceID) else {
+                throw AppTargetFailure.configurationUnavailable
+            }
+            instance = stored
+        } catch let failure as AppTargetFailure {
+            throw failure
+        } catch {
+            throw AppTargetFailure.persistenceUnavailable
+        }
+        guard let provider = providerRegistry.provider(for: instance.providerID) else {
+            throw AppTargetFailure.configurationUnavailable
+        }
+        return try validateTarget(
+            providerInstanceID: providerInstanceID,
+            modelID: modelID,
+            store: store,
+            provider: provider,
+            credentials: credentials
+        )
+    }
+
     static func wireConversation(
         id: String,
         dependencies: Dependencies,
@@ -286,7 +326,7 @@ struct AppAssembly {
         let startContext = ConversationStartContext(
             conversationID: id,
             store: dependencies.store,
-            provider: dependencies.provider,
+            providerRegistry: dependencies.providerRegistry,
             credentials: dependencies.credentials,
             runtime: dependencies.runtime,
             onTargetFailure: onTargetFailure
@@ -326,7 +366,7 @@ struct AppAssembly {
 actor ConversationStartContext {
     private let conversationID: String
     private let store: PersistenceStore
-    private let provider: any ModelProvider
+    private let providerRegistry: ModelProviderRegistry
     private let credentials: any CredentialStoring
     private let runtime: ConversationRuntime
     private let onTargetFailure: @MainActor @Sendable (AppTargetFailure, AppExecutionTarget) -> Void
@@ -336,17 +376,35 @@ actor ConversationStartContext {
     init(
         conversationID: String,
         store: PersistenceStore,
-        provider: any ModelProvider,
+        providerRegistry: ModelProviderRegistry,
         credentials: any CredentialStoring,
         runtime: ConversationRuntime,
         onTargetFailure: @escaping @MainActor @Sendable (AppTargetFailure, AppExecutionTarget) -> Void
     ) {
         self.conversationID = conversationID
         self.store = store
-        self.provider = provider
+        self.providerRegistry = providerRegistry
         self.credentials = credentials
         self.runtime = runtime
         self.onTargetFailure = onTargetFailure
+    }
+
+    init(
+        conversationID: String,
+        store: PersistenceStore,
+        provider: any ModelProvider,
+        credentials: any CredentialStoring,
+        runtime: ConversationRuntime,
+        onTargetFailure: @escaping @MainActor @Sendable (AppTargetFailure, AppExecutionTarget) -> Void
+    ) {
+        self.init(
+            conversationID: conversationID,
+            store: store,
+            providerRegistry: ModelProviderRegistry(provider: provider),
+            credentials: credentials,
+            runtime: runtime,
+            onTargetFailure: onTargetFailure
+        )
     }
 
     func start(_ command: SendCommand, initiatedAt: Date) async throws -> String {
@@ -370,7 +428,7 @@ actor ConversationStartContext {
                 providerInstanceID: command.providerInstanceID,
                 modelID: command.modelID,
                 store: store,
-                provider: provider,
+                providerRegistry: providerRegistry,
                 credentials: credentials
             )
         } catch let failure as AppTargetFailure {

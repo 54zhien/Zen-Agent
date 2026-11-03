@@ -6,6 +6,7 @@ struct ComposerMenuDetailView: View {
     let presentation: ComposerActionMenuState
     let onSelect: (ModelID) -> Void
     let onClose: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(spacing: 0) {
@@ -15,10 +16,14 @@ struct ComposerMenuDetailView: View {
                     .frame(width: 25, height: 25)
                     .frame(width: 44, height: 44)
                     .background(Color(uiColor: .secondarySystemFill), in: Circle())
-                Text(level.title).font(.headline)
+                Text(level.title)
+                    .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize)
+                        .weight(.semibold))
                 Spacer()
                 Button(action: onClose) {
-                    Image(systemName: "xmark").font(.body.weight(.semibold))
+                    Image(systemName: "xmark")
+                        .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize)
+                            .weight(.semibold))
                         .frame(width: 44, height: 44).background(.quaternary, in: Circle())
                 }
                 .accessibilityLabel("关闭，返回一级菜单")
@@ -41,7 +46,8 @@ struct ComposerMenuDetailView: View {
             case .actions: EmptyView()
             }
         }
-        .font(.body).foregroundStyle(.primary).buttonStyle(.plain)
+        .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
+        .foregroundStyle(.primary).buttonStyle(.plain)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("composer-detail-\(String(describing: level))")
         .task(id: presentation.skillLoadRevision) {
@@ -53,7 +59,9 @@ struct ComposerMenuDetailView: View {
     private var models: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-                Text("选择本次对话的模型").font(.footnote).foregroundStyle(.secondary)
+                Text("选择本次对话的模型")
+                    .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
+                    .foregroundStyle(.secondary)
                     .padding(.horizontal, 24).padding(.vertical, 8)
                 if presentation.models.isEmpty {
                     Text("暂无可用模型，请先在设置中配置 Provider。")
@@ -66,10 +74,14 @@ struct ComposerMenuDetailView: View {
                                 Text(model.displayName)
                                 Text(model.supportedThinkingEfforts.isEmpty ? "模型自动思考" :
                                         model.supportedThinkingEfforts.map(\.title).joined(separator: " · "))
-                                    .font(.caption).foregroundStyle(.secondary)
+                                    .font(Typography.font(for: .interfaceCaption, size: .caption,
+                                                          dynamicTypeSize: dynamicTypeSize))
+                                    .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Image(systemName: "checkmark").font(.body.weight(.semibold))
+                            Image(systemName: "checkmark")
+                                .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize)
+                                    .weight(.semibold))
                                 .opacity(model.id == presentation.selectedModelID ? 1 : 0)
                         }
                         .padding(.horizontal, 24).padding(.vertical, 12)
@@ -92,7 +104,9 @@ struct ComposerMenuDetailView: View {
     private var skills: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-                Text("选择本次对话使用的插件").font(.footnote).foregroundStyle(.secondary)
+                Text("选择本次对话使用的插件")
+                    .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
+                    .foregroundStyle(.secondary)
                     .padding(.horizontal, 24).padding(.vertical, 8)
                 Button { presentation.selectSkill(nil) } label: {
                     skillRow(title: "自动选择", selected: presentation.selectedSkillIDs.isEmpty)
@@ -114,7 +128,10 @@ struct ComposerMenuDetailView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             skillRow(title: option.name, selected: selected)
                             if !option.isAvailable {
-                                Text("依赖不可用").font(.caption).foregroundStyle(.secondary)
+                                Text("依赖不可用")
+                                    .font(Typography.font(for: .interfaceCaption, size: .caption,
+                                                          dynamicTypeSize: dynamicTypeSize))
+                                    .foregroundStyle(.secondary)
                                     .padding(.leading, 24).padding(.bottom, 8)
                             }
                         }
@@ -133,7 +150,11 @@ struct ComposerMenuDetailView: View {
         HStack(spacing: 12) {
             Text(title)
             Spacer()
-            if selected { Image(systemName: "checkmark").font(.body.weight(.semibold)) }
+            if selected {
+                Image(systemName: "checkmark")
+                    .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize)
+                        .weight(.semibold))
+            }
         }
         .padding(.horizontal, 24).padding(.vertical, 12)
         .frame(minHeight: 52)
@@ -143,7 +164,9 @@ struct ComposerMenuDetailView: View {
     private func information(_ title: String, detail: String) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Text(title).font(.headline)
+                Text(title)
+                    .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize)
+                        .weight(.semibold))
                 Text(detail).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(28)

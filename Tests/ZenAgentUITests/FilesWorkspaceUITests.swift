@@ -81,8 +81,7 @@ final class FilesWorkspaceUITests: XCTestCase {
         let identity = editorIdentity(probe.value as? String)
         XCTAssertNotNil(identity)
         expect { (probe.value as? String)?.contains(";sidebarCanOpen=true;") == true }
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.3))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 110, dy: 0)))
+        app.openWorkspaceSidebar()
         let files = app.buttons["sidebar-files"]
         guard files.waitForExistence(timeout: 5),
               files.wait(for: \.isEnabled, toEqual: true, timeout: 5),

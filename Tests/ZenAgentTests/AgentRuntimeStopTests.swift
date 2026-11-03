@@ -224,13 +224,13 @@ struct AgentRuntimeStopTests {
             maxProviderSteps: 4
         )
         let runID = "run-agent-stop-projection-failure"
-        try fixture.store.commitUserTurnAndCreateParentRun(
-            Fixtures.send(
-                conversationID: I05RuntimeTestFixtures.conversationID,
-                messageID: "user-agent-stop-projection-failure",
-                runID: runID
-            )
+        var commit = Fixtures.send(
+            conversationID: I05RuntimeTestFixtures.conversationID,
+            messageID: "user-agent-stop-projection-failure",
+            runID: runID
         )
+        commit.run.requestConfigSeed.providerInstanceID = fixture.instance.id
+        try fixture.store.commitUserTurnAndCreateParentRun(commit)
         try fixture.store.completeExecutionSnapshot(
             runID: runID,
             encodedSnapshot: try ExecutionSnapshotCodec.encode(snapshot)

@@ -58,15 +58,15 @@ struct ConversationPaneViewContractTests {
 
         let paneSource = try #require(sourceFile("App/Conversation/ConversationPaneView.swift"))
         let timelineSource = try #require(sourceFile("App/Conversation/ConversationTimelineView.swift"))
-        let paneBody = try #require(blockBody(in: paneSource, after: "var body: some View"))
+        let paneContent = try #require(blockBody(in: paneSource, after: "private var paneContent: some View"))
         let rootIdentifier = #".accessibilityIdentifier("conversation-pane-\(pane.conversationID)")"#
         let approvalIdentifier = #".accessibilityIdentifier("conversation-pane-approval-\(pane.conversationID)")"#
 
-        #expect(paneBody.contains(rootIdentifier))
-        #expect(paneBody.contains(approvalIdentifier))
-        #expect(paneBody.contains("ConversationComposerView("))
-        #expect(paneBody.contains("conversationID: pane.conversationID"))
-        #expect(paneBody.contains("controller: pane.composer"))
+        #expect(paneContent.contains(rootIdentifier))
+        #expect(paneContent.contains(approvalIdentifier))
+        #expect(paneContent.contains("ConversationComposerView("))
+        #expect(paneContent.contains("conversationID: pane.conversationID"))
+        #expect(paneContent.contains("controller: pane.composer"))
         #expect(!timelineSource.contains(".sheet("))
     }
 

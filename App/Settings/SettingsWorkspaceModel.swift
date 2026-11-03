@@ -34,7 +34,7 @@ final class SettingsWorkspaceModel {
     var isConfigureMode: Bool { onConfigure != nil }
     @ObservationIgnored private let store: PersistenceStore
     @ObservationIgnored private let credentials: any CredentialStoring
-    @ObservationIgnored private let provider: any ModelProvider
+    @ObservationIgnored private let providerRegistry: ModelProviderRegistry
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let onDefault: (AppExecutionTarget, Bool) -> Void
     @ObservationIgnored private let onConfigure: (@MainActor (AppExecutionTarget) throws -> Bool)?
@@ -53,8 +53,11 @@ final class SettingsWorkspaceModel {
          onStopExtensionRuns: EnvironmentRuntime.StopRuns? = nil,
          onConfigure: (@MainActor (AppExecutionTarget) throws -> Bool)? = nil,
          onProviderCommitted: @escaping @MainActor (ProviderInstanceID) async -> Void = { _ in },
+         providerRegistry: ModelProviderRegistry? = nil,
          onDefault: @escaping (AppExecutionTarget, Bool) -> Void) {
-        self.store = store; self.credentials = credentials; self.provider = provider
+        let resolvedProviderRegistry = providerRegistry ?? ModelProviderRegistry(provider: provider)
+        self.store = store; self.credentials = credentials
+        self.providerRegistry = resolvedProviderRegistry
         self.defaults = defaults; self.appearance = appearance; self.menus = menus; self.onDefault = onDefault
         self.onProviderCommitted = onProviderCommitted
         self.onConfigure = onConfigure
@@ -68,7 +71,7 @@ final class SettingsWorkspaceModel {
         tools = toolSettings
         mcp = MCPSettingsModel(registry: mcpRegistry, runtime: mcpRuntime, store: store,
             credentials: credentials, baseToolRegistry: toolRegistry, toolSettings: toolSettings)
-        subagents = SubagentSettingsModel(store: store, provider: provider, credentials: credentials)
+        subagents = SubagentSettingsModel(store: store, providerRegistry: resolvedProviderRegistry, credentials: credentials)
         storage = files.map { SettingsStorageModel(store: store, files: $0) }
         if let instance = defaults.string(forKey: AppShellModel.defaultInstanceIDKey),
            let model = defaults.string(forKey: AppShellModel.defaultModelIDKey) {
@@ -80,7 +83,7 @@ final class SettingsWorkspaceModel {
         guard active, !isLoading else { return }
         isLoading = true
         defer { isLoading = false }
-        let store = store, credentials = credentials, provider = provider
+        let store = store, credentials = credentials, providerRegistry = providerRegistry
         do {
             let result = try await Task.detached {
                 try store.providerInstances().map { instance in
@@ -97,7 +100,8 @@ final class SettingsWorkspaceModel {
                         } catch { status = "凭据状态暂不可读" }
                     } else { status = "尚未配置凭据" }
                     return SettingsProviderCatalog(instance: instance,
-                        models: provider.knownModels(for: instance), credentialStatus: status,
+                        models: providerRegistry.provider(for: instance.providerID)?.knownModels(for: instance) ?? [],
+                        credentialStatus: status,
                         credentialIsActive: credentialIsActive)
                 }
             }.value
@@ -120,11 +124,11 @@ final class SettingsWorkspaceModel {
         let request = selection
         isSelectingDefault = true; catalogErrorMessage = nil
         defer { if request == selection { isSelectingDefault = false } }
-        let store = store, credentials = credentials, provider = provider
+        let store = store, credentials = credentials, providerRegistry = providerRegistry
         do {
             _ = try await Task.detached {
                 try AppAssembly.validateTarget(providerInstanceID: providerInstanceID, modelID: modelID,
-                    store: store, provider: provider, credentials: credentials)
+                    store: store, providerRegistry: providerRegistry, credentials: credentials)
             }.value
             guard active, request == selection, !Task.isCancelled else { return false }
             let target = AppExecutionTarget(providerInstanceID: providerInstanceID, modelID: modelID)
@@ -145,11 +149,11 @@ final class SettingsWorkspaceModel {
         let request = configurationSelection
         isConfiguringConversation = true; configurationErrorMessage = nil; configurationStatusMessage = nil
         defer { if request == configurationSelection { isConfiguringConversation = false } }
-        let store = store, credentials = credentials, provider = provider
+        let store = store, credentials = credentials, providerRegistry = providerRegistry
         do {
             _ = try await Task.detached {
                 try AppAssembly.validateTarget(providerInstanceID: providerInstanceID, modelID: modelID,
-                    store: store, provider: provider, credentials: credentials)
+                    store: store, providerRegistry: providerRegistry, credentials: credentials)
             }.value
             guard active, request == configurationSelection, !Task.isCancelled else { return false }
             return applyCapturedConfiguration(.init(providerInstanceID: providerInstanceID, modelID: modelID))
@@ -180,7 +184,7 @@ final class SettingsWorkspaceModel {
 
     func makeProviderSetup() -> ProviderSetupModel? {
         guard active else { return nil }
-        return ProviderSetupModel(store: store, credentials: credentials, provider: provider, userDefaults: defaults,
+        return ProviderSetupModel(store: store, credentials: credentials, providerRegistry: providerRegistry, userDefaults: defaults,
             onTargetSaved: { [weak self, onDefault] target in
                 self?.defaultTarget = target
                 onDefault(target, false)

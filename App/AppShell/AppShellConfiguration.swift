@@ -26,10 +26,22 @@ enum AppShellConfiguration {
     static func availability(for configuration: ConversationComposerConfiguration?,
                              store: PersistenceStore, provider: any ModelProvider,
                              credentials: any CredentialStoring) -> ComposerSendAvailability {
+        availability(
+            for: configuration,
+            store: store,
+            providerRegistry: ModelProviderRegistry(provider: provider),
+            credentials: credentials
+        )
+    }
+
+    static func availability(for configuration: ConversationComposerConfiguration?,
+                             store: PersistenceStore, providerRegistry: ModelProviderRegistry,
+                             credentials: any CredentialStoring) -> ComposerSendAvailability {
         guard let configuration else { return .unconfigured }
         do {
             _ = try AppAssembly.validateTarget(providerInstanceID: configuration.providerInstanceID,
-                modelID: configuration.modelID, store: store, provider: provider, credentials: credentials)
+                modelID: configuration.modelID, store: store,
+                providerRegistry: providerRegistry, credentials: credentials)
             return .ready
         } catch let failure as AppTargetFailure {
             return .unavailable(failure.message)
@@ -41,8 +53,21 @@ enum AppShellConfiguration {
     static func availabilities(for configurations: [ConversationComposerConfiguration],
                                store: PersistenceStore, provider: any ModelProvider,
                                credentials: any CredentialStoring) async -> [ComposerSendAvailability] {
+        await availabilities(
+            for: configurations,
+            store: store,
+            providerRegistry: ModelProviderRegistry(provider: provider),
+            credentials: credentials
+        )
+    }
+
+    static func availabilities(for configurations: [ConversationComposerConfiguration],
+                               store: PersistenceStore, providerRegistry: ModelProviderRegistry,
+                               credentials: any CredentialStoring) async -> [ComposerSendAvailability] {
         await Task.detached(priority: .userInitiated) {
-            configurations.map { availability(for: $0, store: store, provider: provider, credentials: credentials) }
+            configurations.map {
+                availability(for: $0, store: store, providerRegistry: providerRegistry, credentials: credentials)
+            }
         }.value
     }
 }

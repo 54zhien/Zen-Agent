@@ -5,6 +5,7 @@ import SwiftUI
 struct ComposerThinkingControl: View {
     let presentation: ComposerActionMenuState
     var compactLayout = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var position = 0.0
     @State private var selectionGeneration = 0
@@ -28,6 +29,10 @@ struct ComposerThinkingControl: View {
             let tiny = geometry.size.height < 160
             let short = geometry.size.height < 210
             let compact = compactLayout || geometry.size.height < 250
+            let modelSize: TypographySize = tiny ? .compact
+                : short ? .small : compact ? .medium : .large
+            let levelSize: TypographySize = minimal ? .medium
+                : tiny ? .title : short ? .large : compact ? .display : .hero
             let titleHeight: CGFloat = minimal ? 20 : tiny ? 24 : short ? 26 : compact ? 34 : 42
             let modelHeight: CGFloat = minimal ? 16 : tiny ? 18 : short ? 20 : compact ? 24 : 28
             let railGap: CGFloat = minimal ? 4 : tiny ? 8 : short ? 10 : 18
@@ -47,7 +52,7 @@ struct ComposerThinkingControl: View {
                 Color.clear.frame(height: titleHeight)
                     .allowsHitTesting(false).accessibilityHidden(true)
                 Spacer(minLength: modelGap)
-                crossfade(modelName, font: .system(size: tiny ? 14 : short ? 16 : compact ? 18 : 22))
+                crossfade(modelName, size: modelSize)
                     .foregroundStyle(.secondary)
                     .frame(height: modelHeight)
                     .anchorPreference(key: ComposerThinkingLabelAnchors.self, value: .bounds) { [.model: $0] }
@@ -63,9 +68,7 @@ struct ComposerThinkingControl: View {
                         let model = layout[modelAnchor]
                         let curve = ComposerThinkingArcGeometry(size: rail.size, inset: thickness / 2 + 4)
                         let lowerArcY = rail.minY + curve.point(at: 0.5).y + thickness / 2
-                        ComposerThinkingLevelLabel(level: presentation.thinkingLevel,
-                            font: .system(size: minimal ? 18 : tiny ? 20 : short ? 22 : compact ? 28 : 34,
-                                          weight: .semibold))
+                        ComposerThinkingLevelLabel(level: presentation.thinkingLevel, size: levelSize)
                             .frame(width: rail.width, height: titleHeight)
                             .position(x: rail.midX, y: (lowerArcY + model.minY) / 2)
                             .accessibilityIdentifier("thinking-committed-level")
@@ -98,10 +101,11 @@ struct ComposerThinkingControl: View {
         }
     }
 
-    private func crossfade(_ value: String, font: Font) -> some View {
+    private func crossfade(_ value: String, size: TypographySize) -> some View {
         ZStack {
             Text(value).id(value).transition(.opacity)
-                .font(font).lineLimit(1).minimumScaleFactor(0.65)
+                .font(Typography.font(for: .interfaceBody, size: size, dynamicTypeSize: dynamicTypeSize))
+                .lineLimit(1).minimumScaleFactor(0.65)
         }
         .frame(maxWidth: .infinity)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.20), value: value)

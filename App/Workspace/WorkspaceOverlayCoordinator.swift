@@ -16,11 +16,29 @@ final class WorkspaceOverlayCoordinator {
     @ObservationIgnored private weak var shell: AppShellModel?
     @ObservationIgnored private weak var navigation: WorkspaceNavigationState?
     @ObservationIgnored private var focus: ComposerOverlayFocus?
+    @ObservationIgnored private var pendingSidebarFocus: ComposerOverlayFocus?
     @ObservationIgnored private var dismissingSettingsID: UUID?
 
     init(store: PersistenceStore, shell: AppShellModel, navigation: WorkspaceNavigationState) {
         search = ConversationSearchModel(store: store)
         self.shell = shell; self.navigation = navigation
+    }
+
+    func prepareFocusForSidebarDismissal(captureFocus: () -> ComposerOverlayFocus?) {
+        guard let navigation, navigation.overlay == nil, !navigation.isOpen,
+              !navigation.isDragging, navigation.settlementID == nil else { return }
+        if let pendingSidebarFocus {
+            guard !pendingSidebarFocus.isValid else { return }
+            pendingSidebarFocus.cancel()
+            self.pendingSidebarFocus = nil
+        }
+        guard let captured = captureFocus() else { return }
+        guard captured.isValid else { captured.cancel(); return }
+        pendingSidebarFocus = captured
+    }
+
+    func sidebarDidClose() {
+        discardPendingSidebarFocus()
     }
 
     func enter(_ route: WorkspaceOverlayRoute, eligible: Bool, captureFocus: () -> ComposerOverlayFocus?) {
@@ -29,8 +47,30 @@ final class WorkspaceOverlayCoordinator {
         let settingsModel = route == .settings ? shell?.makeSettingsModel(configureNewID: shell?.currentSettingsNewID) : nil
         if route == .files, catalog == nil { return }
         if route == .settings, settingsModel == nil { return }
-        let captured = captureFocus()
-        guard navigation.present(route, available: true, eligible: eligible) else { captured?.cancel(); return }
+        let currentFocus = captureFocus()
+        let captured: ComposerOverlayFocus?
+        if route == .search || route == .files {
+            if let currentFocus, currentFocus.isValid {
+                discardPendingSidebarFocus()
+                captured = currentFocus
+            } else {
+                currentFocus?.cancel()
+                captured = takePendingSidebarFocus()
+            }
+        } else {
+            discardPendingSidebarFocus()
+            if let currentFocus, currentFocus.isValid {
+                captured = currentFocus
+            } else {
+                currentFocus?.cancel()
+                captured = nil
+            }
+        }
+        guard navigation.present(route, available: true, eligible: eligible) else {
+            captured?.cancel()
+            discardPendingSidebarFocus()
+            return
+        }
         focus?.cancel(); focus = captured
         if route == .search { search.query = "" }
         files = catalog
@@ -48,6 +88,7 @@ final class WorkspaceOverlayCoordinator {
     func close(expectedID: UUID? = nil) {
         guard navigation?.overlay != nil,
               expectedID == nil || navigation?.overlayID == expectedID else { return }
+        discardPendingSidebarFocus()
         if navigation?.overlay == .settings {
             dismissingSettingsID = navigation?.overlayID
             navigation?.dismissOverlay()
@@ -78,7 +119,8 @@ final class WorkspaceOverlayCoordinator {
         search.select(id, open: { [weak shell] id in
             await shell?.openActivePaneConversation(id: id) ?? false
         }, onSuccess: { [weak self] in
-            self?.focus?.cancel()
+            self?.focus?.cancel(); self?.focus = nil
+            self?.discardPendingSidebarFocus()
             self?.navigation?.dismissOverlay()
         })
     }
@@ -87,6 +129,23 @@ final class WorkspaceOverlayCoordinator {
         dismissingSettingsID = nil
         search.invalidate(); files?.invalidate(); files = nil
         settings?.invalidate(); settings = nil
+        discardPendingSidebarFocus()
         focus?.cancel(); focus = nil
+    }
+
+    private func takePendingSidebarFocus() -> ComposerOverlayFocus? {
+        let captured = pendingSidebarFocus
+        pendingSidebarFocus = nil
+        guard let captured, captured.isValid else {
+            captured?.cancel()
+            return nil
+        }
+        return captured
+    }
+
+    private func discardPendingSidebarFocus() {
+        let captured = pendingSidebarFocus
+        pendingSidebarFocus = nil
+        captured?.cancel()
     }
 }

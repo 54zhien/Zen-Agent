@@ -15,7 +15,8 @@ struct SettingsAccountsView: View {
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(entry.instance.displayName)
-                            Text(entry.instance.baseURL?.host ?? "Provider 默认地址").foregroundStyle(.secondary)
+                            Text("\(entry.instance.providerID.displayName) · \(entry.instance.baseURL?.host ?? "Provider 默认地址")")
+                                .foregroundStyle(.secondary)
                             Text(entry.credentialStatus).foregroundStyle(.secondary)
                         }
                     }
