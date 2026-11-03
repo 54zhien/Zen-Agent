@@ -69,11 +69,20 @@ struct CalendarEventsToolTests {
         let payload = try #require(JSONSerialization.jsonObject(with: Data(result.content.utf8)) as? [String: Any])
         let returnedEvents = try #require(payload["events"] as? [[String: Any]])
 
+        let firstEvent = try #require(returnedEvents.first)
+        let lastEvent = try #require(returnedEvents.last)
+
         #expect(returnedEvents.count == CalendarEventsTool.maximumEvents)
         #expect(payload["truncated"] as? Bool == true)
-        #expect(returnedEvents.first?["title"] as? String == "event-0")
-        #expect(returnedEvents.last?["title"] as? String == "event-49")
-        #expect(Set(try #require(returnedEvents.first).keys) == Set(["title", "startDate", "endDate", "isAllDay", "location"]))
+        #expect(firstEvent["title"] as? String == "event-0")
+        #expect(firstEvent["startDate"] as? String == "2026-10-01T00:00:00.000Z")
+        #expect(firstEvent["endDate"] as? String == "2026-10-01T00:06:00.000Z")
+        #expect(firstEvent["isAllDay"] as? Bool == false)
+        #expect(firstEvent["location"] == nil)
+        #expect(Set(firstEvent.keys) == Set(["title", "startDate", "endDate", "isAllDay"]))
+        #expect(lastEvent["title"] as? String == "event-49")
+        #expect(lastEvent["startDate"] as? String == "2026-10-01T00:49:00.000Z")
+        #expect(lastEvent["endDate"] as? String == "2026-10-01T00:55:00.000Z")
         #expect(await gateway.queryCount == 1)
     }
 
