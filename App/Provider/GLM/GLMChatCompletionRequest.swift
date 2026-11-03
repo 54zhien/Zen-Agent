@@ -55,6 +55,7 @@ struct GLMChatCompletionRequest: Encodable, Sendable {
 
     struct Thinking: Encodable, Sendable {
         var type: String
+        var clear_thinking: Bool?
     }
 
     var model: String
@@ -69,7 +70,7 @@ struct GLMChatCompletionRequest: Encodable, Sendable {
         model = request.modelID.rawValue
         messages = request.messages.map(Self.makeMessage)
         stream = true
-        thinking = Thinking(type: "enabled")
+        thinking = Thinking(type: "enabled", clear_thinking: request.tools.isEmpty ? nil : false)
         reasoning_effort = thinkingEffort?.rawValue
         tool_stream = request.tools.isEmpty ? nil : true
         tools = request.tools.isEmpty ? nil : request.tools.map {

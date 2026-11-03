@@ -105,9 +105,9 @@ struct GLMChatCompletionStreamDecoder {
         switch wire {
         case "stop": return .stop
         case "length": return .length
-        case "content_filter": return .contentFilter
+        case "content_filter", "sensitive": return .contentFilter
         case "tool_calls": return .toolCalls
-        case "insufficient_system_resource", "aborted": return .interrupted
+        case "network_error", "insufficient_system_resource", "aborted": return .interrupted
         case .some(let reason): return .unknown(reason)
         case .none: return .unknown("absent")
         }

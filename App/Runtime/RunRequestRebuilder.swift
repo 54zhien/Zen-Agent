@@ -12,6 +12,7 @@ struct RecoveredToolBatch: Sendable {
     let calls: [ToolCallRecord]
     let providerCalls: [ProviderToolCall]
     let assistantContent: String?
+    let assistantReasoning: String?
 }
 
 struct ToolCallProtocolTranscript: Codable, Sendable {
@@ -19,6 +20,7 @@ struct ToolCallProtocolTranscript: Codable, Sendable {
 
     let version: Int
     let assistantContent: String?
+    let assistantReasoning: String?
     let calls: [Call]
 
     struct Call: Codable, Sendable {
@@ -39,9 +41,10 @@ struct ToolCallProtocolTranscript: Codable, Sendable {
         }
     }
 
-    init(assistantContent: String?, calls: [ProviderToolCall]) {
+    init(assistantContent: String?, assistantReasoning: String? = nil, calls: [ProviderToolCall]) {
         version = Self.currentVersion
         self.assistantContent = assistantContent
+        self.assistantReasoning = assistantReasoning
         self.calls = calls.map(Call.init)
     }
 }
@@ -258,12 +261,13 @@ struct RunRequestRebuilder {
                     ),
                     calls: batchCalls,
                     providerCalls: providerCalls,
-                    assistantContent: transcript.assistantContent
+                    assistantContent: transcript.assistantContent,
+                    assistantReasoning: transcript.assistantReasoning
                 )
             } else {
                 messages.append(.assistant(
                     content: transcript.assistantContent,
-                    reasoning: nil,
+                    reasoning: transcript.assistantReasoning,
                     toolCalls: providerCalls
                 ))
                 for (call, protocolCall) in zip(batchCalls, providerCalls) {
@@ -428,7 +432,7 @@ struct RunRequestRebuilder {
 
                 messages.append(.assistant(
                     content: transcript.assistantContent,
-                    reasoning: nil,
+                    reasoning: transcript.assistantReasoning,
                     toolCalls: providerCalls
                 ))
                 messages.append(contentsOf: resultMessages)
@@ -503,8 +507,10 @@ struct RunRequestRebuilder {
         }
 
         let assistantContent: String?
+        let assistantReasoning: String?
         if let transcript {
             assistantContent = transcript.assistantContent
+            assistantReasoning = transcript.assistantReasoning
         } else if let responseID = run.responseMessageID {
             let textParts = try store.parts(ofMessage: responseID).filter { $0.kind == .text }
             guard textParts.allSatisfy({ $0.state == .completed }) else {
@@ -514,15 +520,18 @@ struct RunRequestRebuilder {
                 try PersistenceStore.decodeTextPayload($0.payload).text
             }.joined()
             assistantContent = text.isEmpty ? nil : text
+            assistantReasoning = nil
         } else {
             assistantContent = nil
+            assistantReasoning = nil
         }
 
         return RecoveredToolBatch(
             requestBeforeBatch: request,
             calls: calls,
             providerCalls: providerCalls,
-            assistantContent: assistantContent
+            assistantContent: assistantContent,
+            assistantReasoning: assistantReasoning
         )
     }
 
