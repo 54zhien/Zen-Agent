@@ -541,6 +541,7 @@ actor DelegationRuntime {
             let descriptor = executable.descriptor
             guard modelCapabilities.contains(.tools),
                   descriptor.id != SubagentDelegationTool.toolID,
+                  !Self.isParentOnlyTool(descriptor),
                   !(executable is MCPToolExecutable),
                   parentSnapshot.permitsTool(descriptor),
                   parentSnapshot.exposedTools.contains(where: { Self.exposure($0, matches: descriptor) })
@@ -599,6 +600,10 @@ actor DelegationRuntime {
             skills: skills
         )
         return context
+    }
+
+    static func isParentOnlyTool(_ descriptor: ToolDescriptor) -> Bool {
+        descriptor.id == CalendarEventsTool.toolID
     }
 
     private static func toolExposures(from registry: ToolRegistry) -> [ToolExposureSnapshot] {
