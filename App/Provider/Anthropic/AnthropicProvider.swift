@@ -73,15 +73,19 @@ struct AnthropicProvider: ModelProvider {
         let secret = try Self.resolveSecret(seed.credentialBinding, from: credentials)
         let maxOutputTokens = try Self.maxOutputTokens(from: seed)
         let body = try AnthropicMessagesRequest.body(for: request, maxOutputTokens: maxOutputTokens)
+        var headers = [
+            "Content-Type": "application/json",
+            "Authorization": "Bearer \(secret.revealed)",
+            "anthropic-version": Self.apiVersion,
+            "Accept": "text/event-stream",
+        ]
+        if let workspaceID = seed.anthropicWorkspaceID, !workspaceID.isEmpty {
+            headers["anthropic-workspace-id"] = workspaceID
+        }
         let httpRequest = HTTPRequest(
             method: .post,
             url: seed.endpoint,
-            headers: [
-                "Content-Type": "application/json",
-                "Authorization": "Bearer \(secret.revealed)",
-                "anthropic-version": Self.apiVersion,
-                "Accept": "text/event-stream",
-            ],
+            headers: headers,
             body: body
         )
 

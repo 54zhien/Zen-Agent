@@ -13,7 +13,7 @@ struct AnthropicProviderTests {
         let seed: RequestConfigSeed
     }
 
-    private func makeFixture(baseURL: URL? = nil) throws -> Fixture {
+    private func makeFixture(baseURL: URL? = nil, workspaceID: String? = nil) throws -> Fixture {
         let transport = FakeHTTPTransport()
         let provider = AnthropicProvider(transport: transport)
         let reference = CredentialReference(id: "anthropic-provider-test-key")
@@ -28,6 +28,7 @@ struct AnthropicProviderTests {
             providerID: .anthropic,
             displayName: "Anthropic",
             baseURL: baseURL,
+            anthropicWorkspaceID: workspaceID,
             configRevision: .initial,
             credentialReference: reference
         )
@@ -69,7 +70,7 @@ struct AnthropicProviderTests {
         #expect(descriptor.thinkingEfforts == nil)
         #expect(descriptor.defaultThinkingEffort == nil)
         #expect(fixture.seed.maxOutputTokens == 4096)
-        #expect(fixture.seed.formatVersion == 3)
+        #expect(fixture.seed.formatVersion == 4)
         #expect(fixture.provider.descriptor(
             for: ModelID(rawValue: "unknown-anthropic-model"),
             in: fixture.instance
@@ -135,6 +136,7 @@ struct AnthropicProviderTests {
         #expect(sent.url.absoluteString == "https://api.anthropic.com/v1/messages")
         #expect(sent.headers["Authorization"] == "Bearer anthropic-test-key")
         #expect(sent.headers["anthropic-version"] == "2026-10-21")
+        #expect(sent.headers["anthropic-workspace-id"] == nil)
         #expect(sent.headers["Accept"] == "text/event-stream")
         #expect(sent.description.contains("anthropic-test-key") == false)
 
@@ -162,6 +164,31 @@ struct AnthropicProviderTests {
         let tools = try #require(root["tools"] as? [[String: Any]])
         #expect(tools.map { $0["name"] as? String } == ["get_weather", "get_time"])
         #expect(tools.allSatisfy { $0["input_schema"] is [String: Any] })
+    }
+
+    @Test("workspace ID is frozen into the request seed and sent as a header")
+    func workspaceIDComesFromFrozenSeed() async throws {
+        let workspaceID = "wrkspc_01JwQvzr7rXLA5AGx3HKfFUJ"
+        let fixture = try makeFixture(workspaceID: workspaceID)
+        #expect(fixture.seed.anthropicWorkspaceID == workspaceID)
+        fixture.transport.enqueueStream([
+            "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n",
+            "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n",
+            "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+        ])
+
+        let request = ProviderChatRequest(
+            modelID: AnthropicProvider.defaultModelID,
+            messages: [.user("Use this workspace.")]
+        )
+        _ = try await drain(try await fixture.provider.stream(
+            request,
+            seed: fixture.seed,
+            credentials: fixture.credentials
+        ))
+
+        let sent = try #require(fixture.transport.lastRequest)
+        #expect(sent.headers["anthropic-workspace-id"] == workspaceID)
     }
 
     @Test("the Messages endpoint is resolved from a custom provider base URL")

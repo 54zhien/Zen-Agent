@@ -51,6 +51,7 @@ struct ThinkingEffortTests {
         let legacy = try JSONDecoder().decode(RequestConfigSeed.self, from: JSONSerialization.data(withJSONObject: json))
         #expect(legacy.thinkingEffort == nil)
         #expect(legacy.maxOutputTokens == nil)
+        #expect(legacy.anthropicWorkspaceID == nil)
         var selected = legacy
         selected.thinkingEffort = .high
         #expect(selected.formatVersion == 2)
@@ -62,10 +63,16 @@ struct ThinkingEffortTests {
         #expect(v2.formatVersion == 2)
         #expect(v2.thinkingEffort == .high)
         #expect(v2.maxOutputTokens == nil)
+        #expect(v2.anthropicWorkspaceID == nil)
 
         var frozen = v2
         frozen.maxOutputTokens = 4096
         #expect(frozen.formatVersion == 3)
+        #expect(frozen.anthropicWorkspaceID == nil)
+        #expect(try JSONDecoder().decode(RequestConfigSeed.self, from: JSONEncoder().encode(frozen)) == frozen)
+
+        frozen.anthropicWorkspaceID = "wrkspc_frozen"
+        #expect(frozen.formatVersion == 4)
         #expect(try JSONDecoder().decode(RequestConfigSeed.self, from: JSONEncoder().encode(frozen)) == frozen)
     }
 }

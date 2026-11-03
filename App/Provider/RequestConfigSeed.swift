@@ -30,15 +30,16 @@ struct CredentialBindingSnapshot: Codable, Sendable, Equatable {
 /// Persistence.
 ///
 /// Capability-validated request options are frozen here, independently of mutable
-/// Composer state. V2 records an effort override; v3 records an output-token limit.
+/// Composer state. V2 records an effort override, v3 an output-token limit, and v4 an
+/// optional Anthropic workspace ID.
 struct RequestConfigSeed: Codable, Sendable, Equatable {
 
-    /// The format new request seeds use. Versions 1 and 2 remain readable.
+    /// The format new request seeds use. Versions 1 through 3 remain readable.
     ///
     /// Exists so that "written by a build that predates versioning" and "written by this
     /// build and damaged since" are different diagnoses. Without it both look like a
     /// handful of missing keys, and the only honest report is a vague one.
-    static let currentFormatVersion = 3
+    static let currentFormatVersion = 4
 
     /// A payload this build cannot read as its own format.
     ///
@@ -91,6 +92,12 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
             if maxOutputTokens != nil, formatVersion < 3 { formatVersion = 3 }
         }
     }
+    /// Nil keeps workspace-scoped API keys on the provider's default workspace.
+    var anthropicWorkspaceID: String? = nil {
+        didSet {
+            if anthropicWorkspaceID != nil, formatVersion < 4 { formatVersion = 4 }
+        }
+    }
 
     init(
         formatVersion: Int = RequestConfigSeed.currentFormatVersion,
@@ -99,7 +106,8 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         providerConfigRevision: ConfigRevision,
         credentialBinding: CredentialBindingSnapshot,
         resolvedEndpoint: URL,
-        maxOutputTokens: Int? = nil
+        maxOutputTokens: Int? = nil,
+        anthropicWorkspaceID: String? = nil
     ) {
         self.formatVersion = formatVersion
         self.providerInstanceID = providerInstanceID
@@ -108,6 +116,8 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         self.credentialBinding = credentialBinding
         self.endpoint = resolvedEndpoint
         self.maxOutputTokens = maxOutputTokens
+        self.anthropicWorkspaceID = anthropicWorkspaceID
+        if anthropicWorkspaceID != nil, self.formatVersion < 4 { self.formatVersion = 4 }
     }
 
     // MARK: - Versioned coding
@@ -121,6 +131,7 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         case endpoint
         case thinkingEffort
         case maxOutputTokens
+        case anthropicWorkspaceID
     }
 
     /// Reads the version before the payload, and refuses rather than guesses.
@@ -135,7 +146,7 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         guard let version = try? container.decode(Int.self, forKey: .formatVersion) else {
             throw FormatError.unversioned
         }
-        guard version == 1 || version == 2 || version == Self.currentFormatVersion else {
+        guard version >= 1, version <= Self.currentFormatVersion else {
             throw FormatError.unsupportedVersion(version)
         }
 
@@ -153,6 +164,9 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
             maxOutputTokens = version >= 3
                 ? try container.decodeIfPresent(Int.self, forKey: .maxOutputTokens)
                 : nil
+            anthropicWorkspaceID = version >= 4
+                ? try container.decodeIfPresent(String.self, forKey: .anthropicWorkspaceID)
+                : nil
         } catch {
             throw FormatError.malformedCurrentVersion(version)
         }
@@ -169,6 +183,7 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         try container.encode(endpoint, forKey: .endpoint)
         if formatVersion >= 2 { try container.encode(thinkingEffort, forKey: .thinkingEffort) }
         if formatVersion >= 3 { try container.encode(maxOutputTokens, forKey: .maxOutputTokens) }
+        if formatVersion >= 4 { try container.encode(anthropicWorkspaceID, forKey: .anthropicWorkspaceID) }
     }
 }
 
@@ -204,7 +219,8 @@ extension RequestConfigSeed {
             providerConfigRevision: instance.configRevision,
             credentialBinding: credentialBinding,
             resolvedEndpoint: resolvedEndpoint,
-            maxOutputTokens: maxOutputTokens
+            maxOutputTokens: maxOutputTokens,
+            anthropicWorkspaceID: instance.anthropicWorkspaceID
         )
     }
 }

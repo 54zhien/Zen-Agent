@@ -48,6 +48,8 @@ enum Migrations {
         registerV30(&migrator)
         registerV31(&migrator)
         registerV32(&migrator)
+        // Integrate the parallel FTS and vector migrations (V33/V34) before this one.
+        registerV35(&migrator)
         return migrator
     }
 
@@ -523,5 +525,15 @@ enum Migrations {
         // only record of a side effect that may have actually happened. The spike
         // verified both engines can express this; GRDB does it by simply not declaring
         // the relationship.
+    }
+}
+
+extension Migrations {
+    static func registerV35(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v35_anthropic_workspace_id") { db in
+            try db.alter(table: "providerInstance") { table in
+                table.add(column: "anthropicWorkspaceID", .text)
+            }
+        }
     }
 }
