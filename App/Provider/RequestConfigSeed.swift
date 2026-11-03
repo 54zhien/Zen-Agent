@@ -30,15 +30,15 @@ struct CredentialBindingSnapshot: Codable, Sendable, Equatable {
 /// Persistence.
 ///
 /// Capability-validated request options are frozen here, independently of mutable
-/// Composer state. V2 records an effort override; v1 remains readable without one.
+/// Composer state. V2 records an effort override; v3 records an output-token limit.
 struct RequestConfigSeed: Codable, Sendable, Equatable {
 
-    /// The format this build writes; version 1 remains readable without an effort override.
+    /// The format new request seeds use. Versions 1 and 2 remain readable.
     ///
     /// Exists so that "written by a build that predates versioning" and "written by this
     /// build and damaged since" are different diagnoses. Without it both look like a
     /// handful of missing keys, and the only honest report is a vague one.
-    static let currentFormatVersion = 2
+    static let currentFormatVersion = 3
 
     /// A payload this build cannot read as its own format.
     ///
@@ -81,7 +81,14 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
     /// Nil keeps the provider's default effort for this frozen request.
     var thinkingEffort: ThinkingEffort? = nil {
         didSet {
-            if thinkingEffort != nil, formatVersion == 1 { formatVersion = Self.currentFormatVersion }
+            if thinkingEffort != nil, formatVersion < 2 { formatVersion = 2 }
+        }
+    }
+    /// A provider-specific output cap frozen for this run. Nil means the provider's
+    /// protocol default, and older seed formats remain readable without one.
+    var maxOutputTokens: Int? = nil {
+        didSet {
+            if maxOutputTokens != nil, formatVersion < 3 { formatVersion = 3 }
         }
     }
 
@@ -91,7 +98,8 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         modelID: ModelID,
         providerConfigRevision: ConfigRevision,
         credentialBinding: CredentialBindingSnapshot,
-        resolvedEndpoint: URL
+        resolvedEndpoint: URL,
+        maxOutputTokens: Int? = nil
     ) {
         self.formatVersion = formatVersion
         self.providerInstanceID = providerInstanceID
@@ -99,6 +107,7 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         self.providerConfigRevision = providerConfigRevision
         self.credentialBinding = credentialBinding
         self.endpoint = resolvedEndpoint
+        self.maxOutputTokens = maxOutputTokens
     }
 
     // MARK: - Versioned coding
@@ -111,6 +120,7 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         case credentialBinding
         case endpoint
         case thinkingEffort
+        case maxOutputTokens
     }
 
     /// Reads the version before the payload, and refuses rather than guesses.
@@ -125,7 +135,7 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         guard let version = try? container.decode(Int.self, forKey: .formatVersion) else {
             throw FormatError.unversioned
         }
-        guard version == 1 || version == Self.currentFormatVersion else {
+        guard version == 1 || version == 2 || version == Self.currentFormatVersion else {
             throw FormatError.unsupportedVersion(version)
         }
 
@@ -140,6 +150,9 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
             } else {
                 thinkingEffort = try container.decodeIfPresent(ThinkingEffort.self, forKey: .thinkingEffort)
             }
+            maxOutputTokens = version >= 3
+                ? try container.decodeIfPresent(Int.self, forKey: .maxOutputTokens)
+                : nil
         } catch {
             throw FormatError.malformedCurrentVersion(version)
         }
@@ -155,6 +168,7 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         try container.encode(credentialBinding, forKey: .credentialBinding)
         try container.encode(endpoint, forKey: .endpoint)
         if formatVersion >= 2 { try container.encode(thinkingEffort, forKey: .thinkingEffort) }
+        if formatVersion >= 3 { try container.encode(maxOutputTokens, forKey: .maxOutputTokens) }
     }
 }
 
