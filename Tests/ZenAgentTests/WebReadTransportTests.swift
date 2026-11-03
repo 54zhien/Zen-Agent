@@ -124,6 +124,8 @@ private final class WebReadRedirectURLProtocol: URLProtocol, @unchecked Sendable
                 headerFields: ["Location": destination.absoluteString]
             )!
             client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: destination), redirectResponse: redirect)
+            client?.urlProtocol(self, didReceive: redirect, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocolDidFinishLoading(self)
             return
         }
 
