@@ -5,6 +5,28 @@ import Testing
 @Suite("Search query publication")
 @MainActor
 struct ConversationSearchModelTests {
+    @Test("semantic query edits publish no request until the user submits")
+    func semanticSearchWaitsForExplicitSubmission() async {
+        let submissions = SemanticSearchSubmissionRecorder()
+        let account = ProviderInstanceID(rawValue: "selected-openai")
+        let resultPage = page("semantic-result")
+        let model = ConversationSemanticSearchModel(selectedAccount: { account }, reader: { query, provider in
+            await submissions.record(query: query, provider: provider)
+            return resultPage
+        })
+
+        model.query = "find the mountain trip"
+        await Task.yield()
+        let beforeSubmit = await submissions.values()
+        #expect(beforeSubmit.isEmpty)
+
+        await model.submit()
+        let afterSubmit = await submissions.values()
+        #expect(afterSubmit.map(\.query) == ["find the mountain trip"])
+        #expect(afterSubmit.map(\.provider) == [account])
+        #expect(model.items.map(\.id) == ["semantic-result"])
+    }
+
     @Test func lateReadCannotReplaceANewerQuery() async {
         let gate = SearchReadGate()
         let model = ConversationSearchModel(debounce: .zero) { query, _, _ in
@@ -86,6 +108,17 @@ struct ConversationSearchModelTests {
         #expect(model.selectedID == nil)
         #expect(model.selectionError == nil)
     }
+}
+
+private actor SemanticSearchSubmissionRecorder {
+    struct Value: Equatable, Sendable {
+        let query: String
+        let provider: ProviderInstanceID
+    }
+
+    private var recorded: [Value] = []
+    func record(query: String, provider: ProviderInstanceID) { recorded.append(Value(query: query, provider: provider)) }
+    func values() -> [Value] { recorded }
 }
 
 private actor SearchSelectionGate {

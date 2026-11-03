@@ -84,6 +84,28 @@ final class AppShellModel {
             })
     }
 
+    func makeConversationSemanticSearchModel() -> ConversationSemanticSearchModel {
+        let runtime: ConversationSearchIndexRuntime?
+        if let dependencies, let provider = dependencies.embeddingProvider {
+            runtime = ConversationSearchIndexRuntime(
+                store: dependencies.store,
+                embeddingProvider: provider,
+                credentials: dependencies.credentials
+            )
+        } else {
+            runtime = nil
+        }
+        return ConversationSemanticSearchModel(selectedAccount: { [weak self] in
+            guard let rawValue = self?.userDefaults.string(forKey: VectorSearchSettingsModel.selectedAccountKey) else {
+                return nil
+            }
+            return ProviderInstanceID(rawValue: rawValue)
+        }, reader: { query, providerInstanceID in
+            guard let runtime else { throw ConversationSemanticSearchFailure.providerUnavailable }
+            return try await runtime.search(query: query, providerInstanceID: providerInstanceID)
+        })
+    }
+
     func resumeMCPServers() async {
         guard let runtime = dependencies?.mcpRuntime else { return }
         await runtime.reconnectEnabledServers()

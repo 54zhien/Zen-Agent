@@ -24,11 +24,13 @@ import GRDB
 final class ZenDatabase: Sendable {
     private let dbQueue: DatabaseQueue
     let persistentPath: String?
+    let searchIndexPath: String?
     let memoryAccessGate: MemoryAccessGate
 
-    private init(dbQueue: DatabaseQueue, persistentPath: String? = nil) {
+    private init(dbQueue: DatabaseQueue, persistentPath: String? = nil, searchIndexPath: String? = nil) {
         self.dbQueue = dbQueue
         self.persistentPath = persistentPath
+        self.searchIndexPath = searchIndexPath
         self.memoryAccessGate = MemoryAccessGate.forDatabase(persistentPath)
     }
 
@@ -39,7 +41,24 @@ final class ZenDatabase: Sendable {
     /// a reader is not blocked by a committing writer — that result is what this
     /// configuration is for.
     static func open(at path: String, fileManager: FileManager = .default) throws -> ZenDatabase {
-        try open(at: path, migrator: Migrations.makeMigrator(), fileManager: fileManager)
+        try open(at: path, searchIndexAt: path + ".search.sqlite", fileManager: fileManager)
+    }
+
+    static func open(at path: String, searchIndexAt searchPath: String,
+                     fileManager: FileManager = .default) throws -> ZenDatabase {
+        let queue = try DatabaseQueue(path: path, configuration: configuration())
+        try queue.write { db in try SearchIndexDatabase.attach(path: searchPath, to: db) }
+        try Migrations.makeMigrator().migrate(queue)
+        try queue.write { db in
+            try SearchIndexDatabase.installSchema(in: db)
+            try SearchIndexDatabase.installMutationTriggers(in: db)
+            try SearchIndexDatabase.reconcileFullTextIndex(in: db)
+        }
+#if os(iOS)
+        try UserDataFileProtection.applyToDatabase(at: path, fileManager: fileManager)
+        try UserDataFileProtection.applyToDatabase(at: searchPath, fileManager: fileManager)
+#endif
+        return ZenDatabase(dbQueue: queue, persistentPath: path, searchIndexPath: searchPath)
     }
 
     /// Opens with a caller-supplied migrator. Used by the migration tests, which
@@ -56,8 +75,14 @@ final class ZenDatabase: Sendable {
     /// A throwaway store that never touches disk. For tests.
     static func inMemory() throws -> ZenDatabase {
         let queue = try DatabaseQueue(configuration: configuration())
+        try queue.write { db in try SearchIndexDatabase.attach(path: ":memory:", to: db) }
         try Migrations.makeMigrator().migrate(queue)
-        return ZenDatabase(dbQueue: queue)
+        try queue.write { db in
+            try SearchIndexDatabase.installSchema(in: db)
+            try SearchIndexDatabase.installMutationTriggers(in: db)
+            try SearchIndexDatabase.reconcileFullTextIndex(in: db)
+        }
+        return ZenDatabase(dbQueue: queue, searchIndexPath: nil)
     }
 
     private static func configuration() -> Configuration {

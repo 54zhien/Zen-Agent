@@ -5,13 +5,19 @@ struct ConversationSearchView: View {
     @Bindable var model: ConversationSearchModel
     let onClose: () -> Void
     let onSelect: (String) -> Void
+    let onOpenSemanticSearch: () -> Void
     @State private var inputFocus = SearchQueryFocus()
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
-                Text("搜索会话").font(Typography.font(for: .interfaceTitle, dynamicTypeSize: dynamicTypeSize))
+                HStack {
+                    Text("搜索会话").font(Typography.font(for: .interfaceTitle, dynamicTypeSize: dynamicTypeSize))
+                    Spacer()
+                    Button("语义搜索", action: onOpenSemanticSearch)
+                        .accessibilityIdentifier("open-semantic-search")
+                }
                 if model.query.split(whereSeparator: \.isWhitespace).isEmpty {
                     Text("按会话标题和消息内容搜索").foregroundStyle(.secondary)
                 } else if model.items.isEmpty, !model.isLoading, model.errorMessage == nil {
@@ -119,5 +125,101 @@ struct ConversationSearchView: View {
             highlighted = highlighted + Text(String(snippet[start...])).foregroundColor(.secondary)
         }
         return highlighted
+    }
+}
+
+@MainActor
+struct ConversationSemanticSearchView: View {
+    @Bindable var model: ConversationSemanticSearchModel
+    let onClose: () -> Void
+    let onSelect: (String) -> Void
+    let onTextSearch: () -> Void
+    @FocusState private var inputIsFocused: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("语义搜索").font(Typography.font(for: .interfaceTitle, dynamicTypeSize: dynamicTypeSize))
+                    Spacer()
+                    Button("全文搜索", action: onTextSearch)
+                        .accessibilityIdentifier("open-full-text-search")
+                }
+                Text("提交后，已完成的可见用户与助手正文和查询词会发送到所选 OpenAI 账户。全文搜索仍保留在本机。")
+                    .foregroundStyle(.secondary)
+                if model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("输入一段描述，再手动提交搜索。编辑时不会发送查询或会话内容。")
+                        .foregroundStyle(.secondary)
+                } else if model.items.isEmpty, !model.isLoading, model.errorMessage == nil {
+                    Text("没有匹配的会话").foregroundStyle(.secondary)
+                }
+                ForEach(model.items) { result in
+                    let summary = result.summary
+                    Button { onSelect(summary.id) } label: {
+                        HStack(alignment: .top, spacing: 16) {
+                            Text(summary.excerpt.isEmpty ? summary.title : String(summary.excerpt.prefix(100)))
+                                .font(.system(size: 6)).lineLimit(5).foregroundStyle(.secondary)
+                                .padding(7).frame(width: 44, height: 58, alignment: .topLeading)
+                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(summary.title)
+                                if let snippet = result.matchSnippet {
+                                    Text(snippet).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                                }
+                                if summary.contentUnavailable {
+                                    Text("部分内容暂不可用").font(.caption).foregroundStyle(.secondary)
+                                }
+                                if summary.pinned {
+                                    Label("已置顶", systemImage: "pin.fill").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer(minLength: 0)
+                            if model.selectedID == summary.id { ProgressView() }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 5)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("semantic-search-result-\(summary.id)")
+                }
+                if model.isLoading { ProgressView() }
+                if let error = model.errorMessage {
+                    Text(error).foregroundStyle(.secondary)
+                    Button("重试") { Task { await model.submit() } }
+                }
+                if let error = model.selectionError { Text(error).foregroundStyle(.red) }
+            }
+            .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
+            .padding(24).padding(.top, 20)
+        }
+        .scrollEdgeEffectStyle(.soft, for: .all)
+        .scrollDismissesKeyboard(.interactively)
+        .safeAreaBar(edge: .bottom, spacing: 0) {
+            HStack(spacing: 8) {
+                TextField("描述想找的内容", text: $model.query, axis: .vertical)
+                    .lineLimit(1...4)
+                    .focused($inputIsFocused)
+                    .submitLabel(.search)
+                    .onSubmit { Task { await model.submit() } }
+                    .padding(12).background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    .accessibilityIdentifier("semantic-search-input")
+                Button("搜索") {
+                    inputIsFocused = false
+                    Task { await model.submit() }
+                }
+                .disabled(model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isLoading)
+                .accessibilityIdentifier("semantic-search-submit")
+                Button { inputIsFocused = false; onClose() } label: {
+                    Image(systemName: "xmark").frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("退出搜索").accessibilityIdentifier("semantic-search-close")
+            }
+            .padding(.horizontal, 16).padding(.vertical, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(uiColor: .systemBackground))
+        .onDisappear { model.invalidate() }
     }
 }

@@ -133,11 +133,22 @@ struct WorkspaceNavigationView<Content: View>: View {
                         }
                     }
                 if state.overlay == .search, let overlays, let id = state.overlayID {
-                    ConversationSearchView(model: overlays.search, onClose: { overlays.close(expectedID: id) },
-                        onSelect: { id in _ = overlays.select(id) })
-                        .id(id)
-                        .padding(.top, windowInsets.top)
-                        .transition(.opacity).zIndex(100)
+                    Group {
+                        if overlays.searchPresentation == .semantic {
+                            ConversationSemanticSearchView(model: overlays.semanticSearch,
+                                onClose: { overlays.close(expectedID: id) },
+                                onSelect: { resultID in _ = overlays.selectSemanticResult(resultID) },
+                                onTextSearch: { overlays.showFullTextSearch(expectedID: id) })
+                        } else {
+                            ConversationSearchView(model: overlays.search,
+                                onClose: { overlays.close(expectedID: id) },
+                                onSelect: { resultID in _ = overlays.select(resultID) },
+                                onOpenSemanticSearch: { overlays.showSemanticSearch(expectedID: id) })
+                        }
+                    }
+                    .id(id)
+                    .padding(.top, windowInsets.top)
+                    .transition(.opacity).zIndex(100)
                 }
                 if state.overlay == .files, let overlays, let catalog = overlays.files, let id = state.overlayID {
                     FilesWorkspaceView(model: catalog, onClose: { overlays.close(expectedID: id) })

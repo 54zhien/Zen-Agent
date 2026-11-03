@@ -21,6 +21,9 @@ struct SettingsWorkspaceView: View {
                     NavigationLink { SettingsModelsView(model: model) }
                         label: { Label("模型", systemImage: "list.bullet") }
                         .accessibilityIdentifier("settings-models")
+                    NavigationLink { VectorSearchSettingsView(model: model.vectorSearch) }
+                        label: { Label("语义搜索", systemImage: "sparkle.magnifyingglass") }
+                        .accessibilityIdentifier("settings-semantic-search")
                 }
                 Section("外观") {
                     NavigationLink { SettingsAppearanceView(model: model.appearance) }

@@ -4,7 +4,11 @@ import Observation
 @MainActor
 @Observable
 final class WorkspaceOverlayCoordinator {
+    enum SearchPresentation: Equatable { case fullText, semantic }
+
     let search: ConversationSearchModel
+    let semanticSearch: ConversationSemanticSearchModel
+    private(set) var searchPresentation: SearchPresentation = .fullText
     private(set) var files: FilesWorkspaceModel?
     private(set) var settings: SettingsWorkspaceModel?
     var availableRoutes: Set<WorkspaceOverlayRoute> {
@@ -20,6 +24,7 @@ final class WorkspaceOverlayCoordinator {
 
     init(store: PersistenceStore, shell: AppShellModel, navigation: WorkspaceNavigationState) {
         search = ConversationSearchModel(store: store)
+        semanticSearch = shell.makeConversationSemanticSearchModel()
         self.shell = shell; self.navigation = navigation
     }
 
@@ -32,7 +37,11 @@ final class WorkspaceOverlayCoordinator {
         let captured = captureFocus()
         guard navigation.present(route, available: true, eligible: eligible) else { captured?.cancel(); return }
         focus?.cancel(); focus = captured
-        if route == .search { search.query = "" }
+        if route == .search {
+            searchPresentation = .fullText
+            search.query = ""
+            semanticSearch.query = ""
+        }
         files = catalog
         settings = settingsModel
     }
@@ -53,7 +62,7 @@ final class WorkspaceOverlayCoordinator {
             navigation?.dismissOverlay()
             return
         }
-        search.invalidate()
+        search.invalidate(); semanticSearch.invalidate()
         files?.invalidate(); files = nil
         navigation?.dismissOverlay()
         // A Files route can close while the originating Settings sheet is
@@ -83,9 +92,31 @@ final class WorkspaceOverlayCoordinator {
         })
     }
 
+    func showSemanticSearch(expectedID: UUID) {
+        guard navigation?.overlay == .search, navigation?.overlayID == expectedID else { return }
+        search.invalidate()
+        searchPresentation = .semantic
+    }
+
+    func showFullTextSearch(expectedID: UUID) {
+        guard navigation?.overlay == .search, navigation?.overlayID == expectedID else { return }
+        semanticSearch.invalidate()
+        searchPresentation = .fullText
+    }
+
+    @discardableResult
+    func selectSemanticResult(_ id: String) -> Task<Void, Never> {
+        semanticSearch.select(id, open: { [weak shell] id in
+            await shell?.openActivePaneConversation(id: id) ?? false
+        }, onSuccess: { [weak self] in
+            self?.focus?.cancel()
+            self?.navigation?.dismissOverlay()
+        })
+    }
+
     func reset() {
         dismissingSettingsID = nil
-        search.invalidate(); files?.invalidate(); files = nil
+        search.invalidate(); semanticSearch.invalidate(); files?.invalidate(); files = nil
         settings?.invalidate(); settings = nil
         focus?.cancel(); focus = nil
     }

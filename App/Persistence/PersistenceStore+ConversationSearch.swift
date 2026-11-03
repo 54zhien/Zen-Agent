@@ -62,7 +62,7 @@ extension PersistenceStore {
         var predicate = "lifecycle = 'visible' AND (\(titlePredicate)"
         var arguments: StatementArguments = [needle]
         if let pattern {
-            predicate += " OR EXISTS (SELECT 1 FROM conversationSearchIndex WHERE conversationSearchIndex MATCH ('conversationKey:c' || lower(hex(conversation.id)) || ' text: ' || ?))"
+            predicate += " OR EXISTS (SELECT 1 FROM conversationSearch.conversationSearchIndex WHERE conversationSearch.conversationSearchIndex MATCH ('conversationKey:c' || lower(hex(conversation.id)) || ' text: ' || ?))"
             arguments += [pattern]
         }
         predicate += ")"
@@ -98,8 +98,8 @@ extension PersistenceStore {
         for conversationID in conversationIDs {
             guard let row = try Row.fetchOne(db, sql: """
                 SELECT snippet(conversationSearchIndex, ?, ?, ?, 4, 64) AS markedSnippet
-                FROM conversationSearchIndex
-                WHERE conversationSearchIndex MATCH (
+                FROM conversationSearch.conversationSearchIndex
+                WHERE conversationSearch.conversationSearchIndex MATCH (
                     'conversationKey:c' || lower(hex(?)) || ' text: ' || ?
                 )
                 ORDER BY docid

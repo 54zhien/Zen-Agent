@@ -9,6 +9,9 @@ struct SettingsStorageView: View {
                 if let size = model.footprint {
                     Section("本地记录") {
                         LabeledContent("数据库与 WAL/SHM", value: size.databaseBytes.map(bytes) ?? "内存数据库，未占用数据库文件")
+                        if let indexBytes = size.searchIndexBytes {
+                            LabeledContent("搜索索引与 WAL/SHM", value: bytes(indexBytes))
+                        }
                         LabeledContent("会话记录", value: String(size.conversations))
                         LabeledContent("消息", value: String(size.messages))
                         LabeledContent("请求快照", value: String(size.snapshots))
@@ -26,7 +29,7 @@ struct SettingsStorageView: View {
                 Section {
                     Button("刷新用量") { Task { await model.refresh() } }.disabled(model.isBusy)
                     Button("清理缓存") { Task { await model.clearCache() } }.disabled(model.isBusy)
-                } footer: { Text("只清理可重建的临时副本；正在使用的副本、会话草稿和托管文件继续保留。") }
+                } footer: { Text("只清理可重建的语义向量和临时副本；全文索引、会话正文、正在使用的副本和托管文件继续保留。") }
                 if model.isBusy { ProgressView() }
                 if let status = model.statusMessage { Text(status) }
                 if let error = model.errorMessage { Text(error).foregroundStyle(.red) }
@@ -45,6 +48,7 @@ struct SettingsPrivacyView: View {
             }
             Section("模型请求") {
                 Text("发送请求时，所选 Provider 接收该请求需要的内容。Workspace 文件存在与 Agent 读取权限分别管理。")
+                Text("语义搜索只在手动提交后，才把可见会话中已完成的用户与助手正文以及查询词发送到设置的 OpenAI 账户。生成的向量保存在本机可重建索引中并排除系统备份；原始会话正文仍保留在会话数据库。")
                 Text("启用记忆时，相关记忆会作为上下文发送给本轮所选 Provider。可在 Agent → 记忆查看、编辑、关闭或删除。删除会阻止后续请求继续使用已删除记忆；已发送的内容无法从 Provider 撤回，历史系统备份由系统管理。")
                 Text("启用 Skill 后，仅手动选择或与本轮输入相关的工作流进入请求；不会发送全部已启用定义。手动选择只用于下一次成功保存的发送。工作流和其中引用的普通环境变量会发送给该轮 Provider，工具仍受独立权限和审批约束。")
             }

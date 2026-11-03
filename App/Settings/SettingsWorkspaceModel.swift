@@ -21,6 +21,7 @@ final class SettingsWorkspaceModel {
     let tools: ToolSettingsModel
     let mcp: MCPSettingsModel
     let subagents: SubagentSettingsModel
+    let vectorSearch: VectorSearchSettingsModel
     let storage: SettingsStorageModel?
     private(set) var catalog: [SettingsProviderCatalog] = []
     private(set) var defaultTarget: AppExecutionTarget?
@@ -72,6 +73,7 @@ final class SettingsWorkspaceModel {
         mcp = MCPSettingsModel(registry: mcpRegistry, runtime: mcpRuntime, store: store,
             credentials: credentials, baseToolRegistry: toolRegistry, toolSettings: toolSettings)
         subagents = SubagentSettingsModel(store: store, providerRegistry: resolvedProviderRegistry, credentials: credentials)
+        vectorSearch = VectorSearchSettingsModel(store: store, credentials: credentials, defaults: defaults)
         storage = files.map { SettingsStorageModel(store: store, files: $0) }
         if let instance = defaults.string(forKey: AppShellModel.defaultInstanceIDKey),
            let model = defaults.string(forKey: AppShellModel.defaultModelIDKey) {
@@ -116,6 +118,7 @@ final class SettingsWorkspaceModel {
             }
         }
         await subagents.load()
+        await vectorSearch.load()
     }
 
     func setDefault(providerInstanceID: ProviderInstanceID, modelID: ModelID) async -> Bool {
@@ -206,5 +209,6 @@ final class SettingsWorkspaceModel {
         configurationSelection &+= 1; isConfiguringConversation = false
         soul.invalidate(); memory.invalidate(); skills.invalidate(); environment.invalidate()
         tools.invalidate(); mcp.invalidate(); subagents.invalidate(); storage?.invalidate()
+        vectorSearch.invalidate()
     }
 }
