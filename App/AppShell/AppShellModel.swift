@@ -299,11 +299,22 @@ final class AppShellModel {
     func openInSplitResult(id: String) async -> ConversationOpenOutcome {
         let cancelled = ConversationOpenOutcome.cancelled(conversationID: id)
         guard let split = splitWorkspace, !previewContent.isPresented,
-              id != split.sourceConversationID, let dependencies, !Task.isCancelled else { return cancelled }
+              id != split.sourceConversationID, let dependencies, !Task.isCancelled else {
+#if DEBUG
+            print("PAD_SPLIT_OPEN event=cancel_before_prepare splitPresent=\(splitWorkspace != nil) previewPresented=\(previewContent.isPresented) targetIsSource=\(splitWorkspace?.sourceConversationID == id) dependenciesPresent=\(self.dependencies != nil) taskCancelled=\(Task.isCancelled)")
+#endif
+            return cancelled
+        }
+#if DEBUG
+        print("PAD_SPLIT_OPEN event=begin previewPresented=\(previewContent.isPresented) targetAlreadySecondary=\(split.secondaryConversationID == id) sourcePanePresent=\(pane != nil) secondaryPanePresent=\(splitPane != nil)")
+#endif
         cancelConversationOpenSelection()
         cancelSplitSelection()
         if splitPane?.conversationID == id {
             selectSplitSlot(split.emptySlot)
+#if DEBUG
+            print("PAD_SPLIT_OPEN event=already_opened secondaryPanePresent=\(splitPane != nil) secondarySelected=\(splitWorkspace?.activeSlot == split.emptySlot)")
+#endif
             return .opened(conversationID: id)
         }
         let selection = splitSelectionID
@@ -320,6 +331,12 @@ final class AppShellModel {
                 && splitWorkspace?.secondaryConversationID == split.secondaryConversationID
                 && router === dependencies.router
         }
+#if DEBUG
+        func currentDiagnosticState() -> String {
+            let currentSplit = splitWorkspace
+            return "taskCancelled=\(Task.isCancelled) selectionMatches=\(splitSelectionID == selection) arrangementMatches=\(currentSplit?.arrangementID == split.arrangementID) sourceMatches=\(currentSplit?.sourceConversationID == split.sourceConversationID) secondaryMatches=\(currentSplit?.secondaryConversationID == split.secondaryConversationID) routerMatches=\(router === dependencies.router)"
+        }
+#endif
         func failed() -> ConversationOpenOutcome {
             guard isCurrent() else { return cancelled }
             let failure = RecentConversationOpenFailure(conversationID: id)
@@ -330,9 +347,23 @@ final class AppShellModel {
         do {
             let history = try await router.historyPreparation.prepare(id: id, store: dependencies.store)
             let warmOwner = sessions.uncommittedSession(for: id)
-            guard isCurrent(), router.acceptsPanePreparation(for: id, ticket: ticket) else { return cancelled }
-            guard history.snapshot.conversation?.lifecycle == .visible
-                    || (history.snapshot.conversation == nil && warmOwner != nil) else { return failed() }
+            let currentAfterHistory = isCurrent()
+            let ticketAcceptedAfterHistory = router.acceptsPanePreparation(for: id, ticket: ticket)
+            guard currentAfterHistory, ticketAcceptedAfterHistory else {
+#if DEBUG
+                print("PAD_SPLIT_OPEN event=cancel_after_history current=\(currentAfterHistory) ticketAccepted=\(ticketAcceptedAfterHistory) state={\(currentDiagnosticState())}")
+#endif
+                return cancelled
+            }
+            let snapshotLifecycle = history.snapshot.conversation?.lifecycle
+            let snapshotIsVisible = snapshotLifecycle == .visible
+            let warmOwnerPresent = warmOwner != nil
+            guard snapshotIsVisible || (snapshotLifecycle == nil && warmOwnerPresent) else {
+#if DEBUG
+                print("PAD_SPLIT_OPEN event=failed_history_visibility snapshotPresent=\(history.snapshot.conversation != nil) lifecycle=\(snapshotLifecycle.map(String.init(describing:)) ?? "nil") warmOwnerPresent=\(warmOwnerPresent)")
+#endif
+                return failed()
+            }
             let wiring = try ConversationPaneFactory(sessions: sessions).makePane(
                 id: id, initialTimeline: history.timeline, dependencies: dependencies,
                 target: target, snapshot: history.snapshot,
@@ -342,20 +373,51 @@ final class AppShellModel {
             // The asynchronous snapshot can precede a durable deletion. Recheck
             // current visibility without reading the full history a second time.
             let lifecycle = try dependencies.store.conversationLifecycle(id: id)
-            guard isCurrent(), router.acceptsPanePreparation(for: id, ticket: ticket) else { return cancelled }
-            guard lifecycle == .visible || (lifecycle == nil && warmOwner != nil),
-                  warmOwner == nil || wiring.pane.session === warmOwner else { return failed() }
-            guard router.registerPreparedPane(wiring.pane, ticket: ticket) else { return failed() }
-            guard isCurrent(), var committed = splitWorkspace else {
+            let currentAfterFactory = isCurrent()
+            let ticketAcceptedAfterFactory = router.acceptsPanePreparation(for: id, ticket: ticket)
+            guard currentAfterFactory, ticketAcceptedAfterFactory else {
+#if DEBUG
+                print("PAD_SPLIT_OPEN event=cancel_after_factory current=\(currentAfterFactory) ticketAccepted=\(ticketAcceptedAfterFactory) state={\(currentDiagnosticState())}")
+#endif
+                return cancelled
+            }
+            let lifecycleIsVisible = lifecycle == .visible
+            let ownerMatches = warmOwner == nil || wiring.pane.session === warmOwner
+            guard lifecycleIsVisible || (lifecycle == nil && warmOwnerPresent), ownerMatches else {
+#if DEBUG
+                print("PAD_SPLIT_OPEN event=failed_registration_visibility lifecycle=\(String(describing: lifecycle)) warmOwnerPresent=\(warmOwnerPresent) ownerMatches=\(ownerMatches)")
+#endif
+                return failed()
+            }
+            let registered = router.registerPreparedPane(wiring.pane, ticket: ticket)
+            guard registered else {
+#if DEBUG
+                print("PAD_SPLIT_OPEN event=failed_pane_registration")
+#endif
+                return failed()
+            }
+            let currentAfterRegistration = isCurrent()
+            guard currentAfterRegistration, var committed = splitWorkspace else {
+#if DEBUG
+                print("PAD_SPLIT_OPEN event=cancel_after_registration current=\(currentAfterRegistration) splitPresent=\(splitWorkspace != nil) state={\(currentDiagnosticState())}")
+#endif
                 router.unregisterPane(for: id)
                 return cancelled
             }
-            guard committed.occupy(id) else {
+            let occupied = committed.occupy(id)
+            guard occupied else {
+#if DEBUG
+                print("PAD_SPLIT_OPEN event=failed_split_occupancy secondaryAlreadyAssigned=\(committed.secondaryConversationID != nil)")
+#endif
                 router.unregisterPane(for: id)
                 return failed()
             }
-            guard sessions.activate(wiring.pane.session, alongside: split.sourceConversationID,
-                                    isRuntimeProtected: router.hasActiveRun(for:)) else {
+            let activated = sessions.activate(wiring.pane.session, alongside: split.sourceConversationID,
+                                               isRuntimeProtected: router.hasActiveRun(for:))
+            guard activated else {
+#if DEBUG
+                print("PAD_SPLIT_OPEN event=failed_session_activation")
+#endif
                 router.unregisterPane(for: id)
                 return failed()
             }
@@ -365,10 +427,23 @@ final class AppShellModel {
             splitWorkspace = committed
             splitOpenError = nil
             splitOpenRetryID = nil
+#if DEBUG
+            print("PAD_SPLIT_OPEN event=opened sourcePanePresent=\(pane != nil) secondaryPanePresent=\(splitPane != nil) splitPresent=\(splitWorkspace != nil) secondaryAssigned=\(splitWorkspace?.secondaryConversationID != nil)")
+#endif
             return .opened(conversationID: id)
         } catch {
-            guard !(error is CancellationError), isCurrent(),
-                  router.acceptsPanePreparation(for: id, ticket: ticket) else { return cancelled }
+            let cancellationError = error is CancellationError
+            let currentAfterError = isCurrent()
+            let ticketAcceptedAfterError = router.acceptsPanePreparation(for: id, ticket: ticket)
+            guard !cancellationError, currentAfterError, ticketAcceptedAfterError else {
+#if DEBUG
+                print("PAD_SPLIT_OPEN event=cancel_after_error cancellationError=\(cancellationError) current=\(currentAfterError) ticketAccepted=\(ticketAcceptedAfterError) errorType=\(String(reflecting: type(of: error))) state={\(currentDiagnosticState())}")
+#endif
+                return cancelled
+            }
+#if DEBUG
+            print("PAD_SPLIT_OPEN event=failed_error errorType=\(String(reflecting: type(of: error)))")
+#endif
             return failed()
         }
     }

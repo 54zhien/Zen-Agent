@@ -19,7 +19,16 @@ final class WorkspacePadAxisUITests: XCTestCase {
         let history = app.buttons["split-history-preview-ui-10"]
         XCTAssertTrue(history.waitForExistence(timeout: 10))
         history.tap()
-        XCTAssertTrue(app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch.waitForExistence(timeout: 10))
+        let secondaryPane = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch
+        let secondaryPaneAppeared = secondaryPane.waitForExistence(timeout: 10)
+        if !secondaryPaneAppeared {
+            let sourcePaneExists = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch.exists
+            let pickerExists = app.descendants(matching: .any)["split-empty-pane-picker"].exists
+            let secondaryProbeExists = app.descendants(matching: .any)["split-secondary-native-interaction-probe"].exists
+            let dividerExists = app.descendants(matching: .any)["split-divider-handle"].exists
+            print("PAD_SPLIT_AX targetPane=false sourcePane=\(sourcePaneExists) picker=\(pickerExists) secondaryProbe=\(secondaryProbeExists) divider=\(dividerExists)")
+        }
+        XCTAssertTrue(secondaryPaneAppeared)
         let source = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-11").firstMatch
         let other = app.scrollViews.matching(identifier: "conversation-pane-preview-ui-10").firstMatch
         // Each AX request can block independently on a busy simulator. Observe

@@ -956,7 +956,23 @@ private struct WorkspaceSplitPickerContent: View {
                 hasMore: model.recentHasMore,
                 onLoadMore: model.loadMoreRecentConversations,
                 onRetry: { Task { await model.retrySplitPicker() } },
-                onOpen: { id in Task { _ = await model.openInSplitResult(id: id) } },
+                onOpen: { id in
+#if DEBUG
+                    print("PAD_SPLIT_UI event=picker_tapped")
+#endif
+                    Task {
+                        let outcome = await model.openInSplitResult(id: id)
+#if DEBUG
+                        let resultKind: String
+                        switch outcome {
+                        case .opened: resultKind = "opened"
+                        case .cancelled: resultKind = "cancelled"
+                        case .failed: resultKind = "failed"
+                        }
+                        print("PAD_SPLIT_UI event=picker_result kind=\(resultKind) splitPresent=\(model.splitWorkspace != nil) sourcePanePresent=\(model.pane != nil) secondaryPanePresent=\(model.splitPane != nil) secondaryAssigned=\(model.splitWorkspace?.secondaryConversationID != nil)")
+#endif
+                    }
+                },
                 onNew: { _ = model.createNewInSplit() })
                 .preferredColorScheme(model.appearance.appearance.colorScheme)
         }
