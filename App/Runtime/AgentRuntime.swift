@@ -543,7 +543,7 @@ actor AgentRuntime {
             var messages = batch.requestBeforeBatch.messages
             messages.append(.assistant(
                 content: batch.assistantContent,
-                reasoning: nil,
+                reasoning: batch.assistantReasoning,
                 toolCalls: batch.providerCalls
             ))
             for (call, result) in zip(batch.providerCalls, results) {
@@ -764,6 +764,7 @@ actor AgentRuntime {
                 }
 
                 var pendingToolCalls: [ProviderToolCall] = []
+                var assistantReasoning = ""
                 var terminal = false
                 var providerFinished = false
 
@@ -811,7 +812,8 @@ actor AgentRuntime {
                                 )
                             }
 
-                        case .reasoningDelta:
+                        case .reasoningDelta(let delta):
+                            assistantReasoning += delta
                             try await ensureStreaming(
                                 runID: runID,
                                 continuation: continuation,
@@ -978,6 +980,7 @@ actor AgentRuntime {
                     }
                     let transcript = ToolCallProtocolTranscript(
                         assistantContent: assistantContent,
+                        assistantReasoning: assistantReasoning.isEmpty ? nil : assistantReasoning,
                         calls: batch.calls
                     )
                     let encodedTranscript = String(
@@ -989,6 +992,7 @@ actor AgentRuntime {
                         runID: runID,
                         currentRequest: currentRequest,
                         assistantContent: assistantContent,
+                        assistantReasoning: assistantReasoning.isEmpty ? nil : assistantReasoning,
                         batch: batch,
                         snapshot: snapshot,
                         continuation: continuation,
@@ -1321,6 +1325,7 @@ actor AgentRuntime {
         runID: String,
         currentRequest: ProviderChatRequest,
         assistantContent: String?,
+        assistantReasoning: String?,
         batch: ActiveToolBatch,
         snapshot: RunExecutionSnapshot,
         continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
@@ -1346,6 +1351,7 @@ actor AgentRuntime {
                 runID: runID,
                 currentRequest: currentRequest,
                 assistantContent: assistantContent,
+                assistantReasoning: assistantReasoning,
                 batch: batch,
                 continuation: continuation,
                 project: project
@@ -1479,7 +1485,7 @@ actor AgentRuntime {
         messages.append(
             .assistant(
                 content: assistantContent,
-                reasoning: nil,
+                reasoning: assistantReasoning,
                 toolCalls: batch.calls
             )
         )
@@ -1520,6 +1526,7 @@ actor AgentRuntime {
         runID: String,
         currentRequest: ProviderChatRequest,
         assistantContent: String?,
+        assistantReasoning: String?,
         batch: ActiveToolBatch,
         continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation,
         project: @escaping AgentEventProjection
@@ -1681,7 +1688,7 @@ actor AgentRuntime {
         }
 
         var messages = currentRequest.messages
-        messages.append(.assistant(content: assistantContent, reasoning: nil, toolCalls: batch.calls))
+        messages.append(.assistant(content: assistantContent, reasoning: assistantReasoning, toolCalls: batch.calls))
         for completed in completedCalls {
             guard let result = completed.result else {
                 throw ProviderRuntimeFailure.toolsNotAvailable

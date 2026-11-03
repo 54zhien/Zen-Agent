@@ -7,6 +7,7 @@ extension ProviderID {
         switch rawValue {
         case Self.deepSeek.rawValue: return "DeepSeek"
         case Self.openAI.rawValue: return "OpenAI"
+        case Self.glm.rawValue: return "GLM"
         default: return rawValue
         }
     }
