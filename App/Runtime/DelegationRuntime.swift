@@ -604,6 +604,7 @@ actor DelegationRuntime {
 
     static func isParentOnlyTool(_ descriptor: ToolDescriptor) -> Bool {
         descriptor.id == CalendarEventsTool.toolID
+            || descriptor.id == RemindersTool.toolID
     }
 
     private static func toolExposures(from registry: ToolRegistry) -> [ToolExposureSnapshot] {
