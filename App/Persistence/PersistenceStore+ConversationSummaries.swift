@@ -143,16 +143,16 @@ extension PersistenceStore {
             nextCursor: rows.count > count ? items.last?.cursor : nil)
     }
 
-    func conversationSummaryWindow(ids: [String]) throws -> [ConversationSummary] {
+    func conversationSummaryWindow(ids: [String], limit: Int = 4) throws -> [ConversationSummary] {
         var unique: [String] = []
         for id in ids where !unique.contains(id) {
             unique.append(id)
-            if unique.count == 4 { break }
+            if unique.count == limit { break }
         }
         guard !unique.isEmpty else { return [] }
         let placeholders = Array(repeating: "?", count: unique.count).joined(separator: ",")
         let rows = try summaryRows(predicate: "lifecycle = 'visible' AND id IN (\(placeholders))",
-            limit: 4, arguments: StatementArguments(unique))
+            limit: unique.count, arguments: StatementArguments(unique))
         let byID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
         return unique.compactMap { byID[$0] }
     }

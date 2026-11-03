@@ -10,10 +10,11 @@ struct ConversationSearchModelTests {
         let submissions = SemanticSearchSubmissionRecorder()
         let account = ProviderInstanceID(rawValue: "selected-openai")
         let resultPage = page("semantic-result")
-        let model = ConversationSemanticSearchModel(selectedAccount: { account }, reader: { query, provider in
-            await submissions.record(query: query, provider: provider)
-            return resultPage
-        })
+        let model = ConversationSemanticSearchModel(selectedAccount: { account },
+            selectedEndpointAddress: { _ in "api.openai.com:443" }, reader: { query, provider in
+                await submissions.record(query: query, provider: provider)
+                return resultPage
+            })
 
         model.query = "find the mountain trip"
         await Task.yield()
@@ -25,6 +26,68 @@ struct ConversationSearchModelTests {
         #expect(afterSubmit.map(\.query) == ["find the mountain trip"])
         #expect(afterSubmit.map(\.provider) == [account])
         #expect(model.items.map(\.id) == ["semantic-result"])
+    }
+
+    @Test("semantic search endpoint follows the selected account and its current address")
+    func semanticSearchEndpointRefreshesBeforePublication() async {
+        let firstAccount = ProviderInstanceID(rawValue: "first-openai")
+        let secondAccount = ProviderInstanceID(rawValue: "second-openai")
+        var selectedAccount = firstAccount
+        var endpoints = [firstAccount: "api.openai.com:443", secondAccount: "proxy.example.test:8443"]
+        let resultPage = page("result")
+        let model = ConversationSemanticSearchModel(
+            selectedAccount: { selectedAccount },
+            selectedEndpointAddress: { endpoints[$0] },
+            reader: { _, _ in resultPage }
+        )
+
+        model.refreshEndpointAddress()
+        #expect(model.endpointAddress == "api.openai.com:443")
+        selectedAccount = secondAccount
+        model.refreshEndpointAddress()
+        #expect(model.endpointAddress == "proxy.example.test:8443")
+        endpoints[secondAccount] = "updated.example.test:9443"
+        model.query = "find the note"
+        await model.submit()
+        #expect(model.endpointAddress == "updated.example.test:9443")
+    }
+
+    @Test("semantic search account options show the effective endpoint after an account edit")
+    @MainActor
+    func accountOptionsRefreshTheEndpointPort() async throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        let credentials = CredentialStore(
+            secrets: InMemorySecretBackend(),
+            metadataRepository: InMemoryCredentialMetadataRepository()
+        )
+        let suiteName = "semantic-search-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let instance = ProviderInstance(
+            id: ProviderInstanceID(rawValue: "endpoint-account"),
+            providerID: .openAI,
+            displayName: "Endpoint account",
+            baseURL: nil,
+            configRevision: .initial,
+            credentialReference: nil
+        )
+        try store.createProviderInstance(instance)
+        let model = VectorSearchSettingsModel(store: store, credentials: credentials, defaults: defaults)
+
+        await model.load()
+        #expect(model.accounts.first?.title == "Endpoint account · api.openai.com:443 · 未配置凭据")
+        model.selectAccount(instance.id)
+        #expect(defaults.string(forKey: VectorSearchSettingsModel.selectedAccountKey) == instance.id.rawValue)
+
+        try store.reconfigureProviderInstance(
+            id: instance.id,
+            displayName: instance.displayName,
+            baseURL: URL(string: "https://proxy.example.test:9443/v1"),
+            expectedEditRevision: instance.editRevision
+        )
+        await model.load()
+        #expect(model.accounts.first?.title == "Endpoint account · proxy.example.test:9443 · 未配置凭据")
+        #expect(model.selectedProviderInstanceID == instance.id)
     }
 
     @Test func lateReadCannotReplaceANewerQuery() async {

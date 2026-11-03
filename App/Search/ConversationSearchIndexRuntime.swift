@@ -198,7 +198,7 @@ struct ConversationSearchIndexRuntime: Sendable {
         }
         let summaries: [ConversationSummary]
         do {
-            summaries = try store.conversationSummaryWindow(ids: ranked.map(\.key))
+            summaries = try store.conversationSummaryWindow(ids: ranked.map(\.key), limit: 50)
         } catch {
             throw ConversationSemanticSearchFailure.storageUnavailable
         }

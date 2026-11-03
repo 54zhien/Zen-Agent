@@ -100,6 +100,11 @@ final class AppShellModel {
                 return nil
             }
             return ProviderInstanceID(rawValue: rawValue)
+        }, selectedEndpointAddress: { [weak self] providerInstanceID in
+            guard let store = self?.dependencies?.store,
+                  let instance = try? store.providerInstance(id: providerInstanceID),
+                  instance.providerID == .openAI else { return nil }
+            return VectorSearchEndpoint.authority(for: instance)
         }, reader: { query, providerInstanceID in
             guard let runtime else { throw ConversationSemanticSearchFailure.providerUnavailable }
             return try await runtime.search(query: query, providerInstanceID: providerInstanceID)

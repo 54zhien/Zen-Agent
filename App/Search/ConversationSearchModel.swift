@@ -106,6 +106,7 @@ final class ConversationSearchModel {
 final class ConversationSemanticSearchModel {
     typealias Reader = @Sendable (String, ProviderInstanceID) async throws -> ConversationSearchPage
     typealias AccountResolver = @MainActor () -> ProviderInstanceID?
+    typealias EndpointResolver = @MainActor (ProviderInstanceID) -> String?
 
     var query = "" {
         didSet {
@@ -119,17 +120,30 @@ final class ConversationSemanticSearchModel {
     private(set) var errorMessage: String?
     private(set) var selectionError: String?
     private(set) var selectedID: String?
+    private(set) var endpointAddress: String?
     @ObservationIgnored private let reader: Reader
     @ObservationIgnored private let selectedAccount: AccountResolver
+    @ObservationIgnored private let selectedEndpointAddress: EndpointResolver
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var operation: UUID?
     @ObservationIgnored private var worker: Task<ConversationSearchPage, Error>?
     @ObservationIgnored private var selection: Task<Void, Never>?
     @ObservationIgnored private var selectionID: UUID?
 
-    init(selectedAccount: @escaping AccountResolver, reader: @escaping Reader) {
+    init(selectedAccount: @escaping AccountResolver,
+         selectedEndpointAddress: @escaping EndpointResolver = { _ in nil },
+         reader: @escaping Reader) {
         self.selectedAccount = selectedAccount
+        self.selectedEndpointAddress = selectedEndpointAddress
         self.reader = reader
+    }
+
+    func refreshEndpointAddress() {
+        guard let account = selectedAccount() else {
+            endpointAddress = nil
+            return
+        }
+        endpointAddress = selectedEndpointAddress(account)
     }
 
     func submit() async {
@@ -137,10 +151,18 @@ final class ConversationSemanticSearchModel {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
         guard let account = selectedAccount() else {
+            endpointAddress = nil
             items = []
             errorMessage = "请先在设置中选择已配置凭据的 OpenAI 账户。"
             return
         }
+        guard let endpointAddress = selectedEndpointAddress(account) else {
+            self.endpointAddress = nil
+            items = []
+            errorMessage = "当前 OpenAI 请求地址无法读取，未发送查询和会话内容。"
+            return
+        }
+        self.endpointAddress = endpointAddress
 
         let generation = generation
         let id = UUID()

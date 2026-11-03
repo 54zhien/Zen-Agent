@@ -148,6 +148,8 @@ struct ConversationSemanticSearchView: View {
                 }
                 Text("提交后，已完成的可见用户与助手正文和查询词会发送到所选 OpenAI 账户。全文搜索仍保留在本机。")
                     .foregroundStyle(.secondary)
+                Text(model.endpointAddress.map { "当前请求地址：\($0)" } ?? "请在设置中选择 OpenAI 账户以查看请求地址。")
+                    .foregroundStyle(.secondary)
                 if model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text("输入一段描述，再手动提交搜索。编辑时不会发送查询或会话内容。")
                         .foregroundStyle(.secondary)
@@ -209,7 +211,8 @@ struct ConversationSemanticSearchView: View {
                     inputIsFocused = false
                     Task { await model.submit() }
                 }
-                .disabled(model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isLoading)
+                .disabled(model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || model.isLoading || model.endpointAddress == nil)
                 .accessibilityIdentifier("semantic-search-submit")
                 Button { inputIsFocused = false; onClose() } label: {
                     Image(systemName: "xmark").frame(width: 44, height: 44)
@@ -220,6 +223,7 @@ struct ConversationSemanticSearchView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: .systemBackground))
+        .onAppear { model.refreshEndpointAddress() }
         .onDisappear { model.invalidate() }
     }
 }

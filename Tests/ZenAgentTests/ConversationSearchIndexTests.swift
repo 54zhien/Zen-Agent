@@ -202,6 +202,42 @@ struct ConversationSearchIndexTests {
         }))
     }
 
+    @Test("semantic ranking keeps fifty-result capacity beyond the preview window")
+    func semanticSearchReturnsRankedResultsPastPreviewWindow() async throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        let reference = CredentialReference(id: "semantic-window-key")
+        let credentials = CredentialStore(
+            secrets: InMemorySecretBackend(),
+            metadataRepository: InMemoryCredentialMetadataRepository()
+        )
+        try credentials.provision(SecretValue("semantic-window-secret"), as: reference)
+        let instance = ProviderInstance(
+            id: ProviderInstanceID(rawValue: "semantic-window-account"),
+            providerID: .openAI,
+            displayName: "Existing OpenAI account",
+            baseURL: nil,
+            configRevision: .initial,
+            credentialReference: reference
+        )
+        try store.createProviderInstance(instance)
+        let rankedIDs = (0..<6).map { "rank-\($0)" }
+        try store.database.write { db in
+            for id in rankedIDs {
+                try Fixtures.conversation(id: id).insert(db)
+                try Fixtures.message(id: "message-\(id)", conversationID: id, role: .user).insert(db)
+                let text = id == "rank-0" ? "mountain trail notes" : "unrelated notes for \(id)"
+                try Fixtures.textPart(id: "part-\(id)", messageID: "message-\(id)", text: text).insert(db)
+            }
+        }
+
+        let provider = SemanticTestEmbeddingProvider(recorder: SemanticEmbeddingCallRecorder())
+        let runtime = ConversationSearchIndexRuntime(store: store, embeddingProvider: provider, credentials: credentials)
+        let page = try await runtime.search(query: "find a mountain trail", providerInstanceID: instance.id)
+
+        #expect(page.items.count == 6)
+        #expect(page.items.map(\.id) == ["rank-0", "rank-1", "rank-2", "rank-3", "rank-4", "rank-5"])
+    }
+
     @Test("OpenAI embeddings use the existing account and map results by response index")
     func openAIEmbeddingRequestUsesFrozenCredential() async throws {
         let transport = FakeHTTPTransport()

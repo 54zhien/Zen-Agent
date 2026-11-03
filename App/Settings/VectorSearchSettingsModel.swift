@@ -6,7 +6,17 @@ struct VectorSearchAccountOption: Equatable, Identifiable, Sendable {
     let credentialStatus: String
 
     var id: ProviderInstanceID { instance.id }
-    var title: String { "\(instance.displayName) · \(credentialStatus)" }
+    var endpointAddress: String { VectorSearchEndpoint.authority(for: instance) }
+    var title: String { "\(instance.displayName) · \(endpointAddress) · \(credentialStatus)" }
+}
+
+enum VectorSearchEndpoint {
+    static func authority(for instance: ProviderInstance) -> String {
+        let url = OpenAIProvider.resolvedEndpoint(for: instance)
+        let port = url.port ?? (url.scheme == "http" ? 80 : 443)
+        let host = url.host!
+        return "\(host):\(port)"
+    }
 }
 
 @MainActor
