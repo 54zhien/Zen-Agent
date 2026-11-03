@@ -6,7 +6,10 @@ import UIKit
 private final class DividerInitialTouch: UITouch {
     let point: CGPoint
     init(point: CGPoint) { self.point = point; super.init() }
-    override func location(in view: UIView?) -> CGPoint { point }
+    override func location(in view: UIView?) -> CGPoint {
+        guard let view else { return point }
+        return view.convert(point, from: view.window)
+    }
 }
 
 @MainActor
