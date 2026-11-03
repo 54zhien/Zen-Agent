@@ -158,8 +158,12 @@ struct AppAssembly {
             AnthropicProvider(transport: providerTransport),
         ])
         let managedFiles = try ManagedFileStore.applicationDefault()
-        let toolRegistry = try ToolRegistry(tools: [CalculatorTool(), CurrentDateTool(), DeviceInfoTool(),
-            CalendarEventsTool(), FilesTool(files: managedFiles, store: store, sessions: sessions)])
+        let localTimeZone = TimeZone.current
+        let toolRegistry = try ToolRegistry(tools: [
+            CalculatorTool(), CurrentDateTool(timeZone: localTimeZone), DeviceInfoTool(),
+            CalendarEventsTool(), RemindersTool(timeZone: localTimeZone),
+            FilesTool(files: managedFiles, store: store, sessions: sessions),
+        ])
         let mcpRegistry = MCPServerRegistry(store: store)
         let mcpRuntime = MCPServerRuntime(
             registry: mcpRegistry,
