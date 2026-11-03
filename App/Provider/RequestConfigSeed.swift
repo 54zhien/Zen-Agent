@@ -195,14 +195,16 @@ extension RequestConfigSeed {
         instance: ProviderInstance,
         modelID: ModelID,
         credentialBinding: CredentialBindingSnapshot,
-        resolvedEndpoint: URL
+        resolvedEndpoint: URL,
+        maxOutputTokens: Int? = nil
     ) {
         self.init(
             providerInstanceID: instance.id,
             modelID: modelID,
             providerConfigRevision: instance.configRevision,
             credentialBinding: credentialBinding,
-            resolvedEndpoint: resolvedEndpoint
+            resolvedEndpoint: resolvedEndpoint,
+            maxOutputTokens: maxOutputTokens
         )
     }
 }
