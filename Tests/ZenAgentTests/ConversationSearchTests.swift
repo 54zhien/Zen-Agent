@@ -30,8 +30,13 @@ struct ConversationSearchTests {
                 try Fixtures.conversation(id: id, title: id == "manual" ? "Manual chosen name" : "").insert(db)
                 try Fixtures.message(id: "message-\(id)", conversationID: id).insert(db)
                 var part = Fixtures.textPart(id: "part-\(id)", messageID: "message-\(id)")
-                part.payload = try PersistenceStore.encodeTextPayload(.init(text:
-                    "  Unicode\u{3000}whitespace \n" + String(repeating: "A", count: 60) + " body-only-needle"))
+                let text: String
+                if id == "manual" {
+                    text = "manual-only body"
+                } else {
+                    text = "  Unicode\u{3000}whitespace \n" + String(repeating: "A", count: 60) + " body-only-needle"
+                }
+                part.payload = try PersistenceStore.encodeTextPayload(.init(text: text))
                 try part.insert(db)
             }
         }

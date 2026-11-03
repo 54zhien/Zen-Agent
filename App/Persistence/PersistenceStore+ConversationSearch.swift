@@ -97,22 +97,23 @@ extension PersistenceStore {
         var snippets: [String: ConversationSearchText.MatchSnippet] = [:]
         for conversationID in conversationIDs {
             guard let row = try Row.fetchOne(db, sql: """
-                SELECT json_extract(messagePart.payload, '$.text') AS rawText,
-                       offsets(conversationSearchIndex) AS matchOffsets
+                SELECT snippet(conversationSearchIndex, ?, ?, ?, 4, 64) AS markedSnippet
                 FROM conversationSearchIndex
-                JOIN messagePart ON messagePart.id = conversationSearchIndex.partID
                 WHERE conversationSearchIndex MATCH (
                     'conversationKey:c' || lower(hex(?)) || ' text: ' || ?
                 )
                 ORDER BY docid
                 LIMIT 1
-                """, arguments: [conversationID, pattern]) else { continue }
+                """, arguments: [
+                    ConversationSearchText.startMarker,
+                    ConversationSearchText.endMarker,
+                    ConversationSearchText.ellipsisMarker,
+                    conversationID,
+                    pattern,
+                ]) else { continue }
 
-            let rawText: String = row["rawText"]
-            let offsets: String = row["matchOffsets"]
-            if let snippet = ConversationSearchText(rawText).snippet(offsets: offsets, textColumnIndex: 4) {
-                snippets[conversationID] = snippet
-            }
+            let markedSnippet: String = row["markedSnippet"]
+            snippets[conversationID] = ConversationSearchText.snippet(from: markedSnippet)
         }
         return snippets
     }
