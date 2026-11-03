@@ -140,7 +140,7 @@ extension PersistenceStore {
     /// a property of the enum, rather than something each caller assembles and can get
     /// wrong.
     private enum InstanceMutation: Sendable {
-        case reconfigure(displayName: String, baseURL: URL?)
+        case reconfigure(displayName: String, baseURL: URL?, anthropicWorkspaceID: String?)
         case credential(CredentialReference?)
     }
 
@@ -155,11 +155,12 @@ extension PersistenceStore {
         on current: ProviderInstanceRecord
     ) throws -> [ColumnAssignment] {
         switch mutation {
-        case .reconfigure(let displayName, let baseURL):
+        case .reconfigure(let displayName, let baseURL, let anthropicWorkspaceID):
             let advanced = try ConfigRevision(rawValue: current.configRevision).next()
             return [
                 Column("displayName").set(to: displayName),
                 Column("baseURL").set(to: baseURL?.absoluteString),
+                Column("anthropicWorkspaceID").set(to: anthropicWorkspaceID),
                 Column("configRevision").set(to: advanced.rawValue),
             ]
         case .credential(let reference):
@@ -189,6 +190,7 @@ extension PersistenceStore {
         id: ProviderInstanceID,
         displayName: String,
         baseURL: URL?,
+        anthropicWorkspaceID: String? = nil,
         expectedEditRevision: ProviderInstanceEditRevision,
         at now: Date = Date()
     ) throws -> ProviderInstance {
@@ -196,7 +198,11 @@ extension PersistenceStore {
             id: id,
             expectedEditRevision: expectedEditRevision,
             at: now,
-            .reconfigure(displayName: displayName, baseURL: baseURL)
+            .reconfigure(
+                displayName: displayName,
+                baseURL: baseURL,
+                anthropicWorkspaceID: anthropicWorkspaceID
+            )
         )
     }
 
@@ -299,6 +305,7 @@ extension PersistenceStore {
             providerID: ProviderID(rawValue: record.providerID),
             displayName: record.displayName,
             baseURL: baseURL,
+            anthropicWorkspaceID: record.anthropicWorkspaceID,
             configRevision: ConfigRevision(rawValue: record.configRevision),
             editRevision: ProviderInstanceEditRevision(
                 rawValue: record.editRevision
@@ -328,6 +335,7 @@ extension PersistenceStore {
             providerID: instance.providerID.rawValue,
             displayName: instance.displayName,
             baseURL: instance.baseURL?.absoluteString,
+            anthropicWorkspaceID: instance.anthropicWorkspaceID,
             configRevision: instance.configRevision.rawValue,
             credentialID: instance.credentialReference?.id,
             credentialKind: instance.credentialReference?.kind.rawValue,
@@ -351,6 +359,7 @@ struct ProviderInstanceRecord: Codable, FetchableRecord, PersistableRecord, Send
     var providerID: String
     var displayName: String
     var baseURL: String?
+    var anthropicWorkspaceID: String?
     var configRevision: String
     var credentialID: String?
     var credentialKind: String?

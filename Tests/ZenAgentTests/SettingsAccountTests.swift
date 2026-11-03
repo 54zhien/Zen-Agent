@@ -90,6 +90,25 @@ struct SettingsAccountTests {
         #expect(editor.apiKey == "rejected-collision-fixture" && editor.errorMessage != nil)
     }
 
+    @Test("Anthropic Workspace ID saves as optional account configuration")
+    func anthropicWorkspaceIDIsSavedAndCanBeCleared() async throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        let credentials = CredentialStore(secrets: InMemorySecretBackend(), metadataRepository: store)
+        let instance = ProviderInstance(id: .init(rawValue: "anthropic-settings-account"),
+            providerID: .anthropic, displayName: "Anthropic", baseURL: nil,
+            configRevision: .initial)
+        try store.createProviderInstance(instance)
+        let editor = ProviderAccountSettingsModel(store: store, credentials: credentials, instance: instance)
+        editor.anthropicWorkspaceID = "wrkspc_settings"
+
+        await editor.saveConfiguration()
+
+        #expect(try store.providerInstance(id: instance.id)?.anthropicWorkspaceID == "wrkspc_settings")
+        editor.anthropicWorkspaceID = "  "
+        await editor.saveConfiguration()
+        #expect(try store.providerInstance(id: instance.id)?.anthropicWorkspaceID == nil)
+    }
+
     @Test("unsafe endpoints are rejected before a configuration mutation")
     func unsafeEndpointsNeverReplaceThePersistedEndpoint() async throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())

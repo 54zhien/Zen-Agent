@@ -6,6 +6,7 @@ import Observation
 final class ProviderAccountSettingsModel {
     var displayName: String
     var endpoint: String
+    var anthropicWorkspaceID: String
     var apiKey = ""
     private(set) var instance: ProviderInstance
     private(set) var isBusy = false
@@ -22,7 +23,9 @@ final class ProviderAccountSettingsModel {
         self.store = store; self.credentials = credentials; self.instance = instance
         self.makeCredentialReference = makeCredentialReference
         self.onCommitted = onCommitted
-        displayName = instance.displayName; endpoint = instance.baseURL?.absoluteString ?? ""
+        displayName = instance.displayName
+        endpoint = instance.baseURL?.absoluteString ?? ""
+        anthropicWorkspaceID = instance.anthropicWorkspaceID ?? ""
     }
 
     func saveConfiguration() async {
@@ -43,10 +46,15 @@ final class ProviderAccountSettingsModel {
         isBusy = true; errorMessage = nil; statusMessage = nil
         defer { isBusy = false }
         let store = store, accepted = instance
+        let submittedWorkspaceID = anthropicWorkspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workspaceID = accepted.providerID == .anthropic && !submittedWorkspaceID.isEmpty
+            ? submittedWorkspaceID
+            : nil
         do {
             instance = try await Task.detached {
                 try store.reconfigureProviderInstance(id: accepted.id, displayName: name,
-                    baseURL: url, expectedEditRevision: accepted.editRevision)
+                    baseURL: url, anthropicWorkspaceID: workspaceID,
+                    expectedEditRevision: accepted.editRevision)
             }.value
             statusMessage = "账户资料已保存。"
             await onCommitted(instance.id)

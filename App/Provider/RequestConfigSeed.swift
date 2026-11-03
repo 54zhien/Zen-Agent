@@ -30,15 +30,16 @@ struct CredentialBindingSnapshot: Codable, Sendable, Equatable {
 /// Persistence.
 ///
 /// Capability-validated request options are frozen here, independently of mutable
-/// Composer state. V2 records an effort override; v1 remains readable without one.
+/// Composer state. V2 records an effort override, v3 an output-token limit, and v4 an
+/// optional Anthropic workspace ID.
 struct RequestConfigSeed: Codable, Sendable, Equatable {
 
-    /// The format this build writes; version 1 remains readable without an effort override.
+    /// The format new request seeds use. Versions 1 through 3 remain readable.
     ///
     /// Exists so that "written by a build that predates versioning" and "written by this
     /// build and damaged since" are different diagnoses. Without it both look like a
     /// handful of missing keys, and the only honest report is a vague one.
-    static let currentFormatVersion = 2
+    static let currentFormatVersion = 4
 
     /// A payload this build cannot read as its own format.
     ///
@@ -81,7 +82,20 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
     /// Nil keeps the provider's default effort for this frozen request.
     var thinkingEffort: ThinkingEffort? = nil {
         didSet {
-            if thinkingEffort != nil, formatVersion == 1 { formatVersion = Self.currentFormatVersion }
+            if thinkingEffort != nil, formatVersion < 2 { formatVersion = 2 }
+        }
+    }
+    /// A provider-specific output cap frozen for this run. Nil means the provider's
+    /// protocol default, and older seed formats remain readable without one.
+    var maxOutputTokens: Int? = nil {
+        didSet {
+            if maxOutputTokens != nil, formatVersion < 3 { formatVersion = 3 }
+        }
+    }
+    /// Nil keeps workspace-scoped API keys on the provider's default workspace.
+    var anthropicWorkspaceID: String? = nil {
+        didSet {
+            if anthropicWorkspaceID != nil, formatVersion < 4 { formatVersion = 4 }
         }
     }
 
@@ -91,7 +105,9 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         modelID: ModelID,
         providerConfigRevision: ConfigRevision,
         credentialBinding: CredentialBindingSnapshot,
-        resolvedEndpoint: URL
+        resolvedEndpoint: URL,
+        maxOutputTokens: Int? = nil,
+        anthropicWorkspaceID: String? = nil
     ) {
         self.formatVersion = formatVersion
         self.providerInstanceID = providerInstanceID
@@ -99,6 +115,9 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         self.providerConfigRevision = providerConfigRevision
         self.credentialBinding = credentialBinding
         self.endpoint = resolvedEndpoint
+        self.maxOutputTokens = maxOutputTokens
+        self.anthropicWorkspaceID = anthropicWorkspaceID
+        if anthropicWorkspaceID != nil, self.formatVersion < 4 { self.formatVersion = 4 }
     }
 
     // MARK: - Versioned coding
@@ -111,6 +130,8 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         case credentialBinding
         case endpoint
         case thinkingEffort
+        case maxOutputTokens
+        case anthropicWorkspaceID
     }
 
     /// Reads the version before the payload, and refuses rather than guesses.
@@ -125,7 +146,7 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         guard let version = try? container.decode(Int.self, forKey: .formatVersion) else {
             throw FormatError.unversioned
         }
-        guard version == 1 || version == Self.currentFormatVersion else {
+        guard version >= 1, version <= Self.currentFormatVersion else {
             throw FormatError.unsupportedVersion(version)
         }
 
@@ -140,6 +161,12 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
             } else {
                 thinkingEffort = try container.decodeIfPresent(ThinkingEffort.self, forKey: .thinkingEffort)
             }
+            maxOutputTokens = version >= 3
+                ? try container.decodeIfPresent(Int.self, forKey: .maxOutputTokens)
+                : nil
+            anthropicWorkspaceID = version >= 4
+                ? try container.decodeIfPresent(String.self, forKey: .anthropicWorkspaceID)
+                : nil
         } catch {
             throw FormatError.malformedCurrentVersion(version)
         }
@@ -155,6 +182,8 @@ struct RequestConfigSeed: Codable, Sendable, Equatable {
         try container.encode(credentialBinding, forKey: .credentialBinding)
         try container.encode(endpoint, forKey: .endpoint)
         if formatVersion >= 2 { try container.encode(thinkingEffort, forKey: .thinkingEffort) }
+        if formatVersion >= 3 { try container.encode(maxOutputTokens, forKey: .maxOutputTokens) }
+        if formatVersion >= 4 { try container.encode(anthropicWorkspaceID, forKey: .anthropicWorkspaceID) }
     }
 }
 
@@ -181,14 +210,17 @@ extension RequestConfigSeed {
         instance: ProviderInstance,
         modelID: ModelID,
         credentialBinding: CredentialBindingSnapshot,
-        resolvedEndpoint: URL
+        resolvedEndpoint: URL,
+        maxOutputTokens: Int? = nil
     ) {
         self.init(
             providerInstanceID: instance.id,
             modelID: modelID,
             providerConfigRevision: instance.configRevision,
             credentialBinding: credentialBinding,
-            resolvedEndpoint: resolvedEndpoint
+            resolvedEndpoint: resolvedEndpoint,
+            maxOutputTokens: maxOutputTokens,
+            anthropicWorkspaceID: instance.anthropicWorkspaceID
         )
     }
 }

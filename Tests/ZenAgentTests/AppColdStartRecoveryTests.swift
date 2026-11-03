@@ -39,6 +39,83 @@ struct AppColdStartRecoveryTests {
         case rejectAfterReopen
     }
 
+    @Test("a reopened Run sends the Workspace ID frozen before account settings changed")
+    func anthropicWorkspaceSeedSurvivesReopen() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zen-anthropic-workspace-reopen-\(UUID().uuidString).sqlite")
+        let runID = "anthropic-workspace-\(UUID().uuidString)"
+        let instanceID = ProviderInstanceID(rawValue: "anthropic-workspace-\(UUID().uuidString)")
+        let reference = CredentialReference(id: "anthropic-workspace-cred-\(UUID().uuidString)")
+        let credentials = CredentialStore(
+            secrets: InMemorySecretBackend(),
+            metadataRepository: InMemoryCredentialMetadataRepository()
+        )
+        try credentials.provision(SecretValue("anthropic-workspace-test-key"), as: reference)
+        let transport = FakeHTTPTransport()
+        let provider = AnthropicProvider(transport: transport)
+        let workspaceAtSend = "wrkspc_at_send"
+
+        do {
+            let first = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+            let instance = ProviderInstance(
+                id: instanceID,
+                providerID: .anthropic,
+                displayName: "Anthropic",
+                baseURL: nil,
+                anthropicWorkspaceID: workspaceAtSend,
+                configRevision: .initial,
+                credentialReference: reference
+            )
+            try first.createProviderInstance(instance)
+            let metadata = try #require(try credentials.metadata(for: reference))
+            var commit = Fixtures.send(
+                conversationID: "conversation-\(runID)",
+                messageID: "user-\(runID)",
+                runID: runID,
+                runState: .suspended
+            )
+            commit.run.requestConfigSeed = try provider.makeRequestConfigSeed(
+                instance: instance,
+                modelID: AnthropicProvider.defaultModelID,
+                credentialBinding: CredentialBindingSnapshot(
+                    reference: metadata.reference,
+                    generation: metadata.bindingGeneration
+                )
+            )
+            try first.commitUserTurnAndCreateParentRun(commit)
+
+            let accepted = try #require(try first.providerInstance(id: instanceID))
+            _ = try first.reconfigureProviderInstance(
+                id: instanceID,
+                displayName: accepted.displayName,
+                baseURL: accepted.baseURL,
+                anthropicWorkspaceID: "wrkspc_current",
+                expectedEditRevision: accepted.editRevision
+            )
+        }
+
+        let reopened = PersistenceStore(database: try ZenDatabase.open(at: url.path))
+        let frozenRun = try #require(try reopened.run(id: runID))
+        #expect(frozenRun.requestConfigSeed.anthropicWorkspaceID == workspaceAtSend)
+        #expect(try reopened.providerInstance(id: instanceID)?.anthropicWorkspaceID == "wrkspc_current")
+
+        transport.enqueueStream([
+            "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n",
+            "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n",
+            "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+        ])
+        let stream = try await provider.stream(
+            ProviderChatRequest(
+                modelID: AnthropicProvider.defaultModelID,
+                messages: [.user("Continue the frozen request.")]
+            ),
+            seed: frozenRun.requestConfigSeed,
+            credentials: credentials
+        )
+        for try await _ in stream {}
+        #expect(try #require(transport.lastRequest).headers["anthropic-workspace-id"] == workspaceAtSend)
+    }
+
     @Test("an old tool result cannot certify the newest provider step")
     func historicalToolBatchDoesNotResumeLatestStep() async throws {
         let url = FileManager.default.temporaryDirectory

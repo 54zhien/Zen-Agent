@@ -2,12 +2,14 @@ import Foundation
 
 extension ProviderID {
     static let openAI = ProviderID(rawValue: "openai")
+    static let anthropic = ProviderID(rawValue: "anthropic")
 
     var displayName: String {
         switch rawValue {
         case Self.deepSeek.rawValue: return "DeepSeek"
         case Self.openAI.rawValue: return "OpenAI"
         case Self.glm.rawValue: return "GLM"
+        case Self.anthropic.rawValue: return "Anthropic"
         default: return rawValue
         }
     }

@@ -144,6 +144,8 @@ struct ProviderInstance: Codable, Sendable, Equatable, Identifiable {
     /// Non-secret. Shown to the user; the seed records the endpoint selected from this
     /// setting or the provider default at Send for execution, provenance, and diagnostics.
     var baseURL: URL?
+    /// Optional Anthropic workspace scope, copied into each run's frozen request seed.
+    var anthropicWorkspaceID: String? = nil
     /// Bumped whenever any of the above changes.
     var configRevision: ConfigRevision
     /// The edit state this value was read at.

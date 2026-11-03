@@ -63,6 +63,7 @@ final class ProviderSetupModel {
         didSet { selectedModelID = models.first?.id }
     }
     var apiKey = ""
+    var anthropicWorkspaceID = ""
     private(set) var state: ProviderSetupState = .idle
     private(set) var errorMessage: String?
     private(set) var canAbandonAndCreateNew = false
@@ -237,6 +238,7 @@ final class ProviderSetupModel {
         didAttachCredential = false
         selectedModelID = models.first?.id
         apiKey = ""
+        anthropicWorkspaceID = ""
         state = .idle
         errorMessage = nil
         canAbandonAndCreateNew = false
@@ -250,7 +252,16 @@ final class ProviderSetupModel {
                     || existing.credentialReference == credentialReference else {
                 throw ProviderSetupFailure.instanceChanged
             }
-            return existing
+            let workspaceID = normalizedAnthropicWorkspaceID
+            guard existing.anthropicWorkspaceID != workspaceID else { return existing }
+            // A failed setup attempt may already own this row; apply the edited draft before resuming.
+            return try store.reconfigureProviderInstance(
+                id: existing.id,
+                displayName: existing.displayName,
+                baseURL: existing.baseURL,
+                anthropicWorkspaceID: workspaceID,
+                expectedEditRevision: existing.editRevision
+            )
         }
 
         let instance = draftInstance(credentialReference: nil)
@@ -304,12 +315,19 @@ final class ProviderSetupModel {
         )
     }
 
+    private var normalizedAnthropicWorkspaceID: String? {
+        guard selectedProviderID == .anthropic else { return nil }
+        let value = anthropicWorkspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
     private func draftInstance(credentialReference: CredentialReference?) -> ProviderInstance {
         ProviderInstance(
             id: instanceID,
             providerID: selectedProviderID,
             displayName: selectedProviderName,
             baseURL: nil,
+            anthropicWorkspaceID: normalizedAnthropicWorkspaceID,
             configRevision: .initial,
             editRevision: .initial,
             credentialReference: credentialReference
@@ -391,6 +409,18 @@ struct ProviderSetupView: View {
                 }
 
                 Section("API Key") {
+                    if model.selectedProviderID == .anthropic {
+                        if let settingsFocus {
+                            SettingsTextField(text: $model.anthropicWorkspaceID, title: "Workspace ID（可选）", focus: settingsFocus)
+                        } else {
+                            TextField("Workspace ID（可选）", text: $model.anthropicWorkspaceID)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                        }
+                        Text("已限定 Workspace 的 API Key 可留空；未限定的 API Key 需要填写 Workspace ID。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                     if let settingsFocus {
                         SettingsTextField(text: $model.apiKey, title: "\(model.selectedProviderName) API Key", focus: settingsFocus,
                             secure: true, identifier: "\(model.selectedProviderName) API Key")

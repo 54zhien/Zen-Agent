@@ -40,18 +40,39 @@ struct ThinkingEffortTests {
         let summary = try #require(fixture.store.conversationSummaryWindow(ids: [command.conversationID]).first)
         #expect(summary.thinkingEffort == .low)
     }
-    @Test("v1 request seeds remain readable and selected effort upgrades the seed")
-    func versionOneSeedRemainsReadable() throws {
+    @Test("v1 seeds remain readable and v2 effort seeds upgrade when output limits are frozen")
+    func legacySeedsUpgradeWithoutLosingFrozenFields() throws {
         let seed = Fixtures.run(id: "effort-legacy").requestConfigSeed
         var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(seed)) as? [String: Any])
         json["formatVersion"] = 1
         json.removeValue(forKey: "thinkingEffort")
+        json.removeValue(forKey: "maxOutputTokens")
 
         let legacy = try JSONDecoder().decode(RequestConfigSeed.self, from: JSONSerialization.data(withJSONObject: json))
         #expect(legacy.thinkingEffort == nil)
+        #expect(legacy.maxOutputTokens == nil)
+        #expect(legacy.anthropicWorkspaceID == nil)
         var selected = legacy
         selected.thinkingEffort = .high
         #expect(selected.formatVersion == 2)
         #expect(try JSONDecoder().decode(RequestConfigSeed.self, from: JSONEncoder().encode(selected)) == selected)
+
+        var v2JSON = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(selected)) as? [String: Any])
+        v2JSON.removeValue(forKey: "maxOutputTokens")
+        let v2 = try JSONDecoder().decode(RequestConfigSeed.self, from: JSONSerialization.data(withJSONObject: v2JSON))
+        #expect(v2.formatVersion == 2)
+        #expect(v2.thinkingEffort == .high)
+        #expect(v2.maxOutputTokens == nil)
+        #expect(v2.anthropicWorkspaceID == nil)
+
+        var frozen = v2
+        frozen.maxOutputTokens = 4096
+        #expect(frozen.formatVersion == 3)
+        #expect(frozen.anthropicWorkspaceID == nil)
+        #expect(try JSONDecoder().decode(RequestConfigSeed.self, from: JSONEncoder().encode(frozen)) == frozen)
+
+        frozen.anthropicWorkspaceID = "wrkspc_frozen"
+        #expect(frozen.formatVersion == 4)
+        #expect(try JSONDecoder().decode(RequestConfigSeed.self, from: JSONEncoder().encode(frozen)) == frozen)
     }
 }

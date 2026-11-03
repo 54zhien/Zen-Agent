@@ -128,6 +128,46 @@ struct ProviderSetupTests {
         #expect(setup.state == .complete)
     }
 
+    @Test("retry saves the edited Anthropic Workspace ID on the already-created account")
+    func retryUpdatesAnthropicWorkspaceDraft() throws {
+        let environment = try makeEnvironment()
+        defer { environment.defaults.removePersistentDomain(forName: environment.defaultsSuite) }
+        let anthropic = FakeProvider(
+            id: .anthropic,
+            modelNames: ["claude-sonnet-5"],
+            capabilities: [.text, .streaming, .tools]
+        )
+        let registry = try ModelProviderRegistry(providers: [environment.provider, anthropic])
+        let setup = ProviderSetupModel(
+            store: environment.store,
+            credentials: environment.credentials,
+            providerRegistry: registry,
+            userDefaults: environment.defaults
+        )
+        setup.selectedProviderID = .anthropic
+        setup.anthropicWorkspaceID = "wrkspc_first-draft"
+        let key = "anthropic-setup-retry-key-\(UUID().uuidString)"
+        setup.apiKey = key
+        let metadataRepository = try #require(environment.metadataRepository)
+        metadataRepository.failNextSave = true
+
+        #expect(!setup.save())
+        #expect(setup.didCreateInstance)
+        #expect(
+            try environment.store.providerInstance(id: setup.instanceID)?.anthropicWorkspaceID
+                == "wrkspc_first-draft"
+        )
+
+        setup.anthropicWorkspaceID = "wrkspc_retry-draft"
+        setup.apiKey = key
+        #expect(setup.save())
+        #expect(
+            try environment.store.providerInstance(id: setup.instanceID)?.anthropicWorkspaceID
+                == "wrkspc_retry-draft"
+        )
+        #expect(setup.isComplete)
+    }
+
     @Test("metadataWriteFailureCleansUnpublishedSecretAndResumesSameAttempt")
     func metadataWriteFailureCleansUnpublishedSecretAndResumesSameAttempt() throws {
         let environment = try makeEnvironment()

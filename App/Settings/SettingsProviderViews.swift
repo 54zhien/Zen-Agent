@@ -41,6 +41,16 @@ private struct SettingsAccountView: View {
             Section("账户资料") {
                 SettingsTextField(text: $model.displayName, title: "账户名称", focus: focus)
                 SettingsTextField(text: $model.endpoint, title: "HTTPS 地址（留空使用默认）", focus: focus)
+                if model.instance.providerID == .anthropic {
+                    SettingsTextField(
+                        text: $model.anthropicWorkspaceID,
+                        title: "Workspace ID（可选）",
+                        focus: focus
+                    )
+                    Text("已限定 Workspace 的 API Key 可留空；未限定的 API Key 需要填写 Workspace ID。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
                 Button("保存资料") { Task { await model.saveConfiguration(); onSaved() } }
                     .disabled(model.isBusy || focus.hasMarkedText)
             }

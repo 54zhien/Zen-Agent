@@ -283,6 +283,37 @@ struct MigrationTests {
         } == "Preserved conversation")
     }
 
+    @Test("v32 to v35 adds nullable Anthropic Workspace ID without rewriting accounts")
+    func v32ToV35AddsAnthropicWorkspaceID() throws {
+        let database = try DatabaseQueue()
+        let migrator = Migrations.makeMigrator()
+        try migrator.migrate(database, upTo: "v32_parent_dual_child_probe")
+        try database.write { db in
+            try db.execute(sql: """
+                INSERT INTO providerInstance
+                    (id, providerID, displayName, baseURL, configRevision,
+                     credentialID, credentialKind, editRevision, createdAt, updatedAt)
+                VALUES ('anthropic-legacy', 'anthropic', 'Anthropic', NULL, '1',
+                        NULL, NULL, 0, ?, ?)
+                """, arguments: [Fixtures.epoch, Fixtures.epoch])
+        }
+        #expect(try database.read { db in
+            try db.columns(in: "providerInstance").contains { $0.name == "anthropicWorkspaceID" }
+        } == false)
+
+        try migrator.migrate(database)
+
+        #expect(try database.read { db in
+            try db.columns(in: "providerInstance").contains { $0.name == "anthropicWorkspaceID" }
+        })
+        let store = PersistenceStore(database: database)
+        let legacy = try #require(try store.providerInstance(
+            id: ProviderInstanceID(rawValue: "anthropic-legacy")
+        ))
+        #expect(legacy.anthropicWorkspaceID == nil)
+        #expect(legacy.displayName == "Anthropic")
+    }
+
     @Test("v8 → v9 adds quote references without rewriting legacy messages")
     func v8ToV9AddsMessageQuoteReferenceWithoutRewritingLegacyMessages() throws {
         let url = try Fixtures.scratchPath(name: "quote-reference-v9-migration.sqlite")

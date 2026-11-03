@@ -155,6 +155,7 @@ struct AppAssembly {
             provider,
             openAIProvider,
             GLMProvider(transport: providerTransport),
+            AnthropicProvider(transport: providerTransport),
         ])
         let managedFiles = try ManagedFileStore.applicationDefault()
         let toolRegistry = try ToolRegistry(tools: [CalculatorTool(), CurrentDateTool(), DeviceInfoTool(),
