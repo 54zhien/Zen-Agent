@@ -66,6 +66,7 @@ targets:
       properties:
         CFBundleDisplayName: Zen
         NSLocalNetworkUsageDescription: Zen Agent connects to MCP servers that you configure on your local network.
+        NSCalendarsFullAccessUsageDescription: Zen Agent uses full Calendar access to read events when you approve a Calendar query. iOS permission also allows writing, but Zen Agent only reads; returned events may be sent to the Provider endpoint frozen for the current Run, as shown in the approval card.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         UILaunchScreen: {}

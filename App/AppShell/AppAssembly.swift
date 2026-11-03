@@ -143,7 +143,7 @@ struct AppAssembly {
         ])
         let managedFiles = try ManagedFileStore.applicationDefault()
         let toolRegistry = try ToolRegistry(tools: [CalculatorTool(), CurrentDateTool(), DeviceInfoTool(),
-            FilesTool(files: managedFiles, store: store, sessions: sessions)])
+            CalendarEventsTool(), FilesTool(files: managedFiles, store: store, sessions: sessions)])
         let mcpRegistry = MCPServerRegistry(store: store)
         let mcpRuntime = MCPServerRuntime(
             registry: mcpRegistry,
