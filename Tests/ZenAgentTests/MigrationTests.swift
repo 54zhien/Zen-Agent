@@ -839,7 +839,7 @@ struct MigrationTests {
                 text: "legacy body phrase").insert(db)
         }
 
-        try migrator.migrate(database)
+        try migrator.migrate(database, upTo: "v33_conversation_full_text_search")
         let pattern = try #require(FTS3Pattern(matchingPhrase: "legacy body phrase"))
         let matches = try database.read { db in
             try String.fetchAll(db, sql: """
