@@ -220,8 +220,8 @@ final class ToolRuntime: @unchecked Sendable {
     }
 
     /// Settles one call when a parent stop interrupts a serial batch. Calls that have
-    /// not crossed dispatch are safe `notExecuted`; dispatched calls remain
-    /// `indeterminate` because cancellation cannot prove the external side effect.
+    /// not crossed dispatch are `notExecuted`; dispatched reads are `cancelled`, while
+    /// dispatched external writes remain `indeterminate` because their outcome is unknown.
     func settleForCancellation(
         agentRunID: String,
         providerCallID: String,
@@ -248,7 +248,11 @@ final class ToolRuntime: @unchecked Sendable {
 
         do {
             if let call {
-                try store.settleToolCallForCancellation(id: call.id, at: now)
+                if call.state == .dispatched, let sideEffect = sideEffect(for: call) {
+                    try settleDispatchedCallForCancellation(call, sideEffect: sideEffect, at: now)
+                } else {
+                    try store.settleToolCallForCancellation(id: call.id, at: now)
+                }
                 return
             }
 
@@ -428,16 +432,21 @@ final class ToolRuntime: @unchecked Sendable {
 
         let rawResult: ToolExecutionResult
         do {
+            try Task.checkCancellation()
             rawResult = try await executor.execute(
                 intent,
                 idempotencyKey: call.id
             )
+            try Task.checkCancellation()
         } catch {
             if error is CancellationError || Task.isCancelled {
-                // This marker is the durable proof that recovery must not retry the
-                // external operation. A failed write is therefore a real runtime
-                // error, never an ignorable side effect of cancellation.
-                try store.markToolCallIndeterminate(id: call.id, at: now)
+                // Stop discards every late result. A dispatched external write remains
+                // uncertain; a read has no effect to recover or retry.
+                try settleDispatchedCallForCancellation(
+                    call,
+                    sideEffect: executor.descriptor.sideEffect,
+                    at: now
+                )
                 throw error
             }
             if error is DelegatedChildAuthenticationRequired {
@@ -691,6 +700,37 @@ final class ToolRuntime: @unchecked Sendable {
             throw ToolRuntimeError.invalidStoredExecutionIntent(id)
         }
         return ToolExecutionResult(content: result.payload, kind: result.kind, failure: result.failureCode)
+    }
+
+    private func sideEffect(for call: ToolCallRecord) -> ToolSideEffect? {
+        guard let json = call.executionIntent,
+              let intent = try? ToolIntentCodec.decodeForDisplay(json),
+              call.action == intent.toolID,
+              let executor = registry(forRunID: call.agentRunID).executor(id: intent.toolID),
+              executor.descriptor.revision == intent.descriptorRevision
+        else { return nil }
+        return executor.descriptor.sideEffect
+    }
+
+    private func settleDispatchedCallForCancellation(
+        _ call: ToolCallRecord,
+        sideEffect: ToolSideEffect,
+        at now: Date
+    ) throws {
+        let current = try requiredToolCall(id: call.id)
+        guard current.state == .dispatched else { return }
+        switch sideEffect {
+        case .none:
+            try store.finishDispatchedToolCall(
+                id: current.id,
+                expectedAttempt: current.attempt,
+                state: .cancelled,
+                result: nil,
+                at: now
+            )
+        case .externalWrite:
+            try store.markToolCallIndeterminate(id: current.id, at: now)
+        }
     }
 
     private func preparationContext(runID: String) throws -> ToolPreparationContext {
