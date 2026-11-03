@@ -515,6 +515,7 @@ final class SplitContainerUITests: XCTestCase {
         app.launchEnvironment["ZEN_PREVIEW_HANDOFF_UI_TEST"] = "1"
         app.launch()
         app.openWorkspaceSplit(sourceInTopPane: false)
+        let editor = app.textViews["conversation-composer-input"]
         let picker = app.otherElements["split-empty-pane-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
         XCTAssertLessThan(picker.frame.midY, editor.frame.midY)
