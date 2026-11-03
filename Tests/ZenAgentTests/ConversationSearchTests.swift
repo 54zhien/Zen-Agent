@@ -3,9 +3,9 @@ import GRDB
 import Testing
 @testable import ZenAgent
 
-@Suite("Conversation title Search")
+@Suite("Conversation Search")
 struct ConversationSearchTests {
-    @Test("Search matches the displayed title literally, including SQL pattern characters")
+    @Test("Search retains literal displayed-title matching, including SQL pattern characters")
     func literalTitleMatching() throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
         try store.database.write { db in
@@ -22,8 +22,8 @@ struct ConversationSearchTests {
         #expect(try store.searchConversationSummaries(query: " \n\u{3000} ", limit: 50).items.isEmpty)
     }
 
-    @Test("fallback Search uses the bounded displayed provisional title and respects manual Rename")
-    func provisionalTitleIsNotBodySearch() throws {
+    @Test("Search finds message text and keeps the displayed provisional title")
+    func messageTextSearch() throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
         try store.database.write { db in
             for id in ["fallback", "manual"] {
@@ -38,10 +38,40 @@ struct ConversationSearchTests {
         let page = try store.searchConversationSummaries(query: "Unicode whitespace", limit: 50)
         #expect(page.items.map(\.id) == ["fallback"])
         let displayed = try store.conversationSummaryWindow(ids: ["fallback"]).first?.title
-        #expect(page.items.first?.title == displayed)
-        #expect(page.items.first?.title.count == 56)
-        #expect(try store.searchConversationSummaries(query: "body-only-needle", limit: 50).items.isEmpty)
+        #expect(page.items.first?.summary.title == displayed)
+        #expect(page.items.first?.summary.title.count == 56)
+        let bodyHit = try store.searchConversationSummaries(query: "body-only-needle", limit: 50).items
+        #expect(bodyHit.map(\.id) == ["fallback"])
+        #expect(bodyHit.first?.matchSnippet?.contains("body-only-needle") == true)
         #expect(try store.searchConversationSummaries(query: "Manual chosen", limit: 50).items.map(\.id) == ["manual"])
+
+        try store.database.write { db in
+            try db.execute(sql: "UPDATE messagePart SET payload = ? WHERE id = ?",
+                arguments: [PersistenceStore.encodeTextPayload(.init(text: "updated search phrase")), "part-fallback"])
+        }
+        #expect(try store.searchConversationSummaries(query: "body-only-needle", limit: 50).items.isEmpty)
+        #expect(try store.searchConversationSummaries(query: "updated search", limit: 50).items.map(\.id) == ["fallback"])
+    }
+
+    @Test("Search includes displayable reasoning and excludes system messages")
+    func visibleTextBoundary() throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.database.write { db in
+            try Fixtures.conversation(id: "visible-content").insert(db)
+            for (message, role, kind, text) in [
+                ("reasoning-message", MessageRole.assistant, MessagePartKind.reasoning, "displayable reasoning phrase"),
+                ("system-message", MessageRole.system, MessagePartKind.text, "system-only phrase"),
+            ] {
+                try Fixtures.message(id: message, conversationID: "visible-content", role: role).insert(db)
+                var part = Fixtures.textPart(id: "part-\(message)", messageID: message)
+                part.kind = kind
+                part.payload = try PersistenceStore.encodeTextPayload(.init(text: text))
+                try part.insert(db)
+            }
+        }
+        #expect(try store.searchConversationSummaries(query: "displayable reasoning", limit: 50).items.map(\.id)
+            == ["visible-content"])
+        #expect(try store.searchConversationSummaries(query: "system-only", limit: 50).items.isEmpty)
     }
 
     @Test("Search pages use stable pinned activity keysets and exclude both deletion lifecycles")
@@ -75,8 +105,8 @@ struct ConversationSearchTests {
         #expect(Set(all).count == rows.count)
     }
 
-    @Test("Whitespace parts are skipped but malformed first text keeps the displayed fallback")
-    func unavailableFirstPartDoesNotExposeLaterBodyText() throws {
+    @Test("Malformed first text keeps the displayed fallback while later text remains searchable")
+    func unavailableFirstPartKeepsTitleFallback() throws {
         let store = PersistenceStore(database: try ZenDatabase.inMemory())
         try store.database.write { db in
             try Fixtures.conversation(id: "parts", title: "").insert(db)
@@ -93,7 +123,30 @@ struct ConversationSearchTests {
         let shown = try #require(store.conversationSummaryWindow(ids: ["parts"]).first)
         #expect(shown.title == "未命名会话")
         #expect(shown.contentUnavailable)
-        #expect(try store.searchConversationSummaries(query: "未命名", limit: 50).items.first?.title == shown.title)
-        #expect(try store.searchConversationSummaries(query: "later body", limit: 50).items.isEmpty)
+        #expect(try store.searchConversationSummaries(query: "未命名", limit: 50).items.first?.summary.title == shown.title)
+        #expect(try store.searchConversationSummaries(query: "later body", limit: 50).items.map(\.id) == ["parts"])
+    }
+
+    @Test("Pending deletion hides text hits, Undo restores them, and finalization removes them")
+    func deletionLifecycleControlsSearchVisibility() throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.database.write { db in
+            try Fixtures.conversation(id: "search-delete").insert(db)
+            try Fixtures.message(id: "search-delete-message", conversationID: "search-delete").insert(db)
+            try Fixtures.textPart(id: "search-delete-part", messageID: "search-delete-message",
+                text: "deletion lifecycle phrase").insert(db)
+        }
+        #expect(try store.searchConversationSummaries(query: "deletion lifecycle", limit: 50).items.map(\.id)
+            == ["search-delete"])
+
+        try store.beginDeletion(conversationID: "search-delete")
+        #expect(try store.searchConversationSummaries(query: "deletion lifecycle", limit: 50).items.isEmpty)
+        try store.undoDeletion(conversationID: "search-delete")
+        #expect(try store.searchConversationSummaries(query: "deletion lifecycle", limit: 50).items.map(\.id)
+            == ["search-delete"])
+
+        try store.beginDeletion(conversationID: "search-delete")
+        try store.finalizeDeletion(conversationID: "search-delete")
+        #expect(try store.searchConversationSummaries(query: "deletion lifecycle", limit: 50).items.isEmpty)
     }
 }

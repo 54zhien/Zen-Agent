@@ -13,11 +13,12 @@ struct ConversationSearchView: View {
             LazyVStack(alignment: .leading, spacing: 12) {
                 Text("搜索会话").font(Typography.font(for: .interfaceTitle, dynamicTypeSize: dynamicTypeSize))
                 if model.query.split(whereSeparator: \.isWhitespace).isEmpty {
-                    Text("按会话标题搜索").foregroundStyle(.secondary)
+                    Text("按会话标题和消息内容搜索").foregroundStyle(.secondary)
                 } else if model.items.isEmpty, !model.isLoading, model.errorMessage == nil {
                     Text("没有匹配的会话").foregroundStyle(.secondary)
                 }
-                ForEach(model.items) { summary in
+                ForEach(model.items) { result in
+                    let summary = result.summary
                     Button { onSelect(summary.id) } label: {
                         HStack(alignment: .top, spacing: 16) {
                             // Metadata projection only; never instantiate a live Pane.
@@ -29,6 +30,11 @@ struct ConversationSearchView: View {
                             .accessibilityHidden(true)
                             VStack(alignment: .leading, spacing: 5) {
                                 highlightedTitle(summary.title)
+                                if let matchSnippet = result.matchSnippet {
+                                    highlightedMatch(matchSnippet)
+                                        .font(.caption)
+                                        .lineLimit(2)
+                                }
                                 if summary.contentUnavailable {
                                     Text("部分内容暂不可用").font(.caption).foregroundStyle(.secondary)
                                 }
@@ -88,5 +94,15 @@ struct ConversationSearchView: View {
         return Text(String(title[..<range.lowerBound]))
             + Text(String(title[range])).bold().foregroundColor(.accentColor)
             + Text(String(title[range.upperBound...]))
+    }
+
+    private func highlightedMatch(_ snippet: String) -> Text {
+        let query = PersistenceStore.summaryText(model.query)
+        guard !query.isEmpty, let range = snippet.range(of: query, options: .caseInsensitive) else {
+            return Text(snippet).foregroundColor(.secondary)
+        }
+        return Text(String(snippet[..<range.lowerBound])).foregroundColor(.secondary)
+            + Text(String(snippet[range])).bold().foregroundColor(.accentColor)
+            + Text(String(snippet[range.upperBound...])).foregroundColor(.secondary)
     }
 }

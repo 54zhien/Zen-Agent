@@ -4,7 +4,7 @@ import Observation
 @MainActor
 @Observable
 final class ConversationSearchModel {
-    typealias Reader = @Sendable (String, Int, ConversationSummaryCursor?) async throws -> ConversationSummaryPage
+    typealias Reader = @Sendable (String, Int, ConversationSummaryCursor?) async throws -> ConversationSearchPage
     var query = "" {
         didSet {
             guard query != oldValue else { return }
@@ -12,7 +12,7 @@ final class ConversationSearchModel {
             items = []; nextCursor = nil; errorMessage = nil; selectionError = nil
         }
     }
-    private(set) var items: [ConversationSummary] = []
+    private(set) var items: [ConversationSearchResult] = []
     private(set) var isLoading = false
     private(set) var errorMessage: String?
     private(set) var selectionError: String?
@@ -23,7 +23,7 @@ final class ConversationSearchModel {
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var operation: UUID?
-    @ObservationIgnored private var worker: Task<ConversationSummaryPage, Error>?
+    @ObservationIgnored private var worker: Task<ConversationSearchPage, Error>?
     @ObservationIgnored private var selection: Task<Void, Never>?
     @ObservationIgnored private var selectionID: UUID?
 

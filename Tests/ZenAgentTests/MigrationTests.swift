@@ -826,6 +826,29 @@ struct MigrationTests {
         }
         #expect(duplicateRejected)
     }
+
+    @Test("V33 indexes message text that was already present before the search migration")
+    func conversationSearchIndexBackfillsExistingMessages() throws {
+        let database = try DatabaseQueue()
+        let migrator = currentMigrator()
+        try migrator.migrate(database, upTo: "v32_parent_dual_child_probe")
+        try database.write { db in
+            try Fixtures.conversation(id: "legacy-search").insert(db)
+            try Fixtures.message(id: "legacy-search-message", conversationID: "legacy-search").insert(db)
+            try Fixtures.textPart(id: "legacy-search-part", messageID: "legacy-search-message",
+                text: "legacy body phrase").insert(db)
+        }
+
+        try migrator.migrate(database)
+        let pattern = try #require(FTS3Pattern(matchingPhrase: "legacy body phrase"))
+        let matches = try database.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT conversationID FROM conversationSearchIndex
+                WHERE conversationSearchIndex MATCH ?
+                """, arguments: [pattern])
+        }
+        #expect(matches == ["legacy-search"])
+    }
 }
 
 /// Raised to interrupt a migration partway. Distinct from any other test's error type so

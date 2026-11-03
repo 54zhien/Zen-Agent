@@ -64,10 +64,12 @@ struct ConversationSearchModelTests {
         #expect(model.items.map(\.id) == ["new"])
     }
 
-    private func page(_ id: String) -> ConversationSummaryPage {
-        ConversationSummaryPage(items: [ConversationSummary(id: id, title: id, excerpt: "",
+    private func page(_ id: String) -> ConversationSearchPage {
+        let summary = ConversationSummary(id: id, title: id, excerpt: "",
             pinned: false, userActiveAt: .distantPast, contentUnavailable: false,
-            runProjection: nil, providerInstanceID: nil, modelID: nil, providerName: nil)], nextCursor: nil)
+            runProjection: nil, providerInstanceID: nil, modelID: nil, providerName: nil)
+        return ConversationSearchPage(items: [ConversationSearchResult(summary: summary, matchSnippet: nil)],
+            nextCursor: nil)
     }
 
     @Test func queryReplacementCancelsAPendingSelection() async {
@@ -100,10 +102,10 @@ private actor SearchSelectionGate {
 }
 
 private actor SearchReadGate {
-    private var reads: [String: CheckedContinuation<ConversationSummaryPage, Never>] = [:]
+    private var reads: [String: CheckedContinuation<ConversationSearchPage, Never>] = [:]
     private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
 
-    func read(_ query: String) async -> ConversationSummaryPage {
+    func read(_ query: String) async -> ConversationSearchPage {
         await withCheckedContinuation { continuation in
             reads[query] = continuation
             waiters.removeValue(forKey: query)?.resume()
@@ -115,7 +117,7 @@ private actor SearchReadGate {
         await withCheckedContinuation { waiters[query] = $0 }
     }
 
-    func finish(_ query: String, page: ConversationSummaryPage) {
+    func finish(_ query: String, page: ConversationSearchPage) {
         reads.removeValue(forKey: query)?.resume(returning: page)
     }
 }
