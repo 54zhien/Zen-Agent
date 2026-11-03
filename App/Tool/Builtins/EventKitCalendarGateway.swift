@@ -5,17 +5,22 @@ actor EventKitCalendarGateway: CalendarEventsGateway {
     private let eventStore = EKEventStore()
 
     func authorizationState() async -> ToolSystemPermissionState {
-        switch EKEventStore.authorizationStatus(for: .event) {
+        Self.permissionState(for: EKEventStore.authorizationStatus(for: .event))
+    }
+
+    static func permissionState(for status: EKAuthorizationStatus) -> ToolSystemPermissionState {
+        switch status {
         case .fullAccess:
             .authorized
         case .notDetermined:
+            .notDetermined
+        case .writeOnly:
+            // Full access is still requestable, but only after the existing explicit consent step.
             .notDetermined
         case .denied:
             .denied
         case .restricted:
             .restricted
-        case .writeOnly:
-            .denied
         @unknown default:
             .unavailable
         }

@@ -1,4 +1,5 @@
 import Foundation
+import EventKit
 import Testing
 @testable import ZenAgent
 
@@ -91,8 +92,10 @@ struct CalendarEventsToolTests {
         #expect(await gateway.queryCount == 0)
     }
 
-    @Test func explicitPermissionDriverRequestsFullCalendarAccess() async throws {
-        let gateway = CalendarEventsGatewayFake(status: .notDetermined)
+    @Test func writeOnlyAccessCanRequestFullCalendarAccessThroughPermissionDriver() async throws {
+        let writeOnlyState = EventKitCalendarGateway.permissionState(for: .writeOnly)
+        #expect(writeOnlyState == .notDetermined)
+        let gateway = CalendarEventsGatewayFake(status: writeOnlyState)
         let tool = CalendarEventsTool(gateway: gateway)
         let intent = try tool.prepare(
             callID: "calendar-query",
@@ -100,7 +103,7 @@ struct CalendarEventsToolTests {
             context: Self.context()
         )
 
-        #expect(try await tool.systemPermissionState(for: intent) == .notDetermined)
+        #expect(try await tool.systemPermissionState(for: intent) == writeOnlyState)
         try await tool.requestSystemPermission(for: intent)
 
         #expect(await gateway.permissionRequestCount == 1)
