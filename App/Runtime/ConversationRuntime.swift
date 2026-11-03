@@ -133,7 +133,7 @@ enum AuthenticationRetryTargetSelector {
 actor ConversationRuntime {
 
     private let store: PersistenceStore
-    private let provider: any ModelProvider
+    private let providerRegistry: ModelProviderRegistry
     private let credentials: any CredentialStoring
     private let managedFileStore: ManagedFileStore?
     private let agentRuntime: AgentRuntime
@@ -165,7 +165,8 @@ actor ConversationRuntime {
     func availableSkills(providerInstanceID: ProviderInstanceID?, modelID: ModelID?) async throws -> [ComposerSkillOption] {
         let supportsTools: Bool
         if let providerInstanceID, let modelID,
-           let instance = try store.providerInstance(id: providerInstanceID) {
+           let instance = try store.providerInstance(id: providerInstanceID),
+           let provider = providerRegistry.provider(for: instance.providerID) {
             supportsTools = provider.descriptor(for: modelID, in: instance)?.capabilities.contains(.tools) == true
         } else { supportsTools = false }
         let context = try await currentToolContext(exposeTools: supportsTools)
@@ -192,7 +193,7 @@ actor ConversationRuntime {
         manualDualChildProbeEnabled: Bool = false
     ) {
         self.store = store
-        self.provider = provider
+        providerRegistry = ModelProviderRegistry(provider: provider)
         self.credentials = credentials
         self.managedFileStore = managedFileStore ?? (try? ManagedFileStore.applicationDefault())
         let resolvedRegistry = toolRegistry ?? ToolRegistry.empty
@@ -201,6 +202,42 @@ actor ConversationRuntime {
         self.agentRuntime = AgentRuntime(
             store: store,
             provider: provider,
+            credentials: credentials,
+            toolRuntime: toolRuntime ?? ToolRuntime(
+                store: store,
+                registry: resolvedRegistry,
+                credentials: credentials
+            )
+        )
+        self.onEvent = onEvent
+        self.registerRecoveredRun = registerRecoveredRun
+        #if DEBUG
+        self.manualDualChildProbePending = manualDualChildProbeEnabled
+        #endif
+    }
+
+    init(
+        store: PersistenceStore,
+        providerRegistry: ModelProviderRegistry,
+        credentials: any CredentialStoring,
+        onEvent: @escaping @Sendable (AgentEvent) async -> Void = { _ in },
+        registerRecoveredRun: @escaping @Sendable (String, String) async -> Void = { _, _ in },
+        toolRegistry: ToolRegistry? = nil,
+        toolRuntime: ToolRuntime? = nil,
+        mcpRuntime: MCPServerRuntime? = nil,
+        managedFileStore: ManagedFileStore? = nil,
+        manualDualChildProbeEnabled: Bool = false
+    ) {
+        self.store = store
+        self.providerRegistry = providerRegistry
+        self.credentials = credentials
+        self.managedFileStore = managedFileStore ?? (try? ManagedFileStore.applicationDefault())
+        let resolvedRegistry = toolRegistry ?? ToolRegistry.empty
+        self.toolRegistry = resolvedRegistry
+        self.mcpRuntime = mcpRuntime
+        self.agentRuntime = AgentRuntime(
+            store: store,
+            providerRegistry: providerRegistry,
             credentials: credentials,
             toolRuntime: toolRuntime ?? ToolRuntime(
                 store: store,
@@ -256,7 +293,7 @@ actor ConversationRuntime {
 
         let runtime = DelegationRuntime(
             store: store,
-            provider: provider,
+            providerRegistry: providerRegistry,
             credentials: credentials,
             agentRuntime: agentRuntime,
             project: { event in try await self.applyAndPublish(event) }
@@ -278,9 +315,14 @@ actor ConversationRuntime {
     ) throws -> DelegationModelBindingSnapshot? {
         guard configuration.enabled,
               let target = configuration.explicitModelTarget,
-              let instance = try store.providerInstance(id: target.providerInstanceID),
-              instance.providerID == provider.id,
-              let descriptor = provider.descriptor(for: target.modelID, in: instance),
+              let instance = try store.providerInstance(id: target.providerInstanceID)
+        else { return nil }
+        guard let provider = providerRegistry.provider(for: instance.providerID) else {
+            throw ProviderError.configurationMismatch(
+                "the configured Child Provider \(instance.providerID.rawValue) is not registered"
+            )
+        }
+        guard let descriptor = provider.descriptor(for: target.modelID, in: instance),
               descriptor.providerInstanceID == instance.id,
               descriptor.capabilities.contains(.text),
               descriptor.capabilities.contains(.streaming),
@@ -377,11 +419,9 @@ actor ConversationRuntime {
         guard let instance = try store.providerInstance(id: command.providerInstanceID) else {
             throw PersistenceError.providerInstanceNotFound(command.providerInstanceID)
         }
-        guard instance.providerID == provider.id else {
-            throw ConversationRuntimeError.providerInstanceBelongsToAnotherProvider(
-                instanceID: instance.id,
-                expected: provider.id,
-                actual: instance.providerID
+        guard let provider = providerRegistry.provider(for: instance.providerID) else {
+            throw ProviderError.configurationMismatch(
+                "the selected Provider \(instance.providerID.rawValue) is not registered"
             )
         }
 
@@ -1184,7 +1224,7 @@ actor ConversationRuntime {
         let runToolContext = try await toolContext(for: run, snapshot: snapshot)
         let request = try RunRequestRebuilder(
             store: store,
-            provider: provider,
+            providerRegistry: providerRegistry,
             toolRegistry: runToolContext.registry,
             credentials: credentials,
             availableMCPServerIDs: runToolContext.availableMCPServerIDs,
@@ -1238,7 +1278,7 @@ actor ConversationRuntime {
         let runToolContext = try await toolContext(for: run, snapshot: snapshot)
         let rebuilder = RunRequestRebuilder(
             store: store,
-            provider: provider,
+            providerRegistry: providerRegistry,
             toolRegistry: runToolContext.registry,
             credentials: credentials,
             availableMCPServerIDs: runToolContext.availableMCPServerIDs,
@@ -1304,7 +1344,7 @@ actor ConversationRuntime {
         try await agentRuntime.settleIncompatiblePendingTools(inRun: run.id)
         let batch = try RunRequestRebuilder(
             store: store,
-            provider: provider,
+            providerRegistry: providerRegistry,
             toolRegistry: runToolContext.registry,
             credentials: credentials,
             availableMCPServerIDs: runToolContext.availableMCPServerIDs,
@@ -1523,7 +1563,7 @@ actor ConversationRuntime {
               snapshot.delegation?.enabled == true else { return }
         let coordinator = DelegationRuntime(
             store: store,
-            provider: provider,
+            providerRegistry: providerRegistry,
             credentials: credentials,
             agentRuntime: agentRuntime,
             project: { event in try await self.applyAndPublish(event) }
@@ -1551,11 +1591,9 @@ actor ConversationRuntime {
         guard let instance = try store.providerInstance(id: providerInstanceID) else {
             throw PersistenceError.providerInstanceNotFound(providerInstanceID)
         }
-        guard instance.providerID == provider.id else {
-            throw ConversationRuntimeError.providerInstanceBelongsToAnotherProvider(
-                instanceID: instance.id,
-                expected: provider.id,
-                actual: instance.providerID
+        guard let provider = providerRegistry.provider(for: instance.providerID) else {
+            throw ProviderError.configurationMismatch(
+                "the selected Provider \(instance.providerID.rawValue) is not registered"
             )
         }
         return provider.knownModels(for: instance).filter {

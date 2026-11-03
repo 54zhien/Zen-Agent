@@ -93,16 +93,15 @@ final class ConversationSurfaceUITests: XCTestCase {
         input.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
         input.typeText("SHEET_DRAFT")
-        let configure = app.buttons["new-conversation-configure"]
-        XCTAssertFalse(configure.exists)
         app.openWorkspaceSidebar()
-        XCTAssertTrue(configure.waitForExistence(timeout: 10))
-        configure.tap()
-        let close = app.buttons["关闭"]
+        app.buttons["sidebar-settings"].tap()
+        let page = app.descendants(matching: .any)["settings-page"]
+        XCTAssertTrue(page.waitForExistence(timeout: 8))
+        let close = app.buttons["settings-close"]
         XCTAssertTrue(close.waitForExistence(timeout: 8))
         close.tap()
         XCTAssertTrue(input.waitForExistence(timeout: 8))
-        XCTAssertFalse(configure.exists)
+        XCTAssertFalse(page.exists)
         XCTAssertTrue((input.value as? String ?? "").contains("SHEET_DRAFT"))
         XCTAssertEqual(app.textViews.matching(identifier: "conversation-composer-input").count, 1)
         input.tap()

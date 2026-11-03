@@ -14,6 +14,8 @@ struct ComposerViewContractTests {
         "App/Conversation/ComposerGeometry.swift",
         "App/Conversation/ComposerHostBridge.swift",
         "App/Conversation/ComposerHostView.swift",
+        "App/Conversation/ComposerActionMenuView.swift",
+        "App/Conversation/ComposerMenuDetailView.swift",
         "App/Conversation/ComposerMorphGeometry.swift",
     ]
 
@@ -40,7 +42,7 @@ struct ComposerViewContractTests {
         #expect(bridge.contains("markedTextPresent: Bool"))
         #expect(sources["App/Conversation/ComposerTextProjection.swift"] != nil)
         #expect(view.contains("ComposerHostBridge(configuration: hostConfiguration"))
-        #expect(host.contains("let editor = UITextView()"))
+        #expect(host.contains("let editor = ComposerEditorTextView()"))
         #expect(!host.contains("var draft:"))
         #expect(view.contains("quoteCommitReady: true"))
     }
@@ -80,14 +82,19 @@ struct ComposerViewContractTests {
         guard let sources = sourceFiles() else { return }
         let view = sources["App/Conversation/ConversationComposerView.swift"] ?? ""
         let host = sources["App/Conversation/ComposerHostView.swift"] ?? ""
+        let actions = sources["App/Conversation/ComposerActionMenuView.swift"] ?? ""
+        let details = sources["App/Conversation/ComposerMenuDetailView.swift"] ?? ""
 
-        #expect(host.contains("disabled(\"添加图片\""))
-        #expect(host.contains("disabled(\"添加文件\""))
-        #expect(host.contains("skillMenu, modelMenu"))
-        #expect(host.contains("ComposerSkillMenu.make(load: configuration.loadSkills"))
+        #expect(actions.contains("self != .images && self != .files"))
+        #expect(actions.contains(".disabled(!level.isImplemented)"))
+        #expect(details.contains("information(\"图片附件尚未接入\""))
+        #expect(details.contains("information(\"文件附件尚未接入\""))
         #expect(view.contains("selectedSkillIDs: controller.draft.selectedSkillIDs"))
-        #expect(host.contains("configuration.models.map"))
-        #expect(view.contains("configuration.modelID = modelID"))
+        #expect(view.contains("loadSkills: { [bridge, configuration = controller.configuration] in"))
+        #expect(details.contains("await presentation.loadSkillOptions()"))
+        #expect(details.contains(".disabled(!selected && (!option.isAvailable"))
+        #expect(details.contains("ForEach(presentation.models, id: \\.id)"))
+        #expect(view.contains("configuration.selectModel(model)"))
         #expect(view.contains("controller.configuration = configuration"))
     }
 

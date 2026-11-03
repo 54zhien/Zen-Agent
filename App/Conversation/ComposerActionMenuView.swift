@@ -104,6 +104,7 @@ struct ComposerActionMenuView: View {
     let presentation: ComposerActionMenuState
     let maximumSize: CGSize
     let onOpen: (ComposerActionMenuLevel) -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var keyboardSheet = false
     var cornerRadius: CGFloat = 0
     @ScaledMetric(relativeTo: .body) private var iconDiameter: CGFloat = 44
@@ -119,7 +120,7 @@ struct ComposerActionMenuView: View {
             rows
             ScrollView { rows }.scrollBounceBehavior(.basedOnSize)
         }
-        .font(.body)
+        .font(Typography.font(for: .interfaceBody, dynamicTypeSize: dynamicTypeSize))
         .foregroundStyle(.primary)
         .buttonStyle(.plain)
         .frame(width: maximumSize.width)
@@ -155,7 +156,8 @@ struct ComposerActionMenuView: View {
                 Text(level.title)
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold)).accessibilityHidden(true)
+                    .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize)
+                        .weight(.semibold)).accessibilityHidden(true)
             }
             .padding(.leading, iconCenter - iconDiameter / 2)
             .padding(.trailing, 24)

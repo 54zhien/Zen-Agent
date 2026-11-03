@@ -141,7 +141,7 @@ actor AgentRuntime {
     }
 
     private let store: PersistenceStore
-    private let provider: any ModelProvider
+    private let providerRegistry: ModelProviderRegistry
     private let credentials: any CredentialStoring
     private let toolRuntime: ToolRuntime
 
@@ -155,8 +155,22 @@ actor AgentRuntime {
         credentials: any CredentialStoring,
         toolRuntime: ToolRuntime? = nil
     ) {
+        self.init(
+            store: store,
+            providerRegistry: ModelProviderRegistry(provider: provider),
+            credentials: credentials,
+            toolRuntime: toolRuntime
+        )
+    }
+
+    init(
+        store: PersistenceStore,
+        providerRegistry: ModelProviderRegistry,
+        credentials: any CredentialStoring,
+        toolRuntime: ToolRuntime? = nil
+    ) {
         self.store = store
-        self.provider = provider
+        self.providerRegistry = providerRegistry
         self.credentials = credentials
         self.toolRuntime = toolRuntime ?? ToolRuntime(
             store: store,
@@ -691,7 +705,7 @@ actor AgentRuntime {
                     throw ControlError.stopRequested
                 }
                 let requestForDispatch = currentRequest
-                let store = store, provider = provider, credentials = credentials, toolRuntime = toolRuntime
+                let store = store, providerRegistry = providerRegistry, credentials = credentials, toolRuntime = toolRuntime
                 let providerStream = try await store.memoryAccessGate.withRead {
                     try Task.checkCancellation()
                     // Waiting for erasure yields execution. Stop and recovery may
@@ -719,8 +733,26 @@ actor AgentRuntime {
                         throw error
                     }
                     let outgoing = try toolRuntime.requestRedactingToolResults(requestForDispatch, runID: runID)
-                    try store.markProviderStepStarted(identity)
                     do {
+                        let provider: any ModelProvider
+                        do {
+                            provider = try providerRegistry.resolve(
+                                providerID: snapshot.providerID,
+                                adapterRevision: snapshot.providerAdapterRevision
+                            )
+                        } catch {
+                            throw ProviderError.configurationMismatch(
+                                "the frozen Provider adapter is unavailable: \(String(describing: error))"
+                            )
+                        }
+                        guard let storedInstance = try store.providerInstance(
+                            id: runForRequest.requestConfigSeed.providerInstanceID
+                        ), storedInstance.providerID == snapshot.providerID else {
+                            throw ProviderError.configurationMismatch(
+                                "the frozen Provider ID no longer matches its stored instance"
+                            )
+                        }
+                        try store.markProviderStepStarted(identity)
                         return try await provider.stream(
                             outgoing,
                             seed: runForRequest.requestConfigSeed,
@@ -917,8 +949,22 @@ actor AgentRuntime {
 
                 if !pendingToolCalls.isEmpty {
                     let assistantContent = outputState.text.isEmpty ? nil : outputState.text
+                    // Providers can finish parallel calls in a different order from
+                    // their response output indexes. Persist the semantic call order,
+                    // not completion order, as the Runtime's contiguous batch sequence.
+                    let orderedCalls = pendingToolCalls
+                        .sorted { $0.index < $1.index }
+                        .enumerated()
+                        .map { index, call in
+                            ProviderToolCall(
+                                id: call.id,
+                                index: index,
+                                name: call.name,
+                                argumentsJSON: call.argumentsJSON
+                            )
+                        }
                     activeBatch = ActiveToolBatch(
-                        calls: pendingToolCalls,
+                        calls: orderedCalls,
                         batchID: "batch-\(runID)-\(step.sequence)-\(step.attempt)"
                     )
                     try await finishCurrentOutput(

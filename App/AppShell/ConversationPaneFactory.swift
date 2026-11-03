@@ -71,7 +71,7 @@ struct ConversationPaneFactory {
     static func availability(for configuration: ConversationComposerConfiguration?,
                               in dependencies: AppAssembly.Dependencies) -> ComposerSendAvailability {
         AppShellConfiguration.availability(for: configuration, store: dependencies.store,
-            provider: dependencies.provider, credentials: dependencies.credentials)
+            providerRegistry: dependencies.providerRegistry, credentials: dependencies.credentials)
     }
 
 }

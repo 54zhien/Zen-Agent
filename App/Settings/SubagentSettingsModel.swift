@@ -32,13 +32,19 @@ final class SubagentSettingsModel {
     private(set) var statusMessage: String?
 
     @ObservationIgnored private let store: PersistenceStore
-    @ObservationIgnored private let provider: any ModelProvider
+    @ObservationIgnored private let providerRegistry: ModelProviderRegistry
     @ObservationIgnored private let credentials: any CredentialStoring
     @ObservationIgnored private var active = true
 
     init(store: PersistenceStore, provider: any ModelProvider, credentials: any CredentialStoring) {
         self.store = store
-        self.provider = provider
+        providerRegistry = ModelProviderRegistry(provider: provider)
+        self.credentials = credentials
+    }
+
+    init(store: PersistenceStore, providerRegistry: ModelProviderRegistry, credentials: any CredentialStoring) {
+        self.store = store
+        self.providerRegistry = providerRegistry
         self.credentials = credentials
     }
 
@@ -46,7 +52,7 @@ final class SubagentSettingsModel {
         guard isCatalogLoaded else { return [] }
         var options: [SubagentModelOption] = []
         for entry in providerCatalog {
-            guard entry.instance.providerID == provider.id, entry.credentialIsActive else { continue }
+            guard entry.credentialIsActive else { continue }
             options.append(contentsOf: entry.models.compactMap { descriptor in
                 guard descriptor.providerInstanceID == entry.instance.id,
                       descriptor.capabilities.contains(.text),
@@ -134,7 +140,7 @@ final class SubagentSettingsModel {
         defer { isBusy = false }
 
         let store = store
-        let provider = provider
+        let providerRegistry = providerRegistry
         let credentials = credentials
         do {
             if validateTarget, let explicitModelTarget {
@@ -143,7 +149,7 @@ final class SubagentSettingsModel {
                         providerInstanceID: explicitModelTarget.providerInstanceID,
                         modelID: explicitModelTarget.modelID,
                         store: store,
-                        provider: provider,
+                        providerRegistry: providerRegistry,
                         credentials: credentials
                     )
                 }.value

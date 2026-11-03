@@ -150,7 +150,7 @@ struct WorkspaceNavigationView<Content: View>: View {
             .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: state.overlay)
             .background(Color(uiColor: .systemBackground))
             .background(WorkspaceSidebarGestureBridge(state: state, travel: travel,
-                isRightToLeft: direction == .rightToLeft, context: context))
+                isRightToLeft: direction == .rightToLeft, context: sidebarInteractionContext))
         }
         .sheet(item: settingsPresentation, onDismiss: {
             if let id = presentedSettingsID {
@@ -175,8 +175,13 @@ struct WorkspaceNavigationView<Content: View>: View {
                 overlays = WorkspaceOverlayCoordinator(store: store, shell: model, navigation: state)
             }
             state.onReset = { [weak overlays] in overlays?.reset() }
+            state.onSidebarClosed = { [weak overlays] in overlays?.sidebarDidClose() }
         }
-        .onDisappear { overlays?.reset(); state.onReset = nil }
+        .onDisappear {
+            overlays?.reset()
+            state.onReset = nil
+            state.onSidebarClosed = nil
+        }
     }
 
     private var settingsPresentation: Binding<SettingsPresentation?> {
@@ -195,5 +200,13 @@ struct WorkspaceNavigationView<Content: View>: View {
         guard spatiallyAvailable, state.overlay == nil else { return false }
         return (!state.isOpen && context()?.allowsOpening == true)
             || state.isDragging || state.settlementID != nil
+    }
+
+    private func sidebarInteractionContext() -> WorkspaceSidebarNativeContext? {
+        let current = context()
+        if !state.isOpen, current?.allowsOpening == true {
+            overlays?.prepareFocusForSidebarDismissal(captureFocus: captureFocus)
+        }
+        return current
     }
 }
