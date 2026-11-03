@@ -187,7 +187,8 @@ final class SplitDividerHandle: UIView, UIContextMenuInteractionDelegate, UIGest
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        guard gestureRecognizer === pan, pan.numberOfTouches == 0, let window else { return false }
+        guard gestureRecognizer === pan, pan.numberOfTouches == 0, let window,
+              handle.frame.contains(touch.location(in: self)) else { return false }
         touchOrigin = touch.location(in: window)
         touchWindow = window
         return true
