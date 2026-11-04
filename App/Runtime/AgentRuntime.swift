@@ -144,6 +144,7 @@ actor AgentRuntime {
     private let providerRegistry: ModelProviderRegistry
     private let credentials: any CredentialStoring
     private let toolRuntime: ToolRuntime
+    private let managedFileStore: ManagedFileStore?
 
     private var active: [String: ActiveExecution] = [:]
     private var stopRequested: Set<String> = []
@@ -153,13 +154,15 @@ actor AgentRuntime {
         store: PersistenceStore,
         provider: any ModelProvider,
         credentials: any CredentialStoring,
-        toolRuntime: ToolRuntime? = nil
+        toolRuntime: ToolRuntime? = nil,
+        managedFileStore: ManagedFileStore? = nil
     ) {
         self.init(
             store: store,
             providerRegistry: ModelProviderRegistry(provider: provider),
             credentials: credentials,
-            toolRuntime: toolRuntime
+            toolRuntime: toolRuntime,
+            managedFileStore: managedFileStore
         )
     }
 
@@ -167,11 +170,13 @@ actor AgentRuntime {
         store: PersistenceStore,
         providerRegistry: ModelProviderRegistry,
         credentials: any CredentialStoring,
-        toolRuntime: ToolRuntime? = nil
+        toolRuntime: ToolRuntime? = nil,
+        managedFileStore: ManagedFileStore? = nil
     ) {
         self.store = store
         self.providerRegistry = providerRegistry
         self.credentials = credentials
+        self.managedFileStore = managedFileStore
         self.toolRuntime = toolRuntime ?? ToolRuntime(
             store: store,
             registry: ToolRegistry.empty,
@@ -653,12 +658,21 @@ actor AgentRuntime {
                 throw ControlError.stopRequested
             }
 
+            if let imageInputSeed = requestingRun.imageInputSeed {
+                currentRequest = try await prepareImageInput(
+                    run: requestingRun,
+                    seed: imageInputSeed,
+                    request: request,
+                    snapshot: snapshot
+                )
+            }
+
             while true {
                 if stopRequested.contains(runID) || Task.isCancelled {
                     throw ControlError.stopRequested
                 }
 
-                let durableSteps = try store.steps(inRun: runID)
+                let durableSteps = try store.steps(inRun: runID, purpose: .modelResponse)
                 guard durableSteps.count < snapshot.maxProviderSteps else {
                     try await finishFailure(
                         runID: runID,
@@ -1102,6 +1116,164 @@ actor AgentRuntime {
             continuation: continuation,
             error: completionError
         )
+    }
+
+    private func prepareImageInput(
+        run: AgentRunRecord,
+        seed: ImageInputExecutionSeed,
+        request: ProviderChatRequest,
+        snapshot: RunExecutionSnapshot
+    ) async throws -> ProviderChatRequest {
+        guard seed.formatVersion == ImageInputExecutionSeed.currentFormatVersion,
+              seed.submissionDigest == run.submissionDigest,
+              seed.capabilities.contains(.vision),
+              let files = managedFileStore else {
+            throw ImageInputExecutionFailure(reason: .dependencyUnavailable)
+        }
+        let sources = try ImageInputRuntime.sources(
+            for: run,
+            seed: seed,
+            store: store,
+            files: files
+        )
+        guard !sources.isEmpty else {
+            throw ImageInputExecutionFailure(reason: .dependencyUnavailable)
+        }
+
+        switch seed.route {
+        case .primaryVision:
+            guard seed.providerID == snapshot.providerID,
+                  seed.requestConfigSeed.providerInstanceID == run.requestConfigSeed.providerInstanceID,
+                  seed.requestConfigSeed.modelID == run.requestConfigSeed.modelID,
+                  snapshot.modelCapabilities.contains(.vision) else {
+                throw ImageInputExecutionFailure(reason: .dependencyUnavailable)
+            }
+            return try ImageInputRuntime.adding(sources, to: request)
+
+        case .preprocess:
+            let provider: any ModelProvider
+            do {
+                provider = try providerRegistry.resolve(
+                    providerID: seed.providerID,
+                    adapterRevision: seed.adapterRevision
+                )
+            } catch {
+                throw ImageInputExecutionFailure(reason: .dependencyUnavailable)
+            }
+
+            var contexts: [String] = []
+            for (index, source) in sources.enumerated() {
+                if stopRequested.contains(run.id) || Task.isCancelled {
+                    throw ControlError.stopRequested
+                }
+                if let existing = try store.completedImageInputResult(
+                    runID: run.id,
+                    messageID: run.triggerMessageID ?? "",
+                    versionID: source.attachment.versionID
+                ) {
+                    contexts.append(existing.internalContext)
+                    continue
+                }
+
+                let stepID = "image-input-\(run.id)-\(source.attachment.versionID)"
+                let previous = try store.steps(inRun: run.id, purpose: .imageInput)
+                    .filter { $0.stepID == stepID }
+                    .max(by: { $0.attempt < $1.attempt })
+                guard previous?.providerStartedAt == nil else {
+                    throw ImageInputExecutionFailure(reason: .streamInterrupted)
+                }
+                let step = AgentStepRecord(
+                    stepID: stepID,
+                    runID: run.id,
+                    sequence: index,
+                    attempt: (previous?.attempt ?? 0) + 1,
+                    createdAt: Date(),
+                    purpose: .imageInput
+                )
+                try store.recordStep(step)
+                let identity = step.attemptIdentity
+                guard try store.markImageInputStepStarted(runID: run.id, identity: identity) else {
+                    if stopRequested.contains(run.id) || Task.isCancelled {
+                        throw ControlError.stopRequested
+                    }
+                    throw ControlError.staleAttempt
+                }
+
+                let imageRequest = ImageInputRuntime.preprocessingRequest(
+                    for: source,
+                    modelID: seed.requestConfigSeed.modelID
+                )
+                let stream: AsyncThrowingStream<ProviderStreamEvent, Error>
+                do {
+                    stream = try await provider.stream(
+                        imageRequest,
+                        seed: seed.requestConfigSeed,
+                        credentials: credentials
+                    )
+                } catch {
+                    if stopRequested.contains(run.id) || Task.isCancelled {
+                        throw ControlError.stopRequested
+                    }
+                    throw ImageInputExecutionFailure(reason: .providerFailed)
+                }
+
+                var analysis = ""
+                var finishReason: FinishReason?
+                do {
+                    for try await event in stream {
+                        if stopRequested.contains(run.id) || Task.isCancelled {
+                            throw ControlError.stopRequested
+                        }
+                        switch event {
+                        case .textDelta(let delta):
+                            analysis += delta
+                        case .reasoningDelta:
+                            break
+                        case .toolCall:
+                            throw ImageInputExecutionFailure(reason: .providerFailed)
+                        case .finish(let reason):
+                            finishReason = reason
+                        case .usage(let usage):
+                            try store.recordProviderUsage(usage, for: identity)
+                        }
+                    }
+                } catch let error as ControlError {
+                    throw error
+                } catch let error as ImageInputExecutionFailure {
+                    throw error
+                } catch {
+                    if stopRequested.contains(run.id) || Task.isCancelled {
+                        throw ControlError.stopRequested
+                    }
+                    throw ImageInputExecutionFailure(reason: .providerFailed)
+                }
+                guard finishReason == .stop,
+                      !analysis.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      let messageID = run.triggerMessageID else {
+                    throw ImageInputExecutionFailure(reason: .providerFailed)
+                }
+
+                let result = ImageInputResultRecord(
+                    runID: run.id,
+                    messageID: messageID,
+                    versionID: source.attachment.versionID,
+                    internalContext: ImageInputRuntime.internalContext(
+                        sourceName: source.attachment.displayName,
+                        analysis: analysis
+                    ),
+                    targetProvenance: ImageInputRuntime.provenance(for: seed),
+                    completedAt: Date()
+                )
+                guard try store.completeImageInput(result, runID: run.id, identity: identity) else {
+                    if stopRequested.contains(run.id) || Task.isCancelled {
+                        throw ControlError.stopRequested
+                    }
+                    throw ControlError.staleAttempt
+                }
+                contexts.append(result.internalContext)
+            }
+            return try ImageInputRuntime.adding(internalContexts: contexts, to: request)
+        }
     }
 
     private func finishCancellationAfterSettlement(
@@ -2187,6 +2359,9 @@ actor AgentRuntime {
         error: Error,
         run: AgentRunRecord
     ) -> FailureDisposition {
+        if let imageInputFailure = error as? ImageInputExecutionFailure {
+            return .failed(imageInputFailure.reason)
+        }
         if error is DelegatedChildAuthenticationRequired {
             return .suspended(.authRequired)
         }

@@ -114,7 +114,7 @@ enum AuthenticationRetryTargetSelector {
         in run: AgentRunRecord,
         store: PersistenceStore
     ) throws -> AgentStepRecord? {
-        guard let failedAttempt = try store.steps(inRun: run.id).last,
+        guard let failedAttempt = try store.steps(inRun: run.id, purpose: .modelResponse).last,
               failedAttempt.credentialFailureSource != nil,
               failedAttempt.credentialFailureAt != nil,
               failedAttempt.providerStartedAt != nil,
@@ -195,7 +195,8 @@ actor ConversationRuntime {
         self.store = store
         providerRegistry = ModelProviderRegistry(provider: provider)
         self.credentials = credentials
-        self.managedFileStore = managedFileStore ?? (try? ManagedFileStore.applicationDefault())
+        let resolvedManagedFileStore = managedFileStore ?? (try? ManagedFileStore.applicationDefault())
+        self.managedFileStore = resolvedManagedFileStore
         let resolvedRegistry = toolRegistry ?? ToolRegistry.empty
         self.toolRegistry = resolvedRegistry
         self.mcpRuntime = mcpRuntime
@@ -203,6 +204,7 @@ actor ConversationRuntime {
             store: store,
             provider: provider,
             credentials: credentials,
+            managedFileStore: resolvedManagedFileStore,
             toolRuntime: toolRuntime ?? ToolRuntime(
                 store: store,
                 registry: resolvedRegistry,
@@ -231,7 +233,8 @@ actor ConversationRuntime {
         self.store = store
         self.providerRegistry = providerRegistry
         self.credentials = credentials
-        self.managedFileStore = managedFileStore ?? (try? ManagedFileStore.applicationDefault())
+        let resolvedManagedFileStore = managedFileStore ?? (try? ManagedFileStore.applicationDefault())
+        self.managedFileStore = resolvedManagedFileStore
         let resolvedRegistry = toolRegistry ?? ToolRegistry.empty
         self.toolRegistry = resolvedRegistry
         self.mcpRuntime = mcpRuntime
@@ -239,6 +242,7 @@ actor ConversationRuntime {
             store: store,
             providerRegistry: providerRegistry,
             credentials: credentials,
+            managedFileStore: resolvedManagedFileStore,
             toolRuntime: toolRuntime ?? ToolRuntime(
                 store: store,
                 registry: resolvedRegistry,
@@ -463,6 +467,34 @@ actor ConversationRuntime {
             thinkingEffort: command.thinkingEffort
         )
 
+        let imageAttachments = command.attachments.filter { $0.kind == .image }
+        let imageInputSeed: ImageInputExecutionSeed?
+        if imageAttachments.isEmpty {
+            imageInputSeed = nil
+        } else {
+            let imageTarget = try ImageInputTargetResolver.resolve(
+                target: command.imageInputTarget,
+                primaryTarget: ImageInputTarget(
+                    providerInstanceID: instance.id,
+                    modelID: descriptor.id
+                ),
+                primaryCapabilities: descriptor.capabilities,
+                primarySeed: seed,
+                store: store,
+                providerRegistry: providerRegistry,
+                credentials: credentials
+            )
+            imageInputSeed = ImageInputExecutionSeed(
+                providerID: imageTarget.providerID,
+                adapterRevision: imageTarget.adapterRevision,
+                requestConfigSeed: imageTarget.requestConfigSeed,
+                capabilities: imageTarget.capabilities,
+                imageVersionIDs: imageAttachments.map(\.versionID),
+                submissionDigest: submissionDigest,
+                route: imageTarget.route
+            )
+        }
+
         let skillRuntime = SkillRuntime(
             store: store,
             credentials: credentials,
@@ -510,6 +542,7 @@ actor ConversationRuntime {
             retryOfRunID: nil,
             requestConfigSeed: seed,
             executionSnapshot: nil,
+            imageInputSeed: imageInputSeed,
             createdAt: now,
             updatedAt: now,
             activeSlot: nil,
@@ -548,6 +581,7 @@ actor ConversationRuntime {
                     )
                 },
                 run: run,
+                imageInputSeed: imageInputSeed,
                 skillReferences: preparedSkills.map(\.reference)
             )
         ) {
@@ -954,11 +988,51 @@ actor ConversationRuntime {
                     }
                     continue
                 case .requestingModel, .streaming:
+                    if run.state == .requestingModel,
+                       run.imageInputSeed != nil,
+                       try store.steps(inRun: run.id, purpose: .modelResponse).isEmpty {
+                        do {
+                            if try await continueRecoverableImageInputRun(run) {
+                                report.continuedRunIDs.append(runID)
+                            } else {
+                                report.settledRunIDs.append(runID)
+                            }
+                        } catch CredentialError.unavailable(_, _) {
+                            issueCategory = .credentialTemporarilyUnavailable
+                            report.pendingRunIDs.append(runID)
+                        } catch _ as CredentialError {
+                            try await settleRecoveredRun(
+                                id: runID,
+                                expectedState: run.state,
+                                terminalState: .failed,
+                                endReason: .credentialExpired
+                            )
+                            report.settledRunIDs.append(runID)
+                        } catch RunRequestRebuildError.missingDependency {
+                            try await settleRecoveredRun(
+                                id: runID,
+                                expectedState: run.state,
+                                terminalState: .failed,
+                                endReason: .dependencyUnavailable
+                            )
+                            report.settledRunIDs.append(runID)
+                        } catch RunRequestRebuildError.incompleteCommittedInput,
+                                RunRequestRebuildError.incompatibleSnapshot {
+                            try await settleRecoveredRun(
+                                id: runID,
+                                expectedState: run.state,
+                                terminalState: .failed,
+                                endReason: .unrecoverable
+                            )
+                            report.settledRunIDs.append(runID)
+                        }
+                        continue
+                    }
                     outcome = (.failed, .streamInterrupted)
                 case .stopping:
                     outcome = (.cancelled, .cancelledByUser)
                 case .suspended, .recovering:
-                    let steps = try store.steps(inRun: runID)
+                    let steps = try store.steps(inRun: runID, purpose: .modelResponse)
                     let calls = try store.toolCalls(inRun: runID)
                     let latestStep = steps.max {
                         if $0.sequence == $1.sequence { return $0.attempt < $1.attempt }
@@ -1068,7 +1142,15 @@ actor ConversationRuntime {
                     } else {
                         do {
                             if latestCalls.isEmpty {
-                                try await continueFrozenPreparingRun(run)
+                                if run.imageInputSeed != nil,
+                                   steps.isEmpty,
+                                   try await continueRecoverableImageInputRun(run) {
+                                    report.continuedRunIDs.append(runID)
+                                } else if run.imageInputSeed == nil {
+                                    try await continueFrozenPreparingRun(run)
+                                } else {
+                                    report.settledRunIDs.append(runID)
+                                }
                             } else {
                                 if try await continueRecoveredToolBatch(run) {
                                     report.continuedRunIDs.append(runID)
@@ -1228,7 +1310,8 @@ actor ConversationRuntime {
             toolRegistry: runToolContext.registry,
             credentials: credentials,
             availableMCPServerIDs: runToolContext.availableMCPServerIDs,
-            availableMCPServerIdentities: runToolContext.availableMCPServerIdentities
+            availableMCPServerIdentities: runToolContext.availableMCPServerIdentities,
+            managedFileStore: managedFileStore
         ).initialRequest(
             for: run,
             snapshot: snapshot,
@@ -1264,6 +1347,59 @@ actor ConversationRuntime {
         operations[run.id] = task
     }
 
+    private func continueRecoverableImageInputRun(_ run: AgentRunRecord) async throws -> Bool {
+        guard let encoded = run.executionSnapshot,
+              let triggerID = run.triggerMessageID,
+              run.imageInputSeed != nil,
+              try store.steps(inRun: run.id, purpose: .modelResponse).isEmpty else {
+            throw RunRequestRebuildError.incompleteCommittedInput
+        }
+        let snapshot: RunExecutionSnapshot
+        do {
+            snapshot = try ExecutionSnapshotCodec.decode(encoded)
+        } catch {
+            throw RunRequestRebuildError.incompatibleSnapshot
+        }
+        let runToolContext = try await toolContext(for: run, snapshot: snapshot)
+        let request = try RunRequestRebuilder(
+            store: store,
+            providerRegistry: providerRegistry,
+            toolRegistry: runToolContext.registry,
+            credentials: credentials,
+            availableMCPServerIDs: runToolContext.availableMCPServerIDs,
+            availableMCPServerIdentities: runToolContext.availableMCPServerIdentities,
+            managedFileStore: managedFileStore
+        ).initialRequest(
+            for: run,
+            snapshot: snapshot,
+            history: try promptHistory(
+                inConversation: run.conversationID,
+                excludingMessageID: triggerID
+            )
+        )
+        await agentRuntime.rebindRecoveredRunToolRegistry(runToolContext, forRunID: run.id)
+        try await agentRuntime.recoverRun(
+            runID: run.id,
+            project: { event in try await self.applyAndPublish(event) }
+        )
+        guard let recovered = try store.run(id: run.id), recovered.state == .requestingModel else {
+            return false
+        }
+        let stream = await agentRuntime.advance(
+            runID: run.id,
+            request: request,
+            snapshot: snapshot,
+            project: { event in try await self.applyAndPublish(event) }
+        )
+        let task: Task<Void, Never> = Task { [weak self] in
+            guard let self else { return }
+            await self.consume(runID: run.id, stream: stream)
+            await self.removeCompletedOperation(runID: run.id)
+        }
+        operations[run.id] = task
+        return true
+    }
+
     private func continueAuthenticationRetry(_ run: AgentRunRecord) async throws {
         guard run.kind == .parent,
               let encoded = run.executionSnapshot,
@@ -1282,7 +1418,8 @@ actor ConversationRuntime {
             toolRegistry: runToolContext.registry,
             credentials: credentials,
             availableMCPServerIDs: runToolContext.availableMCPServerIDs,
-            availableMCPServerIdentities: runToolContext.availableMCPServerIdentities
+            availableMCPServerIdentities: runToolContext.availableMCPServerIdentities,
+            managedFileStore: managedFileStore
         )
         guard try rebuilder.authenticationRetryCredentialReady(for: run) else {
             throw RunRequestRebuildError.authenticationActionRequired
@@ -1348,7 +1485,8 @@ actor ConversationRuntime {
             toolRegistry: runToolContext.registry,
             credentials: credentials,
             availableMCPServerIDs: runToolContext.availableMCPServerIDs,
-            availableMCPServerIdentities: runToolContext.availableMCPServerIdentities
+            availableMCPServerIdentities: runToolContext.availableMCPServerIdentities,
+            managedFileStore: managedFileStore
         ).latestToolBatch(
             for: run,
             snapshot: snapshot,
@@ -1599,6 +1737,34 @@ actor ConversationRuntime {
         return provider.knownModels(for: instance).filter {
             $0.providerInstanceID == providerInstanceID
         }
+    }
+
+    func imageInputDestinationPresentation(
+        for target: ImageInputTarget?,
+        primaryProviderInstanceID: ProviderInstanceID,
+        primaryModelID: ModelID
+    ) throws -> ImageInputDestinationPresentation {
+        let primaryTarget = ImageInputTarget(
+            providerInstanceID: primaryProviderInstanceID,
+            modelID: primaryModelID
+        )
+        let primaryCapabilities: Set<ModelCapability>
+        if let instance = try store.providerInstance(id: primaryProviderInstanceID),
+           let provider = providerRegistry.provider(for: instance.providerID),
+           let descriptor = provider.descriptor(for: primaryModelID, in: instance),
+           descriptor.providerInstanceID == instance.id {
+            primaryCapabilities = descriptor.capabilities
+        } else {
+            primaryCapabilities = []
+        }
+        return try ImageInputTargetResolver.presentation(
+            target: target,
+            primaryTarget: primaryTarget,
+            primaryCapabilities: primaryCapabilities,
+            store: store,
+            providerRegistry: providerRegistry,
+            credentials: credentials
+        )
     }
 
     func projection(conversationID: String) throws -> RunProjection? {
@@ -2109,6 +2275,14 @@ actor ConversationRuntime {
         }
         for component in components {
             append(component, to: &encoded)
+        }
+        append("image-input-target-v1", to: &encoded)
+        if let target = command.imageInputTarget {
+            append("selected", to: &encoded)
+            append(target.providerInstanceID.rawValue, to: &encoded)
+            append(target.modelID.rawValue, to: &encoded)
+        } else {
+            append("unselected", to: &encoded)
         }
         if !command.selectedSkillIDs.isEmpty {
             append("selected-skills-v1", to: &encoded)

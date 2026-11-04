@@ -140,9 +140,18 @@ struct RunRecovery: Sendable {
         case .preparing:
             try await recoverPreparing(run: recoveringRun, snapshot: snapshot)
         case .requestingModel, .streaming:
-            // No resume-token field exists in the Stage 2 snapshot. A provider POST
-            // that may already have been accepted is never replayed from this path.
-            try await finishInterruptedStream(run: recoveringRun)
+            // Image preprocessing owns a separate attempt identity. Before any
+            // primary model step exists, its durable result can prove which image
+            // requests finished and which are still safe to dispatch.
+            if checkpointState == .requestingModel,
+               recoveringRun.imageInputSeed != nil,
+               try store.steps(inRun: runID, purpose: .modelResponse).isEmpty {
+                try await recoverInferredCheckpoint(run: recoveringRun, snapshot: snapshot)
+            } else {
+                // No resume-token field exists in the Stage 2 snapshot. A primary
+                // provider POST that may already have been accepted is never replayed.
+                try await finishInterruptedStream(run: recoveringRun)
+            }
         case .toolRequested, .executingTools:
             try await recoverToolCheckpoint(run: recoveringRun)
         case .waitingForApproval:
@@ -389,7 +398,7 @@ struct RunRecovery: Sendable {
     }
 
     private func hasUnmaterializedChildToolCall(in run: AgentRunRecord) throws -> Bool {
-        guard let step = try store.steps(inRun: run.id).max(by: {
+        guard let step = try store.steps(inRun: run.id, purpose: .modelResponse).max(by: {
             if $0.sequence == $1.sequence { return $0.attempt < $1.attempt }
             return $0.sequence < $1.sequence
         }) else { return false }
@@ -433,15 +442,37 @@ struct RunRecovery: Sendable {
             return
         }
 
-        guard try store.steps(inRun: run.id).isEmpty else {
+        guard try store.steps(inRun: run.id, purpose: .modelResponse).isEmpty else {
             try await finishInterruptedStream(run: run)
             return
+        }
+        let imageSteps = try store.steps(inRun: run.id, purpose: .imageInput)
+        if !imageSteps.isEmpty {
+            guard let seed = run.imageInputSeed, seed.route == .preprocess,
+                  let messageID = run.triggerMessageID else {
+                try await fail(runID: run.id, reason: .unrecoverable)
+                return
+            }
+            for versionID in seed.imageVersionIDs {
+                if try store.completedImageInputResult(
+                    runID: run.id,
+                    messageID: messageID,
+                    versionID: versionID
+                ) != nil { continue }
+                let stepID = "image-input-\(run.id)-\(versionID)"
+                if try imageSteps.filter({ $0.stepID == stepID }).contains(where: {
+                    $0.providerStartedAt != nil
+                }) {
+                    try await fail(runID: run.id, reason: .streamInterrupted)
+                    return
+                }
+            }
         }
         try await transition(runID: run.id, to: .requestingModel)
     }
 
     private func credentialFailureEvidence(in run: AgentRunRecord) throws -> AgentStepRecord? {
-        guard let latest = try store.steps(inRun: run.id).max(by: {
+        guard let latest = try store.steps(inRun: run.id, purpose: .modelResponse).max(by: {
             if $0.sequence == $1.sequence { return $0.attempt < $1.attempt }
             return $0.sequence < $1.sequence
         }),

@@ -17,6 +17,8 @@ struct ConversationComposerView: View {
     @Environment(\.surfaceLiftController) private var lift
     @Environment(\.modelMenuPreferences) private var menuPreferences
     @Environment(\.workspaceComposerDock) private var dock
+    @AppStorage(AppShellModel.imageInputInstanceIDKey) private var imageInputInstanceID = ""
+    @AppStorage(AppShellModel.imageInputModelIDKey) private var imageInputModelID = ""
 
     init(conversationID: String, controller: ComposerController,
          bridge: ComposerRuntimeActionBridge, maxProviderSteps: Int,
@@ -66,6 +68,18 @@ struct ConversationComposerView: View {
 
     private var selectedCapabilities: Set<ModelCapability> { selectedModel?.capabilities ?? [] }
 
+    private var selectedImageInputTarget: ImageInputTarget? {
+        guard !imageInputInstanceID.isEmpty, !imageInputModelID.isEmpty else { return nil }
+        return ImageInputTarget(
+            providerInstanceID: ProviderInstanceID(rawValue: imageInputInstanceID),
+            modelID: ModelID(rawValue: imageInputModelID)
+        )
+    }
+
+    private var imageInputReady: Bool {
+        selectedImageInputTarget != nil
+    }
+
     private var modelsForSelectedInstance: [ModelDescriptor] {
         guard let instanceID = controller.configuration?.providerInstanceID else { return [] }
         let canonical = knownModels.filter { $0.providerInstanceID == instanceID }
@@ -77,7 +91,7 @@ struct ConversationComposerView: View {
             draft: controller.draft,
             capabilities: selectedCapabilities,
             quoteCommitReady: true,
-            imageInputReady: false,
+            imageInputReady: imageInputReady,
             fileInputReady: false
         )
     }
@@ -191,7 +205,13 @@ struct ConversationComposerView: View {
 
     private func sendDraft() {
         let initiatedAt = Date()
-        Task { [coordinator] in _ = await coordinator.handlePrimaryAction(at: initiatedAt) }
+        let imageInputTarget = selectedImageInputTarget
+        Task { [coordinator] in
+            _ = await coordinator.handlePrimaryAction(
+                at: initiatedAt,
+                imageInputTarget: imageInputTarget
+            )
+        }
     }
 
     private func apply(_ transition: ComposerTransition) {

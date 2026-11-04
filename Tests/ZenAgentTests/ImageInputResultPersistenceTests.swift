@@ -152,6 +152,79 @@ struct ImageInputResultPersistenceTests {
         #expect(try store.fileAssetVersion(id: persisted.versionID) != nil)
     }
 
+    @Test("result and step finish commit together only while the Run is not stopping")
+    func resultAndAttemptCompletionAreLinearizedWithStop() throws {
+        let store = PersistenceStore(database: try ZenDatabase.inMemory())
+        try store.createFileAsset(asset(), initialVersion: version())
+        try store.commitUserTurnAndCreateParentRun(commit(
+            messageID: "message-atomic-image",
+            runID: "run-atomic-image"
+        ))
+        try store.transitionRun(id: "run-atomic-image", expectedState: .preparing, to: .requestingModel)
+        let attempt = AgentStepRecord(
+            stepID: "image-input-run-atomic-image-version-image",
+            runID: "run-atomic-image",
+            sequence: 0,
+            attempt: 1,
+            createdAt: Fixtures.epoch,
+            purpose: .imageInput
+        )
+        try store.recordStep(attempt)
+        #expect(try store.markImageInputStepStarted(
+            runID: attempt.runID,
+            identity: attempt.attemptIdentity,
+            at: Fixtures.epoch.addingTimeInterval(1)
+        ))
+
+        #expect(try store.completeImageInput(
+            result(runID: attempt.runID, messageID: "message-atomic-image"),
+            runID: attempt.runID,
+            identity: attempt.attemptIdentity,
+            at: Fixtures.epoch.addingTimeInterval(2)
+        ))
+        #expect(try store.completedImageInputResult(
+            runID: attempt.runID,
+            messageID: "message-atomic-image",
+            versionID: "version-image"
+        ) != nil)
+        #expect(try store.steps(inRun: attempt.runID, purpose: .imageInput).first?.providerFinishedAt
+            == Fixtures.epoch.addingTimeInterval(2))
+
+        try store.commitUserTurnAndCreateParentRun(commit(
+            conversationID: "c2",
+            messageID: "message-stopped-image",
+            runID: "run-stopped-image"
+        ))
+        try store.transitionRun(id: "run-stopped-image", expectedState: .preparing, to: .requestingModel)
+        let stoppedAttempt = AgentStepRecord(
+            stepID: "image-input-run-stopped-image-version-image",
+            runID: "run-stopped-image",
+            sequence: 0,
+            attempt: 1,
+            createdAt: Fixtures.epoch,
+            purpose: .imageInput
+        )
+        try store.recordStep(stoppedAttempt)
+        #expect(try store.markImageInputStepStarted(
+            runID: stoppedAttempt.runID,
+            identity: stoppedAttempt.attemptIdentity,
+            at: Fixtures.epoch.addingTimeInterval(1)
+        ))
+        try store.transitionRun(id: stoppedAttempt.runID, expectedState: .requestingModel, to: .stopping)
+        #expect(try store.completeImageInput(
+            result(runID: stoppedAttempt.runID, messageID: "message-stopped-image"),
+            runID: stoppedAttempt.runID,
+            identity: stoppedAttempt.attemptIdentity,
+            at: Fixtures.epoch.addingTimeInterval(2)
+        ) == false)
+        #expect(try store.completedImageInputResult(
+            runID: stoppedAttempt.runID,
+            messageID: "message-stopped-image",
+            versionID: "version-image"
+        ) == nil)
+        #expect(try store.steps(inRun: stoppedAttempt.runID, purpose: .imageInput).first?.providerFinishedAt == nil)
+    }
+
     @Test("image input result schema upgrades from v35")
     func v35AddsImageInputResultStorage() throws {
         let database = try DatabaseQueue()
@@ -161,5 +234,9 @@ struct ImageInputResultPersistenceTests {
 
         try migrator.migrate(database)
         #expect(try database.read { db in try db.tableExists("imageInputResult") })
+        #expect(try database.read { db in
+            try db.columns(in: "agentRun").contains(where: { $0.name == "imageInputSeed" })
+                && db.columns(in: "agentStep").contains(where: { $0.name == "purpose" })
+        })
     }
 }

@@ -51,6 +51,110 @@ extension PersistenceStore {
         }
     }
 
+    /// Crosses the Image Input dispatch boundary only while this Run still owns the
+    /// requesting phase and the named image attempt is current.
+    func markImageInputStepStarted(
+        runID: String,
+        identity: AttemptIdentity,
+        at now: Date = Date()
+    ) throws -> Bool {
+        try database.write { db in
+            try db.execute(sql: """
+                UPDATE agentStep
+                SET providerStartedAt = COALESCE(providerStartedAt, ?)
+                WHERE stepID = ? AND runID = ? AND attempt = ? AND purpose = ?
+                  AND EXISTS (
+                    SELECT 1 FROM agentRun
+                    WHERE agentRun.id = agentStep.runID
+                      AND agentRun.state = ? AND agentRun.stopRequestedAt IS NULL
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM agentStep newer
+                    WHERE newer.stepID = agentStep.stepID AND newer.attempt > agentStep.attempt
+                  )
+                """, arguments: [
+                    now, identity.stepID, runID, identity.attempt,
+                    AgentStepPurpose.imageInput.rawValue, RunState.requestingModel.rawValue
+                ])
+            return db.changesCount == 1
+        }
+    }
+
+    /// The stop check, completed result, and attempt completion share one write
+    /// transaction. A response arriving after Stop therefore cannot become context.
+    func completeImageInput(
+        _ result: ImageInputResultRecord,
+        runID: String,
+        identity: AttemptIdentity,
+        at now: Date = Date()
+    ) throws -> Bool {
+        do {
+            return try database.write { db in
+                let current = try Bool.fetchOne(db, sql: """
+                    SELECT EXISTS (
+                        SELECT 1 FROM agentStep
+                        JOIN agentRun ON agentRun.id = agentStep.runID
+                        WHERE agentStep.stepID = ? AND agentStep.runID = ?
+                          AND agentStep.attempt = ? AND agentStep.purpose = ?
+                          AND agentStep.providerStartedAt IS NOT NULL
+                          AND agentStep.providerFinishedAt IS NULL
+                          AND agentRun.state = ? AND agentRun.stopRequestedAt IS NULL
+                          AND NOT EXISTS (
+                            SELECT 1 FROM agentStep newer
+                            WHERE newer.stepID = agentStep.stepID
+                              AND newer.attempt > agentStep.attempt
+                          )
+                    )
+                    """, arguments: [
+                        identity.stepID, runID, identity.attempt,
+                        AgentStepPurpose.imageInput.rawValue, RunState.requestingModel.rawValue
+                    ]) ?? false
+                guard current else { return false }
+
+                let sourceExists = try Bool.fetchOne(db, sql: """
+                    SELECT EXISTS (
+                        SELECT 1 FROM agentRun
+                        JOIN message ON message.id = agentRun.triggerMessageID
+                        JOIN messageAttachment
+                          ON messageAttachment.messageID = message.id
+                         AND messageAttachment.versionID = ?
+                        WHERE agentRun.id = ? AND message.id = ?
+                          AND message.conversationID = agentRun.conversationID
+                    )
+                    """, arguments: [result.versionID, result.runID, result.messageID]) ?? false
+                guard sourceExists, result.runID == runID else {
+                    throw PersistenceError.invalidTransition(
+                        "image input result source is not attached to the Run trigger message"
+                    )
+                }
+
+                var persistedResult = result
+                persistedResult.targetEndpoint = ImageInputTargetProvenance.displayEndpoint(
+                    from: result.targetEndpoint
+                )
+                try persistedResult.insert(db)
+                try db.execute(sql: """
+                    UPDATE agentStep SET providerFinishedAt = COALESCE(providerFinishedAt, ?)
+                    WHERE stepID = ? AND runID = ? AND attempt = ? AND purpose = ?
+                      AND providerStartedAt IS NOT NULL AND providerFinishedAt IS NULL
+                    """, arguments: [
+                        now, identity.stepID, runID, identity.attempt,
+                        AgentStepPurpose.imageInput.rawValue
+                    ])
+                guard db.changesCount == 1 else {
+                    throw PersistenceError.invalidTransition(
+                        "image input completion did not match one started attempt"
+                    )
+                }
+                return true
+            }
+        } catch let error as PersistenceError {
+            throw error
+        } catch let error as DatabaseError where error.resultCode == .SQLITE_CONSTRAINT {
+            throw PersistenceError.constraintViolation
+        }
+    }
+
     func recordProviderUsage(_ usage: ProviderTokenUsage, for identity: AttemptIdentity) throws {
         try database.write { db in
             try db.execute(sql: """
@@ -80,6 +184,16 @@ extension PersistenceStore {
         try database.read { db in
             try AgentStepRecord
                 .filter(Column("runID") == runID)
+                .order(Column("sequence"), Column("attempt"))
+                .fetchAll(db)
+        }
+    }
+
+    func steps(inRun runID: String, purpose: AgentStepPurpose) throws -> [AgentStepRecord] {
+        try database.read { db in
+            try AgentStepRecord
+                .filter(Column("runID") == runID)
+                .filter(Column("purpose") == purpose.rawValue)
                 .order(Column("sequence"), Column("attempt"))
                 .fetchAll(db)
         }

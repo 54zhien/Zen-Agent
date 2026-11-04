@@ -57,26 +57,31 @@ struct RunRequestRebuilder {
     let providerRegistry: ModelProviderRegistry
     let toolRegistry: ToolRegistry
     let credentials: (any CredentialStoring)?
+    let managedFileStore: ManagedFileStore?
     let availableMCPServerIDs: Set<String>?
     let availableMCPServerIdentities: [String: MCPServerDependencyIdentity]?
 
     init(store: PersistenceStore, provider: any ModelProvider, toolRegistry: ToolRegistry,
          credentials: (any CredentialStoring)? = nil, availableMCPServerIDs: Set<String>? = nil,
-         availableMCPServerIdentities: [String: MCPServerDependencyIdentity]? = nil) {
+         availableMCPServerIdentities: [String: MCPServerDependencyIdentity]? = nil,
+         managedFileStore: ManagedFileStore? = nil) {
         self.init(
             store: store,
             providerRegistry: ModelProviderRegistry(provider: provider),
             toolRegistry: toolRegistry,
             credentials: credentials,
             availableMCPServerIDs: availableMCPServerIDs,
-            availableMCPServerIdentities: availableMCPServerIdentities
+            availableMCPServerIdentities: availableMCPServerIdentities,
+            managedFileStore: managedFileStore
         )
     }
 
     init(store: PersistenceStore, providerRegistry: ModelProviderRegistry, toolRegistry: ToolRegistry,
          credentials: (any CredentialStoring)? = nil, availableMCPServerIDs: Set<String>? = nil,
-         availableMCPServerIdentities: [String: MCPServerDependencyIdentity]? = nil) {
+         availableMCPServerIdentities: [String: MCPServerDependencyIdentity]? = nil,
+         managedFileStore: ManagedFileStore? = nil) {
         self.store = store; self.providerRegistry = providerRegistry; self.toolRegistry = toolRegistry; self.credentials = credentials
+        self.managedFileStore = managedFileStore
         self.availableMCPServerIDs = availableMCPServerIDs
         self.availableMCPServerIdentities = availableMCPServerIdentities
     }
@@ -114,9 +119,19 @@ struct RunRequestRebuilder {
                 .first(where: { $0.id == triggerID && $0.role == .user })
         else { throw RunRequestRebuildError.incompleteCommittedInput }
         let parts = try store.parts(ofMessage: trigger.id)
+        let attachments = try store.attachments(forMessage: trigger.id)
+        let attachmentVersions = try attachments.compactMap { attachment -> String? in
+            guard let version = try store.fileAssetVersion(id: attachment.versionID),
+                  version.assetID == attachment.assetID,
+                  version.mediaType?.lowercased().hasPrefix("image/") == true else { return nil }
+            return version.id
+        }
+        let hasOnlyFrozenImages = !attachments.isEmpty
+            && attachments.count == attachmentVersions.count
+            && run.imageInputSeed?.imageVersionIDs == attachmentVersions
         guard !parts.isEmpty,
               parts.allSatisfy({ $0.kind == .text && $0.state == .completed }),
-              try store.attachments(forMessage: trigger.id).isEmpty
+              (attachments.isEmpty || hasOnlyFrozenImages)
         else { throw RunRequestRebuildError.incompleteCommittedInput }
         let userText = try parts.map {
             try PersistenceStore.decodeTextPayload($0.payload).text
@@ -154,7 +169,7 @@ struct RunRequestRebuilder {
                     .resolveFrozen(snapshot.prompt.skillReferences)
             }
         } catch { throw RunRequestRebuildError.missingDependency }
-        return PromptComposer().compose(PromptCompositionInput(
+        var request = PromptComposer().compose(PromptCompositionInput(
             modelID: run.requestConfigSeed.modelID,
             providerAdapterInstructions: snapshot.prompt.providerAdapterInstructions,
             history: history,
@@ -172,6 +187,34 @@ struct RunRequestRebuilder {
             },
             systemSections: sections
         ))
+        let primarySteps = try store.steps(inRun: run.id, purpose: .modelResponse)
+        if !primarySteps.isEmpty, let imageSeed = run.imageInputSeed {
+            switch imageSeed.route {
+            case .primaryVision:
+                guard let managedFileStore else { throw RunRequestRebuildError.missingDependency }
+                let sources = try ImageInputRuntime.sources(
+                    for: run,
+                    seed: imageSeed,
+                    store: store,
+                    files: managedFileStore
+                )
+                request = try ImageInputRuntime.adding(sources, to: request)
+            case .preprocess:
+                guard let triggerID = run.triggerMessageID else {
+                    throw RunRequestRebuildError.incompleteCommittedInput
+                }
+                let contexts = try imageSeed.imageVersionIDs.map { versionID -> String in
+                    guard let result = try store.completedImageInputResult(
+                        runID: run.id,
+                        messageID: triggerID,
+                        versionID: versionID
+                    ) else { throw RunRequestRebuildError.incompleteCommittedInput }
+                    return result.internalContext
+                }
+                request = try ImageInputRuntime.adding(internalContexts: contexts, to: request)
+            }
+        }
+        return request
     }
 
     func latestToolBatch(
@@ -188,7 +231,7 @@ struct RunRequestRebuilder {
         snapshot: RunExecutionSnapshot,
         initialRequest request: ProviderChatRequest
     ) throws -> RecoveredToolBatch {
-        let steps = try store.steps(inRun: run.id)
+        let steps = try store.steps(inRun: run.id, purpose: .modelResponse)
         let calls = try store.toolCalls(inRun: run.id)
         guard !steps.isEmpty, !calls.isEmpty else {
             throw RunRequestRebuildError.incompleteCommittedInput
@@ -294,7 +337,7 @@ struct RunRequestRebuilder {
         credentials: (any CredentialStoring)?
     ) throws -> Bool {
         guard let credentials,
-              let failedAttempt = try store.steps(inRun: run.id).last,
+              let failedAttempt = try store.steps(inRun: run.id, purpose: .modelResponse).last,
               let source = failedAttempt.credentialFailureSource,
               let failureAt = failedAttempt.credentialFailureAt,
               failedAttempt.providerStartedAt != nil,
@@ -348,7 +391,7 @@ struct RunRequestRebuilder {
               })
         else { throw RunRequestRebuildError.incompatibleSnapshot }
 
-        let steps = try store.steps(inRun: run.id)
+        let steps = try store.steps(inRun: run.id, purpose: .modelResponse)
         guard let failedAttempt = steps.last,
               failedAttempt.credentialFailureSource != nil,
               failedAttempt.credentialFailureAt != nil,

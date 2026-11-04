@@ -64,6 +64,7 @@ final class ComposerSendCoordinator {
         capabilities: Set<ModelCapability>,
         quoteCommitReady: Bool,
         imageInputReady: Bool,
+        imageInputTarget: ImageInputTarget? = nil,
         fileInputReady: Bool,
         submissionID: String
     ) -> SendCommand? {
@@ -94,6 +95,7 @@ final class ComposerSendCoordinator {
                     displayName: attachment.displayName
                 )
             },
+            imageInputTarget: imageInputTarget,
             selectedSkillIDs: controller.draft.selectedSkillIDs.sorted(),
             providerInstanceID: configuration.providerInstanceID,
             modelID: configuration.modelID,
@@ -158,13 +160,16 @@ final class ComposerSendCoordinator {
     }
 
     @discardableResult
-    func handlePrimaryAction(at initiatedAt: Date = Date()) async -> ComposerPrimaryAction {
+    func handlePrimaryAction(
+        at initiatedAt: Date = Date(),
+        imageInputTarget: ImageInputTarget? = nil
+    ) async -> ComposerPrimaryAction {
         await ComposerSendTiming.$initiatedAt.withValue(initiatedAt) {
-            await performPrimaryAction()
+            await performPrimaryAction(imageInputTarget: imageInputTarget)
         }
     }
 
-    private func performPrimaryAction() async -> ComposerPrimaryAction {
+    private func performPrimaryAction(imageInputTarget: ImageInputTarget?) async -> ComposerPrimaryAction {
         if let projection = latestProjection, projection.isActive {
             guard projection.canStop else {
                 return .stop(runID: projection.runID, enabled: false)
@@ -214,7 +219,8 @@ final class ComposerSendCoordinator {
         let command = beginSend(
             capabilities: selected.capabilities,
             quoteCommitReady: true,
-            imageInputReady: false,
+            imageInputReady: imageInputTarget != nil,
+            imageInputTarget: imageInputTarget,
             fileInputReady: false,
             submissionID: UUID().uuidString
         )
@@ -242,7 +248,7 @@ final class ComposerSendCoordinator {
                 draft: controller.draft,
                 capabilities: selected.capabilities,
                 quoteCommitReady: true,
-                imageInputReady: false,
+                imageInputReady: imageInputTarget != nil,
                 fileInputReady: false
             ))
         }
