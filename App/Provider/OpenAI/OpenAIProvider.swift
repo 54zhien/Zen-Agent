@@ -21,7 +21,7 @@ struct OpenAIProvider: ModelProvider {
     static let defaultModelID = ModelID(rawValue: "gpt-6.1-terra")
     static let defaultBaseURL = URL(string: "https://api.openai.com/v1")!
 
-    private static let capabilities: Set<ModelCapability> = [.text, .streaming, .tools]
+    private static let capabilities: Set<ModelCapability> = [.text, .streaming, .tools, .vision]
 
     let id = ProviderID.openAI
     let transport: any HTTPTransport

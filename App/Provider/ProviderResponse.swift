@@ -40,6 +40,7 @@ struct ProviderToolCall: Sendable, Equatable {
 enum ProviderChatMessage: Sendable, Equatable {
     case system(String)
     case user(String)
+    case userContent([ProviderUserContentPart])
     case assistant(
         content: String?,
         reasoning: String?,
@@ -49,6 +50,11 @@ enum ProviderChatMessage: Sendable, Equatable {
         toolCallID: String,
         content: String
     )
+}
+
+enum ProviderUserContentPart: Sendable, Equatable {
+    case text(String)
+    case image(mediaType: String, data: Data)
 }
 
 /// What came back, normalised.

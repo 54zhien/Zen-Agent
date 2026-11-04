@@ -492,7 +492,7 @@ struct DeepSeekProvider: ModelProvider {
     ) throws -> HTTPRequest {
         let body = DeepSeekChatRequest(
             model: request.modelID.rawValue,
-            messages: request.messages.map(Self.makeMessage),
+            messages: try request.messages.map(Self.makeMessage),
             tools: request.tools.map {
                 DeepSeekChatRequest.Tool(
                     type: "function",
@@ -533,7 +533,7 @@ struct DeepSeekProvider: ModelProvider {
         )
     }
 
-    private static func makeMessage(_ message: ProviderChatMessage) -> DeepSeekChatRequest.Message {
+    private static func makeMessage(_ message: ProviderChatMessage) throws -> DeepSeekChatRequest.Message {
         switch message {
         case .system(let content):
             return DeepSeekChatRequest.Message(
@@ -544,6 +544,24 @@ struct DeepSeekProvider: ModelProvider {
                 tool_call_id: nil
             )
         case .user(let content):
+            return DeepSeekChatRequest.Message(
+                role: "user",
+                content: content,
+                reasoning_content: nil,
+                tool_calls: nil,
+                tool_call_id: nil
+            )
+        case .userContent(let parts):
+            guard parts.allSatisfy({ part in
+                if case .text = part { return true }
+                return false
+            }) else {
+                throw ProviderError.invalidRequest("DeepSeek adapter does not support image input")
+            }
+            let content = parts.compactMap { part -> String? in
+                guard case .text(let text) = part else { return nil }
+                return text
+            }.joined()
             return DeepSeekChatRequest.Message(
                 role: "user",
                 content: content,

@@ -57,7 +57,7 @@ struct OpenAIProviderTests {
         ))
 
         #expect(descriptor.id.rawValue == "gpt-6.1-terra")
-        #expect(descriptor.capabilities == [.text, .streaming, .tools])
+        #expect(descriptor.capabilities == [.text, .streaming, .tools, .vision])
         #expect(descriptor.thinkingEfforts == nil)
         #expect(descriptor.defaultThinkingEffort == nil)
         #expect(fixture.provider.descriptor(
