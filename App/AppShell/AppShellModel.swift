@@ -170,6 +170,8 @@ final class AppShellModel {
     }
     static let defaultInstanceIDKey = "zen.w1.defaultTarget.v1.instanceID"
     static let defaultModelIDKey = "zen.w1.defaultTarget.v1.modelID"
+    static let imageInputInstanceIDKey = "zen.imageInputTarget.v1.instanceID"
+    static let imageInputModelIDKey = "zen.imageInputTarget.v1.modelID"
     static let maxProviderSteps = 4
 
     private(set) var launchState: AppShellLaunchState = .notStarted
