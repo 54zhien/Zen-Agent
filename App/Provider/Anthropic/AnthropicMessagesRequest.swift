@@ -16,6 +16,20 @@ enum AnthropicMessagesRequest {
                 messages.append(["role": "user", "content": text])
                 lastMessageContainsToolResults = false
 
+            case .userContent(let parts):
+                guard parts.allSatisfy({ part in
+                    if case .text = part { return true }
+                    return false
+                }) else {
+                    throw ProviderError.invalidRequest("Anthropic Messages adapter does not support image input")
+                }
+                let text = parts.compactMap { part -> String? in
+                    guard case .text(let text) = part else { return nil }
+                    return text
+                }.joined()
+                messages.append(["role": "user", "content": text])
+                lastMessageContainsToolResults = false
+
             case .assistant(let content, let reasoning, let toolCalls):
                 guard reasoning == nil || reasoning?.isEmpty == true else {
                     throw ProviderError.invalidRequest(

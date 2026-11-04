@@ -66,9 +66,9 @@ struct GLMChatCompletionRequest: Encodable, Sendable {
     var tool_stream: Bool?
     var tools: [Tool]?
 
-    init(request: ProviderChatRequest, thinkingEffort: ThinkingEffort?) {
+    init(request: ProviderChatRequest, thinkingEffort: ThinkingEffort?) throws {
         model = request.modelID.rawValue
-        messages = request.messages.map(Self.makeMessage)
+        messages = try request.messages.map(Self.makeMessage)
         stream = true
         thinking = Thinking(type: "enabled", clear_thinking: request.tools.isEmpty ? nil : false)
         reasoning_effort = thinkingEffort?.rawValue
@@ -102,14 +102,26 @@ struct GLMChatCompletionRequest: Encodable, Sendable {
         try JSONEncoder().encode(Self(request: request, thinkingEffort: thinkingEffort))
     }
 
-    private static func makeMessage(_ message: ProviderChatMessage) -> Message {
+    private static func makeMessage(_ message: ProviderChatMessage) throws -> Message {
         switch message {
         case .system(let content):
-            Message(role: "system", content: content, reasoning_content: nil, tool_calls: nil, tool_call_id: nil)
+            return Message(role: "system", content: content, reasoning_content: nil, tool_calls: nil, tool_call_id: nil)
         case .user(let content):
-            Message(role: "user", content: content, reasoning_content: nil, tool_calls: nil, tool_call_id: nil)
+            return Message(role: "user", content: content, reasoning_content: nil, tool_calls: nil, tool_call_id: nil)
+        case .userContent(let parts):
+            guard parts.allSatisfy({ part in
+                if case .text = part { return true }
+                return false
+            }) else {
+                throw ProviderError.invalidRequest("GLM adapter does not support image input")
+            }
+            let content = parts.compactMap { part -> String? in
+                guard case .text(let text) = part else { return nil }
+                return text
+            }.joined()
+            return Message(role: "user", content: content, reasoning_content: nil, tool_calls: nil, tool_call_id: nil)
         case .assistant(let content, let reasoning, let toolCalls):
-            Message(
+            return Message(
                 role: "assistant",
                 content: content,
                 reasoning_content: reasoning,
@@ -123,7 +135,7 @@ struct GLMChatCompletionRequest: Encodable, Sendable {
                 tool_call_id: nil
             )
         case .toolResult(let toolCallID, let content):
-            Message(
+            return Message(
                 role: "tool",
                 content: content,
                 reasoning_content: nil,

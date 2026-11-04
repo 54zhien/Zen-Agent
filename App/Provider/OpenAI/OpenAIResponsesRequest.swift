@@ -35,6 +35,21 @@ enum OpenAIResponsesRequest {
                 input.append(["role": "system", "content": content])
             case .user(let content):
                 input.append(["role": "user", "content": content])
+            case .userContent(let parts):
+                input.append([
+                    "role": "user",
+                    "content": parts.map { part in
+                        switch part {
+                        case .text(let text):
+                            return ["type": "input_text", "text": text]
+                        case .image(let mediaType, let data):
+                            return [
+                                "type": "input_image",
+                                "image_url": "data:\(mediaType);base64,\(data.base64EncodedString())",
+                            ]
+                        }
+                    },
+                ])
             case .assistant(let content, let reasoning, let toolCalls):
                 guard reasoning == nil || reasoning?.isEmpty == true else {
                     throw ProviderError.invalidRequest(
