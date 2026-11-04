@@ -32,6 +32,7 @@ struct ConversationTimelineInput: Sendable {
     let toolCallsByID: [String: ToolCallRecord]
     let toolResultsByToolCallID: [String: ToolResultRecord]
     var quoteReferencesByMessageID: [String: [QuoteReferencePresentation]] = [:]
+    var attachmentsByMessageID: [String: [TimelineImageAttachmentPresentation]] = [:]
 }
 
 struct TimelineTextSource: Equatable, Sendable {
@@ -66,6 +67,11 @@ struct TimelineTextSource: Equatable, Sendable {
 struct QuoteReferencePresentation: Equatable, Sendable {
     let reference: MessageQuoteReferenceRecord
     let sourceIsAvailable: Bool
+}
+
+struct TimelineImageAttachmentPresentation: Equatable, Sendable, Identifiable {
+    let id: String
+    let attachment: AttachmentReference
 }
 
 /// A tool call, reduced to what the reading layout shows.
@@ -120,6 +126,7 @@ enum TimelineItem: Equatable, Sendable {
     case toolResult(ToolResultPresentation)
     case runNotice(RunNoticePresentation)
     case quoteReferences([QuoteReferencePresentation])
+    case imageAttachments([TimelineImageAttachmentPresentation])
 }
 
 /// One Turn: one parent run and everything that run put on screen.
@@ -251,10 +258,13 @@ extension ConversationTimelineProjection {
             }
         }
 
-        if message.role == .user,
-           let references = input.quoteReferencesByMessageID[messageID],
-           !references.isEmpty {
-            items.append(.quoteReferences(references))
+        if message.role == .user {
+            let images = (input.attachmentsByMessageID[messageID] ?? [])
+            if !images.isEmpty { items.append(.imageAttachments(images)) }
+
+            if let references = input.quoteReferencesByMessageID[messageID], !references.isEmpty {
+                items.append(.quoteReferences(references))
+            }
         }
         return ItemizedMessage(items: items, textSourcesByItemIndex: textSourcesByItemIndex)
     }

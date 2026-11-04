@@ -37,6 +37,12 @@ struct ConversationPaneFactory {
             }
         )
         pane.composer.sendAvailability = validatedAvailability
+        pane.composer.managedImageAttachmentService = dependencies.managedFiles.map { managedFiles in
+            ManagedImageAttachmentService(
+                files: managedFiles,
+                store: store
+            )
+        }
         return (bridge, pane)
     }
 

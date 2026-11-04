@@ -76,6 +76,7 @@ struct ConversationPaneView: View {
                 projection: pane.liveStore.state.timeline,
                 pendingToolApprovals: pane.liveStore.state.pendingToolApprovals,
                 runtime: runtime,
+                imageAttachmentService: pane.composer.managedImageAttachmentService,
                 onPendingToolApprovalsChanged: { approvals in
                     pane.liveStore.reconcilePendingToolApprovals(approvals)
                 },

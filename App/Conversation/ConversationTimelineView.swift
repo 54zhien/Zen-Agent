@@ -46,6 +46,7 @@ struct ConversationTimelineView: View {
     let projection: ConversationTimelineProjection
     let pendingToolApprovals: [ToolApprovalProjection]
     let runtime: ConversationRuntime
+    var imageAttachmentService: ManagedImageAttachmentService? = nil
     var onPendingToolApprovalsChanged: @MainActor ([ToolApprovalProjection]) -> Void = { _ in }
     var onQuoteReference: (QuoteReference) -> Void = { _ in }
     var onQuoteDragPhaseChanged: (ComposerQuoteDragPhase) -> Void = { _ in }
@@ -156,6 +157,7 @@ struct ConversationTimelineView: View {
                     ForEach(projection.turns) { turn in
                         ConversationTurnView(
                             turn: turn,
+                            imageAttachmentService: imageAttachmentService,
                             onQuoteReference: onQuoteReference,
                             onQuoteDragPhaseChanged: onQuoteDragPhaseChanged,
                             onSelectionHandleDragChanged: onSelectionHandleDragChanged
@@ -937,6 +939,7 @@ struct ConversationTimelineView: View {
 /// place where the reading order is defined.
 private struct ConversationTurnView: View {
     let turn: ConversationTurn
+    let imageAttachmentService: ManagedImageAttachmentService?
     let onQuoteReference: (QuoteReference) -> Void
     let onQuoteDragPhaseChanged: (ComposerQuoteDragPhase) -> Void
     let onSelectionHandleDragChanged: (Bool) -> Void
@@ -951,6 +954,7 @@ private struct ConversationTurnView: View {
                 TimelineItemView(
                     item: entry.element,
                     textSource: turn.textSourcesByItemIndex[entry.offset],
+                    imageAttachmentService: imageAttachmentService,
                     onQuoteReference: onQuoteReference,
                     onQuoteDragPhaseChanged: onQuoteDragPhaseChanged,
                     onSelectionHandleDragChanged: onSelectionHandleDragChanged
@@ -969,6 +973,7 @@ private struct ConversationTurnView: View {
 private struct TimelineItemView: View {
     let item: TimelineItem
     let textSource: TimelineTextSource?
+    let imageAttachmentService: ManagedImageAttachmentService?
     let onQuoteReference: (QuoteReference) -> Void
     let onQuoteDragPhaseChanged: (ComposerQuoteDragPhase) -> Void
     let onSelectionHandleDragChanged: (Bool) -> Void
@@ -1042,6 +1047,21 @@ private struct TimelineItemView: View {
 
         case .quoteReferences(let references):
             QuoteShelfView(entries: references.map(QuoteShelfEntry.init))
+
+        case .imageAttachments(let images):
+            ScrollView(.horizontal) {
+                HStack(spacing: inlineSpacing) {
+                    ForEach(images) { image in
+                        ImageAttachmentThumbnailView(
+                            attachment: image.attachment,
+                            service: imageAttachmentService
+                        )
+                        .accessibilityIdentifier("timeline-image-attachment-\(image.id)")
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+            .accessibilityIdentifier("timeline-image-attachments")
         }
     }
 

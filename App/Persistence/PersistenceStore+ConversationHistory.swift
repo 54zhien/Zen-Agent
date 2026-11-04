@@ -11,6 +11,9 @@ struct ConversationHistorySnapshot: Sendable {
     let results: [ToolResultRecord]
     let quotes: [MessageQuoteReferenceRecord]
     let availableQuoteIDs: Set<String>
+    var attachments: [MessageAttachmentRecord] = []
+    var attachmentAssets: [FileAssetRecord] = []
+    var attachmentVersions: [FileAssetVersionRecord] = []
 }
 
 extension PersistenceStore {
@@ -52,6 +55,25 @@ extension PersistenceStore {
             WHERE m.conversationID = ? ORDER BY q.messageID, q.sequence, q.id
             """, arguments: [id])
         try Task.checkCancellation()
+        let attachments = try MessageAttachmentRecord.fetchAll(db, sql: """
+            SELECT a.* FROM messageAttachment a JOIN message m ON m.id = a.messageID
+            WHERE m.conversationID = ? ORDER BY a.messageID, a.sequence, a.id
+            """, arguments: [id])
+        try Task.checkCancellation()
+        let attachmentAssets = try FileAssetRecord.fetchAll(db, sql: """
+            SELECT DISTINCT a.* FROM fileAsset a
+            JOIN messageAttachment ma ON ma.assetID = a.id
+            JOIN message m ON m.id = ma.messageID
+            WHERE m.conversationID = ?
+            """, arguments: [id])
+        try Task.checkCancellation()
+        let attachmentVersions = try FileAssetVersionRecord.fetchAll(db, sql: """
+            SELECT v.* FROM fileAssetVersion v
+            JOIN messageAttachment ma ON ma.versionID = v.id AND ma.assetID = v.assetID
+            JOIN message m ON m.id = ma.messageID
+            WHERE m.conversationID = ?
+            """, arguments: [id])
+        try Task.checkCancellation()
         let available = try String.fetchAll(db, sql: """
             SELECT q.id FROM messageQuoteReference q
             JOIN message target ON target.id = q.messageID
@@ -62,6 +84,8 @@ extension PersistenceStore {
             """, arguments: [id])
         try Task.checkCancellation()
         return ConversationHistorySnapshot(conversation: conversation, runs: runs, messages: messages,
-            parts: parts, calls: calls, results: results, quotes: quotes, availableQuoteIDs: Set(available))
+            parts: parts, calls: calls, results: results, quotes: quotes, availableQuoteIDs: Set(available),
+            attachments: attachments, attachmentAssets: attachmentAssets,
+            attachmentVersions: attachmentVersions)
     }
 }

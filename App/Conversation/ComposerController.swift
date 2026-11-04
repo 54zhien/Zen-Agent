@@ -7,6 +7,8 @@ final class ComposerController {
     var draft: ComposerDraftState
     var configuration: ConversationComposerConfiguration?
     var sendAvailability: ComposerSendAvailability
+    var imageAttachmentErrorMessage: String?
+    @ObservationIgnored var managedImageAttachmentService: ManagedImageAttachmentService?
     private(set) var collapseProgress = ComposerCollapseProgress.expanded
     private(set) var isComposing = false
     private(set) var pendingExitIntent: ComposerPendingExitIntent?
@@ -121,6 +123,19 @@ final class ComposerController {
 
     func removeQuoteReference(id: String) {
         draft.references.removeAll { $0.id == id }
+    }
+
+    func addImageAttachment(_ attachment: AttachmentReference) {
+        guard attachment.kind == .image,
+              !draft.attachments.contains(where: { $0.id == attachment.id && $0.versionID == attachment.versionID }) else {
+            return
+        }
+        draft.attachments.append(attachment)
+        imageAttachmentErrorMessage = nil
+    }
+
+    func removeImageAttachment(_ attachment: AttachmentReference) {
+        draft.attachments.removeAll { $0 == attachment }
     }
 
     @discardableResult

@@ -13,6 +13,10 @@ struct ConversationComposerView: View {
     @State private var coordinator: ComposerSendCoordinator
     @State private var runProjection: RunProjection?
     @State private var knownModels: [ModelDescriptor] = []
+    @State private var imageInputDestinationPresentation: ImageInputDestinationPresentation?
+    @State private var resolvedImageInputForKey = ""
+    @AppStorage(AppShellModel.imageInputInstanceIDKey) private var imageInputInstanceID = ""
+    @AppStorage(AppShellModel.imageInputModelIDKey) private var imageInputModelID = ""
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.surfaceLiftController) private var lift
     @Environment(\.modelMenuPreferences) private var menuPreferences
@@ -46,6 +50,7 @@ struct ConversationComposerView: View {
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .task(id: conversationID) { await observeRunProjection() }
             .task(id: controller.configuration?.providerInstanceID) { await loadKnownModels() }
+            .task(id: imageInputResolutionKey) { await loadImageInputDestination() }
 #if DEBUG
             .onAppear { controller.nativeSendCoordinatorForUITest = coordinator }
             .onDisappear {
@@ -66,6 +71,34 @@ struct ConversationComposerView: View {
 
     private var selectedCapabilities: Set<ModelCapability> { selectedModel?.capabilities ?? [] }
 
+    private var selectedImageInputTarget: ImageInputTarget? {
+        guard !imageInputInstanceID.isEmpty, !imageInputModelID.isEmpty else { return nil }
+        return ImageInputTarget(
+            providerInstanceID: ProviderInstanceID(rawValue: imageInputInstanceID),
+            modelID: ModelID(rawValue: imageInputModelID)
+        )
+    }
+
+    private var imageInputResolutionKey: String {
+        [imageInputInstanceID, imageInputModelID,
+         controller.configuration?.providerInstanceID.rawValue ?? "",
+         controller.configuration?.modelID.rawValue ?? ""].joined(separator: "\u{1f}")
+    }
+
+    private var currentImageInputDestinationPresentation: ImageInputDestinationPresentation? {
+        guard resolvedImageInputForKey == imageInputResolutionKey else { return nil }
+        return imageInputDestinationPresentation
+    }
+
+    private var imageInputReady: Bool {
+        guard let target = selectedImageInputTarget,
+              let destination = currentImageInputDestinationPresentation,
+              destination.availability == .ready,
+              destination.target == target,
+              controller.managedImageAttachmentService != nil else { return false }
+        return true
+    }
+
     private var modelsForSelectedInstance: [ModelDescriptor] {
         guard let instanceID = controller.configuration?.providerInstanceID else { return [] }
         let canonical = knownModels.filter { $0.providerInstanceID == instanceID }
@@ -77,7 +110,7 @@ struct ConversationComposerView: View {
             draft: controller.draft,
             capabilities: selectedCapabilities,
             quoteCommitReady: true,
-            imageInputReady: false,
+            imageInputReady: imageInputReady,
             fileInputReady: false
         )
     }
@@ -105,9 +138,16 @@ struct ConversationComposerView: View {
             primary: action.primary,
             models: modelsForSelectedInstance,
             selectedModelID: controller.configuration?.modelID,
-            errorMessage: coordinator.sendErrorMessage ?? controller.sendAvailability.message,
+            errorMessage: coordinator.sendErrorMessage ?? controller.imageAttachmentErrorMessage
+                ?? controller.sendAvailability.message,
             references: controller.draft.references,
+            attachments: controller.draft.attachments,
+            imageInputDestinationPresentation: currentImageInputDestinationPresentation,
+            managedImageAttachmentService: controller.managedImageAttachmentService,
             onRemoveQuote: controller.removeQuoteReference(id:),
+            onRemoveImageAttachment: controller.removeImageAttachment(_:),
+            onImageImported: controller.addImageAttachment(_:),
+            onImageImportFailure: { controller.imageAttachmentErrorMessage = "图片读取失败，请重新选择。" },
             onAcceptQuote: { reference in _ = controller.addQuoteReference(reference) },
             onQuotePhase: { phase in _ = controller.handle(.quoteDragPhaseChanged(phase)) },
             onText: { text, selection, composing in
@@ -189,9 +229,37 @@ struct ConversationComposerView: View {
         .init(conversationID: conversationID, target: controller.configuration)
     }
 
+    private func loadImageInputDestination() async {
+        let requestKey = imageInputResolutionKey
+        guard let configuration = controller.configuration else {
+            imageInputDestinationPresentation = nil
+            resolvedImageInputForKey = requestKey
+            return
+        }
+        do {
+            let destination = try await bridge.imageInputDestinationPresentation(
+                selectedImageInputTarget,
+                configuration.providerInstanceID,
+                configuration.modelID
+            )
+            guard !Task.isCancelled, requestKey == imageInputResolutionKey,
+                  controller.configuration == configuration else { return }
+            imageInputDestinationPresentation = destination
+            resolvedImageInputForKey = requestKey
+        } catch {
+            guard !Task.isCancelled, requestKey == imageInputResolutionKey,
+                  controller.configuration == configuration else { return }
+            imageInputDestinationPresentation = nil
+            resolvedImageInputForKey = requestKey
+        }
+    }
+
     private func sendDraft() {
         let initiatedAt = Date()
-        Task { [coordinator] in _ = await coordinator.handlePrimaryAction(at: initiatedAt) }
+        let imageInputTarget = selectedImageInputTarget
+        Task { [coordinator] in
+            _ = await coordinator.handlePrimaryAction(at: initiatedAt, imageInputTarget: imageInputTarget)
+        }
     }
 
     private func apply(_ transition: ComposerTransition) {

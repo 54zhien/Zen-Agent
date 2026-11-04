@@ -40,7 +40,7 @@ struct ComposerMenuDetailView: View {
             case .plugins:
                 skills
             case .images:
-                information("图片附件尚未接入", detail: "当前版本暂不支持从此处添加图片。")
+                images
             case .files:
                 information("文件附件尚未接入", detail: "当前版本暂不支持从此处添加文件。")
             case .actions: EmptyView()
@@ -142,6 +142,46 @@ struct ComposerMenuDetailView: View {
                     .accessibilityValue(option.isAvailable ? "" : "依赖不可用")
                 }
             }
+        }
+        .scrollBounceBehavior(.basedOnSize)
+    }
+
+    private var images: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                if let destination = presentation.imageInputDestinationPresentation {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("图像输入目标")
+                            .font(Typography.font(for: .interfaceCaption, dynamicTypeSize: dynamicTypeSize))
+                            .foregroundStyle(.secondary)
+                        Text("账户 · \(destination.accountName ?? "不可用")")
+                        Text("模型 · \([destination.providerName, destination.modelName].compactMap { $0 }.joined(separator: " / "))")
+                        Text("端点 · \(destination.endpointDisplay ?? "不可用")")
+                            .textSelection(.enabled)
+                            .accessibilityIdentifier("composer-image-endpoint")
+                        Text(destination.statusMessage)
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityIdentifier("composer-image-destination")
+                } else {
+                    Text("正在确认图像输入目标…")
+                        .foregroundStyle(.secondary)
+                }
+
+                if presentation.canAddImages, let service = presentation.managedImageAttachmentService {
+                    ComposerImageAttachmentPicker(
+                        service: service,
+                        onImported: presentation.onImageImported,
+                        onImportFailure: presentation.onImageImportFailure
+                    )
+                } else {
+                    Label(presentation.imageInputStatusMessage, systemImage: "info.circle")
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("composer-image-unavailable")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(24)
         }
         .scrollBounceBehavior(.basedOnSize)
     }

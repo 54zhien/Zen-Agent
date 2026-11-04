@@ -16,7 +16,13 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         let selectedModelID: ModelID?
         let errorMessage: String?
         let references: [QuoteReference]
+        var attachments: [AttachmentReference] = []
+        var imageInputDestinationPresentation: ImageInputDestinationPresentation? = nil
+        var managedImageAttachmentService: ManagedImageAttachmentService? = nil
         let onRemoveQuote: (String) -> Void
+        var onRemoveImageAttachment: (AttachmentReference) -> Void = { _ in }
+        var onImageImported: (AttachmentReference) -> Void = { _ in }
+        var onImageImportFailure: () -> Void = {}
         let onAcceptQuote: (QuoteReference) -> Void
         let onQuotePhase: (ComposerQuoteDragPhase) -> Void
         let onText: (String, ComposerSelection, Bool) -> Void
@@ -48,7 +54,7 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     private let primary = ComposerControlButton(type: .system)
     private let errorLabel = UILabel()
     private let geometryProbe = UIView()
-    private var shelfController: UIHostingController<QuoteShelfView>?
+    private var shelfController: UIHostingController<ComposerAttachmentShelfView>?
     private let actionMenuState = ComposerActionMenuState()
     private var actionMenu: ComposerActionMenuPresenter?
     private var keyboardMenu: ComposerKeyboardMenuSession?
@@ -601,6 +607,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
         actionMenuState.supportedThinkingEfforts = next.thinkingEfforts
         actionMenuState.selectedThinkingEffort = next.thinkingEffort
         actionMenuState.defaultThinkingEffort = next.defaultThinkingEffort
+        actionMenuState.imageInputDestinationPresentation = next.imageInputDestinationPresentation
+        actionMenuState.managedImageAttachmentService = next.managedImageAttachmentService
+        actionMenuState.onImageImported = next.onImageImported
+        actionMenuState.onImageImportFailure = next.onImageImportFailure
         let skillOwnerChanged = actionMenuState.skillSelectionOwner != next.skillSelectionOwner
         actionMenuState.skillSelectionOwner = next.skillSelectionOwner
         actionMenuState.selectedSkillIDs = next.selectedSkillIDs
@@ -714,8 +724,10 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             collapseProgress: configuration.collapseProgress
         )
         let targetViewport = layout.textViewport
+        let hasShelfContent = !configuration.references.isEmpty
+            || configuration.attachments.contains(where: { $0.kind == .image })
         let clearance = layout.size.height + 12
-            + ((configuration.references.isEmpty || state == .compact) ? 0 : shelfHeight)
+            + ((!hasShelfContent || state == .compact) ? 0 : shelfHeight)
         reportClearance(clearance)
         let apply = {
             self.widthConstraint.constant = layout.size.width
@@ -925,16 +937,24 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
 
     private func updateShelf(_ configuration: Configuration) {
         if shelfController == nil {
-            let controller = UIHostingController(rootView: QuoteShelfView(entries: []))
+            let controller = UIHostingController(rootView: ComposerAttachmentShelfView(
+                quoteEntries: [], imageAttachments: [], imageService: nil,
+                onRemoveQuote: { _ in }, onRemoveImage: { _ in }
+            ))
             controller.view.backgroundColor = .clear
             controller.safeAreaRegions = []
             shelfController = controller
             surface.addSubview(controller.view)
             attachShelf(controller)
         }
-        shelfController?.rootView = QuoteShelfView(
-            entries: configuration.references.map(QuoteShelfEntry.init),
-            onRemove: { [weak self] id in self?.configuration?.onRemoveQuote(id) },
+        shelfController?.rootView = ComposerAttachmentShelfView(
+            quoteEntries: configuration.references.map(QuoteShelfEntry.init),
+            imageAttachments: configuration.attachments.filter { $0.kind == .image },
+            imageService: configuration.managedImageAttachmentService,
+            onRemoveQuote: { [weak self] id in self?.configuration?.onRemoveQuote(id) },
+            onRemoveImage: { [weak self] attachment in
+                self?.configuration?.onRemoveImageAttachment(attachment)
+            },
             onMeasuredHeight: { [weak self] height in
                 guard let self, height.isFinite, height > 0,
                       abs(self.shelfHeight - height) > 0.5 else { return }
@@ -947,10 +967,11 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
             }
         )
         shelfController?.view.isHidden = configuration.references.isEmpty
+            && !configuration.attachments.contains(where: { $0.kind == .image })
             || configuration.state == .compact
     }
 
-    private func attachShelf(_ controller: UIHostingController<QuoteShelfView>) {
+    private func attachShelf(_ controller: UIHostingController<ComposerAttachmentShelfView>) {
         guard controller.parent == nil else { return }
         var responder: UIResponder? = self
         while let current = responder {

@@ -21,6 +21,10 @@ final class ComposerActionMenuState {
     var supportedThinkingEfforts: [ThinkingEffort] = []
     var selectedThinkingEffort: ThinkingEffort?
     var defaultThinkingEffort: ThinkingEffort?
+    var imageInputDestinationPresentation: ImageInputDestinationPresentation?
+    @ObservationIgnored var managedImageAttachmentService: ManagedImageAttachmentService?
+    @ObservationIgnored var onImageImported: (AttachmentReference) -> Void = { _ in }
+    @ObservationIgnored var onImageImportFailure: () -> Void = {}
     // Visual target only: never participates in request configuration or labels.
     var previewThinkingEffort: ThinkingEffort?
     var thinkingIconLevel: ThinkingEffort? {
@@ -30,6 +34,16 @@ final class ComposerActionMenuState {
         return thinkingLevel
     }
     @ObservationIgnored var onSelectThinking: (ThinkingEffort?) -> Void = { _ in }
+
+    var canAddImages: Bool {
+        imageInputDestinationPresentation?.availability == .ready
+            && imageInputDestinationPresentation?.target != nil
+            && managedImageAttachmentService != nil
+    }
+
+    var imageInputStatusMessage: String {
+        imageInputDestinationPresentation?.statusMessage ?? "请先配置图像输入模型。"
+    }
 
     var thinkingLevel: ThinkingEffort? {
         if let selectedThinkingEffort { return selectedThinkingEffort }
@@ -96,7 +110,7 @@ enum ComposerActionMenuLevel: Equatable {
     }
 
     var isImplemented: Bool {
-        self != .images && self != .files
+        self != .files
     }
 }
 
@@ -167,8 +181,20 @@ struct ComposerActionMenuView: View {
         }
         .disabled(presentation.activeLevel != .actions)
         .disabled(!level.isImplemented)
-        .opacity(level.isImplemented ? 1 : 0.48)
+        .disabled(level == .images && !presentation.canAddImages)
+        .opacity(level.isImplemented && (level != .images || presentation.canAddImages) ? 1 : 0.48)
         .accessibilityLabel(level.title)
-        .accessibilityValue(level == .thinking ? (presentation.thinkingLevel?.title ?? "模型默认") : "")
+        .accessibilityValue(accessibilityValue(for: level))
+    }
+
+    private func accessibilityValue(for level: ComposerActionMenuLevel) -> String {
+        switch level {
+        case .thinking:
+            presentation.thinkingLevel?.title ?? "模型默认"
+        case .images:
+            presentation.imageInputStatusMessage
+        default:
+            ""
+        }
     }
 }
