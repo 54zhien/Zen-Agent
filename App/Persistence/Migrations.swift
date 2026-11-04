@@ -52,6 +52,7 @@ enum Migrations {
         registerV34(&migrator)
         // Integrate the parallel FTS and vector migrations (V33/V34) before this one.
         registerV35(&migrator)
+        registerV36(&migrator)
         return migrator
     }
 
