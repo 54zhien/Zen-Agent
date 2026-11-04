@@ -24,7 +24,10 @@ struct RemindersToolTests {
         #expect(tool.descriptor.actions[0].allowsAutomaticApproval == false)
         #expect(tool.descriptor.actions[0].allowsConversationGrant == false)
         #expect(intent.destinationScope == context.destination)
-        #expect(intent.normalizedArgumentsJSON.contains("America/Los_Angeles"))
+        let normalizedArguments = try #require(
+            JSONSerialization.jsonObject(with: Data(intent.normalizedArgumentsJSON.utf8)) as? [String: String]
+        )
+        #expect(normalizedArguments["interpretationTimeZone"] == timeZone.identifier)
         #expect(intent.approvalDisclosure?.action.contains("只读") == true)
         #expect(intent.approvalDisclosure?.targetDescription.contains("2026-07-01T") == true)
         #expect(intent.approvalDisclosure?.targetDescription.contains("2026-07-02T") == true)

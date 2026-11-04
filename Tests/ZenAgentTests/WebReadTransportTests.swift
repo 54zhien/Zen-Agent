@@ -18,8 +18,8 @@ struct WebReadTransportTests {
             Issue.record("Cross-origin redirect should be refused")
         } catch HTTPTransportError.httpStatus(let response) {
             #expect(response.status == 302)
-            #expect(response.redirectRefusal?.sourceOrigin == "https://\(start.host!)")
-            #expect(response.redirectRefusal?.destinationOrigin == "https://\(destination.host!)")
+            #expect(response.redirectRefusal?.sourceOrigin == "https://\(start.host!.lowercased())")
+            #expect(response.redirectRefusal?.destinationOrigin == "https://\(destination.host!.lowercased())")
             #expect(response.redirectRefusal?.reason == .crossOrigin)
         }
 
