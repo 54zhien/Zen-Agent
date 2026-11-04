@@ -45,14 +45,25 @@ final class SettingsWorkspaceModel {
     let vectorSearch: VectorSearchSettingsModel
     let storage: SettingsStorageModel?
     private(set) var catalog: [SettingsProviderCatalog] = []
+    private(set) var hasLoadedProviderCatalog = false
     private(set) var defaultTarget: AppExecutionTarget?
     private(set) var imageInputTarget: AppExecutionTarget?
     private(set) var isSelectingImageInputModel = false
     private(set) var imageInputSelectionErrorMessage: String?
-    var errorMessage: String? { configurationErrorMessage ?? catalogErrorMessage }
+    var errorMessage: String? { configurationErrorMessage ?? catalogLoadErrorMessage ?? defaultSelectionErrorMessage }
+    var imageInputCatalogStatusMessage: String? {
+        if isLoading { return "正在读取账户和模型目录。" }
+        if catalogLoadErrorMessage != nil {
+            return "账户和模型目录读取失败，暂时无法判断是否有支持图像输入的模型。"
+        }
+        if !hasLoadedProviderCatalog { return "账户和模型目录尚未读取。" }
+        return nil
+    }
+    var canRetryImageInputCatalog: Bool { catalogLoadErrorMessage != nil }
     private(set) var configurationErrorMessage: String?
     private(set) var configurationStatusMessage: String?
-    private var catalogErrorMessage: String?
+    private var catalogLoadErrorMessage: String?
+    private var defaultSelectionErrorMessage: String?
     private(set) var isLoading = false
     private(set) var isSelectingDefault = false
     private(set) var isConfiguringConversation = false
@@ -123,7 +134,7 @@ final class SettingsWorkspaceModel {
     var imageInputAvailabilityMessage: String {
         guard imageInputTarget != nil else { return "未配置图像输入模型。" }
         if isLoading { return "正在读取账户和模型状态。" }
-        if catalogErrorMessage != nil { return "账户和模型状态暂不可读取，请重试。" }
+        if catalogLoadErrorMessage != nil { return "账户和模型状态暂不可读取，请重试。" }
         guard let entry = imageInputCatalogEntry else {
             return "不可用：所选账户不存在或已删除。请重新选择账户或清除图像输入配置。"
         }
@@ -217,12 +228,15 @@ final class SettingsWorkspaceModel {
                 }
             }.value
             guard active, !Task.isCancelled else { return }
-            catalog = result; catalogErrorMessage = nil
+            catalog = result
+            hasLoadedProviderCatalog = true
+            catalogLoadErrorMessage = nil
+            defaultSelectionErrorMessage = nil
             subagents.updateProviderCatalog(result)
         } catch {
             if active {
                 let message = "账户和模型读取失败，请重试。"
-                catalogErrorMessage = message
+                catalogLoadErrorMessage = message
                 subagents.providerCatalogFailed(message)
             }
         }
@@ -234,7 +248,8 @@ final class SettingsWorkspaceModel {
         guard active else { return false }
         selection &+= 1
         let request = selection
-        isSelectingDefault = true; catalogErrorMessage = nil
+        isSelectingDefault = true
+        defaultSelectionErrorMessage = nil
         defer { if request == selection { isSelectingDefault = false } }
         let store = store, credentials = credentials, providerRegistry = providerRegistry
         do {
@@ -250,7 +265,9 @@ final class SettingsWorkspaceModel {
             onDefault(target, false)
             return true
         } catch {
-            if active, request == selection { catalogErrorMessage = "该模型暂不能作为默认，请检查账户和凭据。" }
+            if active, request == selection {
+                defaultSelectionErrorMessage = "该模型暂不能作为默认，请检查账户和凭据。"
+            }
             return false
         }
     }

@@ -104,7 +104,13 @@ struct SettingsModelsView: View {
                 let candidateCount = model.catalog.reduce(0) {
                     $0 + model.imageInputModels(in: $1).count
                 }
-                if candidateCount == 0 {
+                if let status = model.imageInputCatalogStatusMessage {
+                    Text(status).foregroundStyle(.secondary)
+                    if model.canRetryImageInputCatalog {
+                        Button("重试读取") { Task { await model.load() } }
+                            .disabled(model.isLoading)
+                    }
+                } else if candidateCount == 0 {
                     Text("当前没有模型声明图像输入能力。请在 Providers 与账户中添加或修改支持图像的 Provider。")
                         .foregroundStyle(.secondary)
                 } else {

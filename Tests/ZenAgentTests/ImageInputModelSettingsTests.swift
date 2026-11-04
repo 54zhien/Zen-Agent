@@ -77,6 +77,27 @@ struct ImageInputModelSettingsTests {
         #expect(updated.imageInputTarget == nil)
     }
 
+    @Test("a catalog read failure is not reported as an empty image model catalog")
+    func catalogFailureIsDistinctFromNoImageModels() async throws {
+        let failedEnvironment = try makeEnvironment()
+        defer { failedEnvironment.defaults.removePersistentDomain(forName: failedEnvironment.suite) }
+        try failedEnvironment.store.database.write { db in
+            try db.execute(sql: "UPDATE providerInstance SET baseURL = ? WHERE id = ?",
+                arguments: ["not a URL", failedEnvironment.instance.id.rawValue])
+        }
+        let failedSettings = makeSettings(failedEnvironment, capabilities: [.text, .streaming])
+        await failedSettings.load()
+        #expect(failedSettings.imageInputCatalogStatusMessage?.contains("读取失败") == true)
+        #expect(failedSettings.imageInputCatalogStatusMessage?.contains("没有模型声明") == false)
+
+        let emptyEnvironment = try makeEnvironment()
+        defer { emptyEnvironment.defaults.removePersistentDomain(forName: emptyEnvironment.suite) }
+        let emptySettings = makeSettings(emptyEnvironment, capabilities: [.text, .streaming])
+        await emptySettings.load()
+        #expect(emptySettings.imageInputCatalogStatusMessage == nil)
+        #expect(emptySettings.catalog.flatMap { emptySettings.imageInputModels(in: $0) }.isEmpty)
+    }
+
     private struct Environment {
         let suite: String
         let defaults: UserDefaults
