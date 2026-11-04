@@ -43,7 +43,7 @@ struct ImageInputResultPersistenceTests {
             providerInstanceID: "image-provider",
             adapterID: "openai-responses",
             modelID: "gpt-4.1-mini",
-            endpoint: "https://api.example.test/v1/responses",
+            endpoint: "https://fixture-user:fixture-password@api.example.test:8443/v1/responses?api_key=fixture-token#private-fragment",
             configRevision: "7"
         )
     }
@@ -78,6 +78,8 @@ struct ImageInputResultPersistenceTests {
         let url = try Fixtures.scratchPath(name: "image-input-results.sqlite")
         defer { Fixtures.cleanUp(url) }
         let persisted = result(runID: "run-image-1", messageID: "message-image-1")
+        var expectedStoredResult = persisted
+        expectedStoredResult.targetEndpoint = "https://api.example.test:8443/v1/responses"
 
         do {
             let store = PersistenceStore(database: try ZenDatabase.open(at: url.path()))
@@ -92,7 +94,7 @@ struct ImageInputResultPersistenceTests {
                 runID: persisted.runID,
                 messageID: persisted.messageID,
                 versionID: persisted.versionID
-            ) == persisted)
+            ) == expectedStoredResult)
 
             try store.commitUserTurnAndCreateParentRun(commit(
                 conversationID: "c2",
@@ -111,7 +113,7 @@ struct ImageInputResultPersistenceTests {
             runID: persisted.runID,
             messageID: persisted.messageID,
             versionID: persisted.versionID
-        ) == persisted)
+        ) == expectedStoredResult)
     }
 
     @Test("pending deletion retains the result for undo and finalized deletion removes it")

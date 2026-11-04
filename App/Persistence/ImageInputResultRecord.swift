@@ -6,9 +6,20 @@ struct ImageInputTargetProvenance: Codable, Sendable, Equatable {
     var providerInstanceID: String
     var adapterID: String
     var modelID: String
-    /// The resolved, non-secret endpoint used by the image adapter.
+    /// A display-only endpoint identity. The complete frozen request URL belongs to the Run snapshot.
     var endpoint: String
     var configRevision: String
+
+    static func displayEndpoint(from endpoint: String) -> String {
+        guard var components = URLComponents(string: endpoint),
+              components.scheme != nil,
+              components.host != nil else { return "" }
+        components.user = nil
+        components.password = nil
+        components.query = nil
+        components.fragment = nil
+        return components.string ?? ""
+    }
 }
 
 /// A successfully completed image-processing result tied to the exact Run input.

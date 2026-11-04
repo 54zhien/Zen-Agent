@@ -43,7 +43,11 @@ extension PersistenceStore {
                     )
                 }
 
-                try result.insert(db)
+                var persistedResult = result
+                persistedResult.targetEndpoint = ImageInputTargetProvenance.displayEndpoint(
+                    from: result.targetEndpoint
+                )
+                try persistedResult.insert(db)
             }
         } catch let error as PersistenceError {
             throw error
