@@ -27,7 +27,9 @@ struct AgentStepAttemptTests {
         requireSendable(PersistenceStore.self)
         requireSendable(ZenDatabase.self)
         requireSendable(RequestConfigSeed.self)
+        requireSendable(ImageInputExecutionSeed.self)
         requireSendable(AgentStepRecord.self)
+        requireSendable(AgentStepPurpose.self)
         requireSendable(AttemptIdentity.self)
     }
 
@@ -188,6 +190,21 @@ struct AgentStepAttemptTests {
         #expect(try store.accepts(AttemptIdentity(stepID: "s1", attempt: 2)))
         #expect(try store.accepts(AttemptIdentity(stepID: "s2", attempt: 1)))
         #expect(try !store.accepts(AttemptIdentity(stepID: "s1", attempt: 1)))
+    }
+
+    @Test("image input attempts stay outside the primary model step budget")
+    func imageInputPurposeIsFilteredFromModelSteps() throws {
+        let store = try makeStore()
+        try makeRun(store)
+        let modelStep = Fixtures.step(stepID: "model-step", runID: "r1")
+        var imageStep = Fixtures.step(stepID: "image-step", runID: "r1")
+        imageStep.purpose = .imageInput
+        try store.recordStep(modelStep)
+        try store.recordStep(imageStep)
+
+        #expect(try store.steps(inRun: "r1", purpose: .modelResponse).map(\.stepID) == ["model-step"])
+        #expect(try store.steps(inRun: "r1", purpose: .imageInput).map(\.stepID) == ["image-step"])
+        #expect(try store.steps(inRun: "r1").count == 2)
     }
 
     @Test("deleting a conversation removes its steps")

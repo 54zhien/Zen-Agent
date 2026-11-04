@@ -21,6 +21,8 @@ struct ConversationComposerView: View {
     @Environment(\.surfaceLiftController) private var lift
     @Environment(\.modelMenuPreferences) private var menuPreferences
     @Environment(\.workspaceComposerDock) private var dock
+    @AppStorage(AppShellModel.imageInputInstanceIDKey) private var imageInputInstanceID = ""
+    @AppStorage(AppShellModel.imageInputModelIDKey) private var imageInputModelID = ""
 
     init(conversationID: String, controller: ComposerController,
          bridge: ComposerRuntimeActionBridge, maxProviderSteps: Int,
@@ -256,9 +258,15 @@ struct ConversationComposerView: View {
 
     private func sendDraft() {
         let initiatedAt = Date()
-        let imageInputTarget = selectedImageInputTarget
+        let imageInputTarget = controller.draft.attachments.contains(where: { $0.kind == .image })
+            && imageInputReady
+            ? currentImageInputDestinationPresentation?.target
+            : nil
         Task { [coordinator] in
-            _ = await coordinator.handlePrimaryAction(at: initiatedAt, imageInputTarget: imageInputTarget)
+            _ = await coordinator.handlePrimaryAction(
+                at: initiatedAt,
+                imageInputTarget: imageInputTarget
+            )
         }
     }
 

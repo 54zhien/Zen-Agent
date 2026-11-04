@@ -25,6 +25,11 @@ enum MessageRole: String, Codable, Sendable {
     case system
 }
 
+enum AgentStepPurpose: String, Codable, Sendable {
+    case modelResponse
+    case imageInput
+}
+
 enum MessagePartKind: String, Codable, Sendable {
     case text
     case reasoning
@@ -355,6 +360,8 @@ struct AgentRunRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Id
     var requestConfigSeed: RequestConfigSeed
     /// JSON, non-secret, completed during preparing. Never rewrites the seed.
     var executionSnapshot: String?
+    /// JSON, non-secret, frozen with the triggering user turn when it contains images.
+    var imageInputSeed: ImageInputExecutionSeed? = nil
 
     var createdAt: Date
     var updatedAt: Date
@@ -382,6 +389,7 @@ struct AgentRunRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Id
         case retryOfRunID
         case requestConfigSeed
         case executionSnapshot
+        case imageInputSeed
         case createdAt
         case updatedAt
         case stopRequestedAt
@@ -405,6 +413,7 @@ struct AgentRunRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Id
         try container.encodeIfPresent(retryOfRunID, forKey: .retryOfRunID)
         try container.encode(requestConfigSeed, forKey: .requestConfigSeed)
         try container.encodeIfPresent(executionSnapshot, forKey: .executionSnapshot)
+        try container.encodeIfPresent(imageInputSeed, forKey: .imageInputSeed)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
         try container.encodeIfPresent(stopRequestedAt, forKey: .stopRequestedAt)
@@ -437,6 +446,7 @@ struct AgentStepRecord: Codable, FetchableRecord, PersistableRecord, Sendable {
     /// Increments on every real provider request, including replays.
     var attempt: Int
     var createdAt: Date
+    var purpose: AgentStepPurpose = .modelResponse
     var providerStartedAt: Date? = nil
     var providerFinishedAt: Date? = nil
     var reportedPromptTokens: Int? = nil

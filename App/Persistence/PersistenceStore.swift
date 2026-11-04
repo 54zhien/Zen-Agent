@@ -106,6 +106,7 @@ enum PersistenceError: Error, Equatable {
     /// say *which* run is unreadable, and the reason separates "written before
     /// versioning" from "written by this build and damaged".
     case unreadableRequestConfigSeed(runID: String, failure: RequestConfigSeedReadFailure)
+    case unreadableImageInputSeed(String)
 }
 
 extension PersistenceError {
@@ -158,6 +159,7 @@ struct SendCommit: Sendable {
     var attachments: [MessageAttachmentRecord] = []
     var quoteReferences: [MessageQuoteReferenceRecord] = []
     var run: AgentRunRecord
+    var imageInputSeed: ImageInputExecutionSeed? = nil
     var skillReferences: [SkillActivationReference] = []
 }
 
@@ -202,6 +204,7 @@ struct PersistenceStore: Sendable {
     @discardableResult
     func commitUserTurnAndCreateParentRun(_ commit: SendCommit) throws -> String? {
         var claimed = commit.run
+        claimed.imageInputSeed = commit.imageInputSeed ?? claimed.imageInputSeed
         // The active-slot rule is applied in exactly one place. Callers pass the run's
         // state and nothing else; forgetting to maintain a derived column is not a
         // mistake they can make.
@@ -454,6 +457,13 @@ struct PersistenceStore: Sendable {
         let runID: String = row["id"]
         let raw: String = row["requestConfigSeed"]
         try validateSeed(raw, runID: runID)
+        if row.hasColumn("imageInputSeed"), let imageInputSeed: String = row["imageInputSeed"] {
+            guard let data = imageInputSeed.data(using: .utf8),
+                  let seed = try? JSONDecoder().decode(ImageInputExecutionSeed.self, from: data),
+                  seed.formatVersion == ImageInputExecutionSeed.currentFormatVersion else {
+                throw PersistenceError.unreadableImageInputSeed(runID)
+            }
+        }
 
         do {
             return try AgentRunRecord(row: row)

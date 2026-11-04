@@ -8,6 +8,11 @@ struct SendAttachment: Sendable, Equatable {
     let displayName: String
 }
 
+struct ImageInputTarget: Sendable, Equatable {
+    let providerInstanceID: ProviderInstanceID
+    let modelID: ModelID
+}
+
 /// The complete input to a Parent Send.
 ///
 /// Conversation settings do not yet persist a model binding, so the concrete
@@ -18,6 +23,7 @@ struct SendCommand: Sendable, Equatable {
     var text: String
     var references: [QuoteReference] = []
     var attachments: [SendAttachment] = []
+    var imageInputTarget: ImageInputTarget? = nil
     var selectedSkillIDs: [String] = []
 
     var providerInstanceID: ProviderInstanceID
@@ -41,6 +47,8 @@ enum ConversationRuntimeError: Error, Equatable, Sendable {
     )
     case unsupportedModel(ModelID)
     case unsupportedTextModel(ModelID)
+    case unsupportedImageInputModel(ModelID)
+    case missingImageInputTarget
     case missingCredential(ProviderInstanceID)
     case credentialUnavailable(CredentialStatus)
 }

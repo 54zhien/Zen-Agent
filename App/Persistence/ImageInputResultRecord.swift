@@ -1,6 +1,44 @@
 import Foundation
 import GRDB
 
+enum ImageInputExecutionRoute: String, Codable, Sendable, Equatable {
+    case primaryVision
+    case preprocess
+}
+
+/// The exact Image Input target captured before a Send is committed.
+struct ImageInputExecutionSeed: Codable, Sendable, Equatable {
+    static let currentFormatVersion = 1
+
+    var formatVersion: Int
+    var providerID: ProviderID
+    var adapterRevision: String
+    var requestConfigSeed: RequestConfigSeed
+    var capabilities: Set<ModelCapability>
+    var imageVersionIDs: [String]
+    var submissionDigest: String
+    var route: ImageInputExecutionRoute
+
+    init(
+        providerID: ProviderID,
+        adapterRevision: String,
+        requestConfigSeed: RequestConfigSeed,
+        capabilities: Set<ModelCapability>,
+        imageVersionIDs: [String],
+        submissionDigest: String,
+        route: ImageInputExecutionRoute
+    ) {
+        formatVersion = Self.currentFormatVersion
+        self.providerID = providerID
+        self.adapterRevision = adapterRevision
+        self.requestConfigSeed = requestConfigSeed
+        self.capabilities = capabilities
+        self.imageVersionIDs = imageVersionIDs
+        self.submissionDigest = submissionDigest
+        self.route = route
+    }
+}
+
 /// The non-secret provider target that completed image processing for this Run.
 struct ImageInputTargetProvenance: Codable, Sendable, Equatable {
     var providerInstanceID: String
