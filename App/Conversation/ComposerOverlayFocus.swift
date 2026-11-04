@@ -15,6 +15,10 @@ final class ComposerOverlayFocus {
 
     var isValid: Bool { !cancelled && host != nil && window != nil && ownerIsCurrent() }
 
+    func markAsSidebarDismissalIntent() {
+        host?.markSidebarOverlayFocusIntent(self)
+    }
+
     func restore() {
         guard isValid else { cancel(); return }
         host?.queueOverlayFocus(self)

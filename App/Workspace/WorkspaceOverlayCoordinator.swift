@@ -39,6 +39,7 @@ final class WorkspaceOverlayCoordinator {
         }
         guard let captured = captureFocus() else { return }
         guard captured.isValid else { captured.cancel(); return }
+        captured.markAsSidebarDismissalIntent()
         pendingSidebarFocus = captured
     }
 

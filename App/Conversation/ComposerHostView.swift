@@ -119,9 +119,11 @@ final class ComposerHostView: UIView, UITextViewDelegate, UIDropInteractionDeleg
     func captureOverlayFocus(ownerIsCurrent: @escaping () -> Bool) -> ComposerOverlayFocus? {
         guard !workspaceInputSuppressed, editor.isFirstResponder, editor.markedTextRange == nil,
               let window else { return nil }
-        let captured = ComposerOverlayFocus(host: self, window: window, ownerIsCurrent: ownerIsCurrent)
-        sidebarOverlayFocusIntent = captured
-        return captured
+        return ComposerOverlayFocus(host: self, window: window, ownerIsCurrent: ownerIsCurrent)
+    }
+
+    func markSidebarOverlayFocusIntent(_ token: ComposerOverlayFocus) {
+        sidebarOverlayFocusIntent = token
     }
 
     func queueOverlayFocus(_ token: ComposerOverlayFocus) {
