@@ -204,12 +204,12 @@ actor ConversationRuntime {
             store: store,
             provider: provider,
             credentials: credentials,
-            managedFileStore: resolvedManagedFileStore,
             toolRuntime: toolRuntime ?? ToolRuntime(
                 store: store,
                 registry: resolvedRegistry,
                 credentials: credentials
-            )
+            ),
+            managedFileStore: resolvedManagedFileStore
         )
         self.onEvent = onEvent
         self.registerRecoveredRun = registerRecoveredRun
@@ -242,12 +242,12 @@ actor ConversationRuntime {
             store: store,
             providerRegistry: providerRegistry,
             credentials: credentials,
-            managedFileStore: resolvedManagedFileStore,
             toolRuntime: toolRuntime ?? ToolRuntime(
                 store: store,
                 registry: resolvedRegistry,
                 credentials: credentials
-            )
+            ),
+            managedFileStore: resolvedManagedFileStore
         )
         self.onEvent = onEvent
         self.registerRecoveredRun = registerRecoveredRun
