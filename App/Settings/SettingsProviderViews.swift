@@ -73,6 +73,81 @@ struct SettingsModelsView: View {
     var body: some View {
         List {
             Section { Text("全局默认用于后续新会话。当前会话的模型仍在 Composer 中选择。") }
+            Section("图像输入模型") {
+                Text("图像输入使用独立模型槽位，不会更改全局默认或当前会话模型。当前发送流程尚未接入此槽位。")
+                    .foregroundStyle(.secondary)
+                if let target = model.imageInputTarget {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("账号：\(model.imageInputAccountName ?? "账号已删除或不可用")")
+                        Text("Provider：\(model.imageInputProviderName ?? target.providerInstanceID.rawValue)")
+                        Text("模型：\(model.imageInputModelName ?? target.modelID.rawValue)")
+                        Text("Endpoint：\(model.imageInputEndpointDisplay ?? "实际 endpoint 暂不可解析")")
+                            .textSelection(.enabled)
+                        Text(model.imageInputAvailabilityMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("settings-image-input-status")
+                    }
+                    Button("清除图像输入模型", role: .destructive) {
+                        model.clearImageInputModel()
+                    }
+                    .accessibilityIdentifier("settings-image-input-clear")
+                } else {
+                    Text(model.imageInputAvailabilityMessage)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("settings-image-input-status")
+                }
+                if let error = model.imageInputSelectionErrorMessage {
+                    Text(error).foregroundStyle(.red)
+                }
+
+                let candidateCount = model.catalog.reduce(0) {
+                    $0 + model.imageInputModels(in: $1).count
+                }
+                if candidateCount == 0 {
+                    Text("当前没有模型声明图像输入能力。请在 Providers 与账户中添加或修改支持图像的 Provider。")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(model.catalog) { entry in
+                        let imageModels = model.imageInputModels(in: entry)
+                        if !imageModels.isEmpty {
+                            ForEach(imageModels) { descriptor in
+                                let selected = model.imageInputTarget == AppExecutionTarget(
+                                    providerInstanceID: entry.id, modelID: descriptor.id)
+                                let endpoint = model.requestEndpointDisplay(providerInstanceID: entry.id,
+                                    modelID: descriptor.id) ?? "实际 endpoint 暂不可解析"
+                                Button {
+                                    Task {
+                                        _ = await model.setImageInputModel(providerInstanceID: entry.id,
+                                            modelID: descriptor.id)
+                                    }
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        HStack {
+                                            Text(selected ? "图像输入模型 · \(descriptor.displayName)" : descriptor.displayName)
+                                            Spacer()
+                                            if selected { Image(systemName: "checkmark") }
+                                        }
+                                        Text("\(entry.instance.displayName) · \(entry.instance.providerID.displayName)")
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                        Text("Endpoint：\(endpoint)")
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                            .textSelection(.enabled)
+                                        Text(entry.credentialStatus)
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(model.isSelectingImageInputModel)
+                                .accessibilityIdentifier("settings-image-input-candidate-\(entry.id.rawValue)-\(descriptor.id.rawValue)")
+                            }
+                        }
+                    }
+                }
+            }
             ForEach(model.catalog) { entry in
                 let ordered = model.menus.orderedModels(entry.models)
                 Section(entry.instance.displayName) {
