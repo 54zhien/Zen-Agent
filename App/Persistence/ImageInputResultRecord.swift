@@ -1,0 +1,62 @@
+import Foundation
+import GRDB
+
+/// The non-secret provider target that completed image processing for this Run.
+struct ImageInputTargetProvenance: Codable, Sendable, Equatable {
+    var providerInstanceID: String
+    var adapterID: String
+    var modelID: String
+    /// The resolved, non-secret endpoint used by the image adapter.
+    var endpoint: String
+    var configRevision: String
+}
+
+/// A successfully completed image-processing result tied to the exact Run input.
+///
+/// Rows exist only after a complete response is available. An absent result does not
+/// prove that a request was never dispatched; AgentStep attempt state owns that decision.
+struct ImageInputResultRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Equatable {
+    static let databaseTableName = "imageInputResult"
+
+    var runID: String
+    var messageID: String
+    var versionID: String
+    /// Internal model context derived from the attachment, never a timeline message.
+    var internalContext: String
+    var targetProviderInstanceID: String
+    var targetAdapterID: String
+    var targetModelID: String
+    var targetEndpoint: String
+    var targetConfigRevision: String
+    var completedAt: Date
+
+    var targetProvenance: ImageInputTargetProvenance {
+        ImageInputTargetProvenance(
+            providerInstanceID: targetProviderInstanceID,
+            adapterID: targetAdapterID,
+            modelID: targetModelID,
+            endpoint: targetEndpoint,
+            configRevision: targetConfigRevision
+        )
+    }
+
+    init(
+        runID: String,
+        messageID: String,
+        versionID: String,
+        internalContext: String,
+        targetProvenance: ImageInputTargetProvenance,
+        completedAt: Date
+    ) {
+        self.runID = runID
+        self.messageID = messageID
+        self.versionID = versionID
+        self.internalContext = internalContext
+        targetProviderInstanceID = targetProvenance.providerInstanceID
+        targetAdapterID = targetProvenance.adapterID
+        targetModelID = targetProvenance.modelID
+        targetEndpoint = targetProvenance.endpoint
+        targetConfigRevision = targetProvenance.configRevision
+        self.completedAt = completedAt
+    }
+}
